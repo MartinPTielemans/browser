@@ -20,6 +20,7 @@ esac
 out=$src/out/$config
 gn=$src/out/Release/gn
 stamps=$deps/stamps
+. ./tree.sh
 
 version=$(git config -f pins.ini chromium.version)
 uc_tag=$(git config -f pins.ini ungoogled-chromium.tag)
@@ -75,25 +76,13 @@ fetch_ungoogled() {
   ln -s "$deps/downloads" "$ucm/build/download_cache"
 }
 
-remove_agent_instructions() {
-  # Chromium's instructions and skills for its own contributors' agents. Ours are the repository's
-  # AGENTS.md. Some are symlinks to an AGENTS.md beside them. Chrome's own `skills` folders are a
-  # browser feature, not agent skills, so they stay.
-  find "$src" \( -name AGENTS.md -o -name CLAUDE.md -o -name GEMINI.md -o -name SKILL.md \
-    -o -name .cursorrules -o -name .rules -o -name copilot-instructions.md \) \
-    \( -type f -o -type l \) -delete
-  find "$src" \( -name .claude -o -name .gemini -o -name .cursor -o -name .agents \) -type d -prune \
-    -exec rm -rf {} +
-  rm -rf "$src/agents"
-}
-
 stage ungoogled fetch_ungoogled
 stage source "$ucm/retrieve_and_unpack_resource.py" -d -g arm64
 stage prune python3 "$uc/utils/prune_binaries.py" "$src" "$uc/pruning.list"
 stage patches python3 "$uc/utils/patches.py" apply "$src" "$uc/patches" "$ucm/patches"
 stage domains python3 "$uc/utils/domain_substitution.py" apply \
   -r "$uc/domain_regex.list" -f "$uc/domain_substitution.list" "$src"
-stage agents remove_agent_instructions
+stage agents remove_agent_instructions "$src"
 stage toolchain "$ucm/retrieve_and_unpack_resource.py" -p arm64
 
 # The profile Chrome's optimizer uses on Apple silicon. The source tarball has only Linux's;
@@ -135,20 +124,7 @@ if [ "$(node -p 'require(process.argv[1]).version' "$esbuild_module/package.json
 fi
 ln -sfn "$esbuild_module" "$src/third_party/devtools-frontend/src/node_modules/esbuild"
 
-# The core stays in the repository, linked into the tree, so the next build has every edit to it.
-ln -sfn "$(dirname "$engine")/core" "$src/browser_core"
-
-# Our series. A patch already in the tree is skipped, so this is safe to run again; one that
-# neither applies cleanly nor is in the tree has drifted from it.
-while read -r name; do
-  patch=$engine/patches/$name
-  if patch -d "$src" -p1 -F0 -N --dry-run -s <"$patch" >/dev/null 2>&1; then
-    patch -d "$src" -p1 -F0 -N -s <"$patch"
-    echo "setup: applied $name" >&2
-  elif ! patch -d "$src" -p1 -F0 -R --dry-run -s <"$patch" >/dev/null 2>&1; then
-    fail "$name has drifted: it doesn't apply, and it isn't in the tree"
-  fi
-done < <(grep -v -e '^#' -e '^$' series)
+apply_series "$src"
 
 # GN wants the SDK inside the output directory, so it's linked there, as Chromium links Xcode's.
 mkdir -p "$out/sdk/xcode_links"
