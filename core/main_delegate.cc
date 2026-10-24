@@ -1,0 +1,139 @@
+#include "browser_core/main_delegate.h"
+
+#include <memory>
+#include <utility>
+
+#include "base/command_line.h"
+#include "base/functional/bind.h"
+#include "base/task/single_thread_task_runner.h"
+#include "browser_core/hooks.h"
+#include "browser_core/host.h"
+#include "browser_core/window.h"
+#include "chrome/browser/chrome_browser_main.h"
+#include "chrome/browser/chrome_browser_main_extra_parts.h"
+#include "chrome/browser/chrome_content_browser_client.h"
+#include "chrome/browser/lifetime/application_lifetime.h"
+#include "chrome/browser/lifetime/termination_notification.h"
+#include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
+#include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/common/chrome_switches.h"
+#include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
+#include "components/keep_alive_registry/keep_alive_types.h"
+#include "components/keep_alive_registry/scoped_keep_alive.h"
+#include "content/public/common/content_switches.h"
+
+// chrome_main.cc's entry point, in the same framework.
+extern "C" int ChromeMain(int argc, const char** argv);
+
+namespace browser_core {
+
+namespace {
+
+bc_host g_host;
+
+// Keeps the browser process up while it has no windows, which Chrome would otherwise quit at, and
+// tells the app when it can call in and when it has to stop.
+class ExtraParts : public ChromeBrowserMainExtraParts {
+ public:
+  void PreBrowserStart() override {
+    keep_alive_ = std::make_unique<ScopedKeepAlive>(KeepAliveOrigin::APP_CONTROLLER,
+                                                    KeepAliveRestartOption::DISABLED);
+    // A quit can start in Chrome too, such as from the Dock or the system logging out, and Chrome
+    // only says it's terminating once every Browser has closed.
+    app_terminating_ = browser_shutdown::AddAppTerminatingCallback(
+        base::BindOnce(&ExtraParts::OnAppTerminating, base::Unretained(this)));
+  }
+
+  void PostBrowserStart() override {
+    // Chrome unloads a profile once its last Browser closes, and loading it again would hold up the
+    // next new tab, so the profile the app's tabs open in stays loaded while the core runs.
+    if (Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded()) {
+      profile_keep_alive_ =
+          std::make_unique<ScopedProfileKeepAlive>(profile, ProfileKeepAliveOrigin::kAppWindow);
+    }
+    // Posted, so the app hears it once the run loop is running.
+    if (g_host.started) {
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE, base::BindOnce(g_host.started, g_host.context));
+    }
+  }
+
+  void PostMainMessageLoopRun() override {
+    // Their Browsers are gone: quitting closed them, and the run loop waited for that.
+    Window::CloseAll();
+    profile_keep_alive_.reset();
+    if (g_host.stopping) {
+      g_host.stopping(g_host.context);
+    }
+  }
+
+ private:
+  void OnAppTerminating() { keep_alive_.reset(); }
+
+  std::unique_ptr<ScopedKeepAlive> keep_alive_;
+  base::CallbackListSubscription app_terminating_;
+  std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive_;
+};
+
+class ContentBrowserClient : public ChromeContentBrowserClient {
+ public:
+  std::unique_ptr<content::BrowserMainParts> CreateBrowserMainParts(
+      bool is_integration_test) override {
+    std::unique_ptr<content::BrowserMainParts> parts =
+        ChromeContentBrowserClient::CreateBrowserMainParts(is_integration_test);
+    static_cast<ChromeBrowserMainParts*>(parts.get())->AddParts(std::make_unique<ExtraParts>());
+    return parts;
+  }
+};
+
+}  // namespace
+
+const bc_host& Host() {
+  return g_host;
+}
+
+bc_id NewId() {
+  static bc_id last = 0;
+  return ++last;
+}
+
+int Run(int argc, const char** argv, const bc_host& host) {
+  g_host = host;
+  g_browser_core_supplies_windows = true;
+  g_browser_core_adjust_navigate = &Window::AdjustNavigate;
+  return ChromeMain(argc, argv);
+}
+
+void Quit() {
+  // Posted, so the quit starts once the event that asked for it is done: started from inside the
+  // app's key event for ⌘Q, the tab closed and its Browser never did.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
+                                                              base::BindOnce(&chrome::AttemptExit));
+}
+
+MainDelegate::MainDelegate(const StartupTimestamps& timestamps)
+    : ChromeMainDelegate(timestamps) {}
+
+MainDelegate::~MainDelegate() = default;
+
+std::optional<int> MainDelegate::BasicStartupComplete() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  if (!command_line->HasSwitch(switches::kProcessType)) {
+    // The app opens windows through the core, and Chrome's first run and default-browser prompts
+    // are Chrome's UI, not ours.
+    command_line->AppendSwitch(switches::kNoStartupWindow);
+    command_line->AppendSwitch(switches::kNoFirstRun);
+    command_line->AppendSwitch(switches::kNoDefaultBrowserCheck);
+  }
+  return ChromeMainDelegate::BasicStartupComplete();
+}
+
+content::ContentBrowserClient* MainDelegate::CreateContentBrowserClient() {
+  // As ChromeMainDelegate's, with our client in place of Chrome's.
+  chrome_content_browser_client_ = std::make_unique<ContentBrowserClient>();
+  chrome_content_browser_client_->SetSamplingProfiler(std::move(sampling_profiler_));
+  return chrome_content_browser_client_.get();
+}
+
+}  // namespace browser_core

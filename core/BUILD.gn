@@ -1,0 +1,77 @@
+# Our layer in Chrome's framework (docs/decisions.md, decision 3). engine/setup.sh links this
+# directory into the tree as //browser_core, and engine/patches/ours/chromium-core-link.patch links
+# it into the framework.
+
+import("//build/config/sanitizers/sanitizers.gni")
+
+config("exports") {
+  # The framework exports only what chrome/app/framework.exports lists. This adds the C API.
+  ldflags = [ "-Wl,-exported_symbols_list," + rebase_path("exports.txt", root_build_dir) ]
+}
+
+source_set("browser_core") {
+  sources = [
+    "api.cc",
+    "browser_window_stand_in.cc",
+    "browser_window_stand_in.h",
+    "hooks.h",
+    "host.h",
+    "main_delegate.cc",
+    "main_delegate.h",
+    "platform/window_views.h",
+    "public/browser_core.h",
+    "tab.cc",
+    "tab.h",
+    "window.cc",
+    "window.h",
+  ]
+
+  deps = [
+    "//base",
+    "//chrome/browser",
+    "//chrome/browser:chrome_browser_main",
+    "//chrome/browser:chrome_content_browser_client",
+    "//chrome/browser:main_extra_parts",
+    "//chrome/browser/lifetime",
+    "//chrome/browser/lifetime:termination_notification",
+    "//chrome/browser/profiles:profile",
+    "//chrome/browser/profiles/keep_alive",
+    "//chrome/browser/ui",
+    "//chrome/browser/ui/autofill",
+    "//chrome/browser/ui/browser_window:create_browser_window",
+    "//chrome/browser/ui/exclusive_access",
+    "//chrome/browser/ui/find_bar",
+    "//chrome/browser/ui/interaction",
+    "//chrome/browser/ui/location_bar",
+    "//chrome/browser/ui/views:bubble_anchor_util_views",
+    "//chrome/browser/ui/views/eye_dropper",
+    "//chrome/browser/ui/views/interaction:impl",
+    "//chrome/common",
+    "//chrome/common/profiler",
+    "//components/input",
+    "//components/keep_alive_registry",
+    "//components/tabs:public",
+    "//components/web_modal",
+    "//content/public/browser",
+    "//content/public/common",
+    "//third_party/blink/public/common",
+    "//ui/base",
+    "//ui/events:dom_keycode_converter",
+    "//ui/gfx",
+    "//ui/gfx/geometry",
+    "//ui/native_theme",
+    "//ui/views",
+    "//ui/views/controls/webview",
+    "//url",
+  ]
+
+  if (is_mac) {
+    sources += [ "platform/mac/window_views.mm" ]
+    deps += [ "//components/remote_cocoa/app_shim" ]
+    # Only where Chrome lists the framework's exports (chrome/BUILD.gn): on its own, this list
+    # would be the only one, and hide ChromeMain. Elsewhere the API's visibility exports it.
+    if (!is_component_build && !using_sanitizer) {
+      all_dependent_configs = [ ":exports" ]
+    }
+  }
+}

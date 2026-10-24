@@ -1,0 +1,110 @@
+// The core's API: what the app calls in Chrome's framework. Plain C, so the app binds it without
+// sharing a C++ toolchain with Chromium. Everything runs on the main thread, callbacks included.
+
+#ifndef BROWSER_CORE_PUBLIC_BROWSER_CORE_H_
+#define BROWSER_CORE_PUBLIC_BROWSER_CORE_H_
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define BC_EXPORT __attribute__((visibility("default")))
+
+// Names a window or a tab for as long as the process runs; never reused. 0 names nothing.
+typedef uint64_t bc_id;
+
+// In points. A window's is on the screen, from the top-left of the main display; a tab's is in its
+// window, from the top-left of the window's content.
+typedef struct bc_rect {
+  double x, y, width, height;
+} bc_rect;
+
+// Modifier keys held with a key, as flags.
+#define BC_MODIFIER_SHIFT 1
+#define BC_MODIFIER_CONTROL 2
+// Option on the Mac.
+#define BC_MODIFIER_ALT 4
+// Command on the Mac.
+#define BC_MODIFIER_META 8
+
+// A key going down.
+typedef struct bc_key {
+  // The key as the web names it, for the keyboard's layout: "t", "T", "Enter", "ArrowLeft".
+  const char* key;
+  // The BC_MODIFIER_ flags held.
+  uint32_t modifiers;
+} bc_key;
+
+// What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
+// passed lasts only for the call.
+typedef struct bc_host {
+  // Passed back to every callback.
+  void* context;
+  // Chromium's run loop is running and the core's other calls work.
+  void (*started)(void* context);
+  // Chromium is quitting. The core's calls stop working once this returns.
+  void (*stopping)(void* context);
+  // The window has closed, by bc_window_close, the user or quitting. Its tabs closed first.
+  void (*window_closed)(void* context, bc_id window);
+  // Chrome opened a tab in the window that the app didn't ask for: a page's link to a new tab, or
+  // its popup or new window, which open as tabs. |opener| is the tab it came from, or 0. It isn't
+  // shown until bc_tab_show; show it if |foreground|, since Chrome made it the window's active tab.
+  void (*tab_opened)(void* context, bc_id window, bc_id tab, bc_id opener, bool foreground);
+  // The tab's page finished loading |url|.
+  void (*tab_loaded)(void* context, bc_id tab, const char* url);
+  // The tab's page has a new title.
+  void (*tab_title_changed)(void* context, bc_id tab, const char* title);
+  // The tab's page went full screen, as a video's full-screen button takes it, or came back. Show
+  // it filling its window while it's full screen. The window goes full screen with it unless it
+  // already was, and comes back with it. Escape, or the user taking the window out of full screen,
+  // brings the page back.
+  void (*tab_fullscreen_changed)(void* context, bc_id tab, bool fullscreen);
+  // The tab has closed, by bc_tab_close, its page, its window closing or quitting.
+  void (*tab_closed)(void* context, bc_id tab);
+  // A key went down while the tab's page has the keyboard, before the page gets it. Return true to
+  // keep it from the page, as browsers keep their reserved shortcuts (⌘T, ⌘W, ⌘Q). Keys an input
+  // method is composing with don't come here.
+  bool (*tab_key_before_page)(void* context, bc_id tab, const bc_key* key);
+  // The tab's page didn't keep a key, such as ⌘F on a page without a find of its own. Return true
+  // if the app used it; otherwise the window's menus get it, as ⌘M does on the Mac.
+  bool (*tab_key_unhandled)(void* context, bc_id tab, const bc_key* key);
+} bc_host;
+
+// Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
+// code once it has quit. Call it once, on the main thread; it runs the main run loop.
+BC_EXPORT int bc_main(int argc, const char** argv, const bc_host* host);
+
+// Asks Chromium to quit. Pages get their unload handlers first, then bc_main returns.
+BC_EXPORT void bc_quit(void);
+
+// Opens a window at |bounds| with the app's UI view in it, under the pages it shows: an NSView on
+// the Mac, which the window keeps. |ui_view| may be null. Returns 0 if Chromium is quitting.
+BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
+
+// Closes the window: its pages get their unload handlers, then window_closed.
+BC_EXPORT void bc_window_close(bc_id window);
+
+// Opens a tab in the window, loading |url|, in the default profile. It isn't shown until
+// bc_tab_show. Returns 0 if the window is closing or gone.
+BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url);
+
+// Shows the tab's page at |frame| in its window, in place of the page the window showed. It keeps
+// its distance from the window's edges as the window resizes, and takes the keyboard if that page
+// had it.
+BC_EXPORT void bc_tab_show(bc_id tab, bc_rect frame);
+
+// Loads |url| in the tab.
+BC_EXPORT void bc_tab_navigate(bc_id tab, const char* url);
+
+// Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed. The
+// window stays open without it.
+BC_EXPORT void bc_tab_close(bc_id tab);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // BROWSER_CORE_PUBLIC_BROWSER_CORE_H_
