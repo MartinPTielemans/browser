@@ -7,3 +7,4 @@ ours/chromium-core-embedded-view.patch
 ours/chromium-core-navigate.patch
 ours/chromium-rust-std-component-link.patch
 ours/chromium-disclaimer-service-test-only-call.patch
+ours/chromium-prefs-passwords-autofill-on.patch
