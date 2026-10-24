@@ -1,0 +1,32 @@
+# The core compiles on Linux (AGENTS.md, Hit every surface: Platforms). See engine/check-linux.sh.
+name: Core on Linux
+
+on:
+  push:
+    paths: [core/**, engine/**, .github/workflows/core-linux.yml]
+  pull_request:
+    paths: [core/**, engine/**, .github/workflows/core-linux.yml]
+
+jobs:
+  compile:
+    # A pull request from a branch here already ran on its push.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq gperf golang-go clang-format ninja-build
+          sudo npm install -g --prefix /usr esbuild typescript
+
+      # The tree takes about 40 GB. The runner's second disk has more room than its first.
+      - name: Make room
+        run: |
+          df -h / /mnt
+          sudo mkdir /mnt/work
+          sudo chown "$USER" /mnt/work
+
+      - run: engine/check-linux.sh /mnt/work
