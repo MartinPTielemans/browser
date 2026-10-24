@@ -6,12 +6,13 @@ use std::{
     cell::{Cell, RefCell},
     ffi::{CStr, CString, c_char, c_int, c_void},
     rc::Rc,
+    sync::Arc,
 };
 
 use browser::shell::{self, Browser, Command, Page, Shell};
 use gpui::{
-    AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Focusable, Menu, MenuItem, Pixels,
-    SharedString, Size, WeakEntity, Window, WindowOptions, actions, prelude::*,
+    AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Focusable, Image, ImageFormat, Menu,
+    MenuItem, Pixels, SharedString, Size, WeakEntity, Window, WindowOptions, actions, prelude::*,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -328,6 +329,20 @@ unsafe extern "C" fn tab_title_changed(_: *mut c_void, tab: bc::bc_id, title: *c
     update_shell(|shell, cx| shell.set_title(tab, title.into(), cx));
 }
 
+unsafe extern "C" fn tab_favicon_changed(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    png: *const u8,
+    size: usize,
+) {
+    let favicon = (!png.is_null()).then(|| {
+        let png = unsafe { std::slice::from_raw_parts(png, size) }.to_vec();
+        Arc::new(Image::from_bytes(ImageFormat::Png, png))
+    });
+    eprintln!("browser: favicon {tab} {size} bytes");
+    update_shell(|shell, cx| shell.set_favicon(tab, favicon, cx));
+}
+
 unsafe extern "C" fn tab_opened(
     _: *mut c_void,
     _: bc::bc_id,
@@ -404,6 +419,7 @@ fn main() {
         tab_loaded: Some(tab_loaded),
         tab_state_changed: Some(tab_state_changed),
         tab_title_changed: Some(tab_title_changed),
+        tab_favicon_changed: Some(tab_favicon_changed),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),

@@ -2,12 +2,19 @@
 //! measured sizes (docs/ux-spec.md › Window and › Sidebar). The shell shows what the browser tells
 //! it and asks the browser for changes, so the engine stays the one place tabs live.
 
-use std::{borrow::Cow, collections::HashMap, rc::Rc, time::Instant};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    rc::Rc,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use gpui::{
-    Action, App, AssetSource, Bounds, Context, FocusHandle, Focusable, Global, KeyBinding,
-    MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, WeakEntity,
-    Window, div, point, prelude::*, px, rgb, rgba, size, svg,
+    Action, Animation, AnimationExt, App, AssetSource, Bounds, Context, FocusHandle, Focusable,
+    Global, Image, KeyBinding, MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    SharedString, Size, Transformation, WeakEntity, Window, div, img, percentage, point,
+    prelude::*, px, rgb, rgba, size, svg,
 };
 
 /// The sidebar's width, where the card starts.
@@ -38,6 +45,12 @@ const PLATE_INSET: f32 = 8.;
 const PLATE_RADIUS: f32 = 12.;
 const FAVICON_X: f32 = 17.;
 const FAVICON_SIZE: f32 = 18.;
+// The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot
+// rather than scaled up soft.
+const FAVICON_DRAWN: f32 = 16.;
+const LOADING_SIZE: f32 = 12.;
+// One clockwise turn (docs/ux-spec.md › Motion).
+const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
 const CLOSE_SIZE: f32 = 26.;
 const CLOSE_X: f32 = 189.;
@@ -60,8 +73,6 @@ const NEW_TAB_PLUS: u32 = 0xffffff80;
 const NAV: u32 = 0xffffff99;
 const NAV_DISABLED: u32 = 0xffffff42;
 const NAV_HOVERED: u32 = 0xffffff14;
-// Until the engine reports favicons.
-const FAVICON: u32 = 0xffffff1f;
 
 /// A browser command, from a key or the sidebar.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -179,6 +190,8 @@ pub struct Assets;
 const ICONS: &[(&str, &[u8])] = &[
     ("icons/arrow-left.svg", include_bytes!("../assets/icons/arrow-left.svg")),
     ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
+    ("icons/globe.svg", include_bytes!("../assets/icons/globe.svg")),
+    ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
     ("icons/rotate-cw.svg", include_bytes!("../assets/icons/rotate-cw.svg")),
     ("icons/x.svg", include_bytes!("../assets/icons/x.svg")),
 ];
@@ -227,6 +240,8 @@ pub struct Page {
 struct Tab {
     title: SharedString,
     page: Page,
+    /// None for a page without one.
+    favicon: Option<Arc<Image>>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -304,6 +319,11 @@ impl Shell {
 
     pub fn set_title(&mut self, tab: u64, title: SharedString, cx: &mut Context<Self>) {
         self.tabs.entry(tab).or_default().title = title;
+        cx.notify();
+    }
+
+    pub fn set_favicon(&mut self, tab: u64, favicon: Option<Arc<Image>>, cx: &mut Context<Self>) {
+        self.tabs.entry(tab).or_default().favicon = favicon;
         cx.notify();
     }
 
@@ -550,6 +570,7 @@ impl Shell {
 
     fn tab_row(&self, tab: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let hovered = self.hovered == Some(Row::Tab(tab));
+        let loading = self.page(tab).loading;
         let title = div()
             .flex_1()
             .min_w_0()
@@ -583,11 +604,16 @@ impl Shell {
             .items_center()
             .when(!hovered, |label| label.pr(px(PLATE_INSET)))
             .child(title)
-            .when(hovered, |label| label.child(close));
-        let icon = div()
-            .size(px(FAVICON_SIZE))
-            .rounded(px(4.))
-            .bg(rgba(FAVICON));
+            .when(hovered, |label| label.child(close))
+            .when(!hovered && loading, |label| label.child(loading_ring(tab)));
+        let icon = match self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()) {
+            Some(favicon) => img(favicon).size(px(FAVICON_DRAWN)).into_any_element(),
+            None => svg()
+                .path("icons/globe.svg")
+                .size(px(FAVICON_DRAWN))
+                .text_color(rgba(SECONDARY))
+                .into_any_element(),
+        };
         self.row(Row::Tab(tab), icon, label, cx)
             .on_click(cx.listener(move |shell, _, _, cx| {
                 eprintln!("browser: command select via sidebar");
@@ -679,6 +705,21 @@ impl Render for Shell {
                 )
             })
     }
+}
+
+/// A loading tab's ring, at the row's trailing edge, turning.
+fn loading_ring(tab: u64) -> impl IntoElement {
+    svg()
+        .path("icons/loading.svg")
+        .flex_none()
+        .ml(px(4.))
+        .size(px(LOADING_SIZE))
+        .text_color(rgba(SECONDARY))
+        .with_animation(
+            ("loading", tab),
+            Animation::new(LOADING_TURN).repeat(),
+            |ring, turn| ring.with_transformation(Transformation::rotate(percentage(turn))),
+        )
 }
 
 /// Where the page goes in a window whose content is `viewport`: in the card, or filling the window

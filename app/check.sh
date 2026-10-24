@@ -23,7 +23,8 @@
 #   5. A page's popup opens as a tab in the window, under the page.
 #   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
-#      and while a page loads, reload is stop, which ⌘., escape and the button do.
+#      and while a page loads, reload is stop, which ⌘., escape and the button do. A tab's row
+#      shows its page's favicon, and keeps it until the next page has loaded without one.
 # Runs 2 to 6 need Browser to be the active app, and run 4 takes it full screen for a moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
@@ -626,7 +627,9 @@ for _ in $(seq 50); do
   sleep 0.1
 done
 [ -s "$out/port" ] || fail "the server that never answers didn't start"
+# The start page's favicon is a 16 × 16 orange square.
 page='data:text/html,<title>loading</title>
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg==">
 <script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
 log="$out/history.log"
 step=0
@@ -638,6 +641,7 @@ await_load
 await '^browser: title [0-9]* ready$' || fail "the history test page didn't draw"
 tab=$(grep -m1 '^browser: today' "$log" | cut -d' ' -f3)
 await "^browser: page $tab back 0 forward 0 loading 0 data:" || fail "a fresh tab can go back or forward"
+await "^browser: favicon $tab [1-9][0-9]* bytes\$" || fail "the start page's favicon didn't reach the UI"
 send click $page_point
 if [ "$active" != 1 ]; then
   exec 3>&-
@@ -673,6 +677,11 @@ history_key() {
 
 go_from_bar example.com
 expect_page example.com 1 0 "after loading a page"
+# example.com has no favicon, so the start page's goes, but only once example.com has loaded.
+expect "^browser: favicon $tab 0 bytes\$" "the start page's favicon stayed on example.com"
+dropped=$(grep -n "^browser: favicon $tab 0 bytes\$" "$log" | head -1 | cut -d: -f1)
+loaded=$(grep -n "^browser: page $tab back 1 forward 0 loading 0 https://example.com/\$" "$log" | head -1 | cut -d: -f1)
+[ "$dropped" -gt "$loaded" ] || fail "the start page's favicon went before example.com had loaded"
 go_from_bar example.org
 expect_page example.org 1 0 "after loading another"
 ../tools/window-screenshot.sh "$pid" "$out/history.png" || fail "no window to capture"
@@ -719,4 +728,4 @@ done
 exec 3>&-
 quit
 kill "$server"
-echo "ok: ⌘← ⌘→ and the header's buttons go back and forward, with the page or the UI focused; reload and force reload load the page again; ⌘., escape and the stop button stop a load. Windows: $out/history.png, $out/loading.png"
+echo "ok: ⌘← ⌘→ and the header's buttons go back and forward, with the page or the UI focused; reload and force reload load the page again; ⌘., escape and the stop button stop a load; the row keeps a page's favicon until the next page has loaded without one. Windows: $out/history.png, $out/loading.png"

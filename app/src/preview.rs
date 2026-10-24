@@ -126,8 +126,10 @@ fn main() {
                     shell.set_title(tab, (*title).into(), cx);
                     let page = Page {
                         url: (*url).into(),
-                        // The first tab has been somewhere before, so back shows bright.
+                        // The first tab has been somewhere before, so back shows bright, and the
+                        // third is still loading.
                         can_go_back: index == 0,
+                        loading: index == 2,
                         ..Default::default()
                     };
                     shell.set_page(tab, page, cx);
