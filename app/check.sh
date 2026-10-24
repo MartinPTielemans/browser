@@ -13,10 +13,11 @@
 #   3. A tab opened from the command bar goes at the top of the Space's Today tabs and shows. The
 #      command bar suggests pages from history as it's typed in, growing to fit them, with the
 #      tabs already at them, never the one shown. ↑, ↓ and ⌃N choose a row, wrapping at the ends,
-#      and ↩ or a click on a tab's row shows that tab without opening one. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and
-#      clicks on rows show tabs, a tab a page opens goes under it and closing it goes back there,
-#      and ⌘W otherwise shows the tab below, or above at the bottom. Closing the last tab leaves
-#      the Space empty, where ⌘T still works. Reports how long switches take.
+#      and ↩ or a click on a tab's row shows that tab without opening one. Typing at the end
+#      completes the text to the first row's page, which ⌫ takes back, → keeps and ↩ goes to.
+#      ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs, a tab a page opens goes under it and closing
+#      it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing
+#      the last tab leaves the Space empty, where ⌘T still works. Reports how long switches take.
 #   4. The page view keeps its margins and GPUI's view fills the window through a resize and
 #      full screen, and the window's buttons stay in the header row. A page that goes full
 #      screen takes the window with it and escape brings both back, the command bar opens in
@@ -389,16 +390,28 @@ suggestions() {
   grep '^browser: command bar suggestions' "$log" | tail -1 | sed 's/^[^:]*: [^:]* ms: //' |
     tr -s ', ' '\n ' | sed 's/^ //'
 }
-# Opens the command bar and types "example", which suggests example.com and example.org. Waits for
-# $1's tab among them, and checks that $2's isn't, since $2 is shown.
+# The command bar's height logged last.
+bar_height() {
+  grep '^browser: command bar height' "$log" | tail -1 | sed 's/.* //'
+}
+# Opens the command bar and types "example", which completes to a page and suggests example.com
+# and example.org. ⌫ takes the completion back, so the first row is the search for what was typed.
+# Waits for $1's tab among the rows, and checks that $2's isn't, since $2 is shown.
 suggest_example() {
   send key t cmd
   expect '^browser: command bar shown$' "⌘T didn't open the command bar"
   send type example
+  expect '^browser: command bar completes "example" with "\.' "the command bar didn't complete \"example\""
+  send key backspace
   expect "^browser: command bar suggestions \"example\" in [0-9.]* ms: https://duckduckgo.com/?q=example, .*https://$1/ tab " \
     "the command bar didn't suggest $1's tab: $(suggestions | tr '\n' ' ')"
   rows=$(suggestions | wc -l | tr -d ' ')
-  expect "^browser: command bar height $((56 + 8 + 36 * rows))\$" "the command bar didn't grow to fit $rows rows"
+  # The bar may have grown to as many rows before.
+  for _ in $(seq 50); do
+    [ "$(bar_height)" = $((56 + 8 + 36 * rows)) ] && break
+    sleep 0.1
+  done
+  [ "$(bar_height)" = $((56 + 8 + 36 * rows)) ] || fail "the command bar is $(bar_height) tall, not fitting $rows rows"
   none_since "https://$2/ tab " || fail "the command bar suggested $2's tab, which is shown"
 }
 suggest_example example.com example.org
@@ -423,6 +436,34 @@ send clickkey 320 $((56 + 4 + 36 * (row - 1) + 18))
 expect "^browser: command bar switch to tab $c\$" "a click on example.org's row didn't switch to its tab"
 expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on example.org's row didn't show its tab"
 [ "$(today)" = "$c $b $a" ] || fail "switching to a tab changed Today to \"$(today)\""
+
+# Typing at the end completes the text to the first row's page, as Chrome's address bar does:
+# example.com, typed before, completes "example.c". ⌫ takes the completion back until the next key
+# typed at the end, → keeps it as typed, and ↩ goes where it goes.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type example.c
+expect '^browser: command bar completes "example.c" with "om"$' "the command bar didn't complete \"example.c\" to example.com"
+expect '^browser: command bar drew "example.com"$' "the command bar didn't show the completion"
+../tools/window-screenshot.sh "$pid" "$out/completion.png" || fail "no window to capture"
+send key backspace
+expect '^browser: command bar suggestions "example.c" in ' "the command bar didn't suggest again after ⌫"
+expect '^browser: command bar drew "example.c"$' "⌫ didn't take the completion back"
+none_since '^browser: command bar completes' || fail "the command bar completed the text again after ⌫"
+send type o
+expect '^browser: command bar completes "example.co" with "m"$' "typing at the end after ⌫ didn't complete again"
+send key right
+expect '^browser: command bar suggestions "example.com" in ' "→ didn't keep the completion as typed"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type example.c
+expect '^browser: command bar completes "example.c" with "om"$' "the command bar didn't complete \"example.c\" to example.com"
+send key return
+expect '^browser: command bar go https://example.com/$' "↩ didn't go where the completion goes: $(grep '^browser: command bar go' "$log" | tail -1)"
+expect "^browser: loaded $c https://example.com/\$" "↩ didn't load the completion's page in the tab"
+[ "$(today)" = "$c $b $a" ] || fail "going to a page in a tab changed Today to \"$(today)\""
 
 switch "3 cmd" "$a"
 switch "1 cmd" "$c"
@@ -493,9 +534,9 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, keys and clicks switch, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
+echo "ok: new tabs open at the top and show, the command bar suggests pages and their tabs and completes what's typed, keys and clicks switch, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/tabs.png, $out/empty.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/empty.png"
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'

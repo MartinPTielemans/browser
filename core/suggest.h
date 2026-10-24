@@ -27,8 +27,9 @@ class Suggestions : public AutocompleteController::Observer {
 
   Profile* profile() const { return profile_; }
 
-  // Lists suggestions for |text|, and again as more are found. Empty text lists none.
-  void Start(const std::u16string& text);
+  // Lists suggestions for |text|, and again as more are found. Empty text lists none. |complete|
+  // lets the first complete |text| inline.
+  void Start(const std::u16string& text, bool complete);
 
  private:
   // AutocompleteController::Observer:

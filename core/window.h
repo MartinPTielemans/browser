@@ -105,7 +105,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id ReopenClosedTab();
 
   // Lists the command bar's suggestions for |text|, from |profile|. See bc_window_suggest.
-  void Suggest(Profile* profile, const std::u16string& text);
+  void Suggest(Profile* profile, const std::u16string& text, bool complete);
 
   // Opens a tab for |profile| loading |url|, not shown. Null while the window is closing or
   // Chromium is quitting.

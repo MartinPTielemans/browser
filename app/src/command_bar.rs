@@ -1,6 +1,7 @@
 //! The command bar. GPUI can't draw over the page's native view, so the bar is a window of its
 //! own that the host shows over the browser window, as its child. Under its input it lists the
-//! core's suggestions for what's typed, and the window grows down to fit them.
+//! core's suggestions for what's typed, and the window grows down to fit them. While the first is
+//! selected, the input completes what's typed to it, as Chrome's address bar does.
 
 use std::time::Instant;
 
@@ -32,16 +33,24 @@ pub struct Suggestion {
     pub detail: SharedString,
     /// The tab already at the page, which the row switches to, or 0.
     pub tab: u64,
+    /// What completes the text typed to this row, for the first row only.
+    pub completion: String,
 }
 
 pub struct CommandBar {
     input: Entity<TextInput>,
     /// The tab the bar loads in, or none for a new tab.
     editing: Option<u64>,
-    /// The text the core was last asked to suggest for, and when.
+    /// What was typed, which the core was last asked to suggest for, when, and whether it was
+    /// allowed to complete it.
     asked: String,
     asked_at: Instant,
-    /// The core's suggestions, and the text they're for.
+    complete: bool,
+    /// What the input shows after what was typed, selected, to complete it.
+    completion: String,
+    /// The input's length and selection start before its last change, which tell a deletion.
+    before: (usize, usize),
+    /// The core's suggestions, and the text they're for, until the bar asks again.
     rows: Vec<Suggestion>,
     suggested: String,
     /// The row ↩ takes.
@@ -85,13 +94,18 @@ pub fn open(cx: &mut App) {
         let input = cx.new(|cx| TextInput::new("Search or enter a URL", cx));
         window.focus(&input.focus_handle(cx), cx);
         cx.new(|cx| {
-            cx.observe(&input, |bar: &mut CommandBar, _, cx| bar.edited(cx))
-                .detach();
+            cx.observe_in(&input, window, |bar: &mut CommandBar, _, window, cx| {
+                bar.edited(window, cx)
+            })
+            .detach();
             CommandBar {
                 input,
                 editing: None,
                 asked: String::new(),
                 asked_at: Instant::now(),
+                complete: false,
+                completion: String::new(),
+                before: (0, 0),
                 rows: Vec::new(),
                 suggested: String::new(),
                 selected: 0,
@@ -120,12 +134,15 @@ pub fn show(editing: Option<(u64, SharedString)>, cx: &mut App) {
             bar.editing = editing.as_ref().map(|(tab, _)| *tab);
             let text = editing.map(|(_, url)| url).unwrap_or_default();
             bar.asked = text.to_string();
-            bar.set_rows(String::new(), Vec::new(), cx);
+            bar.complete = false;
+            bar.completion.clear();
+            bar.before = (text.len(), 0);
+            bar.set_rows(String::new(), Vec::new(), window, cx);
             bar.input.update(cx, |input, cx| input.reset(text, window, cx))
         })
         .ok();
     // The last query's suggestions are of no use now.
-    suggest("");
+    suggest("", false);
     unsafe { platform::host_show_overlay() };
 }
 
@@ -135,7 +152,7 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
         return;
     };
     window
-        .update(cx, |bar, _, cx| {
+        .update(cx, |bar, window, cx| {
             // Older text's come after the bar has asked about newer.
             if text != bar.asked {
                 return;
@@ -153,31 +170,111 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                 bar.asked_at.elapsed().as_secs_f64() * 1000.,
                 urls.join(", ")
             );
-            bar.set_rows(text, rows, cx);
+            bar.set_rows(text, rows, window, cx);
         })
         .ok();
 }
 
-/// Asks the core for its suggestions for `text`.
-fn suggest(text: &str) {
+/// Asks the core for its suggestions for `text`, the first of them completing it if `complete`.
+fn suggest(text: &str, complete: bool) {
     if let Ok(text) = std::ffi::CString::new(text) {
-        unsafe { bc::bc_window_suggest(WINDOW.get(), text.as_ptr()) };
+        unsafe { bc::bc_window_suggest(WINDOW.get(), text.as_ptr(), complete) };
     }
 }
 
 impl CommandBar {
-    fn edited(&mut self, cx: &mut Context<Self>) {
+    fn edited(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let input = self.input.read(cx);
-        if input.composing() || input.text() == self.asked {
+        let (text, selection) = (input.text().to_string(), input.selection());
+        let (length, start) = std::mem::replace(&mut self.before, (text.len(), selection.start));
+        if input.composing() {
+            // The input method's text took the completion's place, if it was selected.
+            self.completion.clear();
             return;
         }
-        self.asked = input.text().to_string();
+        let shown = format!("{}{}", self.asked, self.completion);
+        // Moving the selection off the completion takes it as typed, as in Chrome.
+        if text == shown
+            && (self.completion.is_empty() || selection == (self.asked.len()..text.len()))
+        {
+            return;
+        }
+        // Chrome completes only typing at the end: not a deletion, a paste, or with the caret
+        // elsewhere.
+        let deleted = text.len() < length && selection.start <= start;
+        let complete = !deleted && !input.pasted() && selection == (text.len()..text.len());
+        // While what's typed follows the completion, the rest of it stays until the core answers,
+        // so it doesn't flicker.
+        let completion = shown
+            .get(text.len()..)
+            .filter(|_| complete)
+            .filter(|_| {
+                shown.get(..text.len()).is_some_and(|typed| typed.eq_ignore_ascii_case(&text))
+            })
+            .unwrap_or_default()
+            .to_string();
+        self.asked = text;
         self.asked_at = Instant::now();
-        suggest(&self.asked);
+        self.complete = complete;
+        // Rows for the same text asked before are old too, as after ⌫ takes a completion back.
+        self.suggested.clear();
+        self.completion.clear();
+        self.show_completion(completion, window, cx);
+        suggest(&self.asked, complete);
     }
 
-    fn set_rows(&mut self, text: String, rows: Vec<Suggestion>, cx: &mut Context<Self>) {
-        // The page selected stays selected as more suggestions come for the same text.
+    /// Shows `completion` after what was typed, selected, or no completion.
+    fn show_completion(
+        &mut self,
+        completion: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if completion == self.completion {
+            return;
+        }
+        self.completion = completion;
+        // check.sh reads this line.
+        eprintln!(
+            "browser: command bar completes \"{}\" with \"{}\"",
+            self.asked, self.completion
+        );
+        let text = format!("{}{}", self.asked, self.completion);
+        let typed = self.asked.len();
+        self.input.update(cx, |input, cx| input.complete(text.into(), typed, window, cx));
+    }
+
+    /// Completes what was typed to the first row while it's selected, unless the user has moved
+    /// the caret.
+    fn update_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let input = self.input.read(cx);
+        let (typed, end) = (self.asked.len(), self.asked.len() + self.completion.len());
+        let selection = if self.completion.is_empty() { end..end } else { typed..end };
+        if input.composing()
+            || input.text() != format!("{}{}", self.asked, self.completion)
+            || input.selection() != selection
+        {
+            return;
+        }
+        let completion = match self.selected {
+            // The core's suggestions for the same text asked without completing it may come.
+            _ if !self.complete => String::new(),
+            // Rows for older text keep the completion shown, which came from their first.
+            0 if self.suggested != self.asked => self.completion.clone(),
+            0 => self.rows.first().map(|row| row.completion.clone()).unwrap_or_default(),
+            _ => String::new(),
+        };
+        self.show_completion(completion, window, cx);
+    }
+
+    fn set_rows(
+        &mut self,
+        text: String,
+        rows: Vec<Suggestion>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // The page selected stays selected as more suggestions come for what was asked.
         let selected = self.rows.get(self.selected).filter(|_| text == self.suggested);
         self.selected = selected
             .and_then(|old| rows.iter().position(|row| row.url == old.url))
@@ -187,6 +284,7 @@ impl CommandBar {
         let rows = self.rows.len() as f32;
         let height = HEIGHT + if rows > 0. { rows * ROW_HEIGHT + 2. * ROW_INSET } else { 0. };
         unsafe { platform::host_set_overlay_height(f64::from(height)) };
+        self.update_completion(window, cx);
         cx.notify();
     }
 
@@ -197,7 +295,10 @@ impl CommandBar {
         }
         // check.sh reads these lines.
         eprintln!("browser: command bar typed {text}");
-        if self.suggested == self.input.read(cx).text() && self.selected < self.rows.len() {
+        // A completion comes from the first row, even before the rows for the last key arrive.
+        if (self.suggested == self.asked || !self.completion.is_empty())
+            && self.selected < self.rows.len()
+        {
             self.take(self.selected);
             return;
         }
@@ -234,7 +335,7 @@ impl CommandBar {
     }
 
     /// Selects the next row, or the one before, wrapping at the ends as Chrome does.
-    fn select_next(&mut self, forward: bool, cx: &mut Context<Self>) {
+    fn select_next(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let count = self.rows.len();
         if count == 0 {
             return;
@@ -242,6 +343,7 @@ impl CommandBar {
         self.selected = (self.selected + if forward { 1 } else { count - 1 }) % count;
         // check.sh reads this line.
         eprintln!("browser: command bar selected {}", self.rows[self.selected].url);
+        self.update_completion(window, cx);
         cx.notify();
     }
 
@@ -291,8 +393,12 @@ impl Render for CommandBar {
                 .key_context("CommandBar")
                 .on_action(cx.listener(Self::go))
                 .on_action(cx.listener(Self::dismiss))
-                .on_action(cx.listener(|bar, _: &Next, _, cx| bar.select_next(true, cx)))
-                .on_action(cx.listener(|bar, _: &Previous, _, cx| bar.select_next(false, cx)))
+                .on_action(
+                    cx.listener(|bar, _: &Next, window, cx| bar.select_next(true, window, cx)),
+                )
+                .on_action(
+                    cx.listener(|bar, _: &Previous, window, cx| bar.select_next(false, window, cx)),
+                )
                 .size_full()
                 .flex()
                 .flex_col()

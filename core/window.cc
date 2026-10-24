@@ -326,11 +326,11 @@ content::WebContents* Window::RestoreTab(
       /*extra_data=*/{}, /*from_session_restore=*/true, /*is_active_browser=*/std::nullopt);
 }
 
-void Window::Suggest(Profile* profile, const std::u16string& text) {
+void Window::Suggest(Profile* profile, const std::u16string& text, bool complete) {
   if (!suggestions_ || suggestions_->profile() != profile) {
     suggestions_ = std::make_unique<Suggestions>(id_, profile);
   }
-  suggestions_->Start(text);
+  suggestions_->Start(text, complete);
 }
 
 content::WebContents* Window::OpenTab(Profile* profile, const GURL& url) {

@@ -80,6 +80,9 @@ typedef struct bc_suggestion {
   // with bc_window_select. Else 0, as for the first suggestion, which goes where what was typed
   // goes.
   bc_id tab;
+  // For the first suggestion, what to show after the text typed, selected, to complete it to this
+  // suggestion's URL or title, when bc_window_suggest allowed it. Else "".
+  const char* completion;
 } bc_suggestion;
 
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
@@ -226,8 +229,10 @@ BC_EXPORT bc_id bc_window_reopen_closed_tab(bc_id window);
 // Lists suggestions for |text| typed in the window's command bar, as Chrome's address bar does:
 // pages from the profile's history and bookmarks, open tabs among them, and a search for |text|.
 // Nothing typed leaves the device, since search suggestions are off. Then window_suggestions, and
-// again as more are found. Empty text lists none.
-BC_EXPORT void bc_window_suggest(bc_id window, const char* text);
+// again as more are found. Empty text lists none. |complete| lets the first suggestion complete
+// |text|, which Chrome allows only while the user types at the end of the text: not after deleting
+// or pasting, with the caret elsewhere, or while an input method composes.
+BC_EXPORT void bc_window_suggest(bc_id window, const char* text, bool complete);
 
 // Opens a tab in the window, loading |url|, in the default profile, at the top of the Today tabs of
 // the Space it shows. It isn't shown until bc_window_select or bc_tab_show. Returns 0 if the window

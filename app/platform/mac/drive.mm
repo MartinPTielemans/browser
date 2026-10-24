@@ -10,7 +10,8 @@
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
 //   move <x> <y>                          moves the pointer to (x, y), without a button down
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "[", "]",
-//                                         return, escape, tab, space, up, down, left or right
+//                                         return, escape, tab, space, backspace, up, down, left
+//                                         or right
 //   type <text>                           lowercase letters, dots and spaces
 //   scroll <x> <y> <dy> <count>           <count> trackpad scroll events at (x, y), each moving
 //                                         the content up by <dy> points, at a trackpad's pace
@@ -51,6 +52,7 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {" ", 49}, {"space", 49}, {".", 47}, {"escape", 53}, {"1", 18},   {"2", 19},
     {"3", 20}, {"4", 21}, {"5", 23}, {"6", 22}, {"7", 26}, {"8", 28},      {"9", 25},
     {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125}, {"left", 123}, {"right", 124},
+    {"backspace", 51},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey.
 const std::map<std::string, std::string> kCharacters = {
@@ -58,6 +60,7 @@ const std::map<std::string, std::string> kCharacters = {
     {"tab", "\t"},
     {"space", " "},
     {"escape", "\x1b"},
+    {"backspace", "\x7f"},
     {"up", "\xEF\x9C\x80"},
     {"down", "\xEF\x9C\x81"},
     {"left", "\xEF\x9C\x82"},
