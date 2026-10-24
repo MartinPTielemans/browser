@@ -364,6 +364,7 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 - Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia).
 - History rows can be removed with a hover ✕ or ⇧⌦, and the selection moves to the next row (Chrome; Dia has the ✕).
 - Bookmarks, a calculator (↩ copies the result) and commands are also rows (Dia). Arc's command list: measure.
+- Well-known sites that what's typed could start, such as YouTube for "you", fill the rows the profile's own leave, under them and never as row 0, so a new profile's list isn't bare. The list is built in and ranked by popularity alone (ours).
 - Hovering highlights a row; Enter uses the keyboard selection (Chrome). Dia: measure.
 
 **Inline completion** (Chrome; Dia rec, O)

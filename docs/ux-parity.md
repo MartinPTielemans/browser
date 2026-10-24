@@ -132,6 +132,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Stable row 0 | MVP | local only; remote rows append | Chrome O |
 | [x] | Inline completion rules | MVP | one term, caret at end; never during IME, after delete, after paste, after whitespace | Chrome O |
 | [x] | Inline eligibility | MVP | typed ≥ 1 host / ≥ 2 deeper | Chrome O |
+| [x] | Well-known sites | MVP | built in; fill the rows left under the profile's own, never row 0 | ours |
 | [ ] | Site search | MVP | Tab when hinted, Space after exact host; ⌫ in empty leaves and restores | Chrome O |
 | [ ] | Keys | MVP | ↩, ⌘↩, ⌥↩, ⇧↩, ⇧⌘↩, ⌃↩, ⌃⇧↩, ↑↓ wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Chrome, Dia O |
 | [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms) | Ardia P§7 |
