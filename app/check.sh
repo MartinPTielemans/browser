@@ -6,9 +6,10 @@
 #      is. With the page focused, the browser's reserved shortcuts reach the UI and never the
 #      page, and the others reach the page first, which can keep them. ⌘Q quits. The command
 #      bar opens over the page with the keyboard, never showing the last query, gives the
-#      keyboard back when it closes, and loads what's typed in it. Japanese input composes and
-#      commits in the page and in the command bar, where return and escape go to the input
-#      method while it composes.
+#      keyboard back when it closes, and loads what's typed in it, over https for a host typed
+#      without one, or searches DuckDuckGo for words. Japanese input composes and commits in the
+#      page and in the command bar, where return and escape go to the input method while it
+#      composes.
 #   3. A tab opened from the command bar goes at the top of the Space's Today tabs and shows.
 #      ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs, a tab a page opens goes under it and closing
 #      it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing
@@ -258,23 +259,31 @@ send key space
 [ "$marked" = 0,3 ] || fail "the command bar didn't take the conversion: marked $marked"
 ../tools/window-screenshot.sh "$pid" "$out/ime.png" || fail "no window to capture"
 send key return
-none_since '^browser: command bar go' || fail "return while composing went somewhere"
+none_since '^browser: command bar typed' || fail "return while composing went somewhere"
 [ "$marked" = none ] || fail "return didn't commit the composition: marked $marked"
 send ime off
 send type .invalid
 send key return
-expect '^browser: command bar go https://日本語.invalid$' "the command bar didn't keep the committed text: $(grep '^browser: command bar go' "$log" | tail -1)"
+expect '^browser: command bar typed 日本語.invalid$' "the command bar didn't keep the committed text: $(grep '^browser: command bar typed' "$log" | tail -1)"
 
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send type example.com
 ../tools/window-screenshot.sh "$pid" "$out/command-bar.png" || fail "no window to capture"
 send key return
-expect '^browser: command bar go https://example.com$' "return in the command bar didn't go to what was typed"
+expect '^browser: command bar go https*://example.com/$' "return in the command bar didn't go to what was typed: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect '^browser: command bar hidden$' "going somewhere didn't close the command bar"
 expect '^browser: loaded [0-9]* https://example.com/$' "the page didn't load what was typed in the command bar"
 send state
 in_browser RenderWidgetHostViewCocoa "after the command bar loaded a page"
+# Words that name no page are a search, with DuckDuckGo until the user picks an engine.
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type arc browser
+send key return
+expect '^browser: command bar go https://duckduckgo.com/?q=arc+browser$' "words in the command bar didn't search: $(grep '^browser: command bar go' "$log" | tail -1)"
+expect '^browser: loaded [0-9]* https://duckduckgo.com/?q=arc+browser' "the search didn't load"
+../tools/window-screenshot.sh "$pid" "$out/search.png" || fail "no window to capture"
 # The bar draws itself before it goes on screen, so it never shows the last query: empty for a
 # new tab, and on ⌘L with the page's URL.
 awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
@@ -286,7 +295,7 @@ echo "key q cmd" >&3
 exec 3>&-
 await '^browser: command quit via page$' || fail "⌘Q with the page focused didn't reach the UI"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q quits, the command bar takes the keyboard and gives it back, Japanese input composes in both. Windows: $out/command-bar.png, $out/ime.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q quits, the command bar takes the keyboard and gives it back, goes to a host over https and searches for words, Japanese input composes in both. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new
 # tab does. The app asks Chrome to trace its tab switches, timed as Chrome times its own: from the
@@ -738,7 +747,8 @@ for stop in "key . cmd|page|⌘." "key escape|page|escape" "click $reload_button
 $stop
 EOF
   go_from_bar stuck.test
-  expect "^browser: page $tab back 1 forward 0 loading 1 https://stuck.test/\$" "stuck.test didn't show as loading"
+  # Chrome tries https first only for public hosts.
+  expect "^browser: page $tab back 1 forward 0 loading 1 http://stuck.test/\$" "stuck.test didn't show as loading"
   if [ "$from" = sidebar ]; then
     ../tools/window-screenshot.sh "$pid" "$out/loading.png" || fail "no window to capture"
   fi

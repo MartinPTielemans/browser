@@ -1,10 +1,12 @@
 // The C API in public/browser_core.h, over the core's C++.
 
 #include <algorithm>
+#include <string>
 #include <vector>
 
 #include "browser_core/main_delegate.h"
 #include "browser_core/public/browser_core.h"
+#include "browser_core/search.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
@@ -28,6 +30,16 @@ namespace {
 
 gfx::Rect ToRect(bc_rect rect) {
   return gfx::ToEnclosingRect(gfx::RectF(rect.x, rect.y, rect.width, rect.height));
+}
+
+// Copies up to |capacity| bytes of |text| into |to|, ending in a NUL, and returns its length.
+size_t CopyString(const std::string& text, char* to, size_t capacity) {
+  if (capacity > 0) {
+    const size_t length = std::min(capacity - 1, text.size());
+    std::copy_n(text.begin(), length, to);
+    to[length] = '\0';
+  }
+  return text.size();
 }
 
 }  // namespace
@@ -70,16 +82,7 @@ size_t bc_spaces(bc_id* spaces, size_t capacity) {
 
 size_t bc_space_name(bc_id id, char* name, size_t capacity) {
   browser_core::Space* space = browser_core::Space::FromId(id);
-  if (!space) {
-    return 0;
-  }
-  const std::string& its = space->name();
-  if (capacity > 0) {
-    const size_t length = std::min(capacity - 1, its.size());
-    std::copy_n(its.begin(), length, name);
-    name[length] = '\0';
-  }
-  return its.size();
+  return space ? CopyString(space->name(), name, capacity) : 0;
 }
 
 void bc_space_set_name(bc_id id, const char* name) {
@@ -139,6 +142,13 @@ bc_id bc_tab_open(bc_id window_id, const char* url) {
     space->Add(tab, /*opener=*/0, /*foreground=*/false);
   }
   return tab;
+}
+
+size_t bc_typed_url(const char* text, char* url, size_t capacity) {
+  // Chrome made the profile it starts with before the core's calls work.
+  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  const GURL typed = profile && text ? browser_core::TypedUrl(profile, text) : GURL();
+  return typed.is_valid() ? CopyString(typed.spec(), url, capacity) : 0;
 }
 
 void bc_tab_show(bc_id id, bc_rect frame) {
