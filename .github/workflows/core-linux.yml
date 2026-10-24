@@ -3,9 +3,9 @@ name: Core on Linux
 
 on:
   push:
-    paths: [core/**, engine/**, .github/workflows/core-linux.yml]
+    paths: [core/**, engine/**, .github/workflows/core-linux.yml, '!**/*.md']
   pull_request:
-    paths: [core/**, engine/**, .github/workflows/core-linux.yml]
+    paths: [core/**, engine/**, .github/workflows/core-linux.yml, '!**/*.md']
 
 jobs:
   compile:

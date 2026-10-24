@@ -8,13 +8,15 @@ Work that doesn't change the core needs no build: `./fetch.sh` downloads the pre
 
 | Path | What |
 |---|---|
-| `pins.ini` | Chromium version, ungoogled-chromium tag and ungoogled-chromium-macos tag. Bumped together, every Chromium release |
+| `pins.ini` | Chromium version and the ungoogled-chromium, ungoogled-chromium-macos and ungoogled-chromium-portablelinux tags. Bumped together, every Chromium release |
 | `series` | Ordered list of patches applied after ungoogled-chromium's own series |
 | `patches/helium/` | Patches taken from Helium, header naming the upstream path and commit |
 | `patches/ardia/` | Patches taken from Ardia, same convention |
 | `patches/ours/` | Our own patches |
 | `args.gn` | Our GN args, after ungoogled-chromium's `flags.gn` and ungoogled-chromium-macos's `flags.macos.gn` |
 | `args.dev.gn` | The dev build's args, after `args.gn` |
+| `tree.sh` | What `setup.sh` and `check-linux.sh` both do to a prepared tree: remove Chromium's agent instructions, link the core and apply `series` |
+| `check-linux.sh` | Compiles the core on Linux, as CI does |
 | `prebuilt.ini` | The prebuilt engine: the commit it was built from, its URL and its SHA-256. Written by `publish.sh` |
 
 ## Order
@@ -33,6 +35,10 @@ Steps 1–3 change the tree and run once; a run that stopped in one of them mean
 `setup.sh` names what it needs and isn't installed: Homebrew's `ninja`, `go`, `esbuild`, `typescript`, `coreutils` and `uv`, and Apple's Metal toolchain. It builds with Python 3.13, as ungoogled-chromium-macos does, through `uv`.
 
 It also needs the macOS SDK of Chromium's official builds (`mac_sdk_official_version` in `build/config/mac/mac_sdk.gni`: 26.5 for Chromium 155), from Xcode or the Command Line Tools, even when a newer Xcode is installed. The pinned LLVM's linker can't read newer SDKs.
+
+## Linux
+
+CI (`.github/workflows/core-linux.yml`) runs `check-linux.sh` on pushes that change the core or the engine. It prepares the tree with ungoogled-chromium-portablelinux's scripts at the pinned tag, applies `series`, and compiles only the core's own objects; the `browser_core` target would compile most of Chrome, and nothing links. A run takes about half an hour and 40 GB of disk.
 
 ## Rules
 

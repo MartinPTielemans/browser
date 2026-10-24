@@ -42,7 +42,7 @@ The most common defect is a change that works on the path you tested and is miss
 - **Text input.** Japanese IME, in GPUI fields and in pages.
 - **Window states.** Resize and fullscreen.
 - **Profiles and Spaces.** Logins, cookies and extensions belong to the profile; tabs belong to the Space.
-- **Platforms.** Mac ships first, but the core compiles on Linux and per-OS code stays in the platform layer.
+- **Platforms.** Mac ships first, but the core compiles on Linux and per-OS code stays in the platform layer. CI checks the compile (`engine/check-linux.sh`).
 - **Hot paths.** A change to tab switch, new tab, the command bar or launch comes with before-and-after numbers against the performance gate.
 - **Docs.** A changed decision means rewriting its entry in `docs/decisions.md`. A phase that changes state updates the status table in `README.md`.
 - **Reverse states.** If you added a way in, add the way out and the way to see it. A one-way door is a bug: a permission an agent can be granted needs a revoke and a place where it's listed.
