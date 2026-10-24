@@ -3,6 +3,7 @@
 
 #include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "base/callback_list.h"
@@ -37,6 +38,8 @@ class WidgetDelegate;
 }  // namespace views
 
 namespace browser_core {
+
+class Suggestions;
 
 // One native window: the app's UI, the page it shows over that, and a Browser per profile holding
 // the window's tabs (decision 3). Closing it closes its Browsers, and it goes once they have.
@@ -74,6 +77,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   views::Widget* widget() const { return widget_.get(); }
   // The Space the window shows, or 0.
   bc_id space() const { return space_; }
+  // The tab the window shows, or 0.
+  bc_id selected() const { return selected_; }
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
   // pinned tab, else no page.
@@ -84,7 +89,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void SetSelectedIn(bc_id space, bc_id tab);
   // Where the selected tab's page goes, in the window.
   void SetPageFrame(const gfx::Rect& frame);
-  // Shows |tab|, if it's one of this window's, at the page frame.
+  // Shows |tab|, if it's one of this window's, at the page frame, and its Space if the window shows
+  // another.
   void Select(bc_id tab);
 
   // Closes the Today tabs of the Space the window shows, for UndoClear to bring back. One shown goes
@@ -97,6 +103,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // tabs, else at the top of the Space the window shows. Shows it, and its Space. Returns its id, or
   // 0 if there's none.
   bc_id ReopenClosedTab();
+
+  // Lists the command bar's suggestions for |text|, from |profile|. See bc_window_suggest.
+  void Suggest(Profile* profile, const std::u16string& text);
 
   // Opens a tab for |profile| loading |url|, not shown. Null while the window is closing or
   // Chromium is quitting.
@@ -179,6 +188,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   gfx::Rect page_frame_;
   std::map<Profile*, Held> browsers_;
   Cleared cleared_;
+  // Made when the command bar first asks for suggestions.
+  std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;
   bool opening_tab_ = false;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;

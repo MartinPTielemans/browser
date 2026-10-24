@@ -178,6 +178,22 @@ void host_show_overlay(void) {
   });
 }
 
+void host_set_overlay_height(double height) {
+  // After the UI's update that asked, since the overlay draws at its new size here.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_overlay || NSHeight(g_overlay.frame) == height) {
+      return;
+    }
+    NSRect frame = g_overlay.frame;
+    // Keeping its top edge, so the rows grow down from the input.
+    [g_overlay setFrame:NSMakeRect(NSMinX(frame), NSMaxY(frame) - height, NSWidth(frame), height)
+                display:NO];
+    [g_overlay_view.layer setNeedsDisplay];
+    [g_overlay_view.layer displayIfNeeded];
+    fprintf(stderr, "browser: command bar height %.0f\n", height);
+  });
+}
+
 void host_hide_overlay(void) {
   if (!g_overlay_shown) {
     return;

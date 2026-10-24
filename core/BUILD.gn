@@ -28,6 +28,8 @@ source_set("browser_core") {
     "session.h",
     "space.cc",
     "space.h",
+    "suggest.cc",
+    "suggest.h",
     "tab.cc",
     "tab.h",
     "window.cc",
