@@ -105,6 +105,8 @@ impl Browser for Fake {
 
     fn undo_clear(&self, _: &mut App) {}
 
+    fn reopen_closed_tab(&self, _: &mut App) {}
+
     // The made-up pages have no history to go through.
     fn back_to_pinned_url(&self, _: u64, _: &mut App) {}
 

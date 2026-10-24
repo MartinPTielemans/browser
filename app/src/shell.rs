@@ -142,6 +142,8 @@ pub enum Command {
     NewTab,
     EditUrl,
     CloseTab,
+    /// Reopens the Today tab closed last.
+    ReopenClosedTab,
     NextTab,
     PreviousTab,
     /// The tab at this index in sidebar order.
@@ -176,6 +178,7 @@ pub enum Command {
 const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-t", Command::NewTab, true),
     ("cmd-w", Command::CloseTab, true),
+    ("shift-cmd-t", Command::ReopenClosedTab, true),
     ("cmd-q", Command::Quit, true),
     ("alt-cmd-down", Command::NextTab, true),
     ("alt-cmd-up", Command::PreviousTab, true),
@@ -230,6 +233,7 @@ impl Command {
             Command::NewTab => "new-tab",
             Command::EditUrl => "edit-url",
             Command::CloseTab => "close-tab",
+            Command::ReopenClosedTab => "reopen-closed-tab",
             Command::NextTab => "next-tab",
             Command::PreviousTab => "previous-tab",
             Command::SelectTab(_) => "select-tab",
@@ -336,6 +340,8 @@ pub trait Browser {
     fn clear(&self, cx: &mut App);
     /// Brings back the tabs the last clear closed.
     fn undo_clear(&self, cx: &mut App);
+    /// Reopens the Today tab closed last, and shows it.
+    fn reopen_closed_tab(&self, cx: &mut App);
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
@@ -657,6 +663,7 @@ impl Shell {
             }
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::Clear => return self.clear(cx),
+            Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
             Command::Reload => return self.browser.reload(self.selected, false, cx),

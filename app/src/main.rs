@@ -166,6 +166,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_undo_clear(WINDOW.get()) };
     }
 
+    fn reopen_closed_tab(&self, _: &mut App) {
+        unsafe { bc::bc_window_reopen_closed_tab(WINDOW.get()) };
+    }
+
     fn go_back(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_go_back(tab) };
     }
