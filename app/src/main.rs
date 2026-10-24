@@ -154,6 +154,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_set_pinned(tab, pinned) };
     }
 
+    fn back_to_pinned_url(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_back_to_pinned_url(tab) };
+    }
+
     fn go_back(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_go_back(tab) };
     }
@@ -449,6 +453,7 @@ unsafe extern "C" fn tab_state_changed(
         can_go_forward: state.can_go_forward,
         loading: state.loading,
         unloaded: state.unloaded,
+        away_from_pinned_url: state.away_from_pinned_url,
     };
     update_shell(|shell, cx| shell.set_page(tab, page, cx));
 }

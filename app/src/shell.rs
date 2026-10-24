@@ -136,6 +136,8 @@ pub enum Command {
     SelectLastTab,
     /// Pins the selected tab, or unpins it.
     TogglePin,
+    /// Loads the selected pinned tab's pinned URL.
+    BackToPinnedUrl,
     Find,
     FindNext,
     FindPrevious,
@@ -166,6 +168,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("alt-cmd-left", Command::PreviousSpace, true),
     ("cmd-l", Command::EditUrl, false),
     ("cmd-d", Command::TogglePin, false),
+    ("cmd-enter", Command::BackToPinnedUrl, false),
     ("cmd-f", Command::Find, false),
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
@@ -216,6 +219,7 @@ impl Command {
             Command::SelectTab(_) => "select-tab",
             Command::SelectLastTab => "select-last-tab",
             Command::TogglePin => "toggle-pin",
+            Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::Find => "find",
             Command::FindNext => "find-next",
             Command::FindPrevious => "find-previous",
@@ -308,6 +312,8 @@ pub trait Browser {
     fn close(&self, tab: u64, cx: &mut App);
     /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
+    /// Loads a pinned tab's pinned URL, unless it's there already.
+    fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
@@ -339,6 +345,8 @@ pub struct Page {
     /// The page isn't loaded, as in a tab put back and not yet shown, or a pinned tab closed. It
     /// loads once it's shown.
     pub unloaded: bool,
+    /// The tab is pinned, and its page isn't the one it was pinned at.
+    pub away_from_pinned_url: bool,
 }
 
 #[derive(Default)]
@@ -387,6 +395,8 @@ pub struct Shell {
     tabs: HashMap<u64, Tab>,
     selected: u64,
     hovered: Option<Row>,
+    /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
+    hovered_favicon: Option<u64>,
     page_fullscreen: bool,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
@@ -408,6 +418,7 @@ impl Shell {
             tabs: HashMap::new(),
             selected: 0,
             hovered: None,
+            hovered_favicon: None,
             page_fullscreen: false,
             switching: None,
             background_pressed: false,
@@ -572,6 +583,9 @@ impl Shell {
         if page.unloaded != entry.page.unloaded {
             eprintln!("browser: page {tab} unloaded {}", flag(page.unloaded));
         }
+        if page.away_from_pinned_url != entry.page.away_from_pinned_url {
+            eprintln!("browser: page {tab} away {}", flag(page.away_from_pinned_url));
+        }
         entry.page = page;
         cx.notify();
     }
@@ -611,6 +625,7 @@ impl Shell {
                 }
                 return;
             }
+            Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
             Command::Reload => return self.browser.reload(self.selected, false, cx),
@@ -911,13 +926,16 @@ impl Shell {
         // A pinned tab closed already has nothing to close.
         let closable = !(page.unloaded && self.pinned().contains(&tab));
         let hovered = self.hovered == Some(Row::Tab(tab));
+        // Away from its pinned URL, a pinned tab's favicon is a way back.
+        let away = page.away_from_pinned_url;
+        let back = away && self.hovered_favicon == Some(tab);
         let title = div()
             .flex_1()
             .min_w_0()
             .truncate()
             .text_size(px(14.))
             .text_color(rgb(TITLE))
-            .child(self.title(tab));
+            .child(if back { "Back to Pinned URL".into() } else { self.title(tab) });
         // The close button shows under the pointer, and the title truncates before it.
         let close = div()
             .id(("close", tab))
@@ -947,6 +965,11 @@ impl Shell {
             .when(hovered && closable, |label| label.child(close))
             .when(!hovered && loading, |label| label.child(loading_ring(tab)));
         let icon = match self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()) {
+            _ if back => svg()
+                .path("icons/arrow-left.svg")
+                .size(px(FAVICON_DRAWN))
+                .text_color(rgba(NAV))
+                .into_any_element(),
             Some(favicon) => img(favicon).size(px(FAVICON_DRAWN)).into_any_element(),
             None => svg()
                 .path("icons/globe.svg")
@@ -955,7 +978,27 @@ impl Shell {
                 .into_any_element(),
         };
         let icon = div()
-            .when(page.unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+            .id(("favicon", tab))
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(page.unloaded && !back, |icon| icon.opacity(SLEEPING_FAVICON))
+            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
+                if *hovered {
+                    shell.hovered_favicon = Some(tab);
+                } else if shell.hovered_favicon == Some(tab) {
+                    shell.hovered_favicon = None;
+                }
+                cx.notify();
+            }))
+            // The row's click selects the tab after this one.
+            .when(away, |icon| {
+                icon.on_click(cx.listener(move |shell, _, _, cx| {
+                    eprintln!("browser: command back-to-pinned-url via sidebar");
+                    shell.browser.back_to_pinned_url(tab, cx);
+                }))
+            })
             .child(icon);
         self.row(Row::Tab(tab), icon, label, cx)
             .on_click(cx.listener(move |shell, _, _, cx| {

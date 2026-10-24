@@ -51,6 +51,9 @@ typedef struct bc_tab_state {
   // The tab has no page loaded, as a tab put back and not yet shown, or a pinned tab closed. It
   // loads once it's shown.
   bool unloaded;
+  // The tab is pinned, and its page isn't the one it was pinned at. bc_tab_back_to_pinned_url
+  // goes back there.
+  bool away_from_pinned_url;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -231,9 +234,12 @@ BC_EXPORT void bc_tab_find(bc_id tab, const char* text, bool forward);
 // tab_find_changed.
 BC_EXPORT void bc_tab_find_close(bc_id tab);
 
-// Pins the tab in its Space, at the bottom of the pinned tabs, or unpins it to the top of the Today
-// tabs. Then space_changed.
+// Pins the tab in its Space at the page it's at, at the bottom of the pinned tabs, or unpins it to
+// the top of the Today tabs. Then space_changed and tab_state_changed.
 BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
+
+// Loads a pinned tab's pinned URL, unless it's there already. Then tab_state_changed.
+BC_EXPORT void bc_tab_back_to_pinned_url(bc_id tab);
 
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed. The
 // window stays open without it. A pinned tab stays in its Space instead, and only its page goes: a
