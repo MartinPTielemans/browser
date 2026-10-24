@@ -36,7 +36,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Default width | MVP | 228 | Arc ax |
 | [ ] | Width range | MVP | measure (Ardia 160–400); rubber-band; saved; double-click resets | Ardia, Dia P§4 |
 | [ ] | Header row centre | MVP | traffic lights 24, buttons 23.5 below the window top | Arc ax |
-| [ ] | Header hover plates | MVP | 32 × 32, top 7.5, white ≈ 0.09, radius 6; only the plate clicks | Arc ax, cap, Arc (Ardia) |
+| [ ] | Header hover plates | MVP | 32 × 32, top 7.5, white 0.077, radius 6; only the plate clicks | Arc ax, cap, Arc (Ardia) |
 | [ ] | Sidebar button, back, forward, reload positions | MVP | 32 wide at x 77, 122, 156, 190 | Arc ax |
 | [ ] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
 | [ ] | Disabled nav glyph | MVP | about half brightness; reload becomes ✕ while loading | Dia 1.52 cap, Arc cap |
@@ -56,18 +56,18 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25 | Dia cap, Ardia |
-| [ ] | Clear divider line | MVP | 0.5 pt white ≈ 0.11, inset 18, 7.5 under the last pinned row; stops 7.5 before the arrow | Arc cap |
+| [ ] | Clear divider line | MVP | 0.5 pt white 0.15, inset 18, 7.5 under the last pinned row; stops 7.5 before the arrow | Arc cap |
 | [ ] | Clear label and arrow | MVP | only while the pointer is over the sidebar; ends at 216; arrow 7 × 8, 3 pt before "Clear", semibold ≈ 10 pt | Arc cap, Arc (Ardia) |
 | [ ] | Row pitch / height | MVP | 41 / 40; plate 36 tall, 2 in | Arc ax, cap |
 | [ ] | Row plate inset and radius | MVP | 8 from each side; ≈ 12 | Arc cap |
 | [ ] | Row favicon and title | MVP | favicon 18 × 18 at x 17, 11 below the row top; title at x 43 (folder + 16), 13 pt, trailing fade | Arc ax, Dia 1.50.1 bin |
-| [ ] | Row states | MVP | hover white 0.16, pressed 0.31, selected #121212 0.5 + 0.5 pt white 0.15 hairline, unselected 0.06 | Dia asset catalogs |
+| [ ] | Row states | MVP | no fill at rest; hover P3 #FAFBFF 0.10, pressed 0.065, selected 0.20, no hairline; titles the Space-tinted white, undimmed | Arc 1.170 tokens, cap |
 | [ ] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
 | [ ] | Row fill change | MVP | hover 300 ms ease-out *interim*; the selection moves in one frame | Dia 1.50.1 bin, Arc rec |
 | [ ] | Close ✕ | MVP | on hover, the selected row too; 26 × 26 at x 189, 7 below the row top | Arc ax |
 | [ ] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
 | [ ] | Sleeping tab | MVP | faded favicon (alpha: measure) | Dia |
-| [ ] | "+ New Tab" row | MVP | Today's first row; label white 0.55, plus 0.25 | Arc ax, Dia 1.50.1 bin |
+| [ ] | "+ New Tab" row | MVP | Today's first row; label white 0.45, plus ≈ 0.5 | Arc ax, cap |
 | [ ] | Scroll edge | MVP | 1 pt P3 white 0.09 at favorites + 4; fades 100 ms cubic-bezier(0.25, 0.46, 0.45, 0.94) | Dia 1.53.0 bin |
 | [ ] | Open tab motion | MVP | top of Today, selected at once; its fill fades in and the rows below slide on the List spring (0.13 s / ζ 0.9) | Arc rec |
 | [ ] | Close tab motion | MVP | selects the next row down at once; the closed row fades out in place and the rows below slide up over it, both on the List spring | Arc rec |
@@ -82,7 +82,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | ⌘S show (hidden) | MVP | ease-out cubic 100 ms | Arc rec ×3 |
 | [ ] | Sidebar reveal in | MVP | spring 0.175 s / ζ 0.80, no fade, starting ≈ 100 ms after the pointer reaches the edge | Arc rec ×3 |
 | [ ] | Sidebar reveal out | MVP | spring 0.175 s / ζ 0.76, at once | Arc rec ×3 |
-| [ ] | Reveal panel | MVP | 228 × 939 at (5, 5), contents 5 right and down, 0.5 pt light border, shadow ≈ 11 | Arc ax, cap, Arc (Ardia) |
+| [ ] | Reveal panel | MVP | 228 × 939 at (5, 5), contents 5 right and down, 1 pt white 0.30 border, shadow ≈ 11 | Arc ax, cap, bin |
 | [ ] | Reveal hold zone | MVP | 24 pt past the panel (Arc ≈ 21); trigger the full left edge | Arc (Ardia), Ardia |
 | [ ] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
 | [ ] | ⌃Tab | MVP | Dia's: switcher after 140 ms, commits on ⌃ release; a quick ⌃Tab switches with nothing drawn, as Arc's (owner, 2026-10-24) | Dia 1.50.1 bin P§2, Arc rec |
@@ -130,7 +130,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Rows | MVP | input 54; suggestions 36; favicon 16; title ≈ 15 pt; " — url" 0.5 | Dia 1.49 cap |
 | [ ] | Selected row | MVP | ≈ #5E5A5D, radius 10, inset 4 (Arc: the Space's colour) | Dia 1.49 cap, Arc cap |
 | [ ] | Bottom row | MVP | 53 tall; Go ↩ pill ≈ 92 × 29 naming the engine; no AI chip or mic | Dia 1.49 cap, Ardia |
-| [ ] | Colours | MVP | placeholder white 0.53, secondary rgba(239,244,255,0.6), caret #4A77D4, selection rgba(120,125,134,0.7) | Dia asset catalogs |
+| [ ] | Colours | MVP | placeholder white 0.53, text white 0.80 / 0.33, row hover white 0.05, caret the system accent, selection rgba(120,125,134,0.7) | Arc 1.170 tokens, Dia asset catalogs |
 | [ ] | Default match | MVP | inline match, else URL, else search; search row after the top hit | Chrome, Dia 1.49 |
 | [ ] | Stable row 0 | MVP | local only; remote rows append | Chrome O |
 | [ ] | Inline completion rules | MVP | one term, caret at end; never during IME, after delete, after paste, after whitespace | Chrome O |
