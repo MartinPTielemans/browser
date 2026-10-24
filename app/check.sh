@@ -12,12 +12,13 @@
 #      composes.
 #   3. A tab opened from the command bar goes at the top of the Space's Today tabs and shows. The
 #      command bar suggests pages from history as it's typed in, growing to fit them, with the
-#      tabs already at them, never the one shown. ↑, ↓ and ⌃N choose a row, wrapping at the ends,
-#      and ↩ or a click on a tab's row shows that tab without opening one. Typing at the end
-#      completes the text to the first row's page, which ⌫ takes back, → keeps and ↩ goes to.
-#      ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs, a tab a page opens goes under it and closing
-#      it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing
-#      the last tab leaves the Space empty, where ⌘T still works. Reports how long switches take.
+#      tabs already at them, never the one shown, and well-known sites under them. ↑, ↓ and ⌃N
+#      choose a row, wrapping at the ends, and ↩ or a click on a tab's row shows that tab without
+#      opening one. Typing at the end completes the text to the first row's page, which ⌫ takes
+#      back, → keeps and ↩ goes to. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs, a tab a page
+#      opens goes under it and closing it goes back there, and ⌘W otherwise shows the tab below,
+#      or above at the bottom. Closing the last tab leaves the Space empty, where ⌘T still works.
+#      Reports how long switches take.
 #   4. The page view keeps its margins and GPUI's view fills the window through a resize and
 #      full screen, and the window's buttons stay in the header row. A page that goes full
 #      screen takes the window with it and escape brings both back, the command bar opens in
@@ -465,6 +466,16 @@ expect '^browser: command bar go https://example.com/$' "↩ didn't go where the
 expect "^browser: loaded $c https://example.com/\$" "↩ didn't load the completion's page in the tab"
 [ "$(today)" = "$c $b $a" ] || fail "going to a page in a tab changed Today to \"$(today)\""
 
+# Well-known sites fill the rows under the profile's own, never first, so ↩ still searches.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type g
+expect '^browser: command bar suggestions "g" in [0-9.]* ms: https://duckduckgo.com/?q=g, .*https://www.google.com/, https://mail.google.com/' \
+  "the command bar didn't suggest well-known sites under the search: $(suggestions | tr '\n' ' ')"
+../tools/window-screenshot.sh "$pid" "$out/popular.png" || fail "no window to capture"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+
 switch "3 cmd" "$a"
 switch "1 cmd" "$c"
 switch "9 cmd" "$a"
@@ -534,9 +545,9 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages and their tabs and completes what's typed, keys and clicks switch, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
+echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/empty.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/empty.png"
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'

@@ -228,7 +228,8 @@ BC_EXPORT bc_id bc_window_reopen_closed_tab(bc_id window);
 
 // Lists suggestions for |text| typed in the window's command bar, as Chrome's address bar does:
 // pages from the profile's history and bookmarks, open tabs among them, and a search for |text|.
-// Nothing typed leaves the device, since search suggestions are off. Then window_suggestions, and
+// Well-known sites |text| could start fill the rows left, under those. Nothing typed leaves the
+// device, since search suggestions are off. Then window_suggestions, and
 // again as more are found. Empty text lists none. |complete| lets the first suggestion complete
 // |text|, which Chrome allows only while the user types at the end of the text: not after deleting
 // or pasting, with the caret elsewhere, or while an input method composes.

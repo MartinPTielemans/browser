@@ -6,9 +6,11 @@
 #include <vector>
 
 #include "base/functional/bind.h"
+#include "base/strings/escape.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
+#include "browser_core/popular_sites.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -21,6 +23,7 @@
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_result.h"
+#include "components/url_formatter/url_formatter.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "url/gurl.h"
 
@@ -136,6 +139,32 @@ void Suggestions::Report() {
   if (auto search = std::ranges::find_if(rows, &Row::typed_search);
       search != rows.end() && search != rows.begin()) {
     std::rotate(rows.begin() + 1, search, search + 1);
+  }
+  // Then well-known sites, in the rows Chrome's address bar leaves empty, so a new profile lists
+  // more than the search. They never go above the profile's own, or first, where ↩ goes.
+  const std::vector<PopularSite> sites =
+      rows.empty() ? std::vector<PopularSite>() : PopularSitesFor(text_);
+  for (const PopularSite& site : sites) {
+    if (rows.size() >= AutocompleteResult::GetMaxMatches()) {
+      break;
+    }
+    const GURL url(site.url);
+    const GURL stripped = Stripped(url, engines);
+    if (std::ranges::any_of(rows, [&](const Row& row) {
+          return Stripped(GURL(row.url), engines) == stripped;
+        })) {
+      continue;
+    }
+    rows.push_back({
+        .url = url.spec(),
+        .text = std::string(site.name),
+        // As Chrome shows a page's URL in its rows.
+        .detail = base::UTF16ToUTF8(url_formatter::FormatUrl(
+            url, AutocompleteMatch::GetFormatTypes(/*preserve_scheme=*/false,
+                                                   /*preserve_subdomain=*/false),
+            base::UnescapeRule::SPACES, nullptr, nullptr, nullptr)),
+        .tab = TabAt(stripped, *window, window->selected(), engines),
+    });
   }
   std::vector<bc_suggestion> suggestions;
   for (const Row& row : rows) {
