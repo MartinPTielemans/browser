@@ -68,6 +68,20 @@ typedef struct bc_find_state {
   int selected;
 } bc_find_state;
 
+// One of the command bar's suggestions, as Chrome's address bar lists them.
+typedef struct bc_suggestion {
+  // Where it goes: a page, or a search for what was typed.
+  const char* url;
+  // What its row shows: a page's title, else its URL, or the words a search is for.
+  const char* text;
+  // What follows, dimmer: the page's URL when the row shows its title, the search engine, or "".
+  const char* detail;
+  // A tab already at the page, other than the one the window shows, which the row switches to
+  // with bc_window_select. Else 0, as for the first suggestion, which goes where what was typed
+  // goes.
+  bc_id tab;
+} bc_suggestion;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -103,6 +117,11 @@ typedef struct bc_host {
   // The tab's find in page changed: its find bar opened or closed, its text changed, or the page
   // counted matches or selected another.
   void (*tab_find_changed)(void* context, bc_id tab, const bc_find_state* state);
+  // The window's suggestions for |text|, the text bc_window_suggest was last given, best first.
+  // The first goes where Chrome's address bar goes for what was typed. They come again as more
+  // are found.
+  void (*window_suggestions)(void* context, bc_id window, const char* text,
+                             const bc_suggestion* suggestions, size_t count);
   // The tab has closed, by bc_tab_close, its page, its window closing or quitting.
   void (*tab_closed)(void* context, bc_id tab);
   // The Space's tabs changed: one opened, closed, moved, pinned or unpinned. Read them with
@@ -183,8 +202,9 @@ BC_EXPORT void bc_window_show_space(bc_id window, bc_id space);
 // page keeps its distance from the window's edges as the window resizes.
 BC_EXPORT void bc_window_set_page_frame(bc_id window, bc_rect frame);
 
-// Shows |tab|, a tab in the window, at its page frame, in place of the page shown before. It takes
-// the keyboard if that page had it. Then window_selected.
+// Shows |tab|, a tab in the window, at its page frame, in place of the page shown before, and its
+// Space if the window shows another. It takes the keyboard if that page had it. Then
+// window_space_shown if the Space changed, and window_selected.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
 // Clears the Space the window shows: closes its Today tabs, as bc_tab_close does, for
@@ -202,6 +222,12 @@ BC_EXPORT void bc_window_undo_clear(bc_id window);
 // Tabs that close with their window or as the browser quits come back at the next launch instead.
 // Returns the tab, or 0 if none is closed.
 BC_EXPORT bc_id bc_window_reopen_closed_tab(bc_id window);
+
+// Lists suggestions for |text| typed in the window's command bar, as Chrome's address bar does:
+// pages from the profile's history and bookmarks, open tabs among them, and a search for |text|.
+// Nothing typed leaves the device, since search suggestions are off. Then window_suggestions, and
+// again as more are found. Empty text lists none.
+BC_EXPORT void bc_window_suggest(bc_id window, const char* text);
 
 // Opens a tab in the window, loading |url|, in the default profile, at the top of the Today tabs of
 // the Space it shows. It isn't shown until bc_window_select or bc_tab_show. Returns 0 if the window

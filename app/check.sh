@@ -10,10 +10,13 @@
 #      without one, or searches DuckDuckGo for words. Japanese input composes and commits in the
 #      page and in the command bar, where return and escape go to the input method while it
 #      composes.
-#   3. A tab opened from the command bar goes at the top of the Space's Today tabs and shows.
-#      ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs, a tab a page opens goes under it and closing
-#      it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing
-#      the last tab leaves the Space empty, where ⌘T still works. Reports how long switches take.
+#   3. A tab opened from the command bar goes at the top of the Space's Today tabs and shows. The
+#      command bar suggests pages from history as it's typed in, growing to fit them, with the
+#      tabs already at them, never the one shown. ↑, ↓ and ⌃N choose a row, wrapping at the ends,
+#      and ↩ or a click on a tab's row shows that tab without opening one. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and
+#      clicks on rows show tabs, a tab a page opens goes under it and closing it goes back there,
+#      and ⌘W otherwise shows the tab below, or above at the bottom. Closing the last tab leaves
+#      the Space empty, where ⌘T still works. Reports how long switches take.
 #   4. The page view keeps its margins and GPUI's view fills the window through a resize and
 #      full screen, and the window's buttons stay in the header row. A page that goes full
 #      screen takes the window with it and escape brings both back, the command bar opens in
@@ -380,6 +383,46 @@ open_from_bar example.org
 c=$tab
 expect_tabs "$c $b $a" "$c" "after opening two tabs"
 ../tools/window-screenshot.sh "$pid" "$out/tabs.png" || fail "no window to capture"
+
+# The command bar's last suggestions, as "<url>[ tab <id>]" a line.
+suggestions() {
+  grep '^browser: command bar suggestions' "$log" | tail -1 | sed 's/^[^:]*: [^:]* ms: //' |
+    tr -s ', ' '\n ' | sed 's/^ //'
+}
+# Opens the command bar and types "example", which suggests example.com and example.org. Waits for
+# $1's tab among them, and checks that $2's isn't, since $2 is shown.
+suggest_example() {
+  send key t cmd
+  expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+  send type example
+  expect "^browser: command bar suggestions \"example\" in [0-9.]* ms: https://duckduckgo.com/?q=example, .*https://$1/ tab " \
+    "the command bar didn't suggest $1's tab: $(suggestions | tr '\n' ' ')"
+  rows=$(suggestions | wc -l | tr -d ' ')
+  expect "^browser: command bar height $((56 + 8 + 36 * rows))\$" "the command bar didn't grow to fit $rows rows"
+  none_since "https://$2/ tab " || fail "the command bar suggested $2's tab, which is shown"
+}
+suggest_example example.com example.org
+send key up
+last=$(suggestions | tail -1 | cut -d' ' -f1)
+expect "^browser: command bar selected $last\$" "↑ on the first row didn't select the last"
+send key n ctrl
+expect '^browser: command bar selected https://duckduckgo.com/?q=example$' "⌃N on the last row didn't select the first"
+for _ in 1 2 3 4 5 6 7 8; do
+  send key down
+  grep '^browser: command bar selected' "$log" | tail -1 | grep -q ' https://example.com/$' && break
+done
+../tools/window-screenshot.sh "$pid" "$out/suggestions.png" || fail "no window to capture"
+send key return
+expect "^browser: command bar switch to tab $b\$" "↩ on example.com's row didn't switch to its tab"
+expect "^browser: selected $b\( in .*\)\{0,1\}\$" "↩ on example.com's row didn't show its tab"
+[ "$(today)" = "$c $b $a" ] || fail "switching to a tab changed Today to \"$(today)\""
+suggest_example example.org example.com
+# Rows are 36 tall, under the 56 of the input and an inset of 4.
+row=$(suggestions | grep -n "^https://example.org/ tab $c\$" | cut -d: -f1)
+send clickkey 320 $((56 + 4 + 36 * (row - 1) + 18))
+expect "^browser: command bar switch to tab $c\$" "a click on example.org's row didn't switch to its tab"
+expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on example.org's row didn't show its tab"
+[ "$(today)" = "$c $b $a" ] || fail "switching to a tab changed Today to \"$(today)\""
 
 switch "3 cmd" "$a"
 switch "1 cmd" "$c"

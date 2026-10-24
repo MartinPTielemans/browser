@@ -37,6 +37,7 @@ mod platform {
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_add_overlay(overlay_view: *mut c_void);
         pub fn host_show_overlay();
+        pub fn host_set_overlay_height(height: f64);
         pub fn host_hide_overlay();
         pub fn host_add_find_bar(find_bar_view: *mut c_void, right: f64, top: f64);
         pub fn host_show_find_bar(keyboard: bool);
@@ -527,6 +528,34 @@ unsafe extern "C" fn tab_find_changed(
     update_app(|cx| find_bar::changed(tab, find, cx));
 }
 
+unsafe extern "C" fn window_suggestions(
+    _: *mut c_void,
+    window: bc::bc_id,
+    text: *const c_char,
+    suggestions: *const bc::bc_suggestion,
+    count: usize,
+) {
+    if window != WINDOW.get() {
+        return;
+    }
+    let string = |text: *const c_char| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    let suggestions = match count {
+        0 => &[][..],
+        _ => unsafe { std::slice::from_raw_parts(suggestions, count) },
+    };
+    let rows = suggestions
+        .iter()
+        .map(|suggestion| command_bar::Suggestion {
+            url: string(suggestion.url),
+            text: string(suggestion.text).into(),
+            detail: string(suggestion.detail).into(),
+            tab: suggestion.tab,
+        })
+        .collect();
+    let text = string(text);
+    update_app(|cx| command_bar::suggested(text, rows, cx));
+}
+
 unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, fullscreen: bool) {
     let ui = UI.with_borrow(|ui| ui.as_ref().map(|(cx, shell, window)| (cx.clone(), shell.clone(), *window)));
     let Some((cx, shell, window)) = ui else {
@@ -591,6 +620,7 @@ fn main() {
         tab_favicon_changed: Some(tab_favicon_changed),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
+        window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
         ..Default::default()

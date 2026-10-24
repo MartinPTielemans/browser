@@ -31,6 +31,9 @@ void host_add_overlay(void* overlay_view);
 // Shows the overlay and gives it the keyboard.
 void host_show_overlay(void);
 
+// Makes the overlay |height| points tall, keeping its top edge, and draws it at that size.
+void host_set_overlay_height(double height);
+
 // Hides the overlay. The browser window gets the keyboard back, with the focus where it was.
 void host_hide_overlay(void);
 

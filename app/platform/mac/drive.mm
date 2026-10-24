@@ -6,6 +6,7 @@
 //
 //   click <x> <y>                         left click, in points from the window's top-left corner
 //   doubleclick <x> <y>                   two left clicks, the second with a click count of 2
+//   clickkey <x> <y>                      a left click in the key window, such as the command bar
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
 //   move <x> <y>                          moves the pointer to (x, y), without a button down
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "[", "]",
@@ -24,10 +25,10 @@
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
 //
-// Clicks, drags and scrolls go to the browser window and keys to the key window. It logs
-// "browser: drive <n>: <command>" when command n arrives and "browser: drive <n> done, key <window
-// class>, focus <view class>, active <0|1>, marked <location,length|none>" once AppKit has handled
-// its events. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
+// Clicks, drags and scrolls go to the browser window, and keys and clickkey to the key window. It
+// logs "browser: drive <n>: <command>" when command n arrives and "browser: drive <n> done, key
+// <window class>, focus <view class>, active <0|1>, marked <location,length|none>" once AppKit has
+// handled its events. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
 // background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
@@ -285,6 +286,15 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     Click(window, x, y, 1);
+    done();
+    return true;
+  }
+  if (action == "clickkey") {
+    double x, y;
+    if (!NSApp.keyWindow || !(words >> x >> y)) {
+      return false;
+    }
+    Click(NSApp.keyWindow, x, y, 1);
     done();
     return true;
   }

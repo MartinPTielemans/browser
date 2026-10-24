@@ -14,6 +14,7 @@
 #include "browser_core/platform/window_views.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
+#include "browser_core/suggest.h"
 #include "browser_core/tab.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -325,6 +326,13 @@ content::WebContents* Window::RestoreTab(
       /*extra_data=*/{}, /*from_session_restore=*/true, /*is_active_browser=*/std::nullopt);
 }
 
+void Window::Suggest(Profile* profile, const std::u16string& text) {
+  if (!suggestions_ || suggestions_->profile() != profile) {
+    suggestions_ = std::make_unique<Suggestions>(id_, profile);
+  }
+  suggestions_->Start(text);
+}
+
 content::WebContents* Window::OpenTab(Profile* profile, const GURL& url) {
   BrowserWindowInterface* browser = BrowserFor(profile);
   if (!browser) {
@@ -412,6 +420,12 @@ void Window::Select(bc_id tab) {
   if (!in || ForBrowser(in->GetBrowserWindowInterface()) != this) {
     return;
   }
+  if (Space* space = Space::Holding(tab); space && space_ && space->id() != space_) {
+    // As the tab its Space shows, so the one it showed before doesn't load on the way.
+    SetSelectedIn(space->id(), tab);
+    ShowSpace(space->id());
+    return;
+  }
   selected_ = tab;
   Show(contents, page_frame_);
   ReportSelected();
@@ -470,17 +484,7 @@ bc_id Window::ReopenClosedTab() {
   const ClosedTab closed = std::move(ClosedTabs().back());
   ClosedTabs().pop_back();
   const bc_id tab = Reopen(closed.space, closed.index, closed.saved);
-  Space* space = Space::Holding(tab);
-  if (!space) {
-    return 0;
-  }
-  if (space->id() == space_) {
-    Select(tab);
-  } else {
-    // As the tab its Space shows, so the one it showed before doesn't load on the way.
-    SetSelectedIn(space->id(), tab);
-    ShowSpace(space->id());
-  }
+  Select(tab);
   return tab;
 }
 
