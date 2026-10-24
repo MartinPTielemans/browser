@@ -230,8 +230,9 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 
 - They are rows that look like tab rows, between the Space's name and the Clear divider (Arc).
 - **Folders** (Arc). A folder row shows an open or closed folder icon and the folder's name, and its tabs sit 16 further right. Hovering it shows the name as a tooltip. Closing and opening it through the accessibility tree moves the rows below in one frame; a click's motion is still to measure (Group expand, *interim*).
-- Closing one (⌘W or ✕) unloads its page and keeps the row. With no Today tab left, ⌘W on a pinned tab shows another pinned tab whose page is still loaded. Closing the last tab closes the window (Dia rec, P§2).
-- Away from its pinned URL, the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL". A click goes back, and so does ⌘↩ (Dia 1.53.0 bin). Arc's look for a navigated-away pinned tab: measure.
+- Closing one (⌘W or ✕) unloads its page and keeps the row. With no Today tab left, ⌘W on a pinned tab shows another pinned tab whose page is still loaded. Closing the last tab closes the window (Dia rec, P§2). Arc (cap, rec ×1) selects nothing instead: in the same frame the plate goes, the card shows the Space's background and the URL field its placeholder. Ours keeps Dia's, so ⌘W lands on a page.
+- Away from its pinned URL, the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL". A click goes back, and so does ⌘↩ (Dia 1.53.0 bin). Arc's look for a pinned tab a link took away: measure.
+- A URL typed into a pinned tab (⌘L) doesn't replace its page. It opens as a new Today tab at the top, selected, and closing that tab goes back to the pinned one (Arc cap). Ours does the same: a pinned tab stays what it was pinned as.
 - A pinned tab has one live page. Selecting it in a second window moves the page there, with history and playing media intact. The first window keeps a frozen frame under a wash: white 0.40 in light mode (Dia cap), black 0.25 in dark mode (Ardia). Clicking the frozen frame pulls the page back (Dia, P§2).
 - Links ⌘-clicked in a pinned tab gather in a group just below the pinned tabs (Dia rec, P§2). Measure what Arc does: Peek covers some of these links.
 - ⌘D pins or unpins. Dragging a tab above the divider pins it, below unpins it, and onto the favorites makes it a favorite.
@@ -393,7 +394,7 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 | Key | Action | Source |
 |---|---|---|
 | ↩ | open in this tab | Chrome |
-| ⌘↩ / ⌥↩ | new tab: ⌘↩ behind and ⌥↩ in front. Arc puts the ⌘↩ tab at the top of Today and keeps the bar open for the next one. Dia: measure | Chrome; Arc cap |
+| ⌘↩ / ⌥↩ | ⌘↩ opens a tab behind, at the top of Today, and keeps the bar open for the next one. ⌥↩ opens a split pane on the right; Chrome's opens a tab in front, which ↩ from ⌘T already does. Dia: measure | Arc cap; Chrome |
 | ⇧↩ | new window | Chrome |
 | ⇧⌘↩ | search for what was typed | Dia |
 | ⌃↩ / ⌃⇧↩ | add www. and .com / the same in a new window | Chrome |
@@ -437,7 +438,7 @@ Dia's New Tab page (decision 6). The UI draws it; it is not a web page. That kee
 
 ### Split view
 
-Dia's values (P§6, D›Dragging tabs and split targets) are the targets where Arc isn't measured. In Arc (cap, ax, rec ×1), View › Add Split View (⌃⇧=) splits in one frame with no animation: the page keeps the left pane, (228, 10) 632 × 929, and the new right pane (x 870–1502) opens empty with the command bar over it, centred at x 1049 rather than on the pane or the window. A 10 pt gap separates the panes, and ⌃⇧- closes the focused one. Measure in Arc: the maximum pane count, the focus indicator and the drop zones.
+Dia's values (P§6, D›Dragging tabs and split targets) are the targets where Arc isn't measured. In Arc (cap, ax, rec ×1), View › Add Split View (⌃⇧=) splits in one frame with no animation: the page keeps the left pane, (228, 10) 632 × 929, and the new right pane (x 870–1502) opens empty with the command bar over it, centred at x 1049 rather than on the pane or the window. A 10 pt gap separates the panes, and ⌃⇧- closes the focused one. ⌥↩ in the command bar opens its URL in a new right pane the same way. The focused pane has a 2 pt border of P3 (49, 57, 251) inside its frame, with a glow of the same colour ≈ 8 pt outside it (Arc cap ×1; whether it follows the Space colour: measure). Measure in Arc: the maximum pane count, the unfocused dim and the drop zones.
 
 - **Panes.** Up to 3, side by side or stacked; a bottom split can be added. Each pane has its own nav state and close button. Unfocused panes dim (amount: measure). Commands: Flip, Change Orientation, Move Pane Left/Right, Remove from Split View, Separate All.
 - **In the sidebar.** A split is one row with a segment per pane, and it counts as one row for ⌘1–⌘9. In Arc (cap) two panes give two equal segments with a thin divider between them, each with an 18 pt favicon and a truncated title: favicons at x 33 and 129, titles at x 61 and 157, the divider at x ≈ 122, white ≈ 0.15 and 16 tall.
@@ -694,12 +695,12 @@ Arc shuts down on 2026-12-22. This is what's left to capture, by feature; what's
 | Sidebar header | The URL field focused; with two pinned extensions; the zoom indicator, which is its own window, so capture that window too |
 | Sidebar width | The minimum and maximum, by dragging to each limit (owner's hand) |
 | Favorites | Screenshots with 1, 3, 4, 6, 9 and 12 favorites at the default width and at the minimum and maximum (columns, tile size, gaps, radius, favicon size). Selected colourful, one-colour and white icons; hovered tile with its tooltip; audio playing. Favorites sync to the owner's account, so remove them afterwards |
-| Pinned tabs | A pinned tab navigated away (and hovered while away), and unloaded after ⌘W. Select it with ⌘1–⌘8: Accessibility presses don't select sidebar rows |
+| Pinned tabs | A pinned tab a link took away from its URL, and hovered while away (owner's hand: a typed URL opens a new tab instead) |
 | Today tabs | Rows pressed, loading, sleeping, playing audio, with a long title; the scroll-edge line after scrolling |
 | Sidebar hidden | The reveal panel's radius and border |
 | Spaces | The switcher with 2, 5 and 10 Spaces, with icons and without; hovered and selected; rename, colour and icon flows; the profile picker; a Space whose profile differs. Answer: do favorites follow the Space or the profile? |
-| Command bar | ⌥↩ on a typed host, from a closed bar (⌘T while the bar is open closes it). Answer: whether the pointer highlights a row (one capture showed none) |
-| Split view | 3 and 4 panes, side by side and stacked; the focused-pane indicator; the unfocused dim; drop zones while a tab is dragged over the page (owner's hand) |
+| Command bar | Answer: whether the pointer highlights a row (one capture showed none) |
+| Split view | 3 and 4 panes, side by side and stacked; the focused pane's border in another Space colour; the unfocused dim; drop zones while a tab is dragged over the page (owner's hand) |
 | Archive | Searching the archive, restoring a tab from it |
 | Profiles | Profile settings, creating a profile, an incognito window |
 | Extensions | Where pinned extensions sit, an extension popup anchored, the install prompt for a throwaway Web Store extension, the remove confirmation, Arc's site-controls panel |
@@ -719,7 +720,6 @@ Record at 120 fps on a ProMotion display, 60 fps at the least. Use each frame's 
 
 | Feature | Record | Time |
 |---|---|---|
-| Sidebar | Closing a pinned tab | what the row does |
 | Sidebar | Dragging a row past three neighbours, into favorites and back (owner's hand) | neighbour spring; drop settle |
 | Sidebar | Hovering a favorite, then moving to the next | show delay, leave delay, tooltip motion |
 | Sidebar | Folder expand and collapse by a click (owner's hand; Accessibility toggles it in one frame) | spring |

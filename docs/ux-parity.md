@@ -55,6 +55,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Pinned tabs section | MVP | rows between the Space's name and the Clear divider | Arc ax |
 | [ ] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |
+| [ ] | URL typed into a pinned tab | MVP | opens a new Today tab at the top; closing it goes back to the pinned tab | Arc cap |
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25 | Dia cap, Ardia |
 | [ ] | Clear divider line | MVP | 0.5 pt white 0.15, inset 18, 7.5 under the last pinned row; stops 7.5 before the arrow | Arc cap |
 | [ ] | Clear label and arrow | MVP | only while the pointer is over the sidebar; ends at 216; arrow 7 × 8, 3 pt before "Clear", semibold ≈ 10 pt | Arc cap, Arc (Ardia) |
@@ -137,7 +138,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Inline eligibility | MVP | typed ≥ 1 host / ≥ 2 deeper | Chrome O |
 | [ ] | Site search | MVP | Tab when hinted (Arc: "Search Wikipedia" and a Tab key at the field's right), Space after exact host; ⌫ in empty leaves and restores | Chrome O, Arc cap |
 | [ ] | Keys | MVP | ↩, ⌘↩, ⌥↩, ⇧↩, ⇧⌘↩, ⌃↩, ⌃⇧↩, ↑↓ wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Chrome, Dia O |
-| [ ] | ⌘↩ | MVP | a background tab at the top of Today; the bar stays open | Arc cap |
+| [ ] | ⌘↩ / ⌥↩ | MVP | ⌘↩ a background tab at the top of Today, the bar stays open; ⌥↩ a split pane on the right | Arc cap |
 | [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms) | Ardia P§7 |
 | [ ] | Click outside | MVP | closes and still acts | AGENTS.md |
 | [ ] | Switch to Tab rows | MVP | across windows, never the current tab | Dia, O |
@@ -169,7 +170,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 |---|---|---|---|---|
 | [ ] | Panes | MVP | up to 3, horizontal or vertical *interim*; Arc max: measure | Dia P§6 |
 | [ ] | Adding a pane | MVP | in one frame; the new pane opens empty under the command bar; 10 between panes | Arc cap, ax, rec |
-| [ ] | Focus indicator, unfocused dim | MVP | measure | — |
+| [ ] | Focus indicator, unfocused dim | MVP | 2 pt border of P3 (49, 57, 251) inside the pane, ≈ 8 pt glow outside; dim: measure | Arc cap |
 | [ ] | Keys | MVP | ⌃⇧= add, ⌃⇧- close; ⌃⇧] / ⌃⇧[ focus *interim* | Arc menus, Dia |
 | [ ] | ⌥-click + New Tab; ⌥⇧-click link | MVP | split New Tab; right pane | Dia P§6 |
 | [ ] | Sidebar row | MVP | one row, equal segments with a thin divider, each a favicon 18 and a truncated title | Dia, Arc cap |
