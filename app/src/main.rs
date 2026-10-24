@@ -150,6 +150,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_close(tab) };
     }
 
+    fn set_pinned(&self, tab: u64, pinned: bool, _: &mut App) {
+        unsafe { bc::bc_tab_set_pinned(tab, pinned) };
+    }
+
     fn go_back(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_go_back(tab) };
     }
@@ -398,11 +402,15 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
 }
 
 unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
-    let count = unsafe { bc::bc_space_today(space, std::ptr::null_mut(), 0) };
-    let mut today = vec![0; count];
-    let count = unsafe { bc::bc_space_today(space, today.as_mut_ptr(), today.len()) };
-    today.truncate(count);
-    update_shell(|shell, cx| shell.set_today(space, today, cx));
+    let list = |copy: unsafe extern "C" fn(bc::bc_id, *mut bc::bc_id, usize) -> usize| {
+        let count = unsafe { copy(space, std::ptr::null_mut(), 0) };
+        let mut tabs = vec![0; count];
+        let count = unsafe { copy(space, tabs.as_mut_ptr(), tabs.len()) };
+        tabs.truncate(count);
+        tabs
+    };
+    let (pinned, today) = (list(bc::bc_space_pinned), list(bc::bc_space_today));
+    update_shell(|shell, cx| shell.set_tabs(space, pinned, today, cx));
 }
 
 unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space: bc::bc_id) {
@@ -440,6 +448,7 @@ unsafe extern "C" fn tab_state_changed(
         can_go_back: state.can_go_back,
         can_go_forward: state.can_go_forward,
         loading: state.loading,
+        unloaded: state.unloaded,
     };
     update_shell(|shell, cx| shell.set_page(tab, page, cx));
 }

@@ -7,6 +7,7 @@
 //   click <x> <y>                         left click, in points from the window's top-left corner
 //   doubleclick <x> <y>                   two left clicks, the second with a click count of 2
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
+//   move <x> <y>                          moves the pointer to (x, y), without a button down
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "[", "]",
 //                                         return, escape, tab, space, up, down, left or right
 //   type <text>                           lowercase letters, dots and spaces
@@ -305,6 +306,28 @@ bool Run(const std::string& line, void (^done)(void)) {
     PostMouse(window, NSEventTypeLeftMouseDown, x, y, 1);
     PostMouse(window, NSEventTypeLeftMouseDragged, x2, y2, 1);
     PostMouse(window, NSEventTypeLeftMouseUp, x2, y2, 1);
+    done();
+    return true;
+  }
+  if (action == "move") {
+    double x, y;
+    if (!(words >> x >> y)) {
+      return false;
+    }
+    // AppKit hands moves to tracking areas, where views such as GPUI's hear them, only for the
+    // window server's events, so this one goes to the view under the pointer itself.
+    NSEvent* move = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
+                                       location:NSMakePoint(x, NSHeight(window.frame) - y)
+                                  modifierFlags:0
+                                      timestamp:NSProcessInfo.processInfo.systemUptime
+                                   windowNumber:window.windowNumber
+                                        context:nil
+                                    eventNumber:0
+                                     clickCount:0
+                                       pressure:0];
+    NSView* content = window.contentView;
+    [[content hitTest:[content.superview convertPoint:move.locationInWindow fromView:nil]]
+        mouseMoved:move];
     done();
     return true;
   }

@@ -95,7 +95,8 @@ void bc_space_set_name(bc_id id, const char* name) {
 
 bool bc_space_delete(bc_id id) {
   browser_core::Space* space = browser_core::Space::FromId(id);
-  if (!space || !space->today().empty() || browser_core::Space::All().size() < 2) {
+  if (!space || !space->pinned().empty() || !space->today().empty() ||
+      browser_core::Space::All().size() < 2) {
     return false;
   }
   browser_core::Window::OnSpaceDeleting(id);
@@ -111,6 +112,16 @@ size_t bc_space_today(bc_id id, bc_id* tabs, size_t capacity) {
   const std::vector<bc_id>& today = space->today();
   std::copy_n(today.begin(), std::min(capacity, today.size()), tabs);
   return today.size();
+}
+
+size_t bc_space_pinned(bc_id id, bc_id* tabs, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  if (!space) {
+    return 0;
+  }
+  const std::vector<bc_id>& pinned = space->pinned();
+  std::copy_n(pinned.begin(), std::min(capacity, pinned.size()), tabs);
+  return pinned.size();
 }
 
 void bc_window_show_space(bc_id window_id, bc_id space) {
@@ -227,7 +238,17 @@ void bc_tab_find_close(bc_id id) {
   }
 }
 
+void bc_tab_set_pinned(bc_id id, bool pinned) {
+  if (browser_core::Space* space = browser_core::Space::Holding(id)) {
+    space->SetPinned(id, pinned);
+  }
+}
+
 void bc_tab_close(bc_id id) {
+  if (browser_core::Space* space = browser_core::Space::Holding(id); space && space->IsPinned(id)) {
+    browser_core::Window::UnloadPinned(id);
+    return;
+  }
   content::WebContents* contents = browser_core::Tab::FromId(id);
   tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   if (!tab) {

@@ -46,9 +46,10 @@ struct SavedTab {
 
 struct SavedSpace {
   std::string name;
-  // Top to bottom.
+  // Each top to bottom.
+  std::vector<SavedTab> pinned;
   std::vector<SavedTab> today;
-  // The tab the window showed there, or -1.
+  // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
   int shown = -1;
 };
 
@@ -99,16 +100,21 @@ Saved Collect() {
     SavedSpace& to = saved.spaces.emplace_back();
     to.name = space->name();
     const bc_id shown = window ? window->SelectedIn(space->id()) : 0;
-    for (bc_id id : space->today()) {
-      content::WebContents* contents = Tab::FromId(id);
-      SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
-      if (tab.history.empty()) {
-        continue;
+    int index = 0;
+    for (auto [ids, tabs] : {std::pair(&space->pinned(), &to.pinned),
+                             std::pair(&space->today(), &to.today)}) {
+      for (bc_id id : *ids) {
+        content::WebContents* contents = Tab::FromId(id);
+        SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
+        if (tab.history.empty()) {
+          continue;
+        }
+        if (id == shown) {
+          to.shown = index;
+        }
+        tabs->push_back(std::move(tab));
+        ++index;
       }
-      if (id == shown) {
-        to.shown = to.today.size();
-      }
-      to.today.push_back(std::move(tab));
     }
   }
   return saved;
@@ -116,22 +122,25 @@ Saved Collect() {
 
 // The file holds JSON, with each navigation in Chrome's own pickle, as its sessions write it.
 std::optional<std::string> ToJson(const Saved& saved) {
-  base::ListValue spaces;
-  for (const SavedSpace& space : saved.spaces) {
-    base::ListValue today;
-    for (const SavedTab& tab : space.today) {
+  const auto to_list = [](const std::vector<SavedTab>& tabs) {
+    base::ListValue list;
+    for (const SavedTab& tab : tabs) {
       base::ListValue history;
       for (const sessions::SerializedNavigationEntry& navigation : tab.history) {
         base::Pickle pickle;
         navigation.WriteToPickle(kMaxNavigationSize, &pickle);
         history.Append(base::Base64Encode(pickle.AsBytes()));
       }
-      today.Append(
-          base::DictValue().Set("history", std::move(history)).Set("current", tab.current));
+      list.Append(base::DictValue().Set("history", std::move(history)).Set("current", tab.current));
     }
+    return list;
+  };
+  base::ListValue spaces;
+  for (const SavedSpace& space : saved.spaces) {
     spaces.Append(base::DictValue()
                       .Set("name", space.name)
-                      .Set("today", std::move(today))
+                      .Set("pinned", to_list(space.pinned))
+                      .Set("today", to_list(space.today))
                       .Set("shown", space.shown));
   }
   return base::WriteJson(
@@ -187,15 +196,23 @@ std::optional<Saved> Read(const base::FilePath& path) {
     SavedSpace& to = saved.spaces.emplace_back();
     to.name = *name;
     const int shown = space->FindInt("shown").value_or(-1);
-    for (size_t i = 0; i < today->size(); ++i) {
-      std::optional<SavedTab> tab = ReadTab((*today)[i]);
-      if (!tab) {
-        continue;
+    // Saved before Spaces had pinned tabs, it has none.
+    const base::ListValue no_pinned;
+    const base::ListValue* pinned = space->FindList("pinned");
+    int index = 0;
+    int kept = 0;
+    for (auto [list, tabs] : {std::pair(pinned ? pinned : &no_pinned, &to.pinned),
+                              std::pair(today, &to.today)}) {
+      for (const base::Value& value : *list) {
+        std::optional<SavedTab> tab = ReadTab(value);
+        if (index++ == shown && tab) {
+          to.shown = kept;
+        }
+        if (tab) {
+          tabs->push_back(std::move(*tab));
+          ++kept;
+        }
       }
-      if (static_cast<int>(i) == shown) {
-        to.shown = to.today.size();
-      }
-      to.today.push_back(std::move(*tab));
     }
   }
   if (saved.spaces.empty()) {
@@ -322,19 +339,29 @@ bool RestoreSession(Window& window) {
     if (static_cast<int>(i) == saved->shown) {
       shown = space->id();
     }
-    // Bottom up, as each goes at the top.
-    for (size_t j = saved_space.today.size(); j-- > 0;) {
-      const SavedTab& saved_tab = saved_space.today[j];
+    const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
       content::WebContents* contents =
           window.RestoreTab(profile, saved_tab.history, saved_tab.current);
       if (!contents) {
-        continue;
+        return 0;
       }
       const bc_id tab = Tab::IdOf(contents);
       Tab::FromWebContents(contents)->Restored();
-      space->Add(tab, /*opener=*/0, /*foreground=*/false);
-      if (static_cast<int>(j) == saved_space.shown) {
+      if (index == saved_space.shown) {
         window.SetSelectedIn(space->id(), tab);
+      }
+      return tab;
+    };
+    const int pinned = static_cast<int>(saved_space.pinned.size());
+    for (int j = 0; j < pinned; ++j) {
+      if (bc_id tab = restore(saved_space.pinned[j], j)) {
+        space->AddPinned(tab);
+      }
+    }
+    // Bottom up, as each goes at the top.
+    for (size_t j = saved_space.today.size(); j-- > 0;) {
+      if (bc_id tab = restore(saved_space.today[j], pinned + static_cast<int>(j))) {
+        space->Add(tab, /*opener=*/0, /*foreground=*/false);
       }
     }
   }

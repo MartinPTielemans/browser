@@ -19,7 +19,7 @@ unsafe extern "C" {
     fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
 }
 
-// Two Spaces, so the switcher shows. The tabs are in the first.
+// Two Spaces, so the switcher shows. The tabs are in the first, the top two pinned.
 const SPACES: [&str; 2] = ["Space 1", "Reading"];
 const TABS: [(&str, &str); 5] = [
     (
@@ -69,10 +69,26 @@ impl Browser for Fake {
             };
             today.remove(index);
             let next = today.get(index).or(today.last()).copied().unwrap_or(0);
-            shell.set_today(shell.space(), today, cx);
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
             if shell.selected() == tab {
                 shell.set_selected(next, cx);
             }
+        });
+    }
+
+    // As the core does: pinned at the bottom of the pinned tabs, unpinned at the top of Today.
+    fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let mut tabs = [shell.pinned().to_vec(), shell.today().to_vec()];
+            let (from, to) = if pinned { (1, 0) } else { (0, 1) };
+            let Some(index) = tabs[from].iter().position(|&id| id == tab) else {
+                return;
+            };
+            tabs[from].remove(index);
+            let at = if pinned { tabs[to].len() } else { 0 };
+            tabs[to].insert(at, tab);
+            let [pinned, today] = tabs;
+            shell.set_tabs(shell.space(), pinned, today, cx);
         });
     }
 
@@ -95,7 +111,7 @@ impl Browser for Fake {
         self.later(cx, move |shell, cx| {
             let mut today = shell.today().to_vec();
             today.insert(0, tab);
-            shell.set_today(shell.space(), today, cx);
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
             shell.set_selected(tab, cx);
         });
     }
@@ -109,7 +125,7 @@ impl Browser for Fake {
     fn show_space(&self, space: u64, cx: &mut App) {
         self.later(cx, move |shell, cx| {
             shell.set_space(space, cx);
-            let top = shell.today().first().copied().unwrap_or(0);
+            let top = shell.today().first().or(shell.pinned().first()).copied().unwrap_or(0);
             shell.set_selected(top, cx);
         });
     }
@@ -183,15 +199,17 @@ fn main() {
                     shell.set_title(tab, (*title).into(), cx);
                     let page = Page {
                         url: (*url).into(),
-                        // The first tab has been somewhere before, so back shows bright, and the
-                        // third is still loading.
+                        // The first tab has been somewhere before, so back shows bright, the second
+                        // is a pinned tab closed, and the third is still loading.
                         can_go_back: index == 0,
+                        unloaded: index == 1,
                         loading: index == 2,
                         ..Default::default()
                     };
                     shell.set_page(tab, page, cx);
                 }
-                shell.set_today(first_space, (1..=TABS.len() as u64).collect(), cx);
+                let pinned = vec![1, 2];
+                shell.set_tabs(first_space, pinned, (3..=TABS.len() as u64).collect(), cx);
                 shell.set_selected(1, cx);
                 shell
             });

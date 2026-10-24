@@ -59,6 +59,10 @@ const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
 const CLOSE_SIZE: f32 = 26.;
 const CLOSE_X: f32 = 189.;
+// The Clear divider, under the pinned tabs. Its line's centre is 25 pt above the centre of the first
+// row under it.
+const DIVIDER_HEIGHT: f32 = 15.;
+const DIVIDER_LINE_Y: f32 = DIVIDER_HEIGHT - (25. - ROW_HEIGHT / 2.);
 // The footer's Space switcher, between where Arc has its Home and + buttons.
 const FOOTER_HEIGHT: f32 = 50.;
 const SWITCHER_LEFT: f32 = 42.;
@@ -95,6 +99,10 @@ const SECONDARY: u32 = 0xffffff99;
 const URL_FIELD: u32 = 0xffffff1a;
 const NEW_TAB: u32 = 0xffffff73;
 const NEW_TAB_PLUS: u32 = 0xffffff80;
+// The Clear divider's line, white 0.08 (Arc).
+const DIVIDER: u32 = 0xffffff14;
+// A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
+const SLEEPING_FAVICON: f32 = 0.5;
 // The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
 // forward with nowhere to go, over a hover plate of white 0.077.
 const NAV: u32 = 0xffffff99;
@@ -126,6 +134,8 @@ pub enum Command {
     /// The tab at this index in sidebar order.
     SelectTab(usize),
     SelectLastTab,
+    /// Pins the selected tab, or unpins it.
+    TogglePin,
     Find,
     FindNext,
     FindPrevious,
@@ -155,6 +165,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("alt-cmd-right", Command::NextSpace, true),
     ("alt-cmd-left", Command::PreviousSpace, true),
     ("cmd-l", Command::EditUrl, false),
+    ("cmd-d", Command::TogglePin, false),
     ("cmd-f", Command::Find, false),
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
@@ -204,6 +215,7 @@ impl Command {
             Command::PreviousTab => "previous-tab",
             Command::SelectTab(_) => "select-tab",
             Command::SelectLastTab => "select-last-tab",
+            Command::TogglePin => "toggle-pin",
             Command::Find => "find",
             Command::FindNext => "find-next",
             Command::FindPrevious => "find-previous",
@@ -292,7 +304,10 @@ impl AssetSource for Assets {
 /// during the call.
 pub trait Browser {
     fn select(&self, tab: u64, cx: &mut App);
+    /// Closes a Today tab. A pinned tab stays, and only its page goes.
     fn close(&self, tab: u64, cx: &mut App);
+    /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
+    fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
@@ -321,6 +336,9 @@ pub struct Page {
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub loading: bool,
+    /// The page isn't loaded, as in a tab put back and not yet shown, or a pinned tab closed. It
+    /// loads once it's shown.
+    pub unloaded: bool,
 }
 
 #[derive(Default)]
@@ -334,7 +352,8 @@ struct Tab {
 struct Space {
     id: u64,
     name: SharedString,
-    /// Its Today tabs, top to bottom.
+    /// Its pinned tabs and its Today tabs, each top to bottom.
+    pinned: Vec<u64>,
     today: Vec<u64>,
 }
 
@@ -395,6 +414,11 @@ impl Shell {
         }
     }
 
+    /// The pinned tabs of the Space shown.
+    pub fn pinned(&self) -> &[u64] {
+        self.shown_space().map_or(&[], |space| &space.pinned)
+    }
+
     /// The Today tabs of the Space shown.
     pub fn today(&self) -> &[u64] {
         self.shown_space().map_or(&[], |space| &space.today)
@@ -423,13 +447,22 @@ impl Shell {
             .map(|(id, name)| {
                 let Some(space) = old.iter_mut().find(|space| space.id == id) else {
                     eprintln!("browser: added space {id} {name}");
-                    return Space { id, name, today: Vec::new() };
+                    return Space {
+                        id,
+                        name,
+                        pinned: Vec::new(),
+                        today: Vec::new(),
+                    };
                 };
                 if space.name != name {
                     eprintln!("browser: renamed space {id} {name}");
                 }
-                let today = std::mem::take(&mut space.today);
-                Space { id, name, today }
+                Space {
+                    id,
+                    name,
+                    pinned: std::mem::take(&mut space.pinned),
+                    today: std::mem::take(&mut space.today),
+                }
             })
             .collect();
         if let Some(form) = &self.form
@@ -454,21 +487,28 @@ impl Shell {
             _ => eprintln!("browser: space {space}"),
         }
         self.space = space;
-        self.log_today();
+        self.log_tabs();
         if self.form().is_some() {
             self.focus_form(cx);
         }
         cx.notify();
     }
 
-    pub fn set_today(&mut self, space: u64, today: Vec<u64>, cx: &mut Context<Self>) {
+    pub fn set_tabs(
+        &mut self,
+        space: u64,
+        pinned: Vec<u64>,
+        today: Vec<u64>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(entry) = self.spaces.iter_mut().find(|entry| entry.id == space) else {
             return;
         };
+        entry.pinned = pinned;
         entry.today = today;
-        let has_tabs = !entry.today.is_empty();
+        let has_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
         if space == self.space {
-            self.log_today();
+            self.log_tabs();
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
         if has_tabs && self.form.as_ref().is_some_and(|form| form.space == space) {
@@ -476,15 +516,24 @@ impl Shell {
         }
         // What the shell knew of a closed tab goes with it.
         let spaces = &self.spaces;
-        self.tabs
-            .retain(|tab, _| spaces.iter().any(|space| space.today.contains(tab)));
+        self.tabs.retain(|tab, _| {
+            spaces
+                .iter()
+                .any(|space| space.pinned.contains(tab) || space.today.contains(tab))
+        });
         cx.notify();
     }
 
-    fn log_today(&self) {
-        // check.sh reads these lines.
-        let ids: Vec<String> = self.today().iter().map(u64::to_string).collect();
-        eprintln!("browser: today {}", ids.join(" "));
+    fn log_tabs(&self) {
+        // check.sh reads these lines, the pinned one first.
+        let ids = |tabs: &[u64]| tabs.iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
+        eprintln!("browser: pinned {}", ids(self.pinned()));
+        eprintln!("browser: today {}", ids(self.today()));
+    }
+
+    /// The Space's tabs in the sidebar's order: pinned, then Today.
+    fn sidebar_tabs(&self) -> Vec<u64> {
+        [self.pinned(), self.today()].concat()
     }
 
     pub fn set_selected(&mut self, tab: u64, cx: &mut Context<Self>) {
@@ -519,7 +568,11 @@ impl Shell {
             flag(page.loading),
             page.url
         );
-        self.tabs.entry(tab).or_default().page = page;
+        let entry = self.tabs.entry(tab).or_default();
+        if page.unloaded != entry.page.unloaded {
+            eprintln!("browser: page {tab} unloaded {}", flag(page.unloaded));
+        }
+        entry.page = page;
         cx.notify();
     }
 
@@ -533,8 +586,9 @@ impl Shell {
     pub fn run(&mut self, command: Command, from: &str, cx: &mut Context<Self>) {
         // check.sh waits for these lines.
         eprintln!("browser: command {} via {from}", command.name());
-        let position = self.today().iter().position(|&tab| tab == self.selected);
-        let count = self.today().len();
+        let tabs = self.sidebar_tabs();
+        let position = tabs.iter().position(|&tab| tab == self.selected);
+        let count = tabs.len();
         let space = self.spaces.iter().position(|space| space.id == self.space);
         // Next and previous wrap around for tabs, as in Chrome, and stop at the ends for Spaces, as
         // in Arc.
@@ -547,6 +601,13 @@ impl Shell {
             Command::CloseTab => {
                 if self.selected != 0 {
                     self.browser.close(self.selected, cx);
+                }
+                return;
+            }
+            Command::TogglePin => {
+                if self.selected != 0 {
+                    let pinned = self.pinned().contains(&self.selected);
+                    self.browser.set_pinned(self.selected, !pinned, cx);
                 }
                 return;
             }
@@ -571,8 +632,7 @@ impl Shell {
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
-            let tab = self.today()[index];
-            self.select(tab, cx);
+            self.select(tabs[index], cx);
         }
     }
 
@@ -846,8 +906,11 @@ impl Shell {
     }
 
     fn tab_row(&self, tab: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let page = self.page(tab);
+        let loading = page.loading;
+        // A pinned tab closed already has nothing to close.
+        let closable = !(page.unloaded && self.pinned().contains(&tab));
         let hovered = self.hovered == Some(Row::Tab(tab));
-        let loading = self.page(tab).loading;
         let title = div()
             .flex_1()
             .min_w_0()
@@ -879,9 +942,9 @@ impl Shell {
             .h_full()
             .flex()
             .items_center()
-            .when(!hovered, |label| label.pr(px(PLATE_INSET)))
+            .when(!(hovered && closable), |label| label.pr(px(PLATE_INSET)))
             .child(title)
-            .when(hovered, |label| label.child(close))
+            .when(hovered && closable, |label| label.child(close))
             .when(!hovered && loading, |label| label.child(loading_ring(tab)));
         let icon = match self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()) {
             Some(favicon) => img(favicon).size(px(FAVICON_DRAWN)).into_any_element(),
@@ -891,6 +954,9 @@ impl Shell {
                 .text_color(rgba(SECONDARY))
                 .into_any_element(),
         };
+        let icon = div()
+            .when(page.unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+            .child(icon);
         self.row(Row::Tab(tab), icon, label, cx)
             .on_click(cx.listener(move |shell, _, _, cx| {
                 eprintln!("browser: command select via sidebar");
@@ -1044,6 +1110,20 @@ impl Shell {
             .child(cancel)
     }
 
+    /// The line between the pinned tabs and Today. The Clear button isn't there yet.
+    fn divider(&self) -> impl IntoElement + use<> {
+        div().flex_none().h(px(DIVIDER_HEIGHT)).relative().child(
+            div()
+                .absolute()
+                .top(px(DIVIDER_LINE_Y - 0.5))
+                .left(px(FAVICON_X))
+                // To where the titles end.
+                .right(px(2. * PLATE_INSET))
+                .h(px(1.))
+                .bg(rgba(DIVIDER)),
+        )
+    }
+
     fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let plus = div()
             .text_size(px(18.))
@@ -1074,6 +1154,9 @@ impl Render for Shell {
         let card_left = if self.page_fullscreen { 0. } else { SIDEBAR_WIDTH };
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
         let new_tab = self.new_tab_row(cx);
+        let pinned: Vec<_> = self.pinned().iter().map(|&tab| self.tab_row(tab, cx)).collect();
+        // Until there's a Clear button, the divider only parts the pinned tabs from Today.
+        let divider = (!pinned.is_empty()).then(|| self.divider());
         let rows: Vec<_> = self.today().iter().map(|&tab| self.tab_row(tab, cx)).collect();
         let nav = self.nav_buttons(cx);
         let switcher = self.switcher(cx);
@@ -1134,6 +1217,8 @@ impl Render for Shell {
                             .flex_col()
                             .overflow_y_scroll()
                             .child(self.name_row())
+                            .children(pinned)
+                            .children(divider)
                             .child(new_tab)
                             .children(rows),
                     ),

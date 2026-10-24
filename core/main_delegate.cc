@@ -1,8 +1,10 @@
 #include "browser_core/main_delegate.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
@@ -23,6 +25,7 @@
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
+#include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 
 // chrome_main.cc's entry point, in the same framework.
@@ -130,6 +133,12 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     command_line->AppendSwitch(switches::kNoStartupWindow);
     command_line->AppendSwitch(switches::kNoFirstRun);
     command_line->AppendSwitch(switches::kNoDefaultBrowserCheck);
+    // A pinned tab the user closes unloads in place, keeping its tab and the id the app knows it by.
+    // Chrome's own discards, under memory pressure, then keep theirs too.
+    std::string features = command_line->GetSwitchValueASCII(switches::kEnableFeatures);
+    features += features.empty() ? "" : ",";
+    command_line->AppendSwitchASCII(switches::kEnableFeatures,
+                                    features + features::kWebContentsDiscard.name);
   }
   return ChromeMainDelegate::BasicStartupComplete();
 }

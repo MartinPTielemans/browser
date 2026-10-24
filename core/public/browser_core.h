@@ -48,6 +48,9 @@ typedef struct bc_tab_state {
   bool can_go_forward;
   // The page is loading, so reload shows as stop. A page changing its own URL in place isn't.
   bool loading;
+  // The tab has no page loaded, as a tab put back and not yet shown, or a pinned tab closed. It
+  // loads once it's shown.
+  bool unloaded;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -99,7 +102,8 @@ typedef struct bc_host {
   void (*tab_find_changed)(void* context, bc_id tab, const bc_find_state* state);
   // The tab has closed, by bc_tab_close, its page, its window closing or quitting.
   void (*tab_closed)(void* context, bc_id tab);
-  // The Space's tabs changed: one opened, closed or moved. Read them with bc_space_today.
+  // The Space's tabs changed: one opened, closed, moved, pinned or unpinned. Read them with
+  // bc_space_pinned and bc_space_today.
   void (*space_changed)(void* context, bc_id space);
   // A Space was made, renamed or deleted. Read them with bc_spaces.
   void (*spaces_changed)(void* context);
@@ -130,10 +134,11 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 
 // Puts back the Spaces as the user left them when the browser last quit or its window closed, in
 // the window, which shows the Space it showed. The core saves them as they change, in Chrome's user
-// data directory: their names, their tabs with each tab's history, and the tab each showed. A tab
-// loads once it's shown. Does nothing and returns false if nothing was saved or there are Spaces
-// already. Then spaces_changed, space_changed, each tab's tab_state_changed and tab_title_changed,
-// tab_favicon_changed once a tab's favicon is found, window_space_shown and window_selected.
+// data directory: their names, their pinned and Today tabs with each tab's history, and the tab
+// each showed. A tab loads once it's shown. Does nothing and returns false if nothing was saved or
+// there are Spaces already. Then spaces_changed, space_changed, each tab's tab_state_changed and
+// tab_title_changed, tab_favicon_changed once a tab's favicon is found, window_space_shown and
+// window_selected.
 BC_EXPORT bool bc_window_restore(bc_id window);
 
 // Closes the window: its pages get their unload handlers, then window_closed.
@@ -153,17 +158,22 @@ BC_EXPORT size_t bc_space_name(bc_id space, char* name, size_t capacity);
 // Renames the Space to |name|, UTF-8. Then spaces_changed.
 BC_EXPORT void bc_space_set_name(bc_id space, const char* name);
 
-// Deletes the Space if it has no tabs and isn't the only one, and returns whether it did. A window
-// showing it shows the Space before it, else the one after it. Then spaces_changed.
+// Deletes the Space if it has no tabs, pinned or Today, and isn't the only one, and returns whether
+// it did. A window showing it shows the Space before it, else the one after it. Then
+// spaces_changed.
 BC_EXPORT bool bc_space_delete(bc_id space);
 
 // Copies up to |capacity| of the Space's Today tabs into |tabs|, top to bottom, and returns how many
 // it has. The ones the user opened are newest first; one a page opened sits under the page's tab.
 BC_EXPORT size_t bc_space_today(bc_id space, bc_id* tabs, size_t capacity);
 
+// Copies up to |capacity| of the Space's pinned tabs into |tabs|, top to bottom, and returns how
+// many it has. They sit above its Today tabs.
+BC_EXPORT size_t bc_space_pinned(bc_id space, bc_id* tabs, size_t capacity);
+
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
 // window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
-// tab, else no page. Then window_space_shown and window_selected.
+// Today tab, else its top pinned tab, else no page. Then window_space_shown and window_selected.
 BC_EXPORT void bc_window_show_space(bc_id window, bc_id space);
 
 // Where the window shows its tab's page, in the window. Set it again when the layout changes; the
@@ -221,8 +231,14 @@ BC_EXPORT void bc_tab_find(bc_id tab, const char* text, bool forward);
 // tab_find_changed.
 BC_EXPORT void bc_tab_find_close(bc_id tab);
 
+// Pins the tab in its Space, at the bottom of the pinned tabs, or unpins it to the top of the Today
+// tabs. Then space_changed.
+BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
+
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed. The
-// window stays open without it.
+// window stays open without it. A pinned tab stays in its Space instead, and only its page goes: a
+// window showing it shows the Space's top Today tab, else the nearest pinned tab still loaded, else
+// no page. Then tab_state_changed, and window_selected.
 BC_EXPORT void bc_tab_close(bc_id tab);
 
 #ifdef __cplusplus
