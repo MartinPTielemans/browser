@@ -1,0 +1,3 @@
+
+# Ours, after ungoogled-chromium's flags.gn and ungoogled-chromium-macos's flags.macos.gn.
+target_cpu = "arm64"

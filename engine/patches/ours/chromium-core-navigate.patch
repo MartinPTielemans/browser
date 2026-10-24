@@ -1,0 +1,36 @@
+Lets the core change where a navigation opens, before Chrome picks the Browser for it
+(//browser_core/hooks.h): a popup or a new window from one of the core's windows opens as a tab
+in it.
+
+--- a/chrome/browser/ui/navigator/browser_navigator.cc
++++ b/chrome/browser/ui/navigator/browser_navigator.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/navigator/browser_navigator.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -107,6 +108,9 @@
+ using content::NavigationController;
+ using content::WebContents;
+ using WebExposedIsolationLevel = content::WebExposedIsolationLevel;
++
++// browser_core: the core may change where a navigation opens (//browser_core/hooks.h).
++void (*g_browser_core_adjust_navigate)(NavigateParams& params) = nullptr;
+ 
+ namespace {
+ 
+@@ -689,6 +693,11 @@
+     return nullptr;
+   }
+ 
++  // browser_core: before Chrome picks the Browser for the navigation.
++  if (g_browser_core_adjust_navigate) {
++    g_browser_core_adjust_navigate(*params);
++  }
++
+   // Picture-in-picture browser windows must have a source contents in order for
+   // the window to function correctly. If we have no source contents to work
+   // with (e.g. if an extension popup attempts to open a PiP window), we should

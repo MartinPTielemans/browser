@@ -1,0 +1,13 @@
+
+# The dev build's, after args.gn: no link-time optimization or optimizer profile, and the framework
+# split into components, so a change to the core relinks quickly; DCHECKs on, to catch misuse of
+# Chromium's threading and lifetime rules.
+is_official_build = false
+is_component_build = true
+dcheck_always_on = true
+use_thin_lto = false
+chrome_pgo_phase = 0
+# Off in official builds, so Release never uses them. On the Mac, Chromium's toolchain passes
+# -fmodule-name to the C++ precompiled header's compile too, and clang then rejects the header as a
+# module interface without an `export module`.
+enable_precompiled_headers = false

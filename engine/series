@@ -1,0 +1,9 @@
+# Applied in order after ungoogled-chromium's own series. One patch per line, relative to engine/patches/.
+# Sections: helium/ (picks), ardia/ (picks), ours/.
+ours/chromium-core-link.patch
+ours/chromium-core-main.patch
+ours/chromium-core-browser-window.patch
+ours/chromium-core-embedded-view.patch
+ours/chromium-core-navigate.patch
+ours/chromium-rust-std-component-link.patch
+ours/chromium-disclaimer-service-test-only-call.patch

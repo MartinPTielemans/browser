@@ -1,0 +1,21 @@
+ChromeMain runs the core's MainDelegate, a ChromeMainDelegate, in every process.
+
+--- a/chrome/app/chrome_main.cc
++++ b/chrome/app/chrome_main.cc
+@@ -18,6 +18,7 @@
+ #include "base/no_destructor.h"
+ #include "base/sampling_heap_profiler/poisson_allocation_sampler.h"
+ #include "base/time/time.h"
++#include "browser_core/main_delegate.h"  // nogncheck
+ #include "build/build_config.h"
+ #if !defined(BUILDING_CHROME_RENDERER)
+ #include "chrome/app/chrome_main_delegate.h"
+@@ -131,7 +132,7 @@
+       base::TimeTicks::FromInternalValue(preread_end_ticks)};
+   ChromeMainDelegate chrome_main_delegate(timestamps);
+ #else  // BUILDFLAG(IS_WIN)
+-  ChromeMainDelegate chrome_main_delegate(
++  browser_core::MainDelegate chrome_main_delegate(
+       {.exe_entry_point_ticks = base::TimeTicks::Now()});
+ #endif
+   content::ContentMainParams params(&chrome_main_delegate);

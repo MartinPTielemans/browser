@@ -1,0 +1,77 @@
+Lets the core make Browsers with windows it supplies (//browser_core/hooks.h), as tests do, and
+stops Chrome's code that expects such a Browser to have a BrowserView, or the app to have Chrome's
+main menu, from failing. The read_anything hunk follows Ardia's (github.com/mantrakp04/ardia,
+engine/ardiacore/apply.sh, commit fce3a02ffb917d2902af4ce47b398ce8b03a440d), Apache License 2.0.
+
+--- a/chrome/browser/ui/browser.cc
++++ b/chrome/browser/ui/browser.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/browser.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <stddef.h>
+ 
+@@ -263,6 +264,9 @@
+       ->AddBrowserForTesting(browser.get());
+   return browser;
+ }
++
++// browser_core: the core supplies the windows of the Browsers it makes (//browser_core/hooks.h).
++bool g_browser_core_supplies_windows = false;
+ 
+ Browser::Browser(BrowserWindowCreateParams params)
+     : type_(params.type),
+@@ -306,7 +310,7 @@
+   features_ = std::make_unique<BrowserWindowFeatures>();
+   features_->Init(this);
+ 
+-  if (custom_window) {
++  if (custom_window && !g_browser_core_supplies_windows) {
+     CHECK_IS_TEST() << "BrowserWindowCreateParams::window is a test-only param";
+   }
+   window_ =
+--- a/chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc
++++ b/chrome/browser/ui/read_anything/read_anything_side_panel_controller.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/read_anything/read_anything_side_panel_controller.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <climits>
+@@ -265,7 +266,8 @@
+   if (!side_panel_ui) {
+     // TODO(webium): create a SidePanelCoordinator for WebUIBrowser.
+     // This is a temporary solution to avoid a crash.
+-    if (!webui_browser::IsWebUIBrowserEnabled()) {
++    // browser_core: the core's Browsers have no BrowserView, so no side panel.
++    if (!webui_browser::IsWebUIBrowserEnabled() && !g_browser_core_supplies_windows) {
+       CHECK_IS_TEST();
+     }
+     return;  // IN-TEST
+--- a/chrome/browser/app_controller_mac.mm
++++ b/chrome/browser/app_controller_mac.mm
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #import "chrome/browser/app_controller_mac.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <AppKit/AppKit.h>
+ #include <dispatch/dispatch.h>
+@@ -2296,7 +2297,12 @@
+   _lastProfile = profile;
+ 
+   if (_lastProfile == nullptr)
++    return;
++
++  // browser_core: the app's main menu has none of Chrome's bookmarks, history or commands.
++  if (g_browser_core_supplies_windows) {
+     return;
++  }
+ 
+   auto& entry = _profileBookmarkMenuBridgeMap[profile->GetPath()];
+   if (!entry || !entry->GetProfile()) {

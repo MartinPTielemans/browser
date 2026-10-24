@@ -1,0 +1,74 @@
+Lets the core show its app UI and pages in a widget's window: hit testing and accessibility ask
+the embedded view first. Adapted from Ardia's chromium-window-hosted.patch
+(github.com/mantrakp04/ardia, engine/patches, commit fce3a02ffb917d2902af4ce47b398ce8b03a440d),
+Apache License 2.0.
+
+--- a/components/remote_cocoa/app_shim/bridged_content_view.h
++++ b/components/remote_cocoa/app_shim/bridged_content_view.h
+@@ -57,6 +57,11 @@
+ @property(assign, nonatomic) BOOL drawMenuBackgroundForBlur;
+ @property(strong, nonatomic) NSEvent* keyDownEventForTesting;
+ 
++// browser_core: a subview showing the core's app UI and pages over the widget's views. Hit testing
++// and accessibility ask it first, so the points it covers reach its views and assistive
++// technologies see its tree.
++@property(weak, nonatomic) NSView* embeddedView;
++
+ // Initialize the NSView -> views::View bridge. |viewToHost| must be non-NULL.
+ - (instancetype)initWithBridge:(remote_cocoa::NativeWidgetNSWindowBridge*)bridge
+                         bounds:(gfx::Rect)rect;
+--- a/components/remote_cocoa/app_shim/bridged_content_view.mm
++++ b/components/remote_cocoa/app_shim/bridged_content_view.mm
+@@ -198,6 +198,7 @@
+ @synthesize bridge = _bridge;
+ @synthesize drawMenuBackgroundForBlur = _drawMenuBackgroundForBlur;
+ @synthesize keyDownEventForTesting = _keyDownEvent;
++@synthesize embeddedView = _embeddedView;
+ 
+ - (instancetype)initWithBridge:(remote_cocoa::NativeWidgetNSWindowBridge*)bridge
+                         bounds:(gfx::Rect)bounds {
+@@ -291,6 +292,13 @@
+   // This is important when the window has a native titlebar, in which case the
+   // superview is taller than the contentView.
+   NSPoint pointInView = [self convertPoint:point fromView:self.superview];
++
++  // browser_core: the embedded view's subviews come first.
++  if (NSView* embedded = [self visibleEmbeddedView]) {
++    if (NSView* hit = [embedded hitTest:pointInView]) {
++      return hit;
++    }
++  }
+   gfx::Point flippedPoint(point.x, NSHeight(self.frame) - pointInView.y);
+   remote_cocoa::mojom::HitTestResult hitTestResult;
+   _bridge->host()->GetHitTestResult(flippedPoint, &hitTestResult);
+@@ -1714,6 +1722,10 @@
+ // NSAccessibility formal protocol implementation:
+ 
+ - (NSArray*)accessibilityChildren {
++  // browser_core: the embedded view covers the widget's views.
++  if (NSView* embedded = [self visibleEmbeddedView]) {
++    return NSAccessibilityUnignoredChildren(@[ embedded ]);
++  }
+   if (id accessible = _bridge->host_helper()->GetNativeViewAccessible())
+     return @[ accessible ];
+   return [super accessibilityChildren];
+@@ -1721,7 +1733,19 @@
+ 
+ // NSAccessibility informal protocol implementation:
+ 
++// browser_core: embeddedView while it is a visible subview of this view.
++- (NSView*)visibleEmbeddedView {
++  NSView* embedded = self.embeddedView;
++  return embedded && embedded.superview == self && !embedded.hidden ? embedded
++                                                                     : nil;
++}
++
+ - (id)accessibilityHitTest:(NSPoint)point {
++  if (NSView* embedded = [self visibleEmbeddedView]) {
++    if (id hit = [embedded accessibilityHitTest:point]) {
++      return hit;
++    }
++  }
+   return [_bridge->host_helper()->GetNativeViewAccessible()
+       accessibilityHitTest:point];
+ }

@@ -1,0 +1,12 @@
+Links the core (//browser_core, the repository's core/) into Chrome's framework on Mac.
+
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -1311,6 +1311,7 @@
+ 
+     deps = [
+       ":dependencies",
++      "//browser_core",
+       "//build:chromeos_buildflags",
+       "//chrome/app:command_ids",
+       "//chrome/browser:chrome_browser_application_mac",
