@@ -10,7 +10,7 @@ Pre-alpha. Nothing here is a browser yet.
 
 | Phase | What | State |
 |---|---|---|
-| 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported, Arc capture next |
+| 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported; Arc's layout, sidebar and Spaces motion, command bar, find, split view, Library and Little Arc measured; Peek, extensions, passwords, themes and drags left |
 | 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
 | 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | in progress: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works; Linux CI left |
 | 3 | Daily-driver MVP on Mac | — |

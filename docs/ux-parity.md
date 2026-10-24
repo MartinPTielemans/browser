@@ -18,9 +18,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Card fill | MVP | #121212 0.5 / white 0.7, no grain | Dia 1.50.1 bin |
 | [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)` | Dia 1.50.1 cap |
 | [ ] | Inactive, Reduce Transparency, Increase Contrast | MVP | opaque wallpaper-tinted fill (AppKit) | Dia 1.50.1 cap |
-| [ ] | Card inset | MVP | 10 on every side, docked or hidden | Arc (Ardia) rec |
-| [ ] | Card radius | MVP | 10 continuous *interim*; Arc: measure | Dia cap |
-| [ ] | Traffic lights | MVP | centre y 23.75; x measure | Arc (Ardia) P§4 |
+| [ ] | Card inset | MVP | docked: from the sidebar's width, 10 top, right and bottom; hidden: 10 on every side | Arc ax, cap |
+| [ ] | Card radius | MVP | ≈ 6, continuous | Arc cap |
+| [ ] | Traffic lights | MVP | 16 × 16, centres (20, 24), (43, 24), (66, 24) | Arc ax |
 | [ ] | Page before first paint | MVP | card colour over the tint, never white | Ardia P§7 |
 | [ ] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |
 | [ ] | Resize edge | MVP | outer ≈ 3 pt | Dia P§1 |
@@ -33,43 +33,44 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Default width | MVP | measure (Dia 190) | Dia 1.50.1 bin |
+| [ ] | Default width | MVP | 228 | Arc ax |
 | [ ] | Width range | MVP | measure (Ardia 160–400); rubber-band; saved; double-click resets | Ardia, Dia P§4 |
-| [ ] | Header row centre | MVP | 23.75 below the window top | Arc (Ardia) P§4 |
-| [ ] | Header hover plates | MVP | 32 × 32, radius 6, top 8; only the plate clicks | Arc (Ardia) P§4 |
-| [ ] | Back / forward / reload positions | MVP | measure (Ardia 137.75 / 171.75 / 205.75 at 227.5) | Arc (Ardia) |
+| [ ] | Header row centre | MVP | traffic lights 24, buttons 23.5 below the window top | Arc ax |
+| [ ] | Header hover plates | MVP | 32 × 32, top 7.5, white ≈ 0.09, radius 6; only the plate clicks | Arc ax, cap, Arc (Ardia) |
+| [ ] | Sidebar button, back, forward, reload positions | MVP | 32 wide at x 77, 122, 156, 190 | Arc ax |
 | [ ] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
-| [ ] | Disabled nav glyph | MVP | about half brightness | Dia 1.52 cap |
-| [ ] | URL field top | MVP | 46 below the window top | Arc (Ardia) P§4 |
-| [ ] | URL field size, radius, fill, font | MVP | measure | — |
-| [ ] | URL text | MVP | host only, no `www.`; Show Full URL off by default | Dia 1.50.1 bin |
-| [ ] | URL on hover | MVP | full URL, host bright, path dim | Dia 1.49 cap |
-| [ ] | Insecure and zoom indicators | MVP | lock-warning glyph; magnifier with − / + / Reset | Dia, Chrome P§8 |
+| [ ] | Disabled nav glyph | MVP | about half brightness; reload becomes ✕ while loading | Dia 1.52 cap, Arc cap |
+| [ ] | URL field box | MVP | x 8–220, 36 tall from 46 below the window top, radius ≈ 12, fill white ≈ 0.10; font: measure | Arc cap |
+| [ ] | URL text | MVP | host only, no `www.`, at x 21; Show Full URL off by default | Dia 1.50.1 bin, Arc cap |
+| [ ] | URL on hover | MVP | full URL, host bright, path dim (Arc: the host stays, buttons show) | Dia 1.49 cap, Arc cap |
+| [ ] | Insecure and zoom indicators | MVP | lock-warning glyph; magnifier with − / + / Reset (Arc: neither; a "125%" flash at the card's top right) | Dia, Chrome P§8, Arc cap |
+| [ ] | URL field buttons | MVP | Copy Current URL and Site Control Center, 30 × 30 at x 163 / 191, while the pointer is over the sidebar | Arc ax |
+| [ ] | Space name row and footer | MVP | icon 26 × 26 at x 13, name at x 41, More; footer 50 tall: Home at x 8, switcher x 42–186, + at x 188 | Arc ax |
 | [ ] | Favorite tile | MVP | 41 tall, 6 apart, inset 6, radius 10 *interim* | Dia 1.50.1 bin + cap |
 | [ ] | Favorite columns | MVP | 3 at 190 *interim*; Arc's rule: measure | Dia P§2 |
 | [ ] | Favorite resting look | MVP | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
 | [ ] | Favorite selection theming | MVP | colourful (≥ 0.055): blur 5 at 22 %, 3 pt ring; one colour: mean fill, white template, soft-light ring; near-white: black fill, white 0.30 ring | Dia 1.50.1 bin |
 | [ ] | Favorites fixed while the list scrolls | MVP | yes; scrolls with the list above 40 % of the sidebar | Dia, Ardia |
 | [ ] | Favorite double-click | MVP | back to the pinned URL | Dia P§2 |
-| [ ] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
+| [ ] | Pinned tabs section | MVP | rows between the Space's name and the Clear divider | Arc ax |
 | [ ] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25 | Dia cap, Ardia |
-| [ ] | Clear divider line | MVP | 1 pt white ≈ 0.08, centre 25 above the first row's centre | Arc (Ardia) D›Arc note: Clear |
-| [ ] | Clear label and arrow | MVP | arrow 7 × 8, 3 pt from "Clear", semibold ≈ 10 pt, ends with the titles | Arc (Ardia) |
-| [ ] | Row pitch / height | MVP | 36 Arc (confirm) / Dia 37 and 34 | Arc (Ardia), Dia 1.50.1 bin |
-| [ ] | Row radius | MVP | min(h/3, 10) continuous | Dia 1.50.1 bin |
-| [ ] | Row favicon and title | MVP | 16 pt at x 9; title 7 after, 13 pt, trailing fade | Dia 1.50.1 bin |
+| [ ] | Clear divider line | MVP | 0.5 pt white ≈ 0.11, inset 18, 7.5 under the last pinned row; stops 7.5 before the arrow | Arc cap |
+| [ ] | Clear label and arrow | MVP | only while the pointer is over the sidebar; ends at 216; arrow 7 × 8, 3 pt before "Clear", semibold ≈ 10 pt | Arc cap, Arc (Ardia) |
+| [ ] | Row pitch / height | MVP | 41 / 40; plate 36 tall, 2 in | Arc ax, cap |
+| [ ] | Row plate inset and radius | MVP | 8 from each side; ≈ 12 | Arc cap |
+| [ ] | Row favicon and title | MVP | favicon 18 × 18 at x 17, 11 below the row top; title at x 43 (folder + 16), 13 pt, trailing fade | Arc ax, Dia 1.50.1 bin |
 | [ ] | Row states | MVP | hover white 0.16, pressed 0.31, selected #121212 0.5 + 0.5 pt white 0.15 hairline, unselected 0.06 | Dia asset catalogs |
 | [ ] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
-| [ ] | Row fill change | MVP | 300 ms ease-out | Dia 1.50.1 bin |
-| [ ] | Close ✕ | MVP | on hover, ≈ 22 pt hover square | Dia cap |
+| [ ] | Row fill change | MVP | hover 300 ms ease-out *interim*; the selection moves in one frame | Dia 1.50.1 bin, Arc rec |
+| [ ] | Close ✕ | MVP | on hover, the selected row too; 26 × 26 at x 189, 7 below the row top | Arc ax |
 | [ ] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
 | [ ] | Sleeping tab | MVP | faded favicon (alpha: measure) | Dia |
-| [ ] | "+ New Tab" row | MVP | label white 0.55, plus 0.25, 3 under the last row, sticky at the bottom | Dia 1.50.1 bin |
+| [ ] | "+ New Tab" row | MVP | Today's first row; label white 0.55, plus 0.25 | Arc ax, Dia 1.50.1 bin |
 | [ ] | Scroll edge | MVP | 1 pt P3 white 0.09 at favorites + 4; fades 100 ms cubic-bezier(0.25, 0.46, 0.45, 0.94) | Dia 1.53.0 bin |
-| [ ] | Open tab motion | MVP | new row in place at once; rows below slide 140 ms cubic-bezier(0.25, 0.1, 0.25, 1) | Dia rec 120 fps |
-| [ ] | Close tab motion | MVP | fade 100 ms cubic-bezier(0, 0, 0.58, 1); rows below slide 140 ms over it | Dia rec 120 fps |
+| [ ] | Open tab motion | MVP | top of Today, selected at once; its fill fades in and the rows below slide on the List spring (0.13 s / ζ 0.9) | Arc rec |
+| [ ] | Close tab motion | MVP | selects the next row down at once; the closed row fades out in place and the rows below slide up over it, both on the List spring | Arc rec |
 | [ ] | Reorder | MVP | neighbour moves at the centre crossing; critically damped ω ≈ 90 (done 76 ms) | Dia rec 60 fps |
 | [ ] | Drag to another window / desktop | MVP | moves the live page; new window under the pointer | Dia P§1 |
 | [ ] | Drops on the list | MVP | files and http(s) open at the gap; never javascript:, data:, file: from text | Dia, Ardia |
@@ -77,17 +78,17 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses | Dia bin |
 | [ ] | Background tabs | MVP | load when first shown; sidebar scrolls to them | Dia |
 | [ ] | Opener order | MVP | Chrome's TabStripModel rules | Chrome |
-| [ ] | ⌘S hide (docked) | MVP | ease-out cubic 100 ms | Arc (Ardia) rec |
-| [ ] | ⌘S show (hidden) | MVP | measure (*interim* Dia spring 0.215 s / ζ 0.79) | Dia rec 240 fps |
-| [ ] | Sidebar reveal in | MVP | spring 0.185 s / ζ 0.77, no fade | Arc (Ardia) rec |
-| [ ] | Sidebar reveal out | MVP | ease-in-out ≈ 150 ms | Arc (Ardia) rec |
-| [ ] | Reveal panel | MVP | inset 5 left/top/bottom, docked width, 0.5 pt light border | Arc (Ardia) rec |
+| [ ] | ⌘S hide (docked) | MVP | ease-out cubic 110 ms | Arc rec ×3 |
+| [ ] | ⌘S show (hidden) | MVP | ease-out cubic 100 ms | Arc rec ×3 |
+| [ ] | Sidebar reveal in | MVP | spring 0.175 s / ζ 0.80, no fade, starting ≈ 100 ms after the pointer reaches the edge | Arc rec ×3 |
+| [ ] | Sidebar reveal out | MVP | spring 0.175 s / ζ 0.76, at once | Arc rec ×3 |
+| [ ] | Reveal panel | MVP | 228 × 939 at (5, 5), contents 5 right and down, 0.5 pt light border, shadow ≈ 11 | Arc ax, cap, Arc (Ardia) |
 | [ ] | Reveal hold zone | MVP | 24 pt past the panel (Arc ≈ 21); trigger the full left edge | Arc (Ardia), Ardia |
 | [ ] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
-| [ ] | Tab switcher ⌃Tab | MVP | most recent first; overlay after 140 ms; commits on ⌃ release | Dia 1.50.1 bin P§2 |
-| [ ] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
+| [ ] | ⌃Tab | MVP | Dia's: switcher after 140 ms, commits on ⌃ release; a quick ⌃Tab switches with nothing drawn, as Arc's (owner, 2026-10-24) | Dia 1.50.1 bin P§2, Arc rec |
+| [ ] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, counting tabs in open folders; a split is one row | Dia, Arc cap |
 | [ ] | Rename and emoji icon | MVP | double-click renames inline | Dia P§2 |
-| [ ] | Folders | MVP | measure (Dia groups: chevron 8 after the name, ≈ 150 ms) | Dia rec |
+| [ ] | Folders | MVP | folder icon and name, tabs 16 further right, tooltip; click motion: measure (Group expand *interim*) | Arc ax, Dia rec |
 
 ## Spaces
 
@@ -97,7 +98,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Switching to another profile's Space | MVP | the window's profile switches with it | decision 5 |
 | [ ] | Moving a tab across profiles | MVP | reloads after a one-time warning | Dia P§1 |
 | [ ] | Favorites per Space or per profile | MVP | measure | — |
-| [ ] | Switcher footer | MVP | 41 tall; library cell left; overflow 42 wide, 3 from right | Dia 1.50.1 bin |
+| [ ] | Switcher footer | MVP | 50 tall; Home at x 8, switcher x 42–186, + at x 188 | Arc ax |
 | [ ] | Switcher band | MVP | 28 tall, 31 in from each side, 12 pt per item, 7 before scrolling, edge scale 0.75–1 | Dia 1.50.1 bin |
 | [ ] | Switcher dot | MVP | 6 pt; alpha 0.85 / 0.4 / 0.2 | Dia 1.50.1 bin |
 | [ ] | Space icons in the switcher | MVP | measure | — |
@@ -106,9 +107,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Release | MVP | ≥ 5 pt/s goes on; ±1 Space; 100 ms velocity history | Dia 1.50.1 bin |
 | [ ] | Settle | MVP | critically damped 0.25 s, carrying the velocity; detent haptic | Dia 1.50.1 bin |
 | [ ] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
-| [ ] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
+| [ ] | ⌃1–⌃9, ⌥⌘→ / ⌥⌘← | MVP | switch Space; next / previous Space | Arc menus |
+| [ ] | Paging by click, key or menu | MVP | both sidebars page by the sidebar's width, spring 0.21 s / ζ 0.98 | Arc rec ×3 |
 | [ ] | Colour cross-fade | MVP | measure | Ardia |
-| [ ] | Space title, create, rename, colour, icon | MVP | measure | — |
+| [ ] | New Space | MVP | "Create a Space" form in the sidebar; the URL field row goes; Esc doesn't cancel; Cancel swaps back 28 pt short, spring 0.195 s / ζ 1.0 | Arc cap, ax, rec ×3 |
+| [ ] | Rename, colour, icon | MVP | measure | — |
 | [ ] | Agent Space kind in the data model | MVP | a Space kind owned by an agent | decision 8, roadmap |
 | [ ] | Agent Space UI: switcher mark, confirm card, handoff card, take over, status, activity log, allowed sites with Revoke | 4 | ours to design; confirm times out 5 min, handoff 15 min | decision 8, Ours (prototype) |
 | [ ] | Agent actions never move the user's focus | 4 | no change of Space, tab, focus or cursor | decision 8 |
@@ -117,29 +120,31 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Panel width | MVP | field + ≈ 41 left, ≈ 40 right; Arc: measure | Dia 1.52 rec |
+| [ ] | Panel width | MVP | field + ≈ 41 left, ≈ 40 right (Arc: 766, centred on the window, rows 50, 5 showing and the rest scrolling) | Dia 1.52 rec, Arc cap |
 | [ ] | Text alignment | MVP | same x, baseline and 13 pt as the field; 48 in; glyph centred 30 in | Dia 1.52 rec |
 | [ ] | Open | MVP | grows from the field, exponential ease-out ≈ 130 ms; content doesn't move | Dia 1.52 rec |
-| [ ] | Close | MVP | measure | — |
+| [ ] | Close | MVP | in one frame, no fade | Arc rec ×3 |
 | [ ] | Fill / border / radius | MVP | #2D2D2D / #FEFFFF; 1 device px rgba(120,125,134,0.32); radius measure (≈ 16) | Dia 1.50.1 bin, 1.49 cap |
 | [ ] | Shadow | MVP | black 0.12, + black 0.08 r2 (0, 0.5), + black 0.04 r1 (0, 2) | Dia 1.50.1 bin |
 | [ ] | No scrim | MVP | page undimmed | Dia 1.49 cap |
 | [ ] | Rows | MVP | input 54; suggestions 36; favicon 16; title ≈ 15 pt; " — url" 0.5 | Dia 1.49 cap |
-| [ ] | Selected row | MVP | ≈ #5E5A5D, radius 10, inset 4 | Dia 1.49 cap |
+| [ ] | Selected row | MVP | ≈ #5E5A5D, radius 10, inset 4 (Arc: the Space's colour) | Dia 1.49 cap, Arc cap |
 | [ ] | Bottom row | MVP | 53 tall; Go ↩ pill ≈ 92 × 29 naming the engine; no AI chip or mic | Dia 1.49 cap, Ardia |
 | [ ] | Colours | MVP | placeholder white 0.53, secondary rgba(239,244,255,0.6), caret #4A77D4, selection rgba(120,125,134,0.7) | Dia asset catalogs |
 | [ ] | Default match | MVP | inline match, else URL, else search; search row after the top hit | Chrome, Dia 1.49 |
 | [ ] | Stable row 0 | MVP | local only; remote rows append | Chrome O |
 | [ ] | Inline completion rules | MVP | one term, caret at end; never during IME, after delete, after paste, after whitespace | Chrome O |
 | [ ] | Inline eligibility | MVP | typed ≥ 1 host / ≥ 2 deeper | Chrome O |
-| [ ] | Site search | MVP | Tab when hinted, Space after exact host; ⌫ in empty leaves and restores | Chrome O |
+| [ ] | Site search | MVP | Tab when hinted (Arc: "Search Wikipedia" and a Tab key at the field's right), Space after exact host; ⌫ in empty leaves and restores | Chrome O, Arc cap |
 | [ ] | Keys | MVP | ↩, ⌘↩, ⌥↩, ⇧↩, ⇧⌘↩, ⌃↩, ⌃⇧↩, ↑↓ wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Chrome, Dia O |
+| [ ] | ⌘↩ | MVP | a background tab at the top of Today; the bar stays open | Arc cap |
 | [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms) | Ardia P§7 |
 | [ ] | Click outside | MVP | closes and still acts | AGENTS.md |
 | [ ] | Switch to Tab rows | MVP | across windows, never the current tab | Dia, O |
 | [ ] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |
 | [ ] | Calculator, commands, Paste and Go, clean-link copy ⇧⌘C / ⌥⇧⌘C | MVP | as Dia | Dia P§7 |
-| [ ] | Arc's command list and ⌘T over the page | MVP | measure | — |
+| [ ] | Command rows | MVP | the shortcut as a chip at the right; the field's icon becomes the command's | Arc cap |
+| [ ] | Suggestions after a typed character | MVP | in one frame, no later than Arc's 33–42 ms | Arc rec ×3 |
 
 ## New tab
 
@@ -163,10 +168,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [ ] | Panes | MVP | up to 3, horizontal or vertical *interim*; Arc max: measure | Dia P§6 |
-| [ ] | Divider or gap, focus indicator, unfocused dim | MVP | measure | — |
-| [ ] | Keys | MVP | ⌃⇧= add; ⌃⇧] / ⌃⇧[ focus *interim* | Dia |
+| [ ] | Adding a pane | MVP | in one frame; the new pane opens empty under the command bar; 10 between panes | Arc cap, ax, rec |
+| [ ] | Focus indicator, unfocused dim | MVP | measure | — |
+| [ ] | Keys | MVP | ⌃⇧= add, ⌃⇧- close; ⌃⇧] / ⌃⇧[ focus *interim* | Arc menus, Dia |
 | [ ] | ⌥-click + New Tab; ⌥⇧-click link | MVP | split New Tab; right pane | Dia P§6 |
-| [ ] | Sidebar row | MVP | one row, a segment per pane | Dia |
+| [ ] | Sidebar row | MVP | one row, equal segments with a thin divider, each a favicon 18 and a truncated title | Dia, Arc cap |
 | [ ] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
 | [ ] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
 | [ ] | Target under the card | MVP | 362 × 600, leaning 43 % toward the pointer, accent ≈ 0.15, dashes 7/7 ≈ 2 pt | Dia rec |
@@ -179,13 +185,14 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Clear (⇧⌘K and the divider button) | MVP | closes all Today tabs of the Space; pinned and favorites stay | Arc (Ardia) |
-| [ ] | Clear toast with Undo | MVP | Undo restores all in place; look and timing: measure | Arc (Ardia), Ardia |
-| [ ] | Clear unselected Today tabs | MVP | as Arc's `clearOthers` | Arc (Ardia) bin |
+| [ ] | Clear (⇧⌘K and the divider button) | MVP | closes every Today tab but the selected one, in one frame; pinned and favorites stay | Arc rec ×3 |
+| [ ] | Undo after Clear | MVP | no toast; ⌘Z restores them in place, fading in on the List spring, the rest unloaded | Arc rec ×3, Ardia |
 | [ ] | Reopen closed tab ⇧⌘T | MVP | position, pin, group, name, icon, mute, back/forward | Dia P§2 |
-| [ ] | Auto-archive interval and default | MVP | measure | — |
-| [ ] | ⌘W on a Today tab | MVP | measure | — |
-| [ ] | Archive view, search, restore | MVP | measure | — |
+| [ ] | Auto-archive interval and default | MVP | 12 hours by default; the other intervals: measure | Arc cap |
+| [ ] | ⌘W on a Today tab | MVP | archives it | Arc menus, rec |
+| [ ] | Archived Tabs page | MVP | newest first under day headings; favicon 16 at x 134, title at x 164 with the host under, 56 pitch | Arc cap, ax |
+| [ ] | Library ⇧⌘L | MVP | replaces the sidebar: icon column, 97 × 80 buttons on a 100 pitch, the page beside it; the card moves aside to x 417 (spring 0.245 s / ζ 0.92); Esc doesn't close it; ours keeps it for archived tabs, with ⇧⌘J on the downloads panel | Arc cap, ax, rec ×1 |
+| [ ] | Archive search, restore | MVP | measure | — |
 
 ## Profiles
 
@@ -229,9 +236,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Button | MVP | shown while the profile has downloads; no show/hide animation; place in Arc's layout: measure | Dia 1.50.1 bin |
+| [ ] | Button | MVP | shown while the profile has downloads; no show/hide animation; Arc's header has none, where its indicator shows: measure | Dia 1.50.1 bin |
 | [ ] | Fly-in | MVP | measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
-| [ ] | Panel ⇧⌘J | MVP | progress, pause/resume, cancel, open, Show in Finder, Open When Done, Trash, drag out, clear | Dia P§14 |
+| [ ] | Panel ⇧⌘J (Dia's, not Arc's Library page; owner, 2026-10-24) | MVP | progress, pause/resume, cancel, open, Show in Finder, Open When Done, Trash, drag out, clear | Dia P§14 |
 | [ ] | Per profile, persisted; private never written | MVP | yes | Dia P§14 |
 | [ ] | Quit guard | MVP | asks while downloads run | Dia P§1 |
 | [ ] | Panel look and motion | MVP | measure | — |
@@ -244,14 +251,17 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Per-tab query, "n of m" | MVP | yes | Dia P§8 |
 | [ ] | ⌘F with the page focused | MVP | ours unless the page keeps it | AGENTS.md |
 | [ ] | IME in the field | MVP | Japanese works | AGENTS.md |
-| [ ] | Bar position, size, look, no-match state, motion | MVP | measure | — |
+| [ ] | Bar | MVP | 300 × 32, 10 in from the card's top right, radius ≈ 6, fill (19, 29, 50), shadow ≈ 16; icon, field 152.5, "1/12", previous, next, close | Arc cap, ax |
+| [ ] | No match | MVP | "NOT FOUND" in red (219, 25, 41) in place of the count and arrows | Arc cap |
+| [ ] | Open and close | MVP | one frame | Arc rec ×3 |
 
 ## DevTools
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [ ] | Keys | MVP | ⌥⌘I / F12, ⌥⌘J, ⌥⌘C, ⌥⌘U; Inspect in the page menu | Dia, Chrome P§23 |
-| [ ] | Docking | MVP | right by default, saved per profile; undocked 640 × 640 first, "Developer Tools - <url>" | Dia P§23 |
+| [ ] | Docking | MVP | right by default, a third of the card, saved per profile; undocked 640 × 640 first, "Developer Tools - <url>" | Dia P§23, Arc ax |
+| [ ] | Docked opening | MVP | an empty pane at once, DevTools and the narrower page ≈ 140 ms later | Arc rec ×1 |
 | [ ] | Task Manager | MVP | Window › Task Manager | Chrome |
 | [ ] | No agent DevTools or debugging port | MVP | none | decision 8 |
 
@@ -286,10 +296,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 |---|---|---|---|---|
 | [ ] | Reserved commands before the page | MVP | Chrome's reserved set | Chrome, AGENTS.md |
 | [ ] | Other browser keys only if the page doesn't keep them | MVP | yes | Chrome, AGENTS.md |
-| [ ] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar; owner to confirm | Arc (Ardia) |
+| [ ] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar, ⌥⌘↓ / ⌥⌘↑ tabs, ⌥⌘→ / ⌥⌘← Spaces; owner to confirm | Arc menus |
 | [ ] | Every command rebindable | MVP | Settings › Keyboard Shortcuts | Dia P§22 |
 | [ ] | Full table in the spec | MVP | ux-spec.md › Keyboard | Dia, Chrome |
-| [ ] | Arc's keys not yet recorded | MVP | measure | — |
+| [ ] | Arc's keys outside its menus (select tab 1–9, search tabs) | MVP | measure | — |
 
 ## Phase 4
 
@@ -298,12 +308,12 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Peek: triggers | 4 | measure | — |
 | [ ] | Peek: geometry, backdrop, buttons | 4 | measure | — |
 | [ ] | Peek: open, close, expand motion | 4 | measure | — |
-| [ ] | Little Arc: open | 4 | ⌥⌘N; centred above middle of the pointer's screen; last size, 900 × 640 first | Arc (Ardia), Ardia |
-| [ ] | Little Arc: bar | 4 | Space colour; favicon, host, title; ⌘L compact bar; Copy Link; ⌘O | Arc (Ardia), Ardia |
+| [ ] | Little Arc: open | 4 | ⌥⌘N; 490 × 329 at the primary display's top right, 20 in, ≈ 20 under the menu bar; a command bar first | Arc cap, ax |
+| [ ] | Little Arc: bar | 4 | 47 tall: window buttons at x 9 / 32 / 55, favicon, host pill, copy link, "Open in <Space> ⌘O"; a first-use callout; colours: measure | Arc cap, ax |
 | [ ] | Little Arc: ⌘O | 4 | moves the live page to the main window | Arc (Ardia) |
 | [ ] | Little Arc: close | 4 | ⌘W, close, unused Esc drop the page; ⇧⌘T reopens there | Ardia |
 | [ ] | Little Arc: links from other apps | 4 | new Little Arc each time, in the last-used Space; setting for a tab | Ardia, decision 5 |
-| [ ] | Little Arc: visuals and motion | 4 | measure | — |
+| [ ] | Little Arc: radius, open and close motion, ⌘L | 4 | measure | — |
 | [ ] | Themes: rendering | 4 | OKLab 45° mix to 75 %; third colour top → bottom; alpha 0.2 + 0.55 × intensity | Arc 1.167 P§21 |
 | [ ] | Themes: texture | 4 | noise × strength (0.8 / 0.15 / 0.6 / 0.4), quarter when inactive; our own textures | Arc 1.167 |
 | [ ] | Themes: editor | 4 | 1–3 handles, intensity, translucency, noise, appearance; live; layout: measure | Arc 1.167 P§21 |
