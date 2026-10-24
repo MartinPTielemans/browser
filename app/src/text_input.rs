@@ -1,7 +1,7 @@
 // Adapted from Zed's crates/gpui/examples/input.rs (https://github.com/zed-industries/zed, commit
 // b36b283021c48f1712714b8a0e2ad6ffb578920b). Copyright Zed Industries, Inc. Licensed under the
 // Apache License, Version 2.0. Changes: a constructor, `text`, `reset`, key bindings scoped to the
-// field, and no styling of its own.
+// field, ⌘← and ⌘→ as Home and End, and no styling of its own.
 //
 //! A single-line text field, with IME support through GPUI's input handler. GPUI has no text
 //! field of its own; Zed's is its editor.
@@ -51,6 +51,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-x", Cut, context),
         KeyBinding::new("home", Home, context),
         KeyBinding::new("end", End, context),
+        // As in any Mac text field, and ahead of the browser's back and forward.
+        KeyBinding::new("cmd-left", Home, context),
+        KeyBinding::new("cmd-right", End, context),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, context),
     ]);
 }

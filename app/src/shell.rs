@@ -2,11 +2,11 @@
 //! measured sizes (docs/ux-spec.md › Window and › Sidebar). The shell shows what the browser tells
 //! it and asks the browser for changes, so the engine stays the one place tabs live.
 
-use std::{collections::HashMap, rc::Rc, time::Instant};
+use std::{borrow::Cow, collections::HashMap, rc::Rc, time::Instant};
 
 use gpui::{
-    Action, App, Bounds, Context, Global, KeyBinding, Pixels, SharedString, Size, WeakEntity,
-    Window, div, point, prelude::*, px, rgb, rgba, size,
+    Action, App, AssetSource, Bounds, Context, FocusHandle, Focusable, Global, KeyBinding, Pixels,
+    SharedString, Size, WeakEntity, Window, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 /// The sidebar's width, where the card starts.
@@ -14,6 +14,15 @@ pub const SIDEBAR_WIDTH: f32 = 228.;
 /// The card's inset from the window's top, right and bottom edges.
 pub const CARD_INSET: f32 = 10.;
 const CARD_RADIUS: f32 = 6.;
+
+// The header's buttons: their plates' tops and left edges, from the window's.
+const NAV_TOP: f32 = 7.5;
+const BACK_X: f32 = 122.;
+const FORWARD_X: f32 = 156.;
+const RELOAD_X: f32 = 190.;
+const NAV_SIZE: f32 = 32.;
+const NAV_RADIUS: f32 = 6.;
+const NAV_GLYPH: f32 = 16.;
 
 const URL_FIELD_TOP: f32 = 46.;
 const URL_FIELD_HEIGHT: f32 = 36.;
@@ -45,6 +54,11 @@ const SECONDARY: u32 = 0xffffff99;
 const URL_FIELD: u32 = 0xffffff1a;
 const NEW_TAB: u32 = 0xffffff73;
 const NEW_TAB_PLUS: u32 = 0xffffff80;
+// The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
+// forward with nowhere to go, over a hover plate of white 0.077.
+const NAV: u32 = 0xffffff99;
+const NAV_DISABLED: u32 = 0xffffff42;
+const NAV_HOVERED: u32 = 0xffffff14;
 // Until the engine reports favicons.
 const FAVICON: u32 = 0xffffff1f;
 
@@ -60,6 +74,12 @@ pub enum Command {
     SelectTab(usize),
     SelectLastTab,
     Find,
+    Back,
+    Forward,
+    Reload,
+    /// Reloads without the cache.
+    ForceReload,
+    Stop,
     Quit,
 }
 
@@ -83,6 +103,14 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-7", Command::SelectTab(6), false),
     ("cmd-8", Command::SelectTab(7), false),
     ("cmd-9", Command::SelectLastTab, false),
+    ("cmd-[", Command::Back, false),
+    ("cmd-]", Command::Forward, false),
+    ("cmd-left", Command::Back, false),
+    ("cmd-right", Command::Forward, false),
+    ("cmd-r", Command::Reload, false),
+    ("shift-cmd-r", Command::ForceReload, false),
+    ("cmd-.", Command::Stop, false),
+    ("escape", Command::Stop, false),
 ];
 
 impl Command {
@@ -104,6 +132,11 @@ impl Command {
             Command::SelectTab(_) => "select-tab",
             Command::SelectLastTab => "select-last-tab",
             Command::Find => "find",
+            Command::Back => "back",
+            Command::Forward => "forward",
+            Command::Reload => "reload",
+            Command::ForceReload => "force-reload",
+            Command::Stop => "stop",
             Command::Quit => "quit",
         }
     }
@@ -117,13 +150,18 @@ struct ShellHandle(WeakEntity<Shell>);
 
 impl Global for ShellHandle {}
 
+/// The key context at the root of the browser's windows, where its shortcuts apply. GPUI ranks a
+/// binding with no context above every other, so without one the shortcuts would take keys a
+/// focused field binds for itself, such as escape and ⌘←.
+pub const KEY_CONTEXT: &str = "Browser";
+
 /// Binds the shortcuts for while the UI has the keyboard. The browser hands them over itself while
 /// the page has it.
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys(
         SHORTCUTS
             .iter()
-            .map(|&(key, command, _)| KeyBinding::new(key, Run(command), None)),
+            .map(|&(key, command, _)| KeyBinding::new(key, Run(command), Some(KEY_CONTEXT))),
     );
     cx.on_action(|run: &Run, cx| {
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
@@ -134,20 +172,60 @@ pub fn bind_keys(cx: &mut App) {
     });
 }
 
+/// The shell's glyphs, built in. Lucide's (NOTICE).
+pub struct Assets;
+
+const ICONS: &[(&str, &[u8])] = &[
+    ("icons/arrow-left.svg", include_bytes!("../assets/icons/arrow-left.svg")),
+    ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
+    ("icons/rotate-cw.svg", include_bytes!("../assets/icons/rotate-cw.svg")),
+    ("icons/x.svg", include_bytes!("../assets/icons/x.svg")),
+];
+
+impl AssetSource for Assets {
+    fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
+        Ok(ICONS
+            .iter()
+            .find(|(name, _)| *name == path)
+            .map(|&(_, icon)| Cow::Borrowed(icon)))
+    }
+
+    fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {
+        Ok(ICONS
+            .iter()
+            .filter(|(name, _)| name.starts_with(path))
+            .map(|&(name, _)| name.into())
+            .collect())
+    }
+}
+
 /// What the shell asks of the browser. The browser answers by updating the shell afterwards, never
 /// during the call.
 pub trait Browser {
     fn select(&self, tab: u64, cx: &mut App);
     fn close(&self, tab: u64, cx: &mut App);
+    fn go_back(&self, tab: u64, cx: &mut App);
+    fn go_forward(&self, tab: u64, cx: &mut App);
+    fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
+    fn stop(&self, tab: u64, cx: &mut App);
     /// Opens the command bar, for a new tab or on `editing`'s URL.
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
     fn quit(&self, cx: &mut App);
 }
 
+/// Where a tab's page is, as the browser reports it.
+#[derive(Clone, Default)]
+pub struct Page {
+    pub url: SharedString,
+    pub can_go_back: bool,
+    pub can_go_forward: bool,
+    pub loading: bool,
+}
+
 #[derive(Default)]
 struct Tab {
     title: SharedString,
-    url: SharedString,
+    page: Page,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -158,6 +236,8 @@ enum Row {
 
 pub struct Shell {
     browser: Rc<dyn Browser>,
+    /// Holds GPUI's focus while nothing in the shell takes it, so the shortcuts have their context.
+    focus_handle: FocusHandle,
     /// The Space's Today tabs, top to bottom.
     today: Vec<u64>,
     tabs: HashMap<u64, Tab>,
@@ -174,6 +254,7 @@ impl Shell {
         cx.set_global(ShellHandle(cx.weak_entity()));
         Self {
             browser,
+            focus_handle: cx.focus_handle(),
             today: Vec::new(),
             tabs: HashMap::new(),
             selected: 0,
@@ -222,8 +303,17 @@ impl Shell {
         cx.notify();
     }
 
-    pub fn set_url(&mut self, tab: u64, url: SharedString, cx: &mut Context<Self>) {
-        self.tabs.entry(tab).or_default().url = url;
+    pub fn set_page(&mut self, tab: u64, page: Page, cx: &mut Context<Self>) {
+        // check.sh reads these lines.
+        let flag = |on| if on { 1 } else { 0 };
+        eprintln!(
+            "browser: page {tab} back {} forward {} loading {} {}",
+            flag(page.can_go_back),
+            flag(page.can_go_forward),
+            flag(page.loading),
+            page.url
+        );
+        self.tabs.entry(tab).or_default().page = page;
         cx.notify();
     }
 
@@ -252,6 +342,11 @@ impl Shell {
                 }
                 return;
             }
+            Command::Back => return self.browser.go_back(self.selected, cx),
+            Command::Forward => return self.browser.go_forward(self.selected, cx),
+            Command::Reload => return self.browser.reload(self.selected, false, cx),
+            Command::ForceReload => return self.browser.reload(self.selected, true, cx),
+            Command::Stop => return self.browser.stop(self.selected, cx),
             Command::Quit => return self.browser.quit(cx),
             // No find bar yet.
             Command::Find => return,
@@ -273,15 +368,19 @@ impl Shell {
         self.browser.select(tab, cx);
     }
 
+    fn page(&self, tab: u64) -> Page {
+        self.tabs.get(&tab).map(|tab| tab.page.clone()).unwrap_or_default()
+    }
+
     fn url(&self, tab: u64) -> SharedString {
-        self.tabs.get(&tab).map(|tab| tab.url.clone()).unwrap_or_default()
+        self.page(tab).url
     }
 
     /// A tab's title: the page's, else its host, else "Untitled" (Arc).
     fn title(&self, tab: u64) -> SharedString {
         match self.tabs.get(&tab) {
             Some(tab) if !tab.title.is_empty() => tab.title.clone(),
-            Some(tab) if !tab.url.is_empty() => host(&tab.url).into(),
+            Some(tab) if !tab.page.url.is_empty() => host(&tab.page.url).into(),
             _ => "Untitled".into(),
         }
     }
@@ -293,6 +392,67 @@ impl Shell {
             self.hovered = None;
         }
         cx.notify();
+    }
+
+    /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
+    /// back does on a page with no history.
+    fn nav_button(
+        &self,
+        x: f32,
+        icon: &'static str,
+        command: Command,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        div()
+            .id(command.name())
+            .absolute()
+            .left(px(x))
+            .top(px(NAV_TOP))
+            .size(px(NAV_SIZE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(NAV_RADIUS))
+            .when(enabled, |button| {
+                button
+                    .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                    .on_click(cx.listener(move |shell, _, _, cx| {
+                        shell.run(command, "sidebar", cx)
+                    }))
+            })
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(NAV_GLYPH))
+                    .text_color(rgba(if enabled { NAV } else { NAV_DISABLED })),
+            )
+    }
+
+    /// Back, forward, and reload, which is stop while the page loads.
+    fn nav_buttons(&self, cx: &mut Context<Self>) -> [gpui::AnyElement; 3] {
+        let page = self.page(self.selected);
+        let reload = if page.loading {
+            self.nav_button(RELOAD_X, "icons/x.svg", Command::Stop, true, cx)
+                .into_any_element()
+        } else {
+            let shown = self.selected != 0;
+            self.nav_button(RELOAD_X, "icons/rotate-cw.svg", Command::Reload, shown, cx)
+                .into_any_element()
+        };
+        [
+            self.nav_button(BACK_X, "icons/arrow-left.svg", Command::Back, page.can_go_back, cx)
+                .into_any_element(),
+            self.nav_button(
+                FORWARD_X,
+                "icons/arrow-right.svg",
+                Command::Forward,
+                page.can_go_forward,
+                cx,
+            )
+            .into_any_element(),
+            reload,
+        ]
     }
 
     fn url_field(&self) -> impl IntoElement + use<> {
@@ -427,13 +587,22 @@ impl Shell {
     }
 }
 
+impl Focusable for Shell {
+    fn focus_handle(&self, _: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 impl Render for Shell {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let card_left = if self.page_fullscreen { 0. } else { SIDEBAR_WIDTH };
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
         let new_tab = self.new_tab_row(cx);
         let rows: Vec<_> = self.today.iter().map(|&tab| self.tab_row(tab, cx)).collect();
+        let nav = self.nav_buttons(cx);
         div()
+            .key_context(KEY_CONTEXT)
+            .track_focus(&self.focus_handle)
             .size_full()
             .relative()
             .font_family(".SystemUIFont")
@@ -450,7 +619,7 @@ impl Render for Shell {
                     .bg(rgb(CARD)),
             )
             .when(!self.page_fullscreen, |shell| {
-                shell.child(self.url_field()).child(
+                shell.children(nav).child(self.url_field()).child(
                     div()
                         .id("today")
                         .absolute()

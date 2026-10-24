@@ -5,8 +5,8 @@
 // the driver has a scripted one of its own.
 //
 //   click <x> <y>                         left click, in points from the window's top-left corner
-//   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, return,
-//                                         escape, tab, space, up or down
+//   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "[", "]",
+//                                         return, escape, tab, space, up, down, left or right
 //   type <text>                           lowercase letters, dots and spaces
 //   scroll <x> <y> <dy> <count>           <count> trackpad scroll events at (x, y), each moving
 //                                         the content up by <dy> points, at a trackpad's pace
@@ -43,12 +43,19 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"l", 37}, {"j", 38}, {"k", 40}, {"n", 45}, {"m", 46}, {"return", 36}, {"tab", 48},
     {" ", 49}, {"space", 49}, {".", 47}, {"escape", 53}, {"1", 18},   {"2", 19},
     {"3", 20}, {"4", 21}, {"5", 23}, {"6", 22}, {"7", 26}, {"8", 28},      {"9", 25},
-    {"up", 126}, {"down", 125},
+    {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125}, {"left", 123}, {"right", 124},
 };
-// AppKit's characters for the arrows are NSUpArrowFunctionKey and NSDownArrowFunctionKey.
+// AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey.
 const std::map<std::string, std::string> kCharacters = {
-    {"return", "\r"}, {"tab", "\t"},          {"space", " "},
-    {"escape", "\x1b"}, {"up", "\xEF\x9C\x80"}, {"down", "\xEF\x9C\x81"}};
+    {"return", "\r"},
+    {"tab", "\t"},
+    {"space", " "},
+    {"escape", "\x1b"},
+    {"up", "\xEF\x9C\x80"},
+    {"down", "\xEF\x9C\x81"},
+    {"left", "\xEF\x9C\x82"},
+    {"right", "\xEF\x9C\x83"},
+};
 
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
 constexpr short kDoneSubtype = 0x5350;
@@ -89,7 +96,7 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
   auto special = kCharacters.find(key);
   NSString* characters = @((special == kCharacters.end() ? key : special->second).c_str());
   // The keyboard marks arrow keys as function and keypad keys.
-  if (key == "up" || key == "down") {
+  if (key == "up" || key == "down" || key == "left" || key == "right") {
     flags |= NSEventModifierFlagFunction | NSEventModifierFlagNumericPad;
   }
   for (NSEventType type : {NSEventTypeKeyDown, NSEventTypeKeyUp}) {

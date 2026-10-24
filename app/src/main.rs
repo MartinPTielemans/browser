@@ -8,9 +8,9 @@ use std::{
     rc::Rc,
 };
 
-use browser::shell::{self, Browser, Command, Shell};
+use browser::shell::{self, Browser, Command, Page, Shell};
 use gpui::{
-    AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Menu, MenuItem, Pixels,
+    AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Focusable, Menu, MenuItem, Pixels,
     SharedString, Size, WeakEntity, Window, WindowOptions, actions, prelude::*,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -113,6 +113,22 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_close(tab) };
     }
 
+    fn go_back(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_go_back(tab) };
+    }
+
+    fn go_forward(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_go_forward(tab) };
+    }
+
+    fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
+        unsafe { bc::bc_tab_reload(tab, bypass_cache) };
+    }
+
+    fn stop(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_stop(tab) };
+    }
+
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
         command_bar::show(editing, cx);
     }
@@ -140,6 +156,8 @@ fn keystroke(key: &bc::bc_key) -> String {
     let key = match name.as_ref() {
         "ArrowDown" => "down".to_string(),
         "ArrowUp" => "up".to_string(),
+        "ArrowLeft" => "left".to_string(),
+        "ArrowRight" => "right".to_string(),
         name => name.to_lowercase(),
     };
     keystroke + &key
@@ -213,6 +231,7 @@ fn open_window(cx: &mut App) {
             .detach();
             Shell::new(Rc::new(Engine), cx)
         });
+        window.focus(&shell.focus_handle(cx), cx);
         UI.set(Some((
             cx.to_async(),
             shell.downgrade(),
@@ -238,7 +257,7 @@ fn open_window(cx: &mut App) {
 }
 
 unsafe extern "C" fn started(_: *mut c_void) {
-    let app = gpui_platform::application().run_embedded(|cx| {
+    let app = gpui_platform::application().with_assets(shell::Assets).run_embedded(|cx| {
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
         cx.on_action(|_: &Quit, _| unsafe { bc::bc_quit() });
@@ -281,9 +300,26 @@ unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc:
 
 // check.sh reads these lines. Test pages report what reached them through their title.
 unsafe extern "C" fn tab_loaded(_: *mut c_void, tab: bc::bc_id, url: *const c_char) {
-    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy();
     eprintln!("browser: loaded {tab} {url}");
-    update_shell(|shell, cx| shell.set_url(tab, url.into(), cx));
+}
+
+unsafe extern "C" fn tab_state_changed(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    state: *const bc::bc_tab_state,
+) {
+    let state = unsafe { &*state };
+    let page = Page {
+        url: unsafe { CStr::from_ptr(state.url) }
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+        can_go_back: state.can_go_back,
+        can_go_forward: state.can_go_forward,
+        loading: state.loading,
+    };
+    update_shell(|shell, cx| shell.set_page(tab, page, cx));
 }
 
 unsafe extern "C" fn tab_title_changed(_: *mut c_void, tab: bc::bc_id, title: *const c_char) {
@@ -366,6 +402,7 @@ fn main() {
         tab_opened: Some(tab_opened),
         tab_closed: Some(tab_closed),
         tab_loaded: Some(tab_loaded),
+        tab_state_changed: Some(tab_state_changed),
         tab_title_changed: Some(tab_title_changed),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_key_before_page: Some(tab_key_before_page),

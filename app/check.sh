@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app five times and checks:
+# Runs the app six times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -19,7 +19,10 @@
 #      commits under it, then gives the keyboard to the new page, and scrolling a long page
 #      doesn't stutter.
 #   5. A page's popup opens as a tab in the window, under the page.
-# Runs 2 to 5 need Browser to be the active app, and run 4 takes it full screen for a moment.
+#   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
+#      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
+#      and while a page loads, reload is stop, which ⌘., escape and the button do.
+# Runs 2 to 6 need Browser to be the active app, and run 4 takes it full screen for a moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
 set -e
@@ -35,6 +38,7 @@ rm -rf "$out"
 mkdir -p "$out"
 # After a failure, nothing the check started keeps running.
 cleanup() {
+  [ -n "${server:-}" ] && kill "$server" 2>/dev/null
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
@@ -158,6 +162,9 @@ fi
 [ "$focus" = RenderWidgetHostViewCocoa ] || fail "a click on the page left focus on $focus"
 send type abc
 expect '^browser: title [0-9]* value abc$' "typing didn't reach the focused page"
+# In a text field, ⌘← and ⌘→ move the caret, so they don't come back to go back and forward.
+send key left cmd
+send key right cmd
 
 # Chrome's browser window has the keyboard, with focus on $1.
 in_browser() {
@@ -202,6 +209,7 @@ expect '^browser: title [0-9]* value abcd$' "the page got keys meant for the UI:
 grep -q '^browser: title [0-9]* page saw cmd-[tw]$' "$log" && fail "the page saw a reserved shortcut"
 grep -q '^browser: title [0-9]* page saw cmd-l$' "$log" || fail "⌘L with the page focused didn't reach the page first"
 grep -q '^browser: command find via page$' "$log" && fail "the page kept ⌘F, but the UI ran it too"
+grep -q '^browser: command \(back\|forward\) via page$' "$log" && fail "⌘← or ⌘→ in the page's text field went back or forward"
 
 # The driver's scripted input method stands in for Japanese input, which is system-wide.
 send ime on
@@ -548,3 +556,113 @@ check_layout "with the popup's tab"
 exec 3>&-
 quit
 echo "ok: a page's popup opens as a tab in the window, under the page. Window: $out/popup.png"
+
+# Back, forward, reload and stop. stuck.test leads to a server that takes connections and never
+# answers, so its page keeps loading until it's stopped.
+python3 -I -c '
+import socket, time
+server = socket.socket()
+server.bind(("127.0.0.1", 0))
+server.listen()
+print(server.getsockname()[1], flush=True)
+time.sleep(600)' > "$out/port" &
+server=$!
+for _ in $(seq 50); do
+  [ -s "$out/port" ] && break
+  sleep 0.1
+done
+[ -s "$out/port" ] || fail "the server that never answers didn't start"
+page='data:text/html,<title>loading</title>
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
+log="$out/history.log"
+step=0
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" \
+  --host-resolver-rules="MAP stuck.test 127.0.0.1:$(cat "$out/port")" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the history test page didn't draw"
+tab=$(grep -m1 '^browser: today' "$log" | cut -d' ' -f3)
+await "^browser: page $tab back 0 forward 0 loading 0 data:" || fail "a fresh tab can go back or forward"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  echo "skip: history. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# The header's buttons, centred 23.5 below the window's top.
+back_button="138 24"
+forward_button="172 24"
+reload_button="206 24"
+
+# Waits for the tab's page to be at https://$1/, done loading, with back and forward as $2 and $3
+# (1 or 0). $4 says when.
+expect_page() {
+  expect "^browser: page $tab back $2 forward $3 loading 0 https://$1/\$" "$4: the tab isn't at $1 with back $2 and forward $3: $(grep "^browser: page $tab" "$log" | tail -1)"
+}
+# Loads https://$1 in the tab from the command bar.
+go_from_bar() {
+  send key l cmd
+  expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+  send type "$1"
+  send key return
+  expect '^browser: command bar hidden$' "going to $1 didn't close the command bar"
+}
+# The driver's key $1, with ⌘, runs command $2, which the UI hears from side $3. Chromium and GPUI
+# name keys through the Mac's keyboard layout, where the keys for ⌘[ and ⌘] on a US one can be
+# others (å and a dead key on a Danish one), so this drives ⌘← and ⌘→, the same on every layout.
+history_key() {
+  send key "$1" cmd
+  expect "^browser: command $2 via $3\$" "⌘$1 with the $3 focused didn't run $2"
+}
+
+go_from_bar example.com
+expect_page example.com 1 0 "after loading a page"
+go_from_bar example.org
+expect_page example.org 1 0 "after loading another"
+../tools/window-screenshot.sh "$pid" "$out/history.png" || fail "no window to capture"
+history_key left back page
+expect_page example.com 1 1 "after ⌘←"
+history_key right forward page
+expect_page example.org 1 0 "after ⌘→"
+send click $back_button
+expect '^browser: command back via sidebar$' "a click on back didn't go back"
+expect_page example.com 1 1 "after a click on back"
+send click $forward_button
+expect '^browser: command forward via sidebar$' "a click on forward didn't go forward"
+expect_page example.org 1 0 "after a click on forward"
+# The click left the keyboard with the UI.
+history_key left back ui
+expect_page example.com 1 1 "after ⌘← with the UI focused"
+history_key right forward ui
+expect_page example.org 1 0 "after ⌘→ with the UI focused"
+
+history_key r reload ui
+expect "^browser: loaded $tab https://example.org/\$" "⌘R didn't load the page again"
+send key r cmd shift
+expect '^browser: command force-reload via ui$' "⇧⌘R didn't run force-reload"
+expect "^browser: loaded $tab https://example.org/\$" "⇧⌘R didn't load the page again"
+send click $reload_button
+expect '^browser: command reload via sidebar$' "a click on reload didn't reload"
+expect "^browser: loaded $tab https://example.org/\$" "a click on reload didn't load the page again"
+
+# While a page loads, the URL field shows where it's going and reload is stop.
+send click $page_point
+for stop in "key . cmd|page|⌘." "key escape|page|escape" "click $reload_button|sidebar|a click on stop"; do
+  IFS='|' read -r action from what << EOF
+$stop
+EOF
+  go_from_bar stuck.test
+  expect "^browser: page $tab back 1 forward 0 loading 1 https://stuck.test/\$" "stuck.test didn't show as loading"
+  if [ "$from" = sidebar ]; then
+    ../tools/window-screenshot.sh "$pid" "$out/loading.png" || fail "no window to capture"
+  fi
+  send $action
+  expect "^browser: command stop via $from\$" "$what while loading didn't run stop"
+  expect_page example.org 1 0 "after $what stopped the load"
+done
+exec 3>&-
+quit
+kill "$server"
+echo "ok: ⌘← ⌘→ and the header's buttons go back and forward, with the page or the UI focused; reload and force reload load the page again; ⌘., escape and the stop button stop a load. Windows: $out/history.png, $out/loading.png"
