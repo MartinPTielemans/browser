@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data:; style-src 'self' 'unsafe-inline'" />
+    <link rel="stylesheet" href="palette.css" />
+  </head>
+  <body>
+    <div id="backdrop" class="backdrop"></div>
+    <div class="card">
+      <div class="input-row">
+        <svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+        <input id="q" spellcheck="false" autocomplete="off" />
+      </div>
+      <div id="results" class="results"></div>
+      <div class="hints"><span><kbd>↑↓</kbd> select</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+    </div>
+    <script src="palette.js"></script>
+  </body>
+</html>

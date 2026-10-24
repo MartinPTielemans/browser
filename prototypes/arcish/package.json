@@ -1,0 +1,19 @@
+{
+  "name": "arcish",
+  "version": "0.1.0",
+  "description": "Arc-style browser prototype on Electron",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "license": "GPL-3.0-or-later",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^45.0.0"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.20.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.7"
+  }
+}
