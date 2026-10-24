@@ -12,7 +12,7 @@ Pre-alpha. Nothing here is a browser yet.
 |---|---|---|
 | 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported, Arc capture next |
 | 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
-| 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | in progress |
+| 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | in progress: the prebuilt engine downloads into the spike; first patches and Linux CI left |
 | 3 | Daily-driver MVP on Mac | — |
 | 4 | Polish and parity | — |
 | 5 | Windows, then Linux | — |
@@ -39,7 +39,7 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 | `prototypes/arcish/` | Throwaway Electron prototype of the UX (`npm install && npm start`) |
 | `spikes/gpui-cef/` | Phase 1 spike: GPUI and prebuilt CEF in one process (`./setup.sh && ./build.sh`) |
 | `spikes/gpui-ardia/` | Phase 1 spike: GPUI as a view in the window of Ardia's prebuilt engine (`./setup.sh && ./build.sh`) |
-| `spikes/gpui-core/` | Phase 2 spike: the same on our own engine, through the core's C API (`./setup.sh && ./build.sh` once `engine/build.sh` has built it) |
+| `spikes/gpui-core/` | Phase 2 spike: the same on our own engine, through the core's C API (`./setup.sh && ./build.sh`, on the prebuilt engine unless `engine/build.sh` has built one) |
 | `tools/` | Scripts for working on the repo |
 
 ## License
