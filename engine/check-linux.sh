@@ -53,4 +53,9 @@ cd "$_src_dir"
 # The core as the root, so the build has only it and what it depends on. Arguments for targets
 # outside that are unused, so they don't fail it.
 out/Default/gn gen out/Default --root-target=//browser_core
-ninja -C out/Default browser_core
+# The core's own objects. The browser_core target would compile everything it depends on as well,
+# most of Chrome.
+objects=$(ninja -C out/Default -t targets all | sed -n 's#^\(obj/browser_core/[^:]*\.o\):.*#\1#p')
+[ -n "$objects" ] || fail "the build has no objects for //browser_core"
+# shellcheck disable=SC2086 # one object per word
+ninja -C out/Default $objects
