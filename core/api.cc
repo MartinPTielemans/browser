@@ -76,6 +76,22 @@ size_t bc_space_name(bc_id id, char* name, size_t capacity) {
   return its.size();
 }
 
+void bc_space_set_name(bc_id id, const char* name) {
+  if (browser_core::Space* space = browser_core::Space::FromId(id)) {
+    space->SetName(name ? name : "");
+  }
+}
+
+bool bc_space_delete(bc_id id) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  if (!space || !space->today().empty() || browser_core::Space::All().size() < 2) {
+    return false;
+  }
+  browser_core::Window::OnSpaceDeleting(id);
+  browser_core::Space::Delete(id);
+  return true;
+}
+
 size_t bc_space_today(bc_id id, bc_id* tabs, size_t capacity) {
   browser_core::Space* space = browser_core::Space::FromId(id);
   if (!space) {

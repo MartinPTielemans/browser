@@ -42,6 +42,11 @@ struct Fake {
 }
 
 impl Fake {
+    fn report_spaces(&self, cx: &mut App) {
+        let spaces = self.spaces.borrow().clone();
+        self.later(cx, move |shell, cx| shell.set_spaces(spaces, cx));
+    }
+
     /// Changes the shell once the current update is over, as the engine reports back.
     fn later(&self, cx: &mut App, change: impl FnOnce(&mut Shell, &mut gpui::Context<Shell>) + 'static) {
         let shell = self.shell.clone();
@@ -104,16 +109,28 @@ impl Browser for Fake {
         });
     }
 
-    fn new_space(&self, cx: &mut App) {
+    fn create_space(&self, name: &str, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
-        let mut spaces = self.spaces.borrow_mut();
-        let name = format!("Space {}", spaces.len() + 1);
-        spaces.push((space, name.into()));
-        let spaces = spaces.clone();
-        self.later(cx, move |shell, cx| shell.set_spaces(spaces, cx));
-        self.show_space(space, cx);
+        self.spaces.borrow_mut().push((space, name.to_string().into()));
+        self.report_spaces(cx);
+        space
     }
+
+    fn rename_space(&self, space: u64, name: &str, cx: &mut App) {
+        if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, _)| *id == space) {
+            entry.1 = name.to_string().into();
+        }
+        self.report_spaces(cx);
+    }
+
+    fn delete_space(&self, space: u64, cx: &mut App) {
+        self.spaces.borrow_mut().retain(|(id, _)| *id != space);
+        self.report_spaces(cx);
+    }
+
+    // The preview's window is GPUI's own, which has the keyboard already.
+    fn focus_ui(&self, _: &mut App) {}
 
     fn quit(&self, cx: &mut App) {
         cx.quit();
@@ -123,6 +140,7 @@ impl Browser for Fake {
 fn main() {
     gpui_platform::application().with_assets(shell::Assets).run(|cx| {
         shell::bind_keys(cx);
+        browser::text_input::bind_keys(cx);
         let (width, height) = (1280., 800.);
         let (mut x, mut y) = (0., 0.);
         unsafe { host_centered(width, height, &mut x, &mut y) };

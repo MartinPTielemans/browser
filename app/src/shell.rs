@@ -11,11 +11,13 @@ use std::{
 };
 
 use gpui::{
-    Action, Animation, AnimationExt, App, AssetSource, Bounds, Context, FocusHandle, Focusable,
-    FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point, SharedString, Size, Transformation, WeakEntity, Window, div, img, percentage,
-    point, prelude::*, px, rgb, rgba, size, svg,
+    Action, Animation, AnimationExt, App, AssetSource, Bounds, Context, Entity, FocusHandle,
+    Focusable, FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, SharedString, Size, Transformation, WeakEntity, Window, actions,
+    div, img, percentage, point, prelude::*, px, rgb, rgba, size, svg,
 };
+
+use crate::text_input::TextInput;
 
 /// The sidebar's width, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
@@ -64,6 +66,21 @@ const SWITCHER_RIGHT: f32 = 186.;
 const SPACE_PITCH: f32 = 34.;
 const SPACE_HEIGHT: f32 = 34.;
 const SPACE_DOT: f32 = 8.;
+// The Create a Space form, in Arc's places and type, without its illustration and subtitle, which
+// are Arc's art and copy. The field moves up into the subtitle's place, Arc's 35 pt under the text
+// above it. Distances to the buttons are from the window's bottom.
+const FORM_TITLE_TOP: f32 = 140.;
+const FORM_TITLE_HEIGHT: f32 = 20.;
+const FORM_FIELD_TOP: f32 = FORM_TITLE_TOP + FORM_TITLE_HEIGHT + 35.;
+const FORM_INSET: f32 = 14.;
+const FORM_PLATE_HEIGHT: f32 = 36.;
+const FORM_RADIUS: f32 = 8.;
+// Arc's name starts at x 48, after the Space's icon, which Spaces don't have yet. This is the URL
+// field's padding.
+const FORM_TEXT_X: f32 = FORM_INSET + URL_FIELD_TEXT_X - PLATE_INSET;
+const CREATE_BOTTOM: f32 = 96.;
+const CANCEL_BOTTOM: f32 = 66.5;
+const CANCEL_HEIGHT: f32 = 15.;
 
 // Arc's dark blue Space, sampled from a capture. It stands in for the window material.
 const WINDOW: u32 = 0x262337;
@@ -89,6 +106,14 @@ const SPACE_NAME: u32 = 0xffffff8f;
 const SPACE_SHOWN: u32 = 0xffffff80;
 const SPACE_OTHER: u32 = 0xffffff30;
 const SPACE_HOVERED: u32 = 0xffffff4d;
+// The form (Arc): a white title, plates of white 0.075, a placeholder of white 0.55, and Create
+// Space in the dark blue Space's accent, labelled white 0.27 until there's a name. Its label with a
+// name, and the name itself, are white (ours: Arc's aren't captured).
+const FORM_TEXT: u32 = 0xffffff;
+const FORM_PLATE: u32 = 0xffffff13;
+const FORM_PLACEHOLDER: u32 = 0xffffff8c;
+const CREATE: u32 = 0x25278a;
+const CREATE_LABEL_DISABLED: u32 = 0xffffff45;
 
 /// A browser command, from a key or the sidebar.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -194,6 +219,8 @@ impl Command {
 #[action(namespace = browser, no_json)]
 struct Run(Command);
 
+actions!(space_form, [CreateSpace]);
+
 struct ShellHandle(WeakEntity<Shell>);
 
 impl Global for ShellHandle {}
@@ -211,6 +238,7 @@ pub fn bind_keys(cx: &mut App) {
             .iter()
             .map(|&(key, command, _)| KeyBinding::new(key, Run(command), Some(KEY_CONTEXT))),
     );
+    cx.bind_keys([KeyBinding::new("enter", CreateSpace, Some("SpaceForm"))]);
     cx.on_action(|run: &Run, cx| {
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
             shell
@@ -264,8 +292,13 @@ pub trait Browser {
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
     fn stop(&self, tab: u64, cx: &mut App);
     fn show_space(&self, space: u64, cx: &mut App);
-    /// Makes a Space after the others and shows it.
-    fn new_space(&self, cx: &mut App);
+    /// Makes an empty Space named `name` after the others, and returns it.
+    fn create_space(&self, name: &str, cx: &mut App) -> u64;
+    fn rename_space(&self, space: u64, name: &str, cx: &mut App);
+    /// Deletes a Space without tabs.
+    fn delete_space(&self, space: u64, cx: &mut App);
+    /// Gives the UI the keyboard, from the page if the page has it.
+    fn focus_ui(&self, cx: &mut App);
     /// Opens the command bar, for a new tab or on `editing`'s URL.
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
     fn quit(&self, cx: &mut App);
@@ -295,6 +328,15 @@ struct Space {
     today: Vec<u64>,
 }
 
+/// The Create a Space form, which a Space New Space made shows until it's named, cancelled or has
+/// a tab.
+struct SpaceForm {
+    space: u64,
+    /// The Space shown before, which Cancel shows again.
+    from: u64,
+    name: Entity<TextInput>,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Row {
     NewTab,
@@ -309,6 +351,9 @@ pub struct Shell {
     spaces: Vec<Space>,
     /// The Space the window shows.
     space: u64,
+    form: Option<SpaceForm>,
+    /// The form's field takes GPUI's focus at the next draw, which is when the shell has a window.
+    focus_form: bool,
     /// The tabs of every Space.
     tabs: HashMap<u64, Tab>,
     selected: u64,
@@ -329,6 +374,8 @@ impl Shell {
             focus_handle: cx.focus_handle(),
             spaces: Vec::new(),
             space: 0,
+            form: None,
+            focus_form: false,
             tabs: HashMap::new(),
             selected: 0,
             hovered: None,
@@ -364,14 +411,21 @@ impl Shell {
         self.spaces = spaces
             .into_iter()
             .map(|(id, name)| {
-                let today = old
-                    .iter_mut()
-                    .find(|space| space.id == id)
-                    .map(|space| std::mem::take(&mut space.today))
-                    .unwrap_or_default();
+                let Some(space) = old.iter_mut().find(|space| space.id == id) else {
+                    return Space { id, name, today: Vec::new() };
+                };
+                if space.name != name {
+                    eprintln!("browser: renamed space {id} {name}");
+                }
+                let today = std::mem::take(&mut space.today);
                 Space { id, name, today }
             })
             .collect();
+        if let Some(form) = &self.form
+            && !self.spaces.iter().any(|space| space.id == form.space)
+        {
+            self.form = None;
+        }
         cx.notify();
     }
 
@@ -390,6 +444,9 @@ impl Shell {
         }
         self.space = space;
         self.log_today();
+        if self.form().is_some() {
+            self.focus_form(cx);
+        }
         cx.notify();
     }
 
@@ -398,8 +455,13 @@ impl Shell {
             return;
         };
         entry.today = today;
+        let has_tabs = !entry.today.is_empty();
         if space == self.space {
             self.log_today();
+        }
+        // A tab opened in the form's Space makes it a Space like the others, under the name it has.
+        if has_tabs && self.form.as_ref().is_some_and(|form| form.space == space) {
+            self.form = None;
         }
         // What the shell knew of a closed tab goes with it.
         let spaces = &self.spaces;
@@ -483,7 +545,7 @@ impl Shell {
             Command::ForceReload => return self.browser.reload(self.selected, true, cx),
             Command::Stop => return self.browser.stop(self.selected, cx),
             Command::Quit => return self.browser.quit(cx),
-            Command::NewSpace => return self.browser.new_space(cx),
+            Command::NewSpace => return self.new_space(cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
             Command::PreviousSpace => {
@@ -500,6 +562,72 @@ impl Shell {
             let tab = self.today()[index];
             self.select(tab, cx);
         }
+    }
+
+    /// Makes a Space and shows it with the form for naming it, or shows the form already open.
+    fn new_space(&mut self, cx: &mut Context<Self>) {
+        let space = match &self.form {
+            Some(form) => form.space,
+            None => {
+                // Arc's name for a Space the user doesn't name.
+                let name = format!("Space {}", self.spaces.len() + 1);
+                let space = self.browser.create_space(&name, cx);
+                let name = cx.new(|cx| {
+                    TextInput::new("Space name", cx).placeholder_color(rgba(FORM_PLACEHOLDER))
+                });
+                self.form = Some(SpaceForm {
+                    space,
+                    from: self.space,
+                    name,
+                });
+                space
+            }
+        };
+        if space == self.space {
+            self.focus_form(cx);
+        } else {
+            self.show_space(space, cx);
+        }
+    }
+
+    /// The form, if the window shows its Space.
+    fn form(&self) -> Option<&SpaceForm> {
+        self.form.as_ref().filter(|form| form.space == self.space)
+    }
+
+    fn focus_form(&mut self, cx: &mut Context<Self>) {
+        self.browser.focus_ui(cx);
+        self.focus_form = true;
+        cx.notify();
+    }
+
+    /// Names the form's Space, if it has a name, and closes the form.
+    fn create_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.form() else {
+            return;
+        };
+        let name = form.name.read(cx).text().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        // check.sh waits for these lines.
+        eprintln!("browser: create space {} {name}", form.space);
+        self.browser.rename_space(form.space, &name, cx);
+        self.form = None;
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
+    }
+
+    /// Shows the Space the form was opened from and deletes the form's.
+    fn cancel_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.form.take_if(|form| form.space == self.space) else {
+            return;
+        };
+        eprintln!("browser: cancel space {}", form.space);
+        self.show_space(form.from, cx);
+        self.browser.delete_space(form.space, cx);
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
     }
 
     fn shown_space(&self) -> Option<&Space> {
@@ -536,7 +664,8 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.page_fullscreen && at.x < px(SIDEBAR_WIDTH) && at.y >= px(LIST_TOP) {
+        let below_rows = at.x < px(SIDEBAR_WIDTH) && at.y >= px(LIST_TOP);
+        if !self.page_fullscreen && self.form().is_none() && below_rows {
             self.run(Command::NewTab, "sidebar", cx);
         } else {
             window.titlebar_double_click();
@@ -819,6 +948,90 @@ impl Shell {
         )
     }
 
+    /// The Create a Space form, in place of the URL field and the Space's tabs.
+    fn space_form(&self, form: &SpaceForm, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let named = !form.name.read(cx).text().trim().is_empty();
+        let plate = |id: &'static str| {
+            div()
+                .id(id)
+                .absolute()
+                .left(px(FORM_INSET))
+                .w(px(SIDEBAR_WIDTH - 2. * FORM_INSET))
+                .h(px(FORM_PLATE_HEIGHT))
+                .flex()
+                .items_center()
+                .rounded(px(FORM_RADIUS))
+                .block_mouse_except_scroll()
+        };
+        let title = div()
+            .absolute()
+            .top(px(FORM_TITLE_TOP))
+            .w_full()
+            .h(px(FORM_TITLE_HEIGHT))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(17.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgb(FORM_TEXT))
+            .child("New Space");
+        let field = plate("space-name-field")
+            .top(px(FORM_FIELD_TOP))
+            .px(px(FORM_TEXT_X - FORM_INSET))
+            .bg(rgba(FORM_PLATE))
+            .text_size(px(14.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(rgb(FORM_TEXT))
+            .child(form.name.clone());
+        let create = plate("create-space")
+            .bottom(px(CREATE_BOTTOM))
+            .justify_center()
+            .bg(rgb(CREATE))
+            .text_size(px(13.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(if named {
+                rgb(FORM_TEXT)
+            } else {
+                rgba(CREATE_LABEL_DISABLED)
+            })
+            .child("Create Space")
+            .on_click(cx.listener(|shell, _, window, cx| shell.create_space(window, cx)));
+        let cancel = div()
+            .absolute()
+            .bottom(px(CANCEL_BOTTOM))
+            .w_full()
+            .h(px(CANCEL_HEIGHT))
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .id("cancel-space")
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .block_mouse_except_scroll()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(rgba(SECONDARY))
+                    .child("Cancel")
+                    .on_click(cx.listener(|shell, _, window, cx| shell.cancel_space(window, cx))),
+            );
+        div()
+            .key_context("SpaceForm")
+            .on_action(cx.listener(|shell, _: &CreateSpace, window, cx| {
+                shell.create_space(window, cx)
+            }))
+            .absolute()
+            .top_0()
+            .left_0()
+            .w(px(SIDEBAR_WIDTH))
+            .bottom_0()
+            .child(title)
+            .child(field)
+            .child(create)
+            .child(cancel)
+    }
+
     fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let plus = div()
             .text_size(px(18.))
@@ -840,13 +1053,19 @@ impl Focusable for Shell {
 }
 
 impl Render for Shell {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if std::mem::take(&mut self.focus_form)
+            && let Some(form) = self.form()
+        {
+            window.focus(&form.name.focus_handle(cx), cx);
+        }
         let card_left = if self.page_fullscreen { 0. } else { SIDEBAR_WIDTH };
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
         let new_tab = self.new_tab_row(cx);
         let rows: Vec<_> = self.today().iter().map(|&tab| self.tab_row(tab, cx)).collect();
         let nav = self.nav_buttons(cx);
         let switcher = self.switcher(cx);
+        let form = self.form().map(|form| self.space_form(form, cx));
         div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
@@ -888,10 +1107,10 @@ impl Render for Shell {
                     .bg(rgb(CARD)),
             )
             .when(!self.page_fullscreen, |shell| {
-                shell
-                    .children(nav)
-                    .child(self.url_field())
-                    .child(
+                let sidebar = shell.children(nav);
+                match form {
+                    Some(form) => sidebar.child(form),
+                    None => sidebar.child(self.url_field()).child(
                         div()
                             .id("today")
                             .absolute()
@@ -905,8 +1124,9 @@ impl Render for Shell {
                             .child(self.name_row())
                             .child(new_tab)
                             .children(rows),
-                    )
-                    .children(switcher)
+                    ),
+                }
+                .children(switcher)
             })
     }
 }

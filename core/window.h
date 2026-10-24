@@ -49,6 +49,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // As |tab| closes: takes it out of its Space, and has each window that showed it show the tab its
   // Space picks next.
   static void OnTabClosing(bc_id tab);
+  // As |space| goes: has each window that shows it show the Space before it, else the one after it.
+  static void OnSpaceDeleting(bc_id space);
 
   Window(const Window&) = delete;
   Window& operator=(const Window&) = delete;

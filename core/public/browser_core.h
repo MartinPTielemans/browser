@@ -86,7 +86,7 @@ typedef struct bc_host {
   void (*tab_closed)(void* context, bc_id tab);
   // The Space's tabs changed: one opened, closed or moved. Read them with bc_space_today.
   void (*space_changed)(void* context, bc_id space);
-  // A Space was made. Read them with bc_spaces.
+  // A Space was made, renamed or deleted. Read them with bc_spaces.
   void (*spaces_changed)(void* context);
   // The window shows another Space. Which of its tabs, if any, follows in window_selected.
   void (*window_space_shown)(void* context, bc_id window, bc_id space);
@@ -126,6 +126,13 @@ BC_EXPORT size_t bc_spaces(bc_id* spaces, size_t capacity);
 // Copies up to |capacity| bytes of the Space's name into |name|, UTF-8 and ending in a NUL, and
 // returns the name's length without it.
 BC_EXPORT size_t bc_space_name(bc_id space, char* name, size_t capacity);
+
+// Renames the Space to |name|, UTF-8. Then spaces_changed.
+BC_EXPORT void bc_space_set_name(bc_id space, const char* name);
+
+// Deletes the Space if it has no tabs and isn't the only one, and returns whether it did. A window
+// showing it shows the Space before it, else the one after it. Then spaces_changed.
+BC_EXPORT bool bc_space_delete(bc_id space);
 
 // Copies up to |capacity| of the Space's Today tabs into |tabs|, top to bottom, and returns how many
 // it has. The ones the user opened are newest first; one a page opened sits under the page's tab.

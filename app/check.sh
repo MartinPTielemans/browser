@@ -25,9 +25,12 @@
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
 #      and while a page loads, reload is stop, which ⌘., escape and the button do. A tab's row
 #      shows its page's favicon, and keeps it until the next page has loaded without one.
-#   7. New Space in the Spaces menu makes a Space and shows it, empty and without a page, and ⌘T
-#      opens a tab in it. ⌃1–⌃9, ⌥⌘← and ⌥⌘→, with the page or the UI focused, and clicks on the
-#      switcher's dots show another Space, which shows the tab it showed last.
+#   7. New Space in the Spaces menu makes a Space and shows it, empty and without a page, with a
+#      form that takes the keyboard from the page. Japanese input composes in its field, return
+#      while composing only commits, and return names the Space; ⌘T then opens a tab in it.
+#      ⌃1–⌃9, ⌥⌘← and ⌥⌘→, with the page or the UI focused, and clicks on the switcher's dots show
+#      another Space, which shows the tab it showed last. Return with no name does nothing, New
+#      Space shows a form already open, and Cancel deletes its Space and goes back.
 # Runs 2 to 7 need Browser to be the active app, and run 4 takes it full screen for a moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
@@ -765,15 +768,32 @@ content=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: la
   sed 's/^browser: layout content \([0-9]*x[0-9]*\),.*/\1/')
 dots_y=$((${content#*x} - 25))
 
-send menu New Space
+send menu New Space…
 expect '^browser: command new-space via ui$' "New Space in the menu didn't run new-space"
 expect "^browser: spaces $first [0-9]*\$" "New Space didn't make a second Space"
 second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
-expect "^browser: space $second\$" "the window didn't show the new Space"
+expect "^browser: space $second in " "the window didn't show the new Space"
 expect_tabs " *" 0 "in the new Space"
 send layout
 sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' | grep -q WebContentsViewCocoa &&
   fail "the new Space shows the first Space's page"
+# The form's field has the keyboard, which the page had.
+in_browser AccessKitSubclassOfGPUIView "in the new Space's form"
+../tools/window-screenshot.sh "$pid" "$out/space-form.png" || fail "no window to capture"
+send type reading
+send key space
+send ime on
+send type nihongo
+send key space
+[ "$marked" = 8,3 ] || fail "the form's field didn't take the conversion: marked $marked"
+../tools/window-screenshot.sh "$pid" "$out/space-form-ime.png" || fail "no window to capture"
+send key return
+none_since '^browser: create space' || fail "return while composing named the Space"
+[ "$marked" = none ] || fail "return didn't commit the composition: marked $marked"
+send ime off
+send key return
+expect "^browser: create space $second reading 日本語\$" "return didn't name the Space: $(grep '^browser: create space' "$log" | tail -1)"
+expect "^browser: renamed space $second reading 日本語\$" "the core didn't rename the Space"
 ../tools/window-screenshot.sh "$pid" "$out/new-space.png" || fail "no window to capture"
 send key t cmd
 expect '^browser: command new-tab via ui$' "⌘T in the new Space didn't reach the UI"
@@ -816,8 +836,26 @@ show_space "key left alt cmd" previous-space ui "$first" "$a"
 show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 ../tools/window-screenshot.sh "$pid" "$out/spaces.png" || fail "no window to capture"
+
+send menu New Space…
+expect "^browser: spaces $first $second [0-9]*\$" "New Space didn't make a third Space"
+third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f5)
+expect "^browser: space $third in " "the window didn't show the third Space"
+send key return
+none_since '^browser: create space' || fail "return with no name named the Space"
+show_space "key 1 ctrl" select-space ui "$first" "$a"
+send menu New Space…
+expect "^browser: space $third in " "New Space didn't show the form already open"
+none_since '^browser: spaces ' || fail "New Space with a form open made another Space"
+send state
+in_browser AccessKitSubclassOfGPUIView "back in the third Space's form"
+send click 114 $((${content#*x} - 74))
+expect "^browser: cancel space $third\$" "a click on Cancel didn't cancel"
+expect "^browser: space $first in " "Cancel didn't show the first Space again"
+expect "^browser: spaces $first $second\$" "Cancel didn't delete the third Space"
+expect_tabs "$a" "$a" "after Cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last."
-echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/new-space.png, $out/spaces.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; Cancel deletes a new Space and goes back."
+echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
