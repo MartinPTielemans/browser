@@ -47,9 +47,6 @@ void* host_ui_view(void) {
 
 void host_show_window(void* ui_view) {
   g_window = ((__bridge NSView*)ui_view).window;
-  g_window.styleMask |= NSWindowStyleMaskFullSizeContentView;
-  g_window.titlebarAppearsTransparent = YES;
-  g_window.titleVisibility = NSWindowTitleHidden;
   [g_window makeKeyAndOrderFront:nil];
   [NSApp activateIgnoringOtherApps:YES];
 

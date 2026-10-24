@@ -5,8 +5,9 @@
 use std::{borrow::Cow, collections::HashMap, rc::Rc, time::Instant};
 
 use gpui::{
-    Action, App, AssetSource, Bounds, Context, FocusHandle, Focusable, Global, KeyBinding, Pixels,
-    SharedString, Size, WeakEntity, Window, div, point, prelude::*, px, rgb, rgba, size, svg,
+    Action, App, AssetSource, Bounds, Context, FocusHandle, Focusable, Global, KeyBinding,
+    MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, WeakEntity,
+    Window, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 /// The sidebar's width, where the card starts.
@@ -246,6 +247,8 @@ pub struct Shell {
     page_fullscreen: bool,
     /// The tab the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
+    /// A press on the window's background, until the pointer moves and it moves the window.
+    background_pressed: bool,
 }
 
 impl Shell {
@@ -261,6 +264,7 @@ impl Shell {
             hovered: None,
             page_fullscreen: false,
             switching: None,
+            background_pressed: false,
         }
     }
 
@@ -368,6 +372,21 @@ impl Shell {
         self.browser.select(tab, cx);
     }
 
+    /// A double-click on the window's background: in the sidebar below the rows it opens a new tab
+    /// (Dia), and elsewhere it does what System Settings says a title bar's does.
+    fn double_click_background(
+        &mut self,
+        at: Point<Pixels>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.page_fullscreen && at.x < px(SIDEBAR_WIDTH) && at.y >= px(LIST_TOP) {
+            self.run(Command::NewTab, "sidebar", cx);
+        } else {
+            window.titlebar_double_click();
+        }
+    }
+
     fn page(&self, tab: u64) -> Page {
         self.tabs.get(&tab).map(|tab| tab.page.clone()).unwrap_or_default()
     }
@@ -414,6 +433,7 @@ impl Shell {
             .items_center()
             .justify_center()
             .rounded(px(NAV_RADIUS))
+            .block_mouse_except_scroll()
             .when(enabled, |button| {
                 button
                     .hover(|style| style.bg(rgba(NAV_HOVERED)))
@@ -468,6 +488,7 @@ impl Shell {
             .pl(px(URL_FIELD_TEXT_X - PLATE_INSET))
             .pr(px(URL_FIELD_TEXT_X - PLATE_INSET))
             .rounded(px(PLATE_RADIUS))
+            .block_mouse_except_scroll()
             .bg(rgba(URL_FIELD))
             .text_size(px(13.))
             .text_color(rgba(SECONDARY))
@@ -496,6 +517,7 @@ impl Shell {
             .mb(px(ROW_PITCH - ROW_HEIGHT))
             .px(px(PLATE_INSET))
             .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
+            .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(row, *hovered, cx)
             }))
@@ -607,6 +629,28 @@ impl Render for Shell {
             .relative()
             .font_family(".SystemUIFont")
             .bg(rgb(WINDOW))
+            // The rows, buttons and fields keep their presses. Everywhere else is the window's
+            // background, which moves the window as a title bar does.
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, _, _, _| shell.background_pressed = true),
+            )
+            .on_mouse_move(cx.listener(|shell, event: &MouseMoveEvent, window, _| {
+                if shell.background_pressed && event.dragging() {
+                    shell.background_pressed = false;
+                    // check.sh reads this line.
+                    eprintln!("browser: window move");
+                    window.start_window_move();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|shell, event: &MouseUpEvent, window, cx| {
+                    if std::mem::take(&mut shell.background_pressed) && event.click_count == 2 {
+                        shell.double_click_background(event.position, window, cx);
+                    }
+                }),
+            )
             // The page view goes over the card, as a native view.
             .child(
                 div()

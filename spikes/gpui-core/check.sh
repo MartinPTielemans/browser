@@ -153,7 +153,7 @@ expect '^spike: title value abc$' "typing didn't reach the focused page"
 
 # Chrome's browser window has the keyboard, with focus on $1.
 in_browser() {
-  [ "$key" = NativeWidgetMacNSWindow ] && [ "$focus" = "$1" ] ||
+  [ "$key" = BrowserCoreNSWindow ] && [ "$focus" = "$1" ] ||
     fail "$2: the keyboard is in $key, on $focus"
 }
 # ⌘$1 with the page focused reaches the UI as command $2.

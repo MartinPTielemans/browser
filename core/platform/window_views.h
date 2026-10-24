@@ -1,4 +1,4 @@
-// The views the core puts in a window's native window, per platform.
+// The core's native window and the views it puts in it, per platform.
 
 #ifndef BROWSER_CORE_PLATFORM_WINDOW_VIEWS_H_
 #define BROWSER_CORE_PLATFORM_WINDOW_VIEWS_H_
@@ -10,10 +10,15 @@ class Rect;
 }
 
 namespace views {
+class NativeWidget;
 class Widget;
-}
+}  // namespace views
 
 namespace browser_core::platform {
+
+// The native window for |widget|, whose title bar is the app's: on the Mac, the UI fills it and
+// the window's buttons sit in the app's header row.
+views::NativeWidget* NewNativeWidget(views::Widget* widget);
 
 // Fills |widget|'s window with the view pages are shown in, holding the app's |ui_view| under
 // them: an NSView on the Mac, or null.

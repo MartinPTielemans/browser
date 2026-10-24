@@ -140,6 +140,7 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view) : id_(id) {
   views::Widget::InitParams params(views::Widget::InitParams::CLIENT_OWNS_WIDGET,
                                    views::Widget::InitParams::TYPE_WINDOW);
   params.delegate = delegate_.get();
+  params.native_widget = platform::NewNativeWidget(widget_.get());
   params.bounds = bounds;
   params.name = "BrowserCoreWindow";
   widget_->Init(std::move(params));
