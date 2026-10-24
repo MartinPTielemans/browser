@@ -39,8 +39,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Header hover plates | MVP | 32 × 32, top 7.5, white 0.077, radius 6; only the plate clicks | Arc ax, cap, Arc (Ardia) |
 | [ ] | Sidebar button, back, forward, reload positions | MVP | 32 wide at x 77, 122, 156, 190 | Arc ax |
 | [ ] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
-| [ ] | Disabled nav glyph | MVP | about half brightness; reload becomes ✕ while loading | Dia 1.52 cap, Arc cap |
-| [ ] | URL field box | MVP | x 8–220, 36 tall from 46 below the window top, radius ≈ 12, fill white ≈ 0.10; font: measure | Arc cap |
+| [ ] | Nav glyphs | MVP | 16 pt medium, white ≈ 0.60; disabled and inactive-window 0.25; reload becomes ✕ while loading | Arc cap |
+| [ ] | URL field box | MVP | x 8–220, 36 tall from 46 below the window top, radius ≈ 12, fill white ≈ 0.10; host 13 pt regular | Arc cap |
 | [ ] | URL text | MVP | host only, no `www.`, at x 21; Show Full URL off by default | Dia 1.50.1 bin, Arc cap |
 | [ ] | URL on hover | MVP | full URL, host bright, path dim (Arc: the host stays, buttons show) | Dia 1.49 cap, Arc cap |
 | [ ] | Insecure and zoom indicators | MVP | lock-warning glyph; magnifier with − / + / Reset (Arc: neither; a "125%" flash at the card's top right) | Dia, Chrome P§8, Arc cap |
@@ -60,7 +60,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Clear label and arrow | MVP | only while the pointer is over the sidebar; ends at 216; arrow 7 × 8, 3 pt before "Clear", semibold ≈ 10 pt | Arc cap, Arc (Ardia) |
 | [ ] | Row pitch / height | MVP | 41 / 40; plate 36 tall, 2 in | Arc ax, cap |
 | [ ] | Row plate inset and radius | MVP | 8 from each side; ≈ 12 | Arc cap |
-| [ ] | Row favicon and title | MVP | favicon 18 × 18 at x 17, 11 below the row top; title at x 43 (folder + 16), 13 pt, trailing fade | Arc ax, Dia 1.50.1 bin |
+| [ ] | Row favicon and title | MVP | favicon 18 × 18 at x 17, 11 below the row top; title at x 43 (folder + 16), 14 pt regular, trailing fade | Arc ax, cap, Dia 1.50.1 bin |
 | [ ] | Row states | MVP | no fill at rest; hover P3 #FAFBFF 0.10, pressed 0.065, selected 0.20, no hairline; titles the Space-tinted white, undimmed | Arc 1.170 tokens, cap |
 | [ ] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
 | [ ] | Row fill change | MVP | hover 300 ms ease-out *interim*; the selection moves in one frame | Dia 1.50.1 bin, Arc rec |
@@ -82,7 +82,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | ⌘S show (hidden) | MVP | ease-out cubic 100 ms | Arc rec ×3 |
 | [ ] | Sidebar reveal in | MVP | spring 0.175 s / ζ 0.80, no fade, starting ≈ 100 ms after the pointer reaches the edge | Arc rec ×3 |
 | [ ] | Sidebar reveal out | MVP | spring 0.175 s / ζ 0.76, at once | Arc rec ×3 |
-| [ ] | Reveal panel | MVP | 228 × 939 at (5, 5), contents 5 right and down, 1 pt white 0.30 border, shadow ≈ 11 | Arc ax, cap, bin |
+| [ ] | Reveal panel | MVP | 228 × 939 at (5, 5), contents 5 right and down, radius 12, 1 pt white 0.30 border, shadow ≈ 11 | Arc ax, cap, bin |
 | [ ] | Reveal hold zone | MVP | 24 pt past the panel (Arc ≈ 21); trigger the full left edge | Arc (Ardia), Ardia |
 | [ ] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
 | [ ] | ⌃Tab | MVP | Dia's: switcher after 140 ms, commits on ⌃ release; a quick ⌃Tab switches with nothing drawn, as Arc's (owner, 2026-10-24) | Dia 1.50.1 bin P§2, Arc rec |
@@ -100,7 +100,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Favorites per Space or per profile | MVP | measure | — |
 | [ ] | Switcher footer | MVP | 50 tall; Home at x 8, switcher x 42–186, + at x 188 | Arc ax |
 | [ ] | Switcher band | MVP | 28 tall, 31 in from each side, 12 pt per item, 7 before scrolling, edge scale 0.75–1 | Dia 1.50.1 bin |
-| [ ] | Switcher dot | MVP | 6 pt; alpha 0.85 / 0.4 / 0.2 | Dia 1.50.1 bin |
+| [ ] | Switcher dot | MVP | 6 pt; alpha 0.85 / 0.4 / 0.2 (Arc: nothing with one Space; with two, an 8 pt dot and the other's icon) | Dia 1.50.1 bin, Arc cap |
 | [ ] | Space icons in the switcher | MVP | measure | — |
 | [ ] | Swipe tracking | MVP | −0.5 × horizontal delta; ignores the system swipe setting | Dia 1.50.1 bin |
 | [ ] | Rubber band | MVP | `255·(1 − 1/(0.15·x/255 + 1))` | Dia 1.50.1 bin |
@@ -124,7 +124,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Text alignment | MVP | same x, baseline and 13 pt as the field; 48 in; glyph centred 30 in | Dia 1.52 rec |
 | [ ] | Open | MVP | grows from the field, exponential ease-out ≈ 130 ms; content doesn't move | Dia 1.52 rec |
 | [ ] | Close | MVP | in one frame, no fade | Arc rec ×3 |
-| [ ] | Fill / border / radius | MVP | #2D2D2D / #FEFFFF; 1 device px rgba(120,125,134,0.32); radius measure (≈ 16) | Dia 1.50.1 bin, 1.49 cap |
+| [ ] | Fill / border / radius | MVP | #2D2D2D / #FEFFFF; 1 device px rgba(120,125,134,0.32); radius 12 (Arc) | Dia 1.50.1 bin, Arc cap |
 | [ ] | Shadow | MVP | black 0.12, + black 0.08 r2 (0, 0.5), + black 0.04 r1 (0, 2) | Dia 1.50.1 bin |
 | [ ] | No scrim | MVP | page undimmed | Dia 1.49 cap |
 | [ ] | Rows | MVP | input 54; suggestions 36; favicon 16; title ≈ 15 pt; " — url" 0.5 | Dia 1.49 cap |
@@ -188,7 +188,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Clear (⇧⌘K and the divider button) | MVP | closes every Today tab but the selected one, in one frame; pinned and favorites stay | Arc rec ×3 |
 | [ ] | Undo after Clear | MVP | no toast; ⌘Z restores them in place, fading in on the List spring, the rest unloaded | Arc rec ×3, Ardia |
 | [ ] | Reopen closed tab ⇧⌘T | MVP | position, pin, group, name, icon, mute, back/forward | Dia P§2 |
-| [ ] | Auto-archive interval and default | MVP | 12 hours by default; the other intervals: measure | Arc cap |
+| [ ] | Auto-archive interval and default | MVP | 12 hours by default; Never, 1 h, 6 h, 24 h, 7 days, 30 days; per profile | Arc cap, bin |
 | [ ] | ⌘W on a Today tab | MVP | archives it | Arc menus, rec |
 | [ ] | Archived Tabs page | MVP | newest first under day headings; favicon 16 at x 134, title at x 164 with the host under, 56 pitch | Arc cap, ax |
 | [ ] | Library ⇧⌘L | MVP | replaces the sidebar: icon column, 97 × 80 buttons on a 100 pitch, the page beside it; the card moves aside to x 417 (spring 0.245 s / ζ 0.92); Esc doesn't close it; ours keeps it for archived tabs, with ⇧⌘J on the downloads panel | Arc cap, ax, rec ×1 |
@@ -309,11 +309,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Peek: geometry, backdrop, buttons | 4 | measure | — |
 | [ ] | Peek: open, close, expand motion | 4 | measure | — |
 | [ ] | Little Arc: open | 4 | ⌥⌘N; 490 × 329 at the primary display's top right, 20 in, ≈ 20 under the menu bar; a command bar first | Arc cap, ax |
-| [ ] | Little Arc: bar | 4 | 47 tall: window buttons at x 9 / 32 / 55, favicon, host pill, copy link, "Open in <Space> ⌘O"; a first-use callout; colours: measure | Arc cap, ax |
+| [ ] | Little Arc: bar | 4 | 47 tall: window buttons at x 9 / 32 / 55, favicon, host pill, copy link, "Open in <Space> ⌘O"; a first-use callout; Space fill, pill 247 × 31 white 0.10, corners ≈ 17 | Arc cap, ax |
 | [ ] | Little Arc: ⌘O | 4 | moves the live page to the main window | Arc (Ardia) |
 | [ ] | Little Arc: close | 4 | ⌘W, close, unused Esc drop the page; ⇧⌘T reopens there | Ardia |
 | [ ] | Little Arc: links from other apps | 4 | new Little Arc each time, in the last-used Space; setting for a tab | Ardia, decision 5 |
-| [ ] | Little Arc: radius, open and close motion, ⌘L | 4 | measure | — |
+| [ ] | Little Arc: open and close motion, ⌘L | 4 | measure | — |
 | [ ] | Themes: rendering | 4 | OKLab 45° mix to 75 %; third colour top → bottom; alpha 0.2 + 0.55 × intensity | Arc 1.167 P§21 |
 | [ ] | Themes: texture | 4 | noise × strength (0.8 / 0.15 / 0.6 / 0.4), quarter when inactive; our own textures | Arc 1.167 |
 | [ ] | Themes: editor | 4 | 1–3 handles, intensity, translucency, noise, appearance; live; layout: measure | Arc 1.167 P§21 |

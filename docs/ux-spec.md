@@ -187,8 +187,8 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Sidebar button, back, forward, reload | 32 wide at x 77, 122, 156 and 190 (a 34 pitch), so back, forward and reload end 6 before the sidebar's 228 pt edge | Arc ax |
 | Narrow sidebar | reload goes first, then forward; back and forward stay together | Ardia, from Arc users |
 | Back or forward disabled | dimmed: Dia about half the other glyphs' brightness, Arc ≈ 0.26 against their 0.60. Arc dims both on a fresh tab; while a page loads, reload becomes ✕ | Dia 1.52 cap, Arc cap |
-| Nav glyph size | Dia 13 pt regular. Arc: measure | Dia 1.52 cap |
-| URL field box | x 8–220 and 36 tall from 46 below the window top, the same plate as a selected tab row; radius ≈ 12, circular; fill white ≈ 0.10. Font: measure | Arc cap |
+| Nav glyphs | Arc: 16 pt medium, centred in their 32 pt buttons, white ≈ 0.60; all four drop to 0.25 while the window is inactive. Their shapes are SF Symbols' `sidebar.left`, `arrow.left`, `arrow.right`, `arrow.clockwise` and, while loading, `xmark`. Dia: 13 pt regular | Arc cap; Dia 1.52 cap |
+| URL field box | x 8–220 and 36 tall from 46 below the window top, the same plate as a selected tab row; radius ≈ 12, circular; fill white ≈ 0.10. The host is 13 pt regular | Arc cap |
 | URL field text | the host alone, `www.` dropped, at x 21 in Arc. View › Show Full URL (off by default) adds the path, query and fragment, with no trailing "/" | Dia 1.50.1 bin, D›URL bar; Arc cap |
 | Hovering the URL | the full URL, host bright and path dim, as Dia. Arc keeps the host and shows only its two buttons | Dia 1.49 cap, Arc cap |
 | Insecure page / zoom not 100 % | a lock-warning glyph / a magnifier (+ or −) that opens − / + / Reset. Arc shows neither in the field, so an http page looks like any other; ours keeps both. Arc's zoom flashes "125%" in a child window at the card's top right | Dia and Chrome, P§8; Arc cap |
@@ -203,7 +203,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Minimum / maximum | measure. Ardia uses 160 / 400. Dragging past a limit rubber-bands | Dia, P§4 |
 | Persistence | kept per window; double-click on the handle resets it | Dia, P§4 |
 
-**Sections, top to bottom** (Arc ax). Header, URL field, favorites, then the Space's name, its pinned tabs, the Clear divider, "+ New Tab" and the Today tabs, newest first. The name row has the Space's icon (26 × 26 at x 13), the name at x 41 and a More button at the right. The footer is 50 tall: a button named Home (32 × 32 at x 8), the Space switcher (x 42–186) and a + button (32 × 32 at x 188). The favorites stay put while the list scrolls. A favorites block taller than 40 % of the sidebar scrolls with the list instead (Ardia).
+**Sections, top to bottom** (Arc ax). Header, URL field, favorites, then the Space's name, its pinned tabs, the Clear divider, "+ New Tab" and the Today tabs, newest first. The name row has the Space's icon (26 × 26 at x 13), the name at x 41 in 13 pt semibold at white ≈ 0.56, and a More button at the right. The footer is 50 tall: a button named Home (32 × 32 at x 8), the Space switcher (x 42–186) and a + button (32 × 32 at x 188). The favorites stay put while the list scrolls. A favorites block taller than 40 % of the sidebar scrolls with the list instead (Ardia).
 
 **Favorites** (Arc's favorites are Dia's Top Apps dock, so these values are *interim*)
 
@@ -241,7 +241,7 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 - Today tabs are the Space's unpinned tabs. They are archived (see Archive). "+ New Tab" is Today's first row, and new tabs open under it.
 - The divider shows with the section while the Space has Today tabs. It has no hover state.
 - The line is one device pixel (0.5 pt) at white 0.15, inset 18 from both sides of the sidebar, 7.5 under the last pinned row. While "Clear" shows, it stops 7.5 pt before the arrow.
-- "Clear" shows only while the pointer is over the sidebar, on the divider's line, ending at 216 (12 before the sidebar's edge). The down arrow is 7 × 8 and sits 3 pt before the label. The label is semibold, with a cap height 0.75 of the tab titles' (≈ 10 pt beside 13 pt titles).
+- "Clear" shows only while the pointer is over the sidebar, on the divider's line, ending at 216 (12 before the sidebar's edge). The down arrow is 7 × 8 and sits 3 pt before the label. The label is ≈ 10 pt, between semibold and bold, at white ≈ 0.32 (Arc cap).
 - The button's tooltip is "Clear unpinned tabs in this space". The menu item is Clear Unpinned Tabs (⇧⌘K). The command bar finds it by "close unpinned tabs", "clear tabs" and "clear today". No toast follows; ⌘Z undoes it (see Archive).
 
 **Tab rows** (sizes from Arc ax and cap at the 228 pt default; the rest Dia 1.50.1 bin and cap, D›Sidebar rows)
@@ -252,13 +252,13 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 | Side inset | the plate is inset 8 from both sides of the sidebar (Arc). Dia: 6 |
 | Radius | Arc ≈ 12. Dia: min(height / 3, 10), continuous corners |
 | Favicon | 18 × 18 at x 17, 11 below the row's top (Arc). Dia: 16 × 16 |
-| Title | at x 43, 8 after the favicon; in a folder the favicon and title sit 16 further right (Arc). 13–14 pt (Dia 1.49 estimate; Ardia uses 13). It fades out at the trailing edge, never an ellipsis (Dia; Arc truncates with an ellipsis) |
+| Title | at x 43, 8 after the favicon; in a folder the favicon and title sit 16 further right (Arc). 14 pt regular, and a folder's name 14 pt semibold (Arc cap). It fades out at the trailing edge, never an ellipsis (Dia; Arc truncates with an ellipsis) |
 | Selected | the selected fill, with no hairline (Arc). Dia adds a 0.5 pt inner hairline of white 0.15 on all four sides |
 | Hover | the hover fill and a close button 26 × 26 at x 189, 7 below the row's top, which the title truncates before. The selected row shows it under the pointer too (Arc) |
 | Audio | a speaker glyph after the favicon. Muting applies to the site in that profile and follows navigation (Dia, P§2) |
 | Loading | a 12 × 12 ring at width − 8 − 12, only in rows at least 48 wide, hidden under the hover ✕. The track and ring are 1.5 pt lines on a circle inset 1.25. The ring covers 72 % with round caps in the secondary label colour, the track is the same colour at 0.18, and it spins per Motion |
 | Sleeping tab | faded favicon (alpha: measure) |
-| "+ New Tab" row | Today's first row (Arc). Label white 0.45, its plus sign ≈ 0.5 (Arc cap); hover as rows |
+| "+ New Tab" row | Today's first row (Arc). Label 14 pt regular at white 0.45, its plus sign ≈ 0.5 (Arc cap); hover as rows |
 | New Tab tab's icon | our mark, 16 wide, white 0.28 in dark mode over any row state |
 
 **Behavior**
@@ -280,7 +280,7 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
   - ⌘S or the sidebar button hides the docked sidebar (Sidebar hide) and shows it again (Sidebar show). The sidebar and the card's left edge move together, and the page is laid out at every step. Hidden, the card is inset 10 on every side, with no traffic lights, header or nav.
 - **Sidebar reveal** (Arc rec, cap, ax).
   - The pointer at the window's left edge, at any height including the top-left corner, slides a floating panel over the page (Sidebar reveal in). The page doesn't move.
-  - The panel is 228 × 939 at (5, 5): inset 5 from the window's left, top and bottom edges, as wide as the docked sidebar, with everything in it 5 right and 5 down of the docked layout. It is rounded and dark, with a 1 pt border of white 0.30 (Arc cap, bin) and a shadow ≈ 11 pt around it. It holds the traffic lights, the header buttons, the URL field and the tabs.
+  - The panel is 228 × 939 at (5, 5): inset 5 from the window's left, top and bottom edges, as wide as the docked sidebar, with everything in it 5 right and 5 down of the docked layout. It is dark, with circular corners of radius 12 and a 1 pt border of white 0.30 (Arc cap, bin) and a shadow ≈ 11 pt around it. It holds the traffic lights, the header buttons, the URL field and the tabs.
   - It stays while the pointer is within 24 pt of its edge (Arc (Ardia) ≈ 21), then slides away (Sidebar reveal out).
   - Docking from the panel is instant: the page is laid out narrower in one frame (Arc (Ardia)).
 
@@ -309,7 +309,7 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 | Dot | 6 × edge scale, round. Label colour at 0.85 selected, 0.4 hovered, 0.2 otherwise |
 | Click | focuses that Space |
 
-Arc shows Space icons in place of dots when a Space has one: measure both looks.
+Arc (cap) draws nothing in the switcher while there's one Space. With two, captured once while the Create a Space form was open, the items are 36 × 34 buttons 34 apart, centred in the footer: the selected Space is an 8 pt dot at white 0.5 and the other shows its icon at white ≈ 0.19. Measure with more Spaces and with the form closed.
 
 **Switching**
 
@@ -352,17 +352,17 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 | Item | Value |
 |---|---|
 | Width | the field's width plus ≈ 41 on the left and ≈ 40 on the right: 888 for an 810 field. Arc's ⌘T and ⌘L panel is 766 wide, centred on the window rather than the card and in the same place with the sidebar hidden, with suggestion rows 50 tall, 5 of them showing and the rest scrolling, and opens in one frame (Arc cap, ax, rec) |
-| Text | the same x, baseline and size as in the field (13 pt); 48 in from the panel's left edge. The search glyph is centred 30 in |
+| Text | the same x, baseline and size as in the field (13 pt); 48 in from the panel's left edge. The search glyph is centred 30 in. Arc's field is 18 pt medium and its row titles 13 pt medium (Arc cap) |
 | Open | grows out of the field's box (Panel grow). Its left edge reaches 63, 82, 92, 95 and 99 % on successive 60 fps frames, and the height grows with it. The content doesn't move or scale; the growing shape uncovers it |
 | Close | Arc: in one frame, no fade (rec ×3). Dia: measure |
-| Radius | 20 continuous for the New Tab box (bin); ≈ 16 for the URL panel (1.49 cap): measure |
+| Radius | 20 continuous for the New Tab box (bin); ≈ 16 for the URL panel (1.49 cap): measure. Arc's panel: 12, circular (Arc cap) |
 | Fill | opaque #2D2D2D / #FEFFFF (1.50.1 bin; the cap reads (45, 45, 45)). The 1.49 URL panel was ≈ #2A2A2A. Arc's is translucent, with no token (Arc cap) |
 | Border | 1 device pixel, rgba(120,125,134,0.32) in dark. Arc: 0.5 pt of black ≈ 0.97 outside and 1 pt of white ≈ 0.23 inside, and a white 0.10 divider under the field (Arc cap) |
 | Shadow | black 0.12 (Dia's default), plus from 1.50 two layer shadows: black 0.08 radius 2 offset (0, 0.5), and black 0.04 radius 1 offset (0, 2) |
 | Scrim | none: the page stays visible and undimmed (1.49) |
 | Input row | 54 tall (1.49 cap). The leading icon becomes the selected suggestion's favicon |
 | Suggestion row | 36 tall, 16 pt favicon, title ≈ 15 pt white, " — url" at 0.5 (1.49 cap) |
-| Selected row | warm grey ≈ #5E5A5D, radius 10, inset 4 (1.49 cap). Arc fills it with the Space's colour, 46 tall in the 50 pt row (Arc cap) |
+| Selected row | warm grey ≈ #5E5A5D, radius 10, inset 4 (1.49 cap). Arc fills it with the Space's colour, 46 tall in the 50 pt row and 10 in from the panel's edge, radius ≈ 6 (Arc cap) |
 | Bottom row | 53 tall (1.49). Dia's "+ Add tabs or files" chip and mic are AI and are dropped. The "Go ↩" pill (≈ 92 × 29, lavender ≈ #DCCBD8, dark text) stays and names the search engine (Ardia) |
 
 **Rows**
@@ -465,8 +465,8 @@ Arc's structure. Dia replaced it with Clean Up Tabs, recorded below for referenc
 - **Closed tabs.** Closed tabs reopen with ⇧⌘T, newest first, with position, pin, group, custom name and icon, mute state and back/forward list (Dia, P§2).
 - **Archived tabs** (Arc cap, ax). ⌘W on a Today tab archives it; the menu item is Archive Tab. The Library's Archived Tabs page lists them newest first under day headings ("Today"): a 16 pt favicon at x 134, the title at x 164 with the host under it, on a 56 pt pitch.
 - **The Library** (Arc cap, ax, rec ×1). Window › View Library (⇧⌘L) and View Downloads (⇧⌘J) put it in place of the sidebar: an icon column (Media, Downloads, Easels & Notes, Spaces, Archived Tabs; 97 × 80 buttons on a 100 pitch) and the chosen page beside it, with a search field and Filter on the traffic-light row. The card moves aside to x 417 without resizing, running off the window's right edge (Library push). Esc doesn't close it; its back button does. Media and Easels & Notes are out of scope. Ours keeps the Library for archived tabs; ⇧⌘J opens the downloads panel instead (see Downloads; owner, 2026-10-24).
-- **Auto-archive** (Arc cap). A Today tab not visited for 12 hours is archived, the default in Settings › General › Archive tabs after.
-- Measure in Arc: the other auto-archive intervals, searching the archive, and restoring a tab from it.
+- **Auto-archive** (Arc cap, bin). A Today tab not visited for 12 hours is archived, the default in Settings › General › Archive tabs after. The other choices are Never, 1 hour, 6 hours, 24 hours, 7 days and 30 days. Arc keeps the setting per profile, and Little Arc has its own.
+- Measure in Arc: searching the archive, and restoring a tab from it.
 
 ### Profiles
 
@@ -580,10 +580,11 @@ Arc's keys are ⌥⌘N, and ⌘O to open the page in the main window. Measured i
 
 - **Opening.** ⌥⌘N opens a 490 × 329 window at the primary display's top right, 20 in from its right edge and ≈ 20 below the menu bar, whichever display the main window and the pointer are on. At first it holds only a command bar: the field, a close button and suggestion rows 50 tall, as in the main window.
 - **Bar.** After a pick, the same window shows the page under a 47 pt bar: the window buttons (16 × 16 at x 9, 32 and 55), the favicon, the host in a pill, a copy-link button, and "Open in <Space> ⌘O". The first time, a callout over the page explains "Links Open in Little Arc", "Open in" and ⌘W. ⌘L or a click on the bar opens a compact command bar (Ardia). ⌘O moves the live page, with history, form text, scroll and playing media, into the main window and closes Little Arc (Ardia).
+- **Look.** The window's corners are ≈ 17, circular. The bar has the Space's sidebar fill. The host pill is 247 × 31 at x 83, white 0.10, with the host in 13 pt at white ≈ 0.8. "Open in" is a 141 × 29 plate of dark navy. Before a pick, the command bar has Arc's panel edge, with a 0.5 pt dark outline and 1 pt of white ≈ 0.23 inside it.
 - **Closing.** ⌘W closes the window and drops the page. Esc closes it too when the page doesn't use it (Ardia). The page stays in History, and ⇧⌘T reopens it in Little Arc with its back/forward list (Ardia).
 - **Links from other apps** open in a new Little Arc each time; a setting switches this to "a new tab". The page's own links stay in it. `target=_blank` and ⌘-click open as tabs of the main window, behind (Ardia).
 - **Where links land.** Ardia uses the profile of the window used last. Ours: the Space used last.
-- Measure in Arc: the bar's colours, the window's radius, the open and close animations, Esc, and how ⌘O moves the page.
+- Measure in Arc: the open and close animations, Esc, and how ⌘O moves the page.
 
 ### Themes
 
@@ -690,7 +691,7 @@ Arc shuts down on 2026-12-22. This is what's left to capture, by feature; what's
 | Feature | Capture |
 |---|---|
 | Window | Translucency composites over black, grey and white backdrops, for each preset Space colour, key and inactive |
-| Sidebar header | The nav glyphs' size; the URL field's font, and the field focused; with two pinned extensions; the zoom indicator, which is its own window, so capture that window too |
+| Sidebar header | The URL field focused; with two pinned extensions; the zoom indicator, which is its own window, so capture that window too |
 | Sidebar width | The minimum and maximum, by dragging to each limit (owner's hand) |
 | Favorites | Screenshots with 1, 3, 4, 6, 9 and 12 favorites at the default width and at the minimum and maximum (columns, tile size, gaps, radius, favicon size). Selected colourful, one-colour and white icons; hovered tile with its tooltip; audio playing. Favorites sync to the owner's account, so remove them afterwards |
 | Pinned tabs | A pinned tab navigated away (and hovered while away), and unloaded after ⌘W. Select it with ⌘1–⌘8: Accessibility presses don't select sidebar rows |
@@ -699,7 +700,7 @@ Arc shuts down on 2026-12-22. This is what's left to capture, by feature; what's
 | Spaces | The switcher with 2, 5 and 10 Spaces, with icons and without; hovered and selected; rename, colour and icon flows; the profile picker; a Space whose profile differs. Answer: do favorites follow the Space or the profile? |
 | Command bar | ⌥↩ on a typed host, from a closed bar (⌘T while the bar is open closes it). Answer: whether the pointer highlights a row (one capture showed none) |
 | Split view | 3 and 4 panes, side by side and stacked; the focused-pane indicator; the unfocused dim; drop zones while a tab is dragged over the page (owner's hand) |
-| Archive | Searching the archive, restoring a tab from it, the archive settings with every interval option |
+| Archive | Searching the archive, restoring a tab from it |
 | Profiles | Profile settings, creating a profile, an incognito window |
 | Extensions | Where pinned extensions sit, an extension popup anchored, the install prompt for a throwaway Web Store extension, the remove confirmation, Arc's site-controls panel |
 | Passwords | The save prompt after a fake login on a local page, the autofill dropdown, the password settings |
@@ -707,7 +708,7 @@ Arc shuts down on 2026-12-22. This is what's left to capture, by feature; what's
 | DevTools | Undocked |
 | Import | Each step of Arc's import from Chrome. Answer: where do Chrome's bookmarks land? |
 | Peek | Open from a favorite's link, and from every other click that opens one: size, position, radius, shadow, backdrop dim, buttons |
-| Little Arc | Opened by a link from another app; the bar's colours; after ⌘L |
+| Little Arc | Opened by a link from another app; after ⌘L |
 | Themes | Each editor state; the window at intensity 0, 0.5 and 1, noise 0 and 1 for each texture, translucency on and off, as composites |
 | Boosts | Every way to start a Boost, each editor state, Zap picking an element, a site with a Boost in Site Controls, on and off. Answer: do Boosts follow the Space, the profile or the account? |
 | Updates | The update prompt, if one can still be triggered |
