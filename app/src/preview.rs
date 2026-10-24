@@ -2,7 +2,10 @@
 //! seconds. `cargo run --release --bin preview`. The browser's own rules for tabs live in the core,
 //! so the ones here are only stand-ins.
 
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use browser::shell::{self, Browser, Page, Shell};
 use gpui::{
@@ -16,6 +19,8 @@ unsafe extern "C" {
     fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
 }
 
+// Two Spaces, so the switcher shows. The tabs are in the first.
+const SPACES: [&str; 2] = ["Space 1", "Reading"];
 const TABS: [(&str, &str); 5] = [
     (
         "Arc (web browser) - Wikipedia",
@@ -33,6 +38,7 @@ const TABS: [(&str, &str); 5] = [
 struct Fake {
     shell: WeakEntity<Shell>,
     next_id: Cell<u64>,
+    spaces: RefCell<Vec<(u64, SharedString)>>,
 }
 
 impl Fake {
@@ -58,7 +64,7 @@ impl Browser for Fake {
             };
             today.remove(index);
             let next = today.get(index).or(today.last()).copied().unwrap_or(0);
-            shell.set_today(today, cx);
+            shell.set_today(shell.space(), today, cx);
             if shell.selected() == tab {
                 shell.set_selected(next, cx);
             }
@@ -84,9 +90,29 @@ impl Browser for Fake {
         self.later(cx, move |shell, cx| {
             let mut today = shell.today().to_vec();
             today.insert(0, tab);
-            shell.set_today(today, cx);
+            shell.set_today(shell.space(), today, cx);
             shell.set_selected(tab, cx);
         });
+    }
+
+    // Each made-up Space shows its top tab.
+    fn show_space(&self, space: u64, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            shell.set_space(space, cx);
+            let top = shell.today().first().copied().unwrap_or(0);
+            shell.set_selected(top, cx);
+        });
+    }
+
+    fn new_space(&self, cx: &mut App) {
+        let space = self.next_id.get();
+        self.next_id.set(space + 1);
+        let mut spaces = self.spaces.borrow_mut();
+        let name = format!("Space {}", spaces.len() + 1);
+        spaces.push((space, name.into()));
+        let spaces = spaces.clone();
+        self.later(cx, move |shell, cx| shell.set_spaces(spaces, cx));
+        self.show_space(space, cx);
     }
 
     fn quit(&self, cx: &mut App) {
@@ -116,11 +142,19 @@ fn main() {
         };
         let window = cx.open_window(options, |window, cx| {
             let shell = cx.new(|cx| {
+                let first_space = TABS.len() as u64 + 1;
+                let spaces: Vec<(u64, SharedString)> = (first_space..)
+                    .zip(SPACES)
+                    .map(|(id, name)| (id, name.into()))
+                    .collect();
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(TABS.len() as u64 + 1),
+                    next_id: Cell::new(first_space + SPACES.len() as u64),
+                    spaces: RefCell::new(spaces.clone()),
                 });
                 let mut shell = Shell::new(browser, cx);
+                shell.set_spaces(spaces, cx);
+                shell.set_space(first_space, cx);
                 for (index, (title, url)) in TABS.iter().enumerate() {
                     let tab = index as u64 + 1;
                     shell.set_title(tab, (*title).into(), cx);
@@ -134,7 +168,7 @@ fn main() {
                     };
                     shell.set_page(tab, page, cx);
                 }
-                shell.set_today((1..=TABS.len() as u64).collect(), cx);
+                shell.set_today(first_space, (1..=TABS.len() as u64).collect(), cx);
                 shell.set_selected(1, cx);
                 shell
             });

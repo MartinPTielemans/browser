@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <utility>
 
 #include "base/functional/bind.h"
 #include "base/location.h"
@@ -16,6 +17,7 @@ namespace browser_core {
 
 namespace {
 
+// By id, which is the order they were made in.
 std::map<bc_id, std::unique_ptr<Space>>& Spaces() {
   static base::NoDestructor<std::map<bc_id, std::unique_ptr<Space>>> spaces;
   return *spaces;
@@ -24,10 +26,17 @@ std::map<bc_id, std::unique_ptr<Space>>& Spaces() {
 }  // namespace
 
 // static
-Space* Space::Create() {
+Space* Space::Create(std::string name) {
   const bc_id id = NewId();
-  Space* space = new Space(id);
+  Space* space = new Space(id, std::move(name));
   Spaces()[id] = base::WrapUnique(space);
+  // Posted, like the Space's changes.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce([] {
+        if (Host().spaces_changed) {
+          Host().spaces_changed(Host().context);
+        }
+      }));
   return space;
 }
 
@@ -35,6 +44,15 @@ Space* Space::Create() {
 Space* Space::FromId(bc_id id) {
   auto it = Spaces().find(id);
   return it == Spaces().end() ? nullptr : it->second.get();
+}
+
+// static
+std::vector<Space*> Space::All() {
+  std::vector<Space*> all;
+  for (auto& [id, space] : Spaces()) {
+    all.push_back(space.get());
+  }
+  return all;
 }
 
 // static
@@ -47,7 +65,7 @@ Space* Space::Holding(bc_id tab) {
   return nullptr;
 }
 
-Space::Space(bc_id id) : id_(id) {}
+Space::Space(bc_id id, std::string name) : id_(id), name_(std::move(name)) {}
 
 void Space::Add(bc_id tab, bc_id opener, bool foreground) {
   auto at = std::ranges::find(today_, opener);

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app six times and checks:
+# Runs the app seven times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -25,7 +25,10 @@
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
 #      and while a page loads, reload is stop, which ⌘., escape and the button do. A tab's row
 #      shows its page's favicon, and keeps it until the next page has loaded without one.
-# Runs 2 to 6 need Browser to be the active app, and run 4 takes it full screen for a moment.
+#   7. New Space in the Spaces menu makes a Space and shows it, empty and without a page, and ⌘T
+#      opens a tab in it. ⌃1–⌃9, ⌥⌘← and ⌥⌘→, with the page or the UI focused, and clicks on the
+#      switcher's dots show another Space, which shows the tab it showed last.
+# Runs 2 to 7 need Browser to be the active app, and run 4 takes it full screen for a moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
 set -e
@@ -41,7 +44,8 @@ rm -rf "$out"
 mkdir -p "$out"
 # After a failure, nothing the check started keeps running.
 cleanup() {
-  [ -n "${server:-}" ] && kill "$server" 2>/dev/null
+  # The server may be gone already, and under set -e a failed kill would end the trap here.
+  [ -z "${server:-}" ] || kill "$server" 2>/dev/null || true
   kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
@@ -316,12 +320,12 @@ switch() {
   expect "^browser: selected $2 in " "key $1 didn't show tab $2 of \"$(today)\""
 }
 # The center of row $1 of Today, counting from 0: rows are 41 apart under "+ New Tab", which is
-# 90 below the window's top.
+# under the Space's name, 44 tall and 90 below the window's top.
 row() {
-  echo "100 $((90 + 41 * ($1 + 1) + 20))"
+  echo "100 $((90 + 44 + 41 * ($1 + 1) + 20))"
 }
 
-await '^browser: today [0-9]*$' || fail "the first tab isn't in Today"
+await '^browser: today [0-9][0-9]*$' || fail "the first tab isn't in Today"
 a=$(today)
 send click $page_point
 if [ "$active" != 1 ]; then
@@ -346,7 +350,7 @@ switch "down alt cmd" "$a"
 switch "down alt cmd" "$c"
 send click $(row 1)
 expect "^browser: selected $b in " "a click on the second row didn't show its tab"
-send click 100 110
+send click 100 154
 expect '^browser: command new-tab via sidebar$' "a click on \"+ New Tab\" didn't run New Tab"
 expect '^browser: command bar shown$' "a click on \"+ New Tab\" didn't open the command bar"
 send key escape
@@ -543,7 +547,7 @@ in_browser RenderWidgetHostViewCocoa "after the command bar closed over a page t
 
 # The window's background moves the window, as a title bar does: the header row outside its
 # buttons, the sidebar below the rows and the card's margins. The buttons, the URL field and the
-# rows keep their presses. Each drag moves 5 points, about a pointer's first step. Posted events
+# rows and the Space's name keep their presses. Each drag moves 5 points, about a pointer's first step. Posted events
 # don't move the window itself: the window server follows the real pointer.
 moves=0
 drag() {
@@ -559,7 +563,8 @@ drag() {
 drag 100 24 moves "the header"
 drag 138 24 stays "the back button"
 drag 110 64 stays "the URL field"
-drag 110 150 stays "a tab's row"
+drag 110 112 stays "the Space's name"
+drag 110 195 stays "a tab's row"
 drag 110 400 moves "the empty sidebar"
 drag 600 5 moves "the card's top margin"
 drag $((width - 8)) 300 moves "the card's right margin"
@@ -602,7 +607,7 @@ await '^browser: title [0-9]* ready$' || fail "the popup test page didn't draw"
 send click $page_point
 send key p
 expect '^browser: tab [0-9]* opened by [0-9]* in the foreground$' "the page's popup didn't open as a tab"
-opener=$(grep -m1 '^browser: today' "$log" | cut -d' ' -f3)
+opener=$(grep -m1 '^browser: today [0-9]' "$log" | cut -d' ' -f3)
 popup=$(grep '^browser: tab [0-9]* opened by' "$log" | cut -d' ' -f3)
 expect "^browser: today $opener $popup\$" "the popup's tab didn't go under the page: $(grep '^browser: today' "$log" | tail -1)"
 expect '^browser: loaded [0-9]* https://example.com/$' "the popup's page didn't load in its tab"
@@ -639,7 +644,7 @@ pid=$!
 exec 3> "$out/drive"
 await_load
 await '^browser: title [0-9]* ready$' || fail "the history test page didn't draw"
-tab=$(grep -m1 '^browser: today' "$log" | cut -d' ' -f3)
+tab=$(grep -m1 '^browser: today [0-9]' "$log" | cut -d' ' -f3)
 await "^browser: page $tab back 0 forward 0 loading 0 data:" || fail "a fresh tab can go back or forward"
 await "^browser: favicon $tab [1-9][0-9]* bytes\$" || fail "the start page's favicon didn't reach the UI"
 send click $page_point
@@ -729,3 +734,90 @@ exec 3>&-
 quit
 kill "$server"
 echo "ok: ⌘← ⌘→ and the header's buttons go back and forward, with the page or the UI focused; reload and force reload load the page again; ⌘., escape and the stop button stop a load; the row keeps a page's favicon until the next page has loaded without one. Windows: $out/history.png, $out/loading.png"
+
+# Spaces. A new one is empty, and each keeps its tabs and the one it showed last.
+page='data:text/html,<title>loading</title>
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
+log="$out/spaces.log"
+step=0
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the Spaces test page didn't draw"
+# The Space the app last showed.
+space() {
+  grep '^browser: space [0-9]' "$log" | tail -1 | cut -d' ' -f3
+}
+first=$(space)
+await "^browser: spaces $first\$" || fail "the app didn't start with one Space"
+a=$(today)
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  echo "skip: Spaces. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# The switcher's dots are centred under the sidebar, 25 above the window's bottom.
+send layout
+content=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
+  sed 's/^browser: layout content \([0-9]*x[0-9]*\),.*/\1/')
+dots_y=$((${content#*x} - 25))
+
+send menu New Space
+expect '^browser: command new-space via ui$' "New Space in the menu didn't run new-space"
+expect "^browser: spaces $first [0-9]*\$" "New Space didn't make a second Space"
+second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: space $second\$" "the window didn't show the new Space"
+expect_tabs " *" 0 "in the new Space"
+send layout
+sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' | grep -q WebContentsViewCocoa &&
+  fail "the new Space shows the first Space's page"
+../tools/window-screenshot.sh "$pid" "$out/new-space.png" || fail "no window to capture"
+send key t cmd
+expect '^browser: command new-tab via ui$' "⌘T in the new Space didn't reach the UI"
+expect '^browser: command bar shown$' "⌘T in the new Space didn't open the command bar"
+send type example.com
+send key return
+expect '^browser: today [0-9][0-9]*$' "the tab for example.com didn't open in the new Space"
+b=$(today)
+expect "^browser: selected $b\$" "the new Space's tab wasn't shown"
+expect "^browser: loaded $b https://example.com/\$" "example.com didn't load in the new Space's tab"
+
+# $1 is the driver's key or click, $2 the command it runs, $3 where the UI hears it from, and $4
+# the Space it shows, with its tab $5.
+show_space() {
+  send $1
+  expect "^browser: command $2 via $3\$" "$1 with the $3 focused didn't run $2"
+  expect "^browser: space $4 in " "$1 with the $3 focused didn't show Space $4"
+  # The menu shows the shortcut too, and a key the shell ran never reaches it.
+  [ "$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: command ')" = 1 ] ||
+    fail "$1 with the $3 focused ran more than one command"
+  expect_tabs "$5" "$5" "after $1 showed Space $4"
+}
+send click $page_point
+show_space "key 1 ctrl" select-space page "$first" "$a"
+send click $page_point
+show_space "key 2 ctrl" select-space page "$second" "$b"
+send click $page_point
+show_space "key left alt cmd" previous-space page "$first" "$a"
+send click $page_point
+show_space "key right alt cmd" next-space page "$second" "$b"
+# Spaces don't wrap around.
+send key right alt cmd
+expect '^browser: command next-space via page$' "⌥⌘→ at the last Space didn't reach the UI"
+send state
+none_since '^browser: space [0-9]' || fail "⌥⌘→ at the last Space showed another"
+send click $sidebar_point
+show_space "key 1 ctrl" select-space ui "$first" "$a"
+show_space "key right alt cmd" next-space ui "$second" "$b"
+show_space "key left alt cmd" previous-space ui "$first" "$a"
+show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
+show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
+../tools/window-screenshot.sh "$pid" "$out/spaces.png" || fail "no window to capture"
+exec 3>&-
+quit
+spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
+echo "ok: New Space makes an empty Space and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last."
+echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/new-space.png, $out/spaces.png"

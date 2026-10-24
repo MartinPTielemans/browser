@@ -50,9 +50,8 @@ thread_local! {
         const { RefCell::new(None) };
     // GPUI starts inside Chromium's run loop, from a callback, and lives as long as the process.
     static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
-    // The browser window and the Space it shows. There's one of each so far.
+    // The browser window. There's one so far.
     static WINDOW: Cell<bc::bc_id> = const { Cell::new(0) };
-    static SPACE: Cell<bc::bc_id> = const { Cell::new(0) };
 }
 
 /// Changes the shell, from a core callback.
@@ -95,6 +94,12 @@ fn open_tab(url: &str) {
     }
 }
 
+/// Makes a Space after the others.
+fn create_space(name: &str) -> bc::bc_id {
+    let name = CString::new(name).unwrap_or_default();
+    unsafe { bc::bc_space_create(name.as_ptr()) }
+}
+
 /// Loads `url` in `tab`.
 fn navigate(tab: u64, url: &str) {
     if let Ok(url) = CString::new(url) {
@@ -128,6 +133,17 @@ impl Browser for Engine {
 
     fn stop(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_stop(tab) };
+    }
+
+    fn show_space(&self, space: u64, _: &mut App) {
+        unsafe { bc::bc_window_show_space(WINDOW.get(), space) };
+    }
+
+    fn new_space(&self, _: &mut App) {
+        // Arc's name for a Space the user hasn't named, until its Create a Space form comes here.
+        let count = unsafe { bc::bc_spaces(std::ptr::null_mut(), 0) };
+        let space = create_space(&format!("Space {}", count + 1));
+        unsafe { bc::bc_window_show_space(WINDOW.get(), space) };
     }
 
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
@@ -194,7 +210,7 @@ unsafe extern "C" fn tab_key_unhandled(
 }
 
 /// Opens the browser window centered on the main display, with `ui_view` filling it under the
-/// page, showing a new Space.
+/// page, showing the first Space.
 fn open_browser_window(ui_view: *mut c_void) -> bool {
     let (width, height) = WINDOW_SIZE;
     let (mut x, mut y) = (0., 0.);
@@ -209,10 +225,8 @@ fn open_browser_window(ui_view: *mut c_void) -> bool {
     if window == 0 {
         return false;
     }
-    let space = unsafe { bc::bc_space_create() };
-    unsafe { bc::bc_window_show_space(window, space) };
+    unsafe { bc::bc_window_show_space(window, create_space("Space 1")) };
     WINDOW.set(window);
-    SPACE.set(space);
     true
 }
 
@@ -262,11 +276,23 @@ unsafe extern "C" fn started(_: *mut c_void) {
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
         cx.on_action(|_: &Quit, _| unsafe { bc::bc_quit() });
-        cx.set_menus([Menu {
-            name: "Browser".into(),
-            items: vec![MenuItem::action("Quit Browser", Quit)],
-            disabled: false,
-        }]);
+        cx.set_menus([
+            Menu {
+                name: "Browser".into(),
+                items: vec![MenuItem::action("Quit Browser", Quit)],
+                disabled: false,
+            },
+            Menu {
+                name: "Spaces".into(),
+                items: vec![
+                    shell::menu_item("New Space", Command::NewSpace),
+                    MenuItem::separator(),
+                    shell::menu_item("Next Space", Command::NextSpace),
+                    shell::menu_item("Previous Space", Command::PreviousSpace),
+                ],
+                disabled: false,
+            },
+        ]);
         open_window(cx);
     });
     APP.set(Some(app));
@@ -282,15 +308,36 @@ unsafe extern "C" fn stopping(_: *mut c_void) {
     eprintln!("browser: stopping");
 }
 
+unsafe extern "C" fn spaces_changed(_: *mut c_void) {
+    let count = unsafe { bc::bc_spaces(std::ptr::null_mut(), 0) };
+    let mut ids = vec![0; count];
+    let count = unsafe { bc::bc_spaces(ids.as_mut_ptr(), ids.len()) };
+    ids.truncate(count);
+    let spaces = ids
+        .into_iter()
+        .map(|space| {
+            let length = unsafe { bc::bc_space_name(space, std::ptr::null_mut(), 0) };
+            let mut name = vec![0u8; length + 1];
+            unsafe { bc::bc_space_name(space, name.as_mut_ptr().cast(), name.len()) };
+            name.truncate(length);
+            (space, String::from_utf8_lossy(&name).into_owned().into())
+        })
+        .collect();
+    update_shell(|shell, cx| shell.set_spaces(spaces, cx));
+}
+
 unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
-    if space != SPACE.get() {
-        return;
-    }
     let count = unsafe { bc::bc_space_today(space, std::ptr::null_mut(), 0) };
     let mut today = vec![0; count];
     let count = unsafe { bc::bc_space_today(space, today.as_mut_ptr(), today.len()) };
     today.truncate(count);
-    update_shell(|shell, cx| shell.set_today(today, cx));
+    update_shell(|shell, cx| shell.set_today(space, today, cx));
+}
+
+unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space: bc::bc_id) {
+    if window == WINDOW.get() {
+        update_shell(|shell, cx| shell.set_space(space, cx));
+    }
 }
 
 unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
@@ -413,6 +460,8 @@ fn main() {
         stopping: Some(stopping),
         window_closed: Some(window_closed),
         space_changed: Some(space_changed),
+        spaces_changed: Some(spaces_changed),
+        window_space_shown: Some(window_space_shown),
         window_selected: Some(window_selected),
         tab_opened: Some(tab_opened),
         tab_closed: Some(tab_closed),

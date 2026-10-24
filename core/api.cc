@@ -50,8 +50,30 @@ void bc_window_close(bc_id id) {
   }
 }
 
-bc_id bc_space_create() {
-  return browser_core::Space::Create()->id();
+bc_id bc_space_create(const char* name) {
+  return browser_core::Space::Create(name ? name : "")->id();
+}
+
+size_t bc_spaces(bc_id* spaces, size_t capacity) {
+  std::vector<browser_core::Space*> all = browser_core::Space::All();
+  for (size_t i = 0; i < std::min(capacity, all.size()); ++i) {
+    spaces[i] = all[i]->id();
+  }
+  return all.size();
+}
+
+size_t bc_space_name(bc_id id, char* name, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  if (!space) {
+    return 0;
+  }
+  const std::string& its = space->name();
+  if (capacity > 0) {
+    const size_t length = std::min(capacity - 1, its.size());
+    std::copy_n(its.begin(), length, name);
+    name[length] = '\0';
+  }
+  return its.size();
 }
 
 size_t bc_space_today(bc_id id, bc_id* tabs, size_t capacity) {

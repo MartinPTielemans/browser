@@ -1,5 +1,6 @@
 #include "browser_core/window.h"
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -225,9 +226,38 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
 }
 
 void Window::ShowSpace(bc_id space) {
-  if (Space::FromId(space)) {
-    space_ = space;
+  Space* to = Space::FromId(space);
+  if (!to || space == space_) {
+    return;
   }
+  if (space_) {
+    selected_in_space_[space_] = selected_;
+  }
+  space_ = space;
+  // Posted before the tab is, so the app knows the Space when it hears which tab shows.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](base::WeakPtr<Window> window, bc_id space) {
+                       if (window && Host().window_space_shown) {
+                         Host().window_space_shown(Host().context, window->id(), space);
+                       }
+                     },
+                     weak_factory_.GetWeakPtr(), space));
+  auto last = selected_in_space_.find(space);
+  if (last != selected_in_space_.end() && std::ranges::contains(to->today(), last->second)) {
+    Select(last->second);
+  } else if (!to->today().empty()) {
+    Select(to->today().front());
+  } else {
+    ShowNothing();
+  }
+}
+
+void Window::ShowNothing() {
+  selected_ = 0;
+  shown_ = nullptr;
+  platform::ShowPage(widget_.get(), gfx::NativeView(), page_frame_);
+  ReportSelected();
 }
 
 void Window::SetPageFrame(const gfx::Rect& frame) {
@@ -377,7 +407,8 @@ void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground) {
   }
   if (space) {
     space->Add(tab, opener, foreground);
-    if (foreground) {
+    // A page in a Space the window doesn't show doesn't bring its tabs to the front.
+    if (foreground && space->id() == space_) {
       Select(tab);
     }
   }

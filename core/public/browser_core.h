@@ -64,8 +64,8 @@ typedef struct bc_host {
   // Chrome opened a tab in the window that the app didn't ask for: a page's link to a new tab, or
   // its popup or new window, which open as tabs. |opener| is the tab it came from, or 0. In a window
   // that shows a Space, it goes in its opener's Space where Chrome would put it, under the opener,
-  // and the window shows it if |foreground|. Elsewhere it isn't shown until bc_tab_show; show it if
-  // |foreground|, since Chrome made it the window's active tab.
+  // and the window shows it if |foreground| and the window shows that Space. Elsewhere it isn't
+  // shown until bc_tab_show; show it if |foreground|, since Chrome made it the window's active tab.
   void (*tab_opened)(void* context, bc_id window, bc_id tab, bc_id opener, bool foreground);
   // The tab's page finished loading |url|.
   void (*tab_loaded)(void* context, bc_id tab, const char* url);
@@ -86,8 +86,12 @@ typedef struct bc_host {
   void (*tab_closed)(void* context, bc_id tab);
   // The Space's tabs changed: one opened, closed or moved. Read them with bc_space_today.
   void (*space_changed)(void* context, bc_id space);
-  // The window shows another tab of its Space, or none (0) once the Space has no tabs left: the app
-  // asked, a page opened one in front, or the tab shown closed.
+  // A Space was made. Read them with bc_spaces.
+  void (*spaces_changed)(void* context);
+  // The window shows another Space. Which of its tabs, if any, follows in window_selected.
+  void (*window_space_shown)(void* context, bc_id window, bc_id space);
+  // The window shows another tab, or none (0): the app asked, a page opened one in front, the tab
+  // shown closed, or the window shows another Space, which may have no tabs.
   void (*window_selected)(void* context, bc_id window, bc_id tab);
   // A key went down while the tab's page has the keyboard, before the page gets it. Return true to
   // keep it from the page, as browsers keep their reserved shortcuts (⌘T, ⌘W, ⌘Q). Keys an input
@@ -112,15 +116,24 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 // Closes the window: its pages get their unload handlers, then window_closed.
 BC_EXPORT void bc_window_close(bc_id window);
 
-// Makes an empty Space in the default profile. Any window can show it.
-BC_EXPORT bc_id bc_space_create(void);
+// Makes an empty Space named |name|, in the default profile, after the others. Any window can show
+// it. Then spaces_changed.
+BC_EXPORT bc_id bc_space_create(const char* name);
+
+// Copies up to |capacity| of the Spaces into |spaces|, in order, and returns how many there are.
+BC_EXPORT size_t bc_spaces(bc_id* spaces, size_t capacity);
+
+// Copies up to |capacity| bytes of the Space's name into |name|, UTF-8 and ending in a NUL, and
+// returns the name's length without it.
+BC_EXPORT size_t bc_space_name(bc_id space, char* name, size_t capacity);
 
 // Copies up to |capacity| of the Space's Today tabs into |tabs|, top to bottom, and returns how many
 // it has. The ones the user opened are newest first; one a page opened sits under the page's tab.
 BC_EXPORT size_t bc_space_today(bc_id space, bc_id* tabs, size_t capacity);
 
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
-// window's new tabs go in it.
+// window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
+// tab, else no page. Then window_space_shown and window_selected.
 BC_EXPORT void bc_window_show_space(bc_id window, bc_id space);
 
 // Where the window shows its tab's page, in the window. Set it again when the layout changes; the

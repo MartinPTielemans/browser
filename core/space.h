@@ -2,6 +2,7 @@
 #define BROWSER_CORE_SPACE_H_
 
 #include <map>
+#include <string>
 #include <vector>
 
 #include "browser_core/public/browser_core.h"
@@ -12,8 +13,10 @@ namespace browser_core {
 // shows one.
 class Space {
  public:
-  static Space* Create();
+  static Space* Create(std::string name);
   static Space* FromId(bc_id id);
+  // Every Space, in the order they were made.
+  static std::vector<Space*> All();
   // The Space holding |tab|, if any.
   static Space* Holding(bc_id tab);
 
@@ -21,6 +24,7 @@ class Space {
   Space& operator=(const Space&) = delete;
 
   bc_id id() const { return id_; }
+  const std::string& name() const { return name_; }
   const std::vector<bc_id>& today() const { return today_; }
 
   // Puts |tab| in Today. One the user opened (|opener| 0) goes at the top, under "+ New Tab". One a
@@ -34,7 +38,7 @@ class Space {
   bc_id NextAfterClosing(bc_id closing) const;
 
  private:
-  explicit Space(bc_id id);
+  Space(bc_id id, std::string name);
 
   bc_id OpenerOf(bc_id tab) const;
   // The first tab below |index| opened by |opener|, else the nearest above it. 0 if none.
@@ -42,6 +46,7 @@ class Space {
   void ReportChanged();
 
   const bc_id id_;
+  const std::string name_;
   std::vector<bc_id> today_;
   // Each tab a page opened, to the tab it came from.
   std::map<bc_id, bc_id> openers_;
