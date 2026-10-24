@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app ten times and checks:
+# Runs the app eleven times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -34,7 +34,8 @@
 #   8. Launched again after ⌘Q, and again after its window's close button, the app brings back
 #      the Spaces: their names, their tabs with each tab's history, the tab each showed and the
 #      Space it showed. Only a tab shown loads; the others show their titles and favicons. A tab
-#      closed before the quit stays closed. Reports how long putting them back takes.
+#      closed before the quit stays closed. A SIGTERM, which macOS sends at logout and restart,
+#      keeps a tab opened just before it. Reports how long putting them back takes.
 # Runs 2 to 8 need Browser to be the active app, and run 4 takes it full screen for a moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
@@ -1013,7 +1014,20 @@ await "^browser: loaded $(today) https://example.com/\$" || fail "the second Spa
 await '^browser: page [0-9]* back 1 forward 1 loading 0 https://example.com/$' ||
   fail "tab a didn't keep the page it went forward to"
 quit
+
+# A SIGTERM ends the session at once, before the save the new tab scheduled, which the core writes
+# as Chrome exits.
+log="$out/session-ending.log"
+BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+pid=$!
+await '^browser: restored in ' || fail "the launch before the SIGTERM didn't restore the Spaces"
+await "^browser: loaded [0-9]* $site\$" || fail "the page opened over the Spaces didn't load"
+kill -TERM "$pid"
+exited
+[ "$(python3 -I -c 'import json, sys
+print(*[len(space["today"]) for space in json.load(open(sys.argv[1]))["spaces"]])' "$saved")" = "2 2" ] ||
+  fail "the tab opened before the SIGTERM wasn't kept"
 kill "$server"
 restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restored.log" "$out/restored-again.log" | tr '\n' ' ')
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, tabs, history and the tab each showed, in the Space shown last; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, tabs, history and the tab each showed, in the Space shown last; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed. A SIGTERM keeps a tab opened just before it."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
