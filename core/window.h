@@ -59,6 +59,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The Space the window shows, or 0.
   bc_id space() const { return space_; }
 
+  // Shows |space| and the tab the window last showed there, else its top tab, else no page.
   void ShowSpace(bc_id space);
   // Where the selected tab's page goes, in the window.
   void SetPageFrame(const gfx::Rect& frame);
@@ -109,6 +110,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
 
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground);
   void SelectAfterClosing(bc_id next);
+  // Shows no page, as for a Space without tabs.
+  void ShowNothing();
   void ReportSelected();
 
   // Gives the page shown the keyboard if the window is key and its keyboard is the page's.
@@ -125,6 +128,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   base::WeakPtr<content::WebContents> shown_;
   bc_id space_ = 0;
   bc_id selected_ = 0;
+  // The tab each Space the window showed had shown when it left that Space.
+  std::map<bc_id, bc_id> selected_in_space_;
   gfx::Rect page_frame_;
   std::map<Profile*, Held> browsers_;
   bool closing_ = false;

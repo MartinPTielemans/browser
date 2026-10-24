@@ -26,7 +26,7 @@ index 8732badd32..ef553825c0 100644
  trait BoolExt {
      fn to_objc(self) -> Bool;
 diff --git a/crates/gpui_macos/src/platform.rs b/crates/gpui_macos/src/platform.rs
-index 4b48188131..4d14723244 100644
+index 4b48188131..80e2a78e85 100644
 --- a/crates/gpui_macos/src/platform.rs
 +++ b/crates/gpui_macos/src/platform.rs
 @@ -60,6 +60,12 @@ const MAC_PLATFORM_IVAR: &CStr = c"platform";
@@ -69,7 +69,19 @@ index 4b48188131..4d14723244 100644
              activation_policy: ActivationPolicy::Regular,
              application_created: false,
              text_system,
-@@ -485,17 +502,11 @@ impl MacPlatform {
+@@ -427,6 +444,11 @@ impl MacPlatform {
+                         item.setState(NSControlStateValueOn);
+                     }
+                     item.setEnabled(!disabled);
++                    // Embedded, the app's delegate is the host's, so GPUI's own items name GPUI's
++                    // delegate instead of looking for it up the responder chain.
++                    if selector == sel!(handleGPUIMenuItem:) {
++                        let _: () = msg_send![&item, setTarget: delegate];
++                    }
+ 
+                     let tag = actions.len() as NSInteger;
+                     item.setTag(tag);
+@@ -485,17 +507,11 @@ impl MacPlatform {
              return;
          }
  
@@ -92,7 +104,7 @@ index 4b48188131..4d14723244 100644
              self.0.lock().system_power_observers_registered = true;
          }
      }
-@@ -532,6 +543,34 @@ impl Platform for MacPlatform {
+@@ -532,6 +548,34 @@ impl Platform for MacPlatform {
              drop(state);
          }
  
@@ -127,7 +139,7 @@ index 4b48188131..4d14723244 100644
          unsafe {
              let app: *mut AnyObject = msg_send![APP_CLASS, sharedApplication];
              // An accessory app must not register in the Dock during launch, so its
-@@ -547,6 +586,7 @@ impl Platform for MacPlatform {
+@@ -547,6 +591,7 @@ impl Platform for MacPlatform {
                  let _: Bool = msg_send![app, setActivationPolicy: native_activation_policy(policy)];
              }
              let app_delegate: *mut AnyObject = msg_send![APP_DELEGATE_CLASS, new];
@@ -135,7 +147,7 @@ index 4b48188131..4d14723244 100644
              let _: () = msg_send![app, setDelegate: app_delegate];
  
              let self_ptr = self as *const Self as *mut c_void;
-@@ -1105,8 +1145,8 @@ impl Platform for MacPlatform {
+@@ -1105,8 +1150,8 @@ impl Platform for MacPlatform {
          unsafe {
              let app: *mut AnyObject = msg_send![APP_CLASS, sharedApplication];
              let mut state = self.0.lock();
@@ -145,7 +157,7 @@ index 4b48188131..4d14723244 100644
              let menu = self.create_menu_bar(&menus, delegate, actions, keymap);
              drop(state);
              let _: () = msg_send![app, setMainMenu: &*menu];
-@@ -1120,10 +1160,9 @@ impl Platform for MacPlatform {
+@@ -1120,10 +1165,9 @@ impl Platform for MacPlatform {
  
      fn set_dock_menu(&self, menu: Vec<MenuItem>, keymap: &Keymap) {
          unsafe {

@@ -12,9 +12,9 @@ use std::{
 
 use gpui::{
     Action, Animation, AnimationExt, App, AssetSource, Bounds, Context, FocusHandle, Focusable,
-    Global, Image, KeyBinding, MouseButton, MouseMoveEvent, MouseUpEvent, Pixels, Point,
-    SharedString, Size, Transformation, WeakEntity, Window, div, img, percentage, point,
-    prelude::*, px, rgb, rgba, size, svg,
+    FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton, MouseMoveEvent, MouseUpEvent,
+    Pixels, Point, SharedString, Size, Transformation, WeakEntity, Window, div, img, percentage,
+    point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 /// The sidebar's width, where the card starts.
@@ -35,9 +35,12 @@ const NAV_GLYPH: f32 = 16.;
 const URL_FIELD_TOP: f32 = 46.;
 const URL_FIELD_HEIGHT: f32 = 36.;
 const URL_FIELD_TEXT_X: f32 = 21.;
-// Arc puts favorites, the Space's name and pinned tabs between the URL field and "+ New Tab". This
-// is their gap while there are none, which Arc has no layout for.
+// Arc puts favorites between the URL field and the Space's name. This is their gap while there are
+// none, which Arc has no layout for.
 const LIST_TOP: f32 = URL_FIELD_TOP + URL_FIELD_HEIGHT + 8.;
+// The Space's name, over its tabs. Arc puts its icon at x 13, and Spaces have none yet.
+const NAME_HEIGHT: f32 = 44.;
+const NAME_X: f32 = 41.;
 const ROW_PITCH: f32 = 41.;
 const ROW_HEIGHT: f32 = 40.;
 const PLATE_HEIGHT: f32 = 36.;
@@ -54,6 +57,13 @@ const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
 const CLOSE_SIZE: f32 = 26.;
 const CLOSE_X: f32 = 189.;
+// The footer's Space switcher, between where Arc has its Home and + buttons.
+const FOOTER_HEIGHT: f32 = 50.;
+const SWITCHER_LEFT: f32 = 42.;
+const SWITCHER_RIGHT: f32 = 186.;
+const SPACE_PITCH: f32 = 34.;
+const SPACE_HEIGHT: f32 = 34.;
+const SPACE_DOT: f32 = 8.;
 
 // Arc's dark blue Space, sampled from a capture. It stands in for the window material.
 const WINDOW: u32 = 0x262337;
@@ -73,6 +83,12 @@ const NEW_TAB_PLUS: u32 = 0xffffff80;
 const NAV: u32 = 0xffffff99;
 const NAV_DISABLED: u32 = 0xffffff42;
 const NAV_HOVERED: u32 = 0xffffff14;
+// The Space's name, white 0.56, and the switcher's dots: white 0.5 for the Space shown and 0.19
+// for the others (Arc), 0.3 under the pointer (ours: Arc's isn't measured).
+const SPACE_NAME: u32 = 0xffffff8f;
+const SPACE_SHOWN: u32 = 0xffffff80;
+const SPACE_OTHER: u32 = 0xffffff30;
+const SPACE_HOVERED: u32 = 0xffffff4d;
 
 /// A browser command, from a key or the sidebar.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -92,6 +108,11 @@ pub enum Command {
     /// Reloads without the cache.
     ForceReload,
     Stop,
+    NewSpace,
+    /// The Space at this index in the switcher.
+    SelectSpace(usize),
+    NextSpace,
+    PreviousSpace,
     Quit,
 }
 
@@ -104,6 +125,8 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-q", Command::Quit, true),
     ("alt-cmd-down", Command::NextTab, true),
     ("alt-cmd-up", Command::PreviousTab, true),
+    ("alt-cmd-right", Command::NextSpace, true),
+    ("alt-cmd-left", Command::PreviousSpace, true),
     ("cmd-l", Command::EditUrl, false),
     ("cmd-f", Command::Find, false),
     ("cmd-1", Command::SelectTab(0), false),
@@ -123,6 +146,15 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-r", Command::ForceReload, false),
     ("cmd-.", Command::Stop, false),
     ("escape", Command::Stop, false),
+    ("ctrl-1", Command::SelectSpace(0), false),
+    ("ctrl-2", Command::SelectSpace(1), false),
+    ("ctrl-3", Command::SelectSpace(2), false),
+    ("ctrl-4", Command::SelectSpace(3), false),
+    ("ctrl-5", Command::SelectSpace(4), false),
+    ("ctrl-6", Command::SelectSpace(5), false),
+    ("ctrl-7", Command::SelectSpace(6), false),
+    ("ctrl-8", Command::SelectSpace(7), false),
+    ("ctrl-9", Command::SelectSpace(8), false),
 ];
 
 impl Command {
@@ -149,6 +181,10 @@ impl Command {
             Command::Reload => "reload",
             Command::ForceReload => "force-reload",
             Command::Stop => "stop",
+            Command::NewSpace => "new-space",
+            Command::SelectSpace(_) => "select-space",
+            Command::NextSpace => "next-space",
+            Command::PreviousSpace => "previous-space",
             Command::Quit => "quit",
         }
     }
@@ -182,6 +218,11 @@ pub fn bind_keys(cx: &mut App) {
                 .ok();
         }
     });
+}
+
+/// A menu item that runs `command`, showing its shortcut.
+pub fn menu_item(name: &'static str, command: Command) -> MenuItem {
+    MenuItem::action(name, Run(command))
 }
 
 /// The shell's glyphs, built in. Lucide's (NOTICE).
@@ -222,6 +263,9 @@ pub trait Browser {
     fn go_forward(&self, tab: u64, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
     fn stop(&self, tab: u64, cx: &mut App);
+    fn show_space(&self, space: u64, cx: &mut App);
+    /// Makes a Space after the others and shows it.
+    fn new_space(&self, cx: &mut App);
     /// Opens the command bar, for a new tab or on `editing`'s URL.
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
     fn quit(&self, cx: &mut App);
@@ -244,6 +288,13 @@ struct Tab {
     favicon: Option<Arc<Image>>,
 }
 
+struct Space {
+    id: u64,
+    name: SharedString,
+    /// Its Today tabs, top to bottom.
+    today: Vec<u64>,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Row {
     NewTab,
@@ -254,13 +305,16 @@ pub struct Shell {
     browser: Rc<dyn Browser>,
     /// Holds GPUI's focus while nothing in the shell takes it, so the shortcuts have their context.
     focus_handle: FocusHandle,
-    /// The Space's Today tabs, top to bottom.
-    today: Vec<u64>,
+    /// In the switcher's order.
+    spaces: Vec<Space>,
+    /// The Space the window shows.
+    space: u64,
+    /// The tabs of every Space.
     tabs: HashMap<u64, Tab>,
     selected: u64,
     hovered: Option<Row>,
     page_fullscreen: bool,
-    /// The tab the user asked for and when, until it's shown.
+    /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
     background_pressed: bool,
@@ -273,7 +327,8 @@ impl Shell {
         Self {
             browser,
             focus_handle: cx.focus_handle(),
-            today: Vec::new(),
+            spaces: Vec::new(),
+            space: 0,
             tabs: HashMap::new(),
             selected: 0,
             hovered: None,
@@ -283,8 +338,13 @@ impl Shell {
         }
     }
 
+    /// The Today tabs of the Space shown.
     pub fn today(&self) -> &[u64] {
-        &self.today
+        self.shown_space().map_or(&[], |space| &space.today)
+    }
+
+    pub fn space(&self) -> u64 {
+        self.space
     }
 
     pub fn selected(&self) -> u64 {
@@ -295,14 +355,63 @@ impl Shell {
         self.page_fullscreen
     }
 
-    pub fn set_today(&mut self, today: Vec<u64>, cx: &mut Context<Self>) {
+    /// The Spaces, by id and name, in the switcher's order.
+    pub fn set_spaces(&mut self, spaces: Vec<(u64, SharedString)>, cx: &mut Context<Self>) {
         // check.sh reads these lines.
-        let ids: Vec<String> = today.iter().map(u64::to_string).collect();
-        eprintln!("browser: today {}", ids.join(" "));
-        // What the shell knew of a closed tab goes with it.
-        self.tabs.retain(|tab, _| today.contains(tab));
-        self.today = today;
+        let ids: Vec<String> = spaces.iter().map(|(id, _)| id.to_string()).collect();
+        eprintln!("browser: spaces {}", ids.join(" "));
+        let mut old = std::mem::take(&mut self.spaces);
+        self.spaces = spaces
+            .into_iter()
+            .map(|(id, name)| {
+                let today = old
+                    .iter_mut()
+                    .find(|space| space.id == id)
+                    .map(|space| std::mem::take(&mut space.today))
+                    .unwrap_or_default();
+                Space { id, name, today }
+            })
+            .collect();
         cx.notify();
+    }
+
+    /// The Space the window shows. Which of its tabs shows follows in set_selected.
+    pub fn set_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        // check.sh reads these lines.
+        match self.switching {
+            Some((asked, start)) if asked == space => {
+                self.switching = None;
+                eprintln!(
+                    "browser: space {space} in {:.1} ms",
+                    start.elapsed().as_secs_f64() * 1000.
+                );
+            }
+            _ => eprintln!("browser: space {space}"),
+        }
+        self.space = space;
+        self.log_today();
+        cx.notify();
+    }
+
+    pub fn set_today(&mut self, space: u64, today: Vec<u64>, cx: &mut Context<Self>) {
+        let Some(entry) = self.spaces.iter_mut().find(|entry| entry.id == space) else {
+            return;
+        };
+        entry.today = today;
+        if space == self.space {
+            self.log_today();
+        }
+        // What the shell knew of a closed tab goes with it.
+        let spaces = &self.spaces;
+        self.tabs
+            .retain(|tab, _| spaces.iter().any(|space| space.today.contains(tab)));
+        cx.notify();
+    }
+
+    fn log_today(&self) {
+        // check.sh reads these lines.
+        let ids: Vec<String> = self.today().iter().map(u64::to_string).collect();
+        eprintln!("browser: today {}", ids.join(" "));
     }
 
     pub fn set_selected(&mut self, tab: u64, cx: &mut Context<Self>) {
@@ -351,9 +460,11 @@ impl Shell {
     pub fn run(&mut self, command: Command, from: &str, cx: &mut Context<Self>) {
         // check.sh waits for these lines.
         eprintln!("browser: command {} via {from}", command.name());
-        let position = self.today.iter().position(|&tab| tab == self.selected);
-        let count = self.today.len();
-        // Next and previous wrap around, as in Chrome.
+        let position = self.today().iter().position(|&tab| tab == self.selected);
+        let count = self.today().len();
+        let space = self.spaces.iter().position(|space| space.id == self.space);
+        // Next and previous wrap around for tabs, as in Chrome, and stop at the ends for Spaces, as
+        // in Arc.
         let target = match command {
             Command::NewTab => return self.browser.command_bar(None, cx),
             Command::EditUrl => {
@@ -372,6 +483,12 @@ impl Shell {
             Command::ForceReload => return self.browser.reload(self.selected, true, cx),
             Command::Stop => return self.browser.stop(self.selected, cx),
             Command::Quit => return self.browser.quit(cx),
+            Command::NewSpace => return self.browser.new_space(cx),
+            Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
+            Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
+            Command::PreviousSpace => {
+                return self.show_space_at(space.and_then(|index| index.checked_sub(1)), cx);
+            }
             // No find bar yet.
             Command::Find => return,
             Command::NextTab => position.map(|index| (index + 1) % count),
@@ -380,8 +497,27 @@ impl Shell {
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
-            self.select(self.today[index], cx);
+            let tab = self.today()[index];
+            self.select(tab, cx);
         }
+    }
+
+    fn shown_space(&self) -> Option<&Space> {
+        self.spaces.iter().find(|space| space.id == self.space)
+    }
+
+    fn show_space_at(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
+        if let Some(space) = index.and_then(|index| self.spaces.get(index)) {
+            self.show_space(space.id, cx);
+        }
+    }
+
+    fn show_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        if space == self.space {
+            return;
+        }
+        self.switching = Some((space, Instant::now()));
+        self.browser.show_space(space, cx);
     }
 
     fn select(&mut self, tab: u64, cx: &mut Context<Self>) {
@@ -621,6 +757,68 @@ impl Shell {
             }))
     }
 
+    fn name_row(&self) -> impl IntoElement + use<> {
+        let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
+        div()
+            .id("space-name")
+            .flex_none()
+            .h(px(NAME_HEIGHT))
+            .flex()
+            .items_center()
+            .pl(px(NAME_X))
+            .pr(px(PLATE_INSET))
+            .block_mouse_except_scroll()
+            .text_size(px(13.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgba(SPACE_NAME))
+            .child(div().truncate().child(name))
+    }
+
+    /// A dot for each Space, in the footer. Arc draws none while there's only one.
+    fn switcher(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        if self.spaces.len() < 2 {
+            return None;
+        }
+        let span = SWITCHER_RIGHT - SWITCHER_LEFT;
+        let pitch = SPACE_PITCH.min(span / self.spaces.len() as f32);
+        let dots = self.spaces.iter().map(|space| {
+            let (id, shown) = (space.id, space.id == self.space);
+            div()
+                .id(("space", id))
+                .group("space")
+                .w(px(pitch))
+                .h_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .block_mouse_except_scroll()
+                .on_click(cx.listener(move |shell, _, _, cx| {
+                    eprintln!("browser: command select-space via sidebar");
+                    shell.show_space(id, cx)
+                }))
+                .child(
+                    div()
+                        .size(px(SPACE_DOT))
+                        .rounded_full()
+                        .bg(rgba(if shown { SPACE_SHOWN } else { SPACE_OTHER }))
+                        .when(!shown, |dot| {
+                            dot.group_hover("space", |style| style.bg(rgba(SPACE_HOVERED)))
+                        }),
+                )
+        });
+        Some(
+            div()
+                .absolute()
+                .left(px(SWITCHER_LEFT))
+                .w(px(span))
+                .bottom(px((FOOTER_HEIGHT - SPACE_HEIGHT) / 2.))
+                .h(px(SPACE_HEIGHT))
+                .flex()
+                .justify_center()
+                .children(dots),
+        )
+    }
+
     fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let plus = div()
             .text_size(px(18.))
@@ -646,8 +844,9 @@ impl Render for Shell {
         let card_left = if self.page_fullscreen { 0. } else { SIDEBAR_WIDTH };
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
         let new_tab = self.new_tab_row(cx);
-        let rows: Vec<_> = self.today.iter().map(|&tab| self.tab_row(tab, cx)).collect();
+        let rows: Vec<_> = self.today().iter().map(|&tab| self.tab_row(tab, cx)).collect();
         let nav = self.nav_buttons(cx);
+        let switcher = self.switcher(cx);
         div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
@@ -689,20 +888,25 @@ impl Render for Shell {
                     .bg(rgb(CARD)),
             )
             .when(!self.page_fullscreen, |shell| {
-                shell.children(nav).child(self.url_field()).child(
-                    div()
-                        .id("today")
-                        .absolute()
-                        .top(px(LIST_TOP))
-                        .left_0()
-                        .w(px(SIDEBAR_WIDTH))
-                        .bottom_0()
-                        .flex()
-                        .flex_col()
-                        .overflow_y_scroll()
-                        .child(new_tab)
-                        .children(rows),
-                )
+                shell
+                    .children(nav)
+                    .child(self.url_field())
+                    .child(
+                        div()
+                            .id("today")
+                            .absolute()
+                            .top(px(LIST_TOP))
+                            .left_0()
+                            .w(px(SIDEBAR_WIDTH))
+                            .bottom(px(FOOTER_HEIGHT))
+                            .flex()
+                            .flex_col()
+                            .overflow_y_scroll()
+                            .child(self.name_row())
+                            .child(new_tab)
+                            .children(rows),
+                    )
+                    .children(switcher)
             })
     }
 }

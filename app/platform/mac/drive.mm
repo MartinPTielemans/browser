@@ -17,6 +17,7 @@
 //   layout                                logs the frames of the window's views, and the
 //                                         centres of its close, minimize and zoom buttons
 //   state                                 nothing, for the done line's report
+//   menu <title>                          chooses the main menu's item titled <title>
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
@@ -330,6 +331,18 @@ bool Run(const std::string& line, void (^done)(void)) {
   if (action == "state") {
     done();
     return true;
+  }
+  if (action == "menu") {
+    NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
+    for (NSMenuItem* top in NSApp.mainMenu.itemArray) {
+      NSInteger index = [top.submenu indexOfItemWithTitle:title];
+      if (index >= 0) {
+        [top.submenu performActionForItemAtIndex:index];
+        done();
+        return true;
+      }
+    }
+    return false;
   }
   if (action == "ime") {
     std::string state;
