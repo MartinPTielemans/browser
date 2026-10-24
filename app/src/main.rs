@@ -550,6 +550,7 @@ unsafe extern "C" fn window_suggestions(
             text: string(suggestion.text).into(),
             detail: string(suggestion.detail).into(),
             tab: suggestion.tab,
+            completion: string(suggestion.completion),
         })
         .collect();
     let text = string(text);

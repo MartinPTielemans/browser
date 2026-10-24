@@ -72,7 +72,7 @@ Suggestions::Suggestions(bc_id window, Profile* profile)
 
 Suggestions::~Suggestions() = default;
 
-void Suggestions::Start(const std::u16string& text) {
+void Suggestions::Start(const std::u16string& text, bool complete) {
   text_ = text;
   if (text.empty()) {
     controller_.Stop(AutocompleteStopReason::kClobbered);
@@ -80,8 +80,7 @@ void Suggestions::Start(const std::u16string& text) {
     return;
   }
   AutocompleteInput input(text, metrics::OmniboxEventProto::OTHER, *classifier_);
-  // Row 0 is what was typed until the command bar shows a completion inline.
-  input.set_prevent_inline_autocomplete(true);
+  input.set_prevent_inline_autocomplete(!complete);
   controller_.Start(input);
 }
 
@@ -106,12 +105,13 @@ void Suggestions::Report() {
   }
   const TemplateURLService* engines = TemplateURLServiceFactory::GetForProfile(profile_);
   struct Row {
-    std::string url, text, detail;
+    std::string url, text, detail, completion;
     bc_id tab = 0;
     bool typed_search = false;
   };
   std::vector<Row> rows;
-  for (const AutocompleteMatch& match : controller_.result()) {
+  const AutocompleteResult& result = controller_.result();
+  for (const AutocompleteMatch& match : result) {
     if (text_.empty() || !match.destination_url.is_valid()) {
       continue;
     }
@@ -122,6 +122,9 @@ void Suggestions::Report() {
         .url = match.destination_url.spec(),
         .text = base::UTF16ToUTF8(titled ? match.description : match.contents),
         .detail = base::UTF16ToUTF8(titled ? match.contents : match.description),
+        .completion = &match == result.default_match()
+                          ? base::UTF16ToUTF8(match.inline_autocompletion)
+                          : std::string(),
         // The first goes where what was typed goes, as ↩ does in Chrome's address bar.
         .tab = search || rows.empty() ? 0
                                       : TabAt(Stripped(match.destination_url, engines), *window,
@@ -139,7 +142,8 @@ void Suggestions::Report() {
     suggestions.push_back({.url = row.url.c_str(),
                            .text = row.text.c_str(),
                            .detail = row.detail.c_str(),
-                           .tab = row.tab});
+                           .tab = row.tab,
+                           .completion = row.completion.c_str()});
   }
   const std::string text = base::UTF16ToUTF8(text_);
   Host().window_suggestions(Host().context, window_, text.c_str(), suggestions.data(),

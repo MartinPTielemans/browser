@@ -1,7 +1,8 @@
 // Adapted from Zed's crates/gpui/examples/input.rs (https://github.com/zed-industries/zed, commit
 // b36b283021c48f1712714b8a0e2ad6ffb578920b). Copyright Zed Industries, Inc. Licensed under the
-// Apache License, Version 2.0. Changes: a constructor, `text`, `composing`, `reset`, a placeholder
-// colour, key bindings scoped to the field, ⌘← and ⌘→ as Home and End, and no styling of its own.
+// Apache License, Version 2.0. Changes: a constructor, `text`, `composing`, `selection`, `pasted`,
+// `reset`, `complete`, a placeholder colour, key bindings scoped to the field, ⌘← and ⌘→ as Home
+// and End, and no styling of its own.
 //
 //! A single-line text field, with IME support through GPUI's input handler. GPUI has no text
 //! field of its own; Zed's is its editor.
@@ -66,6 +67,7 @@ pub struct TextInput {
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
+    pasted: bool,
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
@@ -81,6 +83,7 @@ impl TextInput {
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
+            pasted: false,
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
@@ -100,6 +103,15 @@ impl TextInput {
     /// An input method is composing in the field, so its text isn't what the user means yet.
     pub fn composing(&self) -> bool {
         self.marked_range.is_some()
+    }
+
+    pub fn selection(&self) -> Range<usize> {
+        self.selected_range.clone()
+    }
+
+    /// The last change to the text was a paste.
+    pub fn pasted(&self) -> bool {
+        self.pasted
     }
 
     fn left(&mut self, _: &Left, window: &mut Window, cx: &mut Context<Self>) {
@@ -206,6 +218,7 @@ impl TextInput {
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             self.replace_text_in_range(None, &text.replace("\n", " "), window, cx);
+            self.pasted = true;
         }
     }
 
@@ -331,9 +344,26 @@ impl TextInput {
         self.content = text;
         self.selection_reversed = false;
         self.marked_range = None;
+        self.pasted = false;
         self.last_layout = None;
         self.last_bounds = None;
         self.is_selecting = false;
+        window.notify_text_input_changed(&self.focus_handle);
+        cx.notify();
+    }
+
+    /// Shows `text`, with what follows its first `typed` bytes selected and the caret before it,
+    /// as an address bar shows a completion of what was typed.
+    pub fn complete(
+        &mut self,
+        text: SharedString,
+        typed: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.selected_range = typed..text.len();
+        self.selection_reversed = true;
+        self.content = text;
         window.notify_text_input_changed(&self.focus_handle);
         cx.notify();
     }
@@ -419,6 +449,7 @@ impl EntityInputHandler for TextInput {
         self.selected_range = range.start + new_text.len()..range.start + new_text.len();
         self.selection_reversed = false;
         self.marked_range.take();
+        self.pasted = false;
         window.notify_text_input_changed(&self.focus_handle);
         cx.notify();
     }
@@ -445,6 +476,7 @@ impl EntityInputHandler for TextInput {
         } else {
             self.marked_range = None;
         }
+        self.pasted = false;
         let insertion_start_utf16 = self.offset_to_utf16(range.start);
         let inserted_length_utf16 = new_text.encode_utf16().count();
         self.selected_range = new_selected_range_utf16

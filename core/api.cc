@@ -169,12 +169,12 @@ bc_id bc_window_reopen_closed_tab(bc_id window_id) {
   return window ? window->ReopenClosedTab() : 0;
 }
 
-void bc_window_suggest(bc_id window_id, const char* text) {
+void bc_window_suggest(bc_id window_id, const char* text, bool complete) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   // Chrome made the profile it starts with before the core's calls work.
   Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
   if (window && profile) {
-    window->Suggest(profile, text ? base::UTF8ToUTF16(text) : std::u16string());
+    window->Suggest(profile, text ? base::UTF8ToUTF16(text) : std::u16string(), complete);
   }
 }
 
