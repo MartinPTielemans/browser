@@ -4,6 +4,7 @@
 #include <string>
 
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
@@ -57,6 +58,21 @@ Tab::Tab(content::WebContents* contents)
 
 Tab::~Tab() {
   Tabs().erase(id_);
+}
+
+// static
+bool Tab::Loaded(bc_id id) {
+  content::WebContents* contents = FromId(id);
+  return contents && !contents->GetController().NeedsReload();
+}
+
+void Tab::Unload() {
+  if (web_contents()->GetController().NeedsReload()) {
+    return;
+  }
+  // In place, so the tab keeps its id and its history, and loads again once it's shown.
+  web_contents()->Discard(base::DoNothing());
+  StateChanged();
 }
 
 void Tab::Restored() {
@@ -119,6 +135,7 @@ void Tab::ReportState() {
       .can_go_back = history.CanGoBack(),
       .can_go_forward = history.CanGoForward(),
       .loading = web_contents()->ShouldShowLoadingUI(),
+      .unloaded = history.NeedsReload(),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   ReportFavicon(state.loading);
@@ -161,7 +178,8 @@ void Tab::OnFaviconUpdated(favicon::FaviconDriver* driver,
 }
 
 void Tab::DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) {
-  if (frame->IsInPrimaryMainFrame() && Host().tab_loaded) {
+  // An unloaded page's empty document finishes loading at the page's URL, which isn't the page.
+  if (frame->IsInPrimaryMainFrame() && !web_contents()->WasDiscarded() && Host().tab_loaded) {
     Host().tab_loaded(Host().context, id_, url.spec().c_str());
   }
 }

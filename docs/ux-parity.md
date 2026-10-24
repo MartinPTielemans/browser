@@ -51,8 +51,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Favorite selection theming | MVP | colourful (≥ 0.055): blur 5 at 22 %, 3 pt ring; one colour: mean fill, white template, soft-light ring; near-white: black fill, white 0.30 ring | Dia 1.50.1 bin |
 | [ ] | Favorites fixed while the list scrolls | MVP | yes; scrolls with the list above 40 % of the sidebar | Dia, Ardia |
 | [ ] | Favorite double-click | MVP | back to the pinned URL | Dia P§2 |
-| [ ] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
-| [ ] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
+| [x] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
+| [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25 | Dia cap, Ardia |
 | [ ] | Clear divider line | MVP | 1 pt white ≈ 0.08, centre 25 above the first row's centre | Arc (Ardia) D›Arc note: Clear |

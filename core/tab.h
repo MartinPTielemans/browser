@@ -20,10 +20,16 @@ class Tab : public content::WebContentsObserver,
   // |contents|'s id, given the first time it's asked for.
   static bc_id IdOf(content::WebContents* contents);
   static content::WebContents* FromId(bc_id id);
+  // Whether |id| has its page, which it hasn't once it's unloaded, or put back and not yet shown.
+  static bool Loaded(bc_id id);
 
   Tab(const Tab&) = delete;
   Tab& operator=(const Tab&) = delete;
   ~Tab() override;
+
+  // Lets go of the tab's page, keeping its history, as Chrome discards a tab to save memory. Its
+  // page loads again once it's shown.
+  void Unload();
 
   // For a tab put back without loading: tells the app its page's URL, history and title as they
   // were, and finds its favicon among the profile's.

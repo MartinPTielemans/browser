@@ -129,7 +129,7 @@ void Window::OnTabClosing(bc_id tab) {
       std::ranges::any_of(Windows(), [](const auto& entry) { return entry.second->closing_; })) {
     KeepSession();
   }
-  const bc_id next = space->NextAfterClosing(tab);
+  const bc_id next = space->NextAfterLeaving(tab, &Tab::Loaded);
   space->Remove(tab);
   for (auto& [id, window] : Windows()) {
     if (window->selected_ == tab) {
@@ -140,6 +140,27 @@ void Window::OnTabClosing(bc_id tab) {
           base::BindOnce(&Window::SelectAfterClosing, window->weak_factory_.GetWeakPtr(), next));
     }
   }
+}
+
+// static
+void Window::UnloadPinned(bc_id tab) {
+  Space* space = Space::Holding(tab);
+  content::WebContents* contents = Tab::FromId(tab);
+  if (!space || !space->IsPinned(tab) || !contents) {
+    return;
+  }
+  const bc_id next = space->NextAfterLeaving(tab, &Tab::Loaded);
+  // Another tab first, so the page unloads out of sight.
+  for (auto& [id, window] : Windows()) {
+    if (window->selected_ == tab) {
+      if (next) {
+        window->Select(next);
+      } else {
+        window->ShowNothing();
+      }
+    }
+  }
+  Tab::FromWebContents(contents)->Unload();
 }
 
 // static
@@ -294,10 +315,12 @@ void Window::ShowSpace(bc_id space) {
                      },
                      weak_factory_.GetWeakPtr(), space));
   auto last = selected_in_space_.find(space);
-  if (last != selected_in_space_.end() && std::ranges::contains(to->today(), last->second)) {
+  if (last != selected_in_space_.end() && to->Has(last->second)) {
     Select(last->second);
   } else if (!to->today().empty()) {
     Select(to->today().front());
+  } else if (!to->pinned().empty()) {
+    Select(to->pinned().front());
   } else {
     ShowNothing();
   }

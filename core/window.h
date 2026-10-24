@@ -57,6 +57,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // As |tab| closes: takes it out of its Space, and has each window that showed it show the tab its
   // Space picks next.
   static void OnTabClosing(bc_id tab);
+  // Unloads |tab|, a pinned tab, which stays in its Space: each window that showed it shows the tab
+  // its Space picks next, else no page.
+  static void UnloadPinned(bc_id tab);
   // As |space| goes: has each window that shows it show the Space before it, else the one after it.
   static void OnSpaceDeleting(bc_id space);
 
@@ -69,7 +72,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The Space the window shows, or 0.
   bc_id space() const { return space_; }
 
-  // Shows |space| and the tab the window last showed there, else its top tab, else no page.
+  // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
+  // pinned tab, else no page.
   void ShowSpace(bc_id space);
   // The tab the window shows in |space|, or showed there last. 0 if none.
   bc_id SelectedIn(bc_id space) const;

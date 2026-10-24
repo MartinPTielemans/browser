@@ -1,6 +1,7 @@
 #include "browser_core/space.h"
 
 #include <algorithm>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <set>
@@ -71,7 +72,7 @@ std::vector<Space*> Space::All() {
 // static
 Space* Space::Holding(bc_id tab) {
   for (auto& [id, space] : Spaces()) {
-    if (std::ranges::contains(space->today_, tab)) {
+    if (space->Has(tab)) {
       return space.get();
     }
   }
@@ -80,20 +81,32 @@ Space* Space::Holding(bc_id tab) {
 
 Space::Space(bc_id id, std::string name) : id_(id), name_(std::move(name)) {}
 
+bool Space::Has(bc_id tab) const {
+  return IsPinned(tab) || std::ranges::contains(today_, tab);
+}
+
+bool Space::IsPinned(bc_id tab) const {
+  return std::ranges::contains(pinned_, tab);
+}
+
 void Space::SetName(std::string name) {
   name_ = std::move(name);
   ReportSpacesChanged();
 }
 
 void Space::Add(bc_id tab, bc_id opener, bool foreground) {
-  auto at = std::ranges::find(today_, opener);
-  if (!opener || at == today_.end()) {
+  const bool pinned_opener = opener && IsPinned(opener);
+  // A pinned opener sits above the Today tabs.
+  auto at = pinned_opener ? today_.begin() : std::ranges::find(today_, opener);
+  if (!opener || (!pinned_opener && at == today_.end())) {
     today_.insert(today_.begin(), tab);
     ReportChanged();
     return;
   }
   openers_[tab] = opener;
-  ++at;
+  if (!pinned_opener) {
+    ++at;
+  }
   if (!foreground) {
     // Past the opener's family below it: the tabs it opened, and the tabs they opened.
     std::set<bc_id> family = {opener};
@@ -105,8 +118,27 @@ void Space::Add(bc_id tab, bc_id opener, bool foreground) {
   ReportChanged();
 }
 
+void Space::AddPinned(bc_id tab) {
+  pinned_.push_back(tab);
+  ReportChanged();
+}
+
+void Space::SetPinned(bc_id tab, bool pinned) {
+  std::vector<bc_id>& from = pinned ? today_ : pinned_;
+  if (std::erase(from, tab) == 0) {
+    return;
+  }
+  if (pinned) {
+    pinned_.push_back(tab);
+  } else {
+    // Where a tab the user opens goes.
+    today_.insert(today_.begin(), tab);
+  }
+  ReportChanged();
+}
+
 void Space::Remove(bc_id tab) {
-  if (std::erase(today_, tab) == 0) {
+  if (std::erase(today_, tab) == 0 && std::erase(pinned_, tab) == 0) {
     return;
   }
   // The tabs it opened count as its opener's from now on, as in Chrome.
@@ -121,27 +153,43 @@ void Space::Remove(bc_id tab) {
   ReportChanged();
 }
 
-bc_id Space::NextAfterClosing(bc_id closing) const {
-  auto it = std::ranges::find(today_, closing);
+bc_id Space::NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> loaded) const {
+  if (auto pinned = std::ranges::find(pinned_, leaving); pinned != pinned_.end()) {
+    // As Dia: the top Today tab, else a pinned tab already loaded, so closing one loads no other.
+    if (!today_.empty()) {
+      return today_.front();
+    }
+    auto below = std::find_if(pinned + 1, pinned_.end(), loaded);
+    if (below != pinned_.end()) {
+      return *below;
+    }
+    auto above = std::find_if(std::make_reverse_iterator(pinned), pinned_.rend(), loaded);
+    return above != pinned_.rend() ? *above : 0;
+  }
+  auto it = std::ranges::find(today_, leaving);
   if (it == today_.end()) {
     return 0;
   }
   const size_t index = it - today_.begin();
-  if (bc_id child = NearestOpenedBy(closing, index)) {
+  if (bc_id child = NearestOpenedBy(leaving, index)) {
     return child;
   }
-  if (bc_id opener = OpenerOf(closing)) {
+  if (bc_id opener = OpenerOf(leaving)) {
     if (bc_id sibling = NearestOpenedBy(opener, index)) {
       return sibling;
     }
-    if (std::ranges::contains(today_, opener)) {
+    if (Has(opener)) {
       return opener;
     }
   }
   if (index + 1 < today_.size()) {
     return today_[index + 1];
   }
-  return index > 0 ? today_[index - 1] : 0;
+  if (index > 0) {
+    return today_[index - 1];
+  }
+  auto pinned = std::find_if(pinned_.rbegin(), pinned_.rend(), loaded);
+  return pinned != pinned_.rend() ? *pinned : 0;
 }
 
 bc_id Space::OpenerOf(bc_id tab) const {
