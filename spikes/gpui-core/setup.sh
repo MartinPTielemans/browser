@@ -1,7 +1,8 @@
 #!/bin/sh
 # Fetches the spike's dependencies into .deps/ (gitignored): Zed at a pinned revision, with our
-# GPUI patch applied, and links our engine, Chromium.app with the core in its framework.
-# `setup.sh dev` links the dev build's instead.
+# GPUI patch applied, and links our engine, Chromium.app with the core in its framework: the one
+# engine/build.sh built, or else the prebuilt one engine/fetch.sh downloads. `setup.sh dev` links
+# the dev build's, and `setup.sh prebuilt` the prebuilt one even beside a local build.
 set -e
 cd "$(dirname "$0")"
 ZED_REV=b36b283021c48f1712714b8a0e2ad6ffb578920b
@@ -19,10 +20,16 @@ if [ "$(git -C .deps/zed rev-parse HEAD)" != "$ZED_REV" ]; then
 fi
 git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch"
 
-# The engine comes from engine/build.sh until prebuilt ones download (Phase 2).
-out=Release
-[ "${1:-}" = dev ] && out=Dev
-engine=$(cd ../.. && pwd)/engine/.deps/src/out/$out/Chromium.app
+engines=$(cd ../.. && pwd)/engine
+case ${1:-} in
+  "")
+    engine=$engines/.deps/src/out/Release/Chromium.app
+    [ -d "$engine" ] || engine=$("$engines/fetch.sh")
+    ;;
+  dev) engine=$engines/.deps/src/out/Dev/Chromium.app ;;
+  prebuilt) engine=$("$engines/fetch.sh") ;;
+  *) echo "usage: setup.sh [dev|prebuilt]" >&2 && exit 2 ;;
+esac
 [ -d "$engine" ] || { echo "No engine at $engine. Build it with engine/build.sh ${1:-}." >&2; exit 1; }
 ln -sfn "$engine" .deps/Chromium.app
 
