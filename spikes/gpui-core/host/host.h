@@ -10,8 +10,9 @@ extern "C" {
 // Starts the test driver (drive.mm), which takes commands on stdin.
 void spike_drive_start(void);
 
-// Where a window of |width| by |height| points goes to be centered on the main display, in
-// bc_window_open's terms: from the main display's top-left corner.
+// Where a window of |width| by |height| points goes to be centered on the main display, or on the
+// Mac's own with SPIKE_DISPLAY=builtin, in bc_window_open's terms: from the main display's
+// top-left corner.
 void spike_host_centered(double width, double height, double* x, double* y);
 
 // Makes the view the UI draws in, for bc_window_open, which sizes it to fill the window.

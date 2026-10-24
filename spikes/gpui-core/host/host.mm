@@ -15,11 +15,26 @@ NSWindow* g_overlay;
 NSView* g_overlay_view;
 bool g_overlay_shown = false;
 
+// The main display, or with SPIKE_DISPLAY=builtin the Mac's own, so a check doesn't open over
+// what the owner is watching on another.
+NSScreen* WindowScreen() {
+  NSScreen* main = NSScreen.screens.firstObject;
+  if (strcmp(getenv("SPIKE_DISPLAY") ?: "", "builtin") != 0) {
+    return main;
+  }
+  for (NSScreen* screen in NSScreen.screens) {
+    if (CGDisplayIsBuiltin([screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue])) {
+      return screen;
+    }
+  }
+  return main;
+}
+
 }  // namespace
 
 void spike_host_centered(double width, double height, double* x, double* y) {
   NSScreen* main = NSScreen.screens.firstObject;
-  NSRect visible = main.visibleFrame;
+  NSRect visible = WindowScreen().visibleFrame;
   *x = NSMidX(visible) - width / 2;
   // AppKit's y runs up from the bottom of the main display, the core's down from its top.
   *y = NSHeight(main.frame) - NSMidY(visible) - height / 2;
