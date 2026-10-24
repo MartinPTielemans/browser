@@ -1,7 +1,7 @@
 // Adapted from Zed's crates/gpui/examples/input.rs (https://github.com/zed-industries/zed, commit
 // b36b283021c48f1712714b8a0e2ad6ffb578920b). Copyright Zed Industries, Inc. Licensed under the
-// Apache License, Version 2.0. Changes: a constructor, `text`, `reset`, a placeholder colour, key
-// bindings scoped to the field, ⌘← and ⌘→ as Home and End, and no styling of its own.
+// Apache License, Version 2.0. Changes: a constructor, `text`, `composing`, `reset`, a placeholder
+// colour, key bindings scoped to the field, ⌘← and ⌘→ as Home and End, and no styling of its own.
 //
 //! A single-line text field, with IME support through GPUI's input handler. GPUI has no text
 //! field of its own; Zed's is its editor.
@@ -95,6 +95,11 @@ impl TextInput {
 
     pub fn text(&self) -> &str {
         &self.content
+    }
+
+    /// An input method is composing in the field, so its text isn't what the user means yet.
+    pub fn composing(&self) -> bool {
+        self.marked_range.is_some()
     }
 
     fn left(&mut self, _: &Left, window: &mut Window, cx: &mut Context<Self>) {

@@ -50,6 +50,18 @@ typedef struct bc_tab_state {
   bool loading;
 } bc_tab_state;
 
+// A tab's find in page, as its find bar shows it.
+typedef struct bc_find_state {
+  // The find bar is open. The tab going to another page closes it, as in Chrome.
+  bool open;
+  // The find bar's text.
+  const char* text;
+  // How many matches the page has for it, or -1 before it has looked. It counts as it goes.
+  int matches;
+  // The selected match, from 1, or 0 for none.
+  int selected;
+} bc_find_state;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -82,6 +94,9 @@ typedef struct bc_host {
   // already was, and comes back with it. Escape, or the user taking the window out of full screen,
   // brings the page back.
   void (*tab_fullscreen_changed)(void* context, bc_id tab, bool fullscreen);
+  // The tab's find in page changed: its find bar opened or closed, its text changed, or the page
+  // counted matches or selected another.
+  void (*tab_find_changed)(void* context, bc_id tab, const bc_find_state* state);
   // The tab has closed, by bc_tab_close, its page, its window closing or quitting.
   void (*tab_closed)(void* context, bc_id tab);
   // The Space's tabs changed: one opened, closed or moved. Read them with bc_space_today.
@@ -188,6 +203,23 @@ BC_EXPORT void bc_tab_reload(bc_id tab, bool bypass_cache);
 
 // Stops the tab loading.
 BC_EXPORT void bc_tab_stop(bc_id tab);
+
+// Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
+// text last found in another of the profile's tabs. Text selected in the page takes its place, as
+// in Chrome, unless the user has changed the text since the bar opened. Highlights the matches
+// without selecting one, so the page doesn't scroll. Copies up to |capacity| bytes of the bar's
+// text into |text|, UTF-8 and ending in a NUL, and returns its length without it. Then
+// tab_find_changed.
+BC_EXPORT size_t bc_tab_find_open(bc_id tab, char* text, size_t capacity);
+
+// Finds |text| in the tab's page, opening its find bar if it isn't open: highlights the matches and
+// selects the next, or with |forward| false the one before. Empty text finds nothing. Then
+// tab_find_changed, as the page counts them.
+BC_EXPORT void bc_tab_find(bc_id tab, const char* text, bool forward);
+
+// Closes the tab's find bar. The highlights go, and the selected match stays selected. Then
+// tab_find_changed.
+BC_EXPORT void bc_tab_find_close(bc_id tab);
 
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed. The
 // window stays open without it.

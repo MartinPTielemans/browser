@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "base/strings/utf_string_conversions.h"
+#include "browser_core/find.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/search.h"
@@ -199,6 +201,29 @@ void bc_tab_reload(bc_id id, bool bypass_cache) {
 void bc_tab_stop(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     contents->Stop();
+  }
+}
+
+size_t bc_tab_find_open(bc_id id, char* text, size_t capacity) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  const std::u16string open =
+      contents ? browser_core::FindInPage::GetOrCreateForWebContents(contents)->Open()
+               : std::u16string();
+  return CopyString(base::UTF16ToUTF8(open), text, capacity);
+}
+
+void bc_tab_find(bc_id id, const char* text, bool forward) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id); contents && text) {
+    browser_core::FindInPage::GetOrCreateForWebContents(contents)->Find(base::UTF8ToUTF16(text),
+                                                                        forward);
+  }
+}
+
+void bc_tab_find_close(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (browser_core::FindInPage* find =
+          contents ? browser_core::FindInPage::FromWebContents(contents) : nullptr) {
+    find->Close();
   }
 }
 

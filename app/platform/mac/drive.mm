@@ -14,8 +14,9 @@
 //                                         the content up by <dy> points, at a trackpad's pace
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
-//   layout                                logs the frames of the window's views, and the
-//                                         centres of its close, minimize and zoom buttons
+//   layout                                logs the frames of the window's views and child
+//                                         windows, and the centres of its close, minimize and
+//                                         zoom buttons
 //   state                                 nothing, for the done line's report
 //   menu <title>                          chooses the main menu's item titled <title>
 //   ime on|off                            the scripted input method, for keys to the UI or the
@@ -255,6 +256,14 @@ void Layout(NSWindow* window) {
     NSButton* button = [window standardWindowButton:type];
     NSRect frame = [button convertRect:button.bounds toView:nil];
     [line appendFormat:@" %.1f,%.1f", NSMidX(frame), NSHeight(window.frame) - NSMidY(frame)];
+  }
+  // Child windows, such as the find bar: from the content's top-left corner, and their size.
+  NSRect bounds = [window contentRectForFrameRect:window.frame];
+  for (NSWindow* child in window.childWindows) {
+    NSRect frame = child.frame;
+    [line appendFormat:@"\nbrowser: layout child %.0f,%.0f %.0fx%.0f",
+                       NSMinX(frame) - NSMinX(bounds), NSMaxY(bounds) - NSMaxY(frame),
+                       NSWidth(frame), NSHeight(frame)];
   }
   fprintf(stderr, "%s\n", line.UTF8String);
 }

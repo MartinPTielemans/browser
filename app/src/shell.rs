@@ -127,6 +127,8 @@ pub enum Command {
     SelectTab(usize),
     SelectLastTab,
     Find,
+    FindNext,
+    FindPrevious,
     Back,
     Forward,
     Reload,
@@ -154,6 +156,8 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("alt-cmd-left", Command::PreviousSpace, true),
     ("cmd-l", Command::EditUrl, false),
     ("cmd-f", Command::Find, false),
+    ("cmd-g", Command::FindNext, false),
+    ("shift-cmd-g", Command::FindPrevious, false),
     ("cmd-1", Command::SelectTab(0), false),
     ("cmd-2", Command::SelectTab(1), false),
     ("cmd-3", Command::SelectTab(2), false),
@@ -201,6 +205,8 @@ impl Command {
             Command::SelectTab(_) => "select-tab",
             Command::SelectLastTab => "select-last-tab",
             Command::Find => "find",
+            Command::FindNext => "find-next",
+            Command::FindPrevious => "find-previous",
             Command::Back => "back",
             Command::Forward => "forward",
             Command::Reload => "reload",
@@ -301,6 +307,10 @@ pub trait Browser {
     fn focus_ui(&self, cx: &mut App);
     /// Opens the command bar, for a new tab or on `editing`'s URL.
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
+    /// Opens the tab's find bar with the keyboard.
+    fn find(&self, tab: u64, cx: &mut App);
+    /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
+    fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     fn quit(&self, cx: &mut App);
 }
 
@@ -552,8 +562,9 @@ impl Shell {
             Command::PreviousSpace => {
                 return self.show_space_at(space.and_then(|index| index.checked_sub(1)), cx);
             }
-            // No find bar yet.
-            Command::Find => return,
+            Command::Find => return self.browser.find(self.selected, cx),
+            Command::FindNext => return self.browser.find_next(self.selected, true, cx),
+            Command::FindPrevious => return self.browser.find_next(self.selected, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
             Command::SelectTab(index) => (index < count).then_some(index),

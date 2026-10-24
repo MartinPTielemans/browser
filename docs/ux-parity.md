@@ -241,9 +241,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [ ] | Keys | MVP | ⌘F, ⌘G, ⇧⌘G, ⇧↩, ⌘E, ⌘J, ⌥⌘F | Dia, Chrome P§8 |
-| [ ] | Per-tab query, "n of m" | MVP | yes | Dia P§8 |
-| [ ] | ⌘F with the page focused | MVP | ours unless the page keeps it | AGENTS.md |
-| [ ] | IME in the field | MVP | Japanese works | AGENTS.md |
+| [x] | Per-tab query, "n of m" | MVP | yes | Dia P§8 |
+| [x] | ⌘F with the page focused | MVP | ours unless the page keeps it | AGENTS.md |
+| [x] | IME in the field | MVP | Japanese works | AGENTS.md |
 | [ ] | Bar position, size, look, no-match state, motion | MVP | measure | — |
 
 ## DevTools
