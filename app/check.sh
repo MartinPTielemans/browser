@@ -288,6 +288,8 @@ send ime off
 send type .invalid
 send key return
 expect '^browser: command bar typed 日本語.invalid$' "the command bar didn't keep the committed text: $(grep '^browser: command bar typed' "$log" | tail -1)"
+# ⌘L goes to the page first, and a key the page being replaced hasn't answered leaves with it.
+expect '^browser: loaded [0-9]* https://duckduckgo.com/' "the search for the committed text didn't load"
 
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
