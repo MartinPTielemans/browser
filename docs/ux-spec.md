@@ -156,7 +156,7 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 |---|---|---|
 | Card inset, sidebar docked or hidden | 10 on every side. Measure whether the docked left inset is counted inside the sidebar width | Arc (Ardia), D›Arc note: hiding |
 | Card inset (reference) | left = sidebar width, top 6, right 7, bottom 7. With the sidebar hidden, 6 / 6 / 6 | Dia 1.49 cap |
-| Card corner radius | Dia 10, continuous. Arc: measure | Dia cap |
+| Card corner radius | 6, circular; the page in the card is clipped to it. Dia's is 10, continuous | Arc cap, Dia cap |
 | Traffic lights | Arc: centre y 23.75, x measure. Dia: centres x 24.75 / 47.75 / 70.75, y 26.75 (a 23 pt pitch) | Arc (Ardia) P§4, Dia 1.50.1 bin |
 | A page before its first paint | the card colour, composited opaque over the tint, never white | Ardia, P§7 |
 

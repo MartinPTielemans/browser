@@ -141,9 +141,9 @@ void bc_window_show_space(bc_id window_id, bc_id space) {
   }
 }
 
-void bc_window_set_page_frame(bc_id window_id, bc_rect frame) {
+void bc_window_set_page_frame(bc_id window_id, bc_rect frame, double corner_radius) {
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
-    window->SetPageFrame(ToRect(frame));
+    window->SetPageFrame(ToRect(frame), corner_radius);
   }
 }
 

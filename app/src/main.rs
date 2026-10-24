@@ -94,7 +94,8 @@ fn set_page_frame(viewport: Size<Pixels>, fullscreen: bool) {
         width: f64::from(frame.size.width),
         height: f64::from(frame.size.height),
     };
-    unsafe { bc::bc_window_set_page_frame(WINDOW.get(), frame) };
+    let radius = if fullscreen { 0. } else { shell::CARD_RADIUS };
+    unsafe { bc::bc_window_set_page_frame(WINDOW.get(), frame, f64::from(radius)) };
 }
 
 /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it.
