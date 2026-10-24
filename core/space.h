@@ -42,6 +42,8 @@ class Space {
   // page in this Space opened goes in Chrome's place: right under its opener if it opened in front,
   // or under the tabs its opener already opened behind it. A pinned opener's tabs go at the top.
   void Add(bc_id tab, bc_id opener, bool foreground);
+  // Puts |tab| at |index| in Today, else at the bottom.
+  void AddAt(bc_id tab, size_t index);
   // Puts |tab| at the bottom of the pinned tabs, pinned at |url|.
   void AddPinned(bc_id tab, GURL url);
   // Pins |tab|, a Today tab, at |url| at the bottom of the pinned tabs.

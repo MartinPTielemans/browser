@@ -17,6 +17,7 @@
 #include "browser_core/tab.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/tab_list/tab_removed_reason.h"
 #include "chrome/browser/ui/browser_tabrestore.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/create_browser_window.h"
@@ -44,6 +45,45 @@ namespace {
 std::map<bc_id, std::unique_ptr<Window>>& Windows() {
   static base::NoDestructor<std::map<bc_id, std::unique_ptr<Window>>> windows;
   return *windows;
+}
+
+// A Today tab the user or its page closed.
+struct ClosedTab {
+  // The id it had.
+  bc_id id = 0;
+  bc_id space = 0;
+  // Its place in the Space's Today tabs.
+  size_t index = 0;
+  SavedTab saved;
+};
+
+// As many as Chrome keeps.
+constexpr size_t kMaxClosedTabs = 25;
+
+// Newest last.
+std::vector<ClosedTab>& ClosedTabs() {
+  static base::NoDestructor<std::vector<ClosedTab>> closed;
+  return *closed;
+}
+
+// Keeps |contents|, a tab closing, for ReopenClosedTab.
+void KeepClosed(content::WebContents* contents) {
+  const bc_id id = Tab::IdOf(contents);
+  Space* space = Space::Holding(id);
+  // One not in a Space never showed, and a pinned tab closes only when its page closes itself.
+  if (!space || space->IsPinned(id)) {
+    return;
+  }
+  SavedTab saved = SaveTab(contents->GetController());
+  if (saved.history.empty()) {
+    return;
+  }
+  const size_t index = std::ranges::find(space->today(), id) - space->today().begin();
+  ClosedTabs().push_back(
+      {.id = id, .space = space->id(), .index = index, .saved = std::move(saved)});
+  if (ClosedTabs().size() > kMaxClosedTabs) {
+    ClosedTabs().erase(ClosedTabs().begin());
+  }
 }
 
 }  // namespace
@@ -383,20 +423,10 @@ size_t Window::Clear() {
     return 0;
   }
   const std::vector<bc_id> today = space->today();
-  Cleared cleared{.space = space_};
-  for (bc_id id : today) {
-    content::WebContents* contents = Tab::FromId(id);
-    SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
-    if (tab.history.empty()) {
-      continue;
-    }
-    if (id == selected_) {
-      cleared.shown = cleared.tabs.size();
-    }
-    cleared.tabs.emplace_back(id, std::move(tab));
-  }
+  const bool shown = std::ranges::contains(today, selected_);
+  cleared_ = {.tabs = today, .shown = shown ? selected_ : 0};
   // Another tab first, as when a pinned tab unloads, so no Today tab shows or loads on the way out.
-  if (std::ranges::contains(today, selected_)) {
+  if (shown) {
     if (bc_id next = space->LastLoadedPinned(&Tab::Loaded)) {
       Select(next);
     } else {
@@ -406,42 +436,71 @@ size_t Window::Clear() {
   for (bc_id id : today) {
     CloseTab(id);
   }
-  cleared_ = std::move(cleared);
   return today.size();
 }
 
 void Window::UndoClear() {
-  std::optional<Cleared> cleared = std::exchange(cleared_, std::nullopt);
-  Space* space = cleared ? Space::FromId(cleared->space) : nullptr;
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
-  if (!space || !profile) {
-    return;
-  }
+  const Cleared cleared = std::exchange(cleared_, {});
   bc_id shown = 0;
   // Bottom up, as each goes at the top.
-  for (size_t i = cleared->tabs.size(); i-- > 0;) {
-    const auto& [id, saved] = cleared->tabs[i];
-    // Its page kept it open.
-    if (Tab::FromId(id)) {
+  for (auto id = cleared.tabs.rbegin(); id != cleared.tabs.rend(); ++id) {
+    // Not one whose page kept it open, or one already reopened.
+    auto closed = std::ranges::find(ClosedTabs(), *id, &ClosedTab::id);
+    if (closed == ClosedTabs().end()) {
       continue;
     }
-    content::WebContents* contents = RestoreTab(profile, saved.history, saved.current);
-    if (!contents) {
-      continue;
-    }
-    const bc_id tab = Tab::IdOf(contents);
-    Tab::FromWebContents(contents)->Restored();
-    space->Add(tab, /*opener=*/0, /*foreground=*/false);
-    if (static_cast<int>(i) == cleared->shown) {
-      shown = tab;
+    const ClosedTab tab = std::move(*closed);
+    ClosedTabs().erase(closed);
+    const bc_id reopened = Reopen(tab.space, /*index=*/0, tab.saved);
+    if (*id == cleared.shown) {
+      shown = reopened;
     }
   }
-  if (shown && space_ == space->id()) {
+  if (Space* space = Space::Holding(shown); space && space->id() == space_) {
     Select(shown);
-  } else if (shown) {
+  } else if (space) {
     SetSelectedIn(space->id(), shown);
   }
+}
+
+bc_id Window::ReopenClosedTab() {
+  if (ClosedTabs().empty()) {
+    return 0;
+  }
+  const ClosedTab closed = std::move(ClosedTabs().back());
+  ClosedTabs().pop_back();
+  const bc_id tab = Reopen(closed.space, closed.index, closed.saved);
+  Space* space = Space::Holding(tab);
+  if (!space) {
+    return 0;
+  }
+  if (space->id() == space_) {
+    Select(tab);
+  } else {
+    // As the tab its Space shows, so the one it showed before doesn't load on the way.
+    SetSelectedIn(space->id(), tab);
+    ShowSpace(space->id());
+  }
+  return tab;
+}
+
+bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {
+  Space* space = Space::FromId(space_id);
+  if (!space) {
+    space = Space::FromId(space_);
+    index = 0;
+  }
+  // Chrome made the profile it starts with before the core's calls work.
+  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  content::WebContents* contents =
+      space && profile ? RestoreTab(profile, saved.history, saved.current) : nullptr;
+  if (!contents) {
+    return 0;
+  }
+  const bc_id tab = Tab::IdOf(contents);
+  Tab::FromWebContents(contents)->Restored();
+  space->AddAt(tab, index);
+  return tab;
 }
 
 void Window::SelectAfterClosing(bc_id next) {
@@ -526,6 +585,18 @@ void Window::RemoveObserver(web_modal::ModalDialogHostObserver* observer) {
 void Window::OnTabStripModelChanged(TabStripModel* tab_strip_model,
                                     const TabStripModelChange& change,
                                     const TabStripSelectionChange& selection) {
+  if (change.type() == TabStripModelChange::kRemoved) {
+    // Tabs closing with the window, or as the browser quits, come back at the next launch instead.
+    if (closing_ || browser_shutdown::IsTryingToQuit()) {
+      return;
+    }
+    for (const TabStripModelChange::RemovedTab& removed : change.GetRemove()->contents) {
+      if (removed.remove_reason == TabRemovedReason::kDeleted) {
+        KeepClosed(removed.contents);
+      }
+    }
+    return;
+  }
   if (change.type() != TabStripModelChange::kInserted || opening_tab_) {
     return;
   }

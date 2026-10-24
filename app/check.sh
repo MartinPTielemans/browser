@@ -51,7 +51,9 @@
 #      pinned tab pinned and away from its pinned URL, without loading it.
 #  11. ⇧⌘K from the page and the UI, and Clear on the divider, close the Space's Today tabs and
 #      show the lowest pinned tab still loaded, with a toast that hides by itself. Its Undo brings
-#      the tabs back in place, showing the one shown and leaving the other unloaded.
+#      the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the
+#      page and the UI reopens the tab closed last, where it was and with its history, and after a
+#      Clear, Undo brings back only the tabs ⇧⌘T didn't.
 # Runs 2 to 11 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -1445,7 +1447,54 @@ expect "^browser: selected $a\$" "⇧⌘K with the UI focused didn't show the pi
 send key k cmd shift
 expect '^browser: command clear via ui$' "⇧⌘K without Today tabs didn't run"
 none_since '^browser: toast cleared' || fail "Clear without Today tabs showed a toast"
+
+# ⇧⌘T with the UI focused reopens the tab closed last and shows it.
+send key t cmd shift
+expect '^browser: command reopen-closed-tab via ui$' "⇧⌘T with the UI focused didn't reach the UI"
+expect "^browser: today [0-9][0-9]*\$" "⇧⌘T didn't reopen the tab Clear closed: Today is \"$(today)\""
+d=$(today)
+expect "^browser: selected $d\$" "⇧⌘T didn't show the tab it reopened"
+expect "^browser: loaded $d https://example.com/\$" "the reopened tab didn't load its page"
+
+# ⇧⌘T with the page focused puts a tab back where it was, with its history.
+open_from_bar example.net
+e=$tab
+go_from_bar example.org
+expect_page example.org 1 0 "after going on from example.net"
+open_from_bar example.com
+f=$tab
+switch "3 cmd" "$e"
+send click $page_point
+send key w cmd
+expect "^browser: tab $e closed\$" "⌘W didn't close the middle Today tab"
+expect_lists "$a" "$f $d" "after closing the middle Today tab"
+send click $page_point
+send key t cmd shift
+expect '^browser: command reopen-closed-tab via page$' "⇧⌘T with the page focused didn't reach the UI"
+expect_lists "$a" "$f [0-9][0-9]* $d" "after ⇧⌘T, the tab isn't back between the two it was between"
+e=$(today | cut -d' ' -f2)
+tab=$e
+expect "^browser: selected $e\$" "⇧⌘T didn't show the tab it reopened"
+expect_page example.org 1 0 "after ⇧⌘T"
+../tools/window-screenshot.sh "$pid" "$out/reopen.png" || fail "no window to capture"
+
+# After Clear, ⇧⌘T reopens the tab it closed last, and Undo brings back only the others.
+send click $page_point
+send key k cmd shift
+expect '^browser: command clear via page$' "⇧⌘K with the page focused didn't reach the UI"
+expect '^browser: toast cleared 3$' "Clear didn't show its toast for three tabs"
+expect_lists "$a" " *" "after clearing three tabs"
+send click $sidebar_point
+send key t cmd shift
+expect '^browser: command reopen-closed-tab via ui$' "⇧⌘T after Clear didn't reach the UI"
+expect "^browser: today [0-9][0-9]*\$" "⇧⌘T after Clear didn't reopen one tab: Today is \"$(today)\""
+d=$(today)
+send click $undo_point
+expect '^browser: command undo-clear via sidebar$' "a click on the toast's Undo didn't run it"
+expect "^browser: today [0-9][0-9]* [0-9][0-9]* $d\$" "Undo after ⇧⌘T didn't bring back just the other two: Today is \"$(today)\""
+e=$(today | cut -d' ' -f2)
+expect "^browser: selected $e\$" "Undo didn't show the tab Clear closed shown"
 exec 3>&-
 quit
 kill "$server"
-echo "ok: ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs and show the pinned tab still loaded, with a toast that hides by itself. Undo brings the tabs back in place, showing the one shown and leaving the other unloaded. Window: $out/clear.png"
+echo "ok: ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs and show the pinned tab still loaded, with a toast that hides by itself. Undo brings the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and Undo brings back only the tabs ⇧⌘T didn't. Windows: $out/clear.png, $out/reopen.png"

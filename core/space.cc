@@ -123,6 +123,11 @@ void Space::Add(bc_id tab, bc_id opener, bool foreground) {
   ReportChanged();
 }
 
+void Space::AddAt(bc_id tab, size_t index) {
+  today_.insert(today_.begin() + std::min(index, today_.size()), tab);
+  ReportChanged();
+}
+
 void Space::AddPinned(bc_id tab, GURL url) {
   pinned_.push_back(tab);
   pinned_urls_[tab] = std::move(url);

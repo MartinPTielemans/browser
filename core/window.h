@@ -3,8 +3,6 @@
 
 #include <map>
 #include <memory>
-#include <optional>
-#include <utility>
 #include <vector>
 
 #include "base/callback_list.h"
@@ -89,12 +87,16 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Shows |tab|, if it's one of this window's, at the page frame.
   void Select(bc_id tab);
 
-  // Closes the Today tabs of the Space the window shows, keeping their history for UndoClear. One
-  // shown goes first, for the lowest pinned tab still loaded, else no page. Returns how many.
+  // Closes the Today tabs of the Space the window shows, for UndoClear to bring back. One shown goes
+  // first, for the lowest pinned tab still loaded, else no page. Returns how many.
   size_t Clear();
   // Brings back the tabs the last Clear closed, at the top of their Space's Today tabs and unloaded,
-  // showing the one it closed shown. Once only.
+  // showing the one it closed shown. Once only, and not those ReopenClosedTab brought back.
   void UndoClear();
+  // Reopens the tab closed last, in any window, with its history: at its place in its Space's Today
+  // tabs, else at the top of the Space the window shows. Shows it, and its Space. Returns its id, or
+  // 0 if there's none.
+  bc_id ReopenClosedTab();
 
   // Opens a tab for |profile| loading |url|, not shown. Null while the window is closing or
   // Chromium is quitting.
@@ -137,11 +139,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
     base::CallbackListSubscription close_cancelled;
   };
   struct Cleared {
-    bc_id space = 0;
-    // Each tab's id, which a page that kept itself open still has, and its history, top to bottom.
-    std::vector<std::pair<bc_id, SavedTab>> tabs;
-    // The one the window showed, or -1.
-    int shown = -1;
+    // The ids the tabs had, top to bottom.
+    std::vector<bc_id> tabs;
+    // The one the window showed, or 0.
+    bc_id shown = 0;
   };
 
   Window(bc_id id, const gfx::Rect& bounds, void* ui_view);
@@ -150,6 +151,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // while the window is closing or Chromium is quitting.
   BrowserWindowInterface* BrowserFor(Profile* profile);
 
+  // Opens |saved|, a closed tab, unloaded, at |index| in |space|'s Today tabs, else at the top of
+  // the Space the window shows. Returns its id, or 0.
+  bc_id Reopen(bc_id space, size_t index, const SavedTab& saved);
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground);
   void SelectAfterClosing(bc_id next);
   // Shows no page, as for a Space without tabs.
@@ -174,7 +178,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::map<bc_id, bc_id> selected_in_space_;
   gfx::Rect page_frame_;
   std::map<Profile*, Held> browsers_;
-  std::optional<Cleared> cleared_;
+  Cleared cleared_;
   bool closing_ = false;
   bool opening_tab_ = false;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;
