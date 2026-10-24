@@ -39,6 +39,17 @@ typedef struct bc_key {
   uint32_t modifiers;
 } bc_key;
 
+// Where a tab's page is: what the URL field, back, forward and reload show.
+typedef struct bc_tab_state {
+  // The URL the tab shows: the one it's going to if the user asked for it, else its page's.
+  const char* url;
+  // There's a page to go back or forward to.
+  bool can_go_back;
+  bool can_go_forward;
+  // The page is loading, so reload shows as stop. A page changing its own URL in place isn't.
+  bool loading;
+} bc_tab_state;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -58,6 +69,8 @@ typedef struct bc_host {
   void (*tab_opened)(void* context, bc_id window, bc_id tab, bc_id opener, bool foreground);
   // The tab's page finished loading |url|.
   void (*tab_loaded)(void* context, bc_id tab, const char* url);
+  // The tab's URL, its history or whether it's loading changed. A burst of changes is one call.
+  void (*tab_state_changed)(void* context, bc_id tab, const bc_tab_state* state);
   // The tab's page has a new title.
   void (*tab_title_changed)(void* context, bc_id tab, const char* title);
   // The tab's page went full screen, as a video's full-screen button takes it, or came back. Show
@@ -126,6 +139,17 @@ BC_EXPORT void bc_tab_show(bc_id tab, bc_rect frame);
 
 // Loads |url| in the tab.
 BC_EXPORT void bc_tab_navigate(bc_id tab, const char* url);
+
+// Goes back, or forward, in the tab's history, if it has a page that way.
+BC_EXPORT void bc_tab_go_back(bc_id tab);
+BC_EXPORT void bc_tab_go_forward(bc_id tab);
+
+// Loads the tab's page again. |bypass_cache| fetches all of it from the network, as a force reload
+// does.
+BC_EXPORT void bc_tab_reload(bc_id tab, bool bypass_cache);
+
+// Stops the tab loading.
+BC_EXPORT void bc_tab_stop(bc_id tab);
 
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed. The
 // window stays open without it.

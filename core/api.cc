@@ -15,6 +15,8 @@
 #include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/tabs/public/tab_interface.h"
+#include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/reload_type.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -115,6 +117,35 @@ void bc_tab_navigate(bc_id id, const char* url) {
   params.disposition = WindowOpenDisposition::CURRENT_TAB;
   params.source_contents = contents;
   Navigate(&params);
+}
+
+void bc_tab_go_back(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (contents && contents->GetController().CanGoBack()) {
+    contents->GetController().GoBack();
+  }
+}
+
+void bc_tab_go_forward(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (contents && contents->GetController().CanGoForward()) {
+    contents->GetController().GoForward();
+  }
+}
+
+void bc_tab_reload(bc_id id, bool bypass_cache) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    // As Chrome's, it asks before sending a form again.
+    contents->GetController().Reload(
+        bypass_cache ? content::ReloadType::BYPASSING_CACHE : content::ReloadType::NORMAL,
+        /*check_for_repost=*/true);
+  }
+}
+
+void bc_tab_stop(bc_id id) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    contents->Stop();
+  }
 }
 
 void bc_tab_close(bc_id id) {

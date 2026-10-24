@@ -4,9 +4,9 @@
 
 use std::{cell::Cell, rc::Rc};
 
-use browser::shell::{self, Browser, Shell};
+use browser::shell::{self, Browser, Page, Shell};
 use gpui::{
-    App, AppContext, Bounds, SharedString, TitlebarOptions, WeakEntity, WindowBounds,
+    App, AppContext, Bounds, Focusable, SharedString, TitlebarOptions, WeakEntity, WindowBounds,
     WindowOptions, point, px, size,
 };
 
@@ -65,6 +65,15 @@ impl Browser for Fake {
         });
     }
 
+    // The made-up pages have no history to go through.
+    fn go_back(&self, _: u64, _: &mut App) {}
+
+    fn go_forward(&self, _: u64, _: &mut App) {}
+
+    fn reload(&self, _: u64, _: bool, _: &mut App) {}
+
+    fn stop(&self, _: u64, _: &mut App) {}
+
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
         // No command bar here: a new tab opens at once.
         if editing.is_some() {
@@ -86,7 +95,7 @@ impl Browser for Fake {
 }
 
 fn main() {
-    gpui_platform::application().run(|cx| {
+    gpui_platform::application().with_assets(shell::Assets).run(|cx| {
         shell::bind_keys(cx);
         let (width, height) = (1280., 800.);
         let (mut x, mut y) = (0., 0.);
@@ -105,8 +114,8 @@ fn main() {
             }),
             ..Default::default()
         };
-        let window = cx.open_window(options, |_, cx| {
-            cx.new(|cx| {
+        let window = cx.open_window(options, |window, cx| {
+            let shell = cx.new(|cx| {
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
                     next_id: Cell::new(TABS.len() as u64 + 1),
@@ -115,12 +124,20 @@ fn main() {
                 for (index, (title, url)) in TABS.iter().enumerate() {
                     let tab = index as u64 + 1;
                     shell.set_title(tab, (*title).into(), cx);
-                    shell.set_url(tab, (*url).into(), cx);
+                    let page = Page {
+                        url: (*url).into(),
+                        // The first tab has been somewhere before, so back shows bright.
+                        can_go_back: index == 0,
+                        ..Default::default()
+                    };
+                    shell.set_page(tab, page, cx);
                 }
                 shell.set_today((1..=TABS.len() as u64).collect(), cx);
                 shell.set_selected(1, cx);
                 shell
-            })
+            });
+            window.focus(&shell.focus_handle(cx), cx);
+            shell
         });
         if let Err(error) = window {
             eprintln!("couldn't open the window: {error}");

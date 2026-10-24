@@ -1,7 +1,7 @@
 //! The command bar. GPUI can't draw over the page's native view, so the bar is a window of its
 //! own that the host shows over the browser window, as its child.
 
-use browser::text_input::TextInput;
+use browser::{shell, text_input::TextInput};
 use gpui::{
     App, Bounds, Context, Entity, Focusable, Global, KeyBinding, SharedString, TitlebarOptions,
     Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div, point,
@@ -113,18 +113,21 @@ impl Render for CommandBar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // check.sh reads these lines.
         eprintln!("browser: command bar drew \"{}\"", self.input.read(cx).text());
-        div()
-            .key_context("CommandBar")
-            .on_action(cx.listener(Self::go))
-            .on_action(cx.listener(Self::dismiss))
-            .size_full()
-            .flex()
-            .items_center()
-            .px_4()
-            .bg(rgb(0xffffff))
-            .text_color(rgb(0x1d1d1f))
-            .text_size(px(18.))
-            .line_height(px(24.))
-            .child(self.input.clone())
+        // The browser's shortcuts work here too, below the bar's own keys.
+        div().key_context(shell::KEY_CONTEXT).size_full().child(
+            div()
+                .key_context("CommandBar")
+                .on_action(cx.listener(Self::go))
+                .on_action(cx.listener(Self::dismiss))
+                .size_full()
+                .flex()
+                .items_center()
+                .px_4()
+                .bg(rgb(0xffffff))
+                .text_color(rgb(0x1d1d1f))
+                .text_size(px(18.))
+                .line_height(px(24.))
+                .child(self.input.clone()),
+        )
     }
 }

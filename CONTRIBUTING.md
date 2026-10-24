@@ -10,7 +10,7 @@ git commit -s
 
 ## Code from other projects
 
-The browser is GPL-3.0-or-later, so code under GPL-3.0-compatible licenses can come in: Chromium (BSD-3-Clause), ungoogled-chromium (BSD-3-Clause), Helium (GPL-3.0), Ardia (Apache-2.0 / GPL-3.0), GPUI (Apache-2.0).
+The browser is GPL-3.0-or-later, so code under GPL-3.0-compatible licenses can come in: Chromium (BSD-3-Clause), ungoogled-chromium (BSD-3-Clause), Helium (GPL-3.0), Ardia (Apache-2.0 / GPL-3.0), GPUI (Apache-2.0), Lucide's icons (ISC, some MIT).
 
 When you copy or adapt a patch or file:
 

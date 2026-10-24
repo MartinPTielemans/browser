@@ -1,6 +1,7 @@
 #ifndef BROWSER_CORE_TAB_H_
 #define BROWSER_CORE_TAB_H_
 
+#include "base/memory/weak_ptr.h"
 #include "browser_core/public/browser_core.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
@@ -24,12 +25,24 @@ class Tab : public content::WebContentsObserver, public content::WebContentsUser
   explicit Tab(content::WebContents* contents);
 
   // content::WebContentsObserver:
+  void DidStartNavigation(content::NavigationHandle* navigation) override;
+  void DidFinishNavigation(content::NavigationHandle* navigation) override;
+  void DidStartLoading() override;
+  void DidStopLoading() override;
+  void NavigationEntriesDeleted() override;
   void DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) override;
   void TitleWasSet(content::NavigationEntry* entry) override;
   void DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) override;
   void WebContentsDestroyed() override;
 
+  // Tells the app the tab's state from a task of its own, so a burst of changes is one call, and
+  // none comes during the app's call that made them.
+  void StateChanged();
+  void ReportState();
+
   const bc_id id_;
+  bool state_report_posted_ = false;
+  base::WeakPtrFactory<Tab> weak_factory_{this};
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();
 };
