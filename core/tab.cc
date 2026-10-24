@@ -9,10 +9,16 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
 #include "browser_core/window.h"
+#include "components/favicon/content/content_favicon_driver.h"
+#include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "url/gurl.h"
 
 namespace browser_core {
@@ -42,6 +48,10 @@ Tab::Tab(content::WebContents* contents)
       content::WebContentsUserData<Tab>(*contents),
       id_(NewId()) {
   Tabs()[id_] = contents;
+  // Chrome's tab helpers make the driver as the tab is made, before anything asks for its id.
+  if (auto* driver = favicon::ContentFaviconDriver::FromWebContents(contents)) {
+    favicon_observation_.Observe(driver);
+  }
 }
 
 Tab::~Tab() {
@@ -97,6 +107,43 @@ void Tab::ReportState() {
       .loading = web_contents()->ShouldShowLoadingUI(),
   };
   Host().tab_state_changed(Host().context, id_, &state);
+  ReportFavicon(state.loading);
+}
+
+void Tab::ReportFavicon(bool loading) {
+  if (!Host().tab_favicon_changed) {
+    return;
+  }
+  content::NavigationEntry* entry = web_contents()->GetController().GetLastCommittedEntry();
+  gfx::Image favicon;
+  if (entry && entry->GetFavicon().valid) {
+    favicon = entry->GetFavicon().image;
+  } else if (loading) {
+    // The new page's favicon comes once it has committed, from the history database or the page,
+    // so the old one stays rather than flashing none.
+    return;
+  }
+  if (favicon.AsImageSkia().BackedBySameObjectAs(favicon_.AsImageSkia())) {
+    return;
+  }
+  favicon_ = favicon;
+  std::optional<std::vector<uint8_t>> png;
+  if (!favicon.IsEmpty()) {
+    png = gfx::PNGCodec::EncodeBGRASkBitmap(favicon.AsImageSkia().GetRepresentation(2).GetBitmap(),
+                                            /*discard_transparency=*/false);
+  }
+  Host().tab_favicon_changed(Host().context, id_, png ? png->data() : nullptr,
+                             png ? png->size() : 0);
+}
+
+void Tab::OnFaviconUpdated(favicon::FaviconDriver* driver,
+                           NotificationIconType type,
+                           const GURL& icon_url,
+                           bool icon_url_changed,
+                           const gfx::Image& image) {
+  if (type == NON_TOUCH_16_DIP) {
+    StateChanged();
+  }
 }
 
 void Tab::DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) {
@@ -119,6 +166,8 @@ void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause
 }
 
 void Tab::WebContentsDestroyed() {
+  // The driver is the page's too, and may go before the tab does.
+  favicon_observation_.Reset();
   Window::OnTabClosing(id_);
   if (Host().tab_closed) {
     Host().tab_closed(Host().context, id_);

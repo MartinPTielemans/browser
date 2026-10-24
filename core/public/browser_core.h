@@ -73,6 +73,10 @@ typedef struct bc_host {
   void (*tab_state_changed)(void* context, bc_id tab, const bc_tab_state* state);
   // The tab's page has a new title.
   void (*tab_title_changed)(void* context, bc_id tab, const char* title);
+  // The tab's page has a new favicon: a PNG |size| bytes long, 32 pixels square for 16 points at
+  // 2×, or null and 0 once a page that has none has loaded. While a page loads, the tab keeps the
+  // favicon it had until the new page's arrives.
+  void (*tab_favicon_changed)(void* context, bc_id tab, const uint8_t* png, size_t size);
   // The tab's page went full screen, as a video's full-screen button takes it, or came back. Show
   // it filling its window while it's full screen. The window goes full screen with it unless it
   // already was, and comes back with it. Escape, or the user taking the window out of full screen,
