@@ -3,6 +3,8 @@
 // view of the app's, under the page.
 #pragma once
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,6 +33,17 @@ void host_show_overlay(void);
 
 // Hides the overlay. The browser window gets the keyboard back, with the focus where it was.
 void host_hide_overlay(void);
+
+// Makes the window of |find_bar_view| float over the browser window when shown, |right| and |top|
+// points from the top right corner of the window's content, for the find bar. It starts hidden.
+void host_add_find_bar(void* find_bar_view, double right, double top);
+
+// Shows the find bar, and gives it the keyboard if |keyboard|. Unlike the command bar, it stays
+// when the user clicks the page, which takes the keyboard.
+void host_show_find_bar(bool keyboard);
+
+// Hides the find bar. If it had the keyboard, the browser window gets it back.
+void host_hide_find_bar(void);
 
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);

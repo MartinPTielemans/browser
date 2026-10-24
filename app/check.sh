@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app eleven times and checks:
+# Runs the app twelve times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -37,7 +37,12 @@
 #      Space it showed. Only a tab shown loads; the others show their titles and favicons. A tab
 #      closed before the quit stays closed. A SIGTERM, which macOS sends at logout and restart,
 #      keeps a tab opened just before it. Reports how long putting them back takes.
-# Runs 2 to 8 need Browser to be the active app, and run 4 takes it full screen for a moment.
+#   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n of
+#      m", once Japanese input has committed, and return, shift-return, ⌘G and ⇧⌘G go through the
+#      matches, from the bar and from the page. A click on the page leaves the bar open, and the
+#      bar keeps its place through a resize and full screen. Each tab has its own find, which a
+#      new tab starts from the text found last; escape closes it, and so does another page.
+# Runs 2 to 9 need Browser to be the active app, and runs 4 and 9 take it full screen for a moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
 set -e
@@ -1041,3 +1046,145 @@ kill "$server"
 restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restored.log" "$out/restored-again.log" | tr '\n' ' ')
 echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, tabs, history and the tab each showed, in the Space shown last; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed. A SIGTERM keeps a tab opened just before it."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
+
+# Find in page. The test page has three apples and one 日本語.
+page='data:text/html;charset=utf-8,<title>loading</title>
+<p style="font:24px system-ui">apple banana apple cherry apple 日本語</p>
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
+log="$out/find.log"
+step=0
+rm -f "$saved"
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the find test page didn't draw"
+first=$(today)
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  echo "skip: find in page. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# The find bar, a window of GPUI's over the browser window, has the keyboard.
+in_find_bar() {
+  [ "$key" = GPUIPanel ] && [ "$focus" = GPUIView ] ||
+    fail "$1: the keyboard is in $key, on $focus"
+}
+# Waits for tab $1's find to be $2, as the core reports it: "closed", or "open", the selected
+# match, "of", how many there are and the text.
+expect_find() {
+  expect "^browser: find $1 $2\$" "$3: $(grep "^browser: find $1 " "$log" | tail -1)"
+}
+# The find bar is $1 points wide and 44 high, $2 from the right of a window $3 wide and 20 from its
+# top.
+check_find_bar() {
+  send layout
+  child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
+    sed 's/^browser: layout child //')
+  content=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+    sed 's/^browser: layout content \([0-9]*\)x.*/\1/')
+  [ "$child" = "$((content - 320)),20 300x44" ] ||
+    fail "$1: the find bar is at ${child:-nowhere} in a window $content wide"
+}
+
+send key f cmd
+expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
+expect '^browser: find bar shown$' "⌘F didn't open the find bar"
+send state
+in_find_bar "after ⌘F"
+send type apple
+expect_find "$first" "open 1 of 3 apple" "typing in the find bar didn't find in the page"
+send key return
+expect_find "$first" "open 2 of 3 apple" "return didn't go to the next match"
+send key return shift
+expect_find "$first" "open 1 of 3 apple" "shift-return didn't go back a match"
+send key g cmd shift
+expect_find "$first" "open 3 of 3 apple" "⇧⌘G in the find bar didn't go back, round to the last"
+send key g cmd
+expect_find "$first" "open 1 of 3 apple" "⌘G in the find bar didn't go on, round to the first"
+check_find_bar "after ⌘F"
+../tools/window-screenshot.sh "$pid" "$out/find.png" || fail "no window to capture"
+
+# A click on the page takes the keyboard and leaves the bar open, and ⌘G from the page goes on.
+send click $page_point
+in_browser RenderWidgetHostViewCocoa "after a click on the page under the find bar"
+send key g cmd
+expect '^browser: command find-next via page$' "⌘G with the page focused didn't reach the UI"
+expect_find "$first" "open [1-3] of 3 apple" "⌘G with the page focused didn't find"
+grep -q '^browser: find bar hidden$' "$log" && fail "a click on the page closed the find bar"
+
+# ⌘F gives the open bar the keyboard. Japanese input composes in it, and it finds once committed.
+send key f cmd
+expect '^browser: find bar drew "apple" ' "⌘F with the bar open didn't keep its text"
+send state
+in_find_bar "after ⌘F with the find bar open"
+send ime on
+send type nihongo
+[ "$marked" = 0,7 ] || fail "the find bar didn't take the composition: marked $marked"
+send key space
+[ "$marked" = 0,3 ] || fail "the find bar didn't take the conversion: marked $marked"
+send key return
+[ "$marked" = none ] || fail "return didn't commit the composition: marked $marked"
+send ime off
+expect_find "$first" "open 1 of 1 日本語" "the find bar didn't find the committed text"
+grep -q '^browser: find [0-9]* open [0-9-]* of [0-9-]* n' "$log" &&
+  fail "the find bar searched for the composition"
+
+# A resize and full screen keep the bar by the window's top right corner.
+send resize 1000 700
+check_find_bar "after a resize"
+send fullscreen
+expect '^browser: window entered full screen$' "the window didn't go full screen"
+check_find_bar "in full screen"
+../tools/window-screenshot.sh "$pid" "$out/find-fullscreen.png" || fail "no window to capture"
+send fullscreen
+expect '^browser: window left full screen$' "the window didn't leave full screen"
+
+# Each tab has its own find. A new tab's starts from the text found last, and switching tabs shows
+# each one's in the bar, or none.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T in the find bar didn't open the command bar"
+send type example.com
+send key return
+expect '^browser: find bar hidden$' "the find bar stayed over a new tab"
+expect '^browser: loaded [0-9]* https://example.com/$' "the new tab didn't load"
+second=$(today | cut -d' ' -f1)
+send key f cmd
+expect_find "$second" "open 0 of 0 日本語" "a new tab's find didn't start from the text found last"
+send type example
+expect_find "$second" "open 1 of [1-9][0-9]* example" "the new tab's find didn't find"
+send key 2 cmd
+expect "^browser: selected $first" "⌘2 in the find bar didn't show the first tab"
+expect '^browser: find bar drew "日本語" 1 of 1$' "the first tab didn't show its own find"
+# Escape closes the tab's find and gives the keyboard back to its page.
+send key escape
+expect_find "$first" "closed" "escape didn't close the find"
+expect '^browser: find bar hidden$' "escape didn't hide the find bar"
+send state
+in_browser RenderWidgetHostViewCocoa "after escape closed the find bar"
+send key 1 cmd
+expect '^browser: find bar shown$' "the second tab didn't show its find"
+expect '^browser: find bar drew "example" 1 of ' "the second tab didn't show its own find"
+send state
+[ "$key" = BrowserCoreNSWindow ] || fail "switching to a tab with its find open moved the keyboard to $key"
+send key 2 cmd
+expect '^browser: find bar hidden$' "the first tab, its find closed, showed the find bar"
+# ⌘F opens it again with the tab's last text, highlighting its match without selecting it.
+send key f cmd
+expect '^browser: find bar drew "日本語" 0 of 1$' "⌘F didn't open the find with the tab's last text"
+
+# Another page closes it.
+send key l cmd
+expect '^browser: command bar shown$' "⌘L in the find bar didn't open the command bar"
+send type example.org
+send key return
+expect_find "$first" "closed" "going to another page didn't close the find"
+expect '^browser: find bar hidden$' "going to another page didn't hide the find bar"
+# ⌘Q is the driver's last command: the app doesn't report it done.
+echo "key q cmd" >&3
+exec 3>&-
+await '^browser: command quit via ' || fail "⌘Q didn't quit"
+exited
+echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n of m\", return, shift-return, ⌘G and ⇧⌘G go through the matches, from the bar and the page, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape closes it and another page closes it. Windows: $out/find.png, $out/find-fullscreen.png"

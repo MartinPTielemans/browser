@@ -18,6 +18,7 @@ use gpui::{
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 mod command_bar;
+mod find_bar;
 
 /// The core's API, generated from core/public/browser_core.h.
 #[allow(non_camel_case_types, dead_code)]
@@ -37,6 +38,9 @@ mod platform {
         pub fn host_add_overlay(overlay_view: *mut c_void);
         pub fn host_show_overlay();
         pub fn host_hide_overlay();
+        pub fn host_add_find_bar(find_bar_view: *mut c_void, right: f64, top: f64);
+        pub fn host_show_find_bar(keyboard: bool);
+        pub fn host_hide_find_bar();
         pub fn host_focus(view: *mut c_void);
     }
 }
@@ -61,6 +65,14 @@ fn update_shell(change: impl FnOnce(&mut Shell, &mut Context<Shell>)) {
     let ui = UI.with_borrow(|ui| ui.as_ref().map(|(cx, shell, _)| (cx.clone(), shell.clone())));
     if let Some((cx, shell)) = ui {
         cx.update(|cx| shell.update(cx, change).ok());
+    }
+}
+
+/// Changes the UI outside the shell, from a core callback.
+fn update_app(change: impl FnOnce(&mut App)) {
+    let cx = UI.with_borrow(|ui| ui.as_ref().map(|(cx, _, _)| cx.clone()));
+    if let Some(cx) = cx {
+        cx.update(change);
     }
 }
 
@@ -177,6 +189,14 @@ impl Browser for Engine {
 
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
         command_bar::show(editing, cx);
+    }
+
+    fn find(&self, tab: u64, cx: &mut App) {
+        find_bar::show(tab, cx);
+    }
+
+    fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
+        find_bar::find_next(tab, forward, cx);
     }
 
     fn quit(&self, _: &mut App) {
@@ -311,6 +331,7 @@ fn open_window(cx: &mut App) {
                 .ok();
             unsafe { platform::host_show_window(ui_view) };
             command_bar::open(cx);
+            find_bar::open(cx);
             // Once the page frame is set, so the tab shown loads at its size.
             restore_spaces();
         }
@@ -392,7 +413,10 @@ unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space
 
 unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
     if window == WINDOW.get() {
-        update_shell(|shell, cx| shell.set_selected(tab, cx));
+        update_shell(|shell, cx| {
+            shell.set_selected(tab, cx);
+            find_bar::tab_shown(tab, cx);
+        });
     }
 }
 
@@ -455,6 +479,24 @@ unsafe extern "C" fn tab_opened(
 // the shell hears of it from space_changed instead.
 unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
     eprintln!("browser: tab {tab} closed");
+    find_bar::forget(tab);
+}
+
+unsafe extern "C" fn tab_find_changed(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    state: *const bc::bc_find_state,
+) {
+    let state = unsafe { &*state };
+    let find = find_bar::Find {
+        open: state.open,
+        text: unsafe { CStr::from_ptr(state.text) }
+            .to_string_lossy()
+            .into_owned(),
+        matches: state.matches,
+        selected: state.selected,
+    };
+    update_app(|cx| find_bar::changed(tab, find, cx));
 }
 
 unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, fullscreen: bool) {
@@ -520,6 +562,7 @@ fn main() {
         tab_title_changed: Some(tab_title_changed),
         tab_favicon_changed: Some(tab_favicon_changed),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
+        tab_find_changed: Some(tab_find_changed),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
         ..Default::default()

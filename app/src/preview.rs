@@ -100,6 +100,11 @@ impl Browser for Fake {
         });
     }
 
+    // The made-up pages have nothing to find.
+    fn find(&self, _: u64, _: &mut App) {}
+
+    fn find_next(&self, _: u64, _: bool, _: &mut App) {}
+
     // Each made-up Space shows its top tab.
     fn show_space(&self, space: u64, cx: &mut App) {
         self.later(cx, move |shell, cx| {
