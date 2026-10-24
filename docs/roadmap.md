@@ -1,0 +1,61 @@
+# Roadmap
+
+Each phase ends with a check. Don't start a phase's dependent work until the previous check passes.
+
+## Phase 0: UX spec (2–3 days)
+
+- Import Ardia's Dia spec and parity list as the starting point.
+- Install Arc and capture it before 2026-12-22: 60 fps recordings of every interaction, 2× screenshots of every state, measured sizes and timings.
+- Merge the two into `docs/ux-spec.md` and a parity checklist with a measured value per item.
+
+**Done when** every Phase 3 feature has a spec entry with numbers.
+
+## Phase 1: architecture spike (2–4 days)
+
+GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Chrome's framework here. It has the same `NSApplication` requirements, the same native page view, and the same focus and IME behavior.
+
+| Day | Work | Risk it answers |
+|---|---|---|
+| 0 | Read GPUI's macOS platform code: how it creates the `NSApplication`, whether it can attach to a run loop it doesn't own | Run loop, on paper |
+| 1 | Chromium runs `[NSApp run]` and GPUI attaches. A page renders as a native view inside a GPUI window next to a GPUI sidebar | Run loop, native view embedding |
+| 2 | Command bar as a borderless child window over the page. ⌘T, ⌘L and ⌘W while the page has focus, focus moving between GPUI and the page, Japanese IME in both, resize, fullscreen, frame timing while scrolling | Overlays, focus and keyboard |
+| 3–4 | Buffer, or swap CEF for Ardia's prebuilt engine for a closer match | — |
+
+**Go** if all three risks are solved. **No-go** on the run loop or on focus and keyboard means switching the UI to Chromium Views.
+
+## Phase 2: engine (1–2 weeks, can overlap Phase 1)
+
+- ungoogled-chromium built as Chrome's framework, from `engine/series`.
+- First patches: embedding hooks, Manifest V2 kept, throttling rules, password manager on.
+- Prebuilt engine downloads, so UI work never waits on a Chromium build.
+- CI compiles the core on Linux.
+
+**Done when** a prebuilt framework downloads and links into the spike.
+
+## Phase 3: daily-driver MVP on Mac (about 2–3 months)
+
+Sidebar, Spaces (with the Agent Space kind in the data model), command bar, split view, archive, profiles, extensions (including install prompts and popups), passwords and autofill, downloads, find in page, DevTools, import from Arc and Chrome, Sparkle updates, signing and notarization.
+
+**Done when** the parity checklist's MVP items pass and the performance gate holds.
+
+## Phase 4: polish, parity and agents
+
+Peek, Little Arc, themes, end-to-end encrypted sync (not iCloud-only), Widevine, passkeys.
+
+Agents (decision 8): the built-in local MCP server, Agent Spaces, engine-native page access, per-agent and per-site permissions with an activity log, and handoff to the human. This can move earlier if it becomes the launch pitch. The core API and data model are built for it from Phase 3 either way.
+
+## Phase 5: Windows, then Linux
+
+Per platform: the platform layer, packaging, updater, signing.
+
+## Performance gate
+
+Measured on every release against Chrome, Helium and Ardia, following the method in Ardia's `docs/perf/vs-browsers.md`.
+
+| Metric | Target |
+|---|---|
+| Cold launch → window on screen | ≤ Chrome |
+| Tab switch → shown | ≤ 16 ms (Chrome: 8 ms) |
+| New tab → first paint | ≤ Chrome |
+| Memory at 1, 10 and 20 tabs | ≤ Chrome |
+| Idle CPU and wakeups, 20 tabs | ≤ Chrome |
