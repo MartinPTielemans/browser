@@ -14,10 +14,12 @@
 #      it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing
 #      the last tab leaves the Space empty, where ⌘T still works. Reports how long switches take.
 #   4. The page view keeps its margins and GPUI's view fills the window through a resize and
-#      full screen, a page that goes full screen takes the window with it and escape brings
-#      both back, the command bar opens in full screen and keeps the keyboard when a page
-#      commits under it, then gives the keyboard to the new page, and scrolling a long page
-#      doesn't stutter.
+#      full screen, and the window's buttons stay in the header row. A page that goes full
+#      screen takes the window with it and escape brings both back, the command bar opens in
+#      full screen and keeps the keyboard when a page commits under it, then gives the keyboard
+#      to the new page, and scrolling a long page doesn't stutter. Dragging the window's
+#      background moves the window, and the buttons, URL field and rows keep their presses. A
+#      double-click there zooms it, and one in the sidebar below the rows opens a new tab.
 #   5. A page's popup opens as a tab in the window, under the page.
 #   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
@@ -168,7 +170,7 @@ send key right cmd
 
 # Chrome's browser window has the keyboard, with focus on $1.
 in_browser() {
-  [ "$key" = NativeWidgetMacNSWindow ] && [ "$focus" = "$1" ] ||
+  [ "$key" = BrowserCoreNSWindow ] && [ "$focus" = "$1" ] ||
     fail "$2: the keyboard is in $key, on $focus"
 }
 # ⌘$1 with the page focused reaches the UI as command $2.
@@ -476,7 +478,16 @@ check_layout() {
   [ "$view" = "$expected" ] || fail "$1: the page view is at $view in a $content window"
   [ "$ui" = "0,0 $content" ] || fail "$1: GPUI's view is at $ui in a $content window"
 }
+# The window's buttons sit in the header row, where Arc's do. In full screen they come down with
+# the menu bar instead.
+check_buttons() {
+  buttons=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout buttons' |
+    cut -d' ' -f4-)
+  [ "$buttons" = "20.0,24.0 43.0,24.0 66.0,24.0" ] ||
+    fail "$1: the window's buttons are at $buttons, not 20,24 43,24 66,24"
+}
 check_layout "at launch"
+check_buttons "at launch"
 
 # 300 trackpad events of 10 points, 8 ms apart.
 send scroll $page_point 10 300
@@ -489,6 +500,7 @@ slow=$(echo "$timing" | sed 's/.* slow \([0-9]*\) .*/\1/')
 
 send resize 1000 700
 check_layout "after a resize"
+check_buttons "after a resize"
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen"
 check_layout "in full screen"
@@ -502,6 +514,7 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar in f
 send fullscreen
 expect '^browser: window left full screen$' "the window didn't leave full screen"
 check_layout "after full screen"
+check_buttons "after full screen"
 
 # A page that goes full screen takes the window with it, and escape brings both back.
 send key f
@@ -513,6 +526,7 @@ send key escape
 expect '^browser: page left full screen$' "escape didn't take the page out of full screen"
 expect '^browser: window left full screen$' "the window didn't leave full screen with the page"
 check_layout "after the page's full screen"
+check_buttons "after the page's full screen"
 
 # Chromium makes its window key when a new page's view replaces the focused one.
 send key n
@@ -525,9 +539,49 @@ send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar after a page committed under it"
 send state
 in_browser RenderWidgetHostViewCocoa "after the command bar closed over a page that committed under it"
+
+# The window's background moves the window, as a title bar does: the header row outside its
+# buttons, the sidebar below the rows and the card's margins. The buttons, the URL field and the
+# rows keep their presses. Each drag moves 5 points, about a pointer's first step. Posted events
+# don't move the window itself: the window server follows the real pointer.
+moves=0
+drag() {
+  send drag "$1" "$2" $(($1 + 5)) "$2"
+  count=$(grep -c '^browser: window move$' "$log" || true)
+  if [ "$3" = moves ]; then
+    [ "$count" -gt "$moves" ] || fail "a drag on $4 didn't move the window"
+  else
+    [ "$count" = "$moves" ] || fail "a drag on $4 moved the window"
+  fi
+  moves=$count
+}
+drag 100 24 moves "the header"
+drag 138 24 stays "the back button"
+drag 110 64 stays "the URL field"
+drag 110 150 stays "a tab's row"
+drag 110 400 moves "the empty sidebar"
+drag 600 5 moves "the card's top margin"
+drag $((width - 8)) 300 moves "the card's right margin"
+# A double-click there does what System Settings › Desktop & Dock says a title bar's does: zoom,
+# unless it's set to something else.
+action=$(defaults read -g AppleActionOnDoubleClick 2>/dev/null || echo Maximize)
+if [ "$action" = Maximize ]; then
+  send doubleclick 100 24
+  expect '^browser: window zoomed 1$' "a double-click on the header didn't zoom the window"
+  send doubleclick 100 24
+  expect '^browser: window zoomed 0$' "a second double-click on the header didn't zoom it back"
+  zoom="zooms it"
+else
+  zoom="isn't checked, since a title bar's double-click is set to $action here"
+fi
+send doubleclick 110 400
+expect '^browser: command new-tab via sidebar$' "a double-click on the empty sidebar didn't open a new tab"
+expect '^browser: command bar shown$' "a double-click on the empty sidebar didn't open the command bar"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png"
 
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.

@@ -5,6 +5,8 @@
 // the driver has a scripted one of its own.
 //
 //   click <x> <y>                         left click, in points from the window's top-left corner
+//   doubleclick <x> <y>                   two left clicks, the second with a click count of 2
+//   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "[", "]",
 //                                         return, escape, tab, space, up, down, left or right
 //   type <text>                           lowercase letters, dots and spaces
@@ -12,17 +14,18 @@
 //                                         the content up by <dy> points, at a trackpad's pace
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
-//   layout                                logs the frames of the window's views
+//   layout                                logs the frames of the window's views, and the
+//                                         centres of its close, minimize and zoom buttons
 //   state                                 nothing, for the done line's report
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
 //
-// Clicks and scrolls go to the browser window and keys to the key window. It logs "browser: drive
-// <n>: <command>" when command n arrives and "browser: drive <n> done, key <window class>, focus
-// <view class>, active <0|1>, marked <location,length|none>" once AppKit has handled its events.
-// A page ignores clicks while the app isn't the active app, and macOS doesn't let a background
-// process make it active.
+// Clicks, drags and scrolls go to the browser window and keys to the key window. It logs
+// "browser: drive <n>: <command>" when command n arrives and "browser: drive <n> done, key <window
+// class>, focus <view class>, active <0|1>, marked <location,length|none>" once AppKit has handled
+// its events. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
+// background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
@@ -72,20 +75,22 @@ NSWindow* MainWindow() {
   return main;
 }
 
-void Click(NSWindow* window, double x, double y) {
-  NSPoint point = NSMakePoint(x, NSHeight(window.frame) - y);
-  for (NSEventType type : {NSEventTypeLeftMouseDown, NSEventTypeLeftMouseUp}) {
-    [NSApp postEvent:[NSEvent mouseEventWithType:type
-                                        location:point
-                                   modifierFlags:0
-                                       timestamp:NSProcessInfo.processInfo.systemUptime
-                                    windowNumber:window.windowNumber
-                                         context:nil
-                                     eventNumber:0
-                                      clickCount:1
-                                        pressure:1]
-             atStart:NO];
-  }
+void PostMouse(NSWindow* window, NSEventType type, double x, double y, int count) {
+  [NSApp postEvent:[NSEvent mouseEventWithType:type
+                                      location:NSMakePoint(x, NSHeight(window.frame) - y)
+                                 modifierFlags:0
+                                     timestamp:NSProcessInfo.processInfo.systemUptime
+                                  windowNumber:window.windowNumber
+                                       context:nil
+                                   eventNumber:0
+                                    clickCount:count
+                                      pressure:1]
+           atStart:NO];
+}
+
+void Click(NSWindow* window, double x, double y, int count) {
+  PostMouse(window, NSEventTypeLeftMouseDown, x, y, count);
+  PostMouse(window, NSEventTypeLeftMouseUp, x, y, count);
 }
 
 bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
@@ -242,6 +247,14 @@ void Layout(NSWindow* window) {
       stringWithFormat:@"browser: layout content %.0fx%.0f", NSWidth(content.bounds),
                        NSHeight(content.bounds)];
   AppendViews(line, content, content);
+  // As the spec gives them: points from the window's top-left corner.
+  [line appendString:@"\nbrowser: layout buttons"];
+  for (NSWindowButton type :
+       {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
+    NSButton* button = [window standardWindowButton:type];
+    NSRect frame = [button convertRect:button.bounds toView:nil];
+    [line appendFormat:@" %.1f,%.1f", NSMidX(frame), NSHeight(window.frame) - NSMidY(frame)];
+  }
   fprintf(stderr, "%s\n", line.UTF8String);
 }
 
@@ -260,7 +273,28 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!(words >> x >> y)) {
       return false;
     }
-    Click(window, x, y);
+    Click(window, x, y, 1);
+    done();
+    return true;
+  }
+  if (action == "doubleclick") {
+    double x, y;
+    if (!(words >> x >> y)) {
+      return false;
+    }
+    Click(window, x, y, 1);
+    Click(window, x, y, 2);
+    done();
+    return true;
+  }
+  if (action == "drag") {
+    double x, y, x2, y2;
+    if (!(words >> x >> y >> x2 >> y2)) {
+      return false;
+    }
+    PostMouse(window, NSEventTypeLeftMouseDown, x, y, 1);
+    PostMouse(window, NSEventTypeLeftMouseDragged, x2, y2, 1);
+    PostMouse(window, NSEventTypeLeftMouseUp, x2, y2, 1);
     done();
     return true;
   }
@@ -387,6 +421,21 @@ void drive_start(void) {
                                                           entered ? "entered" : "left");
                                                 }];
   }
+  // So does a zoom, and the window is zoomed only at its last frame.
+  __block BOOL zoomed = NO;
+  [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidResizeNotification
+                                                  object:nil
+                                                   queue:nil
+                                              usingBlock:^(NSNotification* notification) {
+                                                NSWindow* window = notification.object;
+                                                if (window != MainWindow() ||
+                                                    window.zoomed == zoomed) {
+                                                  return;
+                                                }
+                                                zoomed = window.zoomed;
+                                                fprintf(stderr, "browser: window zoomed %d\n",
+                                                        zoomed);
+                                              }];
   std::thread([] {
     char buffer[1024];
     long number = 0;

@@ -68,8 +68,14 @@ source_set("browser_core") {
   ]
 
   if (is_mac) {
-    sources += [ "platform/mac/window_views.mm" ]
-    deps += [ "//components/remote_cocoa/app_shim" ]
+    sources += [
+      "platform/mac/native_widget.mm",
+      "platform/mac/window_views.mm",
+    ]
+    deps += [
+      "//components/remote_cocoa/app_shim",
+      "//components/remote_cocoa/common:mojo",
+    ]
     # Only where Chrome lists the framework's exports (chrome/BUILD.gn): on its own, this list
     # would be the only one, and hide ChromeMain. Elsewhere the API's visibility exports it.
     if (!is_component_build && !using_sanitizer) {
