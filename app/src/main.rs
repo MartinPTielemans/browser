@@ -1,0 +1,377 @@
+//! The browser. The core (core/, in Chrome's framework) makes the browser window and puts the page
+//! in it, through its C API; GPUI draws the shell in a view inside that window, under the page.
+//! Chromium owns the application object and the run loop.
+
+use std::{
+    cell::{Cell, RefCell},
+    ffi::{CStr, CString, c_char, c_int, c_void},
+    rc::Rc,
+};
+
+use browser::shell::{self, Browser, Command, Shell};
+use gpui::{
+    AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Menu, MenuItem, Pixels,
+    SharedString, Size, WeakEntity, Window, WindowOptions, actions, prelude::*,
+};
+use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+mod command_bar;
+
+/// The core's API, generated from core/public/browser_core.h.
+#[allow(non_camel_case_types, dead_code)]
+mod bc {
+    include!(concat!(env!("OUT_DIR"), "/browser_core.rs"));
+}
+
+/// The AppKit side, in platform/mac/.
+mod platform {
+    use std::ffi::c_void;
+
+    unsafe extern "C" {
+        pub fn drive_start();
+        pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
+        pub fn host_ui_view() -> *mut c_void;
+        pub fn host_show_window(ui_view: *mut c_void);
+        pub fn host_add_overlay(overlay_view: *mut c_void);
+        pub fn host_show_overlay();
+        pub fn host_hide_overlay();
+    }
+}
+
+const WINDOW_SIZE: (f64, f64) = (1280., 800.);
+const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
+
+actions!(browser, [Quit]);
+
+thread_local! {
+    // The core calls back into the UI from Chromium's event handling, outside any GPUI update.
+    static UI: RefCell<Option<(AsyncApp, WeakEntity<Shell>, AnyWindowHandle)>> =
+        const { RefCell::new(None) };
+    // GPUI starts inside Chromium's run loop, from a callback, and lives as long as the process.
+    static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
+    // The browser window and the Space it shows. There's one of each so far.
+    static WINDOW: Cell<bc::bc_id> = const { Cell::new(0) };
+    static SPACE: Cell<bc::bc_id> = const { Cell::new(0) };
+}
+
+/// Changes the shell, from a core callback.
+fn update_shell(change: impl FnOnce(&mut Shell, &mut Context<Shell>)) {
+    let ui = UI.with_borrow(|ui| ui.as_ref().map(|(cx, shell, _)| (cx.clone(), shell.clone())));
+    if let Some((cx, shell)) = ui {
+        cx.update(|cx| shell.update(cx, change).ok());
+    }
+}
+
+/// The window's NSView, for the host.
+fn ns_view(window: &Window) -> *mut c_void {
+    match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
+        Ok(RawWindowHandle::AppKit(handle)) => handle.ns_view.as_ptr(),
+        _ => panic!("the window has no AppKit view"),
+    }
+}
+
+/// Tells the core where the page goes in a window whose content is `viewport`.
+fn set_page_frame(viewport: Size<Pixels>, fullscreen: bool) {
+    let frame = shell::page_frame(viewport, fullscreen);
+    let frame = bc::bc_rect {
+        x: f64::from(frame.origin.x),
+        y: f64::from(frame.origin.y),
+        width: f64::from(frame.size.width),
+        height: f64::from(frame.size.height),
+    };
+    unsafe { bc::bc_window_set_page_frame(WINDOW.get(), frame) };
+}
+
+/// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it.
+fn open_tab(url: &str) {
+    let Ok(url) = CString::new(url) else {
+        return;
+    };
+    let window = WINDOW.get();
+    let tab = unsafe { bc::bc_tab_open(window, url.as_ptr()) };
+    if tab != 0 {
+        unsafe { bc::bc_window_select(window, tab) };
+    }
+}
+
+/// Loads `url` in `tab`.
+fn navigate(tab: u64, url: &str) {
+    if let Ok(url) = CString::new(url) {
+        unsafe { bc::bc_tab_navigate(tab, url.as_ptr()) };
+    }
+}
+
+/// The shell's requests, as calls to the core. The core reports back once each call has returned.
+struct Engine;
+
+impl Browser for Engine {
+    fn select(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_window_select(WINDOW.get(), tab) };
+    }
+
+    fn close(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_close(tab) };
+    }
+
+    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
+        command_bar::show(editing, cx);
+    }
+
+    fn quit(&self, _: &mut App) {
+        unsafe { bc::bc_quit() };
+    }
+}
+
+/// A key the page didn't keep, or one it never sees, as a keystroke in GPUI's terms, with the
+/// modifiers in the order shell::SHORTCUTS writes them.
+fn keystroke(key: &bc::bc_key) -> String {
+    let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
+    let mut keystroke = String::new();
+    for (flag, modifier) in [
+        (bc::BC_MODIFIER_CONTROL, "ctrl-"),
+        (bc::BC_MODIFIER_ALT, "alt-"),
+        (bc::BC_MODIFIER_SHIFT, "shift-"),
+        (bc::BC_MODIFIER_META, "cmd-"),
+    ] {
+        if key.modifiers & flag != 0 {
+            keystroke.push_str(modifier);
+        }
+    }
+    let key = match name.as_ref() {
+        "ArrowDown" => "down".to_string(),
+        "ArrowUp" => "up".to_string(),
+        name => name.to_lowercase(),
+    };
+    keystroke + &key
+}
+
+/// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't.
+fn run_page_shortcut(key: *const bc::bc_key, reserved: bool) -> bool {
+    let Some(command) = Command::for_keystroke(&keystroke(unsafe { &*key }), reserved) else {
+        return false;
+    };
+    let mut ran = false;
+    update_shell(|shell, cx| {
+        shell.run(command, "page", cx);
+        ran = true;
+    });
+    ran
+}
+
+unsafe extern "C" fn tab_key_before_page(
+    _: *mut c_void,
+    _: bc::bc_id,
+    key: *const bc::bc_key,
+) -> bool {
+    run_page_shortcut(key, true)
+}
+
+unsafe extern "C" fn tab_key_unhandled(
+    _: *mut c_void,
+    _: bc::bc_id,
+    key: *const bc::bc_key,
+) -> bool {
+    run_page_shortcut(key, false)
+}
+
+/// Opens the browser window centered on the main display, with `ui_view` filling it under the
+/// page, showing a new Space.
+fn open_browser_window(ui_view: *mut c_void) -> bool {
+    let (width, height) = WINDOW_SIZE;
+    let (mut x, mut y) = (0., 0.);
+    unsafe { platform::host_centered(width, height, &mut x, &mut y) };
+    let bounds = bc::bc_rect {
+        x,
+        y,
+        width,
+        height,
+    };
+    let window = unsafe { bc::bc_window_open(bounds, ui_view) };
+    if window == 0 {
+        return false;
+    }
+    let space = unsafe { bc::bc_space_create() };
+    unsafe { bc::bc_window_show_space(window, space) };
+    WINDOW.set(window);
+    SPACE.set(space);
+    true
+}
+
+/// Opens the browser window, the shell inside it under the page, and the first tab.
+fn open_window(cx: &mut App) {
+    let ui_view = unsafe { platform::host_ui_view() };
+    if !open_browser_window(ui_view) {
+        return;
+    }
+    gpui_macos::open_next_window_in(ui_view);
+    let window = cx.open_window(WindowOptions::default(), |window, cx| {
+        let shell = cx.new(|cx| {
+            // The page keeps its place in the card as the window resizes.
+            cx.observe_window_bounds(window, |shell: &mut Shell, window, _| {
+                set_page_frame(window.viewport_size(), shell.page_fullscreen())
+            })
+            .detach();
+            Shell::new(Rc::new(Engine), cx)
+        });
+        UI.set(Some((
+            cx.to_async(),
+            shell.downgrade(),
+            Window::window_handle(window),
+        )));
+        shell
+    });
+    match window {
+        Ok(window) => {
+            window
+                .update(cx, |_, window, _| set_page_frame(window.viewport_size(), false))
+                .ok();
+            unsafe { platform::host_show_window(ui_view) };
+            command_bar::open(cx);
+            let url = std::env::var("BROWSER_URL").unwrap_or_else(|_| START_URL.into());
+            open_tab(&url);
+        }
+        Err(error) => {
+            eprintln!("couldn't open the window: {error}");
+            unsafe { bc::bc_quit() };
+        }
+    }
+}
+
+unsafe extern "C" fn started(_: *mut c_void) {
+    let app = gpui_platform::application().run_embedded(|cx| {
+        shell::bind_keys(cx);
+        browser::text_input::bind_keys(cx);
+        cx.on_action(|_: &Quit, _| unsafe { bc::bc_quit() });
+        cx.set_menus([Menu {
+            name: "Browser".into(),
+            items: vec![MenuItem::action("Quit Browser", Quit)],
+            disabled: false,
+        }]);
+        open_window(cx);
+    });
+    APP.set(Some(app));
+}
+
+// There's one window, so closing it quits, as its close button does in Chrome's last window.
+unsafe extern "C" fn window_closed(_: *mut c_void, _: bc::bc_id) {
+    eprintln!("browser: window closed");
+    unsafe { bc::bc_quit() };
+}
+
+unsafe extern "C" fn stopping(_: *mut c_void) {
+    eprintln!("browser: stopping");
+}
+
+unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
+    if space != SPACE.get() {
+        return;
+    }
+    let count = unsafe { bc::bc_space_today(space, std::ptr::null_mut(), 0) };
+    let mut today = vec![0; count];
+    let count = unsafe { bc::bc_space_today(space, today.as_mut_ptr(), today.len()) };
+    today.truncate(count);
+    update_shell(|shell, cx| shell.set_today(today, cx));
+}
+
+unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
+    if window == WINDOW.get() {
+        update_shell(|shell, cx| shell.set_selected(tab, cx));
+    }
+}
+
+// check.sh reads these lines. Test pages report what reached them through their title.
+unsafe extern "C" fn tab_loaded(_: *mut c_void, tab: bc::bc_id, url: *const c_char) {
+    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+    eprintln!("browser: loaded {tab} {url}");
+    update_shell(|shell, cx| shell.set_url(tab, url.into(), cx));
+}
+
+unsafe extern "C" fn tab_title_changed(_: *mut c_void, tab: bc::bc_id, title: *const c_char) {
+    let title = unsafe { CStr::from_ptr(title) }.to_string_lossy().into_owned();
+    eprintln!("browser: title {tab} {title}");
+    update_shell(|shell, cx| shell.set_title(tab, title.into(), cx));
+}
+
+unsafe extern "C" fn tab_opened(
+    _: *mut c_void,
+    _: bc::bc_id,
+    tab: bc::bc_id,
+    opener: bc::bc_id,
+    foreground: bool,
+) {
+    let side = if foreground { "foreground" } else { "background" };
+    eprintln!("browser: tab {tab} opened by {opener} in the {side}");
+}
+
+// Called while Chromium closes the tab, which can be inside a GPUI update that asked for it, so
+// the shell hears of it from space_changed instead.
+unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
+    eprintln!("browser: tab {tab} closed");
+}
+
+unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, fullscreen: bool) {
+    let ui = UI.with_borrow(|ui| ui.as_ref().map(|(cx, shell, window)| (cx.clone(), shell.clone(), *window)));
+    let Some((cx, shell, window)) = ui else {
+        return;
+    };
+    cx.update(|cx| {
+        let shown = shell.read_with(cx, |shell, _| shell.selected() == tab).unwrap_or(false);
+        if !shown {
+            return;
+        }
+        shell
+            .update(cx, |shell, cx| shell.set_page_fullscreen(fullscreen, cx))
+            .ok();
+        cx.update_window(window, |_, window, _| {
+            set_page_frame(window.viewport_size(), fullscreen)
+        })
+        .ok();
+    });
+    eprintln!(
+        "browser: page {} full screen",
+        if fullscreen { "entered" } else { "left" }
+    );
+}
+
+fn main() {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut args: Vec<String> = std::env::args().take(1).collect();
+    args.extend([
+        // A profile of the dev build's own, never the owner's.
+        format!("--user-data-dir={home}/Library/Caches/browser-app"),
+        // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed build
+        // asking for it gets a password prompt, and every request that uses cookies waits.
+        "--use-mock-keychain".into(),
+        // Chrome would copy the app bundle to check its signature against, which an
+        // ad-hoc-signed build doesn't need.
+        "--disable-features=MacAppCodeSignClone".into(),
+    ]);
+    // Switches given to the app come after, so they override these: Chromium keeps a repeated
+    // switch's last value.
+    args.extend(std::env::args().skip(1));
+    let args: Vec<CString> = args
+        .into_iter()
+        .filter_map(|arg| CString::new(arg).ok())
+        .collect();
+    if std::env::var_os("BROWSER_DRIVE").is_some() {
+        unsafe { platform::drive_start() };
+    }
+    let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
+    let host = bc::bc_host {
+        started: Some(started),
+        stopping: Some(stopping),
+        window_closed: Some(window_closed),
+        space_changed: Some(space_changed),
+        window_selected: Some(window_selected),
+        tab_opened: Some(tab_opened),
+        tab_closed: Some(tab_closed),
+        tab_loaded: Some(tab_loaded),
+        tab_title_changed: Some(tab_title_changed),
+        tab_fullscreen_changed: Some(tab_fullscreen_changed),
+        tab_key_before_page: Some(tab_key_before_page),
+        tab_key_unhandled: Some(tab_key_unhandled),
+        ..Default::default()
+    };
+    let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
+    std::process::exit(code);
+}

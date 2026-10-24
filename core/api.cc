@@ -1,7 +1,11 @@
 // The C API in public/browser_core.h, over the core's C++.
 
+#include <algorithm>
+#include <vector>
+
 #include "browser_core/main_delegate.h"
 #include "browser_core/public/browser_core.h"
+#include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -44,12 +48,51 @@ void bc_window_close(bc_id id) {
   }
 }
 
+bc_id bc_space_create() {
+  return browser_core::Space::Create()->id();
+}
+
+size_t bc_space_today(bc_id id, bc_id* tabs, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  if (!space) {
+    return 0;
+  }
+  const std::vector<bc_id>& today = space->today();
+  std::copy_n(today.begin(), std::min(capacity, today.size()), tabs);
+  return today.size();
+}
+
+void bc_window_show_space(bc_id window_id, bc_id space) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->ShowSpace(space);
+  }
+}
+
+void bc_window_set_page_frame(bc_id window_id, bc_rect frame) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->SetPageFrame(ToRect(frame));
+  }
+}
+
+void bc_window_select(bc_id window_id, bc_id tab) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->Select(tab);
+  }
+}
+
 bc_id bc_tab_open(bc_id window_id, const char* url) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   // Chrome made the profile it starts with before the core's calls work.
   Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
   content::WebContents* contents = window && profile ? window->OpenTab(profile, GURL(url)) : nullptr;
-  return contents ? browser_core::Tab::IdOf(contents) : 0;
+  if (!contents) {
+    return 0;
+  }
+  const bc_id tab = browser_core::Tab::IdOf(contents);
+  if (browser_core::Space* space = browser_core::Space::FromId(window->space())) {
+    space->Add(tab, /*opener=*/0, /*foreground=*/false);
+  }
+  return tab;
 }
 
 void bc_tab_show(bc_id id, bc_rect frame) {

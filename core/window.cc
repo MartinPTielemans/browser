@@ -11,6 +11,7 @@
 #include "browser_core/browser_window_stand_in.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
+#include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -100,6 +101,25 @@ void Window::AdjustNavigate(NavigateParams& params) {
        params.disposition == WindowOpenDisposition::NEW_WINDOW) &&
       params.browser && ForBrowser(params.browser)) {
     params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  }
+}
+
+// static
+void Window::OnTabClosing(bc_id tab) {
+  Space* space = Space::Holding(tab);
+  if (!space) {
+    return;
+  }
+  const bc_id next = space->NextAfterClosing(tab);
+  space->Remove(tab);
+  for (auto& [id, window] : Windows()) {
+    if (window->selected_ == tab) {
+      window->selected_ = 0;
+      // Posted: Chrome is part way through closing the tab, and its tab strip can't change yet.
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE,
+          base::BindOnce(&Window::SelectAfterClosing, window->weak_factory_.GetWeakPtr(), next));
+    }
   }
 }
 
@@ -203,6 +223,50 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   FocusPageSoon();
 }
 
+void Window::ShowSpace(bc_id space) {
+  if (Space::FromId(space)) {
+    space_ = space;
+  }
+}
+
+void Window::SetPageFrame(const gfx::Rect& frame) {
+  page_frame_ = frame;
+  if (shown_) {
+    Show(shown_.get(), frame);
+  }
+}
+
+void Window::Select(bc_id tab) {
+  content::WebContents* contents = Tab::FromId(tab);
+  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  if (!in || ForBrowser(in->GetBrowserWindowInterface()) != this) {
+    return;
+  }
+  selected_ = tab;
+  Show(contents, page_frame_);
+  ReportSelected();
+}
+
+void Window::SelectAfterClosing(bc_id next) {
+  if (next && Tab::FromId(next)) {
+    Select(next);
+  } else {
+    ReportSelected();
+  }
+}
+
+void Window::ReportSelected() {
+  // Posted, like the Space's changes, so the app hears of its own call once it has returned.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](base::WeakPtr<Window> window, bc_id tab) {
+                       if (window && Host().window_selected) {
+                         Host().window_selected(Host().context, window->id(), tab);
+                       }
+                     },
+                     weak_factory_.GetWeakPtr(), selected_));
+}
+
 void Window::Close() {
   if (closing_) {
     return;
@@ -303,7 +367,20 @@ void Window::FocusPage() {
 
 void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground) {
   // A popup can close itself at once.
-  if (Tab::FromId(tab) && Host().tab_opened) {
+  if (!Tab::FromId(tab)) {
+    return;
+  }
+  Space* space = Space::Holding(opener);
+  if (!space) {
+    space = Space::FromId(space_);
+  }
+  if (space) {
+    space->Add(tab, opener, foreground);
+    if (foreground) {
+      Select(tab);
+    }
+  }
+  if (Host().tab_opened) {
     Host().tab_opened(Host().context, id_, tab, opener, foreground);
   }
 }

@@ -13,7 +13,7 @@ Pre-alpha. Nothing here is a browser yet.
 | 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported, Arc capture next |
 | 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
 | 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | in progress: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works; Linux CI left |
-| 3 | Daily-driver MVP on Mac | — |
+| 3 | Daily-driver MVP on Mac | in progress: the app shows a Space's Today tabs, opens, switches and closes them |
 | 4 | Polish and parity | — |
 | 5 | Windows, then Linux | — |
 
@@ -33,6 +33,7 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 
 | Path | What |
 |---|---|
+| `app/` | The browser: GPUI on the core's C API (`./setup.sh && ./build.sh`), and a preview of its UI without the engine (`cargo run --release --bin preview`) |
 | `core/` | Our C++ inside Chrome's framework (`//browser_core`), and its C API for the app |
 | `docs/` | Decisions, roadmap, UX spec and its parity checklist |
 | `engine/` | Chromium pins and the patch series |

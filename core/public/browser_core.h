@@ -5,6 +5,7 @@
 #define BROWSER_CORE_PUBLIC_BROWSER_CORE_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -13,7 +14,7 @@ extern "C" {
 
 #define BC_EXPORT __attribute__((visibility("default")))
 
-// Names a window or a tab for as long as the process runs; never reused. 0 names nothing.
+// Names a window, a Space or a tab for as long as the process runs; never reused. 0 names nothing.
 typedef uint64_t bc_id;
 
 // In points. A window's is on the screen, from the top-left of the main display; a tab's is in its
@@ -50,8 +51,10 @@ typedef struct bc_host {
   // The window has closed, by bc_window_close, the user or quitting. Its tabs closed first.
   void (*window_closed)(void* context, bc_id window);
   // Chrome opened a tab in the window that the app didn't ask for: a page's link to a new tab, or
-  // its popup or new window, which open as tabs. |opener| is the tab it came from, or 0. It isn't
-  // shown until bc_tab_show; show it if |foreground|, since Chrome made it the window's active tab.
+  // its popup or new window, which open as tabs. |opener| is the tab it came from, or 0. In a window
+  // that shows a Space, it goes in its opener's Space where Chrome would put it, under the opener,
+  // and the window shows it if |foreground|. Elsewhere it isn't shown until bc_tab_show; show it if
+  // |foreground|, since Chrome made it the window's active tab.
   void (*tab_opened)(void* context, bc_id window, bc_id tab, bc_id opener, bool foreground);
   // The tab's page finished loading |url|.
   void (*tab_loaded)(void* context, bc_id tab, const char* url);
@@ -64,6 +67,11 @@ typedef struct bc_host {
   void (*tab_fullscreen_changed)(void* context, bc_id tab, bool fullscreen);
   // The tab has closed, by bc_tab_close, its page, its window closing or quitting.
   void (*tab_closed)(void* context, bc_id tab);
+  // The Space's tabs changed: one opened, closed or moved. Read them with bc_space_today.
+  void (*space_changed)(void* context, bc_id space);
+  // The window shows another tab of its Space, or none (0) once the Space has no tabs left: the app
+  // asked, a page opened one in front, or the tab shown closed.
+  void (*window_selected)(void* context, bc_id window, bc_id tab);
   // A key went down while the tab's page has the keyboard, before the page gets it. Return true to
   // keep it from the page, as browsers keep their reserved shortcuts (⌘T, ⌘W, ⌘Q). Keys an input
   // method is composing with don't come here.
@@ -87,13 +95,33 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 // Closes the window: its pages get their unload handlers, then window_closed.
 BC_EXPORT void bc_window_close(bc_id window);
 
-// Opens a tab in the window, loading |url|, in the default profile. It isn't shown until
-// bc_tab_show. Returns 0 if the window is closing or gone.
+// Makes an empty Space in the default profile. Any window can show it.
+BC_EXPORT bc_id bc_space_create(void);
+
+// Copies up to |capacity| of the Space's Today tabs into |tabs|, top to bottom, and returns how many
+// it has. The ones the user opened are newest first; one a page opened sits under the page's tab.
+BC_EXPORT size_t bc_space_today(bc_id space, bc_id* tabs, size_t capacity);
+
+// Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
+// window's new tabs go in it.
+BC_EXPORT void bc_window_show_space(bc_id window, bc_id space);
+
+// Where the window shows its tab's page, in the window. Set it again when the layout changes; the
+// page keeps its distance from the window's edges as the window resizes.
+BC_EXPORT void bc_window_set_page_frame(bc_id window, bc_rect frame);
+
+// Shows |tab|, a tab in the window, at its page frame, in place of the page shown before. It takes
+// the keyboard if that page had it. Then window_selected.
+BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
+
+// Opens a tab in the window, loading |url|, in the default profile, at the top of the Today tabs of
+// the Space it shows. It isn't shown until bc_window_select or bc_tab_show. Returns 0 if the window
+// is closing or gone.
 BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url);
 
 // Shows the tab's page at |frame| in its window, in place of the page the window showed. It keeps
 // its distance from the window's edges as the window resizes, and takes the keyboard if that page
-// had it.
+// had it. For a window that shows no Space; one that does uses bc_window_select.
 BC_EXPORT void bc_tab_show(bc_id tab, bc_rect frame);
 
 // Loads |url| in the tab.

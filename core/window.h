@@ -46,6 +46,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static void CloseAll();
   // Chrome's navigator calls this before it picks the Browser for a navigation.
   static void AdjustNavigate(NavigateParams& params);
+  // As |tab| closes: takes it out of its Space, and has each window that showed it show the tab its
+  // Space picks next.
+  static void OnTabClosing(bc_id tab);
 
   Window(const Window&) = delete;
   Window& operator=(const Window&) = delete;
@@ -53,6 +56,14 @@ class Window : public web_modal::WebContentsModalDialogHost,
 
   bc_id id() const { return id_; }
   views::Widget* widget() const { return widget_.get(); }
+  // The Space the window shows, or 0.
+  bc_id space() const { return space_; }
+
+  void ShowSpace(bc_id space);
+  // Where the selected tab's page goes, in the window.
+  void SetPageFrame(const gfx::Rect& frame);
+  // Shows |tab|, if it's one of this window's, at the page frame.
+  void Select(bc_id tab);
 
   // Opens a tab for |profile| loading |url|, not shown. Null while the window is closing or
   // Chromium is quitting.
@@ -97,6 +108,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   BrowserWindowInterface* BrowserFor(Profile* profile);
 
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground);
+  void SelectAfterClosing(bc_id next);
+  void ReportSelected();
 
   // Gives the page shown the keyboard if the window is key and its keyboard is the page's.
   void FocusPageSoon();
@@ -110,6 +123,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::unique_ptr<views::Widget> widget_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> widget_observation_{this};
   base::WeakPtr<content::WebContents> shown_;
+  bc_id space_ = 0;
+  bc_id selected_ = 0;
+  gfx::Rect page_frame_;
   std::map<Profile*, Held> browsers_;
   bool closing_ = false;
   bool opening_tab_ = false;

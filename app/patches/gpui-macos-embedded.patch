@@ -1,0 +1,754 @@
+diff --git a/crates/gpui_macos/src/display_link.rs b/crates/gpui_macos/src/display_link.rs
+index 658b9f24ac..7bd5c521e1 100644
+--- a/crates/gpui_macos/src/display_link.rs
++++ b/crates/gpui_macos/src/display_link.rs
+@@ -328,6 +328,10 @@ impl WindowFrameSource {
+         Ok(())
+     }
+ 
++    pub fn is_running(&self) -> bool {
++        self.registration.is_some()
++    }
++
+     pub fn take_signal(&self) -> Option<(Instant, FrameRequestSource)> {
+         self.signal.take()
+     }
+diff --git a/crates/gpui_macos/src/gpui_macos.rs b/crates/gpui_macos/src/gpui_macos.rs
+index 8732badd32..ef553825c0 100644
+--- a/crates/gpui_macos/src/gpui_macos.rs
++++ b/crates/gpui_macos/src/gpui_macos.rs
+@@ -43,6 +43,7 @@ pub(crate) use platform::*;
+ pub(crate) use window::*;
+ 
+ pub use platform::MacPlatform;
++pub use window::open_next_window_in;
+ 
+ trait BoolExt {
+     fn to_objc(self) -> Bool;
+diff --git a/crates/gpui_macos/src/platform.rs b/crates/gpui_macos/src/platform.rs
+index 4b48188131..4d14723244 100644
+--- a/crates/gpui_macos/src/platform.rs
++++ b/crates/gpui_macos/src/platform.rs
+@@ -60,6 +60,12 @@ const MAC_PLATFORM_IVAR: &CStr = c"platform";
+ static mut APP_CLASS: *const AnyClass = ptr::null();
+ static mut APP_DELEGATE_CLASS: *const AnyClass = ptr::null();
+ 
++unsafe extern "C" {
++    /// AppKit's shared application, null until something creates it.
++    #[link_name = "NSApp"]
++    static EXISTING_APPLICATION: *mut AnyObject;
++}
++
+ #[ctor(unsafe)]
+ unsafe fn build_classes() {
+     unsafe {
+@@ -170,6 +176,12 @@ pub(crate) struct MacPlatformState {
+     text_system: Arc<dyn PlatformTextSystem>,
+     renderer_context: renderer::Context,
+     headless: bool,
++    /// An embedder, such as a browser engine, created the NSApplication before GPUI started. It
++    /// owns the run loop and the app delegate, and GPUI attaches to its application instead.
++    embedded: bool,
++    /// GPUI's delegate object. It's the app's delegate unless GPUI is embedded, so it's kept here
++    /// rather than looked up through the application.
++    app_delegate: *mut AnyObject,
+     activation_policy: ActivationPolicy,
+     application_created: bool,
+     general_pasteboard: Pasteboard,
+@@ -233,8 +245,13 @@ impl MacPlatform {
+         let keyboard_layout = MacKeyboardLayout::new();
+         let keyboard_mapper = Rc::new(MacKeyboardMapper::new(keyboard_layout.id()));
+ 
++        // SAFETY: reads AppKit's global pointer on the main thread.
++        let embedded = !headless && unsafe { !EXISTING_APPLICATION.is_null() };
++
+         let state = Mutex::new(MacPlatformState {
+             headless,
++            embedded,
++            app_delegate: ptr::null_mut(),
+             activation_policy: ActivationPolicy::Regular,
+             application_created: false,
+             text_system,
+@@ -485,17 +502,11 @@ impl MacPlatform {
+             return;
+         }
+ 
+-        // The shared application must be created through `APP_CLASS`, or `run`
+-        // finds a plain `NSApplication` without the `platform` ivar; only the
+-        // delegate lookup goes through the typed binding.
+-        // SAFETY: APP_CLASS is registered during startup and `sharedApplication`
+-        // returns a live NSApplication instance.
+-        let delegate = unsafe {
+-            let app: *mut AnyObject = msg_send![APP_CLASS, sharedApplication];
+-            (*(app as *const NSApplication)).delegate()
+-        };
+-        if let Some(delegate) = delegate {
+-            register_system_power_observers(delegate.as_ref());
++        let delegate = self.0.lock().app_delegate;
++        if !delegate.is_null() {
++            // SAFETY: `app_delegate` is set in `run` to a live GPUIApplicationDelegate that is
++            // never released.
++            register_system_power_observers(unsafe { &*delegate });
+             self.0.lock().system_power_observers_registered = true;
+         }
+     }
+@@ -532,6 +543,34 @@ impl Platform for MacPlatform {
+             drop(state);
+         }
+ 
++        if self.0.lock().embedded {
++            // The embedder's run loop is already running or about to, and its delegate gets the
++            // launch notifications, so do what GPUI's delegate would do on launch and return.
++            // The embedder forwards any other delegate messages it wants GPUI to see.
++            unsafe {
++                let app_delegate: *mut AnyObject = msg_send![APP_DELEGATE_CLASS, new];
++                mac_platform_ivar(&*app_delegate)
++                    .load_ptr::<*mut c_void>(&*app_delegate)
++                    .write(self as *const Self as *mut c_void);
++                {
++                    let mut state = self.0.lock();
++                    state.application_created = true;
++                    state.app_delegate = app_delegate;
++                }
++                will_finish_launching(
++                    &*app_delegate,
++                    sel!(applicationWillFinishLaunching:),
++                    ptr::null_mut(),
++                );
++                did_finish_launching(
++                    &*app_delegate,
++                    sel!(applicationDidFinishLaunching:),
++                    ptr::null_mut(),
++                );
++            }
++            return;
++        }
++
+         unsafe {
+             let app: *mut AnyObject = msg_send![APP_CLASS, sharedApplication];
+             // An accessory app must not register in the Dock during launch, so its
+@@ -547,6 +586,7 @@ impl Platform for MacPlatform {
+                 let _: Bool = msg_send![app, setActivationPolicy: native_activation_policy(policy)];
+             }
+             let app_delegate: *mut AnyObject = msg_send![APP_DELEGATE_CLASS, new];
++            self.0.lock().app_delegate = app_delegate;
+             let _: () = msg_send![app, setDelegate: app_delegate];
+ 
+             let self_ptr = self as *const Self as *mut c_void;
+@@ -1105,8 +1145,8 @@ impl Platform for MacPlatform {
+         unsafe {
+             let app: *mut AnyObject = msg_send![APP_CLASS, sharedApplication];
+             let mut state = self.0.lock();
++            let delegate = state.app_delegate;
+             let actions = &mut state.menu_actions;
+-            let delegate: *mut AnyObject = msg_send![app, delegate];
+             let menu = self.create_menu_bar(&menus, delegate, actions, keymap);
+             drop(state);
+             let _: () = msg_send![app, setMainMenu: &*menu];
+@@ -1120,10 +1160,9 @@ impl Platform for MacPlatform {
+ 
+     fn set_dock_menu(&self, menu: Vec<MenuItem>, keymap: &Keymap) {
+         unsafe {
+-            let app: *mut AnyObject = msg_send![APP_CLASS, sharedApplication];
+             let mut state = self.0.lock();
++            let delegate = state.app_delegate;
+             let actions = &mut state.menu_actions;
+-            let delegate: *mut AnyObject = msg_send![app, delegate];
+             state.dock_menu = Some(self.create_dock_menu(menu, delegate, actions, keymap));
+         }
+     }
+diff --git a/crates/gpui_macos/src/window.rs b/crates/gpui_macos/src/window.rs
+index f2208d35ec..4f4bcf9776 100644
+--- a/crates/gpui_macos/src/window.rs
++++ b/crates/gpui_macos/src/window.rs
+@@ -46,7 +46,9 @@ use objc2_app_kit::{
+     NSTrackingAreaOptions, NSView, NSViewLayerContentsRedrawPolicy, NSVisualEffectBlendingMode,
+     NSVisualEffectMaterial, NSVisualEffectState, NSWindow, NSWindowAnimationBehavior,
+     NSWindowButton, NSWindowCollectionBehavior, NSWindowOcclusionState, NSWindowOrderingMode,
+-    NSWindowStyleMask, NSWindowTitleVisibility, NSWorkspace,
++    NSWindowDidBecomeKeyNotification, NSWindowDidChangeOcclusionStateNotification,
++    NSWindowDidChangeScreenNotification, NSWindowDidMoveNotification,
++    NSWindowDidResignKeyNotification, NSWindowStyleMask, NSWindowWillCloseNotification, NSWindowTitleVisibility, NSWorkspace,
+ };
+ use objc2_core_graphics::CGColor;
+ use objc2_foundation::{
+@@ -69,7 +71,7 @@ use std::{
+         Arc, Once, Weak,
+         atomic::{AtomicBool, Ordering},
+     },
+-    time::Duration,
++    time::{Duration, Instant},
+ };
+ 
+ const WINDOW_STATE_IVAR: &CStr = c"windowState";
+@@ -82,6 +84,19 @@ static mut VIEW_CLASS: *const AnyClass = ptr::null();
+ static mut BLURRED_VIEW_CLASS: *const AnyClass = ptr::null();
+ static mut WINDOW_STATE_ARCHIVER_DELEGATE_CLASS: *const AnyClass = ptr::null();
+ static mut WINDOW_STATE_UNARCHIVER_CLASS: *const AnyClass = ptr::null();
++static mut HOST_WINDOW_OBSERVER_CLASS: *const AnyClass = ptr::null();
++
++thread_local! {
++    static NEXT_HOST_VIEW: Cell<*mut AnyObject> = const { Cell::new(ptr::null_mut()) };
++}
++
++/// Makes the next window GPUI opens a view inside `host_view`, an NSView in a window that
++/// something else owns, such as a browser engine, instead of a window of its own. The view fills
++/// `host_view`, under the views already in it, and keeps its size. The window's options that
++/// describe an NSWindow, such as its bounds, kind and title bar, don't apply.
++pub fn open_next_window_in(host_view: *mut c_void) {
++    NEXT_HOST_VIEW.set(host_view.cast());
++}
+ 
+ // WindowLevel const value ref: https://docs.rs/core-graphics2/0.4.1/src/core_graphics2/window_level.rs.html
+ #[allow(non_upper_case_globals)]
+@@ -100,8 +115,42 @@ pub enum UserTabbingPreference {
+ #[ctor(unsafe)]
+ unsafe fn build_classes() {
+     unsafe {
+-        WINDOW_CLASS = build_window_class(c"GPUIWindow", class!(NSWindow));
+-        PANEL_CLASS = build_window_class(c"GPUIPanel", class!(NSPanel));
++        WINDOW_CLASS = build_window_class(c"GPUIWindow", class!(NSWindow), true);
++        // A panel takes the keyboard without taking main from the window it serves, which would
++        // draw that window as inactive. AppKit's own panels work this way.
++        PANEL_CLASS = build_window_class(c"GPUIPanel", class!(NSPanel), false);
++        // Gets a host window's notifications for a GPUI view inside it, which GPUI's own windows
++        // get as their own delegate.
++        HOST_WINDOW_OBSERVER_CLASS = {
++            let mut decl = ClassBuilder::new(c"GPUIHostWindowObserver", class!(NSObject)).unwrap();
++            decl.add_ivar::<*mut c_void>(WINDOW_STATE_IVAR);
++            decl.add_method(sel!(dealloc), dealloc_host_window_observer as extern "C" fn(_, Sel));
++            decl.add_method(
++                sel!(windowDidChangeOcclusionState:),
++                window_did_change_occlusion_state as extern "C" fn(_, Sel, *mut AnyObject),
++            );
++            decl.add_method(
++                sel!(windowDidMove:),
++                window_did_move as extern "C" fn(_, Sel, *mut AnyObject),
++            );
++            decl.add_method(
++                sel!(windowDidChangeScreen:),
++                window_did_change_screen as extern "C" fn(_, Sel, *mut AnyObject),
++            );
++            decl.add_method(
++                sel!(windowDidBecomeKey:),
++                window_did_change_key_status as extern "C" fn(_, Sel, *mut AnyObject),
++            );
++            decl.add_method(
++                sel!(windowDidResignKey:),
++                window_did_change_key_status as extern "C" fn(_, Sel, *mut AnyObject),
++            );
++            decl.add_method(
++                sel!(windowWillClose:),
++                host_window_will_close as extern "C" fn(_, Sel, *mut AnyObject),
++            );
++            decl.register()
++        };
+         VIEW_CLASS = {
+             let mut decl = ClassBuilder::new(c"GPUIView", class!(NSView)).unwrap();
+             decl.add_ivar::<*mut c_void>(WINDOW_STATE_IVAR);
+@@ -259,6 +308,13 @@ unsafe fn build_classes() {
+                 accepts_first_mouse as extern "C" fn(_, Sel, *mut AnyObject) -> Bool,
+             );
+ 
++            // Lets a click take keyboard focus back from a native view embedded in the window,
++            // such as a browser's page view. With no such views GPUI's view always has focus.
++            decl.add_method(
++                sel!(acceptsFirstResponder),
++                accepts_first_responder as extern "C" fn(_, Sel) -> Bool,
++            );
++
+             decl.add_method(
+                 sel!(_opaqueRectForWindowMoveWhenInTitlebar),
+                 opaque_rect_for_window_move_when_in_titlebar as extern "C" fn(_, Sel) -> NSRect,
+@@ -407,16 +463,22 @@ pub(crate) unsafe fn set_active_window_cursor_style(style: CursorStyle) {
+     }
+ }
+ 
+-unsafe fn build_window_class(name: &CStr, superclass: &AnyClass) -> *const AnyClass {
++unsafe fn build_window_class(
++    name: &CStr,
++    superclass: &AnyClass,
++    can_become_main: bool,
++) -> *const AnyClass {
+     unsafe {
+         let mut decl = ClassBuilder::new(name, superclass).unwrap();
+         decl.add_ivar::<*mut c_void>(WINDOW_STATE_IVAR);
+         decl.add_method(sel!(dealloc), dealloc_window as extern "C" fn(_, Sel));
+ 
+-        decl.add_method(
+-            sel!(canBecomeMainWindow),
+-            yes as extern "C" fn(_, Sel) -> Bool,
+-        );
++        if can_become_main {
++            decl.add_method(
++                sel!(canBecomeMainWindow),
++                yes as extern "C" fn(_, Sel) -> Bool,
++            );
++        }
+         decl.add_method(
+             sel!(canBecomeKeyWindow),
+             yes as extern "C" fn(_, Sel) -> Bool,
+@@ -648,6 +710,8 @@ struct MacWindowState {
+     cursor_style: CursorStyle,
+     cursor_visible: Arc<AtomicBool>,
+     frame_source: Option<WindowFrameSource>,
++    // When GPUI last asked for a frame. The display link stops after a second without one.
++    frame_demand_at: Instant,
+     renderer: renderer::Renderer,
+     request_frame_callback: Option<Box<dyn FnMut(RequestFrameOptions)>>,
+     event_callback: Option<Box<dyn FnMut(PlatformInput) -> gpui::DispatchEventResult>>,
+@@ -694,9 +758,81 @@ struct MacWindowState {
+     accesskit_adapter: Option<accesskit_macos::SubclassingAdapter>,
+     // The parent window if this window is a sheet (Dialog kind)
+     sheet_parent: Option<*mut AnyObject>,
++    // Set when the window is a view in a window GPUI doesn't own: the object that gets that
++    // window's notifications. GPUI leaves such a window as it is.
++    host_window_observer: Option<NonNull<AnyObject>>,
++    // Keeps `native_window` valid for tasks that outlive the window GPUI doesn't own.
++    host_window: Option<Retained<AnyObject>>,
+ }
+ 
+ impl MacWindowState {
++    #[allow(clippy::too_many_arguments)]
++    fn new(
++        handle: AnyWindowHandle,
++        foreground_executor: ForegroundExecutor,
++        background_executor: BackgroundExecutor,
++        native_window: *mut AnyObject,
++        native_view: NonNull<AnyObject>,
++        renderer: renderer::Renderer,
++        cursor_visible: Arc<AtomicBool>,
++        titlebar: Option<&gpui::TitlebarOptions>,
++        app_owns_titlebar_drag: bool,
++    ) -> Self {
++        Self {
++            handle,
++            foreground_executor,
++            background_executor,
++            native_window,
++            native_view,
++            blurred_view: None,
++            background_appearance: WindowBackgroundAppearance::Opaque,
++            cursor_style: CursorStyle::Arrow,
++            cursor_visible,
++            frame_source: None,
++            frame_demand_at: Instant::now(),
++            renderer,
++            request_frame_callback: None,
++            event_callback: None,
++            activate_callback: None,
++            visibility_callback: None,
++            last_visibility: None,
++            resize_callback: None,
++            moved_callback: None,
++            display_changed_callback: None,
++            should_close_callback: None,
++            close_callback: None,
++            appearance_changed_callback: None,
++            input_handler: None,
++            last_key_equivalent: None,
++            last_left_mouse_down_event: None,
++            synthetic_drag_counter: 0,
++            traffic_light_position: titlebar.and_then(|titlebar| titlebar.traffic_light_position),
++            traffic_light_frames: None,
++            pre_fullscreen_traffic_light_frames: None,
++            transparent_titlebar: titlebar.is_none_or(|titlebar| titlebar.appears_transparent),
++            previous_modifiers_changed_event: None,
++            keystroke_for_do_command: None,
++            do_command_handled: None,
++            external_files_dragged: false,
++            first_mouse: false,
++            app_owns_titlebar_drag,
++            fullscreen_restore_bounds: Bounds::default(),
++            is_exiting_fullscreen: false,
++            simple_fullscreen_state: None,
++            move_tab_to_new_window_callback: None,
++            merge_all_windows_callback: None,
++            select_next_tab_callback: None,
++            select_previous_tab_callback: None,
++            toggle_tab_bar_callback: None,
++            activated_least_once: false,
++            closed: Arc::new(AtomicBool::new(false)),
++            accesskit_adapter: None,
++            sheet_parent: None,
++            host_window_observer: None,
++            host_window: None,
++        }
++    }
++
+     fn move_traffic_light(&mut self) {
+         if let Some(traffic_light_position) = self.traffic_light_position {
+             if self.is_fullscreen() && !self.is_exiting_fullscreen {
+@@ -909,10 +1045,14 @@ impl MacWindowState {
+     }
+ 
+     fn content_size(&self) -> Size<Pixels> {
+-        let NSSize { width, height } = self
+-            .native_window()
+-            .contentView()
+-            .map_or_default(|view| view.frame().size);
++        let NSSize { width, height } = if self.host_window_observer.is_some() {
++            let frame: NSRect = unsafe { msg_send![self.native_view.as_ptr(), frame] };
++            frame.size
++        } else {
++            self.native_window()
++                .contentView()
++                .map_or_default(|view| view.frame().size)
++        };
+         size(px(width as f32), px(height as f32))
+     }
+ 
+@@ -960,6 +1100,19 @@ impl MacWindow {
+         renderer_context: renderer::Context,
+         marker: MainThreadMarker,
+     ) -> Self {
++        let host_view = NEXT_HOST_VIEW.replace(ptr::null_mut());
++        if !host_view.is_null() {
++            return Self::open_in_view(
++                host_view,
++                handle,
++                cursor_visible,
++                foreground_executor,
++                background_executor,
++                renderer_context,
++                use_display_p3,
++                marker,
++            );
++        }
+         autoreleasepool(|_| unsafe {
+             let allows_automatic_window_tabbing = tabbing_identifier.is_some();
+             if allows_automatic_window_tabbing {
+@@ -1061,67 +1214,25 @@ impl MacWindow {
+             let native_view: *mut AnyObject = msg_send![native_view, initWithFrame: content_bounds];
+             assert!(!native_view.is_null());
+ 
+-            let state = Arc::new(Mutex::new(MacWindowState {
++            let renderer = renderer::new_renderer(
++                renderer_context,
++                native_window as *mut _,
++                native_view as *mut _,
++                bounds.size.map(|pixels| pixels.as_f32()),
++                false,
++                use_display_p3,
++            );
++            let state = Arc::new(Mutex::new(MacWindowState::new(
+                 handle,
+                 foreground_executor,
+                 background_executor,
+                 native_window,
+-                native_view: NonNull::new_unchecked(native_view),
+-                blurred_view: None,
+-                background_appearance: WindowBackgroundAppearance::Opaque,
+-                cursor_style: CursorStyle::Arrow,
++                NonNull::new_unchecked(native_view),
++                renderer,
+                 cursor_visible,
+-                frame_source: None,
+-                renderer: renderer::new_renderer(
+-                    renderer_context,
+-                    native_window as *mut _,
+-                    native_view as *mut _,
+-                    bounds.size.map(|pixels| pixels.as_f32()),
+-                    false,
+-                    use_display_p3,
+-                ),
+-                request_frame_callback: None,
+-                event_callback: None,
+-                activate_callback: None,
+-                visibility_callback: None,
+-                last_visibility: None,
+-                resize_callback: None,
+-                moved_callback: None,
+-                display_changed_callback: None,
+-                should_close_callback: None,
+-                close_callback: None,
+-                appearance_changed_callback: None,
+-                input_handler: None,
+-                last_key_equivalent: None,
+-                last_left_mouse_down_event: None,
+-                synthetic_drag_counter: 0,
+-                traffic_light_position: titlebar
+-                    .as_ref()
+-                    .and_then(|titlebar| titlebar.traffic_light_position),
+-                traffic_light_frames: None,
+-                pre_fullscreen_traffic_light_frames: None,
+-                transparent_titlebar: titlebar
+-                    .as_ref()
+-                    .is_none_or(|titlebar| titlebar.appears_transparent),
+-                previous_modifiers_changed_event: None,
+-                keystroke_for_do_command: None,
+-                do_command_handled: None,
+-                external_files_dragged: false,
+-                first_mouse: false,
++                titlebar.as_ref(),
+                 app_owns_titlebar_drag,
+-                fullscreen_restore_bounds: Bounds::default(),
+-                is_exiting_fullscreen: false,
+-                simple_fullscreen_state: None,
+-                move_tab_to_new_window_callback: None,
+-                merge_all_windows_callback: None,
+-                select_next_tab_callback: None,
+-                select_previous_tab_callback: None,
+-                toggle_tab_bar_callback: None,
+-                activated_least_once: false,
+-                closed: Arc::new(AtomicBool::new(false)),
+-                accesskit_adapter: None,
+-                sheet_parent: None,
+-            }));
++            )));
+             let mut window = Self(state, marker);
+ 
+             (*native_window)
+@@ -1289,6 +1400,96 @@ impl MacWindow {
+         })
+     }
+ 
++    /// Opens a window that's a view inside `host_view`. See `open_next_window_in`.
++    #[allow(clippy::too_many_arguments)]
++    fn open_in_view(
++        host_view: *mut AnyObject,
++        handle: AnyWindowHandle,
++        cursor_visible: Arc<AtomicBool>,
++        foreground_executor: ForegroundExecutor,
++        background_executor: BackgroundExecutor,
++        renderer_context: renderer::Context,
++        use_display_p3: bool,
++        marker: MainThreadMarker,
++    ) -> Self {
++        autoreleasepool(|_| unsafe {
++            let native_window: *mut AnyObject = msg_send![host_view, window];
++            assert!(!native_window.is_null(), "the host view isn't in a window");
++            let bounds: NSRect = msg_send![host_view, bounds];
++            let native_view: *mut AnyObject = msg_send![VIEW_CLASS, alloc];
++            let native_view: *mut AnyObject = msg_send![native_view, initWithFrame: bounds];
++            assert!(!native_view.is_null());
++            let renderer = renderer::new_renderer(
++                renderer_context,
++                native_window as *mut _,
++                native_view as *mut _,
++                size(bounds.size.width as f32, bounds.size.height as f32),
++                false,
++                use_display_p3,
++            );
++            let state = Arc::new(Mutex::new(MacWindowState::new(
++                handle,
++                foreground_executor,
++                background_executor,
++                native_window,
++                NonNull::new_unchecked(native_view),
++                renderer,
++                cursor_visible,
++                None,
++                false,
++            )));
++
++            let observer: *mut AnyObject = msg_send![HOST_WINDOW_OBSERVER_CLASS, new];
++            for object in [native_view, observer] {
++                (*object)
++                    .class()
++                    .instance_variable(WINDOW_STATE_IVAR)
++                    .expect("GPUI window state ivar")
++                    .load_ptr::<*mut c_void>(&*object)
++                    .write(Arc::into_raw(state.clone()).cast_mut().cast());
++            }
++            let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
++            for (selector, name) in [
++                (
++                    sel!(windowDidChangeOcclusionState:),
++                    NSWindowDidChangeOcclusionStateNotification,
++                ),
++                (sel!(windowDidMove:), NSWindowDidMoveNotification),
++                (sel!(windowDidChangeScreen:), NSWindowDidChangeScreenNotification),
++                (sel!(windowDidBecomeKey:), NSWindowDidBecomeKeyNotification),
++                (sel!(windowDidResignKey:), NSWindowDidResignKeyNotification),
++                (sel!(windowWillClose:), NSWindowWillCloseNotification),
++            ] {
++                let _: () = msg_send![center, addObserver: observer, selector: selector, name: name, object: native_window];
++            }
++            let mut lock = state.lock();
++            lock.host_window_observer = NonNull::new(observer);
++            lock.host_window = Retained::retain(native_window);
++            drop(lock);
++
++            let _: () = msg_send![native_view, setAutoresizingMask: NSAutoresizingMaskOptions::ViewWidthSizable
++                    | NSAutoresizingMaskOptions::ViewHeightSizable];
++            let _: () = msg_send![native_view, setWantsBestResolutionOpenGLSurface: Bool::YES];
++            let _: () = msg_send![native_view, setWantsLayer: Bool::YES];
++            let _: () = msg_send![
++                native_view,
++                setLayerContentsRedrawPolicy: NSViewLayerContentsRedrawPolicy::DuringViewResize
++            ];
++            let native_view: *mut AnyObject = msg_send![native_view, autorelease];
++            let _: () = msg_send![
++                host_view,
++                addSubview: native_view,
++                positioned: NSWindowOrderingMode::Below,
++                relativeTo: ptr::null_mut::<AnyObject>()
++            ];
++            add_mouse_tracking_area(&*native_view.cast::<NSView>());
++            // The view goes straight into a window on a screen, so GPUI would draw its first
++            // frame before AppKit reports the view's scale and the layer has a size.
++            update_window_scale_factor(&state);
++            Self(state, marker)
++        })
++    }
++
+     pub fn active_window() -> Option<AnyWindowHandle> {
+         unsafe {
+             let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+@@ -1366,6 +1567,19 @@ impl Drop for MacWindow {
+         // renderer's command queue are actually released with the window.
+         drop(this.accesskit_adapter.take());
+         this.renderer.destroy();
++        // A window GPUI doesn't own stays open: only GPUI's view leaves it.
++        if let Some(observer) = this.host_window_observer.take() {
++            this.frame_source.take();
++            this.input_handler.take();
++            this.visibility_callback.take();
++            unsafe {
++                let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
++                let _: () = msg_send![center, removeObserver: observer.as_ptr()];
++                let _: () = msg_send![observer.as_ptr(), release];
++                let _: () = msg_send![this.native_view.as_ptr(), removeFromSuperview];
++            }
++            return;
++        }
+         let window = this.native_window;
+         let sheet_parent = this.sheet_parent.take();
+         this.frame_source.take();
+@@ -1841,6 +2055,10 @@ impl PlatformWindow for MacWindow {
+ 
+         let opaque = background_appearance == WindowBackgroundAppearance::Opaque;
+         this.renderer.update_transparency(!opaque);
++        // A window GPUI doesn't own keeps its own background.
++        if this.host_window_observer.is_some() {
++            return;
++        }
+ 
+         unsafe {
+             let _: () = msg_send![this.native_window, setOpaque: opaque.to_objc()];
+@@ -1993,6 +2211,25 @@ impl PlatformWindow for MacWindow {
+         }
+     }
+ 
++    // GPUI calls this whenever it has something to draw, so an idle window can stop its display
++    // link instead of waking the app on every refresh of the screen.
++    fn frame_waker(&self) -> Option<Rc<dyn Fn()>> {
++        let state = Arc::downgrade(&self.0);
++        Some(Rc::new(move || {
++            if let Some(state) = state.upgrade() {
++                let mut lock = state.lock();
++                lock.frame_demand_at = Instant::now();
++                if !lock
++                    .frame_source
++                    .as_ref()
++                    .is_some_and(WindowFrameSource::is_running)
++                {
++                    lock.start_display_link();
++                }
++            }
++        }))
++    }
++
+     fn on_request_frame(&self, callback: Box<dyn FnMut(RequestFrameOptions)>) {
+         self.0.as_ref().lock().request_frame_callback = Some(callback);
+     }
+@@ -2345,12 +2582,22 @@ impl PlatformWindow for MacWindow {
+         };
+         let action_handler = A11yActionHandler(callbacks.action);
+ 
++        // In a window GPUI doesn't own, the adapter goes on GPUI's view: on the content view it
++        // would take over the accessibility of everything else in the window.
+         let adapter = unsafe {
+-            accesskit_macos::SubclassingAdapter::for_window(
+-                lock.native_window as *mut c_void,
+-                activation_handler,
+-                action_handler,
+-            )
++            if lock.host_window_observer.is_some() {
++                accesskit_macos::SubclassingAdapter::new(
++                    lock.native_view.as_ptr().cast(),
++                    activation_handler,
++                    action_handler,
++                )
++            } else {
++                accesskit_macos::SubclassingAdapter::for_window(
++                    lock.native_window as *mut c_void,
++                    activation_handler,
++                    action_handler,
++                )
++            }
+         };
+ 
+         lock.accesskit_adapter = Some(adapter);
+@@ -2477,6 +2724,26 @@ extern "C" fn dealloc_view(this: &AnyObject, _: Sel) {
+     }
+ }
+ 
++/// The window GPUI doesn't own is closing, so the GPUI window in it closes too.
++extern "C" fn host_window_will_close(this: &AnyObject, _: Sel, _: *mut AnyObject) {
++    let close_callback = {
++        let window_state = unsafe { get_window_state(this) };
++        let mut lock = window_state.lock();
++        lock.closed.store(true, Ordering::Release);
++        lock.close_callback.take()
++    };
++    if let Some(callback) = close_callback {
++        callback();
++    }
++}
++
++extern "C" fn dealloc_host_window_observer(this: &AnyObject, _: Sel) {
++    unsafe {
++        drop_window_state(this);
++        let _: () = msg_send![super(this, class!(NSObject)), dealloc];
++    }
++}
++
+ fn add_mouse_tracking_area(native_view: &NSView) {
+     let options = NSTrackingAreaOptions::MouseEnteredAndExited
+         | NSTrackingAreaOptions::MouseMoved
+@@ -2555,6 +2822,18 @@ extern "C" fn handle_key_equivalent(
+     _: Sel,
+     native_event: *mut AnyObject,
+ ) -> Bool {
++    // AppKit offers key equivalents to every view in the window. When a native view embedded
++    // in it has the keyboard, such as a browser's page view, they're that view's to handle.
++    unsafe {
++        let window: *mut AnyObject = msg_send![this, window];
++        let first_responder: *mut AnyObject = msg_send![window, firstResponder];
++        if !first_responder.is_null() && !ptr::eq(first_responder.cast_const(), this) {
++            let is_view: Bool = msg_send![first_responder, isKindOfClass: class!(NSView)];
++            if is_view == Bool::YES {
++                return Bool::NO;
++            }
++        }
++    }
+     handle_key_event(this, native_event, true)
+ }
+ 
+@@ -3362,7 +3641,12 @@ extern "C" fn step(view: *mut c_void) {
+             signal_source,
+             ..Default::default()
+         });
+-        window_state.lock().request_frame_callback = Some(callback);
++        let mut lock = window_state.lock();
++        lock.request_frame_callback = Some(callback);
++        // Running on for a second keeps presenting through bursts of input, as GPUI asks.
++        if lock.frame_demand_at.elapsed() > Duration::from_secs(1) {
++            lock.stop_display_link();
++        }
+     }
+ }
+ 
+@@ -3555,6 +3839,10 @@ extern "C" fn view_did_change_effective_appearance(this: &AnyObject, _: Sel) {
+     }
+ }
+ 
++extern "C" fn accepts_first_responder(_: &AnyObject, _: Sel) -> Bool {
++    Bool::YES
++}
++
+ extern "C" fn accepts_first_mouse(this: &AnyObject, _: Sel, _: *mut AnyObject) -> Bool {
+     let window_state = unsafe { get_window_state(this) };
+     let mut lock = window_state.as_ref().lock();

@@ -20,6 +20,8 @@ source_set("browser_core") {
     "main_delegate.h",
     "platform/window_views.h",
     "public/browser_core.h",
+    "space.cc",
+    "space.h",
     "tab.cc",
     "tab.h",
     "window.cc",
