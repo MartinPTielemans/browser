@@ -13,7 +13,8 @@ use std::{
 use browser::shell::{self, Browser, Command, Page, Shell};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Focusable, Image, ImageFormat, Menu,
-    MenuItem, Pixels, SharedString, Size, WeakEntity, Window, WindowOptions, actions, prelude::*,
+    MenuItem, Pixels, Point, SharedString, Size, WeakEntity, Window, WindowOptions, actions,
+    prelude::*,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -28,7 +29,7 @@ mod bc {
 
 /// The AppKit side, in platform/mac/.
 mod platform {
-    use std::ffi::c_void;
+    use std::ffi::{c_char, c_void};
 
     unsafe extern "C" {
         pub fn drive_start();
@@ -43,6 +44,15 @@ mod platform {
         pub fn host_show_find_bar(keyboard: bool);
         pub fn host_hide_find_bar();
         pub fn host_focus(view: *mut c_void);
+        pub fn host_menu(items: *const host_menu_item, count: usize, x: f64, y: f64) -> i32;
+        pub fn host_confirm(message: *const c_char, detail: *const c_char, action: *const c_char)
+        -> bool;
+    }
+
+    #[repr(C)]
+    pub struct host_menu_item {
+        pub title: *const c_char,
+        pub enabled: bool,
     }
 }
 
@@ -203,6 +213,55 @@ impl Browser for Engine {
 
     fn delete_space(&self, space: u64, _: &mut App) {
         unsafe { bc::bc_space_delete(space) };
+    }
+
+    fn menu(
+        &self,
+        items: Vec<(&'static str, bool)>,
+        position: Point<Pixels>,
+        chosen: Box<dyn FnOnce(usize, &mut App)>,
+        cx: &mut App,
+    ) {
+        // AppKit runs a menu in an event loop of its own until it closes, which GPUI's updates
+        // mustn't be inside.
+        cx.spawn(async move |cx| {
+            let titles: Vec<CString> =
+                items.iter().map(|(title, _)| CString::new(*title).unwrap_or_default()).collect();
+            let items: Vec<_> = titles
+                .iter()
+                .zip(&items)
+                .map(|(title, (_, enabled))| platform::host_menu_item {
+                    title: title.as_ptr(),
+                    enabled: *enabled,
+                })
+                .collect();
+            let (x, y) = (f64::from(position.x), f64::from(position.y));
+            let index = unsafe { platform::host_menu(items.as_ptr(), items.len(), x, y) };
+            if let Ok(index) = usize::try_from(index) {
+                cx.update(|cx| chosen(index, cx));
+            }
+        })
+        .detach();
+    }
+
+    fn confirm(
+        &self,
+        message: String,
+        detail: String,
+        action: &'static str,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        cx: &mut App,
+    ) {
+        // As for a menu, and the alert's loop is AppKit's too.
+        cx.spawn(async move |cx| {
+            let [message, detail, action] = [message.as_str(), detail.as_str(), action]
+                .map(|text| CString::new(text).unwrap_or_default());
+            let (message, detail, action) = (message.as_ptr(), detail.as_ptr(), action.as_ptr());
+            if unsafe { platform::host_confirm(message, detail, action) } {
+                cx.update(|cx| confirmed(cx));
+            }
+        })
+        .detach();
     }
 
     fn focus_ui(&self, _: &mut App) {

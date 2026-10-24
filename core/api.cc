@@ -105,14 +105,7 @@ void bc_space_set_name(bc_id id, const char* name) {
 }
 
 bool bc_space_delete(bc_id id) {
-  browser_core::Space* space = browser_core::Space::FromId(id);
-  if (!space || !space->pinned().empty() || !space->today().empty() ||
-      browser_core::Space::All().size() < 2) {
-    return false;
-  }
-  browser_core::Window::OnSpaceDeleting(id);
-  browser_core::Space::Delete(id);
-  return true;
+  return browser_core::Window::DeleteSpace(id);
 }
 
 size_t bc_space_today(bc_id id, bc_id* tabs, size_t capacity) {

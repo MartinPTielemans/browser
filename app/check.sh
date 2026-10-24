@@ -36,7 +36,11 @@
 #      while composing only commits, and return names the Space; ⌘T then opens a tab in it.
 #      ⌃1–⌃9, ⌥⌘← and ⌥⌘→, with the page or the UI focused, and clicks on the switcher's dots show
 #      another Space, which shows the tab it showed last. Return with no name does nothing, New
-#      Space shows a form already open, and Cancel deletes its Space and goes back.
+#      Space shows a form already open, and Cancel deletes its Space and goes back. A right-click
+#      on the Space's name or a dot shows Rename Space and Delete Space. Rename, and a
+#      double-click on the name, turn it into a field, where return keeps the name and escape
+#      cancels. Delete asks first for a Space with tabs, which close with it and reopen with ⇧⌘T
+#      in the Space shown, and the last Space can't be deleted.
 #   8. Launched again after ⌘Q, and again after its window's close button, the app brings back
 #      the Spaces: their names, their tabs with each tab's history, the tab each showed and the
 #      Space it showed. Only a tab shown loads; the others show their titles and favicons. A tab
@@ -181,6 +185,12 @@ send() {
   focus=$(echo "$done" | sed 's/.*focus \([^,]*\),.*/\1/')
   active=$(echo "$done" | sed 's/.*active \([01]\).*/\1/')
   marked=$(echo "$done" | sed 's/.*marked //')
+}
+# Sends a command without waiting for it: a menu or an alert it opens keeps the driver's events
+# until it closes.
+post() {
+  step=$((step + 1))
+  echo "$*" >&3
 }
 # Waits for a line matching $1 logged after the last command was sent.
 expect() {
@@ -998,10 +1008,48 @@ expect "^browser: cancel space $third\$" "a click on Cancel didn't cancel"
 expect "^browser: space $first in " "Cancel didn't show the first Space again"
 expect "^browser: spaces $first $second\$" "Cancel didn't delete the third Space"
 expect_tabs "$a" "$a" "after Cancel"
+
+# A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
+name_point="100 112"
+post rightclick $name_point
+expect '^browser: menu shown Rename Space, Delete Space$' "a right-click on the Space's name didn't show its menu"
+../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
+send choose Rename Space
+expect "^browser: rename space $first\$" "Rename Space didn't open the name's field"
+send state
+in_browser AccessKitSubclassOfGPUIView "in the name's field"
+send type work
+send key return
+expect "^browser: renamed space $first work\$" "return in the name's field didn't rename the Space"
+send doubleclick $name_point
+expect "^browser: rename space $first\$" "a double-click on the Space's name didn't open its field"
+send type gone
+send key escape
+expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
+none_since '^browser: renamed space' || fail "escape in the name's field renamed the Space"
+# Deleting a Space with tabs asks first. Its tabs close with it, and ⇧⌘T reopens them here.
+post rightclick 131 $dots_y
+expect '^browser: menu shown Rename Space, Delete Space$' "a right-click on a dot didn't show its Space's menu"
+post choose Delete Space
+expect '^browser: alert shown Delete “reading 日本語”?$' "Delete Space didn't ask first"
+../tools/window-screenshot.sh "$pid" "$out/space-delete.png" || fail "no window to capture"
+send choose Delete
+expect "^browser: spaces $first\$" "Delete didn't delete the Space"
+[ "$(today)" = "$a" ] || fail "deleting another Space left this one's Today as \"$(today)\""
+send key t cmd shift
+expect '^browser: command reopen-closed-tab via ui$' "⇧⌘T didn't reach the UI"
+expect "^browser: today [0-9]* $a\$" "⇧⌘T didn't reopen the deleted Space's tab here: Today is \"$(today)\""
+expect "^browser: loaded $(today | cut -d' ' -f1) https://example.com/\$" "the reopened tab didn't load its page"
+# The last Space can't go.
+post rightclick $name_point
+expect '^browser: menu shown Rename Space, Delete Space (disabled)$' "the last Space's menu offered Delete"
+send choose Rename Space
+send key escape
+expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; Cancel deletes a new Space and goes back."
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/space-menu.png, $out/space-delete.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each

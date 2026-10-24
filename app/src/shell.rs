@@ -12,9 +12,9 @@ use std::{
 
 use gpui::{
     Action, Animation, AnimationExt, App, AssetSource, Bounds, Context, Entity, FocusHandle,
-    Focusable, FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, SharedString, Size, Task, Transformation, WeakEntity, Window,
-    actions,
+    Focusable, FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton, MouseDownEvent,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, Subscription, Task,
+    Transformation, WeakEntity, Window, actions,
     div, img, percentage, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
@@ -265,6 +265,7 @@ impl Command {
 struct Run(Command);
 
 actions!(space_form, [CreateSpace]);
+actions!(space_name, [KeepName, CancelName]);
 
 struct ShellHandle(WeakEntity<Shell>);
 
@@ -283,7 +284,11 @@ pub fn bind_keys(cx: &mut App) {
             .iter()
             .map(|&(key, command, _)| KeyBinding::new(key, Run(command), Some(KEY_CONTEXT))),
     );
-    cx.bind_keys([KeyBinding::new("enter", CreateSpace, Some("SpaceForm"))]);
+    cx.bind_keys([
+        KeyBinding::new("enter", CreateSpace, Some("SpaceForm")),
+        KeyBinding::new("enter", KeepName, Some("SpaceName")),
+        KeyBinding::new("escape", CancelName, Some("SpaceName")),
+    ]);
     cx.on_action(|run: &Run, cx| {
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
             shell
@@ -352,8 +357,27 @@ pub trait Browser {
     /// Makes an empty Space named `name` after the others, and returns it.
     fn create_space(&self, name: &str, cx: &mut App) -> u64;
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
-    /// Deletes a Space without tabs.
+    /// Deletes a Space, closing its tabs.
     fn delete_space(&self, space: u64, cx: &mut App);
+    /// Shows a menu of `items`, each a title and whether it can be chosen, at `position` in the
+    /// window, as a right-click there does. Then calls `chosen` with the item chosen, if any.
+    fn menu(
+        &self,
+        items: Vec<(&'static str, bool)>,
+        position: Point<Pixels>,
+        chosen: Box<dyn FnOnce(usize, &mut App)>,
+        cx: &mut App,
+    );
+    /// Asks whether to do what `message` asks, with `detail` under it, and calls `confirmed` if the
+    /// user chooses `action` over Cancel.
+    fn confirm(
+        &self,
+        message: String,
+        detail: String,
+        action: &'static str,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        cx: &mut App,
+    );
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
     /// Opens the command bar, for a new tab or on `editing`'s URL.
@@ -410,6 +434,14 @@ struct SpaceForm {
     name: Entity<TextInput>,
 }
 
+/// The field the Space's name turns into for renaming it.
+struct Renaming {
+    space: u64,
+    name: Entity<TextInput>,
+    /// Keeps the name once the field loses GPUI's focus, as Finder does.
+    _blur: Option<Subscription>,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum Row {
     NewTab,
@@ -427,6 +459,9 @@ pub struct Shell {
     form: Option<SpaceForm>,
     /// The form's field takes GPUI's focus at the next draw, which is when the shell has a window.
     focus_form: bool,
+    renaming: Option<Renaming>,
+    /// The same for the renaming field.
+    focus_renaming: bool,
     /// The tabs of every Space.
     tabs: HashMap<u64, Tab>,
     selected: u64,
@@ -452,6 +487,8 @@ impl Shell {
             space: 0,
             form: None,
             focus_form: false,
+            renaming: None,
+            focus_renaming: false,
             tabs: HashMap::new(),
             selected: 0,
             hovered: None,
@@ -518,6 +555,11 @@ impl Shell {
             && !self.spaces.iter().any(|space| space.id == form.space)
         {
             self.form = None;
+        }
+        if let Some(renaming) = &self.renaming
+            && !self.spaces.iter().any(|space| space.id == renaming.space)
+        {
+            self.renaming = None;
         }
         cx.notify();
     }
@@ -782,6 +824,97 @@ impl Shell {
         self.browser.delete_space(form.space, cx);
         window.focus(&self.focus_handle, cx);
         cx.notify();
+    }
+
+    /// The menu a right-click on a Space's name or dot shows (Arc).
+    fn space_menu(&mut self, space: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let shell = cx.weak_entity();
+        self.browser.menu(
+            vec![("Rename Space", true), ("Delete Space", self.spaces.len() > 1)],
+            position,
+            Box::new(move |chosen, cx| {
+                shell
+                    .update(cx, |shell, cx| match chosen {
+                        0 => shell.rename_space(space, cx),
+                        _ => shell.delete_space(space, cx),
+                    })
+                    .ok();
+            }),
+            cx,
+        );
+    }
+
+    /// Shows the Space with its name in a field, all selected, to type a new one over.
+    fn rename_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        let Some(name) = self.spaces.iter().find(|each| each.id == space).map(|each| &each.name)
+        else {
+            return;
+        };
+        let name = name.clone();
+        self.show_space(space, cx);
+        // The form names a Space it made.
+        if self.form.as_ref().is_some_and(|form| form.space == space) {
+            return;
+        }
+        eprintln!("browser: rename space {space}");
+        let name = cx.new(|cx| {
+            TextInput::new("Space name", cx)
+                .placeholder_color(rgba(FORM_PLACEHOLDER))
+                .with_text(name)
+        });
+        self.renaming = Some(Renaming {
+            space,
+            name,
+            _blur: None,
+        });
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
+    /// Renames the Space to what the field holds, unless it's empty, and closes the field.
+    fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(renaming) = self.renaming.take() else {
+            return;
+        };
+        let name = renaming.name.read(cx).text().trim().to_string();
+        if !name.is_empty() {
+            self.browser.rename_space(renaming.space, &name, cx);
+        }
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
+    }
+
+    fn cancel_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.renaming.take().is_some() {
+            eprintln!("browser: rename cancelled");
+            window.focus(&self.focus_handle, cx);
+            cx.notify();
+        }
+    }
+
+    /// Deletes the Space, asking first if it has tabs, which close with it.
+    fn delete_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        let Some(found) = self.spaces.iter().find(|each| each.id == space) else {
+            return;
+        };
+        let tabs = found.pinned.len() + found.today.len();
+        if tabs == 0 {
+            self.browser.delete_space(space, cx);
+            return;
+        }
+        let browser = self.browser.clone();
+        self.browser.confirm(
+            format!("Delete “{}”?", found.name),
+            if tabs == 1 {
+                "Its tab closes too.".into()
+            } else {
+                format!("Its {tabs} tabs close too.")
+            },
+            "Delete",
+            Box::new(move |cx| browser.delete_space(space, cx)),
+            cx,
+        );
     }
 
     fn shown_space(&self) -> Option<&Space> {
@@ -1074,9 +1207,9 @@ impl Shell {
             }))
     }
 
-    fn name_row(&self) -> impl IntoElement + use<> {
-        let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
-        div()
+    fn name_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let space = self.space;
+        let row = div()
             .id("space-name")
             .flex_none()
             .h(px(NAME_HEIGHT))
@@ -1087,8 +1220,35 @@ impl Shell {
             .block_mouse_except_scroll()
             .text_size(px(13.))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgba(SPACE_NAME))
-            .child(div().truncate().child(name))
+            .text_color(rgba(SPACE_NAME));
+        if let Some(renaming) = self.renaming.as_ref().filter(|renaming| renaming.space == space) {
+            return row
+                .key_context("SpaceName")
+                .on_action(
+                    cx.listener(|shell, _: &KeepName, window, cx| shell.keep_name(window, cx)),
+                )
+                .on_action(
+                    cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
+                )
+                .text_color(rgb(FORM_TEXT))
+                .child(renaming.name.clone());
+        }
+        let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
+        row.on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                if event.click_count == 2 {
+                    shell.rename_space(space, cx);
+                }
+            }),
+        )
+        .on_mouse_down(
+            MouseButton::Right,
+            cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                shell.space_menu(space, event.position, cx)
+            }),
+        )
+        .child(div().truncate().child(name))
     }
 
     /// A dot for each Space, in the footer. Arc draws none while there's only one.
@@ -1113,6 +1273,12 @@ impl Shell {
                     eprintln!("browser: command select-space via sidebar");
                     shell.show_space(id, cx)
                 }))
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                        shell.space_menu(id, event.position, cx)
+                    }),
+                )
                 .child(
                     div()
                         .size(px(SPACE_DOT))
@@ -1322,6 +1488,14 @@ impl Render for Shell {
         {
             window.focus(&form.name.focus_handle(cx), cx);
         }
+        if std::mem::take(&mut self.focus_renaming)
+            && let Some(renaming) = &mut self.renaming
+        {
+            let field = renaming.name.focus_handle(cx);
+            window.focus(&field, cx);
+            renaming._blur =
+                Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
+        }
         let card_left = if self.page_fullscreen { 0. } else { SIDEBAR_WIDTH };
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
         let new_tab = self.new_tab_row(cx);
@@ -1387,7 +1561,7 @@ impl Render for Shell {
                             .flex()
                             .flex_col()
                             .overflow_y_scroll()
-                            .child(self.name_row())
+                            .child(self.name_row(cx))
                             .children(pinned)
                             .children(divider)
                             .child(new_tab)

@@ -183,9 +183,10 @@ BC_EXPORT size_t bc_space_name(bc_id space, char* name, size_t capacity);
 // Renames the Space to |name|, UTF-8. Then spaces_changed.
 BC_EXPORT void bc_space_set_name(bc_id space, const char* name);
 
-// Deletes the Space if it has no tabs, pinned or Today, and isn't the only one, and returns whether
-// it did. A window showing it shows the Space before it, else the one after it. Then
-// spaces_changed.
+// Deletes the Space, unless it's the last, and returns whether it will. A window showing it shows
+// the Space before it, else the one after it. Its tabs close, and it goes with the last of them; a
+// page that keeps its tab open keeps the Space until it closes. Its Today tabs reopen with
+// bc_window_reopen_closed_tab, in the Space shown. Then spaces_changed.
 BC_EXPORT bool bc_space_delete(bc_id space);
 
 // Copies up to |capacity| of the Space's Today tabs into |tabs|, top to bottom, and returns how many

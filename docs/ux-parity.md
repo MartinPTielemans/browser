@@ -108,7 +108,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
 | [ ] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
 | [ ] | Colour cross-fade | MVP | measure | Ardia |
-| [ ] | Space title, create, rename, colour, icon | MVP | measure | — |
+| [ ] | Space title, create, colour, icon | MVP | measure | — |
+| [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks if it has tabs | Arc, ours |
 | [ ] | Agent Space kind in the data model | MVP | a Space kind owned by an agent | decision 8, roadmap |
 | [ ] | Agent Space UI: switcher mark, confirm card, handoff card, take over, status, activity log, allowed sites with Revoke | 4 | ours to design; confirm times out 5 min, handoff 15 min | decision 8, Ours (prototype) |
 | [ ] | Agent actions never move the user's focus | 4 | no change of Space, tab, focus or cursor | decision 8 |

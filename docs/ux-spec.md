@@ -314,7 +314,13 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
   - Settle per Motion. A haptic detent sounds as the nearest Space changes.
   - Wheel mice: deltas sum while they come less than 0.049 s apart. Once |sum| > 1 pt, it pages one Space and then ignores the wheel for 0.25 s.
 - The window tint cross-fades between the two Spaces' colours during a swipe (Ardia; Dia and Arc durations: measure).
-- Measure in Arc: the Space title, create, rename, icon and colour flows, and how a Space shows its profile.
+- Measure in Arc: the Space title, create, icon and colour flows, and how a Space shows its profile.
+
+**Renaming and deleting** (Arc's menu; our wording)
+
+- A right-click on the Space's name, or on its dot in the switcher, shows a native menu with Rename Space and Delete Space. Delete Space is off for the last Space.
+- Rename Space, or a double-click on the name, turns the name into a field with all of it selected. ↩ keeps what's typed unless it's empty, Esc cancels, and a click elsewhere in the sidebar keeps it.
+- Delete Space asks first in an alert naming the Space, if it has tabs, and its tabs close with it. Its Today tabs reopen with ⇧⌘T in the Space shown; its pinned tabs don't come back. An empty Space goes without asking.
 
 **Colour.** The Space colour drives the window gradient (Shared rules), the New Tab band and halo, and the accent. Dia's hue families are neutral, red, orange, yellow, green, blue, pink and purple. Only pink is measured: tint #B25B6B (P3), New Tab band #B5556B. Arc's presets and editor are under Themes.
 

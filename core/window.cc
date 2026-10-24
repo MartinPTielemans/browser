@@ -1,6 +1,8 @@
 #include "browser_core/window.h"
 
 #include <algorithm>
+#include <iterator>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -60,6 +62,12 @@ struct ClosedTab {
 
 // As many as Chrome keeps.
 constexpr size_t kMaxClosedTabs = 25;
+
+// The Spaces going once their last tab closes.
+std::set<bc_id>& DeletingSpaces() {
+  static base::NoDestructor<std::set<bc_id>> deleting;
+  return *deleting;
+}
 
 // Newest last.
 std::vector<ClosedTab>& ClosedTabs() {
@@ -183,6 +191,9 @@ void Window::OnTabClosing(bc_id tab) {
           base::BindOnce(&Window::SelectAfterClosing, window->weak_factory_.GetWeakPtr(), next));
     }
   }
+  if (space->pinned().empty() && space->today().empty() && DeletingSpaces().erase(space->id())) {
+    Space::Delete(space->id());
+  }
 }
 
 // static
@@ -219,19 +230,32 @@ void Window::CloseTab(bc_id tab) {
 }
 
 // static
-void Window::OnSpaceDeleting(bc_id space) {
-  const std::vector<Space*> all = Space::All();
-  auto it = std::ranges::find(all, space, &Space::id);
-  if (it == all.end()) {
-    return;
+bool Window::DeleteSpace(bc_id space) {
+  std::vector<Space*> staying = Space::All();
+  std::erase_if(staying, [](Space* each) { return DeletingSpaces().contains(each->id()); });
+  auto it = std::ranges::find(staying, space, &Space::id);
+  if (it == staying.end() || staying.size() < 2) {
+    return false;
   }
-  Space* neighbour = it != all.begin() ? *(it - 1) : (it + 1 != all.end() ? *(it + 1) : nullptr);
+  Space* neighbour = it != staying.begin() ? *(it - 1) : *(it + 1);
   for (auto& [id, window] : Windows()) {
-    if (window->space_ == space && neighbour) {
+    if (window->space_ == space) {
       window->ShowSpace(neighbour->id());
     }
     window->selected_in_space_.erase(space);
   }
+  std::vector<bc_id> tabs = (*it)->pinned();
+  std::ranges::copy((*it)->today(), std::back_inserter(tabs));
+  if (tabs.empty()) {
+    Space::Delete(space);
+    return true;
+  }
+  DeletingSpaces().insert(space);
+  // As the user closes them, so ⇧⌘T reopens the Today tabs. The last one deletes the Space.
+  for (bc_id tab : tabs) {
+    CloseTab(tab);
+  }
+  return true;
 }
 
 Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view) : id_(id) {
