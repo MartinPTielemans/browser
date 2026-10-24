@@ -320,7 +320,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Boosts: script changed outside the browser | later | stays off until the user turns it on again | principle 3 |
 | [ ] | Boosts: no agent path | later | agents can't read, write or turn on a Boost | decision 8 |
 | [ ] | Ad blocking: on by default | later | every profile | Helium, Flecha |
-| [ ] | Ad blocking: engine | later | Helium's uBlock Origin fork *interim*; MV2 support: measure | Helium |
+| [ ] | Ad blocking: engine | later | Helium's uBlock Origin fork *interim*; MV2 works on Chromium 155 through ungoogled-chromium's patch | Helium |
 | [ ] | Ad blocking: turning it off | later | per site in Site Controls; everywhere in Settings | Ours |
 | [ ] | Ad blocking: filter lists | later | updates never wake an idle browser; list URL is a default service URL | principles 1, 2 |
 | [ ] | Ad blocking: cost | later | page-load and memory numbers against the performance gate | principle 1 |

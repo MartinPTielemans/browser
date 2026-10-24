@@ -26,7 +26,7 @@ GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Ch
 ## Phase 2: engine (1–2 weeks, can overlap Phase 1)
 
 - ungoogled-chromium built as Chrome's framework, from `engine/series`.
-- First patches: embedding hooks, Manifest V2 kept, throttling rules, password manager on.
+- First patches: embedding hooks, Manifest V2 kept, password manager on.
 - Prebuilt engine downloads, so UI work never waits on a Chromium build.
 - CI compiles the core on Linux.
 
@@ -42,7 +42,7 @@ Sidebar, Spaces (with the Agent Space kind in the data model), command bar, spli
 
 Peek, Little Arc, themes, end-to-end encrypted sync (not iCloud-only), Widevine, passkeys.
 
-Agents (decision 8): the built-in local MCP server, Agent Spaces, engine-native page access, per-agent and per-site permissions with an activity log, and handoff to the human. This can move earlier if it becomes the launch pitch. The core API and data model are built for it from Phase 3 either way.
+Agents (decision 8): the built-in local MCP server, Agent Spaces (their hidden tabs keep running unthrottled, as Chrome keeps a tab it captures), engine-native page access, per-agent and per-site permissions with an activity log, and handoff to the human. This can move earlier if it becomes the launch pitch. The core API and data model are built for it from Phase 3 either way.
 
 ## Phase 5: Windows, then Linux
 

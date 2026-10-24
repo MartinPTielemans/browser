@@ -608,7 +608,7 @@ Arc kept Boosts in its account and shared them in a gallery. Ours are local file
 Helium and Flecha block ads and trackers by default; Arc and Dia don't.
 
 - **Default.** On in every profile.
-- **Engine** (Helium). Helium's fork of uBlock Origin, with its filters and CNAME uncloaking, *interim*. uBlock Origin is a Manifest V2 extension: measure what the engine needs to keep it working.
+- **Engine** (Helium). Helium's fork of uBlock Origin, with its filters and CNAME uncloaking, *interim*. uBlock Origin is a Manifest V2 extension. ungoogled-chromium's patch keeps Manifest V2, and on Chromium 155 uBlock Origin 1.75 blocks requests and hides elements with nothing more from the engine. On its first launch it lets requests through for about 3 s, until its lists have loaded.
 - **Turning it off.** Per site in Site Controls, and everywhere in Settings.
 - **Filter lists.** Updating them never wakes an idle browser (principle 1). Where they're fetched from is a default service URL that forks can change (principle 2).
 - **Cost.** Page-load and memory numbers, with and without it, against the performance gate.
