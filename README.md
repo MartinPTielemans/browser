@@ -12,7 +12,7 @@ Pre-alpha. Nothing here is a browser yet.
 |---|---|---|
 | 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported, Arc capture next |
 | 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
-| 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | in progress: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works; Linux CI left |
+| 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | done: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works, CI compiles the core on Linux |
 | 3 | Daily-driver MVP on Mac | — |
 | 4 | Polish and parity | — |
 | 5 | Windows, then Linux | — |
