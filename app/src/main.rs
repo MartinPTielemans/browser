@@ -158,6 +158,14 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_back_to_pinned_url(tab) };
     }
 
+    fn clear(&self, _: &mut App) {
+        unsafe { bc::bc_window_clear(WINDOW.get()) };
+    }
+
+    fn undo_clear(&self, _: &mut App) {
+        unsafe { bc::bc_window_undo_clear(WINDOW.get()) };
+    }
+
     fn go_back(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_go_back(tab) };
     }
@@ -368,6 +376,8 @@ unsafe extern "C" fn started(_: *mut c_void) {
                     MenuItem::separator(),
                     shell::menu_item("Next Space", Command::NextSpace),
                     shell::menu_item("Previous Space", Command::PreviousSpace),
+                    MenuItem::separator(),
+                    shell::menu_item("Clear Unpinned Tabs", Command::Clear),
                 ],
                 disabled: false,
             },

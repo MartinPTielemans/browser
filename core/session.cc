@@ -39,14 +39,6 @@ namespace browser_core {
 
 namespace {
 
-struct SavedTab {
-  // Up to Chrome's count of navigations each side of the current one, as its sessions keep.
-  std::vector<sessions::SerializedNavigationEntry> history;
-  int current = 0;
-  // A pinned tab's pinned URL.
-  GURL pinned_url;
-};
-
 struct SavedSpace {
   std::string name;
   // Each top to bottom.
@@ -64,6 +56,8 @@ struct Saved {
 
 // A navigation's page state is left out past this, as in Chrome's sessions.
 constexpr int kMaxNavigationSize = 63 * 1024;
+
+}  // namespace
 
 SavedTab SaveTab(content::NavigationController& history) {
   SavedTab tab;
@@ -91,6 +85,8 @@ SavedTab SaveTab(content::NavigationController& history) {
   }
   return tab;
 }
+
+namespace {
 
 Saved Collect() {
   Saved saved;

@@ -13,7 +13,8 @@ use std::{
 use gpui::{
     Action, Animation, AnimationExt, App, AssetSource, Bounds, Context, Entity, FocusHandle,
     Focusable, FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, SharedString, Size, Transformation, WeakEntity, Window, actions,
+    MouseUpEvent, Pixels, Point, SharedString, Size, Task, Transformation, WeakEntity, Window,
+    actions,
     div, img, percentage, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
@@ -60,9 +61,17 @@ const TITLE_GAP: f32 = 8.;
 const CLOSE_SIZE: f32 = 26.;
 const CLOSE_X: f32 = 189.;
 // The Clear divider, under the pinned tabs. Its line's centre is 25 pt above the centre of the first
-// row under it.
+// row under it, and it ends 7.5 pt before Clear's arrow.
 const DIVIDER_HEIGHT: f32 = 15.;
 const DIVIDER_LINE_Y: f32 = DIVIDER_HEIGHT - (25. - ROW_HEIGHT / 2.);
+const DIVIDER_GAP: f32 = 7.5;
+// Clear's arrow, 8 pt tall and 3 pt before its label (Arc). Lucide's arrow-down spans 14 of its 24.
+const CLEAR_ARROW: f32 = 8. * 24. / 14.;
+const CLEAR_ARROW_INSET: f32 = CLEAR_ARROW * 5. / 24.;
+const CLEAR_GAP: f32 = 3.;
+const CLEAR_HEIGHT: f32 = 20.;
+// How long the toast after Clear offers Undo (ours: Arc's isn't measured).
+const TOAST_TIME: Duration = Duration::from_secs(6);
 // The footer's Space switcher, between where Arc has its Home and + buttons.
 const FOOTER_HEIGHT: f32 = 50.;
 const SWITCHER_LEFT: f32 = 42.;
@@ -99,8 +108,12 @@ const SECONDARY: u32 = 0xffffff99;
 const URL_FIELD: u32 = 0xffffff1a;
 const NEW_TAB: u32 = 0xffffff73;
 const NEW_TAB_PLUS: u32 = 0xffffff80;
-// The Clear divider's line, white 0.08 (Arc).
+// The Clear divider's line, white 0.08 (Arc), and its button (ours: Arc's colour isn't measured).
 const DIVIDER: u32 = 0xffffff14;
+const CLEAR: u32 = 0xffffff73;
+// The toast: white 0.1 over the window, opaque over the rows it covers (ours: Arc's isn't
+// measured).
+const TOAST: u32 = 0x3c394b;
 // A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 const SLEEPING_FAVICON: f32 = 0.5;
 // The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
@@ -138,6 +151,8 @@ pub enum Command {
     TogglePin,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
+    /// Closes the Today tabs of the Space shown.
+    Clear,
     Find,
     FindNext,
     FindPrevious,
@@ -169,6 +184,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-l", Command::EditUrl, false),
     ("cmd-d", Command::TogglePin, false),
     ("cmd-enter", Command::BackToPinnedUrl, false),
+    ("shift-cmd-k", Command::Clear, false),
     ("cmd-f", Command::Find, false),
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
@@ -220,6 +236,7 @@ impl Command {
             Command::SelectLastTab => "select-last-tab",
             Command::TogglePin => "toggle-pin",
             Command::BackToPinnedUrl => "back-to-pinned-url",
+            Command::Clear => "clear",
             Command::Find => "find",
             Command::FindNext => "find-next",
             Command::FindPrevious => "find-previous",
@@ -279,6 +296,7 @@ pub fn menu_item(name: &'static str, command: Command) -> MenuItem {
 pub struct Assets;
 
 const ICONS: &[(&str, &[u8])] = &[
+    ("icons/arrow-down.svg", include_bytes!("../assets/icons/arrow-down.svg")),
     ("icons/arrow-left.svg", include_bytes!("../assets/icons/arrow-left.svg")),
     ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
     ("icons/globe.svg", include_bytes!("../assets/icons/globe.svg")),
@@ -314,6 +332,10 @@ pub trait Browser {
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
+    /// Closes the Today tabs of the Space shown.
+    fn clear(&self, cx: &mut App);
+    /// Brings back the tabs the last clear closed.
+    fn undo_clear(&self, cx: &mut App);
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
@@ -347,6 +369,12 @@ pub struct Page {
     pub unloaded: bool,
     /// The tab is pinned, and its page isn't the one it was pinned at.
     pub away_from_pinned_url: bool,
+}
+
+/// The toast after Clear, which offers Undo until it hides.
+struct Toast {
+    cleared: usize,
+    _hide: Task<()>,
 }
 
 #[derive(Default)]
@@ -397,6 +425,7 @@ pub struct Shell {
     hovered: Option<Row>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
+    toast: Option<Toast>,
     page_fullscreen: bool,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
@@ -419,6 +448,7 @@ impl Shell {
             selected: 0,
             hovered: None,
             hovered_favicon: None,
+            toast: None,
             page_fullscreen: false,
             switching: None,
             background_pressed: false,
@@ -626,6 +656,7 @@ impl Shell {
                 return;
             }
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
+            Command::Clear => return self.clear(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
             Command::Reload => return self.browser.reload(self.selected, false, cx),
@@ -648,6 +679,33 @@ impl Shell {
         };
         if let Some(index) = target {
             self.select(tabs[index], cx);
+        }
+    }
+
+    /// Clears the Space shown, with a toast that offers Undo for a while.
+    fn clear(&mut self, cx: &mut Context<Self>) {
+        let cleared = self.today().len();
+        if cleared == 0 {
+            return;
+        }
+        self.browser.clear(cx);
+        // check.sh reads these lines.
+        eprintln!("browser: toast cleared {cleared}");
+        let hide = cx.spawn(async move |shell, cx| {
+            cx.background_executor().timer(TOAST_TIME).await;
+            shell.update(cx, |shell, cx| shell.hide_toast(cx)).ok();
+        });
+        self.toast = Some(Toast {
+            cleared,
+            _hide: hide,
+        });
+        cx.notify();
+    }
+
+    fn hide_toast(&mut self, cx: &mut Context<Self>) {
+        if self.toast.take().is_some() {
+            eprintln!("browser: toast hidden");
+            cx.notify();
         }
     }
 
@@ -1153,17 +1211,78 @@ impl Shell {
             .child(cancel)
     }
 
-    /// The line between the pinned tabs and Today. The Clear button isn't there yet.
-    fn divider(&self) -> impl IntoElement + use<> {
+    /// The line over Today, and Clear at its end, where the titles end.
+    fn divider(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let clear = div()
+            .id("clear")
+            .flex_none()
+            .ml(px(DIVIDER_GAP - CLEAR_ARROW_INSET))
+            .h_full()
+            .flex()
+            .items_center()
+            .gap(px(CLEAR_GAP - CLEAR_ARROW_INSET))
+            .block_mouse_except_scroll()
+            .text_size(px(10.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgba(CLEAR))
+            .child(
+                svg()
+                    .path("icons/arrow-down.svg")
+                    .size(px(CLEAR_ARROW))
+                    .text_color(rgba(CLEAR)),
+            )
+            .child("Clear")
+            .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)));
         div().flex_none().h(px(DIVIDER_HEIGHT)).relative().child(
             div()
                 .absolute()
-                .top(px(DIVIDER_LINE_Y - 0.5))
+                .top(px(DIVIDER_LINE_Y - CLEAR_HEIGHT / 2.))
                 .left(px(FAVICON_X))
-                // To where the titles end.
                 .right(px(2. * PLATE_INSET))
-                .h(px(1.))
-                .bg(rgba(DIVIDER)),
+                .h(px(CLEAR_HEIGHT))
+                .flex()
+                .items_center()
+                .child(div().flex_1().h(px(1.)).bg(rgba(DIVIDER)))
+                .child(clear),
+        )
+    }
+
+    /// The toast after Clear, over the bottom of the list, with Undo.
+    fn toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let cleared = self.toast.as_ref()?.cleared;
+        let tabs = if cleared == 1 { "tab" } else { "tabs" };
+        let undo = div()
+            .id("undo")
+            .h_full()
+            .flex()
+            .items_center()
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("Undo")
+            .on_click(cx.listener(|shell, _, _, cx| {
+                // check.sh waits for this line.
+                eprintln!("browser: command undo-clear via sidebar");
+                shell.hide_toast(cx);
+                shell.browser.undo_clear(cx);
+            }));
+        Some(
+            div()
+                .id("toast")
+                .absolute()
+                .left(px(PLATE_INSET))
+                .w(px(SIDEBAR_WIDTH - 2. * PLATE_INSET))
+                .bottom(px(FOOTER_HEIGHT))
+                .h(px(PLATE_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_between()
+                .px(px(URL_FIELD_TEXT_X - PLATE_INSET))
+                .rounded(px(PLATE_RADIUS))
+                .block_mouse_except_scroll()
+                .bg(rgb(TOAST))
+                .text_size(px(13.))
+                .text_color(rgb(TITLE))
+                .child(format!("Cleared {cleared} {tabs}"))
+                .child(undo),
         )
     }
 
@@ -1198,11 +1317,11 @@ impl Render for Shell {
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
         let new_tab = self.new_tab_row(cx);
         let pinned: Vec<_> = self.pinned().iter().map(|&tab| self.tab_row(tab, cx)).collect();
-        // Until there's a Clear button, the divider only parts the pinned tabs from Today.
-        let divider = (!pinned.is_empty()).then(|| self.divider());
+        let divider = (!self.today().is_empty()).then(|| self.divider(cx));
         let rows: Vec<_> = self.today().iter().map(|&tab| self.tab_row(tab, cx)).collect();
         let nav = self.nav_buttons(cx);
         let switcher = self.switcher(cx);
+        let toast = self.toast(cx);
         let form = self.form().map(|form| self.space_form(form, cx));
         div()
             .key_context(KEY_CONTEXT)
@@ -1266,6 +1385,7 @@ impl Render for Shell {
                             .children(rows),
                     ),
                 }
+                .children(toast)
                 .children(switcher)
             })
     }
