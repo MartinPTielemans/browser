@@ -28,8 +28,16 @@ pub const CARD_INSET: f32 = 10.;
 /// window at 2×.
 pub const CARD_RADIUS: f32 = 6.;
 
-// The header's buttons: their plates' tops and left edges, from the window's.
+// ⌘S hides the sidebar along Arc's curve, an ease-out cubic of 100 ms, and shows it on Dia's
+// spring (docs/ux-spec.md › Motion: Sidebar hide, and Sidebar hide/show, *interim*).
+const SIDEBAR_HIDE: f32 = 0.1;
+const SIDEBAR_SHOW_RESPONSE: f32 = 0.215;
+const SIDEBAR_SHOW_DAMPING: f32 = 0.79;
+
+// The header's buttons: their plates' tops and left edges, from the window's. The sidebar button's
+// is a pitch before back's, as Arc's is.
 const NAV_TOP: f32 = 7.5;
+const SIDEBAR_BUTTON_X: f32 = 88.;
 const BACK_X: f32 = 122.;
 const FORWARD_X: f32 = 156.;
 const RELOAD_X: f32 = 190.;
@@ -171,6 +179,8 @@ pub enum Command {
     SelectSpace(usize),
     NextSpace,
     PreviousSpace,
+    /// Hides the docked sidebar, or shows it.
+    ToggleSidebar,
     Quit,
 }
 
@@ -209,6 +219,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-r", Command::Reload, false),
     ("shift-cmd-r", Command::ForceReload, false),
     ("cmd-.", Command::Stop, false),
+    ("cmd-s", Command::ToggleSidebar, false),
     ("escape", Command::Stop, false),
     ("ctrl-1", Command::SelectSpace(0), false),
     ("ctrl-2", Command::SelectSpace(1), false),
@@ -255,6 +266,7 @@ impl Command {
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
+            Command::ToggleSidebar => "toggle-sidebar",
             Command::Quit => "quit",
         }
     }
@@ -312,6 +324,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
     ("icons/globe.svg", include_bytes!("../assets/icons/globe.svg")),
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
+    ("icons/panel-left.svg", include_bytes!("../assets/icons/panel-left.svg")),
     ("icons/rotate-cw.svg", include_bytes!("../assets/icons/rotate-cw.svg")),
     ("icons/x.svg", include_bytes!("../assets/icons/x.svg")),
 ];
@@ -380,6 +393,11 @@ pub trait Browser {
     );
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
+    /// Lays the page out in a window whose content is `viewport`, with the card's left edge at
+    /// `card_left` (`page_frame`).
+    fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, cx: &mut App);
+    /// Shows the window's close, minimize and zoom buttons, or hides them.
+    fn show_window_buttons(&self, shown: bool, cx: &mut App);
     /// Opens the command bar, for a new tab or on `editing`'s URL.
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
     /// Opens the tab's find bar with the keyboard.
@@ -470,6 +488,12 @@ pub struct Shell {
     hovered_favicon: Option<u64>,
     toast: Option<Toast>,
     page_fullscreen: bool,
+    /// Whether ⌘S has hidden the sidebar.
+    sidebar_hidden: bool,
+    /// While the sidebar moves: where the card's left edge started from, and when.
+    sidebar_motion: Option<(f32, Instant)>,
+    /// The card's left edge the page was last laid out at.
+    page_left: f32,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -495,6 +519,9 @@ impl Shell {
             hovered_favicon: None,
             toast: None,
             page_fullscreen: false,
+            sidebar_hidden: false,
+            sidebar_motion: None,
+            page_left: SIDEBAR_WIDTH,
             switching: None,
             background_pressed: false,
         }
@@ -518,8 +545,46 @@ impl Shell {
         self.selected
     }
 
-    pub fn page_fullscreen(&self) -> bool {
-        self.page_fullscreen
+    /// Where the card's left edge is: past the sidebar, or at the inset once ⌘S has hidden it,
+    /// and between the two while it moves. 0 while a page is full screen, which takes the window.
+    pub fn card_left(&self) -> f32 {
+        if self.page_fullscreen {
+            return 0.;
+        }
+        let to = if self.sidebar_hidden { CARD_INSET } else { SIDEBAR_WIDTH };
+        let Some((from, start)) = self.sidebar_motion else {
+            return to;
+        };
+        match self.sidebar_progress(start) {
+            Some(progress) => from + (to - from) * progress,
+            None => to,
+        }
+    }
+
+    /// How far the sidebar has moved since `start`, or None once it's there.
+    fn sidebar_progress(&self, start: Instant) -> Option<f32> {
+        let t = start.elapsed().as_secs_f32();
+        if self.sidebar_hidden {
+            (t < SIDEBAR_HIDE).then(|| 1. - (1. - t / SIDEBAR_HIDE).powi(3))
+        } else {
+            spring(t, SIDEBAR_SHOW_RESPONSE, SIDEBAR_SHOW_DAMPING)
+        }
+    }
+
+    /// Hides the docked sidebar, or shows it, from wherever it is.
+    fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        // A full-screen page has no sidebar to hide.
+        if self.page_fullscreen {
+            return;
+        }
+        let from = self.card_left();
+        self.sidebar_hidden = !self.sidebar_hidden;
+        self.sidebar_motion = Some((from, Instant::now()));
+        // Arc hides the window's buttons with the sidebar.
+        if self.sidebar_hidden {
+            self.browser.show_window_buttons(false, cx);
+        }
+        cx.notify();
     }
 
     /// The Spaces, by id and name, in the switcher's order.
@@ -714,6 +779,7 @@ impl Shell {
             Command::ForceReload => return self.browser.reload(self.selected, true, cx),
             Command::Stop => return self.browser.stop(self.selected, cx),
             Command::Quit => return self.browser.quit(cx),
+            Command::ToggleSidebar => return self.toggle_sidebar(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
@@ -951,7 +1017,7 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let below_rows = at.x < px(SIDEBAR_WIDTH) && at.y >= px(LIST_TOP);
+        let below_rows = at.x < px(self.card_left()) && at.y >= px(LIST_TOP);
         if !self.page_fullscreen && self.form().is_none() && below_rows {
             self.run(Command::NewTab, "sidebar", cx);
         } else {
@@ -1021,8 +1087,8 @@ impl Shell {
             )
     }
 
-    /// Back, forward, and reload, which is stop while the page loads.
-    fn nav_buttons(&self, cx: &mut Context<Self>) -> [gpui::AnyElement; 3] {
+    /// The sidebar button, back, forward, and reload, which is stop while the page loads.
+    fn nav_buttons(&self, cx: &mut Context<Self>) -> [gpui::AnyElement; 4] {
         let page = self.page(self.selected);
         let reload = if page.loading {
             self.nav_button(RELOAD_X, "icons/x.svg", Command::Stop, true, cx)
@@ -1033,6 +1099,14 @@ impl Shell {
                 .into_any_element()
         };
         [
+            self.nav_button(
+                SIDEBAR_BUTTON_X,
+                "icons/panel-left.svg",
+                Command::ToggleSidebar,
+                true,
+                cx,
+            )
+            .into_any_element(),
             self.nav_button(BACK_X, "icons/arrow-left.svg", Command::Back, page.can_go_back, cx)
                 .into_any_element(),
             self.nav_button(
@@ -1496,8 +1570,31 @@ impl Render for Shell {
             renaming._blur =
                 Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
         }
-        let card_left = if self.page_fullscreen { 0. } else { SIDEBAR_WIDTH };
+        if let Some((_, start)) = self.sidebar_motion {
+            if self.sidebar_progress(start).is_some() {
+                window.request_animation_frame();
+            } else {
+                self.sidebar_motion = None;
+                // check.sh waits for these lines.
+                let state = if self.sidebar_hidden { "hidden" } else { "shown" };
+                eprintln!("browser: sidebar {state}");
+                if !self.sidebar_hidden {
+                    self.browser.show_window_buttons(true, cx);
+                }
+            }
+        }
+        // The page is laid out at every step, as in Arc.
+        let card_left = self.card_left();
+        if card_left != self.page_left {
+            self.page_left = card_left;
+            self.browser.lay_out_page(window.viewport_size(), card_left, cx);
+        }
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
+        // The sidebar leaves with the card's edge, all of it by the time the edge stops.
+        let sidebar_left =
+            (card_left - SIDEBAR_WIDTH) * SIDEBAR_WIDTH / (SIDEBAR_WIDTH - CARD_INSET);
+        let sidebar_shown =
+            !self.page_fullscreen && (!self.sidebar_hidden || self.sidebar_motion.is_some());
         let new_tab = self.new_tab_row(cx);
         let pinned: Vec<_> = self.pinned().iter().map(|&tab| self.tab_row(tab, cx)).collect();
         let divider = (!self.today().is_empty()).then(|| self.divider(cx));
@@ -1546,9 +1643,15 @@ impl Render for Shell {
                     .rounded(px(CARD_RADIUS))
                     .bg(rgb(CARD)),
             )
-            .when(!self.page_fullscreen, |shell| {
-                let sidebar = shell.children(nav);
-                match form {
+            .when(sidebar_shown, |shell| {
+                let sidebar = div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px(sidebar_left))
+                    .w(px(SIDEBAR_WIDTH))
+                    .children(nav);
+                let sidebar = match form {
                     Some(form) => sidebar.child(form),
                     None => sidebar.child(self.url_field()).child(
                         div()
@@ -1569,7 +1672,8 @@ impl Render for Shell {
                     ),
                 }
                 .children(toast)
-                .children(switcher)
+                .children(switcher);
+                shell.child(sidebar)
             })
     }
 }
@@ -1589,19 +1693,31 @@ fn loading_ring(tab: u64) -> impl IntoElement {
         )
 }
 
-/// Where the page goes in a window whose content is `viewport`: in the card, or filling the window
-/// while it's full screen.
-pub fn page_frame(viewport: Size<Pixels>, fullscreen: bool) -> Bounds<Pixels> {
-    if fullscreen {
+/// Where the page goes in a window whose content is `viewport`: in the card, whose left edge is at
+/// `card_left`, or filling the window for a full-screen page, at 0.
+pub fn page_frame(viewport: Size<Pixels>, card_left: f32) -> Bounds<Pixels> {
+    if card_left == 0. {
         return Bounds::new(point(px(0.), px(0.)), viewport);
     }
     Bounds::new(
-        point(px(SIDEBAR_WIDTH), px(CARD_INSET)),
+        point(px(card_left), px(CARD_INSET)),
         size(
-            viewport.width - px(SIDEBAR_WIDTH + CARD_INSET),
+            viewport.width - px(card_left + CARD_INSET),
             viewport.height - px(2. * CARD_INSET),
         ),
     )
+}
+
+/// Where a spring from 0 to 1, at rest at 0, is `t` seconds in, by SwiftUI's response and damping
+/// fraction. None once it's within a thousandth of 1 for good.
+fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
+    let omega = std::f32::consts::TAU / response;
+    let decay = (-damping * omega * t).exp();
+    if decay < 0.001 {
+        return None;
+    }
+    let damped = omega * (1. - damping * damping).sqrt();
+    Some(1. - decay * ((damped * t).cos() + damping * omega / damped * (damped * t).sin()))
 }
 
 /// The URL field's text for `url`: its host without "www." (Arc), or the URL itself if it has none.

@@ -25,7 +25,9 @@
 #      full screen and keeps the keyboard when a page commits under it, then gives the keyboard
 #      to the new page, and scrolling a long page doesn't stutter. Dragging the window's
 #      background moves the window, and the buttons, URL field and rows keep their presses. A
-#      double-click there zooms it, and one in the sidebar below the rows opens a new tab.
+#      double-click there zooms it, and one in the sidebar below the rows opens a new tab. ⌘S,
+#      with the page or the UI focused, and the sidebar button hide the sidebar and the window's
+#      buttons, and the card takes its place, through a resize; ⌘S brings them back.
 #   5. A page's popup opens as a tab in the window, under the page.
 #   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
@@ -617,7 +619,8 @@ await_load
 await '^browser: title [0-9]* ready$' || fail "the scrolling page didn't draw"
 
 # The page view keeps the sidebar's 228 points on its left and 10 on its other sides, over GPUI's
-# view, which fills the window. A full-screen page ("fills") covers the whole window.
+# view, which fills the window. A full-screen page ("fills") covers the whole window, and with the
+# sidebar hidden ("inset") it's 10 in from every side.
 check_layout() {
   send layout
   layout=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout')
@@ -631,18 +634,20 @@ check_layout() {
   # Rounded as the card's corners, square when it fills the window.
   expected_radius=6
   [ "${2:-}" = fills ] && expected="0,0 $content" && expected_radius=
+  [ "${2:-}" = inset ] && expected="10,10 $((width - 20))x$((height - 20))"
   [ "$view" = "$expected" ] || fail "$1: the page view is at $view in a $content window"
   [ "$radius" = "$expected_radius" ] ||
     fail "$1: the page's corners have a radius of ${radius:-0}, not ${expected_radius:-0}"
   [ "$ui" = "0,0 $content" ] || fail "$1: GPUI's view is at $ui in a $content window"
 }
 # The window's buttons sit in the header row, where Arc's do. In full screen they come down with
-# the menu bar instead.
+# the menu bar instead. They go with the sidebar ("hidden").
 check_buttons() {
   buttons=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout buttons' |
     cut -d' ' -f4-)
-  [ "$buttons" = "20.0,24.0 43.0,24.0 66.0,24.0" ] ||
-    fail "$1: the window's buttons are at $buttons, not 20,24 43,24 66,24"
+  expected="20.0,24.0 43.0,24.0 66.0,24.0"
+  [ "${2:-}" = hidden ] && expected="hidden hidden hidden"
+  [ "$buttons" = "$expected" ] || fail "$1: the window's buttons are at $buttons, not $expected"
 }
 check_layout "at launch"
 check_buttons "at launch"
@@ -713,7 +718,7 @@ drag() {
   fi
   moves=$count
 }
-drag 100 24 moves "the header"
+drag 80 24 moves "the header"
 drag 138 24 stays "the back button"
 drag 110 64 stays "the URL field"
 drag 110 112 stays "the Space's name"
@@ -725,9 +730,9 @@ drag $((width - 8)) 300 moves "the card's right margin"
 # unless it's set to something else.
 action=$(defaults read -g AppleActionOnDoubleClick 2>/dev/null || echo Maximize)
 if [ "$action" = Maximize ]; then
-  send doubleclick 100 24
+  send doubleclick 80 24
   expect '^browser: window zoomed 1$' "a double-click on the header didn't zoom the window"
-  send doubleclick 100 24
+  send doubleclick 80 24
   expect '^browser: window zoomed 0$' "a second double-click on the header didn't zoom it back"
   zoom="zooms it"
 else
@@ -738,9 +743,47 @@ expect '^browser: command new-tab via sidebar$' "a double-click on the empty sid
 expect '^browser: command bar shown$' "a double-click on the empty sidebar didn't open the command bar"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
+
+# ⌘S hides the sidebar, with the page focused or the UI, and the card takes its place, 10 in from
+# every side, as the window's buttons go. ⌘S and the sidebar button bring both back.
+# toggle <from> <hidden|shown> <what>: waits for the sidebar to finish moving after the command.
+toggle() {
+  expect "^browser: command toggle-sidebar via $1\$" "$3 didn't reach the UI"
+  expect "^browser: sidebar $2\$" "$3 didn't leave the sidebar $2"
+  if [ "$2" = hidden ]; then
+    check_layout "after $3" inset
+    check_buttons "after $3" hidden
+  else
+    check_layout "after $3"
+    check_buttons "after $3"
+  fi
+}
+send click $page_point
+send key s cmd
+toggle page hidden "⌘S with the page focused"
+../tools/window-screenshot.sh "$pid" "$out/sidebar-hidden.png" || fail "no window to capture"
+send key s cmd
+toggle page shown "⌘S again with the page focused"
+send click 110 400
+send key s cmd
+toggle ui hidden "⌘S with the UI focused"
+send key s cmd
+toggle ui shown "⌘S again with the UI focused"
+send click 104 24
+toggle sidebar hidden "a click on the sidebar button"
+send key s cmd
+toggle ui shown "⌘S after the sidebar button"
+# The page stays inset through a resize while the sidebar is hidden.
+send resize 900 600
+send key s cmd
+toggle ui hidden "⌘S in a smaller window"
+send resize 1000 700
+check_layout "after a resize with the sidebar hidden" inset
+send key s cmd
+toggle ui shown "⌘S after a resize"
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png"
 
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.

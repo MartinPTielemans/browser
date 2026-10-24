@@ -288,6 +288,13 @@ void host_hide_find_bar(void) {
   fprintf(stderr, "browser: find bar hidden\n");
 }
 
+void host_show_window_buttons(bool shown) {
+  for (NSWindowButton button :
+       {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
+    [g_window standardWindowButton:button].hidden = !shown;
+  }
+}
+
 void host_focus(void* view) {
   NSView* ns_view = (__bridge NSView*)view;
   [ns_view.window makeFirstResponder:ns_view];

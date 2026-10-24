@@ -44,6 +44,7 @@ mod platform {
         pub fn host_show_find_bar(keyboard: bool);
         pub fn host_hide_find_bar();
         pub fn host_focus(view: *mut c_void);
+        pub fn host_show_window_buttons(shown: bool);
         pub fn host_menu(items: *const host_menu_item, count: usize, x: f64, y: f64) -> i32;
         pub fn host_confirm(message: *const c_char, detail: *const c_char, action: *const c_char)
         -> bool;
@@ -95,16 +96,17 @@ fn ns_view(window: &Window) -> *mut c_void {
     }
 }
 
-/// Tells the core where the page goes in a window whose content is `viewport`.
-fn set_page_frame(viewport: Size<Pixels>, fullscreen: bool) {
-    let frame = shell::page_frame(viewport, fullscreen);
+/// Tells the core where the page goes in a window whose content is `viewport`, with the card's left
+/// edge at `card_left` (`shell::page_frame`).
+fn set_page_frame(viewport: Size<Pixels>, card_left: f32) {
+    let frame = shell::page_frame(viewport, card_left);
     let frame = bc::bc_rect {
         x: f64::from(frame.origin.x),
         y: f64::from(frame.origin.y),
         width: f64::from(frame.size.width),
         height: f64::from(frame.size.height),
     };
-    let radius = if fullscreen { 0. } else { shell::CARD_RADIUS };
+    let radius = if card_left == 0. { 0. } else { shell::CARD_RADIUS };
     unsafe { bc::bc_window_set_page_frame(WINDOW.get(), frame, f64::from(radius)) };
 }
 
@@ -268,6 +270,14 @@ impl Browser for Engine {
         unsafe { platform::host_focus(self.view) };
     }
 
+    fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, _: &mut App) {
+        set_page_frame(viewport, card_left);
+    }
+
+    fn show_window_buttons(&self, shown: bool, _: &mut App) {
+        unsafe { platform::host_show_window_buttons(shown) };
+    }
+
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
         command_bar::show(editing, cx);
     }
@@ -392,7 +402,7 @@ fn open_window(cx: &mut App) {
         let shell = cx.new(|cx| {
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, |shell: &mut Shell, window, _| {
-                set_page_frame(window.viewport_size(), shell.page_fullscreen())
+                set_page_frame(window.viewport_size(), shell.card_left())
             })
             .detach();
             Shell::new(Rc::new(Engine { view: ns_view(window) }), cx)
@@ -408,7 +418,9 @@ fn open_window(cx: &mut App) {
     match window {
         Ok(window) => {
             window
-                .update(cx, |_, window, _| set_page_frame(window.viewport_size(), false))
+                .update(cx, |shell, window, _| {
+                    set_page_frame(window.viewport_size(), shell.card_left())
+                })
                 .ok();
             unsafe { platform::host_show_window(ui_view) };
             command_bar::open(cx);
@@ -444,6 +456,11 @@ unsafe extern "C" fn started(_: *mut c_void) {
                     MenuItem::separator(),
                     shell::menu_item("Clear Unpinned Tabs", Command::Clear),
                 ],
+                disabled: false,
+            },
+            Menu {
+                name: "View".into(),
+                items: vec![shell::menu_item("Toggle Sidebar", Command::ToggleSidebar)],
                 disabled: false,
             },
         ]);
@@ -627,11 +644,14 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
         if !shown {
             return;
         }
-        shell
-            .update(cx, |shell, cx| shell.set_page_fullscreen(fullscreen, cx))
-            .ok();
+        let card_left = shell
+            .update(cx, |shell, cx| {
+                shell.set_page_fullscreen(fullscreen, cx);
+                shell.card_left()
+            })
+            .unwrap_or(0.);
         cx.update_window(window, |_, window, _| {
-            set_page_frame(window.viewport_size(), fullscreen)
+            set_page_frame(window.viewport_size(), card_left)
         })
         .ok();
     });

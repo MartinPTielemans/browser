@@ -9,8 +9,8 @@ use std::{
 
 use browser::shell::{self, Browser, Page, Shell};
 use gpui::{
-    App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, TitlebarOptions, WeakEntity,
-    WindowBounds, WindowOptions, point, px, size,
+    App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
+    WeakEntity, WindowBounds, WindowOptions, point, px, size,
 };
 
 unsafe extern "C" {
@@ -169,6 +169,11 @@ impl Browser for Fake {
 
     // The preview's window is GPUI's own, which has the keyboard already.
     fn focus_ui(&self, _: &mut App) {}
+
+    // There's no page, and the window's buttons stay where GPUI put them.
+    fn lay_out_page(&self, _: Size<Pixels>, _: f32, _: &mut App) {}
+
+    fn show_window_buttons(&self, _: bool, _: &mut App) {}
 
     // Menus and alerts are AppKit's, which the preview goes without.
     fn menu(
