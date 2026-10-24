@@ -14,6 +14,8 @@ namespace browser_core {
 class Space {
  public:
   static Space* Create(std::string name);
+  // Deletes the Space, which windows no longer show.
+  static void Delete(bc_id id);
   static Space* FromId(bc_id id);
   // Every Space, in the order they were made.
   static std::vector<Space*> All();
@@ -26,6 +28,8 @@ class Space {
   bc_id id() const { return id_; }
   const std::string& name() const { return name_; }
   const std::vector<bc_id>& today() const { return today_; }
+
+  void SetName(std::string name);
 
   // Puts |tab| in Today. One the user opened (|opener| 0) goes at the top, under "+ New Tab". One a
   // page in this Space opened goes in Chrome's place: right under its opener if it opened in front,
@@ -46,7 +50,7 @@ class Space {
   void ReportChanged();
 
   const bc_id id_;
-  const std::string name_;
+  std::string name_;
   std::vector<bc_id> today_;
   // Each tab a page opened, to the tab it came from.
   std::map<bc_id, bc_id> openers_;

@@ -32,6 +32,9 @@ void host_show_overlay(void);
 // Hides the overlay. The browser window gets the keyboard back, with the focus where it was.
 void host_hide_overlay(void);
 
+// Gives |view| the keyboard in its window, from the page if the page has it.
+void host_focus(void* view);
+
 #ifdef __cplusplus
 }
 #endif

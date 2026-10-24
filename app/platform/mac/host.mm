@@ -143,3 +143,8 @@ void host_hide_overlay(void) {
   [g_window makeKeyWindow];
   fprintf(stderr, "browser: command bar hidden\n");
 }
+
+void host_focus(void* view) {
+  NSView* ns_view = (__bridge NSView*)view;
+  [ns_view.window makeFirstResponder:ns_view];
+}

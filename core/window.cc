@@ -124,6 +124,22 @@ void Window::OnTabClosing(bc_id tab) {
   }
 }
 
+// static
+void Window::OnSpaceDeleting(bc_id space) {
+  const std::vector<Space*> all = Space::All();
+  auto it = std::ranges::find(all, space, &Space::id);
+  if (it == all.end()) {
+    return;
+  }
+  Space* neighbour = it != all.begin() ? *(it - 1) : (it + 1 != all.end() ? *(it + 1) : nullptr);
+  for (auto& [id, window] : Windows()) {
+    if (window->space_ == space && neighbour) {
+      window->ShowSpace(neighbour->id());
+    }
+    window->selected_in_space_.erase(space);
+  }
+}
+
 Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view) : id_(id) {
   delegate_ = std::make_unique<views::WidgetDelegate>();
   delegate_->SetCanFullscreen(true);

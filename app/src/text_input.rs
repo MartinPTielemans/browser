@@ -1,7 +1,7 @@
 // Adapted from Zed's crates/gpui/examples/input.rs (https://github.com/zed-industries/zed, commit
 // b36b283021c48f1712714b8a0e2ad6ffb578920b). Copyright Zed Industries, Inc. Licensed under the
-// Apache License, Version 2.0. Changes: a constructor, `text`, `reset`, key bindings scoped to the
-// field, ⌘← and ⌘→ as Home and End, and no styling of its own.
+// Apache License, Version 2.0. Changes: a constructor, `text`, `reset`, a placeholder colour, key
+// bindings scoped to the field, ⌘← and ⌘→ as Home and End, and no styling of its own.
 //
 //! A single-line text field, with IME support through GPUI's input handler. GPUI has no text
 //! field of its own; Zed's is its editor.
@@ -10,7 +10,7 @@ use std::ops::Range;
 
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, KeyBinding, LayoutId, MouseButton,
+    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla, KeyBinding, LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
     SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla,
     point, prelude::*, px, relative, rgba, size,
@@ -62,6 +62,7 @@ pub struct TextInput {
     focus_handle: FocusHandle,
     content: SharedString,
     placeholder: SharedString,
+    placeholder_color: Hsla,
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
@@ -76,6 +77,7 @@ impl TextInput {
             focus_handle: cx.focus_handle(),
             content: "".into(),
             placeholder: placeholder.into(),
+            placeholder_color: hsla(0., 0., 0., 0.2),
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
@@ -83,6 +85,12 @@ impl TextInput {
             last_bounds: None,
             is_selecting: false,
         }
+    }
+
+    /// The placeholder's colour, for a field on a dark background.
+    pub fn placeholder_color(mut self, color: impl Into<Hsla>) -> Self {
+        self.placeholder_color = color.into();
+        self
     }
 
     pub fn text(&self) -> &str {
@@ -560,7 +568,7 @@ impl Element for TextElement {
         let style = window.text_style();
 
         let (display_text, text_color) = if content.is_empty() {
-            (input.placeholder.clone(), hsla(0., 0., 0., 0.2))
+            (input.placeholder.clone(), input.placeholder_color)
         } else {
             (content, style.color)
         };

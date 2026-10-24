@@ -23,6 +23,16 @@ std::map<bc_id, std::unique_ptr<Space>>& Spaces() {
   return *spaces;
 }
 
+// Posted, like a Space's changes.
+void ReportSpacesChanged() {
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce([] {
+        if (Host().spaces_changed) {
+          Host().spaces_changed(Host().context);
+        }
+      }));
+}
+
 }  // namespace
 
 // static
@@ -30,14 +40,15 @@ Space* Space::Create(std::string name) {
   const bc_id id = NewId();
   Space* space = new Space(id, std::move(name));
   Spaces()[id] = base::WrapUnique(space);
-  // Posted, like the Space's changes.
-  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
-      FROM_HERE, base::BindOnce([] {
-        if (Host().spaces_changed) {
-          Host().spaces_changed(Host().context);
-        }
-      }));
+  ReportSpacesChanged();
   return space;
+}
+
+// static
+void Space::Delete(bc_id id) {
+  if (Spaces().erase(id)) {
+    ReportSpacesChanged();
+  }
 }
 
 // static
@@ -66,6 +77,11 @@ Space* Space::Holding(bc_id tab) {
 }
 
 Space::Space(bc_id id, std::string name) : id_(id), name_(std::move(name)) {}
+
+void Space::SetName(std::string name) {
+  name_ = std::move(name);
+  ReportSpacesChanged();
+}
 
 void Space::Add(bc_id tab, bc_id opener, bool foreground) {
   auto at = std::ranges::find(today_, opener);

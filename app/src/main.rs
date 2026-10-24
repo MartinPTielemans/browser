@@ -36,6 +36,7 @@ mod platform {
         pub fn host_add_overlay(overlay_view: *mut c_void);
         pub fn host_show_overlay();
         pub fn host_hide_overlay();
+        pub fn host_focus(view: *mut c_void);
     }
 }
 
@@ -108,7 +109,10 @@ fn navigate(tab: u64, url: &str) {
 }
 
 /// The shell's requests, as calls to the core. The core reports back once each call has returned.
-struct Engine;
+struct Engine {
+    /// GPUI's view, which has the keyboard when the UI does.
+    view: *mut c_void,
+}
 
 impl Browser for Engine {
     fn select(&self, tab: u64, _: &mut App) {
@@ -139,11 +143,21 @@ impl Browser for Engine {
         unsafe { bc::bc_window_show_space(WINDOW.get(), space) };
     }
 
-    fn new_space(&self, _: &mut App) {
-        // Arc's name for a Space the user hasn't named, until its Create a Space form comes here.
-        let count = unsafe { bc::bc_spaces(std::ptr::null_mut(), 0) };
-        let space = create_space(&format!("Space {}", count + 1));
-        unsafe { bc::bc_window_show_space(WINDOW.get(), space) };
+    fn create_space(&self, name: &str, _: &mut App) -> u64 {
+        create_space(name)
+    }
+
+    fn rename_space(&self, space: u64, name: &str, _: &mut App) {
+        let name = CString::new(name).unwrap_or_default();
+        unsafe { bc::bc_space_set_name(space, name.as_ptr()) };
+    }
+
+    fn delete_space(&self, space: u64, _: &mut App) {
+        unsafe { bc::bc_space_delete(space) };
+    }
+
+    fn focus_ui(&self, _: &mut App) {
+        unsafe { platform::host_focus(self.view) };
     }
 
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
@@ -244,7 +258,7 @@ fn open_window(cx: &mut App) {
                 set_page_frame(window.viewport_size(), shell.page_fullscreen())
             })
             .detach();
-            Shell::new(Rc::new(Engine), cx)
+            Shell::new(Rc::new(Engine { view: ns_view(window) }), cx)
         });
         window.focus(&shell.focus_handle(cx), cx);
         UI.set(Some((
@@ -285,7 +299,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
             Menu {
                 name: "Spaces".into(),
                 items: vec![
-                    shell::menu_item("New Space", Command::NewSpace),
+                    shell::menu_item("New Space…", Command::NewSpace),
                     MenuItem::separator(),
                     shell::menu_item("Next Space", Command::NextSpace),
                     shell::menu_item("Previous Space", Command::PreviousSpace),
