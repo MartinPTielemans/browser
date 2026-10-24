@@ -397,24 +397,25 @@ unsafe extern "C" fn tab_title_changed(_: *mut c_void, _: bc::bc_id, title: *con
 }
 
 fn main() {
-    let mut args: Vec<CString> = std::env::args()
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut args: Vec<String> = std::env::args().take(1).collect();
+    args.extend([
+        // A profile of the spike's own, never the owner's.
+        format!("--user-data-dir={home}/Library/Caches/browser-spike-core"),
+        // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed build
+        // asking for it gets a password prompt, and every request that uses cookies waits.
+        "--use-mock-keychain".into(),
+        // Chrome would copy the app bundle to check its signature against, which an
+        // ad-hoc-signed build doesn't need.
+        "--disable-features=MacAppCodeSignClone".into(),
+    ]);
+    // Switches given to the spike come after, so they override these: Chromium keeps a repeated
+    // switch's last value.
+    args.extend(std::env::args().skip(1));
+    let args: Vec<CString> = args
+        .into_iter()
         .filter_map(|arg| CString::new(arg).ok())
         .collect();
-    let home = std::env::var("HOME").unwrap_or_default();
-    args.extend(
-        [
-            // A profile of the spike's own, never the owner's.
-            format!("--user-data-dir={home}/Library/Caches/browser-spike-core"),
-            // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed build
-            // asking for it gets a password prompt, and every request that uses cookies waits.
-            "--use-mock-keychain".into(),
-            // Chrome would copy the app bundle to check its signature against, which an
-            // ad-hoc-signed build doesn't need.
-            "--disable-features=MacAppCodeSignClone".into(),
-        ]
-        .into_iter()
-        .filter_map(|arg| CString::new(arg).ok()),
-    );
     if std::env::var_os("SPIKE_DRIVE").is_some() {
         unsafe { host::spike_drive_start() };
     }
