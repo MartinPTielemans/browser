@@ -66,6 +66,10 @@ int host_menu(const host_menu_item* items, size_t count, double x, double y);
 // the user chose |action| over Cancel once it closes.
 bool host_confirm(const char* message, const char* detail, const char* action);
 
+// Shows the browser window's close, minimize and zoom buttons, or hides them, as Arc does while its
+// sidebar is hidden.
+void host_show_window_buttons(bool shown);
+
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);

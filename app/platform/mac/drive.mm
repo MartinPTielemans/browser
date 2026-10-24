@@ -272,6 +272,10 @@ void Layout(NSWindow* window) {
   for (NSWindowButton type :
        {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
     NSButton* button = [window standardWindowButton:type];
+    if (button.hidden) {
+      [line appendString:@" hidden"];
+      continue;
+    }
     NSRect frame = [button convertRect:button.bounds toView:nil];
     [line appendFormat:@" %.1f,%.1f", NSMidX(frame), NSHeight(window.frame) - NSMidY(frame)];
   }

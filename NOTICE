@@ -9,8 +9,8 @@ engine/patches/ours/chromium-core-embedded-view.patch.
   Copyright 2026 Mantra Patel
 
 Lucide (https://github.com/lucide-icons/lucide), ISC License, some icons MIT License
-Used in app/assets/icons/: arrow-down, arrow-left, arrow-right, globe, rotate-cw and x, at
-commit 7faf87628a1ad6175975bc595344337ce14a7db4.
+Used in app/assets/icons/: arrow-down, arrow-left, arrow-right, globe, panel-left, rotate-cw
+and x, at commit 7faf87628a1ad6175975bc595344337ce14a7db4.
 
   ISC License
 
@@ -28,7 +28,7 @@ commit 7faf87628a1ad6175975bc595344337ce14a7db4.
   ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
   OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-  arrow-left, arrow-right, globe and x are derived from Feather:
+  arrow-left, arrow-right, globe, panel-left and x are derived from Feather:
 
   The MIT License (MIT)
 

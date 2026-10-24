@@ -77,8 +77,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses | Dia bin |
 | [ ] | Background tabs | MVP | load when first shown; sidebar scrolls to them | Dia |
 | [ ] | Opener order | MVP | Chrome's TabStripModel rules | Chrome |
-| [ ] | ⌘S hide (docked) | MVP | ease-out cubic 100 ms | Arc (Ardia) rec |
-| [ ] | ⌘S show (hidden) | MVP | measure (*interim* Dia spring 0.215 s / ζ 0.79) | Dia rec 240 fps |
+| [x] | ⌘S hide (docked) | MVP | ease-out cubic 100 ms | Arc (Ardia) rec |
+| [x] | ⌘S show (hidden) | MVP | measure (*interim* Dia spring 0.215 s / ζ 0.79) | Dia rec 240 fps |
 | [ ] | Sidebar reveal in | MVP | spring 0.185 s / ζ 0.77, no fade | Arc (Ardia) rec |
 | [ ] | Sidebar reveal out | MVP | ease-in-out ≈ 150 ms | Arc (Ardia) rec |
 | [ ] | Reveal panel | MVP | inset 5 left/top/bottom, docked width, 0.5 pt light border | Arc (Ardia) rec |
@@ -286,9 +286,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Reserved commands before the page | MVP | Chrome's reserved set | Chrome, AGENTS.md |
-| [ ] | Other browser keys only if the page doesn't keep them | MVP | yes | Chrome, AGENTS.md |
-| [ ] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar; owner to confirm | Arc (Ardia) |
+| [x] | Reserved commands before the page | MVP | Chrome's reserved set | Chrome, AGENTS.md |
+| [x] | Other browser keys only if the page doesn't keep them | MVP | yes | Chrome, AGENTS.md |
+| [x] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar | Arc (Ardia) |
 | [ ] | Every command rebindable | MVP | Settings › Keyboard Shortcuts | Dia P§22 |
 | [ ] | Full table in the spec | MVP | ux-spec.md › Keyboard | Dia, Chrome |
 | [ ] | Arc's keys not yet recorded | MVP | measure | — |

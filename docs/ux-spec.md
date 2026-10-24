@@ -270,7 +270,9 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 - **Other row actions** (Dia). Double-click a row to rename it inline. Change its icon to an emoji. ⌘-click and ⇧-click select several rows for bulk actions. The context menu shows shortcut hints. A haptic tick sounds while reordering, as a setting.
 - **Hiding and showing** (Arc layout, Arc (Ardia) rec 2026-10-06).
   - ⌘S or the sidebar button hides the docked sidebar (Sidebar hide). The sidebar and the card's left edge leave together, and the page is laid out at every step. Hidden, the card fills the window with no traffic lights, header or nav.
-  - Showing with ⌘S isn't recorded; use Dia's spring (*interim*).
+  - Showing with ⌘S isn't recorded; use Dia's spring (*interim*). The window's buttons come back once it's at rest, so they never sit over the moving card.
+  - The sidebar button sits a pitch before back, its plate at x 88 (*interim*: Arc's position isn't measured, and its glyph is ours). The View menu has Toggle Sidebar ⌘S.
+  - ⌘S isn't reserved: a page that keeps it, as an editor's save does, keeps it (Chrome's rule for Save Page).
 - **Sidebar reveal** (Arc (Ardia)).
   - The pointer at the window's left edge, at any height including the top-left corner, slides a floating panel over the page (Sidebar reveal in). The page doesn't move.
   - The panel is inset 5 from the window's left, top and bottom edges, as wide as the docked sidebar, rounded and dark, with a 0.5 pt light border. It holds the traffic lights, the header buttons, the URL field and the tabs.
@@ -651,7 +653,7 @@ These are kept so the numbers aren't lost. Add them to a phase before building t
 | Pinned tabs and favorites belong to the profile (P§2) | Pinned tabs belong to the Space. Favorites: settled by the Arc capture |
 | Arc import turns Arc Spaces into profiles (P§20) | Spaces stay Spaces |
 | The default layout is Dia's (address bar on the card, optional top tab strip); Arc's sidebar address bar is a setting (P§4) | Arc's layout only (decision 6) |
-| Dia's and Chrome's keys win clashes, so Arc's ⌘D pin moves to ⌥⇧⌘D (P§4) | Arc's keys win; owner to confirm |
+| Dia's and Chrome's keys win clashes, so Arc's ⌘D pin moves to ⌥⇧⌘D (P§4) | Arc's keys win, since Arc's users bring their hands with them: ⌘D pins, ⌘S hides the sidebar, not Chrome's Bookmark and Save Page (2026-10-25, to review) |
 | AppleScript `execute` runs JavaScript in pages, off by default behind View › Developer (P§23) | Not built: it gives any local process, agents included, what principle 3 forbids. AppleScript, if any, covers windows, tabs and URLs |
 | Extension action state polled every 1.5 s, unused profiles checked every 15 s (P§15, P§5) | Event-driven only (principle 1) |
 | The 1.49 New Tab area light ran a 30 fps display link for up to 60 s (D›Area light) | Not built; Dia 1.50.1 dropped it too |
