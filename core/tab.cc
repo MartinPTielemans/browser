@@ -10,6 +10,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
 #include "browser_core/session.h"
+#include "browser_core/space.h"
 #include "browser_core/window.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "content/public/browser/favicon_status.h"
@@ -64,6 +65,13 @@ Tab::~Tab() {
 bool Tab::Loaded(bc_id id) {
   content::WebContents* contents = FromId(id);
   return contents && !contents->GetController().NeedsReload();
+}
+
+// static
+GURL Tab::PageUrl(content::WebContents* contents) {
+  // A tab starts with an entry for no page, until its first page commits.
+  content::NavigationEntry* entry = contents->GetController().GetLastCommittedEntry();
+  return entry && !entry->IsInitialEntry() ? entry->GetURL() : contents->GetVisibleURL();
 }
 
 void Tab::Unload() {
@@ -130,12 +138,15 @@ void Tab::ReportState() {
   // The visible URL is the one Chrome's location bar shows: one a page starts loading by itself
   // shows only once it commits, so a page can't put another site's URL over its own.
   const std::string url = web_contents()->GetVisibleURL().spec();
+  const Space* space = Space::Holding(id_);
   const bc_tab_state state = {
       .url = url.c_str(),
       .can_go_back = history.CanGoBack(),
       .can_go_forward = history.CanGoForward(),
       .loading = web_contents()->ShouldShowLoadingUI(),
       .unloaded = history.NeedsReload(),
+      .away_from_pinned_url = space && space->IsPinned(id_) &&
+                              PageUrl(web_contents()) != space->PinnedUrl(id_),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   ReportFavicon(state.loading);

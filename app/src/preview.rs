@@ -93,6 +93,8 @@ impl Browser for Fake {
     }
 
     // The made-up pages have no history to go through.
+    fn back_to_pinned_url(&self, _: u64, _: &mut App) {}
+
     fn go_back(&self, _: u64, _: &mut App) {}
 
     fn go_forward(&self, _: u64, _: &mut App) {}
@@ -199,9 +201,11 @@ fn main() {
                     shell.set_title(tab, (*title).into(), cx);
                     let page = Page {
                         url: (*url).into(),
-                        // The first tab has been somewhere before, so back shows bright, the second
-                        // is a pinned tab closed, and the third is still loading.
+                        // The first tab has been somewhere before, so back shows bright, and it's
+                        // pinned somewhere else. The second is a pinned tab closed, and the third
+                        // is still loading.
                         can_go_back: index == 0,
+                        away_from_pinned_url: index == 0,
                         unloaded: index == 1,
                         loading: index == 2,
                         ..Default::default()

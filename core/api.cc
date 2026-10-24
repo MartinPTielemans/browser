@@ -44,6 +44,19 @@ size_t CopyString(const std::string& text, char* to, size_t capacity) {
   return text.size();
 }
 
+// Loads |url| in the tab, as Chrome loads what's typed in its location bar or a bookmark.
+void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  if (!tab) {
+    return;
+  }
+  NavigateParams params(tab->GetBrowserWindowInterface(), url, transition);
+  params.disposition = WindowOpenDisposition::CURRENT_TAB;
+  params.source_contents = contents;
+  Navigate(&params);
+}
+
 }  // namespace
 
 int bc_main(int argc, const char** argv, const bc_host* host) {
@@ -175,15 +188,20 @@ void bc_tab_show(bc_id id, bc_rect frame) {
 }
 
 void bc_tab_navigate(bc_id id, const char* url) {
+  LoadInTab(id, GURL(url), ui::PAGE_TRANSITION_TYPED);
+}
+
+void bc_tab_back_to_pinned_url(bc_id id) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
   content::WebContents* contents = browser_core::Tab::FromId(id);
-  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  if (!tab) {
+  if (!space || !space->IsPinned(id) || !contents) {
     return;
   }
-  NavigateParams params(tab->GetBrowserWindowInterface(), GURL(url), ui::PAGE_TRANSITION_TYPED);
-  params.disposition = WindowOpenDisposition::CURRENT_TAB;
-  params.source_contents = contents;
-  Navigate(&params);
+  const GURL url = space->PinnedUrl(id);
+  // A tab already there doesn't load it again.
+  if (browser_core::Tab::PageUrl(contents) != url) {
+    LoadInTab(id, url, ui::PAGE_TRANSITION_AUTO_BOOKMARK);
+  }
 }
 
 void bc_tab_go_back(bc_id id) {
@@ -239,9 +257,18 @@ void bc_tab_find_close(bc_id id) {
 }
 
 void bc_tab_set_pinned(bc_id id, bool pinned) {
-  if (browser_core::Space* space = browser_core::Space::Holding(id)) {
-    space->SetPinned(id, pinned);
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (!space || !contents) {
+    return;
   }
+  if (pinned) {
+    space->Pin(id, browser_core::Tab::PageUrl(contents));
+  } else {
+    space->Unpin(id);
+  }
+  // Whether it's away from its pinned URL.
+  browser_core::Tab::FromWebContents(contents)->StateChanged();
 }
 
 void bc_tab_close(bc_id id) {

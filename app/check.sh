@@ -46,8 +46,9 @@
 #      unpins it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, or the ✕ under the
 #      pointer, unloads a pinned tab and keeps its row, which has no ✕ then, and shows the top
 #      Today tab, else the nearest pinned tab still loaded, else no page, as closing the last
-#      Today tab does. Shown again, the tab loads. Launched again, the app brings back the pinned
-#      tab pinned, without loading it.
+#      Today tab does. Shown again, the tab loads. Away from its pinned URL, ⌘↩ from the page and
+#      the UI, and a click on its favicon, go back there. Launched again, the app brings back the
+#      pinned tab pinned and away from its pinned URL, without loading it.
 # Runs 2 to 10 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -1230,6 +1231,10 @@ pinned_row() {
 pinned_close() {
   echo "202 $((90 + 44 + 41 * $1 + 20))"
 }
+# Its favicon's.
+pinned_favicon() {
+  echo "26 $((90 + 44 + 41 * $1 + 20))"
+}
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -1291,16 +1296,43 @@ expect "^browser: selected $a in " "a click on the unloaded pinned tab didn't sh
 expect "^browser: loaded $a $site\$" "the unloaded pinned tab didn't load once shown"
 send key d cmd
 expect_lists "$c" "$a" "after ⌘D on a pinned tab"
+
+# Away from its pinned URL, ⌘↩ goes back there, from the page and the UI.
+send click $(pinned_row 0)
+expect "^browser: selected $c in " "a click on the unloaded pinned tab didn't show it"
+expect "^browser: loaded $c https://example.org/\$" "the unloaded pinned tab didn't load once shown"
+# Away from it, which leaves the page the keyboard, then back with ⌘↩ from side $1.
+away_and_back() {
+  go_from_bar example.com
+  expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
+  [ "$1" = ui ] && send click $sidebar_point
+  send key return cmd
+  expect "^browser: command back-to-pinned-url via $1\$" "⌘↩ with the $1 focused didn't run Back to Pinned URL"
+  expect "^browser: loaded $c https://example.org/\$" "⌘↩ with the $1 focused didn't load the pinned URL"
+  expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pinned URL"
+}
+away_and_back page
+away_and_back ui
+go_from_bar example.com
+expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
+# The quit leaves Today's tab shown, so the pinned tab comes back unloaded.
+switch "2 cmd" "$a"
+# Its favicon under the pointer offers the way back.
+send move $(pinned_favicon 0)
+../tools/window-screenshot.sh "$pid" "$out/pinned-away.png" || fail "no window to capture"
 # ⌘Q is the driver's last command: the app doesn't report it done.
 echo "key q cmd" >&3
 exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 
-# Launched again, the pinned tab comes back pinned, at its page and unloaded.
+# Launched again, the pinned tab comes back pinned, at its page, unloaded, and away from its pinned
+# URL. A click on its favicon goes back there and shows it.
 log="$out/pinned-restored.log"
-"$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+step=0
+BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
+exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
 await '^browser: pinned [0-9][0-9]*$' || fail "the pinned tab didn't come back pinned"
 await '^browser: today [0-9][0-9]*$' || fail "the Today tab didn't come back"
@@ -1308,11 +1340,28 @@ c=$(pinned)
 a=$(today)
 await "^browser: selected $a\$" || fail "the relaunch didn't show the tab shown last"
 await "^browser: loaded $a $site\$" || fail "the tab shown didn't load"
-await "^browser: page $c back 0 forward 0 loading 0 https://example.org/\$" ||
+await "^browser: page $c back 1 forward 0 loading 0 https://example.com/\$" ||
   fail "the pinned tab didn't come back at its page: $(grep "^browser: page $c" "$log" | tail -1)"
 await "^browser: page $c unloaded 1\$" || fail "the pinned tab didn't come back unloaded"
+await "^browser: page $c away 1\$" || fail "the pinned tab didn't come back away from its pinned URL"
 grep -q "^browser: loaded $c " "$log" && fail "the pinned tab loaded without being shown"
 ../tools/window-screenshot.sh "$pid" "$out/pinned-restored.png" || fail "no window to capture"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: the restored pinned tab's way back. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+send move $(pinned_favicon 0)
+send click $(pinned_favicon 0)
+expect '^browser: command back-to-pinned-url via sidebar$' "a click on an away pinned tab's favicon didn't run Back to Pinned URL"
+expect "^browser: selected $c in " "a click on the pinned tab's favicon didn't show it"
+expect "^browser: loaded $c https://example.org/\$" "a click on the pinned tab's favicon didn't load its pinned URL"
+expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pinned URL"
+none_since "^browser: loaded $c https://example.com/" || fail "the unloaded tab loaded its old page on the way back"
+exec 3>&-
 quit
 kill "$server"
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Pinned tabs come back pinned and unloaded. Windows: $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-restored.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. Windows: $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png"

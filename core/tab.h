@@ -9,6 +9,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "ui/gfx/image/image.h"
+#include "url/gurl.h"
 
 namespace browser_core {
 
@@ -22,6 +23,8 @@ class Tab : public content::WebContentsObserver,
   static content::WebContents* FromId(bc_id id);
   // Whether |id| has its page, which it hasn't once it's unloaded, or put back and not yet shown.
   static bool Loaded(bc_id id);
+  // The URL of the page |contents| is at, loaded or not, else of the one it's loading.
+  static GURL PageUrl(content::WebContents* contents);
 
   Tab(const Tab&) = delete;
   Tab& operator=(const Tab&) = delete;
@@ -34,6 +37,10 @@ class Tab : public content::WebContentsObserver,
   // For a tab put back without loading: tells the app its page's URL, history and title as they
   // were, and finds its favicon among the profile's.
   void Restored();
+
+  // Tells the app the tab's state from a task of its own, so a burst of changes is one call, and
+  // none comes during the app's call that made them.
+  void StateChanged();
 
  private:
   friend class content::WebContentsUserData<Tab>;
@@ -58,9 +65,6 @@ class Tab : public content::WebContentsObserver,
                         bool icon_url_changed,
                         const gfx::Image& image) override;
 
-  // Tells the app the tab's state from a task of its own, so a burst of changes is one call, and
-  // none comes during the app's call that made them.
-  void StateChanged();
   void ReportState();
   // Within ReportState, if the favicon the tab shows changed.
   void ReportFavicon(bool loading);

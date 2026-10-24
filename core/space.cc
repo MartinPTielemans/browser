@@ -89,6 +89,11 @@ bool Space::IsPinned(bc_id tab) const {
   return std::ranges::contains(pinned_, tab);
 }
 
+GURL Space::PinnedUrl(bc_id tab) const {
+  auto it = pinned_urls_.find(tab);
+  return it == pinned_urls_.end() ? GURL() : it->second;
+}
+
 void Space::SetName(std::string name) {
   name_ = std::move(name);
   ReportSpacesChanged();
@@ -118,22 +123,26 @@ void Space::Add(bc_id tab, bc_id opener, bool foreground) {
   ReportChanged();
 }
 
-void Space::AddPinned(bc_id tab) {
+void Space::AddPinned(bc_id tab, GURL url) {
   pinned_.push_back(tab);
+  pinned_urls_[tab] = std::move(url);
   ReportChanged();
 }
 
-void Space::SetPinned(bc_id tab, bool pinned) {
-  std::vector<bc_id>& from = pinned ? today_ : pinned_;
-  if (std::erase(from, tab) == 0) {
+void Space::Pin(bc_id tab, GURL url) {
+  if (std::erase(today_, tab) == 0) {
     return;
   }
-  if (pinned) {
-    pinned_.push_back(tab);
-  } else {
-    // Where a tab the user opens goes.
-    today_.insert(today_.begin(), tab);
+  AddPinned(tab, std::move(url));
+}
+
+void Space::Unpin(bc_id tab) {
+  if (std::erase(pinned_, tab) == 0) {
+    return;
   }
+  pinned_urls_.erase(tab);
+  // Where a tab the user opens goes.
+  today_.insert(today_.begin(), tab);
   ReportChanged();
 }
 
@@ -141,6 +150,7 @@ void Space::Remove(bc_id tab) {
   if (std::erase(today_, tab) == 0 && std::erase(pinned_, tab) == 0) {
     return;
   }
+  pinned_urls_.erase(tab);
   // The tabs it opened count as its opener's from now on, as in Chrome.
   const bc_id opener = OpenerOf(tab);
   openers_.erase(tab);

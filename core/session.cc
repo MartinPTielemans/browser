@@ -33,6 +33,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "url/gurl.h"
 
 namespace browser_core {
 
@@ -42,6 +43,8 @@ struct SavedTab {
   // Up to Chrome's count of navigations each side of the current one, as its sessions keep.
   std::vector<sessions::SerializedNavigationEntry> history;
   int current = 0;
+  // A pinned tab's pinned URL.
+  GURL pinned_url;
 };
 
 struct SavedSpace {
@@ -112,6 +115,7 @@ Saved Collect() {
         if (id == shown) {
           to.shown = index;
         }
+        tab.pinned_url = space->PinnedUrl(id);
         tabs->push_back(std::move(tab));
         ++index;
       }
@@ -131,7 +135,13 @@ std::optional<std::string> ToJson(const Saved& saved) {
         navigation.WriteToPickle(kMaxNavigationSize, &pickle);
         history.Append(base::Base64Encode(pickle.AsBytes()));
       }
-      list.Append(base::DictValue().Set("history", std::move(history)).Set("current", tab.current));
+      base::DictValue dict;
+      dict.Set("history", std::move(history));
+      dict.Set("current", tab.current);
+      if (tab.pinned_url.is_valid()) {
+        dict.Set("pinned_url", tab.pinned_url.spec());
+      }
+      list.Append(std::move(dict));
     }
     return list;
   };
@@ -170,6 +180,9 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   tab.current = dict->FindInt("current").value_or(0);
   if (tab.current < 0 || tab.current >= static_cast<int>(tab.history.size())) {
     return std::nullopt;
+  }
+  if (const std::string* url = dict->FindString("pinned_url")) {
+    tab.pinned_url = GURL(*url);
   }
   return tab;
 }
@@ -354,8 +367,12 @@ bool RestoreSession(Window& window) {
     };
     const int pinned = static_cast<int>(saved_space.pinned.size());
     for (int j = 0; j < pinned; ++j) {
-      if (bc_id tab = restore(saved_space.pinned[j], j)) {
-        space->AddPinned(tab);
+      const SavedTab& saved_tab = saved_space.pinned[j];
+      if (bc_id tab = restore(saved_tab, j)) {
+        // Saved before pinned tabs kept their pinned URL, it's pinned where it is.
+        space->AddPinned(tab, saved_tab.pinned_url.is_valid()
+                                  ? saved_tab.pinned_url
+                                  : saved_tab.history[saved_tab.current].virtual_url());
       }
     }
     // Bottom up, as each goes at the top.

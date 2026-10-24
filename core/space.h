@@ -7,6 +7,7 @@
 
 #include "base/functional/function_ref.h"
 #include "browser_core/public/browser_core.h"
+#include "url/gurl.h"
 
 namespace browser_core {
 
@@ -32,6 +33,8 @@ class Space {
   const std::vector<bc_id>& today() const { return today_; }
   bool Has(bc_id tab) const;
   bool IsPinned(bc_id tab) const;
+  // Where |tab| was when it was pinned, which Back to Pinned URL goes to. Empty if it isn't pinned.
+  GURL PinnedUrl(bc_id tab) const;
 
   void SetName(std::string name);
 
@@ -39,10 +42,12 @@ class Space {
   // page in this Space opened goes in Chrome's place: right under its opener if it opened in front,
   // or under the tabs its opener already opened behind it. A pinned opener's tabs go at the top.
   void Add(bc_id tab, bc_id opener, bool foreground);
-  // Puts |tab| at the bottom of the pinned tabs.
-  void AddPinned(bc_id tab);
-  // Pins |tab|, a Today tab, at the bottom of the pinned tabs, or unpins it to the top of Today.
-  void SetPinned(bc_id tab, bool pinned);
+  // Puts |tab| at the bottom of the pinned tabs, pinned at |url|.
+  void AddPinned(bc_id tab, GURL url);
+  // Pins |tab|, a Today tab, at |url| at the bottom of the pinned tabs.
+  void Pin(bc_id tab, GURL url);
+  // Unpins |tab| to the top of Today.
+  void Unpin(bc_id tab);
   void Remove(bc_id tab);
 
   // The tab to show once |leaving| closes or, pinned, unloads. For a Today tab it's Chrome's order:
@@ -63,6 +68,7 @@ class Space {
   const bc_id id_;
   std::string name_;
   std::vector<bc_id> pinned_;
+  std::map<bc_id, GURL> pinned_urls_;
   std::vector<bc_id> today_;
   // Each tab a page opened, to the tab it came from.
   std::map<bc_id, bc_id> openers_;
