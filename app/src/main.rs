@@ -109,6 +109,20 @@ fn navigate(tab: u64, url: &str) {
     }
 }
 
+/// The page the address bar goes to for `text` typed in it: the one it names, else a search.
+fn typed_url(text: &str) -> Option<String> {
+    let text = CString::new(text).ok()?;
+    // Long enough for most, so the core reads what was typed once.
+    let mut url = vec![0u8; 2048];
+    let length = unsafe { bc::bc_typed_url(text.as_ptr(), url.as_mut_ptr().cast(), url.len()) };
+    if length >= url.len() {
+        url.resize(length + 1, 0);
+        unsafe { bc::bc_typed_url(text.as_ptr(), url.as_mut_ptr().cast(), url.len()) };
+    }
+    url.truncate(length);
+    (length > 0).then(|| String::from_utf8_lossy(&url).into_owned())
+}
+
 /// The shell's requests, as calls to the core. The core reports back once each call has returned.
 struct Engine {
     /// GPUI's view, which has the keyboard when the UI does.

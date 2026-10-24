@@ -164,6 +164,12 @@ BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 // is closing or gone.
 BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url);
 
+// Copies up to |capacity| bytes of the URL Chrome's address bar goes to for |text| typed in it into
+// |url|, UTF-8 and ending in a NUL, and returns the URL's length without it: the page |text| names,
+// else a search for it with the default search engine, DuckDuckGo until the user picks another.
+// Returns 0 if |text| names neither.
+BC_EXPORT size_t bc_typed_url(const char* text, char* url, size_t capacity);
+
 // Shows the tab's page at |frame| in its window, in place of the page the window showed. It keeps
 // its distance from the window's edges as the window resizes, and takes the keyboard if that page
 // had it. For a window that shows no Space; one that does uses bc_window_select.

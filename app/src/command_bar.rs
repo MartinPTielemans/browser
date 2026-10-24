@@ -8,7 +8,7 @@ use gpui::{
     prelude::*, px, rgb, size,
 };
 
-use crate::{navigate, ns_view, open_tab, platform};
+use crate::{navigate, ns_view, open_tab, platform, typed_url};
 
 actions!(command_bar, [Go, Dismiss]);
 
@@ -90,12 +90,11 @@ impl CommandBar {
         if text.is_empty() {
             return;
         }
-        let url = if text.contains("://") {
-            text.to_string()
-        } else {
-            format!("https://{text}")
+        // check.sh reads these lines.
+        eprintln!("browser: command bar typed {text}");
+        let Some(url) = typed_url(text) else {
+            return;
         };
-        // check.sh waits for this line.
         eprintln!("browser: command bar go {url}");
         match self.editing {
             Some(tab) => navigate(tab, &url),
