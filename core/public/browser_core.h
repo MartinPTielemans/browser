@@ -187,6 +187,15 @@ BC_EXPORT void bc_window_set_page_frame(bc_id window, bc_rect frame);
 // the keyboard if that page had it. Then window_selected.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
+// Clears the Space the window shows: closes its Today tabs, as bc_tab_close does, and keeps their
+// history for bc_window_undo_clear. If one was shown, the window shows the lowest pinned tab still
+// loaded, else no page, first. Returns how many tabs it closed.
+BC_EXPORT size_t bc_window_clear(bc_id window);
+
+// Brings back the tabs the window's last bc_window_clear closed, at the top of their Space's Today
+// tabs and unloaded, showing the one it closed shown. Once only. Then space_changed.
+BC_EXPORT void bc_window_undo_clear(bc_id window);
+
 // Opens a tab in the window, loading |url|, in the default profile, at the top of the Today tabs of
 // the Space it shows. It isn't shown until bc_window_select or bc_tab_show. Returns 0 if the window
 // is closing or gone.

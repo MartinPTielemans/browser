@@ -50,6 +50,8 @@ class Space {
   void Unpin(bc_id tab);
   void Remove(bc_id tab);
 
+  // The lowest pinned tab still |loaded|, else 0: the one to show once no Today tab is left.
+  bc_id LastLoadedPinned(base::FunctionRef<bool(bc_id)> loaded) const;
   // The tab to show once |leaving| closes or, pinned, unloads. For a Today tab it's Chrome's order:
   // a tab it opened, then another tab its opener opened, then its opener, then the tab below it,
   // then the one above, and after the last Today tab the lowest pinned tab still |loaded|. For a

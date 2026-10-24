@@ -92,6 +92,19 @@ impl Browser for Fake {
         });
     }
 
+    // As the core does, without the undo.
+    fn clear(&self, cx: &mut App) {
+        self.later(cx, |shell, cx| {
+            let pinned = shell.pinned().to_vec();
+            if shell.today().contains(&shell.selected()) {
+                shell.set_selected(pinned.last().copied().unwrap_or(0), cx);
+            }
+            shell.set_tabs(shell.space(), pinned, Vec::new(), cx);
+        });
+    }
+
+    fn undo_clear(&self, _: &mut App) {}
+
     // The made-up pages have no history to go through.
     fn back_to_pinned_url(&self, _: u64, _: &mut App) {}
 

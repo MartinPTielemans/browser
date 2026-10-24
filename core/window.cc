@@ -16,6 +16,7 @@
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_tabrestore.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/create_browser_window.h"
@@ -23,6 +24,7 @@
 #include "chrome/browser/ui/interaction/browser_elements.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
+#include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/interaction/browser_elements_views_impl.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
@@ -161,6 +163,18 @@ void Window::UnloadPinned(bc_id tab) {
     }
   }
   Tab::FromWebContents(contents)->Unload();
+}
+
+// static
+void Window::CloseTab(bc_id tab) {
+  content::WebContents* contents = Tab::FromId(tab);
+  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  if (!in) {
+    return;
+  }
+  TabStripModel* tabs = in->GetBrowserWindowInterface()->GetTabStripModel();
+  tabs->CloseWebContentsAt(tabs->GetIndexOfWebContents(contents),
+                           TabCloseTypes::CLOSE_USER_GESTURE);
 }
 
 // static
@@ -361,6 +375,73 @@ void Window::Select(bc_id tab) {
   selected_ = tab;
   Show(contents, page_frame_);
   ReportSelected();
+}
+
+size_t Window::Clear() {
+  Space* space = Space::FromId(space_);
+  if (!space || space->today().empty()) {
+    return 0;
+  }
+  const std::vector<bc_id> today = space->today();
+  Cleared cleared{.space = space_};
+  for (bc_id id : today) {
+    content::WebContents* contents = Tab::FromId(id);
+    SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
+    if (tab.history.empty()) {
+      continue;
+    }
+    if (id == selected_) {
+      cleared.shown = cleared.tabs.size();
+    }
+    cleared.tabs.emplace_back(id, std::move(tab));
+  }
+  // Another tab first, as when a pinned tab unloads, so no Today tab shows or loads on the way out.
+  if (std::ranges::contains(today, selected_)) {
+    if (bc_id next = space->LastLoadedPinned(&Tab::Loaded)) {
+      Select(next);
+    } else {
+      ShowNothing();
+    }
+  }
+  for (bc_id id : today) {
+    CloseTab(id);
+  }
+  cleared_ = std::move(cleared);
+  return today.size();
+}
+
+void Window::UndoClear() {
+  std::optional<Cleared> cleared = std::exchange(cleared_, std::nullopt);
+  Space* space = cleared ? Space::FromId(cleared->space) : nullptr;
+  // Chrome made the profile it starts with before the core's calls work.
+  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  if (!space || !profile) {
+    return;
+  }
+  bc_id shown = 0;
+  // Bottom up, as each goes at the top.
+  for (size_t i = cleared->tabs.size(); i-- > 0;) {
+    const auto& [id, saved] = cleared->tabs[i];
+    // Its page kept it open.
+    if (Tab::FromId(id)) {
+      continue;
+    }
+    content::WebContents* contents = RestoreTab(profile, saved.history, saved.current);
+    if (!contents) {
+      continue;
+    }
+    const bc_id tab = Tab::IdOf(contents);
+    Tab::FromWebContents(contents)->Restored();
+    space->Add(tab, /*opener=*/0, /*foreground=*/false);
+    if (static_cast<int>(i) == cleared->shown) {
+      shown = tab;
+    }
+  }
+  if (shown && space_ == space->id()) {
+    Select(shown);
+  } else if (shown) {
+    SetSelectedIn(space->id(), shown);
+  }
 }
 
 void Window::SelectAfterClosing(bc_id next) {

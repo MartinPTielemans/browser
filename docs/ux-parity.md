@@ -55,7 +55,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25 | Dia cap, Ardia |
-| [ ] | Clear divider line | MVP | 1 pt white ≈ 0.08, centre 25 above the first row's centre | Arc (Ardia) D›Arc note: Clear |
+| [x] | Clear divider line | MVP | 1 pt white ≈ 0.08, centre 25 above the first row's centre | Arc (Ardia) D›Arc note: Clear |
 | [ ] | Clear label and arrow | MVP | arrow 7 × 8, 3 pt from "Clear", semibold ≈ 10 pt, ends with the titles | Arc (Ardia) |
 | [ ] | Row pitch / height | MVP | 36 Arc (confirm) / Dia 37 and 34 | Arc (Ardia), Dia 1.50.1 bin |
 | [ ] | Row radius | MVP | min(h/3, 10) continuous | Dia 1.50.1 bin |
@@ -179,7 +179,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Clear (⇧⌘K and the divider button) | MVP | closes all Today tabs of the Space; pinned and favorites stay | Arc (Ardia) |
+| [x] | Clear (⇧⌘K and the divider button) | MVP | closes all Today tabs of the Space; pinned and favorites stay | Arc (Ardia) |
 | [ ] | Clear toast with Undo | MVP | Undo restores all in place; look and timing: measure | Arc (Ardia), Ardia |
 | [ ] | Clear unselected Today tabs | MVP | as Arc's `clearOthers` | Arc (Ardia) bin |
 | [ ] | Reopen closed tab ⇧⌘T | MVP | position, pin, group, name, icon, mute, back/forward | Dia P§2 |

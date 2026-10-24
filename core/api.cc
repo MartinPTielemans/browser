@@ -17,8 +17,6 @@
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
-#include "chrome/browser/ui/tabs/tab_enums.h"
-#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/reload_type.h"
@@ -155,6 +153,17 @@ void bc_window_select(bc_id window_id, bc_id tab) {
   }
 }
 
+size_t bc_window_clear(bc_id window_id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window ? window->Clear() : 0;
+}
+
+void bc_window_undo_clear(bc_id window_id) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->UndoClear();
+  }
+}
+
 bc_id bc_tab_open(bc_id window_id, const char* url) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   // Chrome made the profile it starts with before the core's calls work.
@@ -276,12 +285,5 @@ void bc_tab_close(bc_id id) {
     browser_core::Window::UnloadPinned(id);
     return;
   }
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  if (!tab) {
-    return;
-  }
-  TabStripModel* tabs = tab->GetBrowserWindowInterface()->GetTabStripModel();
-  tabs->CloseWebContentsAt(tabs->GetIndexOfWebContents(contents),
-                           TabCloseTypes::CLOSE_USER_GESTURE);
+  browser_core::Window::CloseTab(id);
 }

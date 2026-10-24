@@ -198,6 +198,10 @@ bc_id Space::NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> load
   if (index > 0) {
     return today_[index - 1];
   }
+  return LastLoadedPinned(loaded);
+}
+
+bc_id Space::LastLoadedPinned(base::FunctionRef<bool(bc_id)> loaded) const {
   auto pinned = std::find_if(pinned_.rbegin(), pinned_.rend(), loaded);
   return pinned != pinned_.rend() ? *pinned : 0;
 }

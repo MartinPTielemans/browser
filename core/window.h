@@ -3,6 +3,8 @@
 
 #include <map>
 #include <memory>
+#include <optional>
+#include <utility>
 #include <vector>
 
 #include "base/callback_list.h"
@@ -12,6 +14,7 @@
 #include "base/observer_list.h"
 #include "base/scoped_observation.h"
 #include "browser_core/public/browser_core.h"
+#include "browser_core/session.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "ui/gfx/geometry/rect.h"
@@ -62,6 +65,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static void UnloadPinned(bc_id tab);
   // As |space| goes: has each window that shows it show the Space before it, else the one after it.
   static void OnSpaceDeleting(bc_id space);
+  // Closes |tab| as the user does: its page gets its unload handlers, which may keep it open.
+  static void CloseTab(bc_id tab);
 
   Window(const Window&) = delete;
   Window& operator=(const Window&) = delete;
@@ -83,6 +88,13 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void SetPageFrame(const gfx::Rect& frame);
   // Shows |tab|, if it's one of this window's, at the page frame.
   void Select(bc_id tab);
+
+  // Closes the Today tabs of the Space the window shows, keeping their history for UndoClear. One
+  // shown goes first, for the lowest pinned tab still loaded, else no page. Returns how many.
+  size_t Clear();
+  // Brings back the tabs the last Clear closed, at the top of their Space's Today tabs and unloaded,
+  // showing the one it closed shown. Once only.
+  void UndoClear();
 
   // Opens a tab for |profile| loading |url|, not shown. Null while the window is closing or
   // Chromium is quitting.
@@ -124,6 +136,13 @@ class Window : public web_modal::WebContentsModalDialogHost,
     raw_ptr<BrowserWindowInterface> browser;
     base::CallbackListSubscription close_cancelled;
   };
+  struct Cleared {
+    bc_id space = 0;
+    // Each tab's id, which a page that kept itself open still has, and its history, top to bottom.
+    std::vector<std::pair<bc_id, SavedTab>> tabs;
+    // The one the window showed, or -1.
+    int shown = -1;
+  };
 
   Window(bc_id id, const gfx::Rect& bounds, void* ui_view);
 
@@ -155,6 +174,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::map<bc_id, bc_id> selected_in_space_;
   gfx::Rect page_frame_;
   std::map<Profile*, Held> browsers_;
+  std::optional<Cleared> cleared_;
   bool closing_ = false;
   bool opening_tab_ = false;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;

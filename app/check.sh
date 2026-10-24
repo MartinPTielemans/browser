@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app fourteen times and checks:
+# Runs the app fifteen times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -49,7 +49,10 @@
 #      Today tab does. Shown again, the tab loads. Away from its pinned URL, ⌘↩ from the page and
 #      the UI, and a click on its favicon, go back there. Launched again, the app brings back the
 #      pinned tab pinned and away from its pinned URL, without loading it.
-# Runs 2 to 10 need Browser to be the active app, and runs 4 and 9 take it full screen for a
+#  11. ⇧⌘K from the page and the UI, and Clear on the divider, close the Space's Today tabs and
+#      show the lowest pinned tab still loaded, with a toast that hides by itself. Its Undo brings
+#      the tabs back in place, showing the one shown and leaving the other unloaded.
+# Runs 2 to 11 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
@@ -344,7 +347,7 @@ open_from_bar() {
   expect '^browser: command bar shown$' "⌘T didn't open the command bar"
   send type "$1"
   send key return
-  expect "^browser: today [0-9]* $before\$" "the tab for $1 didn't open at the top of Today"
+  expect "^browser: today [0-9][0-9]*${before:+ $before}\$" "the tab for $1 didn't open at the top of Today"
   tab=$(today | cut -d' ' -f1)
   expect "^browser: selected $tab\$" "the tab for $1 wasn't shown"
   expect "^browser: loaded $tab https://$1/\$" "$1 didn't load in its tab"
@@ -355,9 +358,9 @@ switch() {
   expect "^browser: selected $2 in " "key $1 didn't show tab $2 of \"$(today)\""
 }
 # The center of row $1 of Today, counting from 0: rows are 41 apart under "+ New Tab", which is
-# under the Space's name, 44 tall and 90 below the window's top.
+# under the divider, 15 tall, and the Space's name, 44 tall and 90 below the window's top.
 row() {
-  echo "100 $((90 + 44 + 41 * ($1 + 1) + 20))"
+  echo "100 $((90 + 44 + 15 + 41 * ($1 + 1) + 20))"
 }
 
 await '^browser: today [0-9][0-9]*$' || fail "the first tab isn't in Today"
@@ -1301,11 +1304,15 @@ expect_lists "$c" "$a" "after ⌘D on a pinned tab"
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the unloaded pinned tab didn't show it"
 expect "^browser: loaded $c https://example.org/\$" "the unloaded pinned tab didn't load once shown"
-# Away from it, which leaves the page the keyboard, then back with ⌘↩ from side $1.
+# Away from it, then back with ⌘↩ from side $1, which a click gives the keyboard.
 away_and_back() {
   go_from_bar example.com
   expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
-  [ "$1" = ui ] && send click $sidebar_point
+  if [ "$1" = ui ]; then
+    send click $sidebar_point
+  else
+    send click $page_point
+  fi
   send key return cmd
   expect "^browser: command back-to-pinned-url via $1\$" "⌘↩ with the $1 focused didn't run Back to Pinned URL"
   expect "^browser: loaded $c https://example.org/\$" "⌘↩ with the $1 focused didn't load the pinned URL"
@@ -1363,5 +1370,82 @@ expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pi
 none_since "^browser: loaded $c https://example.com/" || fail "the unloaded tab loaded its old page on the way back"
 exec 3>&-
 quit
-kill "$server"
 echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. Windows: $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png"
+
+# Clear, from the served page and two more, with the served page pinned for it to leave.
+log="$out/clear.log"
+step=0
+rm -f "$saved"
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the Clear test page didn't draw"
+a=$(today)
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: Clear. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# Clear on the divider, which sits under the one pinned tab, and the toast's Undo, over the bottom
+# of the list in the 800 pt tall window.
+clear_point="200 185"
+undo_point="192 732"
+open_from_bar example.com
+b=$tab
+open_from_bar example.org
+c=$tab
+switch "3 cmd" "$a"
+send key d cmd
+expect_lists "$a" "$c $b" "after pinning the served page's tab"
+switch "2 cmd" "$c"
+
+# ⇧⌘K with the page focused closes the Today tabs and shows the pinned tab, without loading it.
+send key k cmd shift
+expect '^browser: command clear via page$' "⇧⌘K with the page focused didn't reach the UI"
+expect '^browser: toast cleared 2$' "Clear didn't show its toast for two tabs"
+expect "^browser: tab $c closed\$" "Clear didn't close the tab shown"
+expect "^browser: tab $b closed\$" "Clear didn't close the other Today tab"
+expect_lists "$a" " *" "after Clear"
+expect "^browser: selected $a\$" "Clear didn't show the pinned tab still loaded"
+none_since '^browser: loaded' || fail "Clear loaded a page"
+../tools/window-screenshot.sh "$pid" "$out/clear.png" || fail "no window to capture"
+
+# Undo brings them back in place, showing the one shown and leaving the other unloaded.
+send click $undo_point
+expect '^browser: command undo-clear via sidebar$' "a click on the toast's Undo didn't run it"
+expect '^browser: toast hidden$' "Undo left the toast"
+expect "^browser: today [0-9][0-9]* [0-9][0-9]*\$" "Undo didn't bring back two Today tabs: Today is \"$(today)\""
+c=$(today | cut -d' ' -f1)
+b=$(today | cut -d' ' -f2)
+expect "^browser: selected $c\$" "Undo didn't show the tab Clear closed shown"
+expect "^browser: loaded $c https://example.org/\$" "the tab Undo showed didn't load at its page"
+expect "^browser: page $b back 0 forward 0 loading 0 https://example.com/\$" "the other tab didn't come back at its page"
+expect "^browser: page $b unloaded 1\$" "the tab Undo didn't show came back loaded"
+none_since "^browser: loaded $b " || fail "the tab Undo didn't show loaded"
+
+# The divider's Clear, and the toast hides by itself.
+send click $clear_point
+expect '^browser: command clear via sidebar$' "a click on Clear didn't run it"
+expect '^browser: toast cleared 2$' "Clear on the divider didn't show its toast"
+expect_lists "$a" " *" "after Clear on the divider"
+expect '^browser: toast hidden$' "the toast didn't hide by itself"
+
+# ⇧⌘K with the UI focused, then with no Today tab left to clear.
+open_from_bar example.com
+d=$tab
+send click $sidebar_point
+send key k cmd shift
+expect '^browser: command clear via ui$' "⇧⌘K with the UI focused didn't run"
+expect "^browser: tab $d closed\$" "⇧⌘K with the UI focused didn't close the Today tab"
+expect "^browser: selected $a\$" "⇧⌘K with the UI focused didn't show the pinned tab"
+send key k cmd shift
+expect '^browser: command clear via ui$' "⇧⌘K without Today tabs didn't run"
+none_since '^browser: toast cleared' || fail "Clear without Today tabs showed a toast"
+exec 3>&-
+quit
+kill "$server"
+echo "ok: ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs and show the pinned tab still loaded, with a toast that hides by itself. Undo brings the tabs back in place, showing the one shown and leaving the other unloaded. Window: $out/clear.png"
