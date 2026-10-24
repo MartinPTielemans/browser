@@ -76,7 +76,10 @@ void AddWindowViews(views::Widget* widget, void* ui_view) {
   content.embeddedView = view;
 }
 
-void ShowPage(views::Widget* widget, gfx::NativeView page, const gfx::Rect& frame) {
+void ShowPage(views::Widget* widget,
+              gfx::NativeView page,
+              const gfx::Rect& frame,
+              double corner_radius) {
   BrowserCoreWindowView* view = WindowView(widget);
   NSView* page_view = page.GetNativeNSView();
   for (NSView* subview in [view.subviews copy]) {
@@ -92,6 +95,10 @@ void ShowPage(views::Widget* widget, gfx::NativeView page, const gfx::Rect& fram
   // A background tab's page view starts hidden, and Chrome's views host shows it. Hidden, the page
   // never draws, and Chromium drops the keys it doesn't use instead of passing them to the window.
   page_view.hidden = NO;
+  // Clipped by Core Animation, which rounds the compositor's layers under it without redrawing them.
+  page_view.wantsLayer = YES;
+  page_view.layer.cornerRadius = corner_radius;
+  page_view.layer.masksToBounds = corner_radius > 0;
   if (page_view.superview != view) {
     [view addSubview:page_view];
   }

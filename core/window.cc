@@ -353,7 +353,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
   // new page takes it.
-  platform::ShowPage(widget_.get(), contents->GetNativeView(), frame);
+  platform::ShowPage(widget_.get(), contents->GetNativeView(), frame, page_corner_radius_);
   shown_ = contents->GetWeakPtr();
   FocusPageSoon();
 }
@@ -403,12 +403,13 @@ void Window::SetSelectedIn(bc_id space, bc_id tab) {
 void Window::ShowNothing() {
   selected_ = 0;
   shown_ = nullptr;
-  platform::ShowPage(widget_.get(), gfx::NativeView(), page_frame_);
+  platform::ShowPage(widget_.get(), gfx::NativeView(), page_frame_, page_corner_radius_);
   ReportSelected();
 }
 
-void Window::SetPageFrame(const gfx::Rect& frame) {
+void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
   page_frame_ = frame;
+  page_corner_radius_ = corner_radius;
   if (shown_) {
     Show(shown_.get(), frame);
   }

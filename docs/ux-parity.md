@@ -19,7 +19,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)` | Dia 1.50.1 cap |
 | [ ] | Inactive, Reduce Transparency, Increase Contrast | MVP | opaque wallpaper-tinted fill (AppKit) | Dia 1.50.1 cap |
 | [ ] | Card inset | MVP | 10 on every side, docked or hidden | Arc (Ardia) rec |
-| [ ] | Card radius | MVP | 10 continuous *interim*; Arc: measure | Dia cap |
+| [x] | Card radius | MVP | 6, circular, on the card and the page in it | Arc cap |
 | [ ] | Traffic lights | MVP | centre y 23.75; x measure | Arc (Ardia) P§4 |
 | [ ] | Page before first paint | MVP | card colour over the tint, never white | Ardia P§7 |
 | [ ] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |

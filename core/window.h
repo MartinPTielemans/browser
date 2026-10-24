@@ -87,8 +87,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id SelectedIn(bc_id space) const;
   // Has ShowSpace show |tab| in |space|, as if the window showed it there last.
   void SetSelectedIn(bc_id space, bc_id tab);
-  // Where the selected tab's page goes, in the window.
-  void SetPageFrame(const gfx::Rect& frame);
+  // Where the selected tab's page goes, in the window, and the radius of its corners.
+  void SetPageFrame(const gfx::Rect& frame, double corner_radius);
   // Shows |tab|, if it's one of this window's, at the page frame, and its Space if the window shows
   // another.
   void Select(bc_id tab);
@@ -186,6 +186,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The tab each Space the window showed had shown when it left that Space.
   std::map<bc_id, bc_id> selected_in_space_;
   gfx::Rect page_frame_;
+  double page_corner_radius_ = 0;
   std::map<Profile*, Held> browsers_;
   Cleared cleared_;
   // Made when the command bar first asks for suggestions.

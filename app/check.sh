@@ -611,12 +611,17 @@ check_layout() {
   layout=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout')
   content=$(echo "$layout" | sed 's/^browser: layout content \([0-9]*x[0-9]*\),.*/\1/')
   view=$(echo "$layout" | sed -n 's/.*WebContentsViewCocoa \([0-9,]* [0-9x]*\).*/\1/p')
+  radius=$(echo "$layout" | sed -n 's/.*WebContentsViewCocoa [0-9,]* [0-9x]* radius \([0-9]*\).*/\1/p')
   ui=$(echo "$layout" | sed -n 's/.*GPUIView \([0-9,]* [0-9x]*\).*/\1/p')
   width=${content%x*}
   height=${content#*x}
   expected="228,10 $((width - 238))x$((height - 20))"
-  [ "${2:-}" = fills ] && expected="0,0 $content"
+  # Rounded as the card's corners, square when it fills the window.
+  expected_radius=6
+  [ "${2:-}" = fills ] && expected="0,0 $content" && expected_radius=
   [ "$view" = "$expected" ] || fail "$1: the page view is at $view in a $content window"
+  [ "$radius" = "$expected_radius" ] ||
+    fail "$1: the page's corners have a radius of ${radius:-0}, not ${expected_radius:-0}"
   [ "$ui" = "0,0 $content" ] || fail "$1: GPUI's view is at $ui in a $content window"
 }
 # The window's buttons sit in the header row, where Arc's do. In full screen they come down with

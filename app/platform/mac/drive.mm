@@ -245,6 +245,9 @@ void AppendViews(NSMutableString* line, NSView* content, NSView* parent) {
     NSRect frame = [parent convertRect:view.frame toView:content];
     [line appendFormat:@", %@ %.0f,%.0f %.0fx%.0f", NSStringFromClass(view.class),
                        NSMinX(frame), NSMinY(frame), NSWidth(frame), NSHeight(frame)];
+    if (view.layer.masksToBounds && view.layer.cornerRadius > 0) {
+      [line appendFormat:@" radius %.0f", view.layer.cornerRadius];
+    }
   }
 }
 

@@ -24,9 +24,12 @@ views::NativeWidget* NewNativeWidget(views::Widget* widget);
 // them: an NSView on the Mac, or null.
 void AddWindowViews(views::Widget* widget, void* ui_view);
 
-// Shows |page| at |frame|, from the top-left of the window's content, in place of the page shown. A
-// null |page| shows none.
-void ShowPage(views::Widget* widget, gfx::NativeView page, const gfx::Rect& frame);
+// Shows |page| at |frame|, from the top-left of the window's content, with corners of
+// |corner_radius|, in place of the page shown. A null |page| shows none.
+void ShowPage(views::Widget* widget,
+              gfx::NativeView page,
+              const gfx::Rect& frame,
+              double corner_radius);
 
 // Whether the keyboard in |widget|'s window is the page's: in the page shown, or in nothing, as
 // when the window opens or the page view that had it left the window.

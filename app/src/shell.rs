@@ -24,7 +24,9 @@ use crate::text_input::TextInput;
 pub const SIDEBAR_WIDTH: f32 = 228.;
 /// The card's inset from the window's top, right and bottom edges.
 pub const CARD_INSET: f32 = 10.;
-const CARD_RADIUS: f32 = 6.;
+/// The radius of the card's corners and the page's in it: Arc's, a circle of 12 pixels in its
+/// window at 2×.
+pub const CARD_RADIUS: f32 = 6.;
 
 // The header's buttons: their plates' tops and left edges, from the window's.
 const NAV_TOP: f32 = 7.5;
