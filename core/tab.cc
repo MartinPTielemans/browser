@@ -6,6 +6,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "browser_core/host.h"
+#include "browser_core/window.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "url/gurl.h"
@@ -63,6 +64,7 @@ void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause
 }
 
 void Tab::WebContentsDestroyed() {
+  Window::OnTabClosing(id_);
   if (Host().tab_closed) {
     Host().tab_closed(Host().context, id_);
   }

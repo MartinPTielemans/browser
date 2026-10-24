@@ -85,6 +85,9 @@ void ShowPage(views::Widget* widget, gfx::NativeView page, const gfx::Rect& fram
     }
   }
   page_view.autoresizingMask = NSViewNotSizable;
+  // A background tab's page view starts hidden, and Chrome's views host shows it. Hidden, the page
+  // never draws, and Chromium drops the keys it doesn't use instead of passing them to the window.
+  page_view.hidden = NO;
   if (page_view.superview != view) {
     [view addSubview:page_view];
   }

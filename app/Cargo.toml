@@ -1,0 +1,28 @@
+[package]
+name = "browser"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+# The browser: the UI on our engine, in build/Browser.app.
+[[bin]]
+name = "Browser"
+path = "src/main.rs"
+
+# The UI alone with made-up tabs, for working on how it looks without the engine.
+[[bin]]
+name = "preview"
+path = "src/preview.rs"
+
+[dependencies]
+gpui = { path = ".deps/zed/crates/gpui" }
+gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
+gpui_platform = { path = ".deps/zed/crates/gpui_platform", features = ["font-kit", "runtime_shaders"] }
+raw-window-handle = "0.6"
+unicode-segmentation = "1.10"
+
+[build-dependencies]
+# 0.73 accepts syn 3 but only builds with syn 2, which 0.72 asks for.
+bindgen = "0.72"
+cc = "1"
