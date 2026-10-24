@@ -8,6 +8,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
+#include "browser_core/session.h"
 #include "browser_core/window.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "content/public/browser/favicon_status.h"
@@ -58,6 +59,18 @@ Tab::~Tab() {
   Tabs().erase(id_);
 }
 
+void Tab::Restored() {
+  StateChanged();
+  // Posted, as the state is, so the app hears of it once its call has returned.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Tab::ReportTitle, weak_factory_.GetWeakPtr()));
+  // Pages don't load until shown, and Chrome finds a favicon once a page commits.
+  if (auto* driver = favicon::ContentFaviconDriver::FromWebContents(web_contents())) {
+    driver->FetchFavicon(web_contents()->GetController().GetLastCommittedEntry()->GetURL(),
+                         /*is_same_document=*/false);
+  }
+}
+
 void Tab::DidStartNavigation(content::NavigationHandle* navigation) {
   if (navigation->IsInPrimaryMainFrame()) {
     StateChanged();
@@ -83,6 +96,7 @@ void Tab::NavigationEntriesDeleted() {
 }
 
 void Tab::StateChanged() {
+  SessionChanged();
   if (state_report_posted_) {
     return;
   }
@@ -153,6 +167,11 @@ void Tab::DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) {
 }
 
 void Tab::TitleWasSet(content::NavigationEntry* entry) {
+  SessionChanged();
+  ReportTitle();
+}
+
+void Tab::ReportTitle() {
   if (Host().tab_title_changed) {
     const std::string title = base::UTF16ToUTF8(web_contents()->GetTitle());
     Host().tab_title_changed(Host().context, id_, title.c_str());

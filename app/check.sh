@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app seven times and checks:
+# Runs the app ten times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -31,7 +31,11 @@
 #      ⌃1–⌃9, ⌥⌘← and ⌥⌘→, with the page or the UI focused, and clicks on the switcher's dots show
 #      another Space, which shows the tab it showed last. Return with no name does nothing, New
 #      Space shows a form already open, and Cancel deletes its Space and goes back.
-# Runs 2 to 7 need Browser to be the active app, and run 4 takes it full screen for a moment.
+#   8. Launched again after ⌘Q, and again after its window's close button, the app brings back
+#      the Spaces: their names, their tabs with each tab's history, the tab each showed and the
+#      Space it showed. Only a tab shown loads; the others show their titles and favicons. A tab
+#      closed before the quit stays closed. Reports how long putting them back takes.
+# Runs 2 to 8 need Browser to be the active app, and run 4 takes it full screen for a moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
 set -e
@@ -45,6 +49,8 @@ if pgrep -f "$app/Contents" > /dev/null; then
 fi
 rm -rf "$out"
 mkdir -p "$out"
+# The Spaces the app saves for its next launch. Each run starts without them, but the relaunches.
+saved="$HOME/Library/Caches/browser-app/Spaces.json"
 # After a failure, nothing the check started keeps running.
 cleanup() {
   # The server may be gone already, and under set -e a failed kill would end the trap here.
@@ -107,6 +113,7 @@ quit() {
 }
 
 log="$out/load.log"
+rm -f "$saved"
 "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
 pid=$!
 await_load
@@ -130,6 +137,7 @@ addEventListener("keydown", e => {
 </script>'
 log="$out/keys.log"
 mkfifo "$out/drive"
+rm -f "$saved"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -289,6 +297,7 @@ page='data:text/html,<title>loading</title>
 log="$out/tabs.log"
 trace="$PWD/$out/trace.json"
 step=0
+rm -f "$saved"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" --enable-tracing=latency \
   --enable-tracing-format=json --trace-startup-file="$trace" < "$out/drive" > "$log" 2>&1 &
 pid=$!
@@ -465,6 +474,7 @@ HTML
 )
 log="$out/window.log"
 step=0
+rm -f "$saved"
 BROWSER_DRIVE=1 BROWSER_URL="data:text/html;base64,$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -602,6 +612,7 @@ addEventListener("keydown", e => e.key == "p" && open("https://example.com/", ""
 </script>'
 log="$out/popup.log"
 step=0
+rm -f "$saved"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -641,6 +652,7 @@ page='data:text/html,<title>loading</title>
 <script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
 log="$out/history.log"
 step=0
+rm -f "$saved"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" \
   --host-resolver-rules="MAP stuck.test 127.0.0.1:$(cat "$out/port")" < "$out/drive" > "$log" 2>&1 &
 pid=$!
@@ -743,6 +755,7 @@ page='data:text/html,<title>loading</title>
 <script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
 log="$out/spaces.log"
 step=0
+rm -f "$saved"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -859,3 +872,148 @@ quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
 echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; Cancel deletes a new Space and goes back."
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
+
+# The Spaces come back after a quit and after the window closes: their names, their tabs with each
+# tab's history, the tab each showed and the Space the window showed. Only a tab shown loads, and
+# one that doesn't shows its title and its favicon from the profile's history, which keeps none
+# for data: pages, so the first page is served. A tab the user closed stays closed.
+mkdir "$out/site"
+printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>' > "$out/site/index.html"
+printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
+  base64 -D > "$out/site/icon.png"
+python3 -I -u -m http.server 0 --bind 127.0.0.1 --directory "$out/site" > "$out/site.log" 2>&1 &
+server=$!
+for _ in $(seq 50); do
+  grep -q '^Serving HTTP' "$out/site.log" && break
+  sleep 0.1
+done
+port=$(sed -n 's/^Serving HTTP on .* port \([0-9]*\) .*/\1/p' "$out/site.log")
+[ -n "$port" ] || fail "the page server didn't start"
+site="http://127.0.0.1:$port/"
+log="$out/restore.log"
+step=0
+rm -f "$saved"
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the restore test page didn't draw"
+first=$(space)
+a=$(today)
+tab=$a
+await "^browser: favicon $a [1-9][0-9]* bytes\$" || fail "the served page's favicon didn't reach the UI"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: restoring Spaces. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# Tab a goes to two pages and back to the first, so it has pages to go forward to.
+go_from_bar example.com
+expect_page example.com 1 0 "after loading a page"
+go_from_bar example.org
+expect_page example.org 1 0 "after loading another"
+history_key left back page
+expect_page example.com 1 1 "after going back"
+history_key left back page
+expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "tab a didn't go back to the first page"
+open_from_bar example.net
+c=$tab
+open_from_bar example.org
+send key w cmd
+expect_tabs "$c $a" "$c" "after ⌘W closed the tab for example.org"
+send menu New Space…
+expect "^browser: spaces $first [0-9]*\$" "New Space didn't make a second Space"
+second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
+send type reading list
+send key return
+expect "^browser: create space $second reading list\$" "return didn't name the Space"
+send key t cmd
+expect '^browser: command bar shown$' "⌘T in the new Space didn't open the command bar"
+send type example.com
+send key return
+expect '^browser: today [0-9][0-9]*$' "the tab for example.com didn't open in the new Space"
+e=$(today)
+expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in the new Space's tab"
+send key 1 ctrl
+expect "^browser: space $first in " "⌃1 didn't show the first Space"
+expect_tabs "$c $a" "$c" "back in the first Space"
+# ⌘Q is the driver's last command: the app doesn't report it done.
+echo "key q cmd" >&3
+exec 3>&-
+await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
+exited
+
+# Launched again, the app shows the first Space with the tab for example.net, and tab a under it
+# at the served page, unloaded.
+log="$out/restored.log"
+step=0
+BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored in ' || fail "the relaunch didn't restore the Spaces"
+await '^browser: spaces [0-9]* [0-9]*$' || fail "the relaunch didn't bring back two Spaces"
+first=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f3)
+second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
+grep -q "^browser: added space $first Space 1\$" "$log" || fail "the first Space came back without its name"
+grep -q "^browser: added space $second reading list\$" "$log" || fail "the second Space came back without its name"
+await "^browser: space $first\$" || fail "the relaunch didn't show the first Space"
+# Without the tab closed before the quit.
+await '^browser: today [0-9]* [0-9]*$' || fail "the first Space didn't come back with its two tabs"
+c=$(today | cut -d' ' -f1)
+a=$(today | cut -d' ' -f2)
+await "^browser: selected $c\$" || fail "the first Space didn't show the tab it showed last"
+await "^browser: loaded $c https://example.net/\$" || fail "the tab shown didn't load"
+await "^browser: page $a back 0 forward 1 loading 0 $site\$" ||
+  fail "tab a didn't come back at its page with history: $(grep "^browser: page $a" "$log" | tail -1)"
+await "^browser: title $a ready\$" || fail "tab a didn't come back with its title"
+await "^browser: favicon $a [1-9][0-9]* bytes\$" || fail "tab a didn't come back with its favicon"
+grep -q "^browser: loaded $a " "$log" && fail "tab a loaded without being shown"
+await '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' ||
+  fail "the second Space's tab didn't come back at example.com"
+e=$(grep -m1 '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' "$log" | cut -d' ' -f3)
+grep -q "^browser: loaded $e " "$log" && fail "the second Space's tab loaded without being shown"
+../tools/window-screenshot.sh "$pid" "$out/restored.png" || fail "no window to capture"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: restored history. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+switch "2 cmd" "$a"
+expect "^browser: loaded $a $site\$" "tab a didn't load once shown"
+tab=$a
+history_key right forward page
+expect_page example.com 1 1 "going forward in tab a's restored history"
+send key 2 ctrl
+expect "^browser: space $second in " "⌃2 didn't show the second Space"
+expect_tabs "$e" "$e" "in the second Space"
+expect "^browser: loaded $e https://example.com/\$" "the second Space's tab didn't load once shown"
+# The window's close button, which ends the app too: the driver doesn't report it done.
+echo "click 20 24" >&3
+exec 3>&-
+await '^browser: window closed$' || fail "a click on the close button didn't close the window"
+exited
+
+# Closing the window kept them too, and the second Space shows.
+log="$out/restored-again.log"
+"$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+pid=$!
+await '^browser: restored in ' || fail "the launch after closing the window didn't restore the Spaces"
+await '^browser: spaces [0-9]* [0-9]*$' || fail "closing the window didn't keep both Spaces"
+second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
+await "^browser: space $second\$" || fail "the launch after closing the window didn't show the second Space"
+await '^browser: today [0-9]*$' || fail "the second Space didn't come back with its tab"
+await "^browser: loaded $(today) https://example.com/\$" || fail "the second Space's tab didn't load"
+await '^browser: page [0-9]* back 1 forward 1 loading 0 https://example.com/$' ||
+  fail "tab a didn't keep the page it went forward to"
+quit
+kill "$server"
+restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restored.log" "$out/restored-again.log" | tr '\n' ' ')
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, tabs, history and the tab each showed, in the Space shown last; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed."
+echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"

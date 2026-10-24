@@ -412,6 +412,7 @@ impl Shell {
             .into_iter()
             .map(|(id, name)| {
                 let Some(space) = old.iter_mut().find(|space| space.id == id) else {
+                    eprintln!("browser: added space {id} {name}");
                     return Space { id, name, today: Vec::new() };
                 };
                 if space.name != name {

@@ -12,6 +12,7 @@
 #include "base/no_destructor.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
+#include "browser_core/session.h"
 
 namespace browser_core {
 
@@ -25,6 +26,7 @@ std::map<bc_id, std::unique_ptr<Space>>& Spaces() {
 
 // Posted, like a Space's changes.
 void ReportSpacesChanged() {
+  SessionChanged();
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce([] {
         if (Host().spaces_changed) {
@@ -162,6 +164,7 @@ bc_id Space::NearestOpenedBy(bc_id opener, size_t index) const {
 }
 
 void Space::ReportChanged() {
+  SessionChanged();
   // Posted: the app often changed the Space itself, and hears of it once its call has returned.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(

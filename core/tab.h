@@ -25,6 +25,10 @@ class Tab : public content::WebContentsObserver,
   Tab& operator=(const Tab&) = delete;
   ~Tab() override;
 
+  // For a tab put back without loading: tells the app its page's URL, history and title as they
+  // were, and finds its favicon among the profile's.
+  void Restored();
+
  private:
   friend class content::WebContentsUserData<Tab>;
 
@@ -54,6 +58,7 @@ class Tab : public content::WebContentsObserver,
   void ReportState();
   // Within ReportState, if the favicon the tab shows changed.
   void ReportFavicon(bool loading);
+  void ReportTitle();
 
   const bc_id id_;
   bool state_report_posted_ = false;

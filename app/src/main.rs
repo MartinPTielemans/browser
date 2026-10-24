@@ -7,6 +7,7 @@ use std::{
     ffi::{CStr, CString, c_char, c_int, c_void},
     rc::Rc,
     sync::Arc,
+    time::Instant,
 };
 
 use browser::shell::{self, Browser, Command, Page, Shell};
@@ -224,7 +225,7 @@ unsafe extern "C" fn tab_key_unhandled(
 }
 
 /// Opens the browser window centered on the main display, with `ui_view` filling it under the
-/// page, showing the first Space.
+/// page.
 fn open_browser_window(ui_view: *mut c_void) -> bool {
     let (width, height) = WINDOW_SIZE;
     let (mut x, mut y) = (0., 0.);
@@ -239,12 +240,33 @@ fn open_browser_window(ui_view: *mut c_void) -> bool {
     if window == 0 {
         return false;
     }
-    unsafe { bc::bc_window_show_space(window, create_space("Space 1")) };
     WINDOW.set(window);
     true
 }
 
-/// Opens the browser window, the shell inside it under the page, and the first tab.
+/// Shows the Spaces as the user left them, else a first Space with the first tab. A page given in
+/// BROWSER_URL opens on top either way.
+fn restore_spaces() {
+    let window = WINDOW.get();
+    let start = Instant::now();
+    let restored = unsafe { bc::bc_window_restore(window) };
+    if restored {
+        // check.sh reads this line.
+        eprintln!(
+            "browser: restored in {:.1} ms",
+            start.elapsed().as_secs_f64() * 1000.
+        );
+    } else {
+        unsafe { bc::bc_window_show_space(window, create_space("Space 1")) };
+    }
+    match std::env::var("BROWSER_URL") {
+        Ok(url) => open_tab(&url),
+        Err(_) if !restored => open_tab(START_URL),
+        Err(_) => {}
+    }
+}
+
+/// Opens the browser window, the shell inside it under the page, and its Spaces.
 fn open_window(cx: &mut App) {
     let ui_view = unsafe { platform::host_ui_view() };
     if !open_browser_window(ui_view) {
@@ -275,8 +297,8 @@ fn open_window(cx: &mut App) {
                 .ok();
             unsafe { platform::host_show_window(ui_view) };
             command_bar::open(cx);
-            let url = std::env::var("BROWSER_URL").unwrap_or_else(|_| START_URL.into());
-            open_tab(&url);
+            // Once the page frame is set, so the tab shown loads at its size.
+            restore_spaces();
         }
         Err(error) => {
             eprintln!("couldn't open the window: {error}");

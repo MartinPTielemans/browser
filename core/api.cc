@@ -5,6 +5,7 @@
 
 #include "browser_core/main_delegate.h"
 #include "browser_core/public/browser_core.h"
+#include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -42,6 +43,11 @@ void bc_quit(void) {
 bc_id bc_window_open(bc_rect bounds, void* ui_view) {
   browser_core::Window* window = browser_core::Window::Open(ToRect(bounds), ui_view);
   return window ? window->id() : 0;
+}
+
+bool bc_window_restore(bc_id id) {
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  return window && browser_core::RestoreSession(*window);
 }
 
 void bc_window_close(bc_id id) {
