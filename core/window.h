@@ -64,8 +64,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Unloads |tab|, a pinned tab, which stays in its Space: each window that showed it shows the tab
   // its Space picks next, else no page.
   static void UnloadPinned(bc_id tab);
-  // As |space| goes: has each window that shows it show the Space before it, else the one after it.
-  static void OnSpaceDeleting(bc_id space);
+  // Has each window that shows |space| show the Space before it, else the one after it, and closes
+  // its tabs. The Space goes with the last of them. False, doing nothing, if it's the last Space
+  // not going.
+  static bool DeleteSpace(bc_id space);
   // Closes |tab| as the user does: its page gets its unload handlers, which may keep it open.
   static void CloseTab(bc_id tab);
 

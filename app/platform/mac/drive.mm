@@ -6,6 +6,7 @@
 //
 //   click <x> <y>                         left click, in points from the window's top-left corner
 //   doubleclick <x> <y>                   two left clicks, the second with a click count of 2
+//   rightclick <x> <y>                    a right click
 //   clickkey <x> <y>                      a left click in the key window, such as the command bar
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
 //   move <x> <y>                          moves the pointer to (x, y), without a button down
@@ -22,6 +23,8 @@
 //                                         zoom buttons
 //   state                                 nothing, for the done line's report
 //   menu <title>                          chooses the main menu's item titled <title>
+//   choose <title>                        chooses the item titled <title> in the menu a right
+//                                         click showed, or the button in the alert shown
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
@@ -83,7 +86,7 @@ NSWindow* MainWindow() {
 }
 
 void PostMouse(NSWindow* window, NSEventType type, double x, double y, int count) {
-  [NSApp postEvent:[NSEvent mouseEventWithType:type
+  NSEvent* event = [NSEvent mouseEventWithType:type
                                       location:NSMakePoint(x, NSHeight(window.frame) - y)
                                  modifierFlags:0
                                      timestamp:NSProcessInfo.processInfo.systemUptime
@@ -91,8 +94,15 @@ void PostMouse(NSWindow* window, NSEventType type, double x, double y, int count
                                        context:nil
                                    eventNumber:0
                                     clickCount:count
-                                      pressure:1]
-           atStart:NO];
+                                      pressure:1];
+  // AppKit gives every event it makes button 0, and GPUI takes the button from the number.
+  if (type == NSEventTypeRightMouseDown || type == NSEventTypeRightMouseUp) {
+    CGEventRef right = CGEventCreateCopy(event.CGEvent);
+    CGEventSetIntegerValueField(right, kCGMouseEventButtonNumber, kCGMouseButtonRight);
+    event = [NSEvent eventWithCGEvent:right];
+    CFRelease(right);
+  }
+  [NSApp postEvent:event atStart:NO];
 }
 
 void Click(NSWindow* window, double x, double y, int count) {
@@ -304,6 +314,16 @@ bool Run(const std::string& line, void (^done)(void)) {
     done();
     return true;
   }
+  if (action == "rightclick") {
+    double x, y;
+    if (!(words >> x >> y)) {
+      return false;
+    }
+    PostMouse(window, NSEventTypeRightMouseDown, x, y, 1);
+    PostMouse(window, NSEventTypeRightMouseUp, x, y, 1);
+    done();
+    return true;
+  }
   if (action == "doubleclick") {
     double x, y;
     if (!(words >> x >> y)) {
@@ -391,6 +411,14 @@ bool Run(const std::string& line, void (^done)(void)) {
       }
     }
     return false;
+  }
+  if (action == "choose") {
+    if (!host_choose(line.substr(std::min(line.size(), action.size() + 1)).c_str())) {
+      return false;
+    }
+    // Once the menu or alert has closed, which GCD's main queue waits for.
+    dispatch_async(dispatch_get_main_queue(), done);
+    return true;
   }
   if (action == "ime") {
     std::string state;
@@ -504,7 +532,9 @@ void drive_start(void) {
       std::string line(buffer);
       line.erase(line.find_last_not_of("\r\n") + 1);
       long n = ++number;
-      dispatch_async(dispatch_get_main_queue(), ^{
+      // In the run loop's common modes, so a command also runs while a menu is open. GCD's main
+      // queue waits until it closes.
+      CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes, ^{
         fprintf(stderr, "browser: drive %ld: %s\n", n, line.c_str());
         if (!Run(line, ^{
               PostDone(n);
@@ -513,6 +543,7 @@ void drive_start(void) {
           PostDone(n);
         }
       });
+      CFRunLoopWakeUp(CFRunLoopGetMain());
     }
   }).detach();
 }

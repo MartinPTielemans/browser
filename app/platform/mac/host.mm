@@ -5,6 +5,30 @@
 
 #include "host.h"
 
+// Takes the menu's choice, and says when it shows.
+@interface HostMenuTarget : NSObject <NSMenuDelegate>
+@property(nonatomic) NSInteger chosen;
+@end
+
+@implementation HostMenuTarget
+@synthesize chosen = _chosen;
+
+- (void)choose:(NSMenuItem*)item {
+  self.chosen = item.tag;
+}
+
+- (void)menuWillOpen:(NSMenu*)menu {
+  // check.sh waits for this line before it chooses.
+  NSMutableArray<NSString*>* titles = [NSMutableArray array];
+  for (NSMenuItem* item in menu.itemArray) {
+    [titles addObject:item.enabled ? item.title
+                                   : [item.title stringByAppendingString:@" (disabled)"]];
+  }
+  fprintf(stderr, "browser: menu shown %s\n",
+          [titles componentsJoinedByString:@", "].UTF8String);
+}
+@end
+
 namespace {
 
 // The browser window, once shown.
@@ -26,6 +50,10 @@ double g_find_bar_top;
 // or from a click, and the user hasn't clicked the browser window since. AppKit also makes it key
 // when the command bar closes, which isn't the user choosing it.
 bool g_find_bar_keyboard = false;
+
+// The menu or alert showing, for host_choose.
+NSMenu* g_menu;
+NSAlert* g_alert;
 
 // The main display, or with BROWSER_DISPLAY=builtin the Mac's own, so a check doesn't open over
 // what the owner is watching on another.
@@ -263,4 +291,57 @@ void host_hide_find_bar(void) {
 void host_focus(void* view) {
   NSView* ns_view = (__bridge NSView*)view;
   [ns_view.window makeFirstResponder:ns_view];
+}
+
+int host_menu(const host_menu_item* items, size_t count, double x, double y) {
+  HostMenuTarget* target = [[HostMenuTarget alloc] init];
+  target.chosen = -1;
+  NSMenu* menu = [[NSMenu alloc] init];
+  menu.autoenablesItems = NO;
+  menu.delegate = target;
+  for (size_t i = 0; i < count; ++i) {
+    NSMenuItem* item = [menu addItemWithTitle:@(items[i].title)
+                                       action:@selector(choose:)
+                                keyEquivalent:@""];
+    item.target = target;
+    item.tag = static_cast<NSInteger>(i);
+    item.enabled = items[i].enabled;
+  }
+  NSView* view = g_window.contentView;
+  NSPoint at = NSMakePoint(x, view.flipped ? y : NSHeight(view.bounds) - y);
+  g_menu = menu;
+  [menu popUpMenuPositioningItem:nil atLocation:at inView:view];
+  g_menu = nil;
+  return static_cast<int>(target.chosen);
+}
+
+bool host_confirm(const char* message, const char* detail, const char* action) {
+  NSAlert* alert = [[NSAlert alloc] init];
+  alert.messageText = @(message);
+  alert.informativeText = @(detail);
+  [alert addButtonWithTitle:@(action)].hasDestructiveAction = YES;
+  [alert addButtonWithTitle:@"Cancel"];
+  g_alert = alert;
+  fprintf(stderr, "browser: alert shown %s\n", message);
+  NSModalResponse response = [alert runModal];
+  g_alert = nil;
+  return response == NSAlertFirstButtonReturn;
+}
+
+bool host_choose(const char* title) {
+  NSString* chosen = @(title);
+  for (NSMenuItem* item in g_menu.itemArray) {
+    if ([item.title isEqual:chosen] && item.enabled) {
+      [g_menu performActionForItemAtIndex:[g_menu indexOfItem:item]];
+      [g_menu cancelTracking];
+      return true;
+    }
+  }
+  for (NSButton* button in g_alert.buttons) {
+    if ([button.title isEqual:chosen]) {
+      [button performClick:nil];
+      return true;
+    }
+  }
+  return false;
 }

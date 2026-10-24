@@ -96,6 +96,13 @@ impl TextInput {
         self
     }
 
+    /// Starts with `text` in the field, all selected.
+    pub fn with_text(mut self, text: SharedString) -> Self {
+        self.selected_range = 0..text.len();
+        self.content = text;
+        self
+    }
+
     pub fn text(&self) -> &str {
         &self.content
     }
