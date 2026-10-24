@@ -55,7 +55,7 @@ typedef struct bc_tab_state {
 typedef struct bc_host {
   // Passed back to every callback.
   void* context;
-  // Chromium's run loop is running and the core's other calls work.
+  // Chromium's run loop is running and the core's other calls work, bc_window_restore included.
   void (*started)(void* context);
   // Chromium is quitting. The core's calls stop working once this returns.
   void (*stopping)(void* context);
@@ -112,6 +112,14 @@ BC_EXPORT void bc_quit(void);
 // Opens a window at |bounds| with the app's UI view in it, under the pages it shows: an NSView on
 // the Mac, which the window keeps. |ui_view| may be null. Returns 0 if Chromium is quitting.
 BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
+
+// Puts back the Spaces as the user left them when the browser last quit or its window closed, in
+// the window, which shows the Space it showed. The core saves them as they change, in Chrome's user
+// data directory: their names, their tabs with each tab's history, and the tab each showed. A tab
+// loads once it's shown. Does nothing and returns false if nothing was saved or there are Spaces
+// already. Then spaces_changed, space_changed, each tab's tab_state_changed and tab_title_changed,
+// tab_favicon_changed once a tab's favicon is found, window_space_shown and window_selected.
+BC_EXPORT bool bc_window_restore(bc_id window);
 
 // Closes the window: its pages get their unload handlers, then window_closed.
 BC_EXPORT void bc_window_close(bc_id window);

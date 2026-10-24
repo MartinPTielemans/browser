@@ -3,8 +3,10 @@
 
 #include <map>
 #include <memory>
+#include <vector>
 
 #include "base/callback_list.h"
+#include "base/containers/span.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
@@ -24,6 +26,10 @@ namespace content {
 class WebContents;
 }
 
+namespace sessions {
+class SerializedNavigationEntry;
+}
+
 namespace views {
 class Widget;
 class WidgetDelegate;
@@ -40,6 +46,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Returns null once Chromium is quitting.
   static Window* Open(const gfx::Rect& bounds, void* ui_view);
   static Window* FromId(bc_id id);
+  // Every window, in the order they opened.
+  static std::vector<Window*> All();
   // The window that holds |browser|'s tabs, if the core made |browser|.
   static Window* ForBrowser(const BrowserWindowInterface* browser);
   // Closes every window at once, at quit, once their Browsers are gone.
@@ -63,6 +71,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
 
   // Shows |space| and the tab the window last showed there, else its top tab, else no page.
   void ShowSpace(bc_id space);
+  // The tab the window shows in |space|, or showed there last. 0 if none.
+  bc_id SelectedIn(bc_id space) const;
+  // Has ShowSpace show |tab| in |space|, as if the window showed it there last.
+  void SetSelectedIn(bc_id space, bc_id tab);
   // Where the selected tab's page goes, in the window.
   void SetPageFrame(const gfx::Rect& frame);
   // Shows |tab|, if it's one of this window's, at the page frame.
@@ -71,6 +83,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Opens a tab for |profile| loading |url|, not shown. Null while the window is closing or
   // Chromium is quitting.
   content::WebContents* OpenTab(Profile* profile, const GURL& url);
+  // Opens a tab for |profile| with |history|, at its |current| page, not shown. It loads once it's
+  // shown. Null while the window is closing or Chromium is quitting.
+  content::WebContents* RestoreTab(Profile* profile,
+                                   base::span<const sessions::SerializedNavigationEntry> history,
+                                   int current);
 
   // Shows |contents|, a tab in one of this window's Browsers, at |frame| in place of the page shown
   // before, taking the keyboard if that page had it.

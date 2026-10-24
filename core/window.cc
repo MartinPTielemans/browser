@@ -12,9 +12,11 @@
 #include "browser_core/browser_window_stand_in.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
+#include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/ui/browser_tabrestore.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/create_browser_window.h"
 #include "chrome/browser/ui/browser_window/public/desktop_browser_window_capabilities.h"
@@ -23,6 +25,8 @@
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/interaction/browser_elements_views_impl.h"
+#include "components/sessions/core/serialized_navigation_entry.h"
+#include "components/sessions/core/serialized_user_agent_override.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/page_transition_types.h"
@@ -77,6 +81,15 @@ Window* Window::FromId(bc_id id) {
 }
 
 // static
+std::vector<Window*> Window::All() {
+  std::vector<Window*> all;
+  for (auto& [id, window] : Windows()) {
+    all.push_back(window.get());
+  }
+  return all;
+}
+
+// static
 Window* Window::ForBrowser(const BrowserWindowInterface* browser) {
   for (auto& [id, window] : Windows()) {
     for (auto& [profile, held] : window->browsers_) {
@@ -110,6 +123,11 @@ void Window::OnTabClosing(bc_id tab) {
   Space* space = Space::Holding(tab);
   if (!space) {
     return;
+  }
+  // One closing with its window, or as the browser quits, comes back at the next launch.
+  if (browser_shutdown::IsTryingToQuit() ||
+      std::ranges::any_of(Windows(), [](const auto& entry) { return entry.second->closing_; })) {
+    KeepSession();
   }
   const bc_id next = space->NextAfterClosing(tab);
   space->Remove(tab);
@@ -216,6 +234,22 @@ BrowserWindowInterface* Window::BrowserFor(Profile* profile) {
   return browser;
 }
 
+content::WebContents* Window::RestoreTab(
+    Profile* profile,
+    base::span<const sessions::SerializedNavigationEntry> history,
+    int current) {
+  BrowserWindowInterface* browser = BrowserFor(profile);
+  if (!browser) {
+    return nullptr;
+  }
+  base::AutoReset<bool> opening(&opening_tab_, true);
+  return chrome::AddRestoredTab(
+      browser, history, browser->GetTabStripModel()->count(), current, /*extension_app_id=*/"",
+      /*group=*/std::nullopt, /*select=*/false, /*pin=*/false, base::TimeTicks(), base::Time(),
+      /*storage_namespace=*/nullptr, sessions::SerializedUserAgentOverride(),
+      /*extra_data=*/{}, /*from_session_restore=*/true, /*is_active_browser=*/std::nullopt);
+}
+
 content::WebContents* Window::OpenTab(Profile* profile, const GURL& url) {
   BrowserWindowInterface* browser = BrowserFor(profile);
   if (!browser) {
@@ -269,6 +303,18 @@ void Window::ShowSpace(bc_id space) {
   }
 }
 
+bc_id Window::SelectedIn(bc_id space) const {
+  if (space == space_) {
+    return selected_;
+  }
+  auto it = selected_in_space_.find(space);
+  return it == selected_in_space_.end() ? 0 : it->second;
+}
+
+void Window::SetSelectedIn(bc_id space, bc_id tab) {
+  selected_in_space_[space] = tab;
+}
+
 void Window::ShowNothing() {
   selected_ = 0;
   shown_ = nullptr;
@@ -303,6 +349,7 @@ void Window::SelectAfterClosing(bc_id next) {
 }
 
 void Window::ReportSelected() {
+  SessionChanged();
   // Posted, like the Space's changes, so the app hears of its own call once it has returned.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(
