@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "base/base64.h"
+#include "base/callback_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/files/important_file_writer.h"
@@ -22,6 +23,8 @@
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
+#include "chrome/browser/lifetime/application_lifetime_desktop.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_paths.h"
 #include "components/sessions/content/content_serialized_navigation_builder.h"
@@ -210,7 +213,9 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
       : task_runner_(base::ThreadPool::CreateSequencedTaskRunner(
             {base::MayBlock(), base::TaskPriority::USER_VISIBLE,
              base::TaskShutdownBehavior::BLOCK_SHUTDOWN})),
-        writer_(path, task_runner_) {}
+        writer_(path, task_runner_),
+        closing_all_(chrome::AddClosingAllBrowsersCallback(
+            base::BindRepeating(&Saver::OnClosingAll, base::Unretained(this)))) {}
 
   void Load(base::OnceClosure loaded) {
     task_runner_->PostTaskAndReplyWithResult(
@@ -248,6 +253,19 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
   }
 
  private:
+  // At logout, restart or SIGTERM, Chrome writes what it must and exits without waiting for the
+  // writer's sequence, so the Spaces are written here, as it allows.
+  void OnClosingAll(bool closing) {
+    if (!closing || kept_ ||
+        browser_shutdown::GetShutdownType() != browser_shutdown::ShutdownType::kEndSession) {
+      return;
+    }
+    kept_ = true;
+    if (std::optional<std::string> json = ToJson(Collect())) {
+      base::ImportantFileWriter::WriteFileAtomically(writer_.path(), *json);
+    }
+  }
+
   void OnRead(base::OnceClosure loaded, std::optional<Saved> saved) {
     loaded_ = std::move(saved);
     std::move(loaded).Run();
@@ -255,6 +273,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
   base::ImportantFileWriter writer_;
+  base::CallbackListSubscription closing_all_;
   std::optional<Saved> loaded_;
   bool kept_ = false;
 };
