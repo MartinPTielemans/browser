@@ -523,6 +523,16 @@ Chrome's DevTools (Dia, P§23).
 - **Task Manager.** Window › Task Manager opens Chrome's.
 - **Agents.** DevTools are for the user. Agents get no DevTools and no remote-debugging port (decision 8).
 
+### Protected content
+
+Widevine, downloaded when a site asks for it (decision 9).
+
+- **Asking.** The first time a page asks to play protected content, a prompt over the page names the site and asks to download Google's Widevine module, with Download and Not Now. Download fetches it from the default service URL and reloads the page once it's installed. Not Now leaves the page as it is, and the next load asks again.
+- **Settings** shows whether the module is installed, and its version, with Remove.
+- **Updates.** It checks for a newer module only when a page asks for it, never on a timer.
+- **Agents** can't answer the prompt (decision 8). In an Agent Space it waits for the user, as a handoff does.
+- Sites that require VMP, such as Netflix, still refuse to play in a build without it.
+
 ### Import from Arc and Chrome
 
 The user runs it; there is no agent path, because it reads passwords and cookies.

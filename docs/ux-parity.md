@@ -255,6 +255,15 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Task Manager | MVP | Window › Task Manager | Chrome |
 | [ ] | No agent DevTools or debugging port | MVP | none | decision 8 |
 
+## Protected content
+
+| Done | Item | Phase | Target | Source |
+|---|---|---|---|---|
+| [ ] | Widevine prompt | MVP | on a page's first request: names the site; Download / Not Now; reloads once installed | decision 9 |
+| [ ] | Widevine in Settings | MVP | installed or not, version, Remove | decision 9 |
+| [ ] | No idle update checks | MVP | only when a page asks for the module | decision 9, principle 1 |
+| [ ] | Agents can't answer the prompt | MVP | waits for the user | decision 8 |
+
 ## Import
 
 | Done | Item | Phase | Target | Source |

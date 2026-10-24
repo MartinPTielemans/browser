@@ -84,3 +84,14 @@ Consequences now:
 - The core exposes one API that both the UI and agents use. Agents are not a bolt-on.
 - "Agent Space" is a kind of Space in the data model from the start.
 - The main risk is prompt injection from page content. Permissions and confirmations limit the damage but don't solve it, so confirmation UI and the activity log ship together with the MCP server, never after it.
+
+## 9. DRM: Widevine, downloaded when a site asks for it
+
+Firefox's approach. The engine is built to load Widevine, but Google's closed module never ships with the browser. The first time a page asks to play protected content, the browser asks the user whether to download the module from Google. Settings shows whether it's installed and removes it.
+
+- Everything we ship stays GPL (decision 7). The module is a download the user agrees to, not part of our distribution.
+- ungoogled-chromium cuts Chrome's component updater off from Google, so the browser fetches this one module itself, from a default service URL that forks can change. It checks for updates only when a page needs the module, so an idle browser never wakes for it.
+- Downloading needs no agreement with Google. Google serves the module from its own servers, and users of ungoogled-chromium and LibreWolf install it from there today. That covers sites that need only Widevine's software level, such as Spotify, Hulu and HBO.
+- On macOS and Windows, Netflix-grade sites also require the app to carry a Widevine VMP signature. For a custom Chromium build, that takes a paid certification with an audit (castlabs' Widevine 3PL program) or an agreement with Google. It is a signing key, so only official builds would carry it. Forks play protected content wherever VMP isn't required. Whether to pay for it is decided once official builds ship; until then Netflix doesn't play.
+
+Revisit if Google stops serving the module to browsers other than its own. Then users install it themselves, as ungoogled-chromium's do.

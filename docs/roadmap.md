@@ -34,13 +34,13 @@ GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Ch
 
 ## Phase 3: daily-driver MVP on Mac (about 2–3 months)
 
-Sidebar, Spaces (with the Agent Space kind in the data model), command bar, split view, archive, profiles, extensions (including install prompts and popups), passwords and autofill, downloads, find in page, DevTools, import from Arc and Chrome, Sparkle updates, signing and notarization.
+Sidebar, Spaces (with the Agent Space kind in the data model), command bar, split view, archive, profiles, extensions (including install prompts and popups), passwords and autofill, downloads, find in page, DevTools, Widevine on request (decision 9), import from Arc and Chrome, Sparkle updates, signing and notarization.
 
 **Done when** the parity checklist's MVP items pass and the performance gate holds.
 
 ## Phase 4: polish, parity and agents
 
-Peek, Little Arc, themes, end-to-end encrypted sync (not iCloud-only), Widevine, passkeys.
+Peek, Little Arc, themes, end-to-end encrypted sync (not iCloud-only), passkeys.
 
 Agents (decision 8): the built-in local MCP server, Agent Spaces (their hidden tabs keep running unthrottled, as Chrome keeps a tab it captures), engine-native page access, per-agent and per-site permissions with an activity log, and handoff to the human. This can move earlier if it becomes the launch pitch. The core API and data model are built for it from Phase 3 either way.
 
