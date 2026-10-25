@@ -91,12 +91,13 @@ const FOLD_DAMPING: f32 = 0.82;
 // Two fingers across the sidebar page between Spaces (docs/ux-spec.md › Spaces › Switching). The
 // pages follow at half the fingers' way and rubber-band past the ends. Let go, they settle
 // critically damped on the next Space if the last 100 ms moved them faster than a flick, else on
-// the nearest. A wheel pages once per burst of ticks, then rests. AppKit's line is about 10 pt.
+// the nearest, from where the fingers left them and as fast, with Arc's response. A wheel pages
+// once per burst of ticks, then rests. AppKit's line is about 10 pt.
 // Past the first Space is the Library, which the fingers bring out and put away the same way.
 const SWIPE_TRACKING: f32 = 0.5;
 const SWIPE_FLICK: f32 = 5.;
 const SWIPE_HISTORY: Duration = Duration::from_millis(100);
-const SPACE_SETTLE: f32 = 0.25;
+const SPACE_SETTLE: f32 = 0.19;
 const WHEEL_LINE: f32 = 10.;
 const WHEEL_BURST: Duration = Duration::from_millis(49);
 const WHEEL_REST: Duration = Duration::from_millis(250);
