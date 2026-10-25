@@ -44,7 +44,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Disabled nav glyph | MVP | about half brightness | Dia 1.52 cap |
 | [ ] | URL field top | MVP | 46 below the window top | Arc (Ardia) P§4 |
 | [ ] | URL field size, radius, fill, font | MVP | measure | — |
-| [ ] | URL text | MVP | host only, no `www.`; Show Full URL off by default | Dia 1.50.1 bin |
+| [x] | URL text | MVP | host only, no `www.`; Arc has no Show Full URL | Arc 1.170.0 cap, Dia 1.50.1 bin |
 | [x] | URL on hover | MVP | the field's buttons, not the full URL (Dia shows it) | Arc 1.170.0 cap |
 | [x] | URL field Copy URL button | MVP | 30 × 30, while the pointer is over the sidebar; Site Control Center: later | Arc 1.170.0 cap |
 | [ ] | Insecure indicator | MVP | Arc: none; Dia and Chrome: a lock-warning glyph | Dia, Chrome P§8, Arc 1.170.0 cap |

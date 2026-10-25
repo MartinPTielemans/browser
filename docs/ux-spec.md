@@ -221,7 +221,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Nav glyph size | Dia 13 pt regular. Arc: measure | Dia 1.52 cap |
 | URL field top | 46 below the window top | Arc (Ardia), P§4 |
 | URL field height, radius, fill, font | measure | — |
-| URL field text | the host alone, `www.` dropped. View › Show Full URL (off by default) adds the path, query and fragment, with no trailing "/" | Dia 1.50.1 bin, D›URL bar |
+| URL field text | the host alone, `www.` dropped: iana.org for https://www.iana.org/. Arc's View menu has no Show Full URL; Dia's (off by default) adds the path, query and fragment, with no trailing "/". Ours: Arc's | Arc 1.170.0 cap, Dia 1.50.1 bin, D›URL bar |
 | Hovering the URL | Arc: the field's buttons, not the full URL (Arc 1.170.0 cap). Dia: the full URL, host bright and path dim (Dia 1.49 cap). Ours: Arc's | Arc 1.170.0 cap |
 | Field buttons | Copy Current URL and Site Control Center, 30 × 30 at x 163 and 191 of 228, while the pointer is over the sidebar | Arc 1.170.0 cap |
 | Insecure page / zoom not 100 % | a lock-warning glyph / a magnifier (+ or −) that opens − / + / Reset. Arc: no warning glyph, and nothing for zoom but the HUD (› Zoom) | Dia and Chrome, P§8; Arc 1.170.0 cap |
