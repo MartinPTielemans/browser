@@ -258,6 +258,9 @@ impl Browser for Fake {
         self.later(cx, |shell, cx| shell.control_released(cx));
     }
 
+    // The preview leaves the clipboard alone.
+    fn copy(&self, _: &str, _: &mut App) {}
+
     // macOS's default blue.
     fn accent_color(&self) -> u32 {
         0x007aff

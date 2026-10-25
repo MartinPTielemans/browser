@@ -120,6 +120,10 @@ void host_watch_accent_color(void (*changed)(void));
 // view has the keyboard.
 void host_watch_control(void (*released)(void));
 
+// Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
+// never touch the user's clipboard.
+void host_copy(const char* text);
+
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);

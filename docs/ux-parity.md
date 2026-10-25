@@ -43,7 +43,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | URL field top | MVP | 46 below the window top | Arc (Ardia) P§4 |
 | [ ] | URL field size, radius, fill, font | MVP | measure | — |
 | [ ] | URL text | MVP | host only, no `www.`; Show Full URL off by default | Dia 1.50.1 bin |
-| [ ] | URL on hover | MVP | full URL, host bright, path dim | Dia 1.49 cap |
+| [x] | URL on hover | MVP | the field's buttons, not the full URL (Dia shows it) | Arc 1.170.0 cap |
+| [x] | URL field Copy URL button | MVP | 30 × 30, while the pointer is over the sidebar; Site Control Center: later | Arc 1.170.0 cap |
 | [ ] | Insecure and zoom indicators | MVP | lock-warning glyph; magnifier with − / + / Reset | Dia, Chrome P§8 |
 | [ ] | Favorite tile | MVP | 41 tall, 6 apart, inset 6, radius 10 *interim* | Dia 1.50.1 bin + cap |
 | [ ] | Favorite columns | MVP | 3 at 190 *interim*; Arc's rule: measure | Dia P§2 |
@@ -57,6 +58,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25 | Dia cap, Ardia |
 | [x] | Clear divider line | MVP | 1 pt white ≈ 0.08, centre 25 above the first row's centre | Arc (Ardia) D›Arc note: Clear |
 | [ ] | Clear label and arrow | MVP | arrow 7 × 8, 3 pt from "Clear", semibold ≈ 10 pt, ends with the titles | Arc (Ardia) |
+| [x] | Clear on hover | MVP | shows only while the pointer is over the sidebar; its fade: measure | Arc 1.170.0 cap |
 | [ ] | Row pitch / height | MVP | 36 Arc (confirm) / Dia 37 and 34 | Arc (Ardia), Dia 1.50.1 bin |
 | [ ] | Row radius | MVP | min(h/3, 10) continuous | Dia 1.50.1 bin |
 | [ ] | Row favicon and title | MVP | 16 pt at x 9; title 7 after, 13 pt, trailing fade | Dia 1.50.1 bin |
@@ -141,7 +143,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Click outside | MVP | closes and still acts | AGENTS.md |
 | [ ] | Switch to Tab rows | MVP | across windows, never the current tab | Dia, O |
 | [ ] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |
-| [ ] | Calculator, commands, Paste and Go, clean-link copy ⇧⌘C / ⌥⇧⌘C | MVP | as Dia | Dia P§7 |
+| [ ] | Calculator, commands, Paste and Go, clean-link copy | MVP | as Dia | Dia P§7 |
+| [x] | Copy URL / as Markdown | MVP | ⇧⌘C / ⌥⇧⌘C; as Quote ⌃⇧⌘C later | Arc 1.170.0 menus |
 | [ ] | Arc's command list and ⌘T over the page | MVP | measure | — |
 
 ## New tab

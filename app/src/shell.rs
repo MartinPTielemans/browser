@@ -13,10 +13,10 @@ use std::{
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, CursorStyle,
     DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding,
-    MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Rgba,
-    ScrollDelta, ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase, Transformation,
-    WeakEntity, Window, actions, canvas, div, img, linear_color_stop, linear_gradient, percentage,
-    point, prelude::*, px, rgb, rgba, size, svg,
+    MenuItem, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    Point, Rgba, ScrollDelta, ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase,
+    Transformation, WeakEntity, Window, actions, canvas, div, img, linear_color_stop,
+    linear_gradient, percentage, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::text_input::TextInput;
@@ -94,6 +94,11 @@ const NAV_END: f32 = 5.;
 const URL_FIELD_TOP: f32 = 46.;
 const URL_FIELD_HEIGHT: f32 = 36.;
 const URL_FIELD_TEXT_X: f32 = 21.;
+// The URL field's button, which shows while the pointer is over the sidebar: 30 pt, as Arc's, 3 pt
+// inside the field's end (ours: Arc's frames end 1 pt past where its field would).
+const URL_BUTTON_SIZE: f32 = 30.;
+const URL_BUTTON_INSET: f32 = 3.;
+const URL_BUTTON_GLYPH: f32 = 14.;
 // Arc puts favorites between the URL field and the Space's name. This is their gap while there are
 // none, which Arc has no layout for.
 const LIST_TOP: f32 = URL_FIELD_TOP + URL_FIELD_HEIGHT + 8.;
@@ -129,8 +134,10 @@ const CLEAR_ARROW: f32 = 8. * 24. / 14.;
 const CLEAR_ARROW_INSET: f32 = CLEAR_ARROW * 5. / 24.;
 const CLEAR_GAP: f32 = 3.;
 const CLEAR_HEIGHT: f32 = 20.;
-// How long the toast after Clear offers Undo (ours: Arc's isn't measured).
+// How long the toast after Clear offers Undo, and the one after a copy shows (ours: Arc's aren't
+// measured).
 const TOAST_TIME: Duration = Duration::from_secs(6);
+const COPIED_TIME: Duration = Duration::from_secs(2);
 // The footer's Space switcher, between where Arc has its Home and + buttons.
 const FOOTER_HEIGHT: f32 = 50.;
 const SWITCHER_LEFT: f32 = 42.;
@@ -256,6 +263,10 @@ pub enum Command {
     BackToPinnedUrl,
     /// Closes the Today tabs of the Space shown.
     Clear,
+    /// Copies the selected tab's URL.
+    CopyUrl,
+    /// Copies a Markdown link to the selected tab: its title, then its URL.
+    CopyMarkdownLink,
     Find,
     FindNext,
     FindPrevious,
@@ -293,6 +304,8 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-d", Command::TogglePin, false),
     ("cmd-enter", Command::BackToPinnedUrl, false),
     ("shift-cmd-k", Command::Clear, false),
+    ("shift-cmd-c", Command::CopyUrl, false),
+    ("alt-shift-cmd-c", Command::CopyMarkdownLink, false),
     ("cmd-f", Command::Find, false),
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
@@ -401,6 +414,8 @@ impl Command {
             Command::TogglePin => "toggle-pin",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::Clear => "clear",
+            Command::CopyUrl => "copy-url",
+            Command::CopyMarkdownLink => "copy-markdown-link",
             Command::Find => "find",
             Command::FindNext => "find-next",
             Command::FindPrevious => "find-previous",
@@ -471,6 +486,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/arrow-left.svg", include_bytes!("../assets/icons/arrow-left.svg")),
     ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
     ("icons/globe.svg", include_bytes!("../assets/icons/globe.svg")),
+    ("icons/link.svg", include_bytes!("../assets/icons/link.svg")),
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
     ("icons/panel-left.svg", include_bytes!("../assets/icons/panel-left.svg")),
     ("icons/rotate-cw.svg", include_bytes!("../assets/icons/rotate-cw.svg")),
@@ -578,6 +594,8 @@ pub trait Browser {
     fn detent(&self, cx: &mut App);
     /// Calls `Shell::control_released` once the user lets go of ⌃.
     fn watch_control(&self, cx: &mut App);
+    /// Puts `text` on the clipboard.
+    fn copy(&self, text: &str, cx: &mut App);
     /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
     /// it changes.
     fn accent_color(&self) -> u32;
@@ -617,9 +635,10 @@ pub struct Page {
     pub away_from_pinned_url: bool,
 }
 
-/// The toast after Clear, which offers Undo until it hides.
+/// The toast over the bottom of the list until it hides: what was just done, with Undo after Clear.
 struct Toast {
-    cleared: usize,
+    text: SharedString,
+    undo: bool,
     _hide: Task<()>,
 }
 
@@ -810,6 +829,9 @@ pub struct Shell {
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
     toast: Option<Toast>,
+    /// Whether the pointer is over the docked sidebar, which shows Clear and the URL field's button
+    /// only then.
+    sidebar_hovered: bool,
     page_fullscreen: bool,
     /// Whether ⌘S has hidden the sidebar.
     sidebar_hidden: bool,
@@ -872,6 +894,7 @@ impl Shell {
             wheel_paged: None,
             hovered_favicon: None,
             toast: None,
+            sidebar_hovered: false,
             page_fullscreen: false,
             sidebar_hidden: false,
             sidebar_width,
@@ -1435,6 +1458,8 @@ impl Shell {
             }
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::Clear => return self.clear(cx),
+            Command::CopyUrl => return self.copy_url(false, cx),
+            Command::CopyMarkdownLink => return self.copy_url(true, cx),
             Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
             Command::Back => return self.browser.go_back(self.selected, cx),
             Command::Forward => return self.browser.go_forward(self.selected, cx),
@@ -1501,12 +1526,44 @@ impl Shell {
         self.browser.clear(cx);
         // check.sh reads these lines.
         eprintln!("browser: toast cleared {cleared}");
+        let tabs = if cleared == 1 { "tab" } else { "tabs" };
+        self.show_toast(format!("Cleared {cleared} {tabs}").into(), true, TOAST_TIME, cx);
+    }
+
+    /// Copies the selected tab's URL, or a Markdown link to it, and says so in the toast.
+    fn copy_url(&mut self, markdown: bool, cx: &mut Context<Self>) {
+        let url = self.url(self.selected);
+        if url.is_empty() {
+            return;
+        }
+        let (text, toast) = match markdown {
+            false => (url.to_string(), "Copied URL"),
+            true => {
+                let title = markdown_text(&self.title(self.selected));
+                (format!("[{title}]({url})"), "Copied URL as Markdown")
+            }
+        };
+        self.browser.copy(&text, cx);
+        // check.sh reads this line.
+        eprintln!("browser: copied {text}");
+        self.show_toast(toast.into(), false, COPIED_TIME, cx);
+    }
+
+    /// Shows `text` in the toast for `time`, with Undo if `undo`, in place of any toast showing.
+    fn show_toast(
+        &mut self,
+        text: SharedString,
+        undo: bool,
+        time: Duration,
+        cx: &mut Context<Self>,
+    ) {
         let hide = cx.spawn(async move |shell, cx| {
-            cx.background_executor().timer(TOAST_TIME).await;
+            cx.background_executor().timer(time).await;
             shell.update(cx, |shell, cx| shell.hide_toast(cx)).ok();
         });
         self.toast = Some(Toast {
-            cleared,
+            text,
+            undo,
             _hide: hide,
         });
         cx.notify();
@@ -2242,6 +2299,31 @@ impl Shell {
         .size_full()
     }
 
+    /// The pointer's moves anywhere in the window, for whether it's over the sidebar, whose rows
+    /// and buttons keep it from the sidebar's own hover.
+    fn hover_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let shell = cx.weak_entity();
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                let moved = shell.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture {
+                        let over = bounds.contains(&event.position);
+                        moved.update(cx, |shell, cx| shell.sidebar_hover(over, cx)).ok();
+                    }
+                });
+                window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture {
+                        shell.update(cx, |shell, cx| shell.sidebar_hover(false, cx)).ok();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full()
+    }
+
     /// The pointer's moves and release anywhere in the window, for a pressed row, which only hears
     /// the pointer while it's over the row.
     fn drag_listeners(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -2356,6 +2438,32 @@ impl Shell {
 
     fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
+        // Copy URL, at the field's end, where the host stops short of it.
+        let copy = (self.tools_shown() && !url.is_empty()).then(|| {
+            div()
+                .id("copy-url")
+                .absolute()
+                .top(px(URL_BUTTON_INSET))
+                .right(px(URL_BUTTON_INSET))
+                .size(px(URL_BUTTON_SIZE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(NAV_RADIUS))
+                .block_mouse_except_scroll()
+                .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::CopyUrl, "sidebar", cx)))
+                .child(
+                    svg()
+                        .path("icons/link.svg")
+                        .size(px(URL_BUTTON_GLYPH))
+                        .text_color(rgba(NAV)),
+                )
+        });
+        let text_end = match copy {
+            Some(_) => URL_BUTTON_INSET + URL_BUTTON_SIZE,
+            None => URL_FIELD_TEXT_X - PLATE_INSET,
+        };
         div()
             .id("url-field")
             .absolute()
@@ -2366,7 +2474,7 @@ impl Shell {
             .flex()
             .items_center()
             .pl(px(URL_FIELD_TEXT_X - PLATE_INSET))
-            .pr(px(URL_FIELD_TEXT_X - PLATE_INSET))
+            .pr(px(text_end))
             .rounded(px(PLATE_RADIUS))
             .block_mouse_except_scroll()
             .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::EditUrl, "sidebar", cx)))
@@ -2374,6 +2482,22 @@ impl Shell {
             .text_size(px(13.))
             .text_color(rgba(SECONDARY))
             .child(div().truncate().child(SharedString::from(host(&url))))
+            .children(copy)
+    }
+
+    /// Whether the sidebar shows Clear and the URL field's button, which it does while the pointer
+    /// is over it (Arc). The reveal's panel shows only under the pointer.
+    fn tools_shown(&self) -> bool {
+        self.sidebar_hovered || self.sidebar_hidden
+    }
+
+    fn sidebar_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        if hovered != self.sidebar_hovered {
+            self.sidebar_hovered = hovered;
+            // check.sh reads this line.
+            eprintln!("browser: sidebar hovered {}", hovered as u8);
+            cx.notify();
+        }
     }
 
     /// A sidebar row: the plate, with the favicon slot and the label.
@@ -2725,30 +2849,32 @@ impl Shell {
 
     /// The line over Today, and Clear at its end, where the titles end.
     fn divider(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let clear = clear_label()
-            .id("clear")
-            .block_mouse_except_scroll()
-            .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)));
+        let clear = clear_label(self.tools_shown()).id("clear").when(self.tools_shown(), |clear| {
+            clear
+                .block_mouse_except_scroll()
+                .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)))
+        });
         divider_box(clear).top(px(self.slide(Slot::Divider)))
     }
 
-    /// The toast after Clear, over the bottom of the list, with Undo.
+    /// The toast over the bottom of the list, with Undo after Clear.
     fn toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let cleared = self.toast.as_ref()?.cleared;
-        let tabs = if cleared == 1 { "tab" } else { "tabs" };
-        let undo = div()
-            .id("undo")
-            .h_full()
-            .flex()
-            .items_center()
-            .font_weight(FontWeight::SEMIBOLD)
-            .child("Undo")
-            .on_click(cx.listener(|shell, _, _, cx| {
-                // check.sh waits for this line.
-                eprintln!("browser: command undo-clear via sidebar");
-                shell.hide_toast(cx);
-                shell.browser.undo_clear(cx);
-            }));
+        let toast = self.toast.as_ref()?;
+        let undo = toast.undo.then(|| {
+            div()
+                .id("undo")
+                .h_full()
+                .flex()
+                .items_center()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Undo")
+                .on_click(cx.listener(|shell, _, _, cx| {
+                    // check.sh waits for this line.
+                    eprintln!("browser: command undo-clear via sidebar");
+                    shell.hide_toast(cx);
+                    shell.browser.undo_clear(cx);
+                }))
+        });
         Some(
             div()
                 .id("toast")
@@ -2766,8 +2892,8 @@ impl Shell {
                 .bg(self.window_fill().blend(rgba(TOAST).into()))
                 .text_size(px(13.))
                 .text_color(rgba(TITLE))
-                .child(format!("Cleared {cleared} {tabs}"))
-                .child(undo),
+                .child(toast.text.clone())
+                .children(undo),
         )
     }
 
@@ -2836,7 +2962,8 @@ impl Render for Shell {
         let sidebar_left = (card_left - width) * width / (width - CARD_INSET);
         let sidebar_shown =
             !self.page_fullscreen && (!self.sidebar_hidden || self.sidebar_motion.is_some());
-        let sidebar = sidebar_shown.then(|| self.sidebar(cx).left(px(sidebar_left)));
+        let sidebar = sidebar_shown
+            .then(|| self.sidebar(cx).left(px(sidebar_left)).child(self.hover_listener(cx)));
         let docked = !self.page_fullscreen && !self.sidebar_hidden && self.sidebar_motion.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
         div()
@@ -2959,7 +3086,9 @@ impl Shell {
             .flex_col()
             .child(name_box().child(div().truncate().child(space.name.clone())))
             .children(space.pinned.iter().map(|&tab| row(tab)))
-            .when(!space.today.is_empty(), |page| page.child(divider_box(clear_label())))
+            .when(!space.today.is_empty(), |page| {
+                page.child(divider_box(clear_label(self.tools_shown())))
+            })
             .child(row_box().child(plate(plus, new_tab)))
             .children(space.today.iter().map(|&tab| row(tab)))
     }
@@ -3213,6 +3342,18 @@ fn name_box() -> gpui::Div {
         .text_color(rgba(SPACE_NAME))
 }
 
+/// `text` for a Markdown link's text, with what would end it escaped.
+fn markdown_text(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, '\\' | '[' | ']') {
+            escaped.push('\\');
+        }
+        escaped.push(c);
+    }
+    escaped
+}
+
 /// The divider under the pinned tabs: a line, then `clear`.
 fn divider_box(clear: impl IntoElement) -> gpui::Div {
     div().flex_none().h(px(DIVIDER_HEIGHT)).child(
@@ -3229,9 +3370,10 @@ fn divider_box(clear: impl IntoElement) -> gpui::Div {
     )
 }
 
-/// The divider's Clear: an arrow down and its label.
-fn clear_label() -> gpui::Div {
+/// The divider's Clear: an arrow down and its label. It keeps its place while it doesn't show.
+fn clear_label(shown: bool) -> gpui::Div {
     div()
+        .when(!shown, |clear| clear.opacity(0.))
         .flex_none()
         .ml(px(DIVIDER_GAP - CLEAR_ARROW_INSET))
         .h_full()
