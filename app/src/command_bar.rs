@@ -140,9 +140,9 @@ pub struct CommandBar {
     suggested: String,
     /// The row ↩ takes.
     selected: usize,
-    /// While the bar grows out of the URL field: the field's box in the bar's window, and when it
-    /// started.
-    grow: Option<(Bounds<Pixels>, Instant)>,
+    /// While the bar grows out of the URL field: the field's box in the bar's window, and when its
+    /// window was first on screen, where the grow starts.
+    grow: Option<(Bounds<Pixels>, Option<Instant>)>,
 }
 
 struct CommandBarWindow(WindowHandle<CommandBar>);
@@ -269,7 +269,7 @@ fn reset(
     let window = cx.try_global::<CommandBarWindow>()?.0;
     window
         .update(cx, |bar, window, cx| {
-            bar.grow = grow.map(|grow| (grow, Instant::now()));
+            bar.grow = grow.map(|grow| (grow, None));
             bar.target = target;
             bar.asked = text.to_string();
             bar.complete = false;
@@ -679,7 +679,16 @@ impl Render for CommandBar {
         // which stays still.
         let size = window.viewport_size();
         let whole = Bounds::new(point(px(0.), px(0.)), size);
-        let growing = self.grow.and_then(|(field, start)| Some((field, grow_progress(start)?)));
+        // GPUI draws the window again only once AppKit reports it on screen, some frames after
+        // the host's first draw put it there, so the grow starts there rather than skip its start.
+        if let Some((_, start @ None)) = &mut self.grow
+            && window.is_visible()
+        {
+            *start = Some(Instant::now());
+        }
+        let growing = self.grow.and_then(|(field, start)| {
+            Some((field, start.map_or(Some(0.), grow_progress)?))
+        });
         let (shape, radius) = match growing {
             Some((field, progress)) => {
                 window.request_animation_frame();

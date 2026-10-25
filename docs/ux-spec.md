@@ -473,7 +473,7 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 
 - Ours (*interim* until Arc's sidebar panel is measured):
   - From the sidebar's URL field, the panel's left edge is the field's and it's 640 wide, ending at least 8 inside the window. Its input row is centred on the field, so the text keeps the field's x, baseline and 13 pt. There's no search glyph, since the field has none to the left of its text.
-  - The grow is 1 − 2^(−10t / 0.13): 59, 83, 93 and 97 % on 60 fps frames. The radius goes from the field's 12 to 16, and the shadow follows the shape.
+  - The grow is 1 − 2^(−10t / 0.13), from the panel's first frame on screen, at the field's box: 59, 83, 93 and 97 % on the 60 fps frames after it. The radius goes from the field's 12 to 16, and the shadow follows the shape.
   - ⌘T's panel, until the New Tab page, is the same panel centred a fifth of the way down the window, shown at once.
   - Rows are 13 pt like the input, without favicons for now. A hovered row takes the hover token.
   - The shadow is the system's window shadow on the panel's shape, without Dia's two layer shadows. The bottom row isn't built yet.
