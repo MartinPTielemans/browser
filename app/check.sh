@@ -35,7 +35,10 @@
 #      pointer kept at the window's edge brings the hidden sidebar out, and one passing it
 #      doesn't. The sidebar's edge drags its width between 160 and 400, rubber-banding past
 #      them, and a double-click on it puts the width back.
-#   5. A page's popup opens as a tab in the window, under the page.
+#   5. A page's popup opens as a tab in the window, under the page. The page's context menu is
+#      Chrome's without the items the window can't do, its Open Link in New Tab opens a tab under
+#      the page without showing it, and its Print shows print preview centred over the page, at
+#      its top, which escape closes.
 #   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
 #      and while a page loads, reload is stop, which ⌘., escape and the button do. A tab's row
@@ -110,6 +113,17 @@ rm -rf "$out"
 mkdir -p "$out"
 # The Spaces the app saves for its next launch. Each run starts without them, but the relaunches.
 saved="$HOME/Library/Caches/browser-app/Spaces.json"
+# DevTools open where the profile last had them, so an undocked try would leave them in a window.
+# Run 9 docks them, so they start on the right.
+prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
+[ ! -f "$prefs" ] || python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    prefs = json.load(f)
+prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState"] = "\"right\""
+with open(sys.argv[1], "w") as f:
+    json.dump(prefs, f)
+' "$prefs"
 # A Space's colours in its menu, for a Space without one.
 colors="Color › System Accent (checked), Color › Gray, Color › Red, Color › Orange, \
 Color › Yellow, Color › Green, Color › Blue, Color › Pink, Color › Purple"
@@ -949,6 +963,7 @@ echo "ok: the page view keeps its margins and the window's buttons stay at Arc's
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.
 page='data:text/html,<title>loading</title>
+<a href="https://example.org/" style="font:24px system-ui">a link</a>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 // A popup needs a user gesture, which a key press is.
@@ -971,9 +986,61 @@ expect "^browser: today $opener $popup\$" "the popup's tab didn't go under the p
 expect '^browser: loaded [0-9]* https://example.com/$' "the popup's page didn't load in its tab"
 check_layout "with the popup's tab"
 ../tools/window-screenshot.sh "$pid" "$out/popup.png" || fail "no window to capture"
+# The page's context menu is Chrome's, without the items for what the browser doesn't have yet
+# (other windows, split view, incognito) or whose UI is in Chrome's own window (Cast, Reading Mode).
+send key 1 cmd
+expect "^browser: selected $opener in " "⌘1 didn't show the page again"
+post rightclick 250 30
+expect '^browser: menu tracked Open Link in New Tab, Save Link As…, Copy Link Address, ' \
+  "a right-click on the page's link didn't show the link's menu"
+menu=$(grep '^browser: menu tracked' "$log" | tail -1 | cut -d' ' -f4-)
+case "$menu" in
+*Window* | *"Split View"*) fail "the link's menu offers what the window can't do: $menu" ;;
+esac
+../tools/window-screenshot.sh "$pid" "$out/link-menu.png" || fail "no window to capture"
+send choose Open Link in New Tab
+expect "^browser: tab [0-9]* opened by $opener in the background\$" \
+  "Open Link in New Tab didn't open a tab under the page"
+none_since '^browser: selected' || fail "Open Link in New Tab showed its tab"
+send click $page_point
+post rightclick $page_point
+expect '^browser: menu tracked Back, ' "a right-click on the page didn't show the page's menu"
+menu=$(grep '^browser: menu tracked' "$log" | tail -1 | cut -d' ' -f4-)
+[ "$menu" = "Back, Forward, Reload, Save As…, Print…, View Page Source, Inspect" ] ||
+  fail "the page's menu is $menu"
+# Print preview is the tab's dialog, a child window centred over the page, at its top.
+send choose Print…
+child=""
+for _ in $(seq 50); do
+  send layout
+  child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
+    cut -d' ' -f4-)
+  [ -n "$child" ] && break
+  sleep 0.1
+done
+[ -n "$child" ] || fail "Print… didn't show print preview"
+shown=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+  grep -o 'WebContentsViewCocoa [0-9,]* [0-9x]*' | cut -d' ' -f2-)
+x=${child%%,*} y=${child#*,} y=${y%% *} width=${child#* } width=${width%x*}
+page_x=${shown%%,*} page_y=${shown#*,} page_y=${page_y%% *} page_width=${shown#* }
+page_width=${page_width%x*}
+off=$((2 * x + width - 2 * page_x - page_width))
+[ "$y" -eq "$page_y" ] && [ "$off" -ge -1 ] && [ "$off" -le 1 ] ||
+  fail "print preview is at $child, over the page at $shown"
+# Print preview's page takes escape once it has loaded, so the capture before the escape that
+# closes it shows the preview.
+for _ in $(seq 50); do
+  ../tools/window-screenshot.sh "$pid" "$out/print.png" || fail "no window to capture"
+  send key escape
+  send layout
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: layout child' || break
+  sleep 0.1
+done
+sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: layout child' &&
+  fail "escape didn't close print preview"
 exec 3>&-
 quit
-echo "ok: a page's popup opens as a tab in the window, under the page. Window: $out/popup.png"
+echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do, Open Link in New Tab opens a tab under the page, and Print shows print preview centred over the page, at its top, which escape closes. Windows: $out/popup.png, $out/link-menu.png, $out/print.png"
 
 # Back, forward, reload and stop. stuck.test leads to a server that takes connections and never
 # answers, so its page keeps loading until it's stopped.

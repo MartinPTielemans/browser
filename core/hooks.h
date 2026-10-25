@@ -15,6 +15,10 @@ namespace content {
 class WebContents;
 }
 
+namespace ui {
+class SimpleMenuModel;
+}
+
 // chrome/browser/ui/navigator/browser_navigator.cc: changes where a navigation opens, before Chrome
 // picks the Browser for it.
 extern void (*g_browser_core_adjust_navigate)(NavigateParams& params);
@@ -25,5 +29,10 @@ extern void (*g_browser_core_adjust_navigate)(NavigateParams& params);
 extern bool (*g_browser_core_can_dock_devtools)(BrowserWindowInterface* browser);
 extern void (*g_browser_core_update_devtools)(BrowserWindowInterface* browser,
                                               content::WebContents* inspected);
+
+// chrome/browser/renderer_context_menu/render_view_context_menu.cc: takes out of a page's context
+// menu the items |browser|'s window can't do, once Chrome has filled it in.
+extern void (*g_browser_core_trim_page_menu)(BrowserWindowInterface* browser,
+                                             ui::SimpleMenuModel& menu);
 
 #endif  // BROWSER_CORE_HOOKS_H_

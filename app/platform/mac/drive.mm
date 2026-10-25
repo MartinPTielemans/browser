@@ -38,7 +38,8 @@
 //   menu <title>                          chooses the main menu's item titled <title>, in a
 //                                         submenu too
 //   choose <title>                        chooses the item titled <title> in the menu a right
-//                                         click showed, or the button in the alert shown
+//                                         click showed, the page's too, or the button in the
+//                                         alert shown
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
@@ -47,8 +48,9 @@
 // as the sidebar reveal over its edge, scrolls to the browser window, and keys and clickkey to the
 // key window. It logs "browser: drive <n>: <command>" when command n arrives and "browser: drive
 // <n> done, key <window class>, focus <view class>, active <0|1>, marked <location,length|none>"
-// once AppKit has handled its events. A page ignores clicks while the app isn't the active app,
-// and macOS doesn't let a background process make it active.
+// once AppKit has handled its events, and "browser: menu tracked <titles>" as a menu opens, such as
+// the page's. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
+// background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
@@ -90,6 +92,10 @@ constexpr short kDoneSubtype = 0x5350;
 
 // The window the backdrop command puts behind the browser window.
 NSWindow* g_backdrop;
+
+// The menu AppKit tracks, such as a page's context menu, which Chrome shows. choose picks from it
+// when none of the app's own menus is showing.
+__weak NSMenu* g_tracked;
 
 // The largest visible window: the browser window, not a child window such as a menu, nor the
 // backdrop.
@@ -379,6 +385,18 @@ bool ChooseMenuItem(NSMenu* menu, NSString* title) {
   return false;
 }
 
+// Chooses the enabled item titled |title| in the menu AppKit tracks, and closes the menu.
+bool ChooseTracked(NSString* title) {
+  NSMenu* menu = g_tracked;
+  NSInteger index = [menu indexOfItemWithTitle:title];
+  if (index < 0 || ![menu itemAtIndex:index].enabled) {
+    return false;
+  }
+  [menu performActionForItemAtIndex:index];
+  [menu cancelTracking];
+  return true;
+}
+
 // Calls |done| once the command's events are posted. Returns false, without calling it, for a
 // command it can't do.
 bool Run(const std::string& line, void (^done)(void)) {
@@ -588,7 +606,8 @@ bool Run(const std::string& line, void (^done)(void)) {
     return false;
   }
   if (action == "choose") {
-    if (!host_choose(line.substr(std::min(line.size(), action.size() + 1)).c_str())) {
+    std::string title = line.substr(std::min(line.size(), action.size() + 1));
+    if (!host_choose(title.c_str()) && !ChooseTracked(@(title.c_str()))) {
       return false;
     }
     // Once the menu or alert has closed, which GCD's main queue waits for.
@@ -700,6 +719,27 @@ void drive_start(void) {
                                                           entered ? "entered" : "left");
                                                 }];
   }
+  // A menu AppKit starts tracking, such as a page's context menu, which Chrome shows: its items,
+  // for check.sh to wait for and read, as the app's own menus log theirs.
+  [NSNotificationCenter.defaultCenter
+      addObserverForName:NSMenuDidBeginTrackingNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification* notification) {
+                NSMenu* menu = notification.object;
+                if (menu == NSApp.mainMenu) {
+                  return;
+                }
+                g_tracked = menu;
+                NSMutableArray<NSString*>* titles = [NSMutableArray array];
+                for (NSMenuItem* item in menu.itemArray) {
+                  if (!item.separatorItem && !item.hidden) {
+                    [titles addObject:item.title];
+                  }
+                }
+                fprintf(stderr, "browser: menu tracked %s\n",
+                        [titles componentsJoinedByString:@", "].UTF8String);
+              }];
   // So does a zoom, and the window is zoomed only at its last frame.
   __block BOOL zoomed = NO;
   [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidResizeNotification

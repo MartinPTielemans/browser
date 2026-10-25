@@ -23,6 +23,7 @@
 #include "browser_core/space.h"
 #include "browser_core/suggest.h"
 #include "browser_core/tab.h"
+#include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
@@ -44,6 +45,7 @@
 #include "content/public/browser/web_contents.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/menus/simple_menu_model.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/client_view.h"
@@ -205,6 +207,36 @@ void Window::UpdateDevTools(BrowserWindowInterface* browser, content::WebContent
     window->LayOutPage();
     // DevTools closed with the keyboard leave it with the window, and the page takes it back.
     window->FocusPageSoon();
+  }
+}
+
+// static
+void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& menu) {
+  if (!ForBrowser(browser)) {
+    return;
+  }
+  // Items for what the browser doesn't have yet, and items whose UI is in Chrome's own window, a
+  // toolbar bubble or the side panel, which the core's windows don't have.
+  static constexpr int kTrimmed[] = {
+      IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,     IDC_CONTENT_CONTEXT_OPENLINKSPLITVIEW,
+      IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD,  IDC_ROUTE_MEDIA,
+      IDC_CONTENT_CONTEXT_OPEN_IN_READING_MODE,  IDC_CONTENT_CONTEXT_LISTEN_TO_THIS_PAGE,
+      IDC_CONTENT_CONTEXT_GENERATE_QR_CODE,      IDC_CONTENT_CONTEXT_TRANSLATE,
+      IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE,
+  };
+  for (int id : kTrimmed) {
+    if (std::optional<size_t> index = menu.GetIndexOfCommandId(id)) {
+      menu.RemoveItemAt(*index);
+    }
+  }
+  // A section left empty leaves a separator at the top or two together. Chrome takes off the last.
+  for (size_t i = 0; i < menu.GetItemCount();) {
+    if (menu.GetTypeAt(i) == ui::MenuModel::TYPE_SEPARATOR &&
+        (i == 0 || menu.GetTypeAt(i - 1) == ui::MenuModel::TYPE_SEPARATOR)) {
+      menu.RemoveItemAt(i);
+    } else {
+      ++i;
+    }
   }
 }
 
@@ -573,10 +605,16 @@ void Window::ShowNothing() {
 }
 
 void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
+  const bool moved = frame != page_frame_;
   page_frame_ = frame;
   page_corner_radius_ = corner_radius;
   if (shown_) {
     Show(shown_.get(), frame);
+  }
+  if (moved) {
+    for (web_modal::ModalDialogHostObserver& observer : dialog_observers_) {
+      observer.OnPositionRequiresUpdate();
+    }
   }
 }
 
@@ -765,11 +803,13 @@ gfx::NativeView Window::GetHostView() const {
 }
 
 gfx::Point Window::GetDialogPosition(const gfx::Size& size) {
-  return gfx::Point((widget_->GetClientAreaBoundsInScreen().width() - size.width()) / 2, 0);
+  // As in Chrome's window: a tab's dialog, such as print preview, is centred over the page, at its
+  // top.
+  return gfx::Point(page_frame_.CenterPoint().x() - size.width() / 2, page_frame_.y());
 }
 
 gfx::Size Window::GetMaximumDialogSize() {
-  return widget_->GetClientAreaBoundsInScreen().size();
+  return page_frame_.size();
 }
 
 void Window::AddObserver(web_modal::ModalDialogHostObserver* observer) {
