@@ -23,7 +23,8 @@ use crate::text_input::TextInput;
 
 mod library;
 
-pub use library::Archived;
+pub use library::{Archived, Download, DownloadAction, DownloadState};
+use library::Section;
 
 /// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
@@ -307,6 +308,8 @@ pub enum Command {
     /// Opens the Library on the archive.
     ViewArchive,
     ClearArchive,
+    /// Opens the Library on the downloads, or closes it there.
+    ViewDownloads,
     Quit,
 }
 
@@ -366,6 +369,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("alt-cmd-j", Command::JavaScriptConsole, false),
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
+    ("shift-cmd-j", Command::ViewDownloads, false),
     ("escape", Command::Stop, false),
     ("ctrl-1", Command::SelectSpace(0), false),
     ("ctrl-2", Command::SelectSpace(1), false),
@@ -482,6 +486,7 @@ impl Command {
             Command::ViewLibrary => "view-library",
             Command::ViewArchive => "view-archive",
             Command::ClearArchive => "clear-archive",
+            Command::ViewDownloads => "view-downloads",
             Command::Quit => "quit",
         }
     }
@@ -537,10 +542,15 @@ pub struct Assets;
 const ICONS: &[(&str, &[u8])] = &[
     ("icons/archive.svg", include_bytes!("../assets/icons/archive.svg")),
     ("icons/arrow-down.svg", include_bytes!("../assets/icons/arrow-down.svg")),
+    (
+        "icons/arrow-down-to-line.svg",
+        include_bytes!("../assets/icons/arrow-down-to-line.svg"),
+    ),
     ("icons/arrow-left.svg", include_bytes!("../assets/icons/arrow-left.svg")),
     ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
     ("icons/chevron-down.svg", include_bytes!("../assets/icons/chevron-down.svg")),
     ("icons/chevron-up.svg", include_bytes!("../assets/icons/chevron-up.svg")),
+    ("icons/file.svg", include_bytes!("../assets/icons/file.svg")),
     ("icons/globe.svg", include_bytes!("../assets/icons/globe.svg")),
     ("icons/link.svg", include_bytes!("../assets/icons/link.svg")),
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
@@ -598,6 +608,13 @@ pub trait Browser {
     /// shows it.
     fn restore_archived(&self, archived: u64, cx: &mut App);
     fn clear_archive(&self, cx: &mut App);
+    /// Does `action` to the download.
+    fn act_on_download(&self, download: u64, action: DownloadAction, cx: &mut App);
+    /// Takes the downloads that aren't running or paused off the list, keeping their files.
+    fn clear_downloads(&self, cx: &mut App);
+    /// Looks up the icon the system shows for the download's file, and calls
+    /// `Shell::set_download_icon`.
+    fn download_icon(&self, download: u64, cx: &mut App);
     /// Looks up the favicon the browser has for `url`, and calls `Shell::set_page_favicon`.
     fn page_favicon(&self, url: &str, cx: &mut App);
     /// The starts of today, yesterday, this week and last week in the user's calendar, in
@@ -959,6 +976,11 @@ pub struct Shell {
     /// Every Space's archived tabs, newest first, and the favicons asked for their URLs.
     archive: Vec<Archived>,
     page_favicons: HashMap<SharedString, Option<Arc<Image>>>,
+    /// The profile's downloads, newest first, and the file icons asked for them.
+    downloads: Vec<Download>,
+    download_icons: HashMap<u64, Option<Arc<Image>>>,
+    /// The Library's section shown last, which it opens on.
+    section: Section,
     /// The Library, from when it opens until it has closed.
     library: Option<library::Library>,
     library_open: bool,
@@ -1024,6 +1046,9 @@ impl Shell {
             page_push: 0.,
             archive: Vec::new(),
             page_favicons: HashMap::new(),
+            downloads: Vec::new(),
+            download_icons: HashMap::new(),
+            section: Section::Archive,
             library: None,
             library_open: false,
             library_motion: None,
@@ -1670,7 +1695,8 @@ impl Shell {
             Command::Quit => return self.browser.quit(cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
-            Command::ViewArchive => return self.set_library(true, cx),
+            Command::ViewArchive => return self.view_section(Section::Archive, cx),
+            Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),

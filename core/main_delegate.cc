@@ -8,6 +8,7 @@
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/downloads.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/search.h"
@@ -57,6 +58,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
       profile_keep_alive_ =
           std::make_unique<ScopedProfileKeepAlive>(profile, ProfileKeepAliveOrigin::kAppWindow);
       SetUpSearch(profile);
+      ObserveDownloads(profile);
     }
     // Once the Spaces the last launch saved are read, and so once the run loop is running.
     LoadSession(base::BindOnce([] {

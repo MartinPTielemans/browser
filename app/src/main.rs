@@ -10,7 +10,10 @@ use std::{
     time::Instant,
 };
 
-use browser::shell::{self, Archived, Browser, Command, MenuEntry, Page, Shell, WindowButton};
+use browser::shell::{
+    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, MenuEntry, Page,
+    Shell, WindowButton,
+};
 use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
@@ -251,6 +254,27 @@ impl Browser for Engine {
 
     fn restore_archived(&self, archived: u64, _: &mut App) {
         unsafe { bc::bc_window_restore_archived(WINDOW.get(), archived) };
+    }
+
+    fn act_on_download(&self, download: u64, action: DownloadAction, _: &mut App) {
+        let action = match action {
+            DownloadAction::Open => bc::BC_DOWNLOAD_OPEN,
+            DownloadAction::Show => bc::BC_DOWNLOAD_SHOW,
+            DownloadAction::Pause => bc::BC_DOWNLOAD_PAUSE,
+            DownloadAction::Resume => bc::BC_DOWNLOAD_RESUME,
+            DownloadAction::Cancel => bc::BC_DOWNLOAD_CANCEL,
+            DownloadAction::Remove => bc::BC_DOWNLOAD_REMOVE,
+            DownloadAction::Keep => bc::BC_DOWNLOAD_KEEP,
+        };
+        unsafe { bc::bc_download_act(download, action as i32) };
+    }
+
+    fn clear_downloads(&self, _: &mut App) {
+        unsafe { bc::bc_downloads_clear() };
+    }
+
+    fn download_icon(&self, download: u64, _: &mut App) {
+        unsafe { bc::bc_download_icon(download) };
     }
 
     fn clear_archive(&self, _: &mut App) {
@@ -790,6 +814,7 @@ fn menus() -> Vec<Menu> {
                 MenuItem::action("Minimize Window", Minimize),
                 MenuItem::separator(),
                 item("View Library", Command::ViewLibrary),
+                item("View Downloads", Command::ViewDownloads),
             ],
         ),
     ]
@@ -922,6 +947,52 @@ unsafe extern "C" fn archive_changed(
     // check.sh waits for this line.
     eprintln!("browser: archive {count} tabs");
     update_shell(|shell, cx| shell.set_archive(archive, cx));
+}
+
+unsafe extern "C" fn downloads_changed(
+    _: *mut c_void,
+    downloads: *const bc::bc_download,
+    count: usize,
+) {
+    let downloads = match downloads.is_null() {
+        true => &[][..],
+        false => unsafe { std::slice::from_raw_parts(downloads, count) },
+    };
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into();
+    let downloads = downloads
+        .iter()
+        .map(|download| Download {
+            id: download.id,
+            name: text(download.name),
+            url: text(download.url),
+            received: download.received,
+            total: download.total,
+            state: match download.state as u32 {
+                bc::BC_DOWNLOAD_RUNNING => DownloadState::Running,
+                bc::BC_DOWNLOAD_PAUSED => DownloadState::Paused,
+                bc::BC_DOWNLOAD_DONE => DownloadState::Done,
+                bc::BC_DOWNLOAD_CANCELLED => DownloadState::Cancelled,
+                _ => DownloadState::Failed,
+            },
+            open_when_done: download.open_when_done,
+            held: download.held,
+            started: download.started,
+        })
+        .collect();
+    update_shell(|shell, cx| shell.set_downloads(downloads, cx));
+}
+
+unsafe extern "C" fn download_icon(
+    _: *mut c_void,
+    download: bc::bc_id,
+    png: *const u8,
+    size: usize,
+) {
+    let icon = (!png.is_null()).then(|| {
+        let png = unsafe { std::slice::from_raw_parts(png, size) }.to_vec();
+        Arc::new(Image::from_bytes(ImageFormat::Png, png))
+    });
+    update_shell(|shell, cx| shell.set_download_icon(download, icon, cx));
 }
 
 unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *const u8, size: usize) {
@@ -1066,6 +1137,8 @@ fn main() {
         tab_favicon_changed: Some(tab_favicon_changed),
         archive_changed: Some(archive_changed),
         page_favicon: Some(page_favicon),
+        downloads_changed: Some(downloads_changed),
+        download_icon: Some(download_icon),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         window_suggestions: Some(window_suggestions),

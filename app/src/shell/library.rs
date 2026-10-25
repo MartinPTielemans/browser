@@ -1,18 +1,19 @@
 //! The Library, which takes the sidebar's place and pushes the card right without resizing it
-//! (Arc): a column of its sections, of which there's one so far, Archived Tabs, and beside it the
-//! archive, newest first under day headings, with a search field over it (docs/ux-spec.md ›
-//! Archive).
+//! (Arc): a column of its sections, Downloads and Archived Tabs so far, and beside it the section's
+//! list, newest first under day headings, with a search field over it (docs/ux-spec.md › Archive
+//! and Downloads).
 
 use std::{sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, Context, Entity, Focusable, FontWeight, Image, ListAlignment, ListState,
-    MouseButton, SharedString, Subscription, Window, div, list, prelude::*, px, rgb, rgba, svg,
+    AnyElement, ClickEvent, Context, Entity, Focusable, FontWeight, Image, ListAlignment, ListState,
+    MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, Window, div, list,
+    prelude::*, px, relative, rgb, rgba, svg,
 };
 
 use super::{
-    Command, FOOTER_HEIGHT, FORM_TEXT, HOVERED, NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PRESSED,
-    SECONDARY, Shell, UNSELECTED_TITLE, favicon, host, spring,
+    Command, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE,
+    PRESSED, SECONDARY, Shell, UNSELECTED_TITLE, favicon, host, spring,
 };
 use crate::text_input::TextInput;
 
@@ -36,6 +37,11 @@ const SECTION_GLYPH_Y: f32 = 31.;
 const SECTION_LABEL_Y: f32 = 56.;
 const SECTION_LABEL_HEIGHT: f32 = 15.;
 const SECTION_LABEL: u32 = 0xffffffd9;
+/// Ours: the glyph of a section not shown, and the plate under one hovered.
+const SECTION_GLYPH_UNSELECTED: u32 = 0xffffff99;
+const SECTION_HOVERED: u32 = 0xffffff0d;
+/// Between two sections' buttons, 100 apart.
+const SECTION_GAP: f32 = 20.;
 /// The plate under the selected section and the search field.
 const LIBRARY_PLATE: u32 = 0xffffff17;
 /// The back button, at the column's bottom.
@@ -74,6 +80,14 @@ const ARCHIVED_TEXT_X: f32 = 44.;
 const ARCHIVED_RADIUS: f32 = 12.;
 /// Rows laid out past the list's ends, so a scroll doesn't show them late.
 const ARCHIVE_OVERDRAW: f32 = 300.;
+/// Ours: a running download's bar, under its text, and the footer button's, under its glyph.
+const PROGRESS_HEIGHT: f32 = 3.;
+const PROGRESS_BOTTOM: f32 = 6.;
+const PROGRESS_TRACK: u32 = 0xffffff1f;
+const PROGRESS_FILL: u32 = 0xffffff99;
+const BUTTON_PROGRESS_WIDTH: f32 = 16.;
+const BUTTON_PROGRESS_HEIGHT: f32 = 2.;
+const BUTTON_PROGRESS_BOTTOM: f32 = 4.;
 
 /// The headings, by how long ago a tab was archived: the starts of `Browser::day_starts`, then
 /// before them.
@@ -88,6 +102,78 @@ pub struct Archived {
     pub archived: f64,
 }
 
+/// Where a download is.
+#[derive(Clone, Copy, PartialEq)]
+pub enum DownloadState {
+    Running,
+    Paused,
+    Done,
+    Cancelled,
+    Failed,
+}
+
+impl DownloadState {
+    /// For check.sh's log lines.
+    fn name(self) -> &'static str {
+        match self {
+            DownloadState::Running => "running",
+            DownloadState::Paused => "paused",
+            DownloadState::Done => "done",
+            DownloadState::Cancelled => "cancelled",
+            DownloadState::Failed => "failed",
+        }
+    }
+}
+
+/// One of the profile's downloads, as the browser reports it.
+#[derive(Clone)]
+pub struct Download {
+    pub id: u64,
+    pub name: SharedString,
+    pub url: SharedString,
+    /// The bytes it has, and the bytes it will have in all, or 0 while that isn't known.
+    pub received: i64,
+    pub total: i64,
+    pub state: DownloadState,
+    pub open_when_done: bool,
+    /// The browser holds it as possibly harmful until it's kept.
+    pub held: bool,
+    /// When it started, in milliseconds since the Unix epoch.
+    pub started: f64,
+}
+
+/// What `Browser::act_on_download` does.
+#[derive(Clone, Copy, Debug)]
+pub enum DownloadAction {
+    /// Opens the file, or for one still running, opens it once it's done, or no longer.
+    Open,
+    /// Shows the file in Finder.
+    Show,
+    Pause,
+    Resume,
+    Cancel,
+    /// Takes it off the list, keeping a finished file and deleting any other.
+    Remove,
+    /// Keeps one the browser held.
+    Keep,
+}
+
+/// A section of the Library.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Section {
+    Downloads,
+    Archive,
+}
+
+impl Section {
+    fn name(self) -> &'static str {
+        match self {
+            Section::Downloads => "downloads",
+            Section::Archive => "archive",
+        }
+    }
+}
+
 /// The open Library, until it has closed.
 pub(super) struct Library {
     search: Entity<TextInput>,
@@ -98,12 +184,14 @@ pub(super) struct Library {
     _search: Subscription,
 }
 
-/// A line of the archive's list.
-#[derive(Clone, Copy)]
+/// A line of the section's list.
+#[derive(Clone, Copy, PartialEq)]
 enum Item {
     Heading(&'static str),
     /// The archived tab at this index of `Shell::archive`.
     Tab(usize),
+    /// The download at this index of `Shell::downloads`.
+    Download(usize),
 }
 
 impl Shell {
@@ -112,7 +200,38 @@ impl Shell {
         self.archive = archive;
         let archive = &self.archive;
         self.page_favicons.retain(|url, _| archive.iter().any(|tab| tab.url == *url));
-        self.filter_archive(true, cx);
+        if self.section == Section::Archive {
+            self.filter(true, cx);
+        }
+    }
+
+    /// The downloads changed, all of them, newest first.
+    pub fn set_downloads(&mut self, downloads: Vec<Download>, cx: &mut Context<Self>) {
+        // check.sh waits for these lines: a download's state, and how many there are.
+        for download in &downloads {
+            let before = self.downloads.iter().find(|each| each.id == download.id);
+            if before.is_none_or(|before| before.state != download.state) {
+                let state = download.state.name();
+                eprintln!("browser: download {} {state} {}", download.id, download.name);
+            }
+        }
+        if downloads.len() != self.downloads.len() {
+            eprintln!("browser: downloads {}", downloads.len());
+        }
+        self.download_icons.retain(|id, _| downloads.iter().any(|each| each.id == *id));
+        self.downloads = downloads;
+        if self.section == Section::Downloads {
+            self.filter(true, cx);
+        }
+        cx.notify();
+    }
+
+    /// The icon `Browser::download_icon` asked for.
+    pub fn set_download_icon(&mut self, id: u64, icon: Option<Arc<Image>>, cx: &mut Context<Self>) {
+        if let Some(entry) = self.download_icons.get_mut(&id) {
+            *entry = icon;
+            cx.notify();
+        }
     }
 
     /// The favicon `Browser::page_favicon` asked for.
@@ -159,25 +278,49 @@ impl Shell {
         if open {
             self.conceal_now(cx);
             if self.library.is_none() {
-                let search = cx.new(|cx| {
-                    TextInput::new("Search Archive…", cx)
-                        .placeholder_color(rgba(SEARCH_PLACEHOLDER))
-                        .caret_color(rgb(SEARCH_CARET))
-                        .selection_color(rgba(SEARCH_SELECTION))
-                });
-                let observe = cx.observe(&search, |shell, _, cx| shell.filter_archive(false, cx));
-                self.library = Some(Library {
-                    search,
-                    query: String::new(),
-                    items: Vec::new(),
-                    list: ListState::new(0, ListAlignment::Top, px(ARCHIVE_OVERDRAW)),
-                    _search: observe,
-                });
-                self.filter_archive(true, cx);
+                self.show_section(self.section, cx);
             }
             self.browser.show_window_buttons(true, cx);
         }
         cx.notify();
+    }
+
+    /// Opens the Library on `section`, or shows it there, or closes it if it's there already.
+    pub(super) fn view_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        if !self.library_open {
+            self.section = section;
+            return self.set_library(true, cx);
+        }
+        if section == self.section {
+            return self.set_library(false, cx);
+        }
+        self.show_section(section, cx);
+    }
+
+    /// Lists `section` in the Library, with an empty search field of its own.
+    fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        self.section = section;
+        let placeholder = match section {
+            Section::Downloads => "Search Downloads…",
+            Section::Archive => "Search Archive…",
+        };
+        let search = cx.new(|cx| {
+            TextInput::new(placeholder, cx)
+                .placeholder_color(rgba(SEARCH_PLACEHOLDER))
+                .caret_color(rgb(SEARCH_CARET))
+                .selection_color(rgba(SEARCH_SELECTION))
+        });
+        let observe = cx.observe(&search, |shell, _, cx| shell.filter(false, cx));
+        self.library = Some(Library {
+            search,
+            query: String::new(),
+            items: Vec::new(),
+            list: ListState::new(0, ListAlignment::Top, px(ARCHIVE_OVERDRAW)),
+            _search: observe,
+        });
+        // check.sh waits for this line.
+        eprintln!("browser: library section {}", section.name());
+        self.filter(true, cx);
     }
 
     /// Closes the Library at once, as a page goes full screen.
@@ -217,9 +360,9 @@ impl Shell {
         }
     }
 
-    /// Lists the archived tabs the search finds, under their headings. With `changed` false, only
-    /// if the search did.
-    fn filter_archive(&mut self, changed: bool, cx: &mut Context<Self>) {
+    /// Lists the archived tabs or downloads the search finds, under their headings. With `changed`
+    /// false, only if the search did.
+    fn filter(&mut self, changed: bool, cx: &mut Context<Self>) {
         let Some(library) = &mut self.library else {
             return;
         };
@@ -227,23 +370,35 @@ impl Shell {
         if !changed && query == library.query {
             return;
         }
+        let found = |text: &SharedString| text.to_lowercase().contains(&query);
+        // Each with the time it's listed by, newest first.
+        let found: Vec<(Item, f64)> = match self.section {
+            Section::Archive => (self.archive.iter().enumerate())
+                .filter(|(_, tab)| query.is_empty() || found(&tab.title) || found(&tab.url))
+                .map(|(index, tab)| (Item::Tab(index), tab.archived))
+                .collect(),
+            Section::Downloads => (self.downloads.iter().enumerate())
+                .filter(|(_, each)| query.is_empty() || found(&each.name) || found(&each.url))
+                .map(|(index, download)| (Item::Download(index), download.started))
+                .collect(),
+        };
         let starts = self.browser.day_starts();
         let mut items = Vec::new();
         let mut heading = None;
-        for (index, tab) in self.archive.iter().enumerate() {
-            let found = |text: &SharedString| text.to_lowercase().contains(&query);
-            if !query.is_empty() && !found(&tab.title) && !found(&tab.url) {
-                continue;
-            }
-            let day = starts.iter().position(|&start| tab.archived >= start).unwrap_or(4);
+        for (item, time) in found {
+            let day = starts.iter().position(|&start| time >= start).unwrap_or(4);
             if heading != Some(day) {
                 heading = Some(day);
                 items.push(Item::Heading(HEADINGS[day]));
             }
-            items.push(Item::Tab(index));
+            items.push(item);
         }
-        library.list.reset(items.len());
-        library.items = items;
+        // Reset only for other lines, as it scrolls back to the top, and a running download
+        // reports twice a second.
+        if items != library.items {
+            library.list.reset(items.len());
+            library.items = items;
+        }
         library.query = query;
         cx.notify();
     }
@@ -283,36 +438,14 @@ impl Shell {
         };
         // The selected section's glyph has the Space's colour, as in Arc.
         let color = self.shown_space().and_then(|space| space.color).unwrap_or(self.accent_color);
-        let section = div()
-            .relative()
-            .w(px(SECTION_WIDTH))
-            .h(px(SECTION_HEIGHT))
+        let sections = div()
+            .flex()
+            .flex_col()
+            .gap(px(SECTION_GAP))
             // Arc's buttons sit 5 above the column's middle.
             .mb(px(10.))
-            .rounded(px(SECTION_RADIUS))
-            .bg(rgba(LIBRARY_PLATE))
-            .child(
-                svg()
-                    .path("icons/archive.svg")
-                    .absolute()
-                    .left(px((SECTION_WIDTH - SECTION_GLYPH) / 2.))
-                    .top(px(SECTION_GLYPH_Y - SECTION_GLYPH / 2.))
-                    .size(px(SECTION_GLYPH))
-                    .text_color(rgb(color)),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .top(px(SECTION_LABEL_Y - SECTION_LABEL_HEIGHT / 2.))
-                    .w_full()
-                    .h(px(SECTION_LABEL_HEIGHT))
-                    .flex()
-                    .justify_center()
-                    .text_size(px(12.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgba(SECTION_LABEL))
-                    .child("Archived Tabs"),
-            );
+            .child(self.section_button(Section::Downloads, color, cx))
+            .child(self.section_button(Section::Archive, color, cx));
         let back = div()
             .id("library-back")
             .absolute()
@@ -339,7 +472,7 @@ impl Shell {
             .flex()
             .items_center()
             .pl(px(SECTION_X))
-            .child(section)
+            .child(sections)
             .child(back);
         let edge = div()
             .absolute()
@@ -384,9 +517,11 @@ impl Shell {
             )
             .child(library.search.clone());
         let archive = if library.items.is_empty() {
-            let empty = match library.query.is_empty() {
-                true => "Today tabs you close are kept here for 30 days.",
-                false => "No archived tabs match.",
+            let empty = match (self.section, library.query.is_empty()) {
+                (Section::Archive, true) => "Today tabs you close are kept here for 30 days.",
+                (Section::Archive, false) => "No archived tabs match.",
+                (Section::Downloads, true) => "Files you download show here.",
+                (Section::Downloads, false) => "No downloads match.",
             };
             div()
                 .size_full()
@@ -446,6 +581,7 @@ impl Shell {
                     .into_any_element();
             }
             Item::Tab(tab) => tab,
+            Item::Download(download) => return self.download_item(download, cx),
         };
         let Some(tab) = self.archive.get(tab) else {
             return div().into_any_element();
@@ -458,15 +594,6 @@ impl Shell {
             self.browser.page_favicon(&url, cx);
         }
         let icon = favicon(self.page_favicons.get(&url).cloned().flatten());
-        let line = |text: SharedString, size: f32, height: f32, color: u32| {
-            div()
-                .h(px(height))
-                .flex()
-                .items_center()
-                .text_size(px(size))
-                .text_color(rgba(color))
-                .child(div().truncate().child(text))
-        };
         let host = SharedString::from(host(&url).to_string());
         div()
             .h(px(ARCHIVED_PITCH))
@@ -501,15 +628,254 @@ impl Shell {
                             .justify_center()
                             .pl(px(ARCHIVED_TEXT_X))
                             .pr(px(12.))
-                            .child(line(title, 14., 17., UNSELECTED_TITLE))
-                            .child(line(host, 12., 15., SECONDARY)),
+                            .child(text_line(title, 14., 17., UNSELECTED_TITLE))
+                            .child(text_line(host, 12., 15., SECONDARY)),
                     ),
             )
             .into_any_element()
     }
 
-    /// The footer's button that opens the Library, at its left (Arc).
+    /// A section's button in the column, which shows the section.
+    fn section_button(
+        &self,
+        section: Section,
+        color: u32,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let selected = section == self.section;
+        let (glyph, label) = match section {
+            Section::Downloads => ("icons/arrow-down-to-line.svg", "Downloads"),
+            Section::Archive => ("icons/archive.svg", "Archived Tabs"),
+        };
+        div()
+            .id(label)
+            .relative()
+            .w(px(SECTION_WIDTH))
+            .h(px(SECTION_HEIGHT))
+            .rounded(px(SECTION_RADIUS))
+            .block_mouse_except_scroll()
+            .when(selected, |button| button.bg(rgba(LIBRARY_PLATE)))
+            .when(!selected, |button| button.hover(|style| style.bg(rgba(SECTION_HOVERED))))
+            .on_click(cx.listener(move |shell, _, _, cx| {
+                if section != shell.section {
+                    shell.show_section(section, cx);
+                }
+            }))
+            .child(
+                svg()
+                    .path(glyph)
+                    .absolute()
+                    .left(px((SECTION_WIDTH - SECTION_GLYPH) / 2.))
+                    .top(px(SECTION_GLYPH_Y - SECTION_GLYPH / 2.))
+                    .size(px(SECTION_GLYPH))
+                    .text_color(if selected { rgb(color) } else { rgba(SECTION_GLYPH_UNSELECTED) }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(SECTION_LABEL_Y - SECTION_LABEL_HEIGHT / 2.))
+                    .w_full()
+                    .h(px(SECTION_LABEL_HEIGHT))
+                    .flex()
+                    .justify_center()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgba(SECTION_LABEL))
+                    .child(label),
+            )
+    }
+
+    /// A download's row: its file's icon, its name over where it is, and while it runs, a bar. A
+    /// click opens a finished file or shows a held one's menu, and a right-click shows the menu.
+    fn download_item(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
+        let Some(download) = self.downloads.get(index) else {
+            return div().into_any_element();
+        };
+        let id = download.id;
+        let (state, held) = (download.state, download.held);
+        let site = host(&download.url);
+        let status: SharedString = match state {
+            _ if held => "May harm your computer".into(),
+            DownloadState::Running => of(download.received, download.total).into(),
+            DownloadState::Paused => {
+                format!("Paused · {}", of(download.received, download.total)).into()
+            }
+            DownloadState::Done => format!("{} · {site}", bytes(download.received)).into(),
+            DownloadState::Cancelled => format!("Cancelled · {site}").into(),
+            DownloadState::Failed => format!("Failed · {site}").into(),
+        };
+        let progress = match state {
+            DownloadState::Running | DownloadState::Paused if download.total > 0 && !held => {
+                Some((download.received as f32 / download.total as f32).clamp(0., 1.))
+            }
+            _ => None,
+        };
+        let name = download.name.clone();
+        // Asked for once a row first shows, as the archive's favicons are.
+        if !self.download_icons.contains_key(&id) {
+            self.download_icons.insert(id, None);
+            self.browser.download_icon(id, cx);
+        }
+        let icon = match self.download_icons.get(&id).cloned().flatten() {
+            Some(icon) => favicon(Some(icon)).into_any_element(),
+            None => (svg().path("icons/file.svg").size(px(16.)).text_color(rgba(SECONDARY)))
+                .into_any_element(),
+        };
+        div()
+            .h(px(ARCHIVED_PITCH))
+            .pl(px(ARCHIVED_LEFT))
+            .pr(px(ARCHIVED_RIGHT))
+            .py(px((ARCHIVED_PITCH - ARCHIVED_PLATE) / 2.))
+            .child(
+                div()
+                    .id(("download", id))
+                    .size_full()
+                    .relative()
+                    .rounded(px(ARCHIVED_RADIUS))
+                    .block_mouse_except_scroll()
+                    .hover(|style| style.bg(rgba(HOVERED)))
+                    .active(|style| style.bg(rgba(PRESSED)))
+                    .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
+                        // A held file's only choices are in its menu, so a click shows them.
+                        if held {
+                            shell.download_menu(id, event.position(), cx);
+                        } else if state == DownloadState::Done {
+                            shell.act_on_download(id, DownloadAction::Open, "row", cx);
+                        }
+                    }))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                            shell.download_menu(id, event.position, cx)
+                        }),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(ARCHIVED_FAVICON_X))
+                            .top_0()
+                            .bottom_0()
+                            .flex()
+                            .items_center()
+                            .child(icon),
+                    )
+                    .child(
+                        div()
+                            .size_full()
+                            .flex()
+                            .flex_col()
+                            .justify_center()
+                            .pl(px(ARCHIVED_TEXT_X))
+                            .pr(px(12.))
+                            .child(text_line(name, 14., 17., UNSELECTED_TITLE))
+                            .child(text_line(status, 12., 15., SECONDARY)),
+                    )
+                    .children(progress.map(|done| {
+                        div()
+                            .absolute()
+                            .left(px(ARCHIVED_TEXT_X))
+                            .right(px(12.))
+                            .bottom(px(PROGRESS_BOTTOM))
+                            .h(px(PROGRESS_HEIGHT))
+                            .rounded(px(PROGRESS_HEIGHT / 2.))
+                            .bg(rgba(PROGRESS_TRACK))
+                            .child(
+                                div()
+                                    .h_full()
+                                    .w(relative(done))
+                                    .rounded(px(PROGRESS_HEIGHT / 2.))
+                                    .bg(rgba(PROGRESS_FILL)),
+                            )
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// The menu a right-click on a download's row shows: what can be done with it where it is.
+    fn download_menu(&mut self, id: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(download) = self.downloads.iter().find(|each| each.id == id) else {
+            return;
+        };
+        let item = |title: &'static str, action| (MenuEntry::new(title, true), Some(action));
+        let mut items: Vec<(MenuEntry, Option<DownloadAction>)> = match download.state {
+            _ if download.held => {
+                vec![item("Keep", DownloadAction::Keep), item("Delete", DownloadAction::Remove)]
+            }
+            DownloadState::Running | DownloadState::Paused => vec![
+                match download.state {
+                    DownloadState::Paused => item("Resume", DownloadAction::Resume),
+                    _ => item("Pause", DownloadAction::Pause),
+                },
+                item("Cancel", DownloadAction::Cancel),
+                (
+                    MenuEntry::new("Open When Done", true).checked(download.open_when_done),
+                    Some(DownloadAction::Open),
+                ),
+            ],
+            DownloadState::Done => vec![
+                item("Open", DownloadAction::Open),
+                item("Show in Finder", DownloadAction::Show),
+            ],
+            DownloadState::Cancelled | DownloadState::Failed => Vec::new(),
+        };
+        if !download.held {
+            if !items.is_empty() {
+                items.push((MenuEntry::line(), None));
+            }
+            items.push(item("Remove from List", DownloadAction::Remove));
+        }
+        let finished = self.downloads.iter().any(|each| {
+            !matches!(each.state, DownloadState::Running | DownloadState::Paused)
+        });
+        items.push((MenuEntry::new("Clear List", finished), None));
+        let clear = items.len() - 1;
+        let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
+        let shell = cx.weak_entity();
+        self.browser.menu(
+            entries,
+            position,
+            false,
+            Box::new(move |chosen, cx| {
+                shell
+                    .update(cx, |shell, cx| match chosen {
+                        Some(at) if at == clear => {
+                            eprintln!("browser: command clear-downloads via download menu");
+                            shell.browser.clear_downloads(cx);
+                        }
+                        Some(at) => {
+                            if let Some((_, Some(action))) = items.get(at) {
+                                shell.act_on_download(id, *action, "download menu", cx);
+                            }
+                        }
+                        None => {}
+                    })
+                    .ok();
+            }),
+            cx,
+        );
+    }
+
+    fn act_on_download(
+        &mut self,
+        id: u64,
+        action: DownloadAction,
+        source: &str,
+        cx: &mut Context<Self>,
+    ) {
+        // check.sh waits for this line.
+        eprintln!("browser: download {id} {action:?} via {source}");
+        self.browser.act_on_download(id, action, cx);
+    }
+
+    /// The footer's button that opens the Library, at its left (Arc). While downloads run, it shows
+    /// the downloads' glyph over a bar of how far they've got, and opens the Library on them.
     pub(super) fn library_button(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let running = self.downloads.iter().filter(|each| each.state == DownloadState::Running);
+        let (received, total) = running.fold((0, 0), |(received, total), each| {
+            (received + each.received.min(each.total.max(0)), total + each.total.max(0))
+        });
+        let downloading = self.downloads.iter().any(|each| each.state == DownloadState::Running);
+        let glyph = if downloading { "icons/arrow-down-to-line.svg" } else { "icons/archive.svg" };
         div()
             .id("library")
             .absolute()
@@ -522,9 +888,61 @@ impl Shell {
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
             .hover(|style| style.bg(rgba(NAV_HOVERED)))
-            .on_click(cx.listener(|shell, _, _, cx| {
-                shell.run(Command::ViewLibrary, "sidebar", cx)
+            .on_click(cx.listener(move |shell, _, _, cx| match downloading {
+                true => shell.run(Command::ViewDownloads, "sidebar", cx),
+                false => shell.run(Command::ViewLibrary, "sidebar", cx),
             }))
-            .child(svg().path("icons/archive.svg").size(px(16.)).text_color(rgba(NAV)))
+            .child(svg().path(glyph).size(px(16.)).text_color(rgba(NAV)))
+            .when(downloading, |button| {
+                // A download of a size not yet known shows an empty bar.
+                let done = if total > 0 { received as f32 / total as f32 } else { 0. };
+                button.child(
+                    div()
+                        .absolute()
+                        .left(px((NAV_SIZE - BUTTON_PROGRESS_WIDTH) / 2.))
+                        .bottom(px(BUTTON_PROGRESS_BOTTOM))
+                        .w(px(BUTTON_PROGRESS_WIDTH))
+                        .h(px(BUTTON_PROGRESS_HEIGHT))
+                        .rounded(px(BUTTON_PROGRESS_HEIGHT / 2.))
+                        .bg(rgba(PROGRESS_TRACK))
+                        .child(
+                            div()
+                                .h_full()
+                                .w(relative(done))
+                                .rounded(px(BUTTON_PROGRESS_HEIGHT / 2.))
+                                .bg(rgba(PROGRESS_FILL)),
+                        ),
+                )
+            })
+    }
+}
+
+/// A line of a row's text, cut short with an ellipsis.
+fn text_line(text: SharedString, size: f32, height: f32, color: u32) -> gpui::Div {
+    div()
+        .h(px(height))
+        .flex()
+        .items_center()
+        .text_size(px(size))
+        .text_color(rgba(color))
+        .child(div().truncate().child(text))
+}
+
+/// A size as Finder writes it, in powers of 1000.
+fn bytes(bytes: i64) -> String {
+    let bytes = bytes.max(0) as f64;
+    match bytes {
+        b if b < 1e3 => format!("{b} bytes"),
+        b if b < 1e6 => format!("{:.0} KB", b / 1e3),
+        b if b < 1e9 => format!("{:.1} MB", b / 1e6),
+        b => format!("{:.2} GB", b / 1e9),
+    }
+}
+
+/// How much of a download has come, as Safari writes it.
+fn of(received: i64, total: i64) -> String {
+    match total > 0 {
+        true => format!("{} of {}", bytes(received), bytes(total)),
+        false => bytes(received),
     }
 }

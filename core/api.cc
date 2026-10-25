@@ -7,6 +7,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "browser_core/archive.h"
+#include "browser_core/downloads.h"
 #include "browser_core/favicon.h"
 #include "browser_core/find.h"
 #include "browser_core/main_delegate.h"
@@ -425,6 +426,18 @@ bc_id bc_tab_duplicate(bc_id id) {
   browser_core::Window* window =
       tab ? browser_core::Window::ForBrowser(tab->GetBrowserWindowInterface()) : nullptr;
   return window ? window->Duplicate(id) : 0;
+}
+
+void bc_download_act(bc_id download, int action) {
+  browser_core::ActOnDownload(download, action);
+}
+
+void bc_downloads_clear() {
+  browser_core::ClearDownloads();
+}
+
+void bc_download_icon(bc_id download) {
+  browser_core::FindDownloadIcon(download);
 }
 
 void bc_tab_rename(bc_id id, const char* name) {

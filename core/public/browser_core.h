@@ -99,6 +99,34 @@ typedef struct bc_archived_tab {
   double archived;
 } bc_archived_tab;
 
+// Where a download is.
+#define BC_DOWNLOAD_RUNNING 0
+#define BC_DOWNLOAD_PAUSED 1
+#define BC_DOWNLOAD_DONE 2
+#define BC_DOWNLOAD_CANCELLED 3
+#define BC_DOWNLOAD_FAILED 4
+
+// One of the profile's downloads, as Arc's Library lists them.
+typedef struct bc_download {
+  // For bc_download_act and bc_download_icon.
+  bc_id id;
+  // Its file's name, and the URL it comes from.
+  const char* name;
+  const char* url;
+  // The bytes it has, and the bytes it will have in all, or 0 while that isn't known.
+  int64_t received;
+  int64_t total;
+  // A BC_DOWNLOAD_ state.
+  int state;
+  // It opens once it's done.
+  bool open_when_done;
+  // Chrome holds it, as a file that could harm the computer or one that came over plain HTTP,
+  // until BC_DOWNLOAD_KEEP, and BC_DOWNLOAD_REMOVE deletes it.
+  bool held;
+  // When it started, in milliseconds since the Unix epoch.
+  double started;
+} bc_download;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -165,6 +193,12 @@ typedef struct bc_host {
   // The favicon bc_page_favicon asked for, for |url| as the app wrote it: a PNG |size| bytes long,
   // 32 pixels square for 16 points at 2×, or null and 0 if the profile's history has none.
   void (*page_favicon)(void* context, const char* url, const uint8_t* png, size_t size);
+  // The profile's downloads changed, or the ones Chrome kept from the last launch were read:
+  // |downloads| is all of them, newest first. While one runs, about twice a second.
+  void (*downloads_changed)(void* context, const bc_download* downloads, size_t count);
+  // The icon bc_download_icon asked for: a PNG |size| bytes long, 32 pixels square for 16 points
+  // at 2×, or null and 0 if the system has none.
+  void (*download_icon)(void* context, bc_id download, const uint8_t* png, size_t size);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -275,6 +309,28 @@ BC_EXPORT bc_id bc_window_restore_archived(bc_id window, bc_id archived);
 // Empties the archive. Tabs closed since the browser started still reopen with
 // bc_window_reopen_closed_tab. Then archive_changed.
 BC_EXPORT void bc_archive_clear(void);
+
+// What bc_download_act does: opens the file, or for one still running, opens it once it's done or
+// no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off
+// the list, keeping a finished file and deleting any other; or keeps one Chrome held.
+#define BC_DOWNLOAD_OPEN 0
+#define BC_DOWNLOAD_SHOW 1
+#define BC_DOWNLOAD_PAUSE 2
+#define BC_DOWNLOAD_RESUME 3
+#define BC_DOWNLOAD_CANCEL 4
+#define BC_DOWNLOAD_REMOVE 5
+#define BC_DOWNLOAD_KEEP 6
+
+// Does what |action|, a BC_DOWNLOAD_ action, says to the download. Then downloads_changed. The
+// user's: agents get none, as opening a file runs it outside the browser.
+BC_EXPORT void bc_download_act(bc_id download, int action);
+
+// Takes the downloads that aren't running or paused off the list, keeping their files. Then
+// downloads_changed.
+BC_EXPORT void bc_downloads_clear(void);
+
+// Asks for the icon the system shows for the download's file. Then download_icon.
+BC_EXPORT void bc_download_icon(bc_id download);
 
 // Asks for the favicon the profile's history has for the page at |url|, else for its host. Then
 // page_favicon.
