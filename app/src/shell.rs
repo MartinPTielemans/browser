@@ -12,7 +12,7 @@ use std::{
 
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, Entity,
-    FocusHandle, Focusable, FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton,
+    FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding, MenuItem, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, Subscription,
     Task, Transformation, WeakEntity, Window, actions,
     div, img, percentage, point, prelude::*, px, rgb, rgba, size, svg,
@@ -47,6 +47,12 @@ const REVEAL_OUT: f32 = 0.15;
 /// The panel's window at rest ends at its edge, and is this much wider while it moves, for the
 /// spring's overshoot.
 const REVEAL_OVERSHOOT: f32 = 8.;
+
+// Rows make room and close it on Dia's curves, and a closed tab's row fades (docs/ux-spec.md ›
+// Motion: Row slide, Row fade). A row's hover fill fades out on Row fill change.
+const ROW_SLIDE: f32 = 0.14;
+const ROW_FADE: f32 = 0.1;
+const ROW_FILL: f32 = 0.3;
 
 // The header's buttons: their plates' tops and left edges, from the window's. The sidebar button's
 // is a pitch before back's, as Arc's is.
@@ -509,6 +515,22 @@ enum Row {
     Tab(u64),
 }
 
+/// A place in the list that moves as tabs come and go.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Slot {
+    Tab(u64),
+    Divider,
+    NewTab,
+}
+
+/// A closed tab's row, fading where it was.
+struct Closing {
+    title: SharedString,
+    favicon: Option<Arc<Image>>,
+    top: f32,
+    start: Instant,
+}
+
 pub struct Shell {
     browser: Rc<dyn Browser>,
     /// Holds GPUI's focus while nothing in the shell takes it, so the shortcuts have their context.
@@ -527,6 +549,13 @@ pub struct Shell {
     tabs: HashMap<u64, Tab>,
     selected: u64,
     hovered: Option<Row>,
+    /// Rows the pointer left, whose hover fill is fading, and since when.
+    unhovered: Vec<(Row, Instant)>,
+    /// Rows on their way to their place: how far from it each started, and when.
+    slides: HashMap<Slot, (f32, Instant)>,
+    /// A tab's new row, which the rows sliding down to make room come out from beneath.
+    opened: Option<u64>,
+    closing: Vec<Closing>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
     toast: Option<Toast>,
@@ -563,6 +592,10 @@ impl Shell {
             tabs: HashMap::new(),
             selected: 0,
             hovered: None,
+            unhovered: Vec::new(),
+            slides: HashMap::new(),
+            opened: None,
+            closing: Vec::new(),
             hovered_favicon: None,
             toast: None,
             page_fullscreen: false,
@@ -767,6 +800,9 @@ impl Shell {
             _ => eprintln!("browser: space {space}"),
         }
         self.space = space;
+        self.slides.clear();
+        self.opened = None;
+        self.closing.clear();
         self.log_tabs();
         if self.form().is_some() {
             self.focus_form(cx);
@@ -784,11 +820,17 @@ impl Shell {
         let Some(entry) = self.spaces.iter_mut().find(|entry| entry.id == space) else {
             return;
         };
+        // The rows of the Space shown move from where they were, unless it's being filled.
+        let had_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
+        let before = (space == self.space && had_tabs).then(|| slots(&entry.pinned, &entry.today));
         entry.pinned = pinned;
         entry.today = today;
         let has_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
         if space == self.space {
             self.log_tabs();
+        }
+        if let Some(before) = before {
+            self.move_rows(before);
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
         if has_tabs && self.form.as_ref().is_some_and(|form| form.space == space) {
@@ -1177,13 +1219,74 @@ impl Shell {
         }
     }
 
+    /// The pointer entered `row` or left it. A row fills at once, and fades when it's left.
     fn hover(&mut self, row: Row, hovered: bool, cx: &mut Context<Self>) {
-        if hovered {
-            self.hovered = Some(row);
+        let left = if hovered {
+            self.unhovered.retain(|&(old, _)| old != row);
+            self.hovered.replace(row).filter(|&old| old != row)
         } else if self.hovered == Some(row) {
-            self.hovered = None;
+            self.hovered.take()
+        } else {
+            None
+        };
+        if let Some(left) = left {
+            self.unhovered.retain(|&(old, _)| old != left);
+            self.unhovered.push((left, Instant::now()));
         }
         cx.notify();
+    }
+
+    /// Starts the list's rows from where they were in `before` to where they are now: rows still
+    /// there slide, a new tab's row is in its place at once, and a closed one fades where it was
+    /// (docs/ux-spec.md › Tab rows).
+    fn move_rows(&mut self, before: HashMap<Slot, f32>) {
+        let now = Instant::now();
+        let after = slots(self.pinned(), self.today());
+        let slides = after
+            .iter()
+            .filter_map(|(&slot, &top)| {
+                let from = before.get(&slot)? + self.slide(slot) - top;
+                (from != 0.).then_some((slot, (from, now)))
+            })
+            .collect();
+        let opened = after
+            .iter()
+            .filter(|(slot, _)| matches!(slot, Slot::Tab(_)) && !before.contains_key(slot))
+            .min_by(|(_, a), (_, b)| a.total_cmp(b));
+        if let Some((&Slot::Tab(tab), _)) = opened {
+            self.opened = Some(tab);
+        }
+        for (&slot, &top) in &before {
+            let Slot::Tab(tab) = slot else { continue };
+            if !after.contains_key(&slot) {
+                self.closing.push(Closing {
+                    title: self.title(tab),
+                    favicon: self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()),
+                    top: top + self.slide(slot),
+                    start: now,
+                });
+            }
+        }
+        self.slides = slides;
+    }
+
+    /// How far a row is from its place while it slides there.
+    fn slide(&self, slot: Slot) -> f32 {
+        self.slides.get(&slot).map_or(0., |&(from, start)| {
+            let t = start.elapsed().as_secs_f32() / ROW_SLIDE;
+            if t < 1. { from * (1. - cubic_bezier(0.25, 0.1, 0.25, 1., t)) } else { 0. }
+        })
+    }
+
+    /// Drops the list's motion that's done, and returns whether any is left.
+    fn list_moving(&mut self) -> bool {
+        self.slides.retain(|_, (_, start)| start.elapsed().as_secs_f32() < ROW_SLIDE);
+        self.closing.retain(|row| row.start.elapsed().as_secs_f32() < ROW_FADE);
+        self.unhovered.retain(|(_, start)| start.elapsed().as_secs_f32() < ROW_FILL);
+        if self.slides.is_empty() {
+            self.opened = None;
+        }
+        !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
     }
 
     /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
@@ -1285,10 +1388,18 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let selected = matches!(row, Row::Tab(tab) if tab == self.selected);
-        let hovered = self.hovered == Some(row);
-        let id = match row {
-            Row::NewTab => ("new-tab", 0),
-            Row::Tab(tab) => ("tab", tab),
+        let (id, slot) = match row {
+            Row::NewTab => (("new-tab", 0), Slot::NewTab),
+            Row::Tab(tab) => (("tab", tab), Slot::Tab(tab)),
+        };
+        // Full under the pointer, and fading once it's left.
+        let hover = if self.hovered == Some(row) {
+            Some(1.)
+        } else {
+            self.unhovered.iter().find(|&&(old, _)| old == row).map(|(_, start)| {
+                let t = (start.elapsed().as_secs_f32() / ROW_FILL).min(1.);
+                1. - cubic_bezier(0., 0., 0.58, 1., t)
+            })
         };
         div()
             .id(id)
@@ -1296,6 +1407,7 @@ impl Shell {
             .flex_none()
             .h(px(ROW_HEIGHT))
             .mb(px(ROW_PITCH - ROW_HEIGHT))
+            .top(px(self.slide(slot)))
             .px(px(PLATE_INSET))
             .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
             .block_mouse_except_scroll()
@@ -1303,30 +1415,41 @@ impl Shell {
                 shell.hover(row, *hovered, cx)
             }))
             .child(
-                div()
+                plate(icon, label)
                     .id("plate")
-                    .size_full()
-                    .flex()
-                    .items_center()
-                    .rounded(px(PLATE_RADIUS))
                     .when(selected, |plate| plate.bg(rgba(SELECTED)))
-                    .when(!selected && hovered, |plate| plate.bg(rgba(HOVERED)))
+                    .when_some(hover.filter(|_| !selected), |plate, hover| {
+                        plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
+                    })
                     .when(!selected, |plate| {
                         plate.group_active("row", |style| style.bg(rgba(PRESSED)))
-                    })
-                    .child(
-                        div()
-                            .flex_none()
-                            .ml(px(FAVICON_X - PLATE_INSET))
-                            .mr(px(TITLE_GAP))
-                            .size(px(FAVICON_SIZE))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(icon),
-                    )
-                    .child(label),
+                    }),
             )
+    }
+
+    /// A closed tab's row where it was, fading, without the selected fill it may have had.
+    fn closing_row(&self, row: &Closing) -> impl IntoElement + use<> {
+        let t = (row.start.elapsed().as_secs_f32() / ROW_FADE).min(1.);
+        div()
+            .absolute()
+            .top(px(row.top))
+            .left_0()
+            .w(px(SIDEBAR_WIDTH))
+            .h(px(ROW_HEIGHT))
+            .px(px(PLATE_INSET))
+            .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
+            .opacity(1. - cubic_bezier(0., 0., 0.58, 1., t))
+            .child(plate(
+                favicon(row.favicon.clone()),
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .pr(px(PLATE_INSET))
+                    .child(title(row.title.clone())),
+            ))
     }
 
     fn tab_row(&self, tab: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -1338,13 +1461,7 @@ impl Shell {
         // Away from its pinned URL, a pinned tab's favicon is a way back.
         let away = page.away_from_pinned_url;
         let back = away && self.hovered_favicon == Some(tab);
-        let title = div()
-            .flex_1()
-            .min_w_0()
-            .truncate()
-            .text_size(px(14.))
-            .text_color(rgb(TITLE))
-            .child(if back { "Back to Pinned URL".into() } else { self.title(tab) });
+        let title = title(if back { "Back to Pinned URL".into() } else { self.title(tab) });
         // The close button shows under the pointer, and the title truncates before it.
         let close = div()
             .id(("close", tab))
@@ -1373,18 +1490,13 @@ impl Shell {
             .child(title)
             .when(hovered && closable, |label| label.child(close))
             .when(!hovered && loading, |label| label.child(loading_ring(tab)));
-        let icon = match self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()) {
-            _ if back => svg()
+        let icon = match back {
+            true => svg()
                 .path("icons/arrow-left.svg")
                 .size(px(FAVICON_DRAWN))
                 .text_color(rgba(NAV))
                 .into_any_element(),
-            Some(favicon) => img(favicon).size(px(FAVICON_DRAWN)).into_any_element(),
-            None => svg()
-                .path("icons/globe.svg")
-                .size(px(FAVICON_DRAWN))
-                .text_color(rgba(SECONDARY))
-                .into_any_element(),
+            false => favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone())),
         };
         let icon = div()
             .id(("favicon", tab))
@@ -1617,7 +1729,7 @@ impl Shell {
             )
             .child("Clear")
             .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)));
-        div().flex_none().h(px(DIVIDER_HEIGHT)).relative().child(
+        div().flex_none().h(px(DIVIDER_HEIGHT)).top(px(self.slide(Slot::Divider))).child(
             div()
                 .absolute()
                 .top(px(DIVIDER_LINE_Y - CLEAR_HEIGHT / 2.))
@@ -1718,6 +1830,9 @@ impl Render for Shell {
                 }
             }
         }
+        if self.list_moving() {
+            window.request_animation_frame();
+        }
         // The page is laid out at every step, as in Arc.
         let card_left = self.card_left();
         if card_left != self.page_left {
@@ -1788,25 +1903,46 @@ impl Shell {
             .children(self.nav_buttons(cx));
         let sidebar = match self.form() {
             Some(form) => sidebar.child(self.space_form(form, cx)),
-            None => sidebar.child(self.url_field()).child(
-                div()
-                    .id("today")
-                    .absolute()
-                    .top(px(LIST_TOP))
-                    .left_0()
-                    .w(px(SIDEBAR_WIDTH))
-                    .bottom(px(FOOTER_HEIGHT))
-                    .flex()
-                    .flex_col()
-                    .overflow_y_scroll()
-                    .child(self.name_row(cx))
-                    .children(self.pinned().iter().map(|&tab| self.tab_row(tab, cx)))
-                    .children((!self.today().is_empty()).then(|| self.divider(cx)))
-                    .child(self.new_tab_row(cx))
-                    .children(self.today().iter().map(|&tab| self.tab_row(tab, cx))),
-            ),
+            None => sidebar.child(self.url_field()).child(self.list(cx)),
         };
         sidebar.children(self.toast(cx)).children(self.switcher(cx))
+    }
+
+    /// The Space's name, its pinned tabs, the divider, New Tab and its Today tabs, under the URL
+    /// field. Closed tabs' rows fade under the rest, and while rows slide down to make room for a
+    /// tab's new row, they come out from beneath it.
+    fn list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let mut rows = vec![(None, self.name_row(cx).into_any_element())];
+        for &tab in self.pinned() {
+            rows.push((Some(tab), self.tab_row(tab, cx).into_any_element()));
+        }
+        if !self.today().is_empty() {
+            rows.push((None, self.divider(cx).into_any_element()));
+        }
+        rows.push((None, self.new_tab_row(cx).into_any_element()));
+        for &tab in self.today() {
+            rows.push((Some(tab), self.tab_row(tab, cx).into_any_element()));
+        }
+        let under = self
+            .opened
+            .and_then(|opened| rows.iter().position(|&(tab, _)| tab == Some(opened)))
+            .map_or(rows.len(), |row| row + 1);
+        let under = rows.split_off(under).into_iter().map(|(_, row)| row).collect::<Vec<_>>();
+        div()
+            .id("today")
+            .absolute()
+            .top(px(LIST_TOP))
+            .left_0()
+            .w(px(SIDEBAR_WIDTH))
+            .bottom(px(FOOTER_HEIGHT))
+            .flex()
+            .flex_col()
+            .overflow_y_scroll()
+            .children(self.closing.iter().map(|row| self.closing_row(row)))
+            .children(rows.into_iter().map(|(_, row)| row))
+            .when(!under.is_empty(), |list| {
+                list.child(div().flex_none().flex().flex_col().overflow_hidden().children(under))
+            })
     }
 
     /// What the reveal's window shows: the sidebar in a panel, as far out as it is.
@@ -1826,6 +1962,9 @@ impl Shell {
                     self.browser.hide_reveal(cx);
                 }
             }
+        }
+        if self.list_moving() {
+            window.request_animation_frame();
         }
         let left = REVEAL_INSET - (REVEAL_INSET + SIDEBAR_WIDTH) * (1. - self.reveal_out());
         div()
@@ -1943,6 +2082,66 @@ fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
 
 /// Where a CSS cubic-bezier(`x1`, `y1`, `x2`, `y2`) curve is at `x`, from 0 to 1: the x of each
 /// control point, then its y.
+/// Where the list's rows are from its top, by the heights they're drawn at in `list`.
+fn slots(pinned: &[u64], today: &[u64]) -> HashMap<Slot, f32> {
+    let rows = pinned
+        .iter()
+        .map(|&tab| (Slot::Tab(tab), ROW_PITCH))
+        .chain((!today.is_empty()).then_some((Slot::Divider, DIVIDER_HEIGHT)))
+        .chain([(Slot::NewTab, ROW_PITCH)])
+        .chain(today.iter().map(|&tab| (Slot::Tab(tab), ROW_PITCH)));
+    let mut top = NAME_HEIGHT;
+    rows.map(|(slot, height)| {
+        top += height;
+        (slot, top - height)
+    })
+    .collect()
+}
+
+/// A row's plate: its icon in the favicon's square, then its label.
+fn plate(icon: impl IntoElement, label: impl IntoElement) -> gpui::Div {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .rounded(px(PLATE_RADIUS))
+        .child(
+            div()
+                .flex_none()
+                .ml(px(FAVICON_X - PLATE_INSET))
+                .mr(px(TITLE_GAP))
+                .size(px(FAVICON_SIZE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(icon),
+        )
+        .child(label)
+}
+
+/// A tab's favicon, or a globe for a page without one.
+fn favicon(favicon: Option<Arc<Image>>) -> AnyElement {
+    match favicon {
+        Some(favicon) => img(favicon).size(px(FAVICON_DRAWN)).into_any_element(),
+        None => svg()
+            .path("icons/globe.svg")
+            .size(px(FAVICON_DRAWN))
+            .text_color(rgba(SECONDARY))
+            .into_any_element(),
+    }
+}
+
+/// A tab row's title, cut off at the row's trailing edge.
+fn title(title: SharedString) -> gpui::Div {
+    div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .text_size(px(14.))
+        .text_color(rgb(TITLE))
+        .child(title)
+}
+
 fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     let at = |t: f32, p1: f32, p2: f32| {
         let u = 1. - t;

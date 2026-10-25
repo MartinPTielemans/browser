@@ -81,7 +81,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 |---|---|---|---|
 | Row slide | cubic-bezier(0.25, 0.1, 0.25, 1), 140 ms, no overshoot | rows making or closing room | Dia rec 120 fps, D›Opening and closing tabs |
 | Row fade | cubic-bezier(0, 0, 0.58, 1), 100 ms | a closed row leaving | same |
-| Row fill change | ease-out, 300 ms | tab row background changes | Dia 1.50.1 bin |
+| Row fill change | ease-out, 300 ms | tab row background changes. Ours: the hover fill fading once the pointer leaves a row; it fills at once, and selection moves at once (Tab rows › Behavior) | Dia 1.50.1 bin |
 | Reorder | critically damped, ω ≈ 90 rad/s: 91 % in 43 ms, done by 76 ms | neighbours making way during a drag | Dia rec 60 fps, D›Reordering |
 | Hover card in | opacity cubic-bezier(0.25, 0.46, 0.45, 0.94) 100 ms; scale 0.92 → 1 spring 0.25 s / ζ 0.75 | tab and favorite hover card | Dia bin, D›Tab hover card motion |
 | Hover card out | opacity same curve 100 ms; scale → 0.92 spring 0.2 s / ζ 0.6 | same | same |
