@@ -138,6 +138,32 @@ void PostMouse(NSWindow* window, NSEventType type, double x, double y, int count
   [NSApp postEvent:event atStart:NO];
 }
 
+// Hands |move| to the owner of every tracking area in |view| and under it that asks for moves and
+// holds the pointer, as AppKit does with the window server's moves and not with posted ones, but
+// to |hit|, which has it.
+void TrackMove(NSView* view, NSEvent* move, NSView* hit) {
+  if (view.hiddenOrHasHiddenAncestor) {
+    return;
+  }
+  NSPoint at = [view convertPoint:move.locationInWindow fromView:nil];
+  for (NSTrackingArea* area in view.trackingAreas) {
+    NSTrackingAreaOptions options = area.options;
+    NSRect rect = options & NSTrackingInVisibleRect ? view.visibleRect : area.rect;
+    bool active = options & NSTrackingActiveAlways ||
+                  (options & NSTrackingActiveInActiveApp && NSApp.active) ||
+                  (options & NSTrackingActiveInKeyWindow && view.window.keyWindow) ||
+                  (options & NSTrackingActiveWhenFirstResponder &&
+                   view.window.firstResponder == view);
+    if (options & NSTrackingMouseMoved && active && NSPointInRect(at, rect) &&
+        area.owner != hit && [area.owner respondsToSelector:@selector(mouseMoved:)]) {
+      [area.owner mouseMoved:move];
+    }
+  }
+  for (NSView* subview in view.subviews) {
+    TrackMove(subview, move, hit);
+  }
+}
+
 // (x, y) in |from| as a point in |to|, each from its window's top-left corner.
 void Convert(NSWindow* from, NSWindow* to, double* x, double* y) {
   NSPoint screen = [from convertPointToScreen:NSMakePoint(*x, NSHeight(from.frame) - *y)];
@@ -536,12 +562,14 @@ bool Run(const std::string& line, void (^done)(void)) {
                                     eventNumber:0
                                      clickCount:0
                                        pressure:0];
-    // AppKit hands moves to tracking areas, where views such as GPUI's hear them, only for the
-    // window server's events, so this one goes to the view under the pointer itself. It's also
+    // It goes to the view under the pointer and to the tracking areas holding it, as a real move
+    // does, which is how GPUI's view, under the page's, hears the pointer over the page. It's also
     // posted, for the app's event monitors.
     NSView* content = target.contentView;
-    [[content hitTest:[content.superview convertPoint:move.locationInWindow fromView:nil]]
-        mouseMoved:move];
+    NSView* hit = [content hitTest:[content.superview convertPoint:move.locationInWindow
+                                                          fromView:nil]];
+    [hit mouseMoved:move];
+    TrackMove(content, move, hit);
     [NSApp postEvent:move atStart:NO];
     done();
     return true;
