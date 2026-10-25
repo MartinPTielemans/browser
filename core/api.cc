@@ -5,6 +5,8 @@
 #include <vector>
 
 #include "base/strings/utf_string_conversions.h"
+#include "browser_core/archive.h"
+#include "browser_core/favicon.h"
 #include "browser_core/find.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/public/browser_core.h"
@@ -190,6 +192,21 @@ size_t bc_window_undo_clear(bc_id window_id) {
 bc_id bc_window_reopen_closed_tab(bc_id window_id) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window ? window->ReopenClosedTab() : 0;
+}
+
+bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window ? window->RestoreArchived(archived) : 0;
+}
+
+void bc_archive_clear(void) {
+  browser_core::ClearArchive();
+}
+
+void bc_page_favicon(const char* url) {
+  if (url) {
+    browser_core::FindFavicon(url);
+  }
 }
 
 void bc_window_suggest(bc_id window_id, const char* text, bool complete) {

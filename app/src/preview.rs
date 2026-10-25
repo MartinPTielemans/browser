@@ -5,9 +5,10 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use browser::shell::{self, Browser, MenuEntry, Page, Shell, WindowButton};
+use browser::shell::{self, Archived, Browser, Command, MenuEntry, Page, Shell, WindowButton};
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -36,13 +37,44 @@ const TABS: [(&str, &str); 5] = [
     ("", "https://example.com/"),
 ];
 
+// The archive: tabs closed hours and days ago, newest first.
+const ARCHIVE: [(&str, &str, f64); 6] = [
+    ("Wikipedia", "https://www.wikipedia.org/", 0.05),
+    ("Internet Assigned Numbers Authority", "https://www.iana.org/", 0.2),
+    ("W3C", "https://www.w3.org/", 1.1),
+    ("The GNU Operating System and the Free Software Movement", "https://www.gnu.org/", 2.5),
+    ("Chromium", "https://www.chromium.org/", 6.),
+    ("", "https://example.org/", 12.),
+];
+const DAY: f64 = 86_400_000.;
+
+fn now() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |now| now.as_millis() as f64)
+}
+
 struct Fake {
     shell: WeakEntity<Shell>,
     next_id: Cell<u64>,
     spaces: RefCell<Vec<(u64, SharedString, Option<u32>)>>,
+    archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
 }
 
 impl Fake {
+    fn report_archive(&self, cx: &mut App) {
+        let archive = self
+            .archive
+            .borrow()
+            .iter()
+            .map(|&(id, title, url, archived)| Archived {
+                id,
+                url: url.into(),
+                title: title.into(),
+                archived,
+            })
+            .collect();
+        self.later(cx, move |shell, cx| shell.set_archive(archive, cx));
+    }
+
     fn report_spaces(&self, cx: &mut App) {
         let spaces = self.spaces.borrow().clone();
         self.later(cx, move |shell, cx| shell.set_spaces(spaces, cx));
@@ -153,6 +185,28 @@ impl Browser for Fake {
 
     fn reopen_closed_tab(&self, _: &mut App) {}
 
+    // Takes it out of the archive, without opening it.
+    fn restore_archived(&self, archived: u64, cx: &mut App) {
+        self.archive.borrow_mut().retain(|&(id, ..)| id != archived);
+        self.report_archive(cx);
+    }
+
+    fn clear_archive(&self, cx: &mut App) {
+        self.archive.borrow_mut().clear();
+        self.report_archive(cx);
+    }
+
+    // The made-up pages have the globe.
+    fn page_favicon(&self, _: &str, _: &mut App) {}
+
+    // In UTC, with weeks from Monday.
+    fn day_starts(&self) -> [f64; 4] {
+        let today = now() - now() % DAY;
+        // 1 January 1970 was a Thursday.
+        let week = today - ((today / DAY + 3.) % 7.) * DAY;
+        [today, today - DAY, week, week - 7. * DAY]
+    }
+
     // The made-up pages have no history to go through.
     fn back_to_pinned_url(&self, _: u64, _: &mut App) {}
 
@@ -234,7 +288,7 @@ impl Browser for Fake {
     fn focus_ui(&self, _: &mut App) {}
 
     // There's no page, and the window's buttons stay where GPUI put them.
-    fn lay_out_page(&self, _: Size<Pixels>, _: f32, _: &mut App) {}
+    fn lay_out_page(&self, _: Size<Pixels>, _: f32, _: f32, _: &mut App) {}
 
     fn show_window_buttons(&self, _: bool, _: &mut App) {}
 
@@ -320,11 +374,18 @@ fn main() {
                     .zip(SPACES)
                     .map(|(id, (name, color))| (id, name.into(), color))
                     .collect();
+                let first_archived = first_space + SPACES.len() as u64;
+                let archive = (first_archived..)
+                    .zip(ARCHIVE)
+                    .map(|(id, (title, url, days))| (id, title, url, now() - days * DAY))
+                    .collect();
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(first_space + SPACES.len() as u64),
+                    next_id: Cell::new(first_archived + ARCHIVE.len() as u64),
                     spaces: RefCell::new(spaces.clone()),
+                    archive: RefCell::new(archive),
                 });
+                browser.report_archive(cx);
                 let mut shell = Shell::new(browser, cx);
                 shell.set_spaces(spaces, cx);
                 shell.set_space(first_space, cx);
@@ -352,9 +413,18 @@ fn main() {
             window.focus(&shell.focus_handle(cx), cx);
             shell
         });
-        if let Err(error) = window {
-            eprintln!("couldn't open the window: {error}");
-            cx.quit();
+        match window {
+            // PREVIEW_LIBRARY=1 opens the Library.
+            Ok(window) if std::env::var_os("PREVIEW_LIBRARY").is_some() => {
+                window
+                    .update(cx, |shell, _, cx| shell.run(Command::ViewLibrary, "preview", cx))
+                    .ok();
+            }
+            Ok(_) => {}
+            Err(error) => {
+                eprintln!("couldn't open the window: {error}");
+                cx.quit();
+            }
         }
         cx.activate(true);
     });

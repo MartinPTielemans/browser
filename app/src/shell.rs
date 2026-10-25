@@ -21,6 +21,10 @@ use gpui::{
 
 use crate::text_input::TextInput;
 
+mod library;
+
+pub use library::Archived;
+
 /// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
 /// The card's inset from the window's top, right and bottom edges.
@@ -282,6 +286,11 @@ pub enum Command {
     PreviousSpace,
     /// Hides the docked sidebar, or shows it.
     ToggleSidebar,
+    /// Opens the Library, or closes it.
+    ViewLibrary,
+    /// Opens the Library on the archive.
+    ViewArchive,
+    ClearArchive,
     Quit,
 }
 
@@ -326,6 +335,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-r", Command::ForceReload, false),
     ("cmd-.", Command::Stop, false),
     ("cmd-s", Command::ToggleSidebar, false),
+    ("shift-cmd-l", Command::ViewLibrary, false),
     ("escape", Command::Stop, false),
     ("ctrl-1", Command::SelectSpace(0), false),
     ("ctrl-2", Command::SelectSpace(1), false),
@@ -430,6 +440,9 @@ impl Command {
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
             Command::ToggleSidebar => "toggle-sidebar",
+            Command::ViewLibrary => "view-library",
+            Command::ViewArchive => "view-archive",
+            Command::ClearArchive => "clear-archive",
             Command::Quit => "quit",
         }
     }
@@ -483,6 +496,7 @@ pub fn menu_item(name: &'static str, command: Command) -> MenuItem {
 pub struct Assets;
 
 const ICONS: &[(&str, &[u8])] = &[
+    ("icons/archive.svg", include_bytes!("../assets/icons/archive.svg")),
     ("icons/arrow-down.svg", include_bytes!("../assets/icons/arrow-down.svg")),
     ("icons/arrow-left.svg", include_bytes!("../assets/icons/arrow-left.svg")),
     ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
@@ -541,6 +555,15 @@ pub trait Browser {
     fn undo_clear(&self, cx: &mut App) -> usize;
     /// Reopens the Today tab closed last, and shows it.
     fn reopen_closed_tab(&self, cx: &mut App);
+    /// Reopens the archived tab `archived` at the top of the Today tabs of the Space shown, and
+    /// shows it.
+    fn restore_archived(&self, archived: u64, cx: &mut App);
+    fn clear_archive(&self, cx: &mut App);
+    /// Looks up the favicon the browser has for `url`, and calls `Shell::set_page_favicon`.
+    fn page_favicon(&self, url: &str, cx: &mut App);
+    /// The starts of today, yesterday, this week and last week in the user's calendar, in
+    /// milliseconds since the Unix epoch.
+    fn day_starts(&self) -> [f64; 4];
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
@@ -579,8 +602,8 @@ pub trait Browser {
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
     /// Lays the page out in a window whose content is `viewport`, with the card's left edge at
-    /// `card_left` (`page_frame`).
-    fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, cx: &mut App);
+    /// `card_left`, pushed `push` further right (`page_frame`).
+    fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, push: f32, cx: &mut App);
     /// Shows the window's close, minimize and zoom buttons, or hides them.
     fn show_window_buttons(&self, shown: bool, cx: &mut App);
     /// Does what a click on the window's close, minimize or zoom button does.
@@ -870,8 +893,17 @@ pub struct Shell {
     reveal_motion: Option<(f32, Instant)>,
     /// The pointer is at the window's left edge, waiting to bring the sidebar out.
     reveal_wait: Option<Task<()>>,
-    /// The card's left edge the page was last laid out at.
+    /// The card's left edge the page was last laid out at, and how far the Library pushed it.
     page_left: f32,
+    page_push: f32,
+    /// Every Space's archived tabs, newest first, and the favicons asked for their URLs.
+    archive: Vec<Archived>,
+    page_favicons: HashMap<SharedString, Option<Arc<Image>>>,
+    /// The Library, from when it opens until it has closed.
+    library: Option<library::Library>,
+    library_open: bool,
+    /// While the card moves for the Library: how far out it started (`library_out`), and when.
+    library_motion: Option<(f32, Instant)>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -929,6 +961,12 @@ impl Shell {
             reveal_motion: None,
             reveal_wait: None,
             page_left: sidebar_width,
+            page_push: 0.,
+            archive: Vec::new(),
+            page_favicons: HashMap::new(),
+            library: None,
+            library_open: false,
+            library_motion: None,
             switching: None,
             background_pressed: false,
             accent_color,
@@ -1088,6 +1126,10 @@ impl Shell {
         if self.page_fullscreen {
             return;
         }
+        // Ours: the sidebar comes back from the Library as it was.
+        if self.library_open {
+            return self.set_library(false, cx);
+        }
         if self.dock(cx) {
             return;
         }
@@ -1216,7 +1258,8 @@ impl Shell {
 
     /// Whether the sidebar is hidden and still, so the reveal can bring it out.
     fn can_reveal(&self) -> bool {
-        self.sidebar_hidden && self.sidebar_motion.is_none() && !self.page_fullscreen
+        let still = self.sidebar_motion.is_none() && self.library.is_none();
+        self.sidebar_hidden && still && !self.page_fullscreen
     }
 
     /// Starts the reveal's panel moving out over the page, or away, from wherever it is.
@@ -1489,6 +1532,7 @@ impl Shell {
         self.page_fullscreen = fullscreen;
         if fullscreen {
             self.conceal_now(cx);
+            self.close_library_now();
         }
         cx.notify();
     }
@@ -1551,6 +1595,9 @@ impl Shell {
             Command::Stop => return self.browser.stop(self.selected, cx),
             Command::Quit => return self.browser.quit(cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
+            Command::ViewLibrary => return self.set_library(!self.library_open, cx),
+            Command::ViewArchive => return self.set_library(true, cx),
+            Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
@@ -1981,7 +2028,8 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let below_rows = at.x < px(self.card_left()) && at.y >= px(LIST_TOP);
-        if !self.page_fullscreen && self.form().is_none() && below_rows {
+        let sidebar = !self.page_fullscreen && self.library.is_none() && self.form().is_none();
+        if sidebar && below_rows {
             self.run(Command::NewTab, "sidebar", cx);
         } else {
             window.titlebar_double_click();
@@ -2521,7 +2569,7 @@ impl Shell {
     /// The URL field's box in the window, while the docked sidebar shows it.
     fn url_field_bounds(&self) -> Option<Bounds<Pixels>> {
         let docked = !self.page_fullscreen && !self.sidebar_hidden && self.sidebar_motion.is_none();
-        (docked && self.form().is_none()).then(|| {
+        (docked && self.form().is_none() && self.library.is_none()).then(|| {
             Bounds::new(
                 point(px(PLATE_INSET), px(URL_FIELD_TOP)),
                 size(px(self.width() - 2. * PLATE_INSET), px(URL_FIELD_HEIGHT)),
@@ -3034,24 +3082,31 @@ impl Render for Shell {
                 }
             }
         }
+        self.step_library(window, cx);
         if self.list_moving() {
             window.request_animation_frame();
         }
         // The page is laid out at every step, as in Arc.
         let card_left = self.card_left();
-        if card_left != self.page_left {
+        let push = self.card_push();
+        if card_left != self.page_left || push != self.page_push {
             self.page_left = card_left;
-            self.browser.lay_out_page(window.viewport_size(), card_left, cx);
+            self.page_push = push;
+            self.browser.lay_out_page(window.viewport_size(), card_left, push, cx);
         }
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
+        // The Library takes the sidebar's place at once, and the card uncovers it as it moves.
+        let library = self.library.is_some() && !self.page_fullscreen;
+        let library = library.then(|| self.library_panel(cx));
         // The sidebar leaves with the card's edge, all of it by the time the edge stops.
         let width = self.width();
         let sidebar_left = (card_left - width) * width / (width - CARD_INSET);
-        let sidebar_shown =
-            !self.page_fullscreen && (!self.sidebar_hidden || self.sidebar_motion.is_some());
+        let sidebar_shown = !self.page_fullscreen
+            && library.is_none()
+            && (!self.sidebar_hidden || self.sidebar_motion.is_some());
         let sidebar = sidebar_shown
             .then(|| self.sidebar(cx).left(px(sidebar_left)).child(self.hover_listener(cx)));
-        let docked = !self.page_fullscreen && !self.sidebar_hidden && self.sidebar_motion.is_none();
+        let docked = sidebar_shown && !self.sidebar_hidden && self.sidebar_motion.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
         div()
             .key_context(KEY_CONTEXT)
@@ -3088,13 +3143,14 @@ impl Render for Shell {
             .child(
                 div()
                     .absolute()
-                    .left(px(card_left))
+                    .left(px(card_left + push))
                     .top(px(card_inset))
-                    .right(px(card_inset))
+                    .right(px(card_inset - push))
                     .bottom(px(card_inset))
                     .rounded(px(CARD_RADIUS))
                     .bg(rgba(CARD)),
             )
+            .children(library)
             .children(sidebar)
             .children(edge)
     }
@@ -3116,6 +3172,7 @@ impl Shell {
         };
         sidebar
             .children(self.toast())
+            .child(self.library_button(cx))
             .children(self.switcher(cx))
             .child(self.scroll_listener(cx))
     }
@@ -3346,13 +3403,14 @@ fn loading_ring(tab: u64) -> impl IntoElement {
 }
 
 /// Where the page goes in a window whose content is `viewport`: in the card, whose left edge is at
-/// `card_left`, or filling the window for a full-screen page, at 0.
-pub fn page_frame(viewport: Size<Pixels>, card_left: f32) -> Bounds<Pixels> {
+/// `card_left`, or filling the window for a full-screen page, at 0. The Library pushes the card
+/// `push` further right at the same width, past the window's edge.
+pub fn page_frame(viewport: Size<Pixels>, card_left: f32, push: f32) -> Bounds<Pixels> {
     if card_left == 0. {
         return Bounds::new(point(px(0.), px(0.)), viewport);
     }
     Bounds::new(
-        point(px(card_left), px(CARD_INSET)),
+        point(px(card_left + push), px(CARD_INSET)),
         size(
             viewport.width - px(card_left + CARD_INSET),
             viewport.height - px(2. * CARD_INSET),

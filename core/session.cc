@@ -20,6 +20,7 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/values.h"
+#include "browser_core/archive.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -55,6 +56,7 @@ struct Saved {
   int shown = 0;
   // The window's docked sidebar's width, or 0 for none.
   double sidebar_width = 0;
+  std::vector<ArchivedTab> archive;
 };
 
 // A navigation's page state is left out past this, as in Chrome's sessions.
@@ -122,6 +124,7 @@ Saved Collect() {
       }
     }
   }
+  saved.archive = Archived();
   return saved;
 }
 
@@ -164,6 +167,14 @@ std::optional<std::string> ToJson(const Saved& saved) {
   if (saved.sidebar_width > 0) {
     root.Set("sidebar_width", saved.sidebar_width);
   }
+  base::ListValue archive;
+  for (const ArchivedTab& tab : saved.archive) {
+    archive.Append(base::DictValue()
+                       .Set("url", tab.url.spec())
+                       .Set("title", tab.title)
+                       .Set("archived", tab.archived.InMillisecondsFSinceUnixEpochIgnoringNull()));
+  }
+  root.Set("archive", std::move(archive));
   return base::WriteJson(root);
 }
 
@@ -247,6 +258,20 @@ std::optional<Saved> Read(const base::FilePath& path) {
   saved.shown = std::clamp(root->FindInt("shown").value_or(0), 0,
                            static_cast<int>(saved.spaces.size()) - 1);
   saved.sidebar_width = root->FindDouble("sidebar_width").value_or(0);
+  if (const base::ListValue* archive = root->FindList("archive")) {
+    for (const base::Value& value : *archive) {
+      const base::DictValue* tab = value.GetIfDict();
+      const std::string* url = tab ? tab->FindString("url") : nullptr;
+      const std::string* title = tab ? tab->FindString("title") : nullptr;
+      std::optional<double> archived = tab ? tab->FindDouble("archived") : std::nullopt;
+      if (url && title && archived && GURL(*url).is_valid()) {
+        saved.archive.push_back(
+            {.url = GURL(*url),
+             .title = *title,
+             .archived = base::Time::FromMillisecondsSinceUnixEpoch(*archived)});
+      }
+    }
+  }
   return saved;
 }
 
@@ -312,6 +337,9 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
   }
 
   void OnRead(base::OnceClosure loaded, std::optional<Saved> saved) {
+    if (saved) {
+      LoadArchive(std::exchange(saved->archive, {}));
+    }
     loaded_ = std::move(saved);
     std::move(loaded).Run();
   }

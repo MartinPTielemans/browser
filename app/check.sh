@@ -56,9 +56,9 @@
 #   8. Launched again after ⌘Q, and again after its window's close button, the app brings back
 #      the Spaces: their names and colours, their tabs with each tab's history, the tab each showed
 #      and the Space it showed, and the sidebar's width. Only a tab shown loads; the others show
-#      their titles and favicons. A tab closed before the quit stays closed. A SIGTERM, which macOS
-#      sends at logout and restart, keeps a tab opened just before it. Reports how long putting
-#      them back takes.
+#      their titles and favicons. A tab closed before the quit stays closed, in the archive, from
+#      which the Library reopens it at its page. A SIGTERM, which macOS sends at logout and
+#      restart, keeps a tab opened just before it. Reports how long putting them back takes.
 #   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n/m",
 #      once Japanese input has committed, and return, shift-return, ⌘G and ⇧⌘G and the bar's
 #      arrows go through the matches, from the bar and from the page. A text the page doesn't have
@@ -81,7 +81,10 @@
 #      has the keyboard, when ⌘Z is its own. ⇧⌘T from the page and the UI reopens the tab closed
 #      last, where it was and with its history, and after a Clear, ⌘Z brings back only the tabs ⇧⌘T
 #      didn't. A right-click on a row shows its tab's menu, whose Duplicate Tab, Close Tabs Below
-#      and Unpin Tab work.
+#      and Unpin Tab work. ⌘W archives a Today tab. ⇧⌘L, View Library and the footer's button open
+#      the Library, which pushes the page right at its width, and its back button closes it. A
+#      click on an archived tab reopens it at the top of Today with its history, and Clear Archive
+#      asks, then empties the archive.
 # Runs 2 to 11 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -1418,6 +1421,7 @@ await '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' |
 e=$(grep -m1 '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' "$log" | cut -d' ' -f3)
 grep -q "^browser: loaded $e " "$log" && fail "the second Space's tab loaded without being shown"
 ../tools/window-screenshot.sh "$pid" "$out/restored.png" || fail "no window to capture"
+await '^browser: archive 1 tabs$' || fail "the relaunch didn't bring back the archived tab"
 check_layout "after the relaunch, with the sidebar it had" 300
 send click $page_point
 if [ "$active" != 1 ]; then
@@ -1427,6 +1431,23 @@ if [ "$active" != 1 ]; then
   echo "skip: restored history. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
+# The tab closed before the quit reopens from the Library at the top of Today, at its page. ⌘W
+# archives it again.
+send key l cmd shift
+expect '^browser: command view-library via page$' "⇧⌘L with the page focused didn't reach the UI"
+expect '^browser: library shown$' "⇧⌘L didn't open the Library"
+send click 300 111
+expect '^browser: restore archived [0-9][0-9]*$' "a click on the archived tab didn't restore it"
+expect "^browser: today [0-9][0-9]* $c $a\$" \
+  "the archived tab didn't come back at the top of Today: Today is \"$(today)\""
+r=$(today | cut -d' ' -f1)
+expect "^browser: selected $r\$" "the tab from the archive isn't shown"
+expect "^browser: loaded $r https://example.org/\$" "the tab from the archive didn't load its page"
+expect '^browser: archive 0 tabs$' "the tab reopened stayed in the archive"
+expect '^browser: library hidden$' "reopening a tab didn't close the Library"
+send click $page_point
+send key w cmd
+expect_tabs "$c $a" "$c" "after closing the tab from the archive"
 switch "2 cmd" "$a"
 expect "^browser: loaded $a $site\$" "tab a didn't load once shown"
 tab=$a
@@ -1469,7 +1490,7 @@ exited
 print(*[len(space["today"]) for space in json.load(open(sys.argv[1]))["spaces"]])' "$saved")" = "2 2" ] ||
   fail "the tab opened before the SIGTERM wasn't kept"
 restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restored.log" "$out/restored-again.log" | tr '\n' ' ')
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed. A SIGTERM keeps a tab opened just before it."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed, in the archive, from which it reopens at its page. A SIGTERM keeps a tab opened just before it."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
 
 # Find in page. The test page has three apples and one 日本語.
@@ -2040,7 +2061,66 @@ expect '^browser: menu shown Unpin Tab, Back to Pinned URL (disabled), Duplicate
 send choose Unpin Tab
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""
+
+# ⌘W archives the tab shown. ⇧⌘L opens the Library, which pushes the page right at its width, and
+# a click on the archived tab reopens it at the top of Today with its history, shows it and closes
+# the Library.
+shown=$(grep '^browser: selected' "$log" | tail -1 | cut -d' ' -f3)
+history=$(grep "^browser: page $shown back " "$log" | tail -1 | sed 's/^browser: page [0-9]* //')
+url=${history##* }
+send click $sidebar_point
+send key w cmd
+expect "^browser: tab $shown closed\$" "⌘W didn't close the tab shown"
+expect '^browser: archive [1-9][0-9]* tabs$' "⌘W didn't archive the tab"
+expect "^browser: today [0-9 ]*\$" "⌘W didn't take the tab out of Today"
+left=$(today)
+send layout
+layout=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout')
+content=$(echo "$layout" | sed 's/^browser: layout content \([0-9]*x[0-9]*\),.*/\1/')
+docked=$(echo "$layout" | sed -n 's/.*WebContentsViewCocoa \([0-9,]* [0-9x]*\).*/\1/p')
+width=${content%x*}
+height=${content#*x}
+send key l cmd shift
+expect '^browser: command view-library via ui$' "⇧⌘L with the UI focused didn't reach the UI"
+expect '^browser: library shown$' "⇧⌘L didn't open the Library"
+send layout
+view=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
+  sed -n 's/.*WebContentsViewCocoa \([0-9,]* [0-9x]*\).*/\1/p')
+[ "$view" = "417,10 ${docked#* }" ] ||
+  fail "the Library didn't push the page to 417 at its width: it's at $view, docked at $docked"
+../tools/window-screenshot.sh "$pid" "$out/library.png" || fail "no window to capture"
+send click 300 111
+expect '^browser: restore archived [0-9][0-9]*$' "a click on the archived tab didn't restore it"
+expect "^browser: today [0-9][0-9]* $left\$" \
+  "the archived tab didn't come back at the top of Today: Today is \"$(today)\""
+r=$(today | cut -d' ' -f1)
+expect "^browser: selected $r\$" "the tab from the archive isn't shown"
+expect "^browser: loaded $r $url\$" "the tab from the archive didn't load its page"
+expect "^browser: page $r $history\$" "the tab from the archive came back without its history"
+expect '^browser: library hidden$' "reopening a tab didn't close the Library"
+send layout
+view=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
+  sed -n 's/.*WebContentsViewCocoa \([0-9,]* [0-9x]*\).*/\1/p')
+[ "$view" = "$docked" ] || fail "the page is at $view after the Library, not back at $docked"
+# The Window menu's View Library opens it too, and the Archive menu's Clear Archive asks first,
+# then empties it. The Library's back button closes it, and the footer's button opens it.
+send menu View Library
+expect '^browser: command view-library via ui$' "View Library didn't run"
+expect '^browser: library shown$' "View Library didn't open the Library"
+post menu Clear Archive
+expect '^browser: alert shown Clear the archive?$' "Clear Archive didn't ask first"
+send choose Clear Archive
+expect '^browser: archive 0 tabs$' "Clear Archive didn't empty the archive"
+../tools/window-screenshot.sh "$pid" "$out/library-empty.png" || fail "no window to capture"
+send click 24 $((height - 24))
+expect '^browser: command view-library via library$' "the Library's back button didn't run"
+expect '^browser: library hidden$' "the back button didn't close the Library"
+send click 24 $((height - 25))
+expect '^browser: command view-library via sidebar$' "the footer's Library button didn't run"
+expect '^browser: library shown$' "the footer's Library button didn't open the Library"
+send key l cmd shift
+expect '^browser: library hidden$' "⇧⌘L didn't close the Library"
 exec 3>&-
 quit
 kill "$server"
-echo "ok: ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. Windows: $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png"
+echo "ok: ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, and Clear Archive asks, then empties it. Windows: $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/library-empty.png"

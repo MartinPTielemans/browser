@@ -119,6 +119,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // tabs, else at the top of the Space the window shows. Shows it, and its Space. Returns its id, or
   // 0 if there's none.
   bc_id ReopenClosedTab();
+  // Reopens the archived tab |id| at the top of the Today tabs of the Space the window shows, and
+  // shows it: with its history if it closed since the browser started, else at its page. It leaves
+  // the archive. Returns its id, or 0.
+  bc_id RestoreArchived(bc_id id);
   // Opens a copy of |tab|, one of this window's, with its history: under it in Today, or at the
   // top of Today for a pinned tab, where a pinned tab's links open. Shows it, and its page loads.
   // Returns its id, or 0.

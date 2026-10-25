@@ -97,6 +97,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Sidebar reveal in | no fade: spring 0.175 s / ζ 0.80, ≈ 4 pt past rest, starting ≈ 100 ms after the pointer reaches the edge | sidebar reveal at the left edge | Arc 1.170.0 rec 120 fps, 3 runs |
 | Sidebar reveal out | spring 0.175 s / ζ 0.76, starting as the pointer leaves the hold zone | same | Arc 1.170.0 rec 120 fps, 3 runs |
 | Space settle | critically damped, 0.25 s | Space pages after a swipe | Dia 1.50.1 bin |
+| Library push | spring 0.245 s / ζ 0.92 | the card pushed right as the Library opens; ours: back the same way as it closes | Arc 1.170.0 rec 120 fps, 1 run |
 | Group expand | spring 0.30 s / ζ 0.82 | group or folder open and close (*interim*) | Dia rec |
 | Spinner | 0 → −2π (clockwise), 1.88 s, linear, repeating | tab loading | Dia 1.50.1 bin |
 
@@ -127,6 +128,7 @@ The command bar, menus, hover cards, Peek, find and every prompt over the page a
 | Pin / unpin tab | ⌘D | — (⌘D bookmarks) | ⌘D, *owner to confirm* |
 | Back to pinned URL | measure | ⌘↩ | ⌘↩ |
 | Toggle sidebar | ⌘S | ⌘S (Auto-Hide Tabs) | ⌘S |
+| Library | ⇧⌘L (menus) | — | ⇧⌘L, which closes it too |
 | Little Arc / open it in the main window | ⌥⌘N / ⌘O | — | ⌥⌘N / ⌘O (⌘O stays Open File in main windows) |
 | Switch Space 1–9 | measure | ⌃1–⌃9 (profiles) | ⌃1–⌃9 |
 | Next / previous tab | measure | ⇧⌘] / ⇧⌘[, ⌥⌘→ / ⌥⌘←, ⌥⌘↓ / ⌥⌘↑ | Dia's, *interim* |
@@ -157,11 +159,12 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 
 Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the same command as its key and shows that key.
 
-- **Order.** App, File, Edit, View, Spaces, Tabs, History, Window, as Arc's App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help. Arc's Archive menu holds Go Back, Go Forward and View History; ours is History until there's an archive. Extensions and Help come with their features.
+- **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Window, as Arc's App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help. Extensions and Help come with their features.
+- **Archive.** Go Back, Go Forward, View Archive and Clear Archive, as Arc's. Arc's View History (⌘Y) comes with history.
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu.
 - **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
-- **Window.** Minimize Window (⌘M). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above it, and Enter Full Screen to View.
-- **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Refresh the Page, Force Refresh the Page, Go Back, Go Forward. ⌘W says Close Tab until there's an archive.
+- **Window.** Minimize Window (⌘M), then View Library (⇧⌘L). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above them, and Enter Full Screen to View.
+- **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Archive Tab (⌘W), Refresh the Page, Force Refresh the Page, Go Back, Go Forward.
 
 ## Phase 3 features
 
@@ -508,7 +511,12 @@ Arc's structure. Dia replaced it with Clean Up Tabs, recorded below for referenc
 - **Arc's clear actions.** Arc's binary has three: clear all, clear unselected Today tabs, and tidy-and-clear. Tidy is AI and out of scope.
 - **Dia's Clean Up Tabs** (⌥⌘K) moves untouched tabs to "Recently Cleaned", with a daily automatic run. It is not ours.
 - **Closed tabs.** Closed tabs reopen with ⇧⌘T, newest first, with position, pin, group, custom name and icon, mute state and back/forward list (Dia, P§2).
-- Measure in Arc: the auto-archive intervals and default, what ⌘W does to a Today tab, the archive view and how it searches, restoring a tab from it, Clear with a pinned tab shown, and ⌘Z after Clear with a page's text field focused.
+- **The archive.** A Today tab that closes, by ⌘W, its ✕, Clear or its menu, goes in the archive, newest first, with its URL, title and when it closed. Arc's menu calls ⌘W Archive Tab. A tab ⇧⌘T or ⌘Z brings back leaves it. It's saved with the Spaces. Ours: it keeps a tab 30 days, up to 500 tabs, and archived tabs keep no Space.
+- **Auto-archive.** Arc archives Today tabs not shown for 12 hours by default (Settings › General › Archive tabs after). The other intervals: measure.
+- **The Library** (Arc 1.170.0 cap and ax, ⇧⌘L, Window › View Library, or the footer's button at its left). It takes the sidebar's place at once, 417 wide, and pushes the card's left edge to 417 without resizing it, so the page runs off the window's right edge (Library push). A column 112 wide, white 0.06 with a 1 pt line of white 0.04 at its edge, holds the sections, 97 × 80 at x 8 with 100 between them, centred 5 above the middle; the selected one has a white 0.09 plate at radius 12, its glyph in the Space's colour 31 below its top and its label, 12 pt semibold at white 0.85, 56 below. Back (←) is 32 × 32 at (8, h − 40). Arc's sections are Media, Downloads, Easels & Notes, Spaces and Archived Tabs; ours is Archived Tabs alone, until the others' features land.
+- **Archived Tabs.** A search field on the window buttons' row, x 120, 36 tall at y 10, white 0.09 at radius 10, its glyph 15 pt at x 134.5 and its text 14 pt at x 164, "Search Archive…" in white 0.56. Arc's Filter button (73 × 36 at x 336) is left out and the field runs to 409. The list starts at y 56: day headings at x 124, 12 pt semibold at white 0.6, and a row per tab, 56 apart, with its favicon 16 pt at x 134 and its title (14 pt, white 0.78) over its host (12 pt, white 0.6) at x 164. Ours: headings Today, Yesterday, Earlier This Week, Last Week and Older (Arc's capture showed Today and Earlier This Week); a hovered row's plate is the sidebar's (x 120–413, 50 tall, white 0.12); search matches titles and URLs as typed; a click reopens the tab at the top of the Today tabs of the Space shown, with its history if it closed since the browser started, and closes the Library. Esc doesn't close it (Arc).
+- **Clear Archive** (Archive menu) asks first, then empties the archive.
+- Measure in Arc: the auto-archive intervals, the archive's limits, the Filter menu, a row's hover and right-click, whether restoring closes the Library, Clear with a pinned tab shown, and ⌘Z after Clear with a page's text field focused.
 
 ### Profiles
 

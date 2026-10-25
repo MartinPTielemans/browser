@@ -190,9 +190,13 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Clear (⇧⌘K and the divider button) | MVP | closes the Space's Today tabs but the one shown, in one frame, no toast; pinned and favorites stay | Arc 1.170.0 rec |
 | [x] | Undo Clear | MVP | ⌘Z brings them back in place, unloaded; the tab shown stays | Arc 1.170.0 rec |
 | [ ] | Reopen closed tab ⇧⌘T | MVP | position, pin, group, name, icon, mute, back/forward | Dia P§2 |
-| [ ] | Auto-archive interval and default | MVP | measure | — |
-| [ ] | ⌘W on a Today tab | MVP | measure | — |
-| [ ] | Archive view, search, restore | MVP | measure | — |
+| [ ] | Auto-archive interval and default | MVP | 12 hours by default; other intervals: measure | Arc 1.170.0 settings |
+| [x] | ⌘W on a Today tab | MVP | Archive Tab: the tab goes in the archive | Arc 1.170.0 menus |
+| [x] | Library | MVP | takes the sidebar's place, pushes the card to 417 at its width on spring 0.245 s / ζ 0.92; column of sections, back button; ⇧⌘L, View Library, footer button | Arc 1.170.0 cap, ax, rec |
+| [x] | Archived Tabs | MVP | search on the buttons' row, day headings, rows 56 apart with favicon, title and host; a click reopens the tab | Arc 1.170.0 cap, ax |
+| [x] | Clear Archive | MVP | Archive menu; asks first | Arc 1.170.0 menus |
+| [ ] | Library's other sections | MVP | Media, Downloads, Easels & Notes, Spaces, as each feature lands | Arc 1.170.0 cap |
+| [ ] | Archive filter, row hover and menu | MVP | measure | — |
 
 ## Profiles
 
@@ -301,7 +305,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Menu bar | MVP | Arc's menus in Arc's order, with the commands the browser has | Arc 1.170.0 menus |
 | [x] | Edit menu in pages | MVP | Undo, Redo, Cut, Copy, Paste, Select All reach the focused page or field | Arc 1.170.0 menus |
 | [x] | Hide, Hide Others, Minimize | MVP | ⌘H, ⌥⌘H, ⌘M | Arc 1.170.0 menus |
-| [ ] | Arc's other menu items | MVP | windows, Save Page As, Print, Zoom, Developer, Space 1–9, Archive, Extensions, Help, as each feature lands | Arc 1.170.0 menus |
+| [ ] | Arc's other menu items | MVP | windows, Save Page As, Print, Zoom, Developer, Space 1–9, View History, Extensions, Help, as each feature lands | Arc 1.170.0 menus |
 
 ## Phase 4
 
