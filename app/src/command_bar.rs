@@ -43,6 +43,8 @@ const PLACEHOLDER: u32 = 0xffff_ff87;
 const SECONDARY: u32 = 0xeff4_ff99;
 const CARET: u32 = 0x4a77d4;
 const SELECTION: u32 = 0x787d_86b3;
+/// A command's shortcut chip (ours).
+const CHIP: u32 = 0xffff_ff14;
 
 /// One of the core's suggestions for what's typed.
 pub struct Suggestion {
@@ -54,6 +56,23 @@ pub struct Suggestion {
     pub tab: u64,
     /// What completes the text typed to this row, for the first row only.
     pub completion: String,
+    /// The browser command the row runs instead, and its shortcut.
+    pub command: Option<shell::Command>,
+    pub shortcut: Option<SharedString>,
+}
+
+impl From<shell::BarCommand> for Suggestion {
+    fn from(command: shell::BarCommand) -> Self {
+        Suggestion {
+            url: String::new(),
+            text: command.name,
+            detail: SharedString::default(),
+            tab: 0,
+            completion: String::new(),
+            command: Some(command.command),
+            shortcut: command.shortcut,
+        }
+    }
 }
 
 /// Where the bar shows the page chosen.
@@ -250,6 +269,7 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                 bar.asked_at.elapsed().as_secs_f64() * 1000.,
                 urls.join(", ")
             );
+            let rows = bar.with_commands(&text, rows, cx);
             bar.set_rows(text, rows, window, cx);
         })
         .ok();
@@ -347,6 +367,33 @@ impl CommandBar {
         self.show_completion(completion, window, cx);
     }
 
+    /// Puts the commands found for `text` among the core's `rows`, as Arc's bar does: the best
+    /// first if it's strong and the core doesn't complete what's typed, else after the core's
+    /// first row, and the others after that. None over a new pane.
+    fn with_commands(&self, text: &str, rows: Vec<Suggestion>, cx: &App) -> Vec<Suggestion> {
+        if matches!(self.target, Target::Beside(_)) {
+            return rows;
+        }
+        let commands = shell::bar_commands(text, cx);
+        if commands.is_empty() {
+            return rows;
+        }
+        // check.sh reads these lines.
+        let names: Vec<&str> = commands.iter().map(|command| command.name.as_ref()).collect();
+        eprintln!("browser: command bar commands \"{text}\": {}", names.join(", "));
+        let first = commands[0].strong && rows.first().is_none_or(|row| row.completion.is_empty());
+        let mut commands = commands.into_iter().map(Suggestion::from);
+        let mut rows = rows.into_iter();
+        let mut merged = Vec::new();
+        if first {
+            merged.extend(commands.next());
+        }
+        merged.extend(rows.next());
+        merged.extend(commands);
+        merged.extend(rows);
+        merged
+    }
+
     fn set_rows(
         &mut self,
         text: String,
@@ -357,7 +404,9 @@ impl CommandBar {
         // The page selected stays selected as more suggestions come for what was asked.
         let selected = self.rows.get(self.selected).filter(|_| text == self.suggested);
         self.selected = selected
-            .and_then(|old| rows.iter().position(|row| row.url == old.url))
+            .and_then(|old| {
+                rows.iter().position(|row| row.url == old.url && row.command == old.command)
+            })
             .unwrap_or(0);
         self.rows = rows;
         self.suggested = text;
@@ -420,6 +469,12 @@ impl CommandBar {
             return;
         };
         // check.sh reads these lines.
+        if let Some(command) = row.command {
+            eprintln!("browser: command bar runs {}", row.text);
+            unsafe { platform::host_hide_overlay() };
+            shell::run_from_bar(command, cx);
+            return;
+        }
         match (row.tab, self.target) {
             (0, _) => {
                 eprintln!("browser: command bar go {}", row.url);
@@ -445,7 +500,9 @@ impl CommandBar {
         }
         self.selected = (self.selected + if forward { 1 } else { count - 1 }) % count;
         // check.sh reads this line.
-        eprintln!("browser: command bar selected {}", self.rows[self.selected].url);
+        let row = &self.rows[self.selected];
+        let name = if row.command.is_some() { row.text.as_ref() } else { row.url.as_str() };
+        eprintln!("browser: command bar selected {name}");
         self.update_completion(window, cx);
         cx.notify();
     }
@@ -480,6 +537,17 @@ impl CommandBar {
                     _ => "Switch to Tab",
                 };
                 line.child(dim(action.into()).flex_none().ml_auto())
+            })
+            .when_some(row.shortcut.clone(), |line, shortcut| {
+                line.child(
+                    dim(shortcut)
+                        .flex_none()
+                        .ml_auto()
+                        .px(px(5.))
+                        .rounded(px(4.))
+                        .bg(rgba(CHIP))
+                        .text_size(px(11.)),
+                )
             })
     }
 }

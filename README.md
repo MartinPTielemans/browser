@@ -13,7 +13,7 @@ Pre-alpha. Nothing here is a browser yet.
 | 0 | UX spec: Arc structure + Dia polish, measured | in progress: Dia values imported, Arc capture next |
 | 1 | Architecture spike: GPUI + Chromium in one Mac process | done: go for GPUI |
 | 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | in progress: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works; Linux CI left |
-| 3 | Daily-driver MVP on Mac | in progress: the app shows a Space's Today tabs, opens, switches and closes them |
+| 3 | Daily-driver MVP on Mac | in progress: sidebar, Spaces, pinned tabs and folders, favorites, command bar, split view, archive, downloads, find and DevTools; profiles, extensions, password and autofill prompts, import and updates left |
 | 4 | Polish and parity | — |
 | 5 | Windows, then Linux | — |
 

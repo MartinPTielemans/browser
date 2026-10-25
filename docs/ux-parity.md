@@ -102,7 +102,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
 | [ ] | Folder motion and drag | MVP | measure Arc's open and close by a click, and how a dragged row goes into a folder | — |
 | [ ] | Folder tooltip | MVP | the name after a moment | Arc cap |
-| [ ] | Collapse All Folders | MVP | a command bar command | Arc cap |
+| [x] | Collapse All Folders | MVP | a command bar command | Arc cap |
 
 ## Spaces
 
@@ -155,7 +155,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Click outside | MVP | closes and still acts | AGENTS.md |
 | [ ] | Switch to Tab rows | MVP | across windows, never the current tab | Dia, O |
 | [ ] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |
-| [ ] | Calculator, commands, Paste and Go, clean-link copy | MVP | as Dia | Dia P§7 |
+| [x] | Commands | MVP | found by name, with their shortcuts; one whose name starts with what's typed comes first | Arc 1.170.0 cap |
+| [ ] | Calculator, Paste and Go, clean-link copy | MVP | as Dia | Dia P§7 |
 | [x] | Copy URL / as Markdown | MVP | ⇧⌘C / ⌥⇧⌘C; as Quote ⌃⇧⌘C later | Arc 1.170.0 menus |
 | [ ] | Arc's command list and ⌘T over the page | MVP | measure | — |
 

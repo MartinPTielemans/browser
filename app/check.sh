@@ -2314,8 +2314,22 @@ expect '^browser: command toggle-folder via sidebar$' "a click on the folder did
 expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it: $(outline)"
 send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
-send click $(pinned_row 0)
-expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it again: $(outline)"
+# The command bar finds commands by their names' letters in order, and runs the first row's.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type clear
+expect '^browser: command bar commands "clear": Clear Today, Clear Archive, Collapse All Folders$' "the command bar didn't find Clear Today, Clear Archive and Collapse All Folders for \"clear\""
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar again"
+send type collapse
+expect '^browser: command bar commands "collapse": Collapse All Folders$' "the command bar didn't find Collapse All Folders"
+send key return
+expect '^browser: command bar runs Collapse All Folders$' "↩ didn't run Collapse All Folders, the first row"
+expect '^browser: command collapse-folders via command bar$' "Collapse All Folders didn't run collapse-folders"
+expect "^browser: outline $f-\\[$c\\]\$" "Collapse All Folders didn't close the folder: $(outline)"
+expect '^browser: new tab plate 0$' "running a command left New Tab's plate"
 echo "key q cmd" >&3
 exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
@@ -2357,7 +2371,7 @@ expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run
 expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, and a click closes and opens it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png"
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 log="$out/clear.log"
