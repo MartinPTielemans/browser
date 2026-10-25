@@ -573,8 +573,8 @@ fn open_window(cx: &mut App) {
                 platform::host_watch_accent_color(accent_color_changed);
             }
             command_bar::open(cx);
-            find_bar::open(cx);
             if let Ok(shell) = window.entity(cx) {
+                find_bar::open(shell.clone(), cx);
                 reveal::open(shell, cx);
             }
             // Once the page frame is set, so the tab shown loads at its size.

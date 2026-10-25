@@ -57,11 +57,12 @@
 #      their titles and favicons. A tab closed before the quit stays closed. A SIGTERM, which macOS
 #      sends at logout and restart, keeps a tab opened just before it. Reports how long putting
 #      them back takes.
-#   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n of
-#      m", once Japanese input has committed, and return, shift-return, ⌘G and ⇧⌘G go through the
-#      matches, from the bar and from the page. A click on the page leaves the bar open, and the
-#      bar keeps its place through a resize and full screen. Each tab has its own find, which a
-#      new tab starts from the text found last; escape closes it, and so does another page.
+#   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n/m",
+#      once Japanese input has committed, and return, shift-return, ⌘G and ⇧⌘G and the bar's
+#      arrows go through the matches, from the bar and from the page. A text the page doesn't have
+#      shows NOT FOUND. A click on the page leaves the bar open, and the bar keeps its place
+#      through a resize and full screen. Each tab has its own find, which a new tab starts from the
+#      text found last; escape and the bar's close button close it, and so does another page.
 #  10. ⌘D pins the tab shown, from the page and from the UI, at the bottom of the pinned tabs, and
 #      unpins it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, or the ✕ under the
 #      pointer, unloads a pinned tab and keeps its row, which has no ✕ then, and shows the top
@@ -1468,15 +1469,15 @@ in_find_bar() {
 expect_find() {
   expect "^browser: find $1 $2\$" "$3: $(grep "^browser: find $1 " "$log" | tail -1)"
 }
-# The find bar is $1 points wide and 44 high, $2 from the right of a window $3 wide and 20 from its
-# top.
+# The find bar is 300 points wide and 32 high, 20 from the window's top right corner. Sets $content
+# to the window's width.
 check_find_bar() {
   send layout
   child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
     sed 's/^browser: layout child //')
   content=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
     sed 's/^browser: layout content \([0-9]*\)x.*/\1/')
-  [ "$child" = "$((content - 320)),20 300x44" ] ||
+  [ "$child" = "$((content - 320)),20 300x32" ] ||
     fail "$1: the find bar is at ${child:-nowhere} in a window $content wide"
 }
 
@@ -1497,6 +1498,20 @@ send key g cmd
 expect_find "$first" "open 1 of 3 apple" "⌘G in the find bar didn't go on, round to the first"
 check_find_bar "after ⌘F"
 ../tools/window-screenshot.sh "$pid" "$out/find.png" || fail "no window to capture"
+
+# The bar's next and previous go through the matches. Arc's are 28 pt at 212 and 238 in the bar.
+send click $((content - 320 + 252)) 36
+expect_find "$first" "open 2 of 3 apple" \
+  "a click on the find bar's next didn't go to the next match"
+send click $((content - 320 + 226)) 36
+expect_find "$first" "open 1 of 3 apple" "a click on the find bar's previous didn't go back a match"
+# A text the page doesn't have shows NOT FOUND in place of the count and the arrows.
+send type z
+expect '^browser: find bar drew "applez" NOT FOUND$' \
+  "a text the page doesn't have didn't show NOT FOUND"
+../tools/window-screenshot.sh "$pid" "$out/find-not-found.png" || fail "no window to capture"
+send key backspace
+expect_find "$first" "open [1-3] of 3 apple" "the find didn't find the text again"
 
 # A click on the page takes the keyboard and leaves the bar open, and ⌘G from the page goes on.
 send click $page_point
@@ -1548,7 +1563,7 @@ send type example
 expect_find "$second" "open 1 of [1-9][0-9]* example" "the new tab's find didn't find"
 send key 2 cmd
 expect "^browser: selected $first" "⌘2 in the find bar didn't show the first tab"
-expect '^browser: find bar drew "日本語" 1 of 1$' "the first tab didn't show its own find"
+expect '^browser: find bar drew "日本語" 1/1$' "the first tab didn't show its own find"
 # Escape closes the tab's find and gives the keyboard back to its page.
 send key escape
 expect_find "$first" "closed" "escape didn't close the find"
@@ -1557,14 +1572,23 @@ send state
 in_browser RenderWidgetHostViewCocoa "after escape closed the find bar"
 send key 1 cmd
 expect '^browser: find bar shown$' "the second tab didn't show its find"
-expect '^browser: find bar drew "example" 1 of ' "the second tab didn't show its own find"
+expect '^browser: find bar drew "example" 1/' "the second tab didn't show its own find"
 send state
 [ "$key" = BrowserCoreNSWindow ] || fail "switching to a tab with its find open moved the keyboard to $key"
 send key 2 cmd
 expect '^browser: find bar hidden$' "the first tab, its find closed, showed the find bar"
 # ⌘F opens it again with the tab's last text, highlighting its match without selecting it.
 send key f cmd
-expect '^browser: find bar drew "日本語" 0 of 1$' "⌘F didn't open the find with the tab's last text"
+expect '^browser: find bar drew "日本語" 0/1$' "⌘F didn't open the find with the tab's last text"
+# The bar's close button closes it too, and gives the page the keyboard.
+check_find_bar "before its close button"
+send click $((content - 320 + 284)) 36
+expect_find "$first" "closed" "a click on the find bar's close button didn't close the find"
+expect '^browser: find bar hidden$' "a click on the find bar's close button didn't hide it"
+send state
+in_browser RenderWidgetHostViewCocoa "after a click on the find bar's close button"
+send key f cmd
+expect '^browser: find bar shown$' "⌘F after the close button didn't open the find bar again"
 
 # Another page closes it.
 send key l cmd
@@ -1578,7 +1602,7 @@ echo "key q cmd" >&3
 exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n of m\", return, shift-return, ⌘G and ⇧⌘G go through the matches, from the bar and the page, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape closes it and another page closes it. Windows: $out/find.png, $out/find-fullscreen.png"
+echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png"
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 log="$out/pinned.log"
