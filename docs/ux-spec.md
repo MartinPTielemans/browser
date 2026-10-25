@@ -348,10 +348,10 @@ What a favorite does (ours, *interim* until Arc's are captured):
   - ⌘S isn't reserved: a page that keeps it, as an editor's save does, keeps it (Chrome's rule for Save Page).
 - **Sidebar reveal** (Arc (Ardia), Arc 1.170.0 rec).
   - The pointer kept at the window's left edge, at any height including the top-left corner, slides a floating panel over the page (Sidebar reveal in). The page doesn't move. A pointer passing the edge, on its way to another window or display, brings nothing out.
-  - The panel is inset 5 from the window's left, top and bottom edges, as wide as the docked sidebar, rounded and dark, with a 0.5 pt light border. It holds the traffic lights, the header buttons, the URL field and the tabs.
+  - The panel is inset 5 from the window's left, top and bottom edges and as wide as the docked sidebar. It's dark, at radius 12, with a 0.5 pt light border and no shadow; in a capture at 1× the border is one pixel of white 0.27 over the panel (Arc 1.170.0 cap). It holds the traffic lights, the header buttons, the URL field and the tabs.
   - It stays while the pointer is within 24 pt of its edge (Arc ≈ 21), then slides away (Sidebar reveal out).
   - Docking from the panel is instant: the page is laid out narrower in one frame.
-  - Ours (*interim* until the Arc capture): the trigger is the card's left margin, x < 10. The panel's radius is the card's 6 and its border white 0.15, with no shadow. It draws its own traffic lights, since AppKit's stay in the browser window under it.
+  - Ours (*interim* until the Arc capture): the trigger is the card's left margin, x < 10. The border is white 0.54, which gives that pixel at 1×; a 1 pt border of 0.27 would too, and only a capture at 2× tells them apart. The panel draws its own traffic lights, since AppKit's stay in the browser window under it.
   - Ours: the panel never takes the keyboard, so renaming a Space or making one from it docks the sidebar first. The command bar opening, page full screen and the app going to the background send it away.
 
 **⌃Tab** (Arc 1.170.0 rec, sessions 10–12; Dia 1.50.1 bin, P§2)
@@ -840,7 +840,7 @@ Arc shuts down on 2026-12-22. This is the capture plan, by feature. Where it say
 | Favorites | Screenshots with 1, 3, 4, 6, 9 and 12 favorites at the default width and at the minimum and maximum (columns, tile size, gaps, radius, favicon size). Selected colourful, one-colour and white icons; hovered tile with its tooltip; audio playing |
 | Pinned tabs | Screenshots: a pinned tab resting, selected, navigated away (and hovered while away), unloaded after ⌘W; a folder expanded and collapsed |
 | Today tabs | Screenshots: rows resting, hovered (✕), pressed, selected, loading, sleeping, playing audio, with a long title; "+ New Tab" row; the Clear divider; the scroll-edge line after scrolling. Row height and pitch (confirm 36) |
-| Sidebar hidden | Screenshot of the reveal panel at rest: inset, width, radius, border, shadow |
+| Sidebar hidden | Screenshot of the reveal panel at rest at 2×, to tell its 0.5 pt border from a 1 pt one |
 | Spaces | Screenshots: the switcher with 2, 5 and 10 Spaces, with icons and without; hovered and selected; the Space title row; create, rename, colour and icon flows; the profile picker for a Space; a Space whose profile differs. Answer: do favorites follow the Space or the profile? |
 | Command bar | Screenshots: ⌘T empty; typing "git" with an inline completion; 8 suggestions with one selected and another hovered; a Switch to Tab row; a command row; ⌘L on a page; the bar with the sidebar hidden. Answer: what ⌘↩ and ⌥↩ do |
 | Split view | Screenshots: 2, 3 and 4 panes, side by side and stacked; the divider or gap; the focused-pane indicator; the unfocused dim; the sidebar row of a split; drop zones while a tab is dragged over the page |

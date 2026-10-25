@@ -273,8 +273,10 @@ const FORM_PLATE: u32 = 0xffffff13;
 const FORM_PLACEHOLDER: u32 = 0xffffff8c;
 const CREATE: u32 = 0x25278a;
 const CREATE_LABEL_DISABLED: u32 = 0xffffff45;
-// The reveal panel's 0.5 pt light border, white 0.15 (ours: Arc's colour isn't measured).
-const REVEAL_BORDER: u32 = 0xffffff26;
+// The reveal panel's radius and its 0.5 pt light border, as in a capture of Arc at 1×: a circle of
+// 12, and one pixel of white 0.27 over the panel, which half a pixel of white 0.54 makes.
+const REVEAL_RADIUS: f32 = 12.;
+const REVEAL_BORDER: u32 = 0xffffff8a;
 // The panel draws the window's buttons itself, since AppKit's stay in the browser window, under
 // it: their centres from the panel's corner, as the docked sidebar's are from the window's, their
 // size, and their colours, sampled from AppKit's in a capture of the browser window. The glyphs
@@ -5147,7 +5149,7 @@ impl Shell {
                     .top(px(REVEAL_INSET))
                     .bottom(px(REVEAL_INSET))
                     .w(px(self.width()))
-                    .rounded(px(CARD_RADIUS))
+                    .rounded(px(REVEAL_RADIUS))
                     .border(px(0.5))
                     .border_color(rgba(REVEAL_BORDER))
                     .bg(self.gradient(Some(rgb(MATERIAL_STAND_IN).into())))
