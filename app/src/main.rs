@@ -336,6 +336,11 @@ impl Browser for Engine {
         unsafe { bc::bc_space_set_name(space, name.as_ptr()) };
     }
 
+    fn rename_tab(&self, tab: u64, name: &str, _: &mut App) {
+        let name = CString::new(name).unwrap_or_default();
+        unsafe { bc::bc_tab_rename(tab, name.as_ptr()) };
+    }
+
     fn delete_space(&self, space: u64, _: &mut App) {
         unsafe { bc::bc_space_delete(space) };
     }

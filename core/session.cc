@@ -120,6 +120,7 @@ Saved Collect() {
           to.shown = index;
         }
         tab.pinned_url = space->PinnedUrl(id);
+        tab.name = Tab::FromWebContents(contents)->name();
         if (tabs == &to.today) {
           tab.last_seen = Window::Showing(id) ? base::Time::Now()
                                               : Tab::FromWebContents(contents)->last_seen();
@@ -152,6 +153,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       }
       if (!tab.last_seen.is_null()) {
         dict.Set("seen", tab.last_seen.InMillisecondsFSinceUnixEpoch());
+      }
+      if (!tab.name.empty()) {
+        dict.Set("name", tab.name);
       }
       list.Append(std::move(dict));
     }
@@ -215,6 +219,9 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   }
   if (std::optional<double> seen = dict->FindDouble("seen")) {
     tab.last_seen = base::Time::FromMillisecondsSinceUnixEpoch(*seen);
+  }
+  if (const std::string* name = dict->FindString("name")) {
+    tab.name = *name;
   }
   return tab;
 }
@@ -418,6 +425,7 @@ bool RestoreSession(Window& window) {
         return 0;
       }
       const bc_id tab = Tab::IdOf(contents);
+      Tab::FromWebContents(contents)->set_name(saved_tab.name);
       Tab::FromWebContents(contents)->Restored();
       if (!saved_tab.last_seen.is_null()) {
         Tab::FromWebContents(contents)->set_last_seen(saved_tab.last_seen);

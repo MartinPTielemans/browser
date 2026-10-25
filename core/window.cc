@@ -96,7 +96,8 @@ void KeepClosed(content::WebContents* contents) {
   if (saved.history.empty()) {
     return;
   }
-  Archive(id, saved.history[saved.current].virtual_url(), base::UTF16ToUTF8(contents->GetTitle()));
+  saved.name = Tab::FromWebContents(contents)->name();
+  Archive(id, saved.history[saved.current].virtual_url(), Tab::FromWebContents(contents)->Title());
   const size_t index = std::ranges::find(space->today(), id) - space->today().begin();
   ClosedTabs().push_back(
       {.id = id, .space = space->id(), .index = index, .saved = std::move(saved)});
@@ -713,6 +714,7 @@ bc_id Window::Duplicate(bc_id tab) {
     tabs->InsertWebContentsAt(tabs->count(), std::move(copy), AddTabTypes::ADD_NONE);
   }
   const bc_id id = Tab::IdOf(copied);
+  Tab::FromWebContents(copied)->set_name(Tab::FromWebContents(contents)->name());
   Tab::FromWebContents(copied)->Restored();
   auto at = std::ranges::find(space->today(), tab);
   space->AddAt(id, at == space->today().end() ? 0 : at - space->today().begin() + 1);
@@ -734,6 +736,7 @@ bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {
     return 0;
   }
   const bc_id tab = Tab::IdOf(contents);
+  Tab::FromWebContents(contents)->set_name(saved.name);
   Tab::FromWebContents(contents)->Restored();
   space->AddAt(tab, index);
   return tab;

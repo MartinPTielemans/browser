@@ -281,6 +281,14 @@ impl Browser for Fake {
         self.report_spaces(cx);
     }
 
+    // The preview's tabs have no page title to go back to, so an empty name leaves the title.
+    fn rename_tab(&self, tab: u64, name: &str, cx: &mut App) {
+        let name: SharedString = name.to_string().into();
+        if !name.is_empty() {
+            self.later(cx, move |shell, cx| shell.set_title(tab, name, cx));
+        }
+    }
+
     fn delete_space(&self, space: u64, cx: &mut App) {
         self.spaces.borrow_mut().retain(|(id, ..)| *id != space);
         self.report_spaces(cx);

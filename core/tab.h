@@ -1,6 +1,8 @@
 #ifndef BROWSER_CORE_TAB_H_
 #define BROWSER_CORE_TAB_H_
 
+#include <string>
+
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
@@ -43,6 +45,16 @@ class Tab : public content::WebContentsObserver,
   // none comes during the app's call that made them.
   void StateChanged();
 
+  // The name the user gave the tab, which it shows for its title, or empty for its page's.
+  const std::string& name() const { return name_; }
+  // Names the tab and tells the app its title from a task of its own. Empty gives it back its
+  // page's title.
+  void Rename(const std::string& name);
+  // For a tab put back: its name, which Restored tells the app.
+  void set_name(const std::string& name) { name_ = name; }
+  // Its name, else its page's title.
+  std::string Title();
+
   // When a window last stopped showing the tab, else when it opened, for the auto-archive.
   base::Time last_seen() const { return last_seen_; }
   void set_last_seen(base::Time time) { last_seen_ = time; }
@@ -76,6 +88,7 @@ class Tab : public content::WebContentsObserver,
   void ReportTitle();
 
   const bc_id id_;
+  std::string name_;
   base::Time last_seen_ = base::Time::Now();
   bool state_report_posted_ = false;
   // The favicon the app was last told of.

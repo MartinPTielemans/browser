@@ -427,6 +427,12 @@ bc_id bc_tab_duplicate(bc_id id) {
   return window ? window->Duplicate(id) : 0;
 }
 
+void bc_tab_rename(bc_id id, const char* name) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::Tab::FromWebContents(contents)->Rename(name);
+  }
+}
+
 void bc_tab_close_below(bc_id id) {
   browser_core::Window::CloseBelow(id);
 }
