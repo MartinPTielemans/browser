@@ -1,15 +1,16 @@
 //! The command bar. GPUI can't draw over the page's native view, so the bar is a window of its
 //! own that the host shows over the browser window, as its child. Under its input it lists the
 //! core's suggestions for what's typed, and the window grows down to fit them. While the first is
-//! selected, the input completes what's typed to it, as Chrome's address bar does.
+//! selected, the input completes what's typed to it, as Chrome's address bar does. Opened from the
+//! URL field, it grows out of the field, as Dia's does (docs/ux-spec.md › Command bar).
 
 use std::time::Instant;
 
 use browser::{shell, text_input::TextInput};
 use gpui::{
-    App, Bounds, Context, Entity, Focusable, Global, KeyBinding, SharedString, TitlebarOptions,
-    Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div, point,
-    prelude::*, px, rgb, rgba, size,
+    App, Bounds, Context, Entity, Focusable, Global, KeyBinding, Pixels, SharedString,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
+    WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size,
 };
 
 use crate::{WINDOW, bc, navigate, ns_view, open_tab, platform, typed_url};
@@ -18,12 +19,25 @@ actions!(command_bar, [Go, Dismiss, Next, Previous]);
 
 const WIDTH: f32 = 640.;
 /// The input's row.
-const HEIGHT: f32 = 56.;
+const HEIGHT: f32 = 54.;
 const ROW_HEIGHT: f32 = 36.;
 /// Around the rows, so a selected row's corners clear the bar's edges.
 const ROW_INSET: f32 = 4.;
-const SELECTED: u32 = 0x0000_0012;
-const HOVERED: u32 = 0x0000_0008;
+/// The text's inset, the URL field's, so the text stays where it was as the bar opens out of it.
+const TEXT_X: f32 = 13.;
+const RADIUS: f32 = 16.;
+const ROW_RADIUS: f32 = 10.;
+/// How long the bar takes to grow out of the URL field, in seconds.
+const GROW: f32 = 0.13;
+// Dia's dark panel (docs/ux-spec.md › Colour tokens).
+const FILL: u32 = 0x2d2d2d;
+const BORDER: u32 = 0x787d_8652;
+const SELECTED: u32 = 0x5e5a5d;
+const HOVERED: u32 = 0x787d_8652;
+const PLACEHOLDER: u32 = 0xffff_ff87;
+const SECONDARY: u32 = 0xeff4_ff99;
+const CARET: u32 = 0x4a77d4;
+const SELECTION: u32 = 0x787d_86b3;
 
 /// One of the core's suggestions for what's typed.
 pub struct Suggestion {
@@ -55,6 +69,9 @@ pub struct CommandBar {
     suggested: String,
     /// The row ↩ takes.
     selected: usize,
+    /// While the bar grows out of the URL field: the field's box in the bar's window, and when it
+    /// started.
+    grow: Option<(Bounds<Pixels>, Instant)>,
 }
 
 struct CommandBarWindow(WindowHandle<CommandBar>);
@@ -88,10 +105,17 @@ pub fn open(cx: &mut App) {
         is_movable: false,
         is_resizable: false,
         is_minimizable: false,
+        // The panel's shape is drawn, as it grows.
+        window_background: WindowBackgroundAppearance::Transparent,
         ..Default::default()
     };
     let window = cx.open_window(options, |window, cx| {
-        let input = cx.new(|cx| TextInput::new("Search or enter a URL", cx));
+        let input = cx.new(|cx| {
+            TextInput::new("Search or enter a URL", cx)
+                .placeholder_color(rgba(PLACEHOLDER))
+                .caret_color(rgb(CARET))
+                .selection_color(rgba(SELECTION))
+        });
         window.focus(&input.focus_handle(cx), cx);
         cx.new(|cx| {
             cx.observe_in(&input, window, |bar: &mut CommandBar, _, window, cx| {
@@ -109,6 +133,7 @@ pub fn open(cx: &mut App) {
                 rows: Vec::new(),
                 suggested: String::new(),
                 selected: 0,
+                grow: None,
             }
         })
     });
@@ -124,13 +149,19 @@ pub fn open(cx: &mut App) {
 }
 
 /// Shows the command bar with the keyboard: empty for a new tab, or on `editing`'s URL, selected.
-/// It suggests nothing until the text is edited, as Chrome's address bar.
-pub fn show(editing: Option<(u64, SharedString)>, cx: &mut App) {
+/// It suggests nothing until the text is edited, as Chrome's address bar. It grows out of the URL
+/// field at `field` in the browser window, with its input centred on the field and its left edge
+/// at the field's, or shows centred.
+pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>, cx: &mut App) {
     let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
         return;
     };
+    let origin = field.map(|field| point(field.left(), field.center().y - px(HEIGHT / 2.)));
     window
         .update(cx, |bar, window, cx| {
+            bar.grow = field.zip(origin).map(|(field, origin)| {
+                (Bounds::new(field.origin - origin, field.size), Instant::now())
+            });
             bar.editing = editing.as_ref().map(|(tab, _)| *tab);
             let text = editing.map(|(_, url)| url).unwrap_or_default();
             bar.asked = text.to_string();
@@ -143,7 +174,15 @@ pub fn show(editing: Option<(u64, SharedString)>, cx: &mut App) {
         .ok();
     // The last query's suggestions are of no use now.
     suggest("", false);
-    unsafe { platform::host_show_overlay() };
+    let (left, top) = origin.map_or((0., 0.), |origin| (origin.x.into(), origin.y.into()));
+    unsafe { platform::host_show_overlay(origin.is_none(), left, top, f64::from(WIDTH)) };
+}
+
+/// How far the bar has grown out of the URL field, from 0 to 1 on an exponential ease-out, or none
+/// once it's done (docs/ux-spec.md › Motion › Panel grow).
+fn grow_progress(start: Instant) -> Option<f32> {
+    let t = start.elapsed().as_secs_f32() / GROW;
+    (t < 1.).then(|| 1. - 2f32.powf(-10. * t))
 }
 
 /// The core's suggestions for `text`.
@@ -352,7 +391,7 @@ impl CommandBar {
     }
 
     fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
-        let dim = |text: SharedString| div().opacity(0.5).child(text);
+        let dim = |text: SharedString| div().text_color(rgba(SECONDARY)).child(text);
         div()
             .id(("suggestion", index))
             .h(px(ROW_HEIGHT))
@@ -360,10 +399,10 @@ impl CommandBar {
             .flex()
             .items_center()
             .gap(px(6.))
-            .px(px(12.))
-            .rounded(px(10.))
+            .px(px(TEXT_X - ROW_INSET))
+            .rounded(px(ROW_RADIUS))
             .map(|line| match index == self.selected {
-                true => line.bg(rgba(SELECTED)),
+                true => line.bg(rgb(SELECTED)),
                 false => line.hover(|style| style.bg(rgba(HOVERED))),
             })
             .on_click(cx.listener(move |bar, _, _, _| bar.take(index)))
@@ -378,7 +417,7 @@ impl CommandBar {
 }
 
 impl Render for CommandBar {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // check.sh reads these lines.
         eprintln!("browser: command bar drew \"{}\"", self.input.read(cx).text());
         let rows: Vec<_> = self
@@ -387,6 +426,31 @@ impl Render for CommandBar {
             .enumerate()
             .map(|(index, row)| self.row(index, row, cx).into_any_element())
             .collect();
+        // The panel's shape grows from the URL field's box to the window's and uncovers the bar,
+        // which stays still.
+        let size = window.viewport_size();
+        let whole = Bounds::new(point(px(0.), px(0.)), size);
+        let growing = self.grow.and_then(|(field, start)| Some((field, grow_progress(start)?)));
+        let (shape, radius) = match growing {
+            Some((field, progress)) => {
+                window.request_animation_frame();
+                unsafe { platform::host_reshape_overlay() };
+                let shape = Bounds::new(
+                    field.origin * (1. - progress),
+                    gpui::size(
+                        field.size.width + (size.width - field.size.width) * progress,
+                        field.size.height + (size.height - field.size.height) * progress,
+                    ),
+                );
+                (shape, shell::PLATE_RADIUS + (RADIUS - shell::PLATE_RADIUS) * progress)
+            }
+            None => {
+                if self.grow.take().is_some() {
+                    unsafe { platform::host_reshape_overlay() };
+                }
+                (whole, RADIUS)
+            }
+        };
         // The browser's shortcuts work here too, below the bar's own keys.
         div().key_context(shell::KEY_CONTEXT).size_full().child(
             div()
@@ -399,32 +463,42 @@ impl Render for CommandBar {
                 .on_action(
                     cx.listener(|bar, _: &Previous, window, cx| bar.select_next(false, window, cx)),
                 )
-                .size_full()
-                .flex()
-                .flex_col()
-                .bg(rgb(0xffffff))
-                .text_color(rgb(0x1d1d1f))
+                .absolute()
+                .left(shape.left())
+                .top(shape.top())
+                .w(shape.size.width)
+                .h(shape.size.height)
+                .overflow_hidden()
+                .rounded(px(radius))
+                // One device pixel.
+                .border(px(1. / window.scale_factor()))
+                .border_color(rgba(BORDER))
+                .bg(rgb(FILL))
+                .text_color(rgb(0xffffff))
+                .text_size(px(13.))
                 .child(
                     div()
-                        .h(px(HEIGHT))
-                        .flex_none()
+                        .absolute()
+                        .left(-shape.left())
+                        .top(-shape.top())
+                        .w(size.width)
+                        .h(size.height)
                         .flex()
-                        .items_center()
-                        .px_4()
-                        .text_size(px(18.))
-                        .line_height(px(24.))
-                        .child(self.input.clone()),
-                )
-                .when(!rows.is_empty(), |bar| {
-                    bar.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .p(px(ROW_INSET))
-                            .text_size(px(14.))
-                            .children(rows),
-                    )
-                }),
+                        .flex_col()
+                        .child(
+                            div()
+                                .h(px(HEIGHT))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .px(px(TEXT_X))
+                                .line_height(px(17.))
+                                .child(self.input.clone()),
+                        )
+                        .when(!rows.is_empty(), |bar| {
+                            bar.child(div().flex().flex_col().p(px(ROW_INSET)).children(rows))
+                        }),
+                ),
         )
     }
 }

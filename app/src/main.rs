@@ -12,9 +12,9 @@ use std::{
 
 use browser::shell::{self, Browser, Command, MenuEntry, Page, Shell, WindowButton};
 use gpui::{
-    AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Focusable, Image, ImageFormat, Menu,
-    MenuItem, Pixels, Point, SharedString, Size, WeakEntity, Window, WindowOptions, actions,
-    prelude::*,
+    AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
+    ImageFormat, Menu, MenuItem, Pixels, Point, SharedString, Size, WeakEntity, Window,
+    WindowOptions, actions, prelude::*,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -38,8 +38,9 @@ mod platform {
         pub fn host_ui_view() -> *mut c_void;
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_add_overlay(overlay_view: *mut c_void);
-        pub fn host_show_overlay();
+        pub fn host_show_overlay(centered: bool, left: f64, top: f64, width: f64);
         pub fn host_set_overlay_height(height: f64);
+        pub fn host_reshape_overlay();
         pub fn host_hide_overlay();
         pub fn host_add_find_bar(find_bar_view: *mut c_void, right: f64, top: f64);
         pub fn host_show_find_bar(keyboard: bool);
@@ -380,8 +381,13 @@ impl Browser for Engine {
         unsafe { platform::host_detent() };
     }
 
-    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
-        command_bar::show(editing, cx);
+    fn command_bar(
+        &self,
+        editing: Option<(u64, SharedString)>,
+        field: Option<Bounds<Pixels>>,
+        cx: &mut App,
+    ) {
+        command_bar::show(editing, field, cx);
     }
 
     fn find(&self, tab: u64, cx: &mut App) {
