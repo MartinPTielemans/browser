@@ -28,6 +28,8 @@ struct SavedTab {
   std::string name;
   // When a window last stopped showing a Today tab, if it was saved with one.
   base::Time last_seen;
+  // Whether it's in a split view with the tab saved above it.
+  bool split = false;
 };
 
 // |history|, with the page it's loading if it has no page yet.

@@ -17,8 +17,8 @@ use browser::shell::{
 use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
-    ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, Size,
-    WeakEntity, Window, WindowBackgroundAppearance, WindowOptions, actions, prelude::*,
+    ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, WeakEntity,
+    Window, WindowBackgroundAppearance, WindowOptions, actions, prelude::*,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -52,6 +52,7 @@ mod platform {
         pub fn host_show_find_bar(keyboard: bool);
         pub fn host_hide_find_bar();
         pub fn host_add_hud(hud_view: *mut c_void, right: f64, top: f64);
+        pub fn host_set_page_right(right: f64);
         pub fn host_show_hud();
         pub fn host_hide_hud(seconds: f64);
         pub fn host_focus(view: *mut c_void);
@@ -148,17 +149,14 @@ fn ns_view(window: &Window) -> *mut c_void {
     }
 }
 
-/// Tells the core where the page goes in a window whose content is `viewport`, with the card's left
-/// edge at `card_left` (`shell::page_frame`).
-fn set_page_frame(viewport: Size<Pixels>, card_left: f32, push: f32) {
-    let frame = shell::page_frame(viewport, card_left, push);
+/// Tells the core where the page goes and the radius of its corners (`Shell::page_frame`).
+fn set_page_frame((frame, radius): (Bounds<Pixels>, f32)) {
     let frame = bc::bc_rect {
         x: f64::from(frame.origin.x),
         y: f64::from(frame.origin.y),
         width: f64::from(frame.size.width),
         height: f64::from(frame.size.height),
     };
-    let radius = if card_left == 0. { 0. } else { shell::CARD_RADIUS };
     unsafe { bc::bc_window_set_page_frame(WINDOW.get(), frame, f64::from(radius)) };
 }
 
@@ -171,6 +169,28 @@ fn open_tab(url: &str) {
     let tab = unsafe { bc::bc_tab_open(window, url.as_ptr()) };
     if tab != 0 {
         unsafe { bc::bc_window_select(window, tab) };
+    }
+}
+
+/// Puts `tab` in a split view with `with`, on its right, and shows it there. The pane being added
+/// for it, if there is one, gives the split its room first, so it shows at once at its place.
+fn split_tab(tab: u64, with: u64, cx: &mut App) {
+    shell::pane_added(cx);
+    let window = WINDOW.get();
+    unsafe {
+        bc::bc_tab_split_with(tab, with);
+        bc::bc_window_select(window, tab);
+    }
+}
+
+/// Opens a tab loading `url` in a split view with `with`, on its right, and shows it there.
+fn open_split(url: &str, with: u64, cx: &mut App) {
+    let Ok(url) = CString::new(url) else {
+        return;
+    };
+    let tab = unsafe { bc::bc_tab_open(WINDOW.get(), url.as_ptr()) };
+    if tab != 0 {
+        split_tab(tab, with, cx);
     }
 }
 
@@ -212,8 +232,8 @@ impl Browser for Engine {
         unsafe { bc::bc_window_select(WINDOW.get(), tab) };
     }
 
-    fn close(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_close(tab) };
+    fn close(&self, tab: u64, split: bool, _: &mut App) {
+        unsafe { bc::bc_tab_close(tab, split) };
     }
 
     fn close_below(&self, tab: u64, _: &mut App) {
@@ -234,6 +254,10 @@ impl Browser for Engine {
 
     fn move_tab(&self, tab: u64, pinned: bool, index: usize, _: &mut App) {
         unsafe { bc::bc_tab_move(tab, pinned, index) };
+    }
+
+    fn separate(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_separate(tab) };
     }
 
     fn back_to_pinned_url(&self, tab: u64, _: &mut App) {
@@ -445,8 +469,16 @@ impl Browser for Engine {
         unsafe { platform::host_focus(self.view) };
     }
 
-    fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, push: f32, _: &mut App) {
-        set_page_frame(viewport, card_left, push);
+    fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, _: &mut App) {
+        set_page_frame((frame, radius));
+    }
+
+    fn set_focus_color(&self, color: u32, _: &mut App) {
+        unsafe { bc::bc_window_set_focus_color(WINDOW.get(), color) };
+    }
+
+    fn set_page_right(&self, right: f32, _: &mut App) {
+        unsafe { platform::host_set_page_right(right as f64) };
     }
 
     fn show_window_buttons(&self, shown: bool, _: &mut App) {
@@ -503,6 +535,10 @@ impl Browser for Engine {
         cx: &mut App,
     ) {
         command_bar::show(editing, field, cx);
+    }
+
+    fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
+        command_bar::show_split(with, pane, card, cx);
     }
 
     fn find(&self, tab: u64, cx: &mut App) {
@@ -640,7 +676,7 @@ fn open_window(cx: &mut App) {
         let shell = cx.new(|cx| {
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, |shell: &mut Shell, window, _| {
-                set_page_frame(window.viewport_size(), shell.card_left(), shell.card_push())
+                set_page_frame(shell.page_frame(window.viewport_size()))
             })
             .detach();
             Shell::new(Rc::new(Engine { view: ns_view(window) }), cx)
@@ -657,7 +693,7 @@ fn open_window(cx: &mut App) {
         Ok(window) => {
             window
                 .update(cx, |shell, window, _| {
-                    set_page_frame(window.viewport_size(), shell.card_left(), shell.card_push())
+                    set_page_frame(shell.page_frame(window.viewport_size()))
                 })
                 .ok();
             unsafe {
@@ -762,6 +798,10 @@ fn menus() -> Vec<Menu> {
                 item("Refresh the Page", Command::Reload),
                 item("Force Refresh the Page", Command::ForceReload),
                 MenuItem::separator(),
+                item("Add Split View", Command::AddSplit),
+                item("Close this Split Pane", Command::CloseSplitPane),
+                item("Separate Page from Split View", Command::SeparatePane),
+                MenuItem::separator(),
                 item("Zoom to Actual Size", Command::ActualSize),
                 item("Zoom In", Command::ZoomIn),
                 item("Zoom Out", Command::ZoomOut),
@@ -860,7 +900,16 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
         tabs
     };
     let (pinned, today) = (list(bc::bc_space_pinned), list(bc::bc_space_today));
-    update_shell(|shell, cx| shell.set_tabs(space, pinned, today, cx));
+    let mut splits = Vec::new();
+    for &tab in pinned.iter().chain(&today) {
+        // The core's splits have up to three tabs.
+        let mut split = [0; 3];
+        let count = unsafe { bc::bc_tab_split(tab, split.as_mut_ptr(), split.len()) };
+        if count > 1 && split[0] == tab {
+            splits.push(split[..count.min(split.len())].to_vec());
+        }
+    }
+    update_shell(|shell, cx| shell.set_tabs(space, pinned, today, splits, cx));
 }
 
 unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space: bc::bc_id) {
@@ -1086,14 +1135,12 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
         if fullscreen && !shown {
             return;
         }
-        let (card_left, push) = shell
-            .update(cx, |shell, cx| {
-                shell.set_page_fullscreen(fullscreen, cx);
-                (shell.card_left(), shell.card_push())
-            })
-            .unwrap_or((0., 0.));
-        cx.update_window(window, |_, window, _| {
-            set_page_frame(window.viewport_size(), card_left, push)
+        shell.update(cx, |shell, cx| shell.set_page_fullscreen(fullscreen, cx)).ok();
+        cx.update_window(window, |_, window, cx| {
+            let viewport = window.viewport_size();
+            if let Ok(frame) = shell.read_with(cx, |shell, _| shell.page_frame(viewport)) {
+                set_page_frame(frame);
+            }
         })
         .ok();
     });

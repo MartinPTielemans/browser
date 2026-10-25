@@ -53,6 +53,25 @@ size_t CopyString(const std::string& text, char* to, size_t capacity) {
   return text.size();
 }
 
+// The page |id| is at, which pinning it pins it at.
+GURL PageUrlOf(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  return contents ? browser_core::Tab::PageUrl(contents) : GURL();
+}
+
+// After |id| was pinned, unpinned or moved, with the rest of its split.
+void SplitMoved(browser_core::Space& space, bc_id id) {
+  for (bc_id pane : space.Panes(id)) {
+    if (content::WebContents* contents = browser_core::Tab::FromId(pane)) {
+      browser_core::Tab* tab = browser_core::Tab::FromWebContents(contents);
+      // Handled now, so a pinned tab unpinned unseen has 12 hours in Today before it's archived.
+      tab->set_last_seen(base::Time::Now());
+      // Whether it's away from its pinned URL.
+      tab->StateChanged();
+    }
+  }
+}
+
 // Loads |url| in the tab, as Chrome loads what's typed in its location bar or a bookmark.
 void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
   content::WebContents* contents = browser_core::Tab::FromId(id);
@@ -154,6 +173,34 @@ size_t bc_space_pinned(bc_id id, bc_id* tabs, size_t capacity) {
   return pinned.size();
 }
 
+size_t bc_tab_split(bc_id id, bc_id* tabs, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  if (!space) {
+    return 0;
+  }
+  const std::vector<bc_id> panes = space->Panes(id);
+  std::copy_n(panes.begin(), std::min(capacity, panes.size()), tabs);
+  return panes.size();
+}
+
+bool bc_tab_split_with(bc_id id, bc_id with) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  if (!space || browser_core::Space::Holding(with) != space ||
+      !space->Split(id, with, PageUrlOf(id))) {
+    return false;
+  }
+  SplitMoved(*space, id);
+  browser_core::Window::PanesChanged();
+  return true;
+}
+
+void bc_tab_separate(bc_id id) {
+  if (browser_core::Space* space = browser_core::Space::Holding(id)) {
+    space->Separate(id);
+    browser_core::Window::PanesChanged();
+  }
+}
+
 void bc_window_show_space(bc_id window_id, bc_id space) {
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
     window->ShowSpace(space);
@@ -179,6 +226,12 @@ bc_id bc_window_space_tab(bc_id window_id, bc_id space) {
 void bc_window_set_page_frame(bc_id window_id, bc_rect frame, double corner_radius) {
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
     window->SetPageFrame(ToRect(frame), corner_radius);
+  }
+}
+
+void bc_window_set_focus_color(bc_id window_id, uint32_t color) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->SetFocusColor(color & 0xffffff);
   }
 }
 
@@ -335,15 +388,11 @@ void bc_tab_set_pinned(bc_id id, bool pinned) {
     return;
   }
   if (pinned) {
-    space->Pin(id, browser_core::Tab::PageUrl(contents));
+    space->Pin(id, &PageUrlOf);
   } else {
     space->Unpin(id);
   }
-  browser_core::Tab* tab = browser_core::Tab::FromWebContents(contents);
-  // Handled now, so a pinned tab unpinned unseen has its 12 hours in Today before it's archived.
-  tab->set_last_seen(base::Time::Now());
-  // Whether it's away from its pinned URL.
-  tab->StateChanged();
+  SplitMoved(*space, id);
 }
 
 void bc_tab_move(bc_id id, bool pinned, size_t index) {
@@ -352,12 +401,8 @@ void bc_tab_move(bc_id id, bool pinned, size_t index) {
   if (!space || !contents) {
     return;
   }
-  space->Move(id, pinned, index, browser_core::Tab::PageUrl(contents));
-  browser_core::Tab* tab = browser_core::Tab::FromWebContents(contents);
-  // As bc_tab_set_pinned's.
-  tab->set_last_seen(base::Time::Now());
-  // Whether it's away from its pinned URL.
-  tab->StateChanged();
+  space->Move(id, pinned, index, &PageUrlOf);
+  SplitMoved(*space, id);
 }
 
 int bc_tab_zoom(bc_id id, int step) {
@@ -454,10 +499,16 @@ void bc_tab_move_to_space(bc_id id, bc_id space) {
   browser_core::Window::MoveToSpace(id, space);
 }
 
-void bc_tab_close(bc_id id) {
-  if (browser_core::Space* space = browser_core::Space::Holding(id); space && space->IsPinned(id)) {
-    browser_core::Window::UnloadPinned(id);
+void bc_tab_close(bc_id id, bool split) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  if (space && space->IsPinned(id)) {
+    browser_core::Window::UnloadPinned(id, split);
     return;
   }
-  browser_core::Window::CloseTab(id);
+  // Each closes at once unless its page keeps it, and the window shows what its Space picks after
+  // the last.
+  const std::vector<bc_id> tabs = space && split ? space->Panes(id) : std::vector<bc_id>{id};
+  for (bc_id tab : tabs) {
+    browser_core::Window::CloseTab(tab);
+  }
 }

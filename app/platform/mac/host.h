@@ -59,6 +59,10 @@ void host_show_find_bar(bool keyboard);
 // Hides the find bar. If it had the keyboard, the browser window gets it back.
 void host_hide_find_bar(void);
 
+// Moves the find bar and the HUD |right| points further in from the window's right edge, to the
+// focused page's corner when a split view's focused page isn't the rightmost.
+void host_set_page_right(double right);
+
 // Makes the window of |hud_view| float over the browser window when shown, |right| and |top| points
 // from the top right corner of the window's content, for the zoom HUD. It starts hidden, and the
 // mouse goes through it.

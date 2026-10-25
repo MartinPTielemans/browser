@@ -60,8 +60,13 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static Window* ForBrowser(const BrowserWindowInterface* browser);
   // Closes every window at once, at quit, once their Browsers are gone.
   static void CloseAll();
-  // Whether a window shows |tab|.
+  // Whether a window shows |tab|, focused or beside the tab it shows in a split view.
   static bool Showing(bc_id tab);
+  // Has each window whose shown tab's split changed show it as it is now.
+  static void PanesChanged();
+  // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
+  // split view, shows it focused instead.
+  static void OnPageClicked(bc_id tab);
   // Chrome's navigator calls this before it picks the Browser for a navigation.
   static void AdjustNavigate(NavigateParams& params);
   // From Chrome's DevTools: whether |browser|'s window docks them, as the core's windows do, and
@@ -75,8 +80,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Space picks next.
   static void OnTabClosing(bc_id tab);
   // Unloads |tab|, a pinned tab, which stays in its Space: each window that showed it shows the tab
-  // its Space picks next, else no page.
-  static void UnloadPinned(bc_id tab);
+  // its Space picks next, else no page. It leaves its split view, unless |split| unloads the rest
+  // of the split with it.
+  static void UnloadPinned(bc_id tab, bool split);
   // Has each window that shows |space| show the Space before it, else the one after it, and closes
   // its tabs. The Space goes with the last of them. False, doing nothing, if it's the last Space
   // not going.
@@ -100,7 +106,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   views::Widget* widget() const { return widget_.get(); }
   // The Space the window shows, or 0.
   bc_id space() const { return space_; }
-  // The tab the window shows, or 0.
+  // The tab the window shows, or 0. In a split view, the one focused.
   bc_id selected() const { return selected_; }
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
@@ -116,13 +122,16 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // window opens with the one the last launch saved.
   double sidebar_width() const { return sidebar_width_; }
   void SetSidebarWidth(double width);
-  // Where the selected tab's page goes, in the window, and the radius of its corners.
+  // Where the selected tab's page goes, in the window, and the radius of its corners. A split view
+  // shares it out between its pages.
   void SetPageFrame(const gfx::Rect& frame, double corner_radius);
+  // The ring the focused page of a split view has inside its edge, 0xRRGGBB.
+  void SetFocusColor(uint32_t color);
   // Shows |tab|, if it's one of this window's, at the page frame, and its Space if the window shows
-  // another.
+  // another. In a split view, it shows the split with |tab| focused.
   void Select(bc_id tab);
 
-  // Closes the Today tabs of the Space the window shows, all but the one it shows, for UndoClear to
+  // Closes the Today tabs of the Space the window shows, all but those it shows, for UndoClear to
   // bring back. Returns how many.
   size_t Clear();
   // Brings back the tabs the last Clear closed, at their places in their Space's Today tabs and
@@ -154,7 +163,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
                                    int current);
 
   // Shows |contents|, a tab in one of this window's Browsers, at |frame| in place of the page shown
-  // before, taking the keyboard if that page had it.
+  // before, taking the keyboard if that page had it. In a split view, it shows the split with
+  // |contents| focused.
   void Show(content::WebContents* contents, const gfx::Rect& frame);
 
   // Asks each Browser to close, which runs its pages' unload handlers; a page can keep it open.
@@ -188,6 +198,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   struct Cleared {
     bc_id tab;
     size_t index;
+    // Whether it was in a split view with the tab above it.
+    bool split;
   };
   Window(bc_id id, const gfx::Rect& bounds, void* ui_view);
 
@@ -199,10 +211,12 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // the Space the window shows. Returns its id, or 0.
   bc_id Reopen(bc_id space, size_t index, const SavedTab& saved);
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground);
-  void SelectAfterClosing(bc_id next);
+  // Shows next_after_closing_, as the tab shown has closed.
+  void SelectAfterClosing();
   // Shows no page, as for a Space without tabs.
   void ShowNothing();
-  // Puts the page shown, and its docked DevTools if it has them, at the page frame.
+  // Puts the pages shown, and their docked DevTools if they have them, at the page frame, side by
+  // side.
   void LayOutPage();
   void ReportSelected();
 
@@ -217,12 +231,19 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::unique_ptr<views::WidgetDelegate> delegate_;
   std::unique_ptr<views::Widget> widget_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> widget_observation_{this};
+  // The page focused, and the tabs shown, left to right: its split's, else it alone.
   base::WeakPtr<content::WebContents> shown_;
+  std::vector<bc_id> panes_;
+  uint32_t focus_color_ = 0;
   bc_id space_ = 0;
   bc_id selected_ = 0;
+  // Once the tab shown closes, the one to show next, as its Space picked it.
+  bc_id next_after_closing_ = 0;
   // The tab each Space the window showed had shown when it left that Space.
   std::map<bc_id, bc_id> selected_in_space_;
   gfx::Rect page_frame_;
+  // The focused page's part of it in a split view, else all of it: where the tab's dialogs go.
+  gfx::Rect focused_frame_;
   double page_corner_radius_ = 0;
   double sidebar_width_;
   std::map<Profile*, Held> browsers_;

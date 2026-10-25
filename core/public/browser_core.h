@@ -263,6 +263,21 @@ BC_EXPORT size_t bc_space_today(bc_id space, bc_id* tabs, size_t capacity);
 // many it has. They sit above its Today tabs.
 BC_EXPORT size_t bc_space_pinned(bc_id space, bc_id* tabs, size_t capacity);
 
+// Copies up to |capacity| of the tabs shown with |tab| into |tabs|, left to right, |tab| among
+// them, and returns how many there are: those of its split view, else |tab| alone. 0 for a tab in
+// no Space. A split's tabs sit together in their list, in this order, as one row.
+BC_EXPORT size_t bc_tab_split(bc_id tab, bc_id* tabs, size_t capacity);
+
+// Puts |tab| in a split view with |with|, at its right end, making one if |with| is in none: a
+// window showing either shows them side by side. |tab| leaves any split it was in and moves after
+// the split, pinned at its page if |with| is pinned. Returns false, doing nothing, if |with|'s
+// split has three tabs already, or the two are in different Spaces. Then space_changed.
+BC_EXPORT bool bc_tab_split_with(bc_id tab, bc_id with);
+
+// Takes |tab| out of its split view, to just below the tabs left in it. A window showing it shows
+// it alone. The split goes once one tab is left. Then space_changed.
+BC_EXPORT void bc_tab_separate(bc_id tab);
+
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
 // window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
 // Today tab, else its top pinned tab, else no page. Then window_space_shown and window_selected.
@@ -279,15 +294,20 @@ BC_EXPORT bc_id bc_window_space_tab(bc_id window, bc_id space);
 
 // Where the window shows its tab's page, in the window, and the radius of the page's corners, 0 for
 // square ones. Set it again when the layout changes; the page keeps its distance from the window's
-// edges as the window resizes.
+// edges as the window resizes. A split view's pages share it, side by side, 10 apart, each as wide
+// as the others.
 BC_EXPORT void bc_window_set_page_frame(bc_id window, bc_rect frame, double corner_radius);
 
+// The colour of the ring inside the edge of the focused page of a split view, 0xRRGGBB.
+BC_EXPORT void bc_window_set_focus_color(bc_id window, uint32_t color);
+
 // Shows |tab|, a tab in the window, at its page frame, in place of the page shown before, and its
-// Space if the window shows another. It takes the keyboard if that page had it. Then
-// window_space_shown if the Space changed, and window_selected.
+// Space if the window shows another. It takes the keyboard if that page had it. A tab in a split
+// view shows with the rest of its split, focused. A click in another page of the split focuses
+// that one. Then window_space_shown if the Space changed, and window_selected.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
-// Clears the Space the window shows: closes its Today tabs but the one it shows, as bc_tab_close
+// Clears the Space the window shows: closes its Today tabs but those it shows, as bc_tab_close
 // does, for bc_window_undo_clear to bring back. Returns how many tabs it closed.
 BC_EXPORT size_t bc_window_clear(bc_id window);
 
@@ -396,10 +416,12 @@ BC_EXPORT void bc_tab_find(bc_id tab, const char* text, bool forward);
 BC_EXPORT void bc_tab_find_close(bc_id tab);
 
 // Pins the tab in its Space at the page it's at, at the bottom of the pinned tabs, or unpins it to
-// the top of the Today tabs. Then space_changed and tab_state_changed.
+// the top of the Today tabs, with the rest of its split view. Then space_changed and
+// tab_state_changed.
 BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
 
-// Moves the tab to |index| in its Space's pinned tabs or in its Today tabs, else to the bottom. A
+// Moves the tab, with the rest of its split view, to |index| in its Space's pinned tabs or in its
+// Today tabs, counted without them, else to the bottom, and below a split |index| is inside. A
 // Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned tab moved to Today
 // is unpinned. Then space_changed and tab_state_changed.
 BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, size_t index);
@@ -454,8 +476,11 @@ BC_EXPORT void bc_tab_save_page(bc_id tab);
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
 // a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its
 // Space instead, and only its page goes: a window showing it shows the Space's top Today tab, else
-// the nearest pinned tab still loaded, else no page. Then tab_state_changed, and window_selected.
-BC_EXPORT void bc_tab_close(bc_id tab);
+// the nearest pinned tab still loaded, else no page. A tab in a split view leaves it, and a window
+// showing it shows the tab beside it, unless |split| closes the rest of the split with it, as
+// the ✕ on its row does: a pinned split stays a split. Then tab_state_changed, and
+// window_selected.
+BC_EXPORT void bc_tab_close(bc_id tab, bool split);
 
 #ifdef __cplusplus
 }

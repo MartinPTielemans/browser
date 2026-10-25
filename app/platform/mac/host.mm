@@ -92,6 +92,10 @@ double g_hud_right;
 double g_hud_top;
 unsigned g_hud_changes = 0;
 
+// How far the focused page's right edge is inside the card's, in a split view, which the find bar
+// and the HUD keep to.
+double g_page_right = 0;
+
 // The sidebar reveal's window and view, the shell's handler for the pointer, the window's width,
 // and while it shows, the monitor that hands the handler the pointer.
 NSWindow* g_reveal;
@@ -140,7 +144,8 @@ void MakeOverlay(NSWindow* window) {
 void PlaceFindBar() {
   NSRect content = [g_window contentRectForFrameRect:g_window.frame];
   NSSize size = g_find_bar.frame.size;
-  [g_find_bar setFrameOrigin:NSMakePoint(NSMaxX(content) - g_find_bar_right - size.width,
+  [g_find_bar setFrameOrigin:NSMakePoint(NSMaxX(content) - g_page_right - g_find_bar_right -
+                                             size.width,
                                          NSMaxY(content) - g_find_bar_top - size.height)];
 }
 
@@ -150,7 +155,7 @@ void PlaceHud() {
   NSSize size = g_hud.frame.size;
   const double top =
       g_find_bar_shown ? g_find_bar_top + g_find_bar.frame.size.height + 8 : g_hud_top;
-  [g_hud setFrameOrigin:NSMakePoint(NSMaxX(content) - g_hud_right - size.width,
+  [g_hud setFrameOrigin:NSMakePoint(NSMaxX(content) - g_page_right - g_hud_right - size.width,
                                     NSMaxY(content) - top - size.height)];
 }
 
@@ -425,6 +430,16 @@ void host_hide_find_bar(void) {
     PlaceHud();
   }
   fprintf(stderr, "browser: find bar hidden\n");
+}
+
+void host_set_page_right(double right) {
+  g_page_right = right;
+  if (g_find_bar_shown) {
+    PlaceFindBar();
+  }
+  if (g_hud_shown) {
+    PlaceHud();
+  }
 }
 
 void host_add_hud(void* hud_view, double right, double top) {

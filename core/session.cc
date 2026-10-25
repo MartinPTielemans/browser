@@ -110,6 +110,7 @@ Saved Collect() {
     int index = 0;
     for (auto [ids, tabs] : {std::pair(&space->pinned(), &to.pinned),
                              std::pair(&space->today(), &to.today)}) {
+      bc_id above = 0;
       for (bc_id id : *ids) {
         content::WebContents* contents = Tab::FromId(id);
         SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
@@ -119,6 +120,8 @@ Saved Collect() {
         if (id == shown) {
           to.shown = index;
         }
+        tab.split = above && std::ranges::contains(space->Panes(id), above);
+        above = id;
         tab.pinned_url = space->PinnedUrl(id);
         tab.name = Tab::FromWebContents(contents)->name();
         if (tabs == &to.today) {
@@ -156,6 +159,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       }
       if (!tab.name.empty()) {
         dict.Set("name", tab.name);
+      }
+      if (tab.split) {
+        dict.Set("split", true);
       }
       list.Append(std::move(dict));
     }
@@ -223,6 +229,7 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   if (const std::string* name = dict->FindString("name")) {
     tab.name = *name;
   }
+  tab.split = dict->FindBool("split").value_or(false);
   return tab;
 }
 
@@ -436,9 +443,11 @@ bool RestoreSession(Window& window) {
       return tab;
     };
     const int pinned = static_cast<int>(saved_space.pinned.size());
+    std::vector<bc_id> pinned_ids(saved_space.pinned.size());
+    std::vector<bc_id> today_ids(saved_space.today.size());
     for (int j = 0; j < pinned; ++j) {
       const SavedTab& saved_tab = saved_space.pinned[j];
-      if (bc_id tab = restore(saved_tab, j)) {
+      if (bc_id tab = pinned_ids[j] = restore(saved_tab, j)) {
         // Saved before pinned tabs kept their pinned URL, it's pinned where it is.
         space->AddPinned(tab, saved_tab.pinned_url.is_valid()
                                   ? saved_tab.pinned_url
@@ -447,8 +456,16 @@ bool RestoreSession(Window& window) {
     }
     // Bottom up, as each goes at the top.
     for (size_t j = saved_space.today.size(); j-- > 0;) {
-      if (bc_id tab = restore(saved_space.today[j], pinned + static_cast<int>(j))) {
+      if (bc_id tab = today_ids[j] = restore(saved_space.today[j], pinned + static_cast<int>(j))) {
         space->Add(tab, /*opener=*/0, /*foreground=*/false);
+      }
+    }
+    for (auto [tabs, ids] : {std::pair(&saved_space.pinned, &pinned_ids),
+                             std::pair(&saved_space.today, &today_ids)}) {
+      for (size_t j = 1; j < ids->size(); ++j) {
+        if ((*tabs)[j].split && (*ids)[j] && (*ids)[j - 1]) {
+          space->Split((*ids)[j], (*ids)[j - 1], GURL());
+        }
       }
     }
   }

@@ -135,7 +135,7 @@ The command bar, menus, hover cards, Peek, find and every prompt over the page a
 | Select tab 1–8 / last | measure | ⌘1–⌘8 / ⌘9 in sidebar order | Dia's |
 | Tab used last, then further back | ⌃Tab (rec) | ⌃Tab / ⌃⇧Tab (switcher) | ⌃Tab / ⌃⇧Tab, no switcher |
 | Search tabs | measure | ⇧⌘A | ⇧⌘A |
-| Split: add pane / focus next / previous | measure | ⌃⇧= / ⌃⇧] / ⌃⇧[ | Dia's, *interim* |
+| Split: add pane / close pane / focus next / previous | ⌃+ / ⌃⇧- (menus) | ⌃⇧= / — / ⌃⇧] / ⌃⇧[ | Arc's; focus Dia's, *interim* |
 | Find / next / previous | measure | ⌘F / ⌘G / ⇧⌘G | ⌘F / ⌘G / ⇧⌘G |
 | Use selection for find / jump to selection / find and replace | — | — (⌘E is Chat) / ⌘J / ⌥⌘F | ⌘E / ⌘J / ⌥⌘F |
 | Copy URL / as Markdown / as Quote | ⇧⌘C / ⌥⇧⌘C / ⌃⇧⌘C (menus) | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C |
@@ -489,11 +489,14 @@ Dia's New Tab page (decision 6). The UI draws it; it is not a web page. That kee
 
 ### Split view
 
-Dia's values (P§6, D›Dragging tabs and split targets) are the targets until Arc is measured. Measure in Arc: the gap or divider between panes, the maximum pane count, the focus indicator and the drop zones.
+Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging tabs and split targets) for the rest.
 
-- **Panes.** Up to 3, side by side or stacked; a bottom split can be added. Each pane has its own nav state and close button. Unfocused panes dim (amount: measure). Commands: Flip, Change Orientation, Move Pane Left/Right, Remove from Split View, Separate All.
-- **In the sidebar.** A split is one row with a segment per pane, and it counts as one row for ⌘1–⌘9.
-- **Creating a split.** ⌃⇧= adds a pane. ⌥-click on "+ New Tab" opens a New Tab pane. ⌥⇧-click on a link opens it in a right pane. Dragging a tab onto the page shows the targets.
+- **Panes.** Up to 3 (Dia; Arc's maximum: measure), side by side and 10 pt apart, sharing the card. Each has its own page, history and docked DevTools. The focused one has a 2 pt ring inside its edge and a ≈ 8 pt glow outside it (Arc), in the Space's colour, else the accent. Unfocused panes aren't dimmed (*interim*, measure). A page in full screen takes the window alone.
+- **Focus.** A click in a pane focuses it. ⌘W and Close this Split Pane close the focused pane, and the one beside it takes focus. Separate Page from Split View puts the focused pane in its own row under the split, shown alone. The find bar, the zoom HUD and a tab's dialogs, such as print preview, go over the focused pane.
+- **In the sidebar.** A split is one row of equal segments with a 1 pt line between them: each segment's favicon (18) 7 into it, its title 10 after that, ending 5 before the next line (Arc). The row counts as one for ⌘1–⌘9, ⌃Tab and next or previous tab, which show the pane focused last. Its ✕ closes all its tabs, and on a pinned split it unloads them and the row stays a split. Moving or pinning the row moves the split; Move to Space takes one tab out.
+- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel 77 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). To build: ⌥-click on "+ New Tab" opens a New Tab pane, ⌥⇧-click on a link opens it in a right pane (Dia), and dragging a tab onto the page shows the targets.
+- **Commands.** Arc's View menu: Add Split View ⌃+, Close this Split Pane ⌃⇧-, Separate Page from Split View, and Expand Current Split (to build). To build, from Dia: Flip, Change Orientation, Move Pane Left/Right, Separate All. ⌃⇧] and ⌃⇧[ focus the next and previous pane (Dia, *interim*).
+- **Kept.** A split comes back after a quit.
 
 **Drag targets** ("Add left split" and "Add right split" at each pane's sides)
 
@@ -511,7 +514,7 @@ Dia's values (P§6, D›Dragging tabs and split targets) are the targets until A
 
 Arc's structure. Dia replaced it with Clean Up Tabs, recorded below for reference.
 
-- **Clear** (Arc 1.170.0 rec, 3 runs). ⇧⌘K or the Clear button closes every Today tab of the Space but the one shown, including grouped, split and playing ones. Pinned tabs and favorites stay. The rows go in one frame and the one left is in its place at once, with no toast. ⌘Z brings them back in place, fading in on Row motion, unloaded, and the tab shown stays. Ours: ⌘Z in a text field, in a page or ours, is the field's own, and Edit › Undo clicked in the menu goes only to the focused page or field.
+- **Clear** (Arc 1.170.0 rec, 3 runs). ⇧⌘K or the Clear button closes every Today tab of the Space but the one shown, including grouped, split and playing ones. Pinned tabs and favorites stay. The rows go in one frame and the one left is in its place at once, with no toast. ⌘Z brings them back in place, fading in on Row motion, unloaded, splits still split, and the tab shown stays. Ours: ⌘Z in a text field, in a page or ours, is the field's own, and Edit › Undo clicked in the menu goes only to the focused page or field.
 - **Arc's clear actions.** Arc's binary has three: clear all, clear unselected Today tabs, and tidy-and-clear. Tidy is AI and out of scope.
 - **Dia's Clean Up Tabs** (⌥⌘K) moves untouched tabs to "Recently Cleaned", with a daily automatic run. It is not ours.
 - **Closed tabs.** Closed tabs reopen with ⇧⌘T, newest first, with position, pin, group, custom name and icon, mute state and back/forward list (Dia, P§2).

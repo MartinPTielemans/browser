@@ -95,6 +95,13 @@ GURL Space::PinnedUrl(bc_id tab) const {
   return it == pinned_urls_.end() ? GURL() : it->second;
 }
 
+std::vector<bc_id> Space::Panes(bc_id tab) const {
+  if (auto split = SplitOf(tab); split != splits_.end()) {
+    return *split;
+  }
+  return Has(tab) ? std::vector<bc_id>{tab} : std::vector<bc_id>();
+}
+
 void Space::SetName(std::string name) {
   name_ = std::move(name);
   ReportSpacesChanged();
@@ -125,12 +132,12 @@ void Space::Add(bc_id tab, bc_id opener, bool foreground) {
       family.insert(*at);
     }
   }
-  today_.insert(at, tab);
+  today_.insert(today_.begin() + OutsideSplits(today_, at - today_.begin()), tab);
   ReportChanged();
 }
 
 void Space::AddAt(bc_id tab, size_t index) {
-  today_.insert(today_.begin() + std::min(index, today_.size()), tab);
+  today_.insert(today_.begin() + OutsideSplits(today_, index), tab);
   ReportChanged();
 }
 
@@ -140,36 +147,54 @@ void Space::AddPinned(bc_id tab, GURL url) {
   ReportChanged();
 }
 
-void Space::Pin(bc_id tab, GURL url) {
-  if (std::erase(today_, tab) == 0) {
+void Space::Pin(bc_id tab, base::FunctionRef<GURL(bc_id)> url_of) {
+  if (!std::ranges::contains(today_, tab)) {
     return;
   }
-  AddPinned(tab, std::move(url));
-}
-
-void Space::Unpin(bc_id tab) {
-  if (std::erase(pinned_, tab) == 0) {
-    return;
+  for (bc_id pane : Panes(tab)) {
+    std::erase(today_, pane);
+    pinned_.push_back(pane);
+    pinned_urls_[pane] = url_of(pane);
   }
-  pinned_urls_.erase(tab);
-  // Where a tab the user opens goes.
-  today_.insert(today_.begin(), tab);
   ReportChanged();
 }
 
-void Space::Move(bc_id tab, bool pinned, size_t index, GURL url) {
-  const bool was_pinned = IsPinned(tab);
-  if (std::erase(was_pinned ? pinned_ : today_, tab) == 0) {
+void Space::Unpin(bc_id tab) {
+  if (!IsPinned(tab)) {
     return;
   }
-  std::vector<bc_id>& to = pinned ? pinned_ : today_;
-  to.insert(to.begin() + std::min(index, to.size()), tab);
-  if (pinned && !was_pinned) {
-    pinned_urls_[tab] = std::move(url);
-  } else if (!pinned) {
-    pinned_urls_.erase(tab);
+  const std::vector<bc_id> panes = Panes(tab);
+  for (bc_id pane : panes) {
+    std::erase(pinned_, pane);
+    pinned_urls_.erase(pane);
   }
-  ForgetOpener(tab);
+  // Where a tab the user opens goes.
+  today_.insert(today_.begin(), panes.begin(), panes.end());
+  ReportChanged();
+}
+
+void Space::Move(bc_id tab,
+                 bool pinned,
+                 size_t index,
+                 base::FunctionRef<GURL(bc_id)> url_of) {
+  if (!Has(tab)) {
+    return;
+  }
+  const bool was_pinned = IsPinned(tab);
+  const std::vector<bc_id> panes = Panes(tab);
+  for (bc_id pane : panes) {
+    std::erase(was_pinned ? pinned_ : today_, pane);
+  }
+  std::vector<bc_id>& to = pinned ? pinned_ : today_;
+  to.insert(to.begin() + OutsideSplits(to, index), panes.begin(), panes.end());
+  for (bc_id pane : panes) {
+    if (pinned && !was_pinned) {
+      pinned_urls_[pane] = url_of(pane);
+    } else if (!pinned) {
+      pinned_urls_.erase(pane);
+    }
+    ForgetOpener(pane);
+  }
   ReportChanged();
 }
 
@@ -179,10 +204,68 @@ void Space::Remove(bc_id tab) {
   }
   pinned_urls_.erase(tab);
   ForgetOpener(tab);
+  LeaveSplit(tab);
+  ReportChanged();
+}
+
+bool Space::Split(bc_id tab, bc_id with, GURL url) {
+  if (tab == with || !Has(tab) || !Has(with)) {
+    return false;
+  }
+  const std::vector<bc_id> panes = Panes(with);
+  if (panes.size() >= kMaxPanes || std::ranges::contains(panes, tab)) {
+    return false;
+  }
+  const bool was_pinned = IsPinned(tab);
+  const GURL pinned_url = PinnedUrl(tab);
+  LeaveSplit(tab);
+  std::erase(was_pinned ? pinned_ : today_, tab);
+  const bool pinned = IsPinned(with);
+  std::vector<bc_id>& list = pinned ? pinned_ : today_;
+  list.insert(std::ranges::find(list, panes.back()) + 1, tab);
+  if (pinned) {
+    pinned_urls_[tab] = was_pinned ? pinned_url : std::move(url);
+  } else {
+    pinned_urls_.erase(tab);
+  }
+  ForgetOpener(tab);
+  if (auto split = SplitOf(with); split != splits_.end()) {
+    split->push_back(tab);
+  } else {
+    splits_.push_back({with, tab});
+  }
+  ReportChanged();
+  return true;
+}
+
+void Space::Separate(bc_id tab) {
+  auto split = SplitOf(tab);
+  if (split == splits_.end()) {
+    return;
+  }
+  std::erase(*split, tab);
+  const bc_id last = split->back();
+  if (split->size() < 2) {
+    splits_.erase(split);
+  }
+  std::vector<bc_id>& list = IsPinned(tab) ? pinned_ : today_;
+  std::erase(list, tab);
+  list.insert(std::ranges::find(list, last) + 1, tab);
   ReportChanged();
 }
 
 bc_id Space::NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> loaded) const {
+  if (auto split = SplitOf(leaving); split != splits_.end()) {
+    auto pane = std::ranges::find(*split, leaving);
+    auto right = std::find_if(pane + 1, split->end(), loaded);
+    if (right != split->end()) {
+      return *right;
+    }
+    auto left = std::find_if(std::make_reverse_iterator(pane), split->rend(), loaded);
+    if (left != split->rend()) {
+      return *left;
+    }
+  }
   if (auto pinned = std::ranges::find(pinned_, leaving); pinned != pinned_.end()) {
     // As Dia: the top Today tab, else a pinned tab already loaded, so closing one loads no other.
     if (!today_.empty()) {
@@ -242,6 +325,39 @@ bc_id Space::NearestOpenedBy(bc_id opener, size_t index) const {
     }
   }
   return 0;
+}
+
+std::vector<std::vector<bc_id>>::iterator Space::SplitOf(bc_id tab) {
+  return std::ranges::find_if(
+      splits_, [tab](const auto& split) { return std::ranges::contains(split, tab); });
+}
+
+std::vector<std::vector<bc_id>>::const_iterator Space::SplitOf(bc_id tab) const {
+  return std::ranges::find_if(
+      splits_, [tab](const auto& split) { return std::ranges::contains(split, tab); });
+}
+
+size_t Space::OutsideSplits(const std::vector<bc_id>& tabs, size_t index) const {
+  index = std::min(index, tabs.size());
+  while (index > 0 && index < tabs.size()) {
+    auto split = SplitOf(tabs[index]);
+    if (split == splits_.end() || !std::ranges::contains(*split, tabs[index - 1])) {
+      break;
+    }
+    ++index;
+  }
+  return index;
+}
+
+void Space::LeaveSplit(bc_id tab) {
+  auto split = SplitOf(tab);
+  if (split == splits_.end()) {
+    return;
+  }
+  std::erase(*split, tab);
+  if (split->size() < 2) {
+    splits_.erase(split);
+  }
 }
 
 void Space::ForgetOpener(bc_id tab) {
