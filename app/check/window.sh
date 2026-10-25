@@ -8,7 +8,7 @@
 # the window's buttons, and the card takes its place, through a resize; ⌘S brings them back. The
 # pointer kept at the window's edge brings the hidden sidebar out, and one passing it doesn't. The
 # sidebar's edge drags its width between 160 and 400, rubber-banding past them, and a double-click
-# on it puts the width back.
+# on it puts the width back. A page that hasn't drawn yet shows the card's colour, not white.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'
@@ -52,6 +52,8 @@ page=$(base64 << 'HTML' | tr -d '\n'
   let leave = false;
   addEventListener("keydown", e => leave ||= e.key == "n");
   addEventListener("blur", () => leave && (location = "https://example.com/"));
+  // A w opens the page the fragment names in a tab.
+  addEventListener("keydown", e => e.key == "w" && window.open(location.hash.slice(1)));
   requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 </script>
 HTML
@@ -59,7 +61,9 @@ HTML
 log="$out/window.log"
 step=0
 rm -f "$saved"
-BROWSER_DRIVE=1 BROWSER_URL="data:text/html;base64,$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+serve
+url="data:text/html;base64,$page#${site}wait"
+BROWSER_DRIVE=1 BROWSER_URL="$url" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -76,6 +80,26 @@ check_buttons() {
 }
 check_layout "at launch"
 check_buttons "at launch"
+
+# A page shows the card's colour until its first frame, never white, and its tab is loading from the
+# start. The page's w opens one whose server never answers, so it never commits, and its URL, which
+# a page asked for, stays hidden until it does.
+first=$(today)
+send click $page_point
+send key w
+expect "^browser: tab [0-9]* opened by $first in the foreground\$" "the page didn't open a tab"
+tab=$(grep '^browser: tab [0-9]* opened by' "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: page $tab back 0 forward 0 loading 1 \$" \
+  "a tab opened to a page that hasn't come doesn't say it's loading"
+for _ in $(seq 20); do
+  ../tools/window-screenshot.sh "$pid" "$out/before-paint.png" || fail "no window to capture"
+  color=$(pixel "$out/before-paint.png" 0.6 0.5)
+  dark "$color" && break
+done
+dark "$color" || fail "a page that hasn't drawn shows $color, not the card's colour"
+send key w cmd
+expect_tabs "$first" "$first" "after closing the tab of the page that hasn't come"
+send click $page_point
 
 # 300 trackpad events of 10 points, 8 ms apart.
 send scroll $page_point 10 300
@@ -285,4 +309,4 @@ none_since '^browser: command new-tab' || fail "a double-click on the sidebar's 
 check_layout "after a double-click on the sidebar's edge"
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png, $out/before-paint.png"

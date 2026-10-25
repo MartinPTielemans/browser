@@ -987,6 +987,8 @@ pub trait Browser {
     fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, cx: &mut App);
     /// The colour of the ring inside a split view's focused page, 0xRRGGBB.
     fn set_focus_color(&self, color: u32, cx: &mut App);
+    /// What the window's pages show until their first frame, 0xRRGGBB.
+    fn set_page_color(&self, color: u32, cx: &mut App);
     /// Keeps the find bar and the zoom HUD `right` points further in from the window's right
     /// edge, at the corner of a split view's focused page.
     fn set_page_right(&self, right: f32, cx: &mut App);
@@ -1438,6 +1440,8 @@ pub struct Shell {
     adding_pane: Option<u64>,
     /// The colour last given for a split view's focused page.
     focus_color: Option<u32>,
+    /// The colour last given for a page before its first frame.
+    page_color: Option<u32>,
     /// The window over the page that draws the drop targets shows.
     drop_targets_shown: bool,
     /// How far in from the page frame's right edge the focused page's ends, as last given.
@@ -1529,6 +1533,7 @@ impl Shell {
             page_laid: None,
             adding_pane: None,
             focus_color: None,
+            page_color: None,
             drop_targets_shown: false,
             page_right: 0.,
             archive: Vec::new(),
@@ -4880,6 +4885,13 @@ impl Render for Shell {
             self.focus_color = Some(focus_color);
             self.browser.set_focus_color(focus_color, cx);
         }
+        // A page shows the card until its first frame, never white (Ardia). Not while the sidebar
+        // pages between Spaces, whose colours cross-fade at every step.
+        let page_color = packed(self.window_fill().blend(rgba(CARD).into()));
+        if self.pages().len() == 1 && self.page_color != Some(page_color) {
+            self.page_color = Some(page_color);
+            self.browser.set_page_color(page_color, cx);
+        }
         // The find bar and the zoom HUD sit at the focused page's corner.
         let (frame, _) = self.page_frame(self.viewport);
         let panes = self.panes(self.selected);
@@ -5260,6 +5272,13 @@ impl Shell {
                     )
             }))
     }
+}
+
+/// `color`, opaque, as 0xRRGGBB.
+fn packed(color: Hsla) -> u32 {
+    let color = Rgba::from(color);
+    let channel = |value: f32| (value.clamp(0., 1.) * 255.).round() as u32;
+    channel(color.r) << 16 | channel(color.g) << 8 | channel(color.b)
 }
 
 /// A loading tab's ring, at the row's trailing edge, turning.

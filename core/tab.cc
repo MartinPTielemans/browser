@@ -19,6 +19,7 @@
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/gfx/codec/png_codec.h"
@@ -57,6 +58,11 @@ Tab::Tab(content::WebContents* contents)
   if (auto* driver = favicon::ContentFaviconDriver::FromWebContents(contents)) {
     favicon_observation_.Observe(driver);
   }
+  // A tab is often made with its first page already on its way, before anything observes it, so
+  // the app hears it's loading now rather than once the page commits.
+  state_report_posted_ = true;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Tab::ReportState, weak_factory_.GetWeakPtr()));
 }
 
 Tab::~Tab() {
@@ -194,6 +200,27 @@ void Tab::DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) {
   // An unloaded page's empty document finishes loading at the page's URL, which isn't the page.
   if (frame->IsInPrimaryMainFrame() && !web_contents()->WasDiscarded() && Host().tab_loaded) {
     Host().tab_loaded(Host().context, id_, url.spec().c_str());
+  }
+}
+
+void Tab::SetPageColor(SkColor color) {
+  page_color_ = color;
+  if (content::RenderWidgetHostView* view = web_contents()->GetRenderWidgetHostView()) {
+    view->SetBackgroundColor(color);
+  }
+}
+
+void Tab::RenderFrameHostChanged(content::RenderFrameHost* old_host,
+                                 content::RenderFrameHost* new_host) {
+  // A page from another site comes in a view of its own, white until its first frame.
+  if (page_color_ && new_host == web_contents()->GetPrimaryMainFrame() && new_host->GetView()) {
+    new_host->GetView()->SetBackgroundColor(*page_color_);
+  }
+}
+
+void Tab::RenderViewReady() {
+  if (page_color_) {
+    SetPageColor(*page_color_);
   }
 }
 

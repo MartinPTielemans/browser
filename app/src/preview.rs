@@ -532,6 +532,8 @@ impl Browser for Fake {
 
     fn set_focus_color(&self, _: u32, _: &mut App) {}
 
+    fn set_page_color(&self, _: u32, _: &mut App) {}
+
     fn set_page_right(&self, _: f32, _: &mut App) {}
 
     // No command bar here, as for a new tab, and no split views but the made-up one.

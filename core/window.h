@@ -3,6 +3,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -134,6 +135,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void SetPageFrame(const gfx::Rect& frame, double corner_radius);
   // The ring the focused page of a split view has inside its edge, 0xRRGGBB.
   void SetFocusColor(uint32_t color);
+  // What the pages it shows show until their first frame, 0xRRGGBB.
+  void SetPageColor(uint32_t color);
   // Shows |tab|, if it's one of this window's, at the page frame, and its Space if the window shows
   // another. In a split view, it shows the split with |tab| focused.
   void Select(bc_id tab);
@@ -248,6 +251,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   base::WeakPtr<content::WebContents> shown_;
   std::vector<bc_id> panes_;
   uint32_t focus_color_ = 0;
+  std::optional<uint32_t> page_color_;
   bc_id space_ = 0;
   bc_id selected_ = 0;
   // Once the tab shown closes, the one to show next, as its Space picked it.

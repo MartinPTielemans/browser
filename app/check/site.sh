@@ -1,7 +1,7 @@
 # The check's web server, which serve in lib.sh starts for the runs that load its pages. Its
 # page's text field, along its bottom, puts what's in it in the title. "d" typed in the page
 # downloads a file, "s" one that takes longer than the run to come, and "k" opens the cookie
-# page, once a check, as later runs type in it too.
+# page, once a check, as later runs type in it too. /wait is a page that never comes.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
@@ -49,6 +49,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "max-age=3600")
             self.end_headers()
             self.wfile.write(body)
+            return
+        if self.path == "/wait":
+            time.sleep(3600)
             return
         if self.path != "/slow.bin":
             return super().do_GET()

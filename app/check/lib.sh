@@ -229,3 +229,24 @@ pinned_favicon() {
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
 }
+# The colour at ($2, $3), as fractions of the width and height, in the capture $1: "r g b".
+pixel() {
+  sips -s format bmp "$1" --out "$out/pixel.bmp" > /dev/null || fail "sips couldn't read $1"
+  python3 -I - "$out/pixel.bmp" "$2" "$3" << 'PY'
+import struct, sys
+data = open(sys.argv[1], "rb").read()
+offset, = struct.unpack_from("<I", data, 10)
+width, height, _, bits = struct.unpack_from("<iiHH", data, 18)
+x = int(float(sys.argv[2]) * width)
+y = int(float(sys.argv[3]) * abs(height))
+row = y if height < 0 else abs(height) - 1 - y
+stride = (bits * width + 31) // 32 * 4
+b, g, r = data[offset + row * stride + x * bits // 8:][:3]
+print(r, g, b)
+PY
+}
+# Whether the colour "r g b" is as dark as the card is over any Space's colour.
+dark() {
+  set -- $1
+  [ "$1" -lt 64 ] && [ "$2" -lt 64 ] && [ "$3" -lt 64 ]
+}
