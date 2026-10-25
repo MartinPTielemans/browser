@@ -92,10 +92,10 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Hover card out | opacity same curve 100 ms; scale → 0.92 spring 0.2 s / ζ 0.6 | same | same |
 | Scroll edge | cubic-bezier(0.25, 0.46, 0.45, 0.94), 100 ms | sidebar separator fading in and out | Dia 1.53.0 bin |
 | Panel grow | exponential ease-out, ≈ 130 ms | command bar out of the URL field | Dia 1.52 rec |
-| Sidebar hide (Arc layout) | ease-out cubic, 100 ms | ⌘S hiding a docked sidebar | Arc (Ardia) rec |
-| Sidebar reveal in | no fade: 93 % in 66 ms, 3.5 pt overshoot at 120 ms, at rest by 220 ms. Ours: spring 0.14 s / ζ 0.8, fitted to those (Ardia's 0.185 s / ζ 0.77 overshoots 5 pt at 145 ms) | sidebar reveal at the left edge | Arc (Ardia) rec |
-| Sidebar reveal out | ease-in-out, ≈ 150 ms | same | Arc (Ardia) rec |
-| Sidebar hide/show (Dia layout, reference) | spring 0.215 s / ζ 0.79: 90 % in 100 ms, 1–2 pt overshoot | the Arc show path until measured (*interim*) | Dia rec 240 fps |
+| Sidebar hide | ease-out cubic, 110 ms: within 0.75 pt of rest 67–83 ms in | ⌘S hiding a docked sidebar | Arc 1.170.0 rec 120 fps, 3 runs |
+| Sidebar show | ease-out cubic, 100 ms | ⌘S showing the hidden sidebar | Arc 1.170.0 rec 120 fps, 3 runs |
+| Sidebar reveal in | no fade: spring 0.175 s / ζ 0.80, ≈ 4 pt past rest, starting ≈ 100 ms after the pointer reaches the edge | sidebar reveal at the left edge | Arc 1.170.0 rec 120 fps, 3 runs |
+| Sidebar reveal out | spring 0.175 s / ζ 0.76, starting as the pointer leaves the hold zone | same | Arc 1.170.0 rec 120 fps, 3 runs |
 | Space settle | critically damped, 0.25 s | Space pages after a swipe | Dia 1.50.1 bin |
 | Group expand | spring 0.30 s / ζ 0.82 | group or folder open and close (*interim*) | Dia rec |
 | Spinner | 0 → −2π (clockwise), 1.88 s, linear, repeating | tab loading | Dia 1.50.1 bin |
@@ -296,13 +296,13 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 - **Opening rules.** Links opened behind line up after their opener in the order opened. A link opened in front goes right after its opener. Closing a page goes to a tab it opened, then a sibling, then the opener (Chrome). Tabs opened behind load only when first shown; until then the row shows the address and the site's icon (Dia). The list scrolls to show a tab opened behind (Dia).
 - **Other row actions** (Dia). Double-click a row to rename it inline. Change its icon to an emoji. ⌘-click and ⇧-click select several rows for bulk actions. The context menu shows shortcut hints. A haptic tick sounds while reordering, as a setting.
   - Ours (*interim* until Arc's menu is captured): a row's right-click menu has Pin Tab or Unpin Tab (⌘D), Back to Pinned URL (⌘↩, a pinned tab away from its URL), Duplicate Tab, Move to Space with the other Spaces in the switcher's order, then Close Tab (⌘W) and, for a Today tab, Close Tabs Below. The row keeps its hover fill while the menu is up, and a menu from the reveal's panel opens at the pointer there. Duplicate Tab copies the tab with its history under it, or at the top of Today for a pinned tab, and shows it. Close Tabs Below shows the right-clicked tab first if one below was shown, so none loads on the way out, and ⇧⌘T reopens them one at a time. Move to Space keeps a pinned tab pinned, at the bottom of the other Space's pinned tabs, and puts a Today tab at the top of its Today. A window showing the tab goes with it, as Chrome's active tab goes to the window it's dragged to, and the old Space shows next what it would once the tab closed.
-- **Hiding and showing** (Arc layout, Arc (Ardia) rec 2026-10-06).
+- **Hiding and showing** (Arc layout, Arc 1.170.0 rec).
   - ⌘S or the sidebar button hides the docked sidebar (Sidebar hide). The sidebar and the card's left edge leave together, and the page is laid out at every step. Hidden, the card fills the window with no traffic lights, header or nav.
-  - Showing with ⌘S isn't recorded; use Dia's spring (*interim*). The window's buttons come back once it's at rest, so they never sit over the moving card.
+  - ⌘S shows it again (Sidebar show). The window's buttons come back once it's at rest, so they never sit over the moving card.
   - The sidebar button sits a pitch before back, its plate at x 88 (*interim*: Arc's position isn't measured, and its glyph is ours). The View menu has Toggle Sidebar ⌘S.
   - ⌘S isn't reserved: a page that keeps it, as an editor's save does, keeps it (Chrome's rule for Save Page).
-- **Sidebar reveal** (Arc (Ardia)).
-  - The pointer at the window's left edge, at any height including the top-left corner, slides a floating panel over the page (Sidebar reveal in). The page doesn't move.
+- **Sidebar reveal** (Arc (Ardia), Arc 1.170.0 rec).
+  - The pointer kept at the window's left edge, at any height including the top-left corner, slides a floating panel over the page (Sidebar reveal in). The page doesn't move. A pointer passing the edge, on its way to another window or display, brings nothing out.
   - The panel is inset 5 from the window's left, top and bottom edges, as wide as the docked sidebar, rounded and dark, with a 0.5 pt light border. It holds the traffic lights, the header buttons, the URL field and the tabs.
   - It stays while the pointer is within 24 pt of its edge (Arc ≈ 21), then slides away (Sidebar reveal out).
   - Docking from the panel is instant: the page is laid out narrower in one frame.
@@ -760,7 +760,6 @@ Record at 120 fps on a ProMotion display, 60 fps at the least. Use each frame's 
 
 | Feature | Record | Time |
 |---|---|---|
-| Sidebar | ⌘S show from hidden (the one path Ardia's recording lacks); ⌘S hide; the reveal in and out at the default width | spring or curve of the card edge and panel edge |
 | Sidebar | Dragging a row past three neighbours, into favorites and back | neighbour spring; drop settle |
 | Sidebar | Hovering a favorite, then moving to the next | show delay, leave delay, tooltip motion |
 | Sidebar | Folder expand and collapse | spring |

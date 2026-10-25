@@ -32,8 +32,9 @@
 #      double-click there zooms it, and one in the sidebar below the rows opens a new tab. ⌘S,
 #      with the page or the UI focused, and the sidebar button hide the sidebar and the window's
 #      buttons, and the card takes its place, through a resize; ⌘S brings them back. The
-#      sidebar's edge drags its width between 160 and 400, rubber-banding past them, and a
-#      double-click on it puts the width back.
+#      pointer kept at the window's edge brings the hidden sidebar out, and one passing it
+#      doesn't. The sidebar's edge drags its width between 160 and 400, rubber-banding past
+#      them, and a double-click on it puts the width back.
 #   5. A page's popup opens as a tab in the window, under the page.
 #   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
@@ -872,8 +873,15 @@ check_reveal() {
 send key s cmd
 toggle ui hidden "⌘S before the reveal"
 send move 400 300
+# The pointer has to stay at the edge a moment: one passing it doesn't bring the sidebar out.
+step=$((step + 1))
+passed=$step
+echo "move 3 300" >&3
+send move 400 300
 send move 3 300
 expect '^browser: reveal shown$' "the pointer at the window's edge didn't bring the sidebar out"
+[ "$(sed -n "/^browser: drive $passed: /,\$p" "$log" | grep -c '^browser: reveal shown$')" = 1 ] ||
+  fail "the pointer passing the window's edge brought the sidebar out"
 check_reveal "with the sidebar out" shown
 check_layout "with the sidebar out" inset
 check_buttons "with the sidebar out" hidden
@@ -925,7 +933,7 @@ none_since '^browser: command new-tab' || fail "a double-click on the sidebar's 
 check_layout "after a double-click on the sidebar's edge"
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer at the window's edge brings the hidden sidebar out over the page and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png"
 
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.
