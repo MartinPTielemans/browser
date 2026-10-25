@@ -117,9 +117,11 @@ typedef struct {
 // or -1.
 int host_menu(const host_menu_item* items, size_t count, double x, double y, int in, int over);
 
-// Asks in an alert whether to do what |message| asks, with |detail| under it, and returns whether
-// the user chose |action| over Cancel once it closes.
-bool host_confirm(const char* message, const char* detail, const char* action);
+// Asks |message| in an alert, with |detail| under it and the |count| |buttons|, the first the
+// default and a "Cancel" one taking escape, and returns the index of the one chosen once it
+// closes. With |destructive|, the first does what can't be undone.
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool destructive);
 
 // Shows the browser window's close, minimize and zoom buttons, or hides them, as Arc does while its
 // sidebar is hidden.

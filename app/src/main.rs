@@ -83,8 +83,13 @@ mod platform {
         pub fn host_add_settings(settings_view: *mut c_void);
         pub fn host_show_settings();
         pub fn host_hide_settings();
-        pub fn host_confirm(message: *const c_char, detail: *const c_char, action: *const c_char)
-        -> bool;
+        pub fn host_ask(
+            message: *const c_char,
+            detail: *const c_char,
+            buttons: *const *const c_char,
+            count: usize,
+            destructive: bool,
+        ) -> i32;
     }
 
     /// Where host_menu shows a menu.
@@ -526,10 +531,7 @@ impl Browser for Engine {
     ) {
         // As for a menu, and the alert's loop is AppKit's too.
         cx.spawn(async move |cx| {
-            let [message, detail, action] = [message.as_str(), detail.as_str(), action]
-                .map(|text| CString::new(text).unwrap_or_default());
-            let (message, detail, action) = (message.as_ptr(), detail.as_ptr(), action.as_ptr());
-            if unsafe { platform::host_confirm(message, detail, action) } {
+            if ask(&message, &detail, &[action, "Cancel"], true) == 0 {
                 cx.update(|cx| confirmed(cx));
             }
         })
@@ -626,9 +628,48 @@ impl Browser for Engine {
         settings::show(cx);
     }
 
-    fn quit(&self, _: &mut App) {
-        unsafe { bc::bc_quit() };
+    /// Asks first, as Arc does, unless the user said not to. Only the user's Quit asks: a quit from
+    /// the Dock or at logout doesn't come here.
+    fn quit(&self, cx: &mut App) {
+        if !unsafe { bc::bc_warn_before_quitting() } {
+            unsafe { bc::bc_quit() };
+            return;
+        }
+        cx.spawn(async move |_| {
+            let buttons = ["Quit", "Quit, and don’t ask again", "Cancel"];
+            match ask("Quit Browser?", "", &buttons, false) {
+                0 => {}
+                1 => {
+                    // check.sh waits for this line.
+                    eprintln!("browser: warn before quitting off");
+                    unsafe { bc::bc_set_warn_before_quitting(false) };
+                }
+                _ => return,
+            }
+            unsafe { bc::bc_quit() };
+        })
+        .detach();
     }
+}
+
+/// Asks `message` in an alert with `buttons`, the first the default, and returns the index of the
+/// one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert closes, so
+/// it's called in a task.
+fn ask(message: &str, detail: &str, buttons: &[&str], destructive: bool) -> usize {
+    let text = |text: &str| CString::new(text).unwrap_or_default();
+    let (message, detail) = (text(message), text(detail));
+    let buttons: Vec<CString> = buttons.iter().map(|button| text(button)).collect();
+    let pointers: Vec<*const c_char> = buttons.iter().map(|button| button.as_ptr()).collect();
+    let chosen = unsafe {
+        platform::host_ask(
+            message.as_ptr(),
+            detail.as_ptr(),
+            pointers.as_ptr(),
+            pointers.len(),
+            destructive,
+        )
+    };
+    usize::try_from(chosen).unwrap_or(usize::MAX)
 }
 
 /// A key the page didn't keep, or one it never sees, as a keystroke in GPUI's terms, with the

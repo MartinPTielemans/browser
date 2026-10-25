@@ -376,6 +376,10 @@ BC_EXPORT void bc_set_archive_after(double seconds);
 // Spaces.
 BC_EXPORT bool bc_haptics(void);
 BC_EXPORT void bc_set_haptics(bool haptics);
+// Whether the app asks before the user's Quit quits, as the user chose. The core keeps it with the
+// Spaces.
+BC_EXPORT bool bc_warn_before_quitting(void);
+BC_EXPORT void bc_set_warn_before_quitting(bool warn);
 
 // What bc_download_act does: opens the file, or for one still running, opens it once it's done or
 // no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off

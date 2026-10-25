@@ -212,8 +212,8 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
 pub struct Settings {
     tab: Tab,
     focus: FocusHandle,
-    /// When the haptics switch last changed, for its knob's slide.
-    switched: Option<Instant>,
+    /// Which switch last changed, and when, for its knob's slide.
+    switched: Option<(&'static str, Instant)>,
     /// Whether the archive's pop-up menu is open, when its button shows pressed.
     choosing: bool,
 }
@@ -351,7 +351,7 @@ impl Settings {
             .child(div().h(px(TOOLBAR)).flex().justify_center().gap(px(1.)).children(tabs))
     }
 
-    fn general(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn general(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let after = unsafe { bc::bc_archive_after() };
         let chosen = ARCHIVE_AFTER.iter().position(|&(_, seconds)| seconds == after);
         let label: SharedString = match chosen {
@@ -379,7 +379,41 @@ impl Settings {
             .child(
                 svg().path("icons/chevrons-up-down.svg").size(px(CHEVRONS)).text_color(rgb(TEXT)),
             );
-        group([row(None, "Archive tabs after", popup.into_any_element())]).into_any_element()
+        let warn = unsafe { bc::bc_warn_before_quitting() };
+        let warn = self.toggle("warn before quitting", warn, set_warn_before_quitting, accent, cx);
+        group([
+            row(None, "Warn before quitting", warn),
+            row(None, "Archive tabs after", popup.into_any_element()),
+        ])
+        .into_any_element()
+    }
+
+    /// The switch `name`, `on` now, that calls `set` with the other way when clicked.
+    fn toggle(
+        &self,
+        name: &'static str,
+        on: bool,
+        set: fn(bool),
+        accent: Rgba,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let slid = match self.switched {
+            Some((switched, at)) if switched == name => {
+                (at.elapsed().as_secs_f32() / SLIDE).min(1.)
+            }
+            _ => 1.,
+        };
+        div()
+            .id(name)
+            .on_click(cx.listener(move |settings, _, _, cx| {
+                // check.sh waits for this line.
+                eprintln!("browser: {name} {}", if on { "off" } else { "on" });
+                set(!on);
+                settings.switched = Some((name, Instant::now()));
+                cx.notify();
+            }))
+            .child(switch(on, slid, accent))
+            .into_any_element()
     }
 
     /// Opens the archive's pop-up menu over its button, with the time chosen now, `chosen`, over
@@ -418,17 +452,7 @@ impl Settings {
 
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
-        let slid = self.switched.map_or(1., |at| (at.elapsed().as_secs_f32() / SLIDE).min(1.));
-        let toggle = div()
-            .id("haptics")
-            .on_click(cx.listener(move |settings, _, _, cx| {
-                // check.sh waits for this line.
-                eprintln!("browser: haptics {}", if haptics { "off" } else { "on" });
-                unsafe { bc::bc_set_haptics(!haptics) };
-                settings.switched = Some(Instant::now());
-                cx.notify();
-            }))
-            .child(switch(haptics, slid, accent));
+        let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let more = div()
             .id("more-settings")
             .h(px(CONTROL_HEIGHT))
@@ -444,7 +468,7 @@ impl Settings {
             .child(group([row(
                 Some(("icons/vibrate.svg", HAPTICS_TILE)),
                 "Haptic feedback when swiping between Spaces",
-                toggle.into_any_element(),
+                haptics,
             )]))
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
@@ -475,12 +499,22 @@ impl Settings {
     }
 }
 
-/// Where the archive's pop-up button's text starts in the window, in the first box's first row.
+/// Where the archive's pop-up button's text starts in the window, in the first box's second row,
+/// under the switch's.
 fn popup_text() -> gpui::Point<gpui::Pixels> {
+    let switch_row = PADDING + SWITCH_HEIGHT + PADDING + 1.;
     point(
         px(WIDTH - SIDE - PADDING - POPUP_END - POPUP_WIDTH + CONTROL_PADDING),
-        px(TITLE_BAR + TOOLBAR + FIRST + 1. + PADDING),
+        px(TITLE_BAR + TOOLBAR + FIRST + 1. + switch_row + PADDING),
     )
+}
+
+fn set_warn_before_quitting(warn: bool) {
+    unsafe { bc::bc_set_warn_before_quitting(warn) };
+}
+
+fn set_haptics(haptics: bool) {
+    unsafe { bc::bc_set_haptics(haptics) };
 }
 
 /// Opens Chromium's settings in a new tab, for what this window doesn't offer yet, and goes to it.
@@ -570,11 +604,11 @@ fn chip(keys: SharedString) -> impl IntoElement {
 impl Render for Settings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let accent = rgb(unsafe { platform::host_accent_color() });
-        if self.switched.is_some_and(|at| at.elapsed().as_secs_f32() < SLIDE) {
+        if self.switched.is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE) {
             window.request_animation_frame();
         }
         let content = match self.tab {
-            Tab::General => self.general(cx),
+            Tab::General => self.general(accent, cx),
             Tab::Shortcuts => self.shortcuts(),
             Tab::Advanced => self.advanced(accent, cx),
         };

@@ -65,6 +65,8 @@ struct Settings {
   base::TimeDelta archive_after = base::Hours(12);
   // Whether the app taps the trackpad at its detents.
   bool haptics = true;
+  // Whether the app asks before the user's Quit quits.
+  bool warn_before_quitting = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.

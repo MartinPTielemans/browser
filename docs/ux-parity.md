@@ -25,7 +25,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |
 | [ ] | Resize edge | MVP | outer ≈ 3 pt | Dia P§1 |
 | [ ] | New window / closed window | MVP | at its final frame with content / gone at once | Dia P§1 |
-| [ ] | Close confirmations | MVP | "Close 3 tabs?" per Space with "Don't ask me again"; ⌘Q warning. Arc: measure | Dia P§1 |
+| [ ] | Close confirmations | MVP | "Close 3 tabs?" per Space with "Don't ask me again". Arc: measure | Dia P§1 |
 | [ ] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
 | [ ] | Window full screen with the sidebar | MVP | measure | — |
 
@@ -211,7 +211,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Shortcuts tab | MVP | the browser's shortcuts by section, read-only | Ours |
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
-| [ ] | Warn before quitting | MVP | General; with Close confirmations | Arc 1.170.0 cap |
+| [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit Browser?" with Quit, "Quit, and don't ask again" and Cancel; Dock and logout quits don't | Arc 1.170.0 cap, bin |
 | [ ] | Arc's other tabs | MVP | Profiles, Links, Icon, Previews: with their features | Arc 1.170.0 cap |
 
 ## Archive

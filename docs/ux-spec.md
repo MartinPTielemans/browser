@@ -187,7 +187,8 @@ Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the 
 
 - **Dragging the window.** The empty sidebar below the rows, the header row outside its buttons, and the margins around the card all move the window (the left margin only while the sidebar is hidden). A double-click there does the system's title-bar action from System Settings › Desktop & Dock. The exception is a double-click on the empty sidebar, which opens a new tab (Dia 1.50; Arc: confirm). Rows, tiles, buttons and the URL field keep their own presses. The outer ~3 pt is the resize edge (Dia and Arc, P§1).
 - **New window.** It appears at its final frame, already showing its content, with no empty frames. A closed window leaves the screen at once (Dia, P§1).
-- **Close confirmations** (Dia, P§1). Closing a window with 2 or more tabs, or pressing ⌘W on the last tab, asks "Close 3 tabs?" with a breakdown per Space and "Don't ask me again". ⌘Q warns, and so does quitting with downloads in progress. Arc's equivalents: measure.
+- **Close confirmations** (Dia, P§1). Closing a window with 2 or more tabs, or pressing ⌘W on the last tab, asks "Close 3 tabs?" with a breakdown per Space and "Don't ask me again". Arc's equivalent: measure.
+- **Warn before quitting** (Arc 1.170.0 bin and cap). The Quit menu item and ⌘Q ask "Quit Arc?", with the app's icon and the buttons Quit, "Quit, and don't ask again" and Cancel, unless Settings › General › Warn before quitting is off. The second button turns the setting off. A quit from the Dock or at logout doesn't ask. Ours: "Quit Browser?" in a system alert, on by default as in Arc's capture. With downloads running, Chrome's alert asks after Quit, as Arc's quit asks again for them.
 - **Page full screen** (Dia, P§18). The page fills the window and the sidebar goes away. Esc or the page's `exitFullscreen` brings the layout back. Switching or closing the tab ends full screen. The window enters macOS full screen for the page and leaves it only if it entered for that page. No frame of the transition may show the other layout. Arc's behavior in window full screen (user-initiated): measure.
 - **Other window commands** (Dia, P§1). Keep Window on Top, Merge All Windows, Move Tab to Window. Moving keeps the live page: no reload, history kept.
 
@@ -584,7 +585,7 @@ Arc's window (Arc 1.170.0 cap and ax), opened by ⌘, and Arc › Settings…. I
 | Content | #202222. Boxes 64 from the sides and 20 below the toolbar, 9 apart, fill #232525, 1 pt #353737 border, radius 6. Rows 13 pt #C2C2C2 at 10 in, 10 above and below; 1 pt lines between them, 8 in. A row's 20 pt colour tile, radius 4.5, puts its text at 38 |
 | Controls | Switch 36 × 16 at the row's right: the accent with a #E1EBFE knob, or #383939 with a #E1E2E2 knob, 21 × 13. Pop-up and buttons 24 tall, #313333 at radius 5, text 12 in; a pop-up is 155 wide with its chevrons 10 from its right, ends 22.5 short of the switches, and opens its menu over itself with the chosen item on its text. Buttons under a box go 11 below it |
 
-- **General.** Archive tabs after (Archive › Auto-archive). Arc's Warn before quitting and Previews come with those features.
+- **General.** Warn before quitting (Window › Warn before quitting) and Archive tabs after (Archive › Auto-archive). Arc's Previews comes with that feature.
 - **Shortcuts.** Ours: the browser's shortcuts by section, read-only, each in a chip as the command bar shows it. Arc's lets the user change some; that comes with rebinding (Keyboard).
 - **Advanced.** Haptic feedback when swiping between Spaces, on by default, which Arc doesn't have (it has one for reordering tabs). More Settings… opens Chromium's settings in a tab and hides the window.
 

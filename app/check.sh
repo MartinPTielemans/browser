@@ -4,7 +4,8 @@
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
 #      is. With the page focused, the browser's reserved shortcuts reach the UI and never the
-#      page, and the others reach the page first, which can keep them. ⌘Q quits. The command
+#      page, and the others reach the page first, which can keep them. ⌘Q asks first: Cancel
+#      keeps the browser, and Quit, and don't ask again quits and turns the warning off. The command
 #      bar opens over the page with the keyboard, never showing the last query, gives the
 #      keyboard back when it closes, and loads what's typed in it, over https for a host typed
 #      without one, or searches DuckDuckGo for words. While ⌘T's is open, "New Tab" has the
@@ -128,9 +129,10 @@
 #      in its menu puts it at the top of Today. Today rows dragged onto the tiles become favorites
 #      where they're dropped, a tile dragged across the other goes before it, one dragged into the
 #      list goes there, and escape puts a dragged tile back. ⌘, from the page and the UI opens
-#      Settings, where the menu of a pop-up button sets how long Today tabs wait for the archive
-#      and a switch turns the haptics off, and both stay after the quit. ⌘W and the window's close
-#      button hide it, and More Settings… opens Chromium's settings in a tab.
+#      Settings, where switches turn the warning before quitting and the haptics off and the menu
+#      of a pop-up button sets how long Today tabs wait for the archive, and all three stay after
+#      the quit, when ⌘Q quits without asking. ⌘W and the window's close button hide it, and More
+#      Settings… opens Chromium's settings in a tab.
 # Runs 2 to 13 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -288,6 +290,15 @@ expect() {
   fail "$2"
 }
 
+# ⌘Q, and Quit in the alert that asks first. Quit is the driver's last command: the app doesn't
+# report it done.
+quit_by_key() {
+  post key q cmd
+  expect '^browser: alert shown Quit Browser?$' "⌘Q didn't ask before quitting"
+  post choose Quit
+  exec 3>&-
+}
+
 # Points from the window's top-left corner. The sidebar is 228 wide.
 page_point="600 400"
 sidebar_point="100 400"
@@ -429,12 +440,20 @@ awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
   /^browser: command bar drew/ { drew = $0 }
   /^browser: command bar shown$/ && (command == "new-tab") != (drew == "browser: command bar drew \"\"") { exit 1 }' "$log" ||
   fail "the command bar went on screen still showing what it drew last"
-# ⌘Q is the driver's last command: the app doesn't report it done.
-echo "key q cmd" >&3
+# ⌘Q asks first. Cancel keeps the browser running, and Quit, and Don't Ask Again quits.
+post key q cmd
+expect '^browser: command quit via page$' "⌘Q with the page focused didn't reach the UI"
+expect '^browser: alert shown Quit Browser?$' "⌘Q didn't ask before quitting"
+send choose Cancel
+post key q cmd
+expect '^browser: alert shown Quit Browser?$' "⌘Q didn't ask again after Cancel"
+# It's the driver's last command: the app doesn't report it done.
+post choose Quit, and don’t ask again
 exec 3>&-
-await '^browser: command quit via page$' || fail "⌘Q with the page focused didn't reach the UI"
+await '^browser: warn before quitting off$' ||
+  fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first, and Cancel keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new
 # tab does. The app asks Chrome to trace its tab switches, timed as Chrome times its own: from the
@@ -1653,10 +1672,12 @@ send type news
 ../tools/window-screenshot.sh "$pid" "$out/rename-tab.png" || fail "no window to capture"
 send key return
 expect "^browser: title $c news\$" "return didn't name the tab"
-# With a download running, ⌘Q asks first, in Chrome's alert. Continue Downloading keeps the browser
-# running and shows the Library's Downloads, and Quit quits, cancelling it.
+# With a download running, Quit in the alert ⌘Q shows asks again, in Chrome's. Continue Downloading
+# keeps the browser running and shows the Library's Downloads, and Quit quits, cancelling it.
 post key q cmd
 expect '^browser: command quit via ' "⌘Q didn't reach the UI"
+expect '^browser: alert shown Quit Browser?$' "⌘Q didn't ask before quitting"
+post choose Quit
 expect '^browser: modal shown Download is in progress, .*, Continue Downloading, Quit$' \
   "⌘Q with a download running didn't ask first"
 send choose Continue Downloading
@@ -1666,6 +1687,8 @@ expect '^browser: library section downloads$' \
   "Continue Downloading didn't show the Library's Downloads"
 ../tools/window-screenshot.sh "$pid" "$out/quit-downloads.png" || fail "no window to capture"
 post key q cmd
+expect '^browser: alert shown Quit Browser?$' "⌘Q didn't ask before quitting"
+post choose Quit
 expect '^browser: modal shown Download is in progress, ' "⌘Q didn't ask again"
 # Quit is the driver's last command: the app doesn't report it done.
 post choose Quit
@@ -2112,9 +2135,7 @@ expect '^browser: page [0-9]* .* view-source:https://example.org/$' \
   "View Source didn't open the page's source"
 source=$(grep '^browser: page [0-9]* .* view-source:' "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: today $second $first $source\$" "the source's tab isn't under the page's"
-# ⌘Q is the driver's last command: the app doesn't report it done.
-echo "key q cmd" >&3
-exec 3>&-
+quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
 echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, ⌥⌘I closes them and the page gets the keyboard back, and View Source opens a tab under the page. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png"
@@ -2280,9 +2301,7 @@ switch "2 cmd" "$a"
 # Its favicon under the pointer offers the way back.
 send move $(pinned_favicon 0)
 ../tools/window-screenshot.sh "$pid" "$out/pinned-away.png" || fail "no window to capture"
-# ⌘Q is the driver's last command: the app doesn't report it done.
-echo "key q cmd" >&3
-exec 3>&-
+quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 
@@ -2400,8 +2419,7 @@ expect '^browser: command bar runs Collapse All Folders$' "↩ didn't run Collap
 expect '^browser: command collapse-folders via command bar$' "Collapse All Folders didn't run collapse-folders"
 expect "^browser: outline $f-\\[$c\\]\$" "Collapse All Folders didn't close the folder: $(outline)"
 expect '^browser: new tab plate 0$' "running a command left New Tab's plate"
-echo "key q cmd" >&3
-exec 3>&-
+quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 
@@ -2984,14 +3002,17 @@ expect "^browser: today [0-9][0-9]* $b\$" \
 c=$(today | cut -d' ' -f1)
 expect "^browser: selected $c\$" "Duplicate Tab didn't show the copy"
 expect "^browser: loaded $c $site\$" "the copy didn't load the favorite's page"
-# ⌘, from the page opens Settings on General. The menu of its pop-up button sets how long Today
-# tabs wait for the archive, the switch on its Advanced tab turns the haptics off, and ⌘W hides it.
+# ⌘, from the page opens Settings on General. Its switch turns the warning before quitting off, the
+# menu of its pop-up button sets how long Today tabs wait for the archive, the switch on its
+# Advanced tab turns the haptics off, and ⌘W hides it.
 send click $page_point
 send key , cmd
 expect '^browser: command settings via page$' "⌘, from the page didn't run Settings"
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
 ../tools/window-screenshot.sh "$pid" "$out/settings.png" || fail "no window to capture"
-post clickkey 500 131
+send clickkey 592 126
+expect '^browser: warn before quitting off$' "a click on Warn before quitting didn't turn it off"
+post clickkey 500 168
 expect '^browser: menu shown 12 hours (default) (checked), 24 hours, 7 days, 30 days$' \
   "a click on Archive tabs after didn't show the times, with 12 hours chosen"
 send choose 24 hours
@@ -3084,13 +3105,13 @@ expect '^browser: command stop via ' "escape during a tile's drag didn't reach t
 send release 100 300
 none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it"
 [ "$(favorites)" = "$a" ] || fail "a tile's drag escape put back moved it: \"$(favorites)\""
-# Settings kept the time and the haptics across the quit. ⌘, from the UI opens it, its close
-# button hides it, and More Settings… opens Chromium's settings in a tab.
+# Settings kept the time, the haptics and the warning across the quit. ⌘, from the UI opens it,
+# its close button hides it, and More Settings… opens Chromium's settings in a tab.
 send click $sidebar_point
 send key , cmd
 expect '^browser: command settings via ui$' "⌘, from the UI didn't run Settings"
 expect '^browser: settings shown General$' "⌘, from the UI didn't show Settings"
-post clickkey 500 131
+post clickkey 500 168
 expect '^browser: menu shown 12 hours (default), 24 hours (checked), 7 days, 30 days$' \
   "Settings didn't keep 24 hours across the quit"
 send choose "12 hours (default)"
@@ -3108,7 +3129,11 @@ expect '^browser: more settings$' "a click on More Settings… didn't run it"
 expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
 expect '^browser: loaded [0-9]* chrome://settings/$' \
   "More Settings… didn't open Chromium's settings"
+# The warning stayed off, so ⌘Q quits without asking. It's the driver's last command.
+echo "key q cmd" >&3
 exec 3>&-
-quit
+await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
+exited
+grep -q '^browser: alert shown Quit' "$log" && fail "⌘Q asked first with the warning off"
 kill "$server"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. ⌘, from the page and the UI opens Settings, whose pop-up sets the archive's time and whose switch sets the haptics, both kept across a quit; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorites.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/settings.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-up sets the archive's time, all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorites.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/settings.png"
