@@ -1,6 +1,6 @@
 # UX spec
 
-What every surface looks like, how it moves and what it does, with the measured value and its source for each. Decision 6 sets the rule: Arc's structure plus Dia's polish. [ux-parity.md](ux-parity.md) is the checklist built from this file. The last section is the plan for measuring Arc before it shuts down on 2026-12-22.
+What every surface looks like, how it moves and what it does, with the measured value and its source for each. Decision 6 sets the rule: Arc's structure plus Dia's polish. [ux-parity.md](ux-parity.md) is the checklist built from this file, and [ux-principles.md](ux-principles.md) says why Arc's values are what they are. The last section is the plan for measuring Arc before it shuts down on 2026-12-22.
 
 ## Attribution
 
