@@ -4,6 +4,7 @@
 
 use std::{
     borrow::Cow,
+    cell::Cell,
     collections::{HashMap, VecDeque},
     rc::Rc,
     sync::Arc,
@@ -15,7 +16,8 @@ use gpui::{
     CursorStyle,
     DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding,
     MenuItem, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    Point, Rgba, ScrollDelta, ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase,
+    Point, Rgba, ScrollDelta, ScrollEvent, ScrollHandle, SharedString, Size, Subscription, Task,
+    TouchPhase,
     Transformation, WeakEntity, Window, actions, canvas, div, img, linear_color_stop,
     hsla, linear_gradient, percentage, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -672,11 +674,12 @@ pub trait Browser {
     fn move_to_space(&self, tab: u64, space: u64, cx: &mut App);
     /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
-    /// Makes `tab` the last favorite, out of its Space, or takes it out of the favorites to the top
-    /// of Today in the Space shown.
-    fn set_favorite(&self, tab: u64, favorite: bool, cx: &mut App);
+    /// Makes `tab` the favorite at `index` of the favorites without it, else the last, out of its
+    /// Space, or moves it there among them.
+    fn move_to_favorites(&self, tab: u64, index: usize, cx: &mut App);
     /// Moves `tab` to `index` in its Space's pinned tabs or Today, pinning or unpinning it, with
-    /// the rest of its split view. `index` counts tabs, not rows, without the split's.
+    /// the rest of its split view. `index` counts tabs, not rows, without the split's. A favorite
+    /// goes to the Space shown.
     fn move_tab(&self, tab: u64, pinned: bool, index: usize, cx: &mut App);
     /// Takes `tab` out of its split view.
     fn separate(&self, tab: u64, cx: &mut App);
@@ -956,22 +959,35 @@ impl Curve {
     }
 }
 
-/// A tab row the pointer pressed, which follows the pointer once it has moved far enough.
+/// Where a dragged tab is or would go: among the favorites, or in the pinned tabs or Today, at an
+/// index of them without it.
+#[derive(Clone, Copy, PartialEq)]
+enum Place {
+    Favorite(usize),
+    List(bool, usize),
+}
+
+/// A tab's row or tile the pointer pressed, which follows the pointer once it has moved far enough.
+/// Over the favorites it's drawn as a tile, and over the list as a row.
 struct Drag {
     tab: u64,
-    /// Where the pointer pressed the row, and the row's top in the list then.
+    /// Where the pointer pressed, and the sidebar's top-left corner in that window.
     press: Point<Pixels>,
+    origin: Point<Pixels>,
+    /// Where the pointer is now, from the sidebar's corner.
+    pointer: Point<f32>,
+    /// Where the pointer holds the tab: down from its row's top, and from its tile's centre.
+    grab: (f32, Point<f32>),
+    /// The row's top in the list when it was pressed. A favorite's is 0.
     top: f32,
-    /// Whether the row has come away, and its top now: the pointer's way from `top`, held between
-    /// the list's first and last places.
+    /// Whether the tab has come away, and how far up and down the list its row goes: between the
+    /// list's first and last places.
     moving: bool,
-    at: f32,
-    /// Where the row was and where it would go: in the pinned tabs or Today, and at which index of
-    /// them without it.
-    from: (bool, usize),
-    to: (bool, usize),
+    span: (f32, f32),
+    from: Place,
+    to: Place,
     /// How far the other rows are drawn from their places to make room for it there, and whether
-    /// the divider stays, which goes once the last Today tab would be pinned.
+    /// the divider stays, which goes once the last Today tab would leave.
     room: HashMap<Slot, f32>,
     divider: bool,
     /// Let go, until the browser reports the lists it made.
@@ -1047,6 +1063,14 @@ pub struct Shell {
     unhovered: Vec<(Row, Instant)>,
     /// Rows on their way to their place: how far from it each started, and when.
     slides: HashMap<Slot, (f32, Instant, Curve)>,
+    /// The same for tiles, by their left, top and width, and for the list's top as the favorites
+    /// take a row more or fewer.
+    tile_slides: HashMap<u64, ([f32; 3], Instant, Curve)>,
+    list_slide: Option<(f32, Instant, Curve)>,
+    /// The list's scroll, and the sidebar's top-left corner in the window the last press was in,
+    /// for where the pointer is in them.
+    list_scroll: ScrollHandle,
+    sidebar_origin: Rc<Cell<Point<Pixels>>>,
     /// Tabs' new rows, which the rows sliding down to make room come out from beneath.
     opened: Option<Opened>,
     closing: Vec<Closing>,
@@ -1148,6 +1172,10 @@ impl Shell {
             menu_row: None,
             unhovered: Vec::new(),
             slides: HashMap::new(),
+            tile_slides: HashMap::new(),
+            list_slide: None,
+            list_scroll: ScrollHandle::new(),
+            sidebar_origin: Rc::default(),
             opened: None,
             closing: Vec::new(),
             clearing: Vec::new(),
@@ -1694,12 +1722,18 @@ impl Shell {
         }
         if cleared {
             self.slides.clear();
-        } else if let Some(before) = before {
+        } else if let Some(mut before) = before {
+            // A favorite dragged into the list comes from where the pointer has it.
+            if let Some(drag) = self.drag.as_ref().filter(|drag| drag.moving) {
+                before.entry(Slot::Tab(drag.tab)).or_insert(drag.top);
+            }
             self.move_rows(before);
         }
-        // A dragged row lands, or goes back if the lists changed under it.
         if space == self.space {
-            self.drag = None;
+            let tiles = self.drawn();
+            if self.end_drag(false) {
+                self.move_tiles(tiles, Curve::Slide);
+            }
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
         if has_tabs && self.form.as_ref().is_some_and(|form| form.space == space) {
@@ -1713,7 +1747,17 @@ impl Shell {
         // check.sh reads these lines.
         let ids: Vec<String> = favorites.iter().map(u64::to_string).collect();
         eprintln!("browser: favorites {}", ids.join(" "));
+        let tiles = self.drawn();
         self.favorites = favorites;
+        self.end_drag(true);
+        // Nothing moves while the Space shown is being filled, as at launch.
+        let (pinned, today) = self.rows();
+        if pinned.is_empty() && today.is_empty() {
+            self.tile_slides.clear();
+            self.list_slide = None;
+        } else {
+            self.move_tiles(tiles, Curve::Slide);
+        }
         self.forget_closed();
         cx.notify();
     }
@@ -2251,7 +2295,8 @@ impl Shell {
             (
                 MenuEntry::new("Remove from Favorites", true),
                 "remove-from-favorites",
-                Box::new(move |shell, cx| shell.browser.set_favorite(tab, false, cx)),
+                // To the top of Today.
+                Box::new(move |shell, cx| shell.browser.move_tab(tab, false, 0, cx)),
             ),
             (MenuEntry::line(), "", Box::new(|_, _| {})),
             // One closed already has nothing to close.
@@ -2289,7 +2334,7 @@ impl Shell {
             (
                 MenuEntry::new("Add to Favorites", true),
                 "add-to-favorites",
-                Box::new(move |shell, cx| shell.browser.set_favorite(tab, true, cx)),
+                Box::new(move |shell, cx| shell.browser.move_to_favorites(tab, usize::MAX, cx)),
             ),
         ];
         if pinned {
@@ -2554,7 +2599,8 @@ impl Shell {
         }
         for (&slot, &top) in &before {
             let Slot::Tab(tab) = slot else { continue };
-            if !after.contains_key(&slot) {
+            // One gone to the favorites is a tile now.
+            if !after.contains_key(&slot) && !self.favorites.contains(&tab) {
                 self.closing.push(Closing {
                     title: self.title(tab),
                     favicon: self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()),
@@ -2571,12 +2617,24 @@ impl Shell {
     fn slide(&self, slot: Slot) -> f32 {
         let drag = self.drag.as_ref().filter(|drag| drag.moving);
         if let Some(drag) = drag.filter(|drag| slot == Slot::Tab(drag.tab)) {
-            return drag.at - drag.top;
+            return self.drag_at(drag) - drag.top;
         }
         let room = drag.and_then(|drag| drag.room.get(&slot)).copied().unwrap_or(0.);
         room + self.slides.get(&slot).map_or(0., |&(from, start, curve)| {
             curve.at(start.elapsed().as_secs_f32()).map_or(0., |done| from * (1. - done))
         })
+    }
+
+    /// Where a dragged tab's row is drawn in the list: with the pointer, held between the list's
+    /// first and last places.
+    fn drag_at(&self, drag: &Drag) -> f32 {
+        let (first, last) = drag.span;
+        (self.list_y(drag.pointer.y) - drag.grab.0).clamp(first, last)
+    }
+
+    /// Where `y`, down from the sidebar's top, is in the list, scrolled as it is.
+    fn list_y(&self, y: f32) -> f32 {
+        y - self.drawn_list_top() - f32::from(self.list_scroll.offset().y)
     }
 
     /// The row the pointer drags, once it has come away.
@@ -2586,9 +2644,6 @@ impl Shell {
 
     /// The pointer pressed `tab`'s row at `position`, which may start a drag.
     fn press_row(&mut self, tab: u64, position: Point<Pixels>) {
-        if self.drag.as_ref().is_some_and(|drag| drag.dropped) {
-            return;
-        }
         let pinned = self.pinned().contains(&tab);
         let (pinned_rows, today_rows) = self.rows();
         let rows = if pinned { pinned_rows } else { today_rows };
@@ -2596,24 +2651,61 @@ impl Shell {
             return;
         };
         let top = self.layout()[&Slot::Tab(tab)];
+        let pointer = in_sidebar(position, self.sidebar_origin.get());
+        let grab = (self.list_y(pointer.y) - top, point(0., 0.));
+        self.press(tab, position, Place::List(pinned, index), top, grab);
+    }
+
+    /// The pointer pressed `tab`'s tile at `position`, which may start a drag.
+    fn press_tile(&mut self, tab: u64, position: Point<Pixels>) {
+        let Some(index) = self.favorites.iter().position(|&other| other == tab) else {
+            return;
+        };
+        let Some(&[left, top, width]) = self.drawn_tiles().get(&tab) else {
+            return;
+        };
+        let pointer = in_sidebar(position, self.sidebar_origin.get());
+        let centre = point(left + width / 2., LIST_TOP + top + TILE_HEIGHT / 2.);
+        // Its row, over the list, is centred on the pointer.
+        let grab = (ROW_HEIGHT / 2., pointer - centre);
+        self.press(tab, position, Place::Favorite(index), 0., grab);
+    }
+
+    fn press(
+        &mut self,
+        tab: u64,
+        position: Point<Pixels>,
+        from: Place,
+        top: f32,
+        grab: (f32, Point<f32>),
+    ) {
+        if self.drag.as_ref().is_some_and(|drag| drag.dropped) {
+            return;
+        }
+        let origin = self.sidebar_origin.get();
         self.dragged = false;
         self.drag = Some(Drag {
             tab,
             press: position,
+            origin,
+            pointer: in_sidebar(position, origin),
+            grab,
             top,
             moving: false,
-            at: top,
-            from: (pinned, index),
-            to: (pinned, index),
+            span: (top, top),
+            from,
+            to: from,
             room: HashMap::new(),
             divider: true,
             dropped: false,
         });
     }
 
-    /// The pointer pressing a row moved to `position`. Past DRAG_START the row comes away and
-    /// follows it up and down, and the other rows make room for it at the place, in the pinned
-    /// tabs or Today, nearest where it's drawn.
+    /// The pointer pressing a row or a tile moved to `position`. Past DRAG_START the tab comes away
+    /// and follows it. Over the favorites it's a tile, and the tiles make room for it at the place
+    /// nearest it. Over the list it's a row, which goes up and down, and the rows make room for it
+    /// at the place, in the pinned tabs or Today, nearest where it's drawn. A split view's row
+    /// stays in the list.
     fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped) else {
             return;
@@ -2622,30 +2714,55 @@ impl Shell {
         if !drag.moving && moved.x.abs().max(moved.y.abs()) < px(DRAG_START) {
             return;
         }
-        let (tab, top, to) = (drag.tab, drag.top + f32::from(moved.y), drag.to);
+        let (tab, to, grab, span) = (drag.tab, drag.to, drag.grab, drag.span);
+        let pointer = in_sidebar(position, drag.origin);
         let others = |rows: Vec<u64>| rows.into_iter().filter(|&other| other != tab).collect();
         let (pinned, today) = self.rows();
         let (pinned, today): (Vec<u64>, Vec<u64>) = (others(pinned), others(today));
-        let places = (0..=pinned.len()).map(|index| (true, index));
-        let places = places.chain((0..=today.len()).map(|index| (false, index)));
-        let layouts: Vec<_> = places
-            .map(|(in_pinned, index)| {
-                let (mut pinned, mut today) = (pinned.clone(), today.clone());
-                let tabs = if in_pinned { &mut pinned } else { &mut today };
-                tabs.insert(index, tab);
-                let layout = slots(&pinned, &today);
-                ((in_pinned, index), layout[&Slot::Tab(tab)], layout)
-            })
-            .collect();
-        let (first, last) = (layouts[0].1, layouts[layouts.len() - 1].1);
-        let at = top.clamp(first.min(last), first.max(last));
-        let Some((place, _, layout)) =
-            layouts.into_iter().min_by(|a, b| (a.1 - at).abs().total_cmp(&(b.1 - at).abs()))
-        else {
-            return;
+        let favorites = self.favorites.iter().filter(|&&other| other != tab).count();
+        let over_favorites =
+            self.panes(tab).len() == 1 && pointer.y < self.list_top_with(favorites + 1);
+        let (place, layout, span) = if over_favorites {
+            let centre = pointer - grab.1;
+            let places = self.tile_places(favorites + 1);
+            let distance = |index: &usize| {
+                let [left, top, width] = places[*index];
+                let x = left + width / 2. - centre.x;
+                let y = LIST_TOP + top + TILE_HEIGHT / 2. - centre.y;
+                x * x + y * y
+            };
+            let index = (0..places.len()).min_by(|a, b| distance(a).total_cmp(&distance(b)));
+            (Place::Favorite(index.unwrap_or(0)), slots(&pinned, &today), span)
+        } else {
+            let places = (0..=pinned.len()).map(|index| (true, index));
+            let places = places.chain((0..=today.len()).map(|index| (false, index)));
+            let layouts: Vec<_> = places
+                .map(|(in_pinned, index)| {
+                    let (mut pinned, mut today) = (pinned.clone(), today.clone());
+                    let tabs = if in_pinned { &mut pinned } else { &mut today };
+                    tabs.insert(index, tab);
+                    let layout = slots(&pinned, &today);
+                    ((in_pinned, index), layout[&Slot::Tab(tab)], layout)
+                })
+                .collect();
+            let (first, last) = (layouts[0].1, layouts[layouts.len() - 1].1);
+            let span = (first.min(last), first.max(last));
+            let at = (self.list_y(pointer.y) - grab.0).clamp(span.0, span.1);
+            let Some(((in_pinned, index), _, layout)) =
+                layouts.into_iter().min_by(|a, b| (a.1 - at).abs().total_cmp(&(b.1 - at).abs()))
+            else {
+                return;
+            };
+            (Place::List(in_pinned, index), layout, span)
         };
+        if let Some(drag) = &mut self.drag {
+            drag.moving = true;
+            drag.pointer = pointer;
+            drag.span = span;
+        }
         if place != to {
-            // The rows that make room, or no longer need to, start from where they're drawn.
+            // The rows and tiles that make room, or no longer need to, start from where they're
+            // drawn.
             let now = Instant::now();
             let room: HashMap<Slot, f32> = self
                 .layout()
@@ -2661,21 +2778,19 @@ impl Shell {
                 let from = self.slide(slot) - room.get(&slot).copied().unwrap_or(0.);
                 self.slides.insert(slot, (from, now, Curve::Reorder));
             }
+            let tiles = self.drawn();
             if let Some(drag) = &mut self.drag {
                 drag.to = place;
                 drag.room = room;
                 drag.divider = layout.contains_key(&Slot::Divider);
             }
-        }
-        if let Some(drag) = &mut self.drag {
-            drag.moving = true;
-            drag.at = at;
+            self.move_tiles(tiles, Curve::Reorder);
         }
         cx.notify();
     }
 
-    /// The pointer let go of a pressed row. A dragged one goes where it would, and the rows settle
-    /// once the browser has moved its tab.
+    /// The pointer let go of a pressed row or tile. A dragged tab goes where it would, and the rows
+    /// and tiles settle once the browser has moved it.
     fn drop_row(&mut self, cx: &mut Context<Self>) {
         let Some(drag) = self.drag.as_mut().filter(|drag| !drag.dropped) else {
             return;
@@ -2685,36 +2800,77 @@ impl Shell {
             return;
         }
         self.dragged = true;
-        let (tab, (pinned, index)) = (drag.tab, drag.to);
+        let (tab, to) = (drag.tab, drag.to);
         if drag.to == drag.from {
-            // Nothing moves in the browser, so the rows settle from where they're drawn.
-            self.move_rows(self.layout());
-            self.drag = None;
+            self.settle_drag();
         } else {
             drag.dropped = true;
-            // check.sh waits for this line.
-            let list = if pinned { "pinned" } else { "today" };
-            eprintln!("browser: dragged {tab} to {list} {index}");
-            // The browser counts tabs, and the rows above may be split views.
-            let (pinned_rows, today_rows) = self.rows();
-            let rows = if pinned { pinned_rows } else { today_rows };
-            let rows = rows.into_iter().filter(|&row| row != tab).take(index);
-            let index = rows.map(|row| self.panes(row).len()).sum();
-            self.browser.move_tab(tab, pinned, index, cx);
+            match to {
+                Place::Favorite(index) => {
+                    // check.sh waits for this line.
+                    eprintln!("browser: dragged {tab} to favorites {index}");
+                    self.browser.move_to_favorites(tab, index, cx);
+                }
+                Place::List(pinned, index) => {
+                    // check.sh waits for this line.
+                    let list = if pinned { "pinned" } else { "today" };
+                    eprintln!("browser: dragged {tab} to {list} {index}");
+                    // The browser counts tabs, and the rows above may be split views.
+                    let (pinned_rows, today_rows) = self.rows();
+                    let rows = if pinned { pinned_rows } else { today_rows };
+                    let rows = rows.into_iter().filter(|&row| row != tab).take(index);
+                    let index = rows.map(|row| self.panes(row).len()).sum();
+                    self.browser.move_tab(tab, pinned, index, cx);
+                }
+            }
         }
         cx.notify();
     }
 
-    /// Puts the row the pointer drags back where it was, and returns whether there was one.
+    /// Puts the tab the pointer drags back where it was, and returns whether there was one.
     fn cancel_drag(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.dropped) {
             return false;
         }
         // The release that ends the drag isn't a click.
         self.dragged = true;
+        self.settle_drag();
+        cx.notify();
+        true
+    }
+
+    /// Ends a drag that moves nothing in the browser: the rows and tiles settle from where they're
+    /// drawn.
+    fn settle_drag(&mut self) {
+        let tiles = self.drawn();
         self.move_rows(self.layout());
         self.drag = None;
-        cx.notify();
+        self.move_tiles(tiles, Curve::Slide);
+    }
+
+    /// The browser reported its favorites, or else the Space shown's lists. A drag still held ends,
+    /// since the lists changed under it. A dragged tab let go lands once it's where it was dropped:
+    /// moved in one list, once that list comes, and between them, once it's in the one and out of
+    /// the other. Returns whether the drag ended.
+    fn end_drag(&mut self, favorites: bool) -> bool {
+        let Some(drag) = &self.drag else {
+            return false;
+        };
+        let tab = drag.tab;
+        let in_favorites = self.favorites.contains(&tab);
+        let in_space = self
+            .shown_space()
+            .is_some_and(|space| space.pinned.contains(&tab) || space.today.contains(&tab));
+        let landed = match (drag.from, drag.to) {
+            (Place::Favorite(_), Place::Favorite(_)) => favorites,
+            (Place::List(..), Place::List(..)) => !favorites,
+            (_, Place::Favorite(_)) => in_favorites && !in_space,
+            (_, Place::List(..)) => in_space && !in_favorites,
+        };
+        if drag.dropped && !landed {
+            return false;
+        }
+        self.drag = None;
         true
     }
 
@@ -2929,8 +3085,26 @@ impl Shell {
         .size_full()
     }
 
-    /// The pointer's moves and release anywhere in the window, for a pressed row, which only hears
-    /// the pointer while it's over the row.
+    /// Where the sidebar's top-left corner is in the window a press is in, heard before the row or
+    /// tile pressed hears it, for where a drag is in the sidebar.
+    fn press_listener(&self) -> impl IntoElement + use<> {
+        let origin = self.sidebar_origin.clone();
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                window.on_mouse_event(move |_: &MouseDownEvent, phase, _, _| {
+                    if phase == DispatchPhase::Capture {
+                        origin.set(bounds.origin);
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full()
+    }
+
+    /// The pointer's moves and release anywhere in the window, for a pressed row or tile, which
+    /// only hears the pointer while it's over it.
     fn drag_listeners(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
@@ -2957,6 +3131,10 @@ impl Shell {
     fn list_moving(&mut self) -> bool {
         self.slides
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
+        self.tile_slides
+            .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
+        self.list_slide
+            .take_if(|(_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_none());
         self.closing.retain(|row| row_spring(row.start.elapsed().as_secs_f32()).is_some());
         self.unhovered.retain(|(_, start)| start.elapsed().as_secs_f32() < ROW_FILL);
         if self.slides.is_empty() {
@@ -2967,6 +3145,8 @@ impl Shell {
             eprintln!("browser: settled space {}", settle.space);
         }
         !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
+            || !self.tile_slides.is_empty()
+            || self.list_slide.is_some()
             || self.opened.is_some()
             || self.settle.is_some()
     }
@@ -3177,45 +3357,131 @@ impl Shell {
     }
 
     /// The favorites' tiles under the URL field, which stay put while the Spaces' pages move under
-    /// them. A row has as many as fit, each as wide as the others, and fewer tiles share it.
+    /// them, and slide to their places as tiles come, go and make room for a dragged tab.
     fn tiles(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
-        let (columns, _) = self.tile_grid();
-        if columns == 0 {
-            return None;
-        }
-        let gaps = (columns - 1) as f32 * TILE_GAP;
-        let width = (self.width() - 2. * PLATE_INSET - gaps) / columns as f32;
+        let drawn = self.drawn_tiles();
+        let dragged = self.tile_ghost().map(|(tab, _)| tab);
         let tiles: Vec<_> = self
-            .favorites
-            .iter()
-            .enumerate()
-            .map(|(index, &tab)| {
-                let (column, row) = ((index % columns) as f32, (index / columns) as f32);
-                self.tile(tab, cx)
-                    .absolute()
-                    .left(px(PLATE_INSET + column * (width + TILE_GAP)))
-                    .top(px(row * (TILE_HEIGHT + TILE_GAP)))
-                    .w(px(width))
+            .tile_tabs()
+            .into_iter()
+            .filter(|&tab| Some(tab) != dragged)
+            .map(|tab| {
+                let [left, top, width] = drawn[&tab];
+                self.tile(tab, cx).absolute().left(px(left)).top(px(top)).w(px(width))
             })
             .collect();
-        Some(div().absolute().top(px(LIST_TOP)).left_0().w(px(self.width())).children(tiles))
+        (!tiles.is_empty()).then(|| {
+            div().absolute().top(px(LIST_TOP)).left_0().w(px(self.width())).children(tiles)
+        })
     }
 
-    /// How many columns and rows of tiles the favorites take at the sidebar's width.
-    fn tile_grid(&self) -> (usize, usize) {
-        let count = self.favorites.len();
-        if count == 0 {
-            return (0, 0);
+    /// A tab dragged over the favorites, as a tile where the pointer has it, over the rest of the
+    /// sidebar.
+    fn dragged_tile(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let (tab, [left, top, width]) = self.tile_ghost()?;
+        Some(self.tile(tab, cx).absolute().left(px(left)).top(px(LIST_TOP + top)).w(px(width)))
+    }
+
+    /// The tiles in their order: the favorites, with a dragged tab out of its place, and in the
+    /// place it would go to among them.
+    fn tile_tabs(&self) -> Vec<u64> {
+        let mut tabs = self.favorites.clone();
+        if let Some(drag) = self.drag.as_ref().filter(|drag| drag.moving) {
+            tabs.retain(|&tab| tab != drag.tab);
+            if let Place::Favorite(index) = drag.to {
+                tabs.insert(index.min(tabs.len()), drag.tab);
+            }
         }
+        tabs
+    }
+
+    /// Where `count` tiles go, down from the favorites' top: each one's left, top and width. A row
+    /// has as many as fit, each as wide as the others, and fewer tiles share it.
+    fn tile_places(&self, count: usize) -> Vec<[f32; 3]> {
         let room = self.width() - 2. * PLATE_INSET + TILE_GAP;
         let fit = (room / (TILE_MIN + TILE_GAP)).floor().max(1.) as usize;
-        let columns = fit.min(count);
-        (columns, count.div_ceil(columns))
+        let columns = fit.min(count).max(1);
+        let width = room / columns as f32 - TILE_GAP;
+        (0..count)
+            .map(|index| {
+                let (column, row) = ((index % columns) as f32, (index / columns) as f32);
+                [PLATE_INSET + column * (width + TILE_GAP), row * (TILE_HEIGHT + TILE_GAP), width]
+            })
+            .collect()
     }
 
-    /// Where the Space's pages start: under the favorites, else under the URL field.
+    /// Where each tile is drawn, down from the favorites' top: at its place or on its way there,
+    /// and a dragged one where the pointer has it.
+    fn drawn_tiles(&self) -> HashMap<u64, [f32; 3]> {
+        let tabs = self.tile_tabs();
+        let places = self.tile_places(tabs.len());
+        let mut drawn: HashMap<u64, [f32; 3]> = tabs
+            .into_iter()
+            .zip(places)
+            .map(|(tab, place)| {
+                let way = self.tile_slides.get(&tab).map_or(0., |&(_, start, curve)| {
+                    curve.at(start.elapsed().as_secs_f32()).map_or(0., |done| 1. - done)
+                });
+                let from = self.tile_slides.get(&tab).map_or([0.; 3], |&(from, ..)| from);
+                (tab, std::array::from_fn(|i| place[i] + from[i] * way))
+            })
+            .collect();
+        drawn.extend(self.tile_ghost());
+        drawn
+    }
+
+    /// A tab dragged over the favorites, and its tile where the pointer has it.
+    fn tile_ghost(&self) -> Option<(u64, [f32; 3])> {
+        let drag = self.drag.as_ref().filter(|drag| drag.moving)?;
+        if !matches!(drag.to, Place::Favorite(_)) {
+            return None;
+        }
+        let width = self.tile_places(self.tile_tabs().len()).first()?[2];
+        let centre = drag.pointer - drag.grab.1;
+        let top = centre.y - LIST_TOP - TILE_HEIGHT / 2.;
+        Some((drag.tab, [centre.x - width / 2., top, width]))
+    }
+
+    /// Where the tiles and the list's top are drawn, for motion from there.
+    fn drawn(&self) -> (HashMap<u64, [f32; 3]>, f32) {
+        (self.drawn_tiles(), self.drawn_list_top())
+    }
+
+    /// Starts the tiles and the list's top from where they were drawn `before` to their places.
+    fn move_tiles(&mut self, before: (HashMap<u64, [f32; 3]>, f32), curve: Curve) {
+        let now = Instant::now();
+        let tabs = self.tile_tabs();
+        let places = self.tile_places(tabs.len());
+        self.tile_slides = tabs
+            .into_iter()
+            .zip(places)
+            .filter_map(|(tab, place)| {
+                let was = before.0.get(&tab)?;
+                let from: [f32; 3] = std::array::from_fn(|i| was[i] - place[i]);
+                (from != [0.; 3]).then_some((tab, (from, now, curve)))
+            })
+            .collect();
+        let from = before.1 - self.list_top();
+        self.list_slide = (from != 0.).then_some((from, now, curve));
+    }
+
+    /// Where the Space's pages start with `count` tiles: under them, else under the URL field.
+    fn list_top_with(&self, count: usize) -> f32 {
+        let rows = self.tile_places(count).last().map_or(0., |&[_, top, _]| top + TILE_HEIGHT);
+        LIST_TOP + if count > 0 { rows + TILE_GAP } else { 0. }
+    }
+
+    /// Where the Space's pages start: under the tiles.
     fn list_top(&self) -> f32 {
-        LIST_TOP + self.tile_grid().1 as f32 * (TILE_HEIGHT + TILE_GAP)
+        self.list_top_with(self.tile_tabs().len())
+    }
+
+    /// Where the Space's pages start as drawn: at list_top, or on their way there.
+    fn drawn_list_top(&self) -> f32 {
+        self.list_top()
+            + self.list_slide.map_or(0., |(from, start, curve)| {
+                curve.at(start.elapsed().as_secs_f32()).map_or(0., |done| from * (1. - done))
+            })
     }
 
     /// A favorite's tile: its favicon on a plate, which the tab shown has filled and ringed. A
@@ -3223,8 +3489,18 @@ impl Shell {
     /// menu.
     fn tile(&self, tab: u64, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let selected = tab == self.selected && !self.new_tab;
-        let hover = self.hover_fill(Row::Tab(tab)).unwrap_or(0.);
-        let fill = hsla(0., 0., 1., TILE + (TILE_HOVERED - TILE) * hover);
+        // Full for a dragged tile, which covers what it passes, and none for the others then.
+        let dragging = self.dragging();
+        let hover = match dragging {
+            Some(dragged) => (dragged == Slot::Tab(tab)).then_some(1.),
+            None => self.hover_fill(Row::Tab(tab)),
+        };
+        let fill = hsla(0., 0., 1., TILE + (TILE_HOVERED - TILE) * hover.unwrap_or(0.));
+        let fill = match dragging == Some(Slot::Tab(tab)) {
+            true => self.window_fill().blend(if selected { rgba(SELECTED).into() } else { fill }),
+            false if selected => rgba(SELECTED).into(),
+            false => fill,
+        };
         let icon = div()
             .size(px(FAVICON_SIZE))
             .flex()
@@ -3241,7 +3517,7 @@ impl Shell {
             .rounded(px(TILE_RADIUS))
             .border(px(HAIRLINE))
             .border_color(rgba(if selected { TILE_RING } else { TILE_EDGE }))
-            .bg(if selected { Hsla::from(rgba(SELECTED)) } else { fill })
+            .bg(fill)
             .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(Row::Tab(tab), *hovered, cx)
@@ -3252,17 +3528,24 @@ impl Shell {
                     // The first click showed it.
                     if event.click_count == 2 {
                         eprintln!("browser: command back-to-pinned-url via favorite");
-                        shell.browser.back_to_pinned_url(tab, cx);
+                        return shell.browser.back_to_pinned_url(tab, cx);
                     }
+                    shell.press_tile(tab, event.position)
                 }),
             )
             .on_mouse_down(
                 MouseButton::Right,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                    shell.tab_menu(tab, event.position, cx)
+                    if shell.dragging().is_none() {
+                        shell.tab_menu(tab, event.position, cx)
+                    }
                 }),
             )
+            // Unless it ended a drag.
             .on_click(cx.listener(move |shell, _, _, cx| {
+                if shell.dragged || shell.dragging().is_some() {
+                    return;
+                }
                 eprintln!("browser: command select via favorite");
                 shell.select(tab, cx)
             }))
@@ -3927,13 +4210,15 @@ impl Shell {
             None => sidebar
                 .child(self.url_field(cx))
                 .children(self.tiles(cx))
-                .child(self.space_pages(cx)),
+                .child(self.space_pages(cx))
+                .children(self.dragged_tile(cx)),
         };
         sidebar
             .children(self.toast())
             .child(self.library_button(cx))
             .children(self.switcher(cx))
             .child(self.scroll_listener(cx))
+            .child(self.press_listener())
     }
 
     /// The Spaces' pages under the URL field, side by side while they move. Each keeps its own
@@ -3960,7 +4245,7 @@ impl Shell {
         }
         div()
             .absolute()
-            .top(px(self.list_top()))
+            .top(px(self.drawn_list_top()))
             .left_0()
             .w(px(self.width()))
             .bottom(px(FOOTER_HEIGHT))
@@ -4026,10 +4311,11 @@ impl Shell {
         for tab in today {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }
-        // Over the rest, where the pointer has it.
-        let dragged = self.drag.as_ref().filter(|drag| drag.moving).map(|drag| {
+        // Over the rest, where the pointer has it, unless it's over the favorites.
+        let dragged = self.drag.as_ref().filter(|drag| drag.moving);
+        let dragged = dragged.filter(|drag| matches!(drag.to, Place::List(..))).map(|drag| {
             let row = self.tab_row(drag.tab, cx);
-            div().absolute().top(px(drag.at)).left_0().w(px(self.width())).child(row)
+            div().absolute().top(px(self.drag_at(drag))).left_0().w(px(self.width())).child(row)
         });
         let under = self
             .opened
@@ -4045,6 +4331,7 @@ impl Shell {
             .flex()
             .flex_col()
             .overflow_y_scroll()
+            .track_scroll(&self.list_scroll)
             // Fingers across the list page between Spaces instead.
             .restrict_scroll_to_axis()
             .children(self.closing.iter().map(|row| self.closing_row(row)))
@@ -4248,6 +4535,12 @@ fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
     }
     let damped = omega * (1. - damping * damping).sqrt();
     Some(1. - decay * ((damped * t).cos() + damping * omega / damped * (damped * t).sin()))
+}
+
+/// Where `position` in a window is from the corner, `origin`, of the sidebar it draws.
+fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Point<f32> {
+    let at = position - origin;
+    point(f32::from(at.x), f32::from(at.y))
 }
 
 /// Where the list's rows are from its top, by the heights they're drawn at in `list`.

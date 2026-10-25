@@ -252,10 +252,12 @@ What a favorite does (ours, *interim* until Arc's are captured):
 
 - A favorite is a tab of the profile's, in no Space, so every Space of the profile shows the same tiles (Arc's favorites follow the profile; confirm in the capture). With one profile for now, they're the browser's. The tiles stay put while the Spaces' pages swipe under them.
 - Add to Favorites in a tab's menu makes the tab the last favorite, at its pinned URL if it's pinned, else at its page, and takes it out of its split. Remove from Favorites in the tile's menu puts it at the top of Today in the Space shown.
+- Dragging moves a tab between the tiles and the rows. Above the bottom of the tiles it would have with the dragged tab among them, a dragged row is drawn as a tile centred on the pointer, and the tiles make room for it at the place nearest its centre. A dragged tile below that is drawn as a row centred on the pointer, and the rows make room as for a dragged row. A split view's row stays in the list. Dropped on the tiles, a row becomes a favorite there, and dropped in the list a tile goes there, pinned at its favorite's URL among the pinned tabs. Between the tiles, a tile reorders.
+- The tiles and the list's top move on the Reorder spring while they make room, and on Row motion when they settle, as the favorites change and a dropped tab lands. A new tile is in its place at once. Nothing moves while the Space shown is being filled, as at launch.
 - A click shows it. ⌘1–⌘9, next and previous tab and ⌃Tab count the favorites first. A Space remembers the favorite it showed, across a quit too.
 - The tile's menu: Back to Favorite URL (⌘↩, away from it), Duplicate Tab (a copy at the top of Today, shown), Remove from Favorites, then Close Tab (⌘W). Closing unloads it and keeps the tile, as for a pinned tab, and shows the Space's top Today tab, else its lowest pinned tab still loaded. No Rename or Move to Space yet.
 - Links a favorite opens go at the top of Today in the Space shown.
-- Later: dragging a row into the tiles, out and between them; the hover card; theming.
+- Later: the hover card, theming, and Arc's measured drag: how the dragged row turns into a tile and back, which we do at once.
 
 **Pinned tabs** (Arc: per Space. Dia 1.52 has the same section.)
 

@@ -58,8 +58,9 @@ class Space {
   void Add(bc_id tab, bc_id opener, bool foreground);
   // Puts |tab| at |index| in Today, else at the bottom, and below a split |index| is inside.
   void AddAt(bc_id tab, size_t index);
-  // Puts |tab| at the bottom of the pinned tabs, pinned at |url|.
-  void AddPinned(bc_id tab, GURL url);
+  // Puts |tab| at |index| in the pinned tabs, else at the bottom, and below a split |index| is
+  // inside, pinned at |url|.
+  void AddPinned(bc_id tab, size_t index, GURL url);
   // Pins |tab|, a Today tab, at the bottom of the pinned tabs, each of its split at its |url_of|.
   void Pin(bc_id tab, base::FunctionRef<GURL(bc_id)> url_of);
   // Unpins |tab| to the top of Today.

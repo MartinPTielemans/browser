@@ -376,34 +376,45 @@ void Window::Unload(bc_id tab, bool split) {
 }
 
 // static
-void Window::SetFavorite(bc_id tab, bool favorite) {
-  content::WebContents* contents = Tab::FromId(tab);
-  Space* space = Space::Holding(tab);
-  if (!contents || favorite == Favorites::Has(tab)) {
+void Window::MoveToFavorites(bc_id tab, size_t index) {
+  if (Favorites::Has(tab)) {
+    Favorites::Move(tab, index);
     return;
   }
-  // In one list before it leaves the other, so the UI never hears of it in neither and forgets its
-  // title.
-  if (favorite) {
-    if (!space) {
-      return;
-    }
-    Favorites::Add(tab, space->IsPinned(tab) ? space->PinnedUrl(tab) : Tab::PageUrl(contents));
-    space->Remove(tab);
-  } else {
-    tabs::TabInterface* in = tabs::TabInterface::MaybeGetFromContents(contents);
-    Window* window = in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
-    Space* shown = window ? Space::FromId(window->space_) : nullptr;
-    if (!shown) {
-      return;
-    }
-    shown->AddAt(tab, 0);
-    Favorites::Remove(tab);
+  content::WebContents* contents = Tab::FromId(tab);
+  Space* space = Space::Holding(tab);
+  if (!contents || !space) {
+    return;
   }
+  // In the favorites before it leaves its Space, so the UI never hears of it in neither and
+  // forgets its title.
+  Favorites::Add(tab, space->IsPinned(tab) ? space->PinnedUrl(tab) : Tab::PageUrl(contents),
+                 index);
+  space->Remove(tab);
   // A window showing it beside the tab it shows shows the rest of the split.
   PanesChanged();
-  Tab::FromWebContents(contents)->set_last_seen(base::Time::Now());
   // Whether it's away from its URL.
+  Tab::FromWebContents(contents)->StateChanged();
+}
+
+// static
+void Window::Unfavorite(bc_id tab, bool pinned, size_t index) {
+  content::WebContents* contents = Tab::FromId(tab);
+  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  Window* window = in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
+  Space* shown = window ? Space::FromId(window->space_) : nullptr;
+  if (!shown || !Favorites::Has(tab)) {
+    return;
+  }
+  // In the Space before it leaves the favorites, as above.
+  if (pinned) {
+    shown->AddPinned(tab, index, Favorites::Url(tab));
+  } else {
+    shown->AddAt(tab, index);
+  }
+  Favorites::Remove(tab);
+  // So it isn't archived at once.
+  Tab::FromWebContents(contents)->set_last_seen(base::Time::Now());
   Tab::FromWebContents(contents)->StateChanged();
 }
 
@@ -452,7 +463,7 @@ void Window::MoveToSpace(bc_id tab, bc_id space) {
   // In its new Space before it leaves the old, so the UI never hears of it in neither and forgets
   // its title.
   if (pinned) {
-    to->AddPinned(tab, url);
+    to->AddPinned(tab, to->pinned().size(), url);
   } else {
     to->AddAt(tab, 0);
   }

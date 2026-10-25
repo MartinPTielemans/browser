@@ -252,8 +252,8 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_set_pinned(tab, pinned) };
     }
 
-    fn set_favorite(&self, tab: u64, favorite: bool, _: &mut App) {
-        unsafe { bc::bc_tab_set_favorite(tab, favorite) };
+    fn move_to_favorites(&self, tab: u64, index: usize, _: &mut App) {
+        unsafe { bc::bc_tab_move_to_favorites(tab, index) };
     }
 
     fn move_tab(&self, tab: u64, pinned: bool, index: usize, _: &mut App) {

@@ -117,7 +117,9 @@
 #      first. Away from its URL, a double-click on the tile goes back there. ⌘W unloads it and
 #      keeps the tile, showing the top Today tab. The tile's menu duplicates it to the top of
 #      Today. Launched again, the app brings the favorite back, shown, and Remove from Favorites
-#      in its menu puts it at the top of Today.
+#      in its menu puts it at the top of Today. Today rows dragged onto the tiles become favorites
+#      where they're dropped, a tile dragged across the other goes before it, one dragged into the
+#      list goes there, and escape puts a dragged tile back.
 # Runs 2 to 13 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -2787,7 +2789,49 @@ expect '^browser: favorites $' "Remove from Favorites left the tile"
 expect "^browser: today $a $left\$" \
   "Remove from Favorites didn't put the tab at the top of Today: Today is \"$(today)\""
 none_since '^browser: selected' || fail "Remove from Favorites showed another tab"
+# Dragging moves tabs between the rows and the tiles. With no favorites, a Today row dragged over
+# the Space's name is drawn as a tile there, and dropped it's the first favorite.
+set -- $left
+x=$1
+y=$2
+send press $(row 1)
+send dragto 100 200
+send dragto 114 112
+../tools/window-screenshot.sh "$pid" "$out/favorite-drag.png" || fail "no window to capture"
+none_since '^browser: dragged' ||
+  fail "a row dragged onto the favorites dropped before the pointer let go"
+send release 114 112
+expect "^browser: dragged $x to favorites 0\$" \
+  "a Today row dragged onto the favorites didn't go there"
+expect "^browser: favorites $x\$" \
+  "the row dropped on the favorites isn't one: the favorites are \"$(favorites)\""
+expect "^browser: today $a $y\$" "the row dropped on the favorites is still in Today: \"$(today)\""
+# Dropped right of the tile, a row is the second favorite, and the two share the tiles' row.
+send drag $(tiled_row 0) 180 112
+expect "^browser: dragged $a to favorites 1\$" "a row dragged right of the tile didn't go there"
+expect "^browser: favorites $x $a\$" \
+  "the second row dropped on the favorites isn't the second: the favorites are \"$(favorites)\""
+# A tile dragged left of the other goes before it.
+send drag 168 110 40 110
+expect "^browser: dragged $a to favorites 0\$" \
+  "a tile dragged left of the other didn't go before it"
+expect "^browser: favorites $a $x\$" "the tiles didn't swap: the favorites are \"$(favorites)\""
+# A tile dragged into the list goes there, unpinned in Today.
+send drag 168 110 100 240
+expect "^browser: dragged $x to today 0\$" "a tile dragged into Today didn't go there"
+expect "^browser: today $x $y\$" "the tile dropped in Today isn't at its top: Today is \"$(today)\""
+expect "^browser: favorites $a\$" "the tile dropped in Today is still a favorite"
+none_since '^browser: selected' || fail "dragging a tile showed it"
+# Escape puts a dragged tile back.
+send press 114 110
+send dragto 100 200
+send dragto 100 300
+send key escape
+expect '^browser: command stop via ' "escape during a tile's drag didn't reach the UI"
+send release 100 300
+none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it"
+[ "$(favorites)" = "$a" ] || fail "a tile's drag escape put back moved it: \"$(favorites)\""
 exec 3>&-
 quit
 kill "$server"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Windows: $out/favorites.png, $out/favorite-unloaded.png, $out/favorites-restored.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Windows: $out/favorites.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png"

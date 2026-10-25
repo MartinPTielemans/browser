@@ -55,6 +55,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Favorite double-click | MVP | back to the favorite's URL | Dia P§2 |
 | [x] | Favorites in a tab's menu | MVP | Add to Favorites; the tile's menu: Back to Favorite URL, Duplicate Tab, Remove from Favorites, Close Tab *interim* | ours |
 | [x] | Favorite ⌘W | MVP | unloads, keeps the tile | as pinned tabs |
+| [x] | Drag into, out of and between favorites | MVP | a row over the tiles is a tile at the place nearest its centre, a tile below them a row; tiles make room on the reorder spring *interim* | Arc |
+| [ ] | Row ↔ tile morph while dragging | MVP | measure | Arc |
 | [x] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
 | [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |

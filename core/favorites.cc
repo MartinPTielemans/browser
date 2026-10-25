@@ -1,5 +1,6 @@
 #include "browser_core/favorites.h"
 
+#include <algorithm>
 #include <map>
 #include <utility>
 
@@ -54,13 +55,24 @@ GURL Favorites::Url(bc_id tab) {
 }
 
 // static
-void Favorites::Add(bc_id tab, GURL url) {
+void Favorites::Add(bc_id tab, GURL url, size_t index) {
   State& state = Get();
   if (state.urls.contains(tab)) {
     return;
   }
-  state.tabs.push_back(tab);
+  state.tabs.insert(state.tabs.begin() + std::min(index, state.tabs.size()), tab);
   state.urls[tab] = std::move(url);
+  ReportChanged();
+}
+
+// static
+void Favorites::Move(bc_id tab, size_t index) {
+  State& state = Get();
+  if (!state.urls.contains(tab)) {
+    return;
+  }
+  std::erase(state.tabs, tab);
+  state.tabs.insert(state.tabs.begin() + std::min(index, state.tabs.size()), tab);
   ReportChanged();
 }
 
