@@ -287,7 +287,8 @@ What a favorite does (ours, *interim* until Arc's are captured):
   - Closed, it hides its rows but the tab shown's, which stays under it until another tab shows (Arc; confirm in the capture). ⌘1–⌘9 skip what a closed folder hides, so each row keeps its number.
   - Dragging. Where a dragged row would land at the end of folders or after one, the pointer's travel right of where it pressed takes it in, a level for each 16 pt, between the levels that place allows: from the row below's to one inside the row above, if that's a folder. A folder drags as a row, among the pinned tabs only, never into itself. What's in it stays while it's dragged and moves with it when it lands.
   - Folders come back after a quit with their names and whether they're open.
-  - Later: the tooltip, Collapse All Folders (Arc's command bar has it), making a folder inside one, and Arc's folder drag, captured.
+  - Collapse All Folders in the command bar closes every folder of the Space shown, on one fold.
+  - Later: the tooltip, making a folder inside one, and Arc's folder drag, captured.
 
 **Clear divider and Today tabs** (Arc bin and a user's screenshot, D›Arc note: Clear)
 
@@ -458,7 +459,16 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 - Row 0 is computed from local data only; remote suggestions append below it, so row 0 never flickers (Chrome).
 - Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia).
 - History rows can be removed with a hover ✕ or ⇧⌦, and the selection moves to the next row (Chrome; Dia has the ✕).
-- Bookmarks, a calculator (↩ copies the result) and commands are also rows (Dia). Arc's command list: measure.
+- Bookmarks, a calculator (↩ copies the result) and commands are also rows (Dia).
+- **Commands** (Arc 1.170.0 cap). "clear" lists Clear Today with a ⇧⌘K chip at the row's right, then the search row, then Clear Cache and Refresh, Collapse All Folders and Clear Archive, so a name matches by its letters in order, not only its start. The field's icon becomes the command's.
+  - Ours (*interim*):
+    - A command matches when its name starts with what's typed, then when a word of it does, then when what's typed has its letters in order from a word's start. It takes two letters or more.
+    - A command whose name starts with what's typed, three letters or more, comes first, unless the core completes what's typed. The search row follows it. Otherwise the commands follow the core's first row. The other commands come next, at most four in all.
+    - The names are Arc's bar's where they're known (Clear Today, Collapse All Folders, Clear Archive), else its menus'.
+    - Only commands that would do something now are listed: Go Back with history behind, Close this Split Pane in a split, and so on.
+    - The chip is the shortcut in 11 pt at the secondary colour on white 0.08, radius 4.
+    - ↩ or a click runs the command. The bar closes first, as for a pick.
+    - Not yet: the field's icon, and Arc's commands we don't have, such as Clear Cache and Refresh.
 - Well-known sites that what's typed could start, such as YouTube for "you", fill the rows the profile's own leave, under them and never as row 0, so a new profile's list isn't bare. The list is built in and ranked by popularity alone (ours).
 - Hovering highlights a row; Enter uses the keyboard selection (Chrome). Dia: measure.
 

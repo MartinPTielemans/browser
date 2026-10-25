@@ -304,6 +304,8 @@ pub enum Command {
     TogglePin,
     /// Makes a folder at the bottom of the pinned tabs, and names it.
     NewFolder,
+    /// Closes every folder of the Space shown.
+    CollapseFolders,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
     /// Closes the Today tabs of the Space shown, but the one shown.
@@ -444,6 +446,150 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("ctrl-9", Command::SelectSpace(8), false),
 ];
 
+/// The commands the command bar finds by name: Arc's bar's names where they're known, else its
+/// menus' (docs/ux-spec.md › Command bar › Rows).
+const BAR_COMMANDS: &[(&str, Command)] = &[
+    ("Clear Today", Command::Clear),
+    ("Clear Archive", Command::ClearArchive),
+    ("Collapse All Folders", Command::CollapseFolders),
+    ("New Folder", Command::NewFolder),
+    ("Pin/Unpin Tab", Command::TogglePin),
+    ("Back to Pinned URL", Command::BackToPinnedUrl),
+    ("Archive Tab", Command::CloseTab),
+    ("Restore Last Closed Tab", Command::ReopenClosedTab),
+    ("Copy URL", Command::CopyUrl),
+    ("Copy URL as Markdown", Command::CopyMarkdownLink),
+    ("Find", Command::Find),
+    ("Go Back", Command::Back),
+    ("Go Forward", Command::Forward),
+    ("Refresh the Page", Command::Reload),
+    ("Force Refresh the Page", Command::ForceReload),
+    ("Stop Loading", Command::Stop),
+    ("Zoom In", Command::ZoomIn),
+    ("Zoom Out", Command::ZoomOut),
+    ("Zoom to Actual Size", Command::ActualSize),
+    ("Close this Split Pane", Command::CloseSplitPane),
+    ("Separate Page from Split View", Command::SeparatePane),
+    ("Show/Hide Sidebar", Command::ToggleSidebar),
+    ("Save Page As", Command::SavePage),
+    ("Print", Command::Print),
+    ("View Source", Command::ViewSource),
+    ("Developer Tools", Command::DevTools),
+    ("Inspect Elements", Command::InspectElements),
+    ("JavaScript Console", Command::JavaScriptConsole),
+    ("New Space", Command::NewSpace),
+    ("Next Space", Command::NextSpace),
+    ("Previous Space", Command::PreviousSpace),
+    ("Next Tab", Command::NextTab),
+    ("Previous Tab", Command::PreviousTab),
+    ("View Library", Command::ViewLibrary),
+    ("View Archive", Command::ViewArchive),
+    ("View Downloads", Command::ViewDownloads),
+];
+
+/// The most commands the command bar lists at once.
+const BAR_COMMANDS_SHOWN: usize = 4;
+
+/// A command the command bar offers for what's typed.
+pub struct BarCommand {
+    pub name: SharedString,
+    pub command: Command,
+    /// The shortcut that runs it, as a menu shows it.
+    pub shortcut: Option<SharedString>,
+    /// Whether its name starts with what's typed, three letters or more, which puts it above
+    /// the core's suggestions.
+    pub strong: bool,
+}
+
+/// The commands that do something now whose names match `typed`, best first, as Arc's bar
+/// matches: the name starting with it, then a word of it, then its letters in order from a word's
+/// start. Nothing for under two letters.
+pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
+    let typed = typed.trim().to_lowercase();
+    let shell = cx.try_global::<ShellHandle>().and_then(|handle| handle.0.upgrade());
+    let Some(shell) = shell.filter(|_| typed.chars().count() >= 2) else {
+        return Vec::new();
+    };
+    let shell = shell.read(cx);
+    let mut found: Vec<(u8, BarCommand)> = BAR_COMMANDS
+        .iter()
+        .filter(|&&(_, command)| shell.offers(command))
+        .filter_map(|&(name, command)| {
+            let score = match_score(name, &typed)?;
+            let shortcut = SHORTCUTS.iter().find(|&&(_, each, _)| each == command);
+            Some((
+                score,
+                BarCommand {
+                    name: name.into(),
+                    command,
+                    shortcut: shortcut.map(|&(key, ..)| keystroke_label(key).into()),
+                    strong: score == 3 && typed.chars().count() >= 3,
+                },
+            ))
+        })
+        .collect();
+    found.sort_by_key(|&(score, _)| std::cmp::Reverse(score));
+    found.into_iter().take(BAR_COMMANDS_SHOWN).map(|(_, command)| command).collect()
+}
+
+/// How well `name` matches `typed`, which is lowercase: 3 if the name starts with it, 2 if a word
+/// of it does, 1 if its letters are in it in order from a word's start, else none.
+fn match_score(name: &str, typed: &str) -> Option<u8> {
+    let name = name.to_lowercase();
+    let words: Vec<&str> = name
+        .char_indices()
+        .filter(|&(at, _)| at == 0 || name[..at].ends_with([' ', '/']))
+        .map(|(at, _)| &name[at..])
+        .collect();
+    let first = typed.chars().next()?;
+    let in_order = |word: &str| {
+        let mut letters = word.chars();
+        typed.chars().all(|letter| letters.any(|other| other == letter))
+    };
+    if name.starts_with(typed) {
+        Some(3)
+    } else if words.iter().any(|word| word.starts_with(typed)) {
+        Some(2)
+    } else {
+        words.iter().any(|word| word.starts_with(first) && in_order(word)).then_some(1)
+    }
+}
+
+/// How a menu shows `keystroke`, as SHORTCUTS writes it: ⇧⌘K for shift-cmd-k.
+fn keystroke_label(keystroke: &str) -> String {
+    let mut rest = keystroke;
+    let mut label = String::new();
+    for (modifier, glyph) in [("ctrl-", "⌃"), ("alt-", "⌥"), ("shift-", "⇧"), ("cmd-", "⌘")] {
+        if let Some(after) = rest.strip_prefix(modifier) {
+            label.push_str(glyph);
+            rest = after;
+        }
+    }
+    let key = match rest {
+        "enter" => "↩".to_string(),
+        "escape" => "⎋".to_string(),
+        "up" => "↑".to_string(),
+        "down" => "↓".to_string(),
+        "left" => "←".to_string(),
+        "right" => "→".to_string(),
+        "tab" => "⇥".to_string(),
+        key => key.to_uppercase(),
+    };
+    label + &key
+}
+
+/// Runs `command`, whose row in the command bar was chosen, once the bar has gone.
+pub fn run_from_bar(command: Command, cx: &mut App) {
+    if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
+        shell
+            .update(cx, |shell, cx| {
+                shell.command_bar_dismissed(cx);
+                shell.run(command, "command bar", cx);
+            })
+            .ok();
+    }
+}
+
 /// An item in a menu the host shows. A line between items has no title.
 #[derive(Clone)]
 pub struct MenuEntry {
@@ -519,6 +665,7 @@ impl Command {
             Command::SelectLastTab => "select-last-tab",
             Command::TogglePin => "toggle-pin",
             Command::NewFolder => "new-folder",
+            Command::CollapseFolders => "collapse-folders",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::Clear => "clear",
             Command::UndoClear => "undo-clear",
@@ -2099,6 +2246,7 @@ impl Shell {
                 return;
             }
             Command::NewFolder => return self.new_folder(cx),
+            Command::CollapseFolders => return self.collapse_folders(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::Clear => return self.clear(cx),
             Command::UndoClear => {
@@ -2665,6 +2813,49 @@ impl Shell {
         let space = self.shown_space();
         let folder = space.and_then(|space| space.folders.folders.get(&folder));
         folder.map(|(name, _)| name.clone()).unwrap_or_default()
+    }
+
+    /// Closes every folder of the Space shown, all on one fold.
+    fn collapse_folders(&mut self, cx: &mut Context<Self>) {
+        let Some(space) = self.shown_space() else {
+            return;
+        };
+        let folders = space.folders.folders.keys().copied();
+        let open: Vec<u64> = folders.filter(|&folder| space.is_open(folder)).collect();
+        // The core reports each, and the first report has them all closed.
+        self.folding = !open.is_empty();
+        for folder in open {
+            self.browser.set_folder_open(folder, false, cx);
+        }
+    }
+
+    /// Whether `command` would do something now, for the command bar to offer it.
+    fn offers(&self, command: Command) -> bool {
+        let page = self.page(self.selected);
+        let space = self.spaces.iter().position(|space| space.id == self.space);
+        match command {
+            Command::Back => page.can_go_back,
+            Command::Forward => page.can_go_forward,
+            Command::Stop => page.loading,
+            Command::BackToPinnedUrl => page.away_from_pinned_url,
+            Command::CloseSplitPane | Command::SeparatePane => self.panes(self.selected).len() > 1,
+            Command::CollapseFolders => self.shown_space().is_some_and(|space| {
+                space.folders.folders.keys().any(|&folder| space.is_open(folder))
+            }),
+            Command::Clear => !self.today().is_empty(),
+            Command::NextSpace => space.is_some_and(|index| index + 1 < self.spaces.len()),
+            Command::PreviousSpace => space.is_some_and(|index| index > 0),
+            Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
+            Command::NewFolder
+            | Command::ReopenClosedTab
+            | Command::ToggleSidebar
+            | Command::NewSpace
+            | Command::ViewLibrary
+            | Command::ViewArchive
+            | Command::ClearArchive
+            | Command::ViewDownloads => true,
+            _ => self.selected != 0,
+        }
     }
 
     /// Opens or closes the folder, unless the click ended a drag or renames it.

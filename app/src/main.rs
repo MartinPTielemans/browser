@@ -1170,6 +1170,8 @@ unsafe extern "C" fn window_suggestions(
             detail: string(suggestion.detail).into(),
             tab: suggestion.tab,
             completion: string(suggestion.completion),
+            command: None,
+            shortcut: None,
         })
         .collect();
     let text = string(text);
