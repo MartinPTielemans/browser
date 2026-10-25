@@ -26,6 +26,7 @@ mod command_bar;
 mod drop_targets;
 mod find_bar;
 mod reveal;
+mod settings;
 mod zoom_hud;
 
 /// The core's API, generated from core/public/browser_core.h.
@@ -76,11 +77,20 @@ mod platform {
             count: usize,
             x: f64,
             y: f64,
-            in_reveal: bool,
+            place: i32,
+            over: i32,
         ) -> i32;
+        pub fn host_add_settings(settings_view: *mut c_void);
+        pub fn host_show_settings();
+        pub fn host_hide_settings();
         pub fn host_confirm(message: *const c_char, detail: *const c_char, action: *const c_char)
         -> bool;
     }
+
+    /// Where host_menu shows a menu.
+    pub const IN_WINDOW: i32 = 0;
+    pub const IN_REVEAL: i32 = 1;
+    pub const IN_SETTINGS: i32 = 2;
 
     #[repr(C)]
     pub struct host_menu_item {
@@ -151,6 +161,51 @@ fn ns_view(window: &Window) -> *mut c_void {
         Ok(RawWindowHandle::AppKit(handle)) => handle.ns_view.as_ptr(),
         _ => panic!("the window has no AppKit view"),
     }
+}
+
+/// Shows a menu of `items` at `position` in `place` (`platform::IN_*`), or with the item at `over`
+/// there, and returns the index of the one chosen once it closes. AppKit runs the menu in an event
+/// loop of its own, so this mustn't be called inside a GPUI update.
+fn show_menu(
+    items: &[MenuEntry],
+    position: Point<Pixels>,
+    place: i32,
+    over: Option<usize>,
+) -> Option<usize> {
+    let strings: Vec<(CString, CString, [bool; 4])> = items
+        .iter()
+        .map(|item| {
+            let (key, modifiers) = item.shortcut.map(key_equivalent).unwrap_or_default();
+            let title = CString::new(item.title.as_ref()).unwrap_or_default();
+            (title, CString::new(key).unwrap_or_default(), modifiers)
+        })
+        .collect();
+    let host_items: Vec<_> = strings
+        .iter()
+        .zip(items)
+        .map(|((title, key, [command, shift, option, control]), item)| {
+            platform::host_menu_item {
+                title: match item.title.is_empty() {
+                    true => std::ptr::null(),
+                    false => title.as_ptr(),
+                },
+                enabled: item.enabled,
+                key: key.as_ptr(),
+                command: *command,
+                shift: *shift,
+                option: *option,
+                control: *control,
+                parent: item.parent.map_or(-1, |parent| parent as i32),
+                checked: item.checked,
+                swatch: item.swatch.map_or(-1, |color| color as i32),
+            }
+        })
+        .collect();
+    let (x, y) = (f64::from(position.x), f64::from(position.y));
+    let over = over.map_or(-1, |over| over as i32);
+    let count = host_items.len();
+    let index = unsafe { platform::host_menu(host_items.as_ptr(), count, x, y, place, over) };
+    usize::try_from(index).ok()
 }
 
 /// Tells the core where the page goes and the radius of its corners (`Shell::page_frame`).
@@ -454,39 +509,9 @@ impl Browser for Engine {
         // AppKit runs a menu in an event loop of its own until it closes, which GPUI's updates
         // mustn't be inside.
         cx.spawn(async move |cx| {
-            let strings: Vec<(CString, CString, [bool; 4])> = items
-                .iter()
-                .map(|item| {
-                    let (key, modifiers) = item.shortcut.map(key_equivalent).unwrap_or_default();
-                    let title = CString::new(item.title.as_ref()).unwrap_or_default();
-                    (title, CString::new(key).unwrap_or_default(), modifiers)
-                })
-                .collect();
-            let items: Vec<_> = strings
-                .iter()
-                .zip(&items)
-                .map(|((title, key, [command, shift, option, control]), item)| {
-                    platform::host_menu_item {
-                        title: match item.title.is_empty() {
-                            true => std::ptr::null(),
-                            false => title.as_ptr(),
-                        },
-                        enabled: item.enabled,
-                        key: key.as_ptr(),
-                        command: *command,
-                        shift: *shift,
-                        option: *option,
-                        control: *control,
-                        parent: item.parent.map_or(-1, |parent| parent as i32),
-                        checked: item.checked,
-                        swatch: item.swatch.map_or(-1, |color| color as i32),
-                    }
-                })
-                .collect();
-            let (x, y) = (f64::from(position.x), f64::from(position.y));
-            let index =
-                unsafe { platform::host_menu(items.as_ptr(), items.len(), x, y, in_reveal) };
-            cx.update(|cx| chosen(usize::try_from(index).ok(), cx));
+            let place = if in_reveal { platform::IN_REVEAL } else { platform::IN_WINDOW };
+            let index = show_menu(&items, position, place, None);
+            cx.update(|cx| chosen(index, cx));
         })
         .detach();
     }
@@ -558,7 +583,9 @@ impl Browser for Engine {
     }
 
     fn detent(&self, _: &mut App) {
-        unsafe { platform::host_detent() };
+        if unsafe { bc::bc_haptics() } {
+            unsafe { platform::host_detent() };
+        }
     }
 
     fn accent_color(&self) -> u32 {
@@ -593,6 +620,10 @@ impl Browser for Engine {
 
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
         find_bar::find_next(tab, forward, cx);
+    }
+
+    fn settings(&self, cx: &mut App) {
+        settings::show(cx);
     }
 
     fn quit(&self, _: &mut App) {
@@ -792,6 +823,8 @@ fn menus() -> Vec<Menu> {
         menu(
             "Browser",
             vec![
+                item("Settings…", Command::Settings),
+                MenuItem::separator(),
                 MenuItem::action("Hide Browser", Hide),
                 MenuItem::action("Hide Others", HideOthers),
                 MenuItem::action("Show All", ShowAll),

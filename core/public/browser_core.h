@@ -366,6 +366,17 @@ BC_EXPORT bc_id bc_window_restore_archived(bc_id window, bc_id archived);
 // bc_window_reopen_closed_tab. Then archive_changed.
 BC_EXPORT void bc_archive_clear(void);
 
+// How long, in seconds, a Today tab no window shows waits before it goes in the archive: 12 hours,
+// else the time the user chose. Setting it archives at once the tabs that have waited that long.
+// The core keeps it with the Spaces.
+BC_EXPORT double bc_archive_after(void);
+BC_EXPORT void bc_set_archive_after(double seconds);
+
+// Whether the app taps the trackpad at its detents, as the user chose. The core keeps it with the
+// Spaces.
+BC_EXPORT bool bc_haptics(void);
+BC_EXPORT void bc_set_haptics(bool haptics);
+
 // What bc_download_act does: opens the file, or for one still running, opens it once it's done or
 // no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off
 // the list, keeping a finished file and deleting any other; or keeps one Chrome held.

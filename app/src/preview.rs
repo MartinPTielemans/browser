@@ -467,6 +467,9 @@ impl Browser for Fake {
 
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
+    // The preview has no Settings window.
+    fn settings(&self, _: &mut App) {}
+
     // Each made-up Space shows its top tab.
     fn show_space(&self, space: u64, cx: &mut App) {
         self.later(cx, move |shell, cx| {

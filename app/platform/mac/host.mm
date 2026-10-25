@@ -109,6 +109,13 @@ void (*g_reveal_pointer)(double x);
 double g_reveal_width;
 id g_reveal_monitor;
 
+// The Settings window and its view, whether it's to show, and whether it has, after which it keeps
+// the place the user left it in.
+NSWindow* g_settings;
+NSView* g_settings_view;
+bool g_settings_shown = false;
+bool g_settings_placed = false;
+
 // While a host_watch_control is on, its monitor, its observer and the handler to call.
 id g_control_monitor;
 id g_control_observer;
@@ -745,7 +752,7 @@ void host_focus(void* view) {
   [ns_view.window makeFirstResponder:ns_view];
 }
 
-int host_menu(const host_menu_item* items, size_t count, double x, double y, bool in_reveal) {
+int host_menu(const host_menu_item* items, size_t count, double x, double y, int in, int over) {
   HostMenuTarget* target = [[HostMenuTarget alloc] init];
   target.chosen = -1;
   NSMenu* menu = [[NSMenu alloc] init];
@@ -785,19 +792,78 @@ int host_menu(const host_menu_item* items, size_t count, double x, double y, boo
       item.image = Swatch(items[i].swatch);
     }
   }
+  NSView* panel = in == HOST_IN_REVEAL     ? g_reveal_view
+                  : in == HOST_IN_SETTINGS ? g_settings_view
+                                           : nil;
   // The UI draws what the menu changed, such as its row's fill, now: it can't once the menu's
   // event loop runs.
-  NSArray<NSView*>* drawn = in_reveal && g_reveal_view ? @[ g_reveal_view ] : g_ui_view.subviews;
-  for (NSView* ui in drawn) {
+  for (NSView* ui in panel ? @[ panel ] : g_ui_view.subviews) {
     [ui.layer setNeedsDisplay];
     [ui.layer displayIfNeeded];
   }
-  NSView* view = in_reveal && g_reveal_view ? g_reveal_view : g_window.contentView;
+  NSView* view = panel ?: g_window.contentView;
   NSPoint at = NSMakePoint(x, view.flipped ? y : NSHeight(view.bounds) - y);
+  NSMenuItem* positioned =
+      over >= 0 && static_cast<NSUInteger>(over) < made.count ? made[over] : nil;
+  if (positioned) {
+    // AppKit puts the item's edge at the point, and its title this far in, past the checkmarks'
+    // column (measured, as AppKit doesn't say).
+    constexpr double kMenuTitleInset = 31.5;
+    at.x -= kMenuTitleInset;
+  }
   g_menu = menu;
-  [menu popUpMenuPositioningItem:nil atLocation:at inView:view];
+  [menu popUpMenuPositioningItem:positioned atLocation:at inView:view];
   g_menu = nil;
   return static_cast<int>(target.chosen);
+}
+
+void host_add_settings(void* settings_view) {
+  g_settings_view = (__bridge NSView*)settings_view;
+  g_settings = g_settings_view.window;
+  // Its controls and menus are drawn dark, as the browser's are.
+  g_settings.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+  g_settings.tabbingMode = NSWindowTabbingModeDisallowed;
+  g_settings.collectionBehavior |=
+      NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace;
+}
+
+void host_show_settings(void) {
+  if (!g_settings) {
+    return;
+  }
+  if (g_settings_shown) {
+    [g_settings makeKeyAndOrderFront:nil];
+    fprintf(stderr, "browser: settings shown %s\n", g_settings.title.UTF8String);
+    return;
+  }
+  g_settings_shown = true;
+  // On screen once the UI has drawn it as it is now, which it can't while it handles the shortcut
+  // that opened it, as the command bar does.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_settings_shown) {
+      return;
+    }
+    if (!g_settings_placed) {
+      g_settings_placed = true;
+      NSRect visible = (g_window.screen ?: WindowScreen()).visibleFrame;
+      NSSize size = g_settings.frame.size;
+      double x = NSMidX(g_window.frame) - size.width / 2;
+      double y = NSMidY(g_window.frame) - size.height / 2;
+      x = fmax(NSMinX(visible), fmin(x, NSMaxX(visible) - size.width));
+      y = fmax(NSMinY(visible), fmin(y, NSMaxY(visible) - size.height));
+      [g_settings setFrameOrigin:NSMakePoint(x, y)];
+    }
+    [g_settings_view.layer setNeedsDisplay];
+    [g_settings_view.layer displayIfNeeded];
+    [g_settings makeKeyAndOrderFront:nil];
+    // check.sh waits for this line. The window's title is its tab's name.
+    fprintf(stderr, "browser: settings shown %s\n", g_settings.title.UTF8String);
+  });
+}
+
+void host_hide_settings(void) {
+  g_settings_shown = false;
+  [g_settings orderOut:nil];
 }
 
 bool host_confirm(const char* message, const char* detail, const char* action) {

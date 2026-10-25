@@ -372,6 +372,8 @@ pub enum Command {
     /// Focuses the split view's page right of the focused one, or left of it.
     NextPane,
     PreviousPane,
+    /// Opens the Settings window, or brings it to the front.
+    Settings,
     Quit,
 }
 
@@ -383,6 +385,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-w", Command::CloseTab, true),
     ("shift-cmd-t", Command::ReopenClosedTab, true),
     ("cmd-q", Command::Quit, true),
+    ("cmd-,", Command::Settings, false),
     ("alt-cmd-down", Command::NextTab, true),
     ("alt-cmd-up", Command::PreviousTab, true),
     ("ctrl-tab", Command::RecentTab, true),
@@ -495,6 +498,7 @@ const BAR_COMMANDS: &[(&str, Command)] = &[
     ("View Library", Command::ViewLibrary),
     ("View Archive", Command::ViewArchive),
     ("View Downloads", Command::ViewDownloads),
+    ("Settings", Command::Settings),
 ];
 
 /// The most commands the command bar lists at once.
@@ -563,6 +567,12 @@ fn match_score(name: &str, typed: &str) -> Option<u8> {
     } else {
         words.iter().any(|word| word.starts_with(first) && in_order(word)).then_some(1)
     }
+}
+
+/// How a menu shows the first shortcut that runs `command`, if one does.
+pub fn shortcut_label(command: Command) -> Option<String> {
+    let shortcut = SHORTCUTS.iter().find(|&&(_, each, _)| each == command);
+    shortcut.map(|&(key, ..)| keystroke_label(key))
 }
 
 /// How a menu shows `keystroke`, as SHORTCUTS writes it: ⇧⌘K for shift-cmd-k.
@@ -714,6 +724,7 @@ impl Command {
             Command::SeparatePane => "separate-pane",
             Command::NextPane => "next-pane",
             Command::PreviousPane => "previous-pane",
+            Command::Settings => "settings",
             Command::Quit => "quit",
         }
     }
@@ -798,15 +809,20 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
     ("icons/chevron-down.svg", include_bytes!("../assets/icons/chevron-down.svg")),
     ("icons/chevron-up.svg", include_bytes!("../assets/icons/chevron-up.svg")),
+    ("icons/chevrons-up-down.svg", include_bytes!("../assets/icons/chevrons-up-down.svg")),
     ("icons/file.svg", include_bytes!("../assets/icons/file.svg")),
     ("icons/folder.svg", include_bytes!("../assets/icons/folder.svg")),
     ("icons/folder-open.svg", include_bytes!("../assets/icons/folder-open.svg")),
     ("icons/globe.svg", include_bytes!("../assets/icons/globe.svg")),
+    ("icons/keyboard.svg", include_bytes!("../assets/icons/keyboard.svg")),
     ("icons/link.svg", include_bytes!("../assets/icons/link.svg")),
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
     ("icons/panel-left.svg", include_bytes!("../assets/icons/panel-left.svg")),
     ("icons/rotate-cw.svg", include_bytes!("../assets/icons/rotate-cw.svg")),
     ("icons/search.svg", include_bytes!("../assets/icons/search.svg")),
+    ("icons/settings.svg", include_bytes!("../assets/icons/settings.svg")),
+    ("icons/sliders-horizontal.svg", include_bytes!("../assets/icons/sliders-horizontal.svg")),
+    ("icons/vibrate.svg", include_bytes!("../assets/icons/vibrate.svg")),
     ("icons/window-close.svg", include_bytes!("../assets/icons/window-close.svg")),
     ("icons/window-full-screen.svg", include_bytes!("../assets/icons/window-full-screen.svg")),
     ("icons/window-minimize.svg", include_bytes!("../assets/icons/window-minimize.svg")),
@@ -993,6 +1009,8 @@ pub trait Browser {
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App);
     /// Opens the tab's find bar with the keyboard.
     fn find(&self, tab: u64, cx: &mut App);
+    /// Opens the Settings window, or brings it to the front.
+    fn settings(&self, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     fn quit(&self, cx: &mut App);
@@ -2313,6 +2331,7 @@ impl Shell {
             Command::DevTools => return self.browser.devtools(self.selected, 0, cx),
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
+            Command::Settings => return self.browser.settings(cx),
             Command::Quit => return self.browser.quit(cx),
             Command::AddSplit => return self.add_pane(cx),
             Command::CloseSplitPane | Command::SeparatePane => {
@@ -2900,7 +2919,8 @@ impl Shell {
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
-            | Command::ViewDownloads => true,
+            | Command::ViewDownloads
+            | Command::Settings => true,
             _ => self.selected != 0,
         }
     }
