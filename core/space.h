@@ -50,6 +50,9 @@ class Space {
   void Pin(bc_id tab, GURL url);
   // Unpins |tab| to the top of Today.
   void Unpin(bc_id tab);
+  // Moves |tab| to |index| in the pinned tabs or in Today, else to the bottom. A Today tab moved to
+  // the pinned tabs is pinned at |url|, and a pinned tab moved to Today is unpinned.
+  void Move(bc_id tab, bool pinned, size_t index, GURL url);
   void Remove(bc_id tab);
 
   // The lowest pinned tab still |loaded|, else 0: the one to show once no Today tab is left.
@@ -65,6 +68,8 @@ class Space {
   Space(bc_id id, std::string name);
 
   bc_id OpenerOf(bc_id tab) const;
+  // Makes the tabs |tab| opened its opener's, and |tab| no one's, as Chrome does when a tab moves.
+  void ForgetOpener(bc_id tab);
   // The first tab below |index| opened by |opener|, else the nearest above it. 0 if none.
   bc_id NearestOpenedBy(bc_id opener, size_t index) const;
   void ReportChanged();

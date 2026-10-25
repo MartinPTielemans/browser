@@ -151,20 +151,28 @@ void Space::Unpin(bc_id tab) {
   ReportChanged();
 }
 
+void Space::Move(bc_id tab, bool pinned, size_t index, GURL url) {
+  const bool was_pinned = IsPinned(tab);
+  if (std::erase(was_pinned ? pinned_ : today_, tab) == 0) {
+    return;
+  }
+  std::vector<bc_id>& to = pinned ? pinned_ : today_;
+  to.insert(to.begin() + std::min(index, to.size()), tab);
+  if (pinned && !was_pinned) {
+    pinned_urls_[tab] = std::move(url);
+  } else if (!pinned) {
+    pinned_urls_.erase(tab);
+  }
+  ForgetOpener(tab);
+  ReportChanged();
+}
+
 void Space::Remove(bc_id tab) {
   if (std::erase(today_, tab) == 0 && std::erase(pinned_, tab) == 0) {
     return;
   }
   pinned_urls_.erase(tab);
-  // The tabs it opened count as its opener's from now on, as in Chrome.
-  const bc_id opener = OpenerOf(tab);
-  openers_.erase(tab);
-  for (auto& [child, its_opener] : openers_) {
-    if (its_opener == tab) {
-      its_opener = opener;
-    }
-  }
-  std::erase_if(openers_, [](const auto& entry) { return entry.second == 0; });
+  ForgetOpener(tab);
   ReportChanged();
 }
 
@@ -228,6 +236,17 @@ bc_id Space::NearestOpenedBy(bc_id opener, size_t index) const {
     }
   }
   return 0;
+}
+
+void Space::ForgetOpener(bc_id tab) {
+  const bc_id opener = OpenerOf(tab);
+  openers_.erase(tab);
+  for (auto& [child, its_opener] : openers_) {
+    if (its_opener == tab) {
+      its_opener = opener;
+    }
+  }
+  std::erase_if(openers_, [](const auto& entry) { return entry.second == 0; });
 }
 
 void Space::ReportChanged() {

@@ -59,7 +59,8 @@
 #      Today tab, else the nearest pinned tab still loaded, else no page, as closing the last
 #      Today tab does. Shown again, the tab loads. Away from its pinned URL, ⌘↩ from the page and
 #      the UI, and a click on its favicon, go back there. Launched again, the app brings back the
-#      pinned tab pinned and away from its pinned URL, without loading it.
+#      pinned tab pinned and away from its pinned URL, without loading it. Dragging a row moves its
+#      tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back.
 #  11. ⇧⌘K from the page and the UI, and Clear on the divider, close the Space's Today tabs and
 #      show the lowest pinned tab still loaded, with a toast that hides by itself. Its Undo brings
 #      the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the
@@ -1492,6 +1493,39 @@ expect_lists "$c $a" "$b" "after ⌘D from the UI"
 switch "1 cmd" "$c"
 switch "3 cmd" "$b"
 
+# Dragging a row moves its tab, in the pinned tabs and between them and Today, without showing it.
+# Today's top row is under the pinned rows, the divider and "+ New Tab".
+today_top="100 $((90 + 44 + 41 * 2 + 15 + 41 + 20))"
+send drag $(pinned_row 1) 100 150
+expect "^browser: dragged $a to pinned 0\$" "a drag of the second pinned tab up didn't move it"
+expect_lists "$a $c" "$b" "after dragging a pinned tab up"
+none_since '^browser: selected' || fail "dragging a tab showed it"
+# In steps, as the pointer goes: Today's tab comes away and the pinned rows make room for it.
+send press $today_top
+send dragto 100 270
+send dragto 100 230
+send dragto 100 200
+../tools/window-screenshot.sh "$pid" "$out/drag.png" || fail "no window to capture"
+none_since '^browser: dragged' || fail "a row dropped before the pointer let go"
+send release 100 200
+expect "^browser: dragged $b to pinned 1\$" "a drag of the Today tab up didn't pin it"
+expect_lists "$a $b $c" " *" "after dragging the Today tab into the pinned tabs"
+send drag $(pinned_row 1) 100 300
+expect "^browser: dragged $b to today 0\$" "a drag of a pinned tab down didn't unpin it"
+expect_lists "$a $c" "$b" "after dragging a pinned tab into Today"
+send drag $(pinned_row 0) 100 200
+expect_lists "$c $a" "$b" "after dragging the first pinned tab down"
+none_since '^browser: selected' || fail "dragging a tab showed it"
+# Escape puts a dragged row back.
+send press $(pinned_row 0)
+send dragto 100 250
+send key escape
+expect '^browser: command stop via ' "escape during a drag didn't reach the UI"
+send release 100 250
+none_since '^browser: dragged' || fail "a drag escape put back dropped its row"
+none_since '^browser: selected' || fail "letting go of a drag escape put back showed its tab"
+[ "$(pinned)" = "$c $a" ] || fail "a drag escape put back moved a tab: the pinned tabs are \"$(pinned)\""
+
 # ⌘W on a pinned tab unloads it and shows the top Today tab, and showing it again loads it.
 switch "2 cmd" "$a"
 send key w cmd
@@ -1608,7 +1642,7 @@ expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pi
 none_since "^browser: loaded $c https://example.com/" || fail "the unloaded tab loaded its old page on the way back"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. Windows: $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png"
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 log="$out/clear.log"

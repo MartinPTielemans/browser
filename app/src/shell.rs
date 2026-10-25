@@ -11,11 +11,11 @@ use std::{
 };
 
 use gpui::{
-    Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, Entity,
-    FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding, MenuItem, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, Subscription,
-    Task, Transformation, WeakEntity, Window, actions,
-    div, img, percentage, point, prelude::*, px, rgb, rgba, size, svg,
+    Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, DispatchPhase,
+    Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding, MenuItem,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size,
+    Subscription, Task, Transformation, WeakEntity, Window, actions,
+    canvas, div, img, percentage, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::text_input::TextInput;
@@ -53,6 +53,10 @@ const REVEAL_OVERSHOOT: f32 = 8.;
 const ROW_SLIDE: f32 = 0.14;
 const ROW_FADE: f32 = 0.1;
 const ROW_FILL: f32 = 0.3;
+// A pressed row comes away once the pointer has moved this far (ours), and the rows around a
+// dragged one make way critically damped (docs/ux-spec.md › Motion: Reorder).
+const DRAG_START: f32 = 4.;
+const REORDER_OMEGA: f32 = 90.;
 
 // The header's buttons: their plates' tops and left edges, from the window's. The sidebar button's
 // is a pitch before back's, as Arc's is.
@@ -389,6 +393,8 @@ pub trait Browser {
     fn close(&self, tab: u64, cx: &mut App);
     /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
+    /// Moves `tab` to `index` in its Space's pinned tabs or Today, pinning or unpinning it.
+    fn move_tab(&self, tab: u64, pinned: bool, index: usize, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     /// Closes the Today tabs of the Space shown.
@@ -531,6 +537,52 @@ struct Closing {
     start: Instant,
 }
 
+/// How a row slides to its place.
+#[derive(Clone, Copy)]
+enum Curve {
+    /// Making room for a tab's row or closing it (Row slide).
+    Slide,
+    /// Making way for a dragged row (Reorder).
+    Reorder,
+}
+
+impl Curve {
+    /// How far along the slide is `t` seconds in, or None once it's done.
+    fn at(self, t: f32) -> Option<f32> {
+        match self {
+            Curve::Slide => {
+                (t < ROW_SLIDE).then(|| cubic_bezier(0.25, 0.1, 0.25, 1., t / ROW_SLIDE))
+            }
+            Curve::Reorder => {
+                let left = (1. + REORDER_OMEGA * t) * (-REORDER_OMEGA * t).exp();
+                (left > 0.01).then_some(1. - left)
+            }
+        }
+    }
+}
+
+/// A tab row the pointer pressed, which follows the pointer once it has moved far enough.
+struct Drag {
+    tab: u64,
+    /// Where the pointer pressed the row, and the row's top in the list then.
+    press: Point<Pixels>,
+    top: f32,
+    /// Whether the row has come away, and its top now: the pointer's way from `top`, held between
+    /// the list's first and last places.
+    moving: bool,
+    at: f32,
+    /// Where the row was and where it would go: in the pinned tabs or Today, and at which index of
+    /// them without it.
+    from: (bool, usize),
+    to: (bool, usize),
+    /// How far the other rows are drawn from their places to make room for it there, and whether
+    /// the divider stays, which goes once the last Today tab would be pinned.
+    room: HashMap<Slot, f32>,
+    divider: bool,
+    /// Let go, until the browser reports the lists it made.
+    dropped: bool,
+}
+
 pub struct Shell {
     browser: Rc<dyn Browser>,
     /// Holds GPUI's focus while nothing in the shell takes it, so the shortcuts have their context.
@@ -552,10 +604,13 @@ pub struct Shell {
     /// Rows the pointer left, whose hover fill is fading, and since when.
     unhovered: Vec<(Row, Instant)>,
     /// Rows on their way to their place: how far from it each started, and when.
-    slides: HashMap<Slot, (f32, Instant)>,
+    slides: HashMap<Slot, (f32, Instant, Curve)>,
     /// A tab's new row, which the rows sliding down to make room come out from beneath.
     opened: Option<u64>,
     closing: Vec<Closing>,
+    drag: Option<Drag>,
+    /// A drag just ended, so the release isn't a click on the row.
+    dragged: bool,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
     toast: Option<Toast>,
@@ -596,6 +651,8 @@ impl Shell {
             slides: HashMap::new(),
             opened: None,
             closing: Vec::new(),
+            drag: None,
+            dragged: false,
             hovered_favicon: None,
             toast: None,
             page_fullscreen: false,
@@ -803,6 +860,7 @@ impl Shell {
         self.slides.clear();
         self.opened = None;
         self.closing.clear();
+        self.drag = None;
         self.log_tabs();
         if self.form().is_some() {
             self.focus_form(cx);
@@ -831,6 +889,10 @@ impl Shell {
         }
         if let Some(before) = before {
             self.move_rows(before);
+        }
+        // A dragged row lands, or goes back if the lists changed under it.
+        if space == self.space {
+            self.drag = None;
         }
         // A tab opened in the form's Space makes it a Space like the others, under the name it has.
         if has_tabs && self.form.as_ref().is_some_and(|form| form.space == space) {
@@ -920,6 +982,10 @@ impl Shell {
         let space = self.spaces.iter().position(|space| space.id == self.space);
         // Next and previous wrap around for tabs, as in Chrome, and stop at the ends for Spaces, as
         // in Arc.
+        // Escape puts back a dragged row before it stops the page (docs/ux-spec.md › Tab list).
+        if matches!(command, Command::Stop) && self.cancel_drag(cx) {
+            return;
+        }
         // The command bar opens over the page, and the reveal's panel makes way for it.
         if matches!(command, Command::NewTab | Command::EditUrl) {
             self.set_revealed(false, cx);
@@ -1246,7 +1312,7 @@ impl Shell {
             .iter()
             .filter_map(|(&slot, &top)| {
                 let from = before.get(&slot)? + self.slide(slot) - top;
-                (from != 0.).then_some((slot, (from, now)))
+                (from != 0.).then_some((slot, (from, now, Curve::Slide)))
             })
             .collect();
         let opened = after
@@ -1270,17 +1336,178 @@ impl Shell {
         self.slides = slides;
     }
 
-    /// How far a row is from its place while it slides there.
+    /// How far a row is drawn from its place: where the pointer has a dragged one, and others while
+    /// they slide there or make room for it.
     fn slide(&self, slot: Slot) -> f32 {
-        self.slides.get(&slot).map_or(0., |&(from, start)| {
-            let t = start.elapsed().as_secs_f32() / ROW_SLIDE;
-            if t < 1. { from * (1. - cubic_bezier(0.25, 0.1, 0.25, 1., t)) } else { 0. }
+        let drag = self.drag.as_ref().filter(|drag| drag.moving);
+        if let Some(drag) = drag.filter(|drag| slot == Slot::Tab(drag.tab)) {
+            return drag.at - drag.top;
+        }
+        let room = drag.and_then(|drag| drag.room.get(&slot)).copied().unwrap_or(0.);
+        room + self.slides.get(&slot).map_or(0., |&(from, start, curve)| {
+            curve.at(start.elapsed().as_secs_f32()).map_or(0., |done| from * (1. - done))
         })
+    }
+
+    /// The row the pointer drags, once it has come away.
+    fn dragging(&self) -> Option<Slot> {
+        self.drag.as_ref().filter(|drag| drag.moving).map(|drag| Slot::Tab(drag.tab))
+    }
+
+    /// The pointer pressed `tab`'s row at `position`, which may start a drag.
+    fn press_row(&mut self, tab: u64, position: Point<Pixels>) {
+        if self.drag.as_ref().is_some_and(|drag| drag.dropped) {
+            return;
+        }
+        let pinned = self.pinned().contains(&tab);
+        let tabs = if pinned { self.pinned() } else { self.today() };
+        let Some(index) = tabs.iter().position(|&other| other == tab) else {
+            return;
+        };
+        let top = slots(self.pinned(), self.today())[&Slot::Tab(tab)];
+        self.dragged = false;
+        self.drag = Some(Drag {
+            tab,
+            press: position,
+            top,
+            moving: false,
+            at: top,
+            from: (pinned, index),
+            to: (pinned, index),
+            room: HashMap::new(),
+            divider: true,
+            dropped: false,
+        });
+    }
+
+    /// The pointer pressing a row moved to `position`. Past DRAG_START the row comes away and
+    /// follows it up and down, and the other rows make room for it at the place, in the pinned
+    /// tabs or Today, nearest where it's drawn.
+    fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped) else {
+            return;
+        };
+        let moved = position - drag.press;
+        if !drag.moving && moved.x.abs().max(moved.y.abs()) < px(DRAG_START) {
+            return;
+        }
+        let (tab, top, to) = (drag.tab, drag.top + f32::from(moved.y), drag.to);
+        let others = |tabs: &[u64]| tabs.iter().copied().filter(|&other| other != tab).collect();
+        let (pinned, today): (Vec<u64>, Vec<u64>) = (others(self.pinned()), others(self.today()));
+        let places = (0..=pinned.len()).map(|index| (true, index));
+        let places = places.chain((0..=today.len()).map(|index| (false, index)));
+        let layouts: Vec<_> = places
+            .map(|(in_pinned, index)| {
+                let (mut pinned, mut today) = (pinned.clone(), today.clone());
+                let tabs = if in_pinned { &mut pinned } else { &mut today };
+                tabs.insert(index, tab);
+                let layout = slots(&pinned, &today);
+                ((in_pinned, index), layout[&Slot::Tab(tab)], layout)
+            })
+            .collect();
+        let (first, last) = (layouts[0].1, layouts[layouts.len() - 1].1);
+        let at = top.clamp(first.min(last), first.max(last));
+        let Some((place, _, layout)) =
+            layouts.into_iter().min_by(|a, b| (a.1 - at).abs().total_cmp(&(b.1 - at).abs()))
+        else {
+            return;
+        };
+        if place != to {
+            // The rows that make room, or no longer need to, start from where they're drawn.
+            let now = Instant::now();
+            let room: HashMap<Slot, f32> = slots(self.pinned(), self.today())
+                .into_iter()
+                .filter(|&(slot, _)| slot != Slot::Tab(tab))
+                .filter_map(|(slot, top)| {
+                    let moved = layout.get(&slot)? - top;
+                    (moved != 0.).then_some((slot, moved))
+                })
+                .collect();
+            let old = self.drag.as_ref().map(|drag| drag.room.clone()).unwrap_or_default();
+            for slot in old.keys().chain(room.keys()).copied().collect::<Vec<_>>() {
+                let from = self.slide(slot) - room.get(&slot).copied().unwrap_or(0.);
+                self.slides.insert(slot, (from, now, Curve::Reorder));
+            }
+            if let Some(drag) = &mut self.drag {
+                drag.to = place;
+                drag.room = room;
+                drag.divider = layout.contains_key(&Slot::Divider);
+            }
+        }
+        if let Some(drag) = &mut self.drag {
+            drag.moving = true;
+            drag.at = at;
+        }
+        cx.notify();
+    }
+
+    /// The pointer let go of a pressed row. A dragged one goes where it would, and the rows settle
+    /// once the browser has moved its tab.
+    fn drop_row(&mut self, cx: &mut Context<Self>) {
+        let Some(drag) = self.drag.as_mut().filter(|drag| !drag.dropped) else {
+            return;
+        };
+        if !drag.moving {
+            self.drag = None;
+            return;
+        }
+        self.dragged = true;
+        let (tab, (pinned, index)) = (drag.tab, drag.to);
+        if drag.to == drag.from {
+            // Nothing moves in the browser, so the rows settle from where they're drawn.
+            self.move_rows(slots(self.pinned(), self.today()));
+            self.drag = None;
+        } else {
+            drag.dropped = true;
+            // check.sh waits for this line.
+            let list = if pinned { "pinned" } else { "today" };
+            eprintln!("browser: dragged {tab} to {list} {index}");
+            self.browser.move_tab(tab, pinned, index, cx);
+        }
+        cx.notify();
+    }
+
+    /// Puts the row the pointer drags back where it was, and returns whether there was one.
+    fn cancel_drag(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.dropped) {
+            return false;
+        }
+        // The release that ends the drag isn't a click.
+        self.dragged = true;
+        self.move_rows(slots(self.pinned(), self.today()));
+        self.drag = None;
+        cx.notify();
+        true
+    }
+
+    /// The pointer's moves and release anywhere in the window, for a pressed row, which only hears
+    /// the pointer while it's over the row.
+    fn drag_listeners(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let shell = cx.weak_entity();
+        canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                let moved = shell.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture {
+                        moved.update(cx, |shell, cx| shell.drag_to(event.position, cx)).ok();
+                    }
+                });
+                window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
+                        shell.update(cx, |shell, cx| shell.drop_row(cx)).ok();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_0()
     }
 
     /// Drops the list's motion that's done, and returns whether any is left.
     fn list_moving(&mut self) -> bool {
-        self.slides.retain(|_, (_, start)| start.elapsed().as_secs_f32() < ROW_SLIDE);
+        self.slides
+            .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
         self.closing.retain(|row| row.start.elapsed().as_secs_f32() < ROW_FADE);
         self.unhovered.retain(|(_, start)| start.elapsed().as_secs_f32() < ROW_FILL);
         if self.slides.is_empty() {
@@ -1392,8 +1619,12 @@ impl Shell {
             Row::NewTab => (("new-tab", 0), Slot::NewTab),
             Row::Tab(tab) => (("tab", tab), Slot::Tab(tab)),
         };
-        // Full under the pointer, and fading once it's left.
-        let hover = if self.hovered == Some(row) {
+        // Full under the pointer, and fading once it's left. Full for a dragged row, which the
+        // pointer holds, and none for the others then.
+        let dragging = self.dragging();
+        let hover = if let Some(dragged) = dragging {
+            (dragged == slot).then_some(1.)
+        } else if self.hovered == Some(row) {
             Some(1.)
         } else {
             self.unhovered.iter().find(|&&(old, _)| old == row).map(|(_, start)| {
@@ -1407,7 +1638,8 @@ impl Shell {
             .flex_none()
             .h(px(ROW_HEIGHT))
             .mb(px(ROW_PITCH - ROW_HEIGHT))
-            .top(px(self.slide(slot)))
+            // A dragged row is drawn over the list, from `list`.
+            .top(px(if dragging == Some(slot) { 0. } else { self.slide(slot) }))
             .px(px(PLATE_INSET))
             .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
             .block_mouse_except_scroll()
@@ -1421,8 +1653,13 @@ impl Shell {
                     .when_some(hover.filter(|_| !selected), |plate, hover| {
                         plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
                     })
-                    .when(!selected, |plate| {
+                    .when(!selected && dragging != Some(slot), |plate| {
                         plate.group_active("row", |style| style.bg(rgba(PRESSED)))
+                    })
+                    // A dragged row covers the rows it passes, in the colours it has in place.
+                    .when(dragging == Some(slot), |plate| {
+                        let fill = if selected { SELECTED } else { HOVERED };
+                        plate.bg(rgb(WINDOW).blend(rgba(fill)))
                     }),
             )
     }
@@ -1522,7 +1759,16 @@ impl Shell {
             })
             .child(icon);
         self.row(Row::Tab(tab), icon, label, cx)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, event: &MouseDownEvent, _, _| {
+                    shell.press_row(tab, event.position)
+                }),
+            )
             .on_click(cx.listener(move |shell, _, _, cx| {
+                if shell.dragged || shell.dragging().is_some() {
+                    return;
+                }
                 eprintln!("browser: command select via sidebar");
                 shell.select(tab, cx)
             }))
@@ -1914,15 +2160,24 @@ impl Shell {
     fn list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let mut rows = vec![(None, self.name_row(cx).into_any_element())];
         for &tab in self.pinned() {
-            rows.push((Some(tab), self.tab_row(tab, cx).into_any_element()));
+            rows.push((Some(tab), self.list_row(tab, cx)));
         }
         if !self.today().is_empty() {
-            rows.push((None, self.divider(cx).into_any_element()));
+            let divider = match self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.divider) {
+                true => div().flex_none().h(px(DIVIDER_HEIGHT)).into_any_element(),
+                false => self.divider(cx).into_any_element(),
+            };
+            rows.push((None, divider));
         }
         rows.push((None, self.new_tab_row(cx).into_any_element()));
         for &tab in self.today() {
-            rows.push((Some(tab), self.tab_row(tab, cx).into_any_element()));
+            rows.push((Some(tab), self.list_row(tab, cx)));
         }
+        // Over the rest, where the pointer has it.
+        let dragged = self.drag.as_ref().filter(|drag| drag.moving).map(|drag| {
+            let row = self.tab_row(drag.tab, cx);
+            div().absolute().top(px(drag.at)).left_0().w(px(SIDEBAR_WIDTH)).child(row)
+        });
         let under = self
             .opened
             .and_then(|opened| rows.iter().position(|&(tab, _)| tab == Some(opened)))
@@ -1943,6 +2198,16 @@ impl Shell {
             .when(!under.is_empty(), |list| {
                 list.child(div().flex_none().flex().flex_col().overflow_hidden().children(under))
             })
+            .children(dragged)
+            .child(self.drag_listeners(cx))
+    }
+
+    /// A tab's row in the list, or the room it leaves while it's dragged.
+    fn list_row(&self, tab: u64, cx: &mut Context<Self>) -> AnyElement {
+        match self.dragging() == Some(Slot::Tab(tab)) {
+            true => div().flex_none().h(px(ROW_PITCH)).into_any_element(),
+            false => self.tab_row(tab, cx).into_any_element(),
+        }
     }
 
     /// What the reveal's window shows: the sidebar in a panel, as far out as it is.

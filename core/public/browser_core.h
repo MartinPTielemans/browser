@@ -288,6 +288,11 @@ BC_EXPORT void bc_tab_find_close(bc_id tab);
 // the top of the Today tabs. Then space_changed and tab_state_changed.
 BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
 
+// Moves the tab to |index| in its Space's pinned tabs or in its Today tabs, else to the bottom. A
+// Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned tab moved to Today
+// is unpinned. Then space_changed and tab_state_changed.
+BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, size_t index);
+
 // Loads a pinned tab's pinned URL, unless it's there already. Then tab_state_changed.
 BC_EXPORT void bc_tab_back_to_pinned_url(bc_id tab);
 
