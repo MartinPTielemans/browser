@@ -10,7 +10,7 @@ use std::{
     time::Instant,
 };
 
-use browser::shell::{self, Browser, Command, Page, Shell, WindowButton};
+use browser::shell::{self, Browser, Command, MenuEntry, Page, Shell, WindowButton};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Focusable, Image, ImageFormat, Menu,
     MenuItem, Pixels, Point, SharedString, Size, WeakEntity, Window, WindowOptions, actions,
@@ -60,10 +60,32 @@ mod platform {
     pub struct host_menu_item {
         pub title: *const c_char,
         pub enabled: bool,
+        pub key: *const c_char,
+        pub command: bool,
+        pub shift: bool,
+        pub option: bool,
+        pub control: bool,
     }
 }
 
 const WINDOW_SIZE: (f64, f64) = (1280., 800.);
+
+/// AppKit's key equivalent for `keystroke`, as SHORTCUTS writes it, and whether it takes ⌘, ⇧, ⌥
+/// and ⌃.
+fn key_equivalent(keystroke: &str) -> (String, [bool; 4]) {
+    let mut parts: Vec<&str> = keystroke.split('-').collect();
+    let key = match parts.pop().unwrap_or_default() {
+        "enter" => "\r",
+        "escape" => "\u{1b}",
+        "up" => "\u{f700}",
+        "down" => "\u{f701}",
+        "left" => "\u{f702}",
+        "right" => "\u{f703}",
+        key => key,
+    };
+    let has = |modifier| parts.contains(&modifier);
+    (key.to_string(), [has("cmd"), has("shift"), has("alt"), has("ctrl")])
+}
 const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
 
 actions!(browser, [Quit]);
@@ -170,6 +192,14 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_close(tab) };
     }
 
+    fn close_below(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_close_below(tab) };
+    }
+
+    fn duplicate(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_duplicate(tab) };
+    }
+
     fn set_pinned(&self, tab: u64, pinned: bool, _: &mut App) {
         unsafe { bc::bc_tab_set_pinned(tab, pinned) };
     }
@@ -233,29 +263,43 @@ impl Browser for Engine {
 
     fn menu(
         &self,
-        items: Vec<(&'static str, bool)>,
+        items: Vec<MenuEntry>,
         position: Point<Pixels>,
-        chosen: Box<dyn FnOnce(usize, &mut App)>,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
     ) {
         // AppKit runs a menu in an event loop of its own until it closes, which GPUI's updates
         // mustn't be inside.
         cx.spawn(async move |cx| {
-            let titles: Vec<CString> =
-                items.iter().map(|(title, _)| CString::new(*title).unwrap_or_default()).collect();
-            let items: Vec<_> = titles
+            let strings: Vec<(CString, CString, [bool; 4])> = items
+                .iter()
+                .map(|item| {
+                    let (key, modifiers) = item.shortcut.map(key_equivalent).unwrap_or_default();
+                    let title = CString::new(item.title).unwrap_or_default();
+                    (title, CString::new(key).unwrap_or_default(), modifiers)
+                })
+                .collect();
+            let items: Vec<_> = strings
                 .iter()
                 .zip(&items)
-                .map(|(title, (_, enabled))| platform::host_menu_item {
-                    title: title.as_ptr(),
-                    enabled: *enabled,
+                .map(|((title, key, [command, shift, option, control]), item)| {
+                    platform::host_menu_item {
+                        title: match item.title.is_empty() {
+                            true => std::ptr::null(),
+                            false => title.as_ptr(),
+                        },
+                        enabled: item.enabled,
+                        key: key.as_ptr(),
+                        command: *command,
+                        shift: *shift,
+                        option: *option,
+                        control: *control,
+                    }
                 })
                 .collect();
             let (x, y) = (f64::from(position.x), f64::from(position.y));
             let index = unsafe { platform::host_menu(items.as_ptr(), items.len(), x, y) };
-            if let Ok(index) = usize::try_from(index) {
-                cx.update(|cx| chosen(index, cx));
-            }
+            cx.update(|cx| chosen(usize::try_from(index).ok(), cx));
         })
         .detach();
     }

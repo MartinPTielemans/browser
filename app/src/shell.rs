@@ -279,6 +279,30 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("ctrl-9", Command::SelectSpace(8), false),
 ];
 
+/// An item in a menu the host shows. A line between items has no title.
+#[derive(Clone, Copy)]
+pub struct MenuEntry {
+    pub title: &'static str,
+    pub enabled: bool,
+    /// The keystroke it shows, as SHORTCUTS writes it.
+    pub shortcut: Option<&'static str>,
+}
+
+impl MenuEntry {
+    pub const LINE: MenuEntry = MenuEntry { title: "", enabled: false, shortcut: None };
+
+    fn new(title: &'static str, enabled: bool) -> Self {
+        MenuEntry { title, enabled, shortcut: None }
+    }
+
+    /// Shows the shortcut that runs `command`.
+    fn shortcut(self, command: Command) -> Self {
+        let shortcut =
+            SHORTCUTS.iter().find(|&&(_, each, _)| each == command).map(|&(key, ..)| key);
+        MenuEntry { shortcut, ..self }
+    }
+}
+
 impl Command {
     /// The command `keystroke` runs, if it's a shortcut that is `reserved` or isn't.
     pub fn for_keystroke(keystroke: &str, reserved: bool) -> Option<Command> {
@@ -403,6 +427,10 @@ pub trait Browser {
     fn select(&self, tab: u64, cx: &mut App);
     /// Closes a Today tab. A pinned tab stays, and only its page goes.
     fn close(&self, tab: u64, cx: &mut App);
+    /// Closes the Today tabs below `tab`, showing `tab` if one of them showed.
+    fn close_below(&self, tab: u64, cx: &mut App);
+    /// Opens a copy of `tab` with its history, under it in Today, and shows it.
+    fn duplicate(&self, tab: u64, cx: &mut App);
     /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
     /// Moves `tab` to `index` in its Space's pinned tabs or Today, pinning or unpinning it.
@@ -427,13 +455,13 @@ pub trait Browser {
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
     /// Deletes a Space, closing its tabs.
     fn delete_space(&self, space: u64, cx: &mut App);
-    /// Shows a menu of `items`, each a title and whether it can be chosen, at `position` in the
-    /// window, as a right-click there does. Then calls `chosen` with the item chosen, if any.
+    /// Shows a menu of `items` at `position` in the window, as a right-click there does. Then calls
+    /// `chosen` once it closes, with the index of the item chosen, if any.
     fn menu(
         &self,
-        items: Vec<(&'static str, bool)>,
+        items: Vec<MenuEntry>,
         position: Point<Pixels>,
-        chosen: Box<dyn FnOnce(usize, &mut App)>,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
     );
     /// Asks whether to do what `message` asks, with `detail` under it, and calls `confirmed` if the
@@ -656,6 +684,8 @@ pub struct Shell {
     tabs: HashMap<u64, Tab>,
     selected: u64,
     hovered: Option<Row>,
+    /// The tab whose menu is up, whose row keeps its hover fill until the menu closes.
+    menu_row: Option<u64>,
     /// Rows the pointer left, whose hover fill is fading, and since when.
     unhovered: Vec<(Row, Instant)>,
     /// Rows on their way to their place: how far from it each started, and when.
@@ -710,6 +740,7 @@ impl Shell {
             tabs: HashMap::new(),
             selected: 0,
             hovered: None,
+            menu_row: None,
             unhovered: Vec::new(),
             slides: HashMap::new(),
             opened: None,
@@ -1225,18 +1256,91 @@ impl Shell {
     fn space_menu(&mut self, space: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
         let shell = cx.weak_entity();
         self.browser.menu(
-            vec![("Rename Space", true), ("Delete Space", self.spaces.len() > 1)],
+            vec![
+                MenuEntry::new("Rename Space", true),
+                MenuEntry::new("Delete Space", self.spaces.len() > 1),
+            ],
             position,
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| match chosen {
-                        0 => shell.rename_space(space, cx),
-                        _ => shell.delete_space(space, cx),
+                        Some(0) => shell.rename_space(space, cx),
+                        Some(_) => shell.delete_space(space, cx),
+                        None => {}
                     })
                     .ok();
             }),
             cx,
         );
+    }
+
+    /// The menu a right-click on a tab's row shows: Chrome's tab actions that Arc's sidebar has,
+    /// with their shortcuts.
+    fn tab_menu(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
+        type Action = fn(&mut Shell, u64, &mut Context<Shell>);
+        let pinned = self.pinned().contains(&tab);
+        let page = self.page(tab);
+        let below = self.today().iter().skip_while(|&&id| id != tab).count() > 1;
+        let pin = MenuEntry::new(if pinned { "Unpin Tab" } else { "Pin Tab" }, true);
+        let mut items: Vec<(MenuEntry, &'static str, Action)> = vec![(
+            pin.shortcut(Command::TogglePin),
+            "toggle-pin",
+            |shell, tab, cx| {
+                let pinned = shell.pinned().contains(&tab);
+                shell.browser.set_pinned(tab, !pinned, cx)
+            },
+        )];
+        if pinned {
+            items.push((
+                MenuEntry::new("Back to Pinned URL", page.away_from_pinned_url)
+                    .shortcut(Command::BackToPinnedUrl),
+                "back-to-pinned-url",
+                |shell, tab, cx| shell.browser.back_to_pinned_url(tab, cx),
+            ));
+        }
+        items.push((MenuEntry::new("Duplicate Tab", true), "duplicate-tab", |shell, tab, cx| {
+            shell.browser.duplicate(tab, cx)
+        }));
+        items.push((MenuEntry::LINE, "", |_, _, _| {}));
+        // A pinned tab closed already has nothing to close.
+        let closable = !(page.unloaded && pinned);
+        items.push((
+            MenuEntry::new("Close Tab", closable).shortcut(Command::CloseTab),
+            "close-tab",
+            |shell, tab, cx| shell.browser.close(tab, cx),
+        ));
+        if !pinned {
+            items.push((
+                MenuEntry::new("Close Tabs Below", below),
+                "close-tabs-below",
+                |shell, tab, cx| shell.browser.close_below(tab, cx),
+            ));
+        }
+        let entries = items.iter().map(|&(entry, ..)| entry).collect();
+        let shell = cx.weak_entity();
+        self.browser.menu(
+            entries,
+            position,
+            Box::new(move |chosen, cx| {
+                shell
+                    .update(cx, |shell, cx| {
+                        // The fill fades as the pointer leaving the row fades it.
+                        shell.menu_row = None;
+                        if shell.hovered != Some(Row::Tab(tab)) {
+                            shell.unhovered.push((Row::Tab(tab), Instant::now()));
+                        }
+                        cx.notify();
+                        if let Some(&(_, name, action)) = chosen.and_then(|at| items.get(at)) {
+                            eprintln!("browser: command {name} via tab menu");
+                            action(shell, tab, cx)
+                        }
+                    })
+                    .ok();
+            }),
+            cx,
+        );
+        self.menu_row = Some(tab);
+        cx.notify();
     }
 
     /// Shows the Space with its name in a field, all selected, to type a new one over.
@@ -1356,7 +1460,7 @@ impl Shell {
         }
     }
 
-    fn page(&self, tab: u64) -> Page {
+    pub fn page(&self, tab: u64) -> Page {
         self.tabs.get(&tab).map(|tab| tab.page.clone()).unwrap_or_default()
     }
 
@@ -1365,7 +1469,7 @@ impl Shell {
     }
 
     /// A tab's title: the page's, else its host, else "Untitled" (Arc).
-    fn title(&self, tab: u64) -> SharedString {
+    pub fn title(&self, tab: u64) -> SharedString {
         match self.tabs.get(&tab) {
             Some(tab) if !tab.title.is_empty() => tab.title.clone(),
             Some(tab) if !tab.page.url.is_empty() => host(&tab.page.url).into(),
@@ -1902,12 +2006,13 @@ impl Shell {
             Row::NewTab => (("new-tab", 0), Slot::NewTab),
             Row::Tab(tab) => (("tab", tab), Slot::Tab(tab)),
         };
-        // Full under the pointer, and fading once it's left. Full for a dragged row, which the
-        // pointer holds, and none for the others then.
+        // Full under the pointer or with its menu up, and fading once it's left. Full for a dragged
+        // row, which the pointer holds, and none for the others then.
         let dragging = self.dragging();
+        let menu = self.menu_row.is_some_and(|tab| row == Row::Tab(tab));
         let hover = if let Some(dragged) = dragging {
             (dragged == slot).then_some(1.)
-        } else if self.hovered == Some(row) {
+        } else if self.hovered == Some(row) || menu {
             Some(1.)
         } else {
             self.unhovered.iter().find(|&&(old, _)| old == row).map(|(_, start)| {
@@ -2041,6 +2146,14 @@ impl Shell {
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, _| {
                     shell.press_row(tab, event.position)
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    if shell.dragging().is_none() {
+                        shell.tab_menu(tab, event.position, cx)
+                    }
                 }),
             )
             .on_click(cx.listener(move |shell, _, _, cx| {

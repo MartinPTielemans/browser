@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use browser::shell::{self, Browser, Page, Shell, WindowButton};
+use browser::shell::{self, Browser, MenuEntry, Page, Shell, WindowButton};
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -73,6 +73,35 @@ impl Browser for Fake {
             if shell.selected() == tab {
                 shell.set_selected(next, cx);
             }
+        });
+    }
+
+    fn close_below(&self, tab: u64, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let mut today = shell.today().to_vec();
+            let Some(index) = today.iter().position(|&id| id == tab) else {
+                return;
+            };
+            today.truncate(index + 1);
+            if !today.contains(&shell.selected()) && !shell.pinned().contains(&shell.selected()) {
+                shell.set_selected(tab, cx);
+            }
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
+        });
+    }
+
+    // Under the tab, with its title and page, as the core does.
+    fn duplicate(&self, tab: u64, cx: &mut App) {
+        let copy = self.next_id.get();
+        self.next_id.set(copy + 1);
+        self.later(cx, move |shell, cx| {
+            let mut today = shell.today().to_vec();
+            let at = today.iter().position(|&id| id == tab).map_or(0, |index| index + 1);
+            today.insert(at, copy);
+            shell.set_title(copy, shell.title(tab), cx);
+            shell.set_page(copy, shell.page(tab), cx);
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
+            shell.set_selected(copy, cx);
         });
     }
 
@@ -205,9 +234,9 @@ impl Browser for Fake {
     // Menus and alerts are AppKit's, which the preview goes without.
     fn menu(
         &self,
-        _: Vec<(&'static str, bool)>,
+        _: Vec<MenuEntry>,
         _: Point<Pixels>,
-        _: Box<dyn FnOnce(usize, &mut App)>,
+        _: Box<dyn FnOnce(Option<usize>, &mut App)>,
         _: &mut App,
     ) {
     }

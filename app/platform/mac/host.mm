@@ -21,6 +21,9 @@
   // check.sh waits for this line before it chooses.
   NSMutableArray<NSString*>* titles = [NSMutableArray array];
   for (NSMenuItem* item in menu.itemArray) {
+    if (item.separatorItem) {
+      continue;
+    }
     [titles addObject:item.enabled ? item.title
                                    : [item.title stringByAppendingString:@" (disabled)"]];
   }
@@ -31,8 +34,9 @@
 
 namespace {
 
-// The browser window, once shown.
+// The browser window, once shown, and the view the UI draws in.
 NSWindow* g_window;
+NSView* g_ui_view;
 
 // The command bar's window and view.
 NSWindow* g_overlay;
@@ -123,7 +127,8 @@ void* host_ui_view(void) {
 }
 
 void host_show_window(void* ui_view) {
-  g_window = ((__bridge NSView*)ui_view).window;
+  g_ui_view = (__bridge NSView*)ui_view;
+  g_window = g_ui_view.window;
   [g_window makeKeyAndOrderFront:nil];
   [NSApp activateIgnoringOtherApps:YES];
 
@@ -419,12 +424,26 @@ int host_menu(const host_menu_item* items, size_t count, double x, double y) {
   menu.autoenablesItems = NO;
   menu.delegate = target;
   for (size_t i = 0; i < count; ++i) {
+    if (!items[i].title) {
+      [menu addItem:[NSMenuItem separatorItem]];
+      continue;
+    }
     NSMenuItem* item = [menu addItemWithTitle:@(items[i].title)
                                        action:@selector(choose:)
-                                keyEquivalent:@""];
+                                keyEquivalent:@(items[i].key)];
+    item.keyEquivalentModifierMask = (items[i].command ? NSEventModifierFlagCommand : 0) |
+                                     (items[i].shift ? NSEventModifierFlagShift : 0) |
+                                     (items[i].option ? NSEventModifierFlagOption : 0) |
+                                     (items[i].control ? NSEventModifierFlagControl : 0);
     item.target = target;
     item.tag = static_cast<NSInteger>(i);
     item.enabled = items[i].enabled;
+  }
+  // The UI draws what the menu changed, such as its row's fill, now: it can't once the menu's
+  // event loop runs.
+  for (NSView* ui in g_ui_view.subviews) {
+    [ui.layer setNeedsDisplay];
+    [ui.layer displayIfNeeded];
   }
   NSView* view = g_window.contentView;
   NSPoint at = NSMakePoint(x, view.flipped ? y : NSHeight(view.bounds) - y);

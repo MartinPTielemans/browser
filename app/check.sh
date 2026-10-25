@@ -67,7 +67,8 @@
 #      show the lowest pinned tab still loaded, with a toast that hides by itself. Its Undo brings
 #      the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the
 #      page and the UI reopens the tab closed last, where it was and with its history, and after a
-#      Clear, Undo brings back only the tabs ⇧⌘T didn't.
+#      Clear, Undo brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's
+#      menu, whose Duplicate Tab, Close Tabs Below and Unpin Tab work.
 # Runs 2 to 11 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -1800,7 +1801,41 @@ expect '^browser: command undo-clear via sidebar$' "a click on the toast's Undo 
 expect "^browser: today [0-9][0-9]* [0-9][0-9]* $d\$" "Undo after ⇧⌘T didn't bring back just the other two: Today is \"$(today)\""
 e=$(today | cut -d' ' -f2)
 expect "^browser: selected $e\$" "Undo didn't show the tab Clear closed shown"
+
+# A right-click on a row shows its tab's menu, with the shortcuts. Duplicate Tab opens a copy under
+# it, with its history, and shows it. Rows count from the one pinned tab.
+d=$(today | cut -d' ' -f3)
+t=$(today | cut -d' ' -f1)
+post rightclick $(row 2)
+expect '^browser: menu shown Pin Tab, Duplicate Tab, Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
+../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
+send choose Duplicate Tab
+expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
+expect_lists "$a" "$t $e [0-9][0-9]* $d" "after Duplicate Tab"
+tab=$(today | cut -d' ' -f3)
+expect "^browser: selected $tab\$" "Duplicate Tab didn't show the copy"
+expect_page example.org 1 0 "the copy Duplicate Tab made"
+# Close Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
+post rightclick $(row 1)
+expect '^browser: menu shown Pin Tab, Duplicate Tab, Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
+send choose Close Tabs Below
+expect '^browser: command close-tabs-below via tab menu$' "Close Tabs Below didn't run"
+expect_lists "$a" "$t" "after Close Tabs Below"
+expect "^browser: tab $e closed\$" "Close Tabs Below didn't close the tab under the one right-clicked"
+expect "^browser: tab $d closed\$" "Close Tabs Below didn't close the bottom tab"
+expect "^browser: selected $t\$" "Close Tabs Below didn't show the tab right-clicked"
+[ "$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: selected ')" = 1 ] ||
+  fail "Close Tabs Below showed a tab on the way out"
+# ⇧⌘T brings them back one at a time, each at its place.
+send key t cmd shift
+expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Close Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
+# A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
+post rightclick $(pinned_row 0)
+expect '^browser: menu shown Unpin Tab, Back to Pinned URL (disabled), Duplicate Tab, Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
+send choose Unpin Tab
+expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
+expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""
 exec 3>&-
 quit
 kill "$server"
-echo "ok: ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs and show the pinned tab still loaded, with a toast that hides by itself. Undo brings the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and Undo brings back only the tabs ⇧⌘T didn't. Windows: $out/clear.png, $out/reopen.png"
+echo "ok: ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs and show the pinned tab still loaded, with a toast that hides by itself. Undo brings the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and Undo brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. Windows: $out/clear.png, $out/reopen.png, $out/tab-menu.png"

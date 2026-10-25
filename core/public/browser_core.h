@@ -300,6 +300,15 @@ BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, size_t index);
 // Loads a pinned tab's pinned URL, unless it's there already. Then tab_state_changed.
 BC_EXPORT void bc_tab_back_to_pinned_url(bc_id tab);
 
+// Opens a copy of the tab, with its history, under it in Today, or at the top of Today for a
+// pinned tab, and shows it in its window, where its page loads. Returns its id, or 0. Then
+// space_changed and window_selected.
+BC_EXPORT bc_id bc_tab_duplicate(bc_id tab);
+
+// Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one
+// shows the tab first. Then tab_closed for each, and space_changed.
+BC_EXPORT void bc_tab_close_below(bc_id tab);
+
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed. The
 // window stays open without it. A pinned tab stays in its Space instead, and only its page goes: a
 // window showing it shows the Space's top Today tab, else the nearest pinned tab still loaded, else
