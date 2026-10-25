@@ -995,6 +995,12 @@ unsafe extern "C" fn download_icon(
     update_shell(|shell, cx| shell.set_download_icon(download, icon, cx));
 }
 
+unsafe extern "C" fn window_show_downloads(_: *mut c_void, window: bc::bc_id) {
+    if window == WINDOW.get() {
+        update_shell(|shell, cx| shell.show_downloads(cx));
+    }
+}
+
 unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *const u8, size: usize) {
     let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
     let favicon = (!png.is_null()).then(|| {
@@ -1139,6 +1145,7 @@ fn main() {
         page_favicon: Some(page_favicon),
         downloads_changed: Some(downloads_changed),
         download_icon: Some(download_icon),
+        window_show_downloads: Some(window_show_downloads),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         window_suggestions: Some(window_suggestions),

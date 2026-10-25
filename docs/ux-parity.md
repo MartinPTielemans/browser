@@ -25,7 +25,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |
 | [ ] | Resize edge | MVP | outer ≈ 3 pt | Dia P§1 |
 | [ ] | New window / closed window | MVP | at its final frame with content / gone at once | Dia P§1 |
-| [ ] | Close confirmations | MVP | "Close 3 tabs?" per Space with "Don't ask me again"; ⌘Q warning; quit guard for downloads. Arc: measure | Dia P§1 |
+| [ ] | Close confirmations | MVP | "Close 3 tabs?" per Space with "Don't ask me again"; ⌘Q warning. Arc: measure | Dia P§1 |
 | [ ] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
 | [ ] | Window full screen with the sidebar | MVP | measure | — |
 
@@ -248,7 +248,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Footer button while downloading | MVP | ours: glyph over a 16 × 2 bar; Arc's look: measure | — |
 | [ ] | Fly-in | MVP | measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
 | [x] | Per profile, persisted | MVP | Chrome's history; private never written once private windows land | Dia P§14 |
-| [ ] | Quit guard | MVP | asks while downloads run; quitting cancels them for now | Dia P§1 |
+| [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
 
 ## Find in page
 

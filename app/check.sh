@@ -63,10 +63,12 @@
 #      their titles and favicons. A tab named with a double-click on its row, where escape cancels,
 #      keeps its name over its page's title, and Rename Tab in its menu with no name gives the
 #      title back. A tab closed before the quit stays closed, in the archive, from which the
-#      Library reopens it at its page. A page's download goes in the check's folder, ⇧⌘J opens the
-#      Library on Downloads, which lists it after the relaunch too, and Remove from List in its
-#      menu takes it off the list and keeps its file. A SIGTERM, which macOS sends at logout and
-#      restart, keeps a tab opened just before it. Reports how long putting them back takes.
+#      Library reopens it at its page. A page's downloads go in the check's folder, and ⇧⌘J opens
+#      the Library on Downloads, which lists them. With one running, ⌘Q asks first: Continue
+#      Downloading shows the Library's Downloads, and Quit quits, cancelling it. After the
+#      relaunch, Remove from List and Clear List take them off the list and keep their files. A
+#      SIGTERM, which macOS sends at logout and restart, keeps a tab opened just before it.
+#      Reports how long putting them back takes.
 #      With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long
 #      goes in the archive, counting the time across a quit, and the tab shown stays.
 #   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n/m",
@@ -1426,21 +1428,49 @@ echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-
 # tab's history, the tab each showed and the Space the window showed. Only a tab shown loads, and
 # one that doesn't shows its title and its favicon from the profile's history, which keeps none
 # for data: pages, so the first page is served. A tab the user closed stays closed. The page's text
-# field, along its bottom, puts what's in it in the title, and "d" typed in the page downloads a
-# file.
+# field, along its bottom, puts what's in it in the title. "d" typed in the page downloads a file,
+# and "s" one that takes longer than the run to come, once a check, as later runs type in it too.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
-<a id=save download href="notes.txt"></a>
+<a id=d download href="notes.txt"></a><a id=s download href="slow.bin"></a>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
-onkeydown = e => { if (e.key == "d" && e.target == document.body) save.click(); };
+onkeydown = e => {
+  const link = e.target == document.body && document.getElementById(e.key);
+  if (link && !localStorage[e.key]) {
+    localStorage[e.key] = 1;
+    link.click();
+  }
+};
 </script>' > "$out/site/index.html"
 printf 'notes\n' > "$out/site/notes.txt"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
   base64 -D > "$out/site/icon.png"
-python3 -I -u -m http.server 0 --bind 127.0.0.1 --directory "$out/site" > "$out/site.log" 2>&1 &
+python3 -I -u -c '
+import functools, http.server, sys, time
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != "/slow.bin":
+            return super().do_GET()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", "100000000")
+        self.end_headers()
+        try:
+            while True:
+                self.wfile.write(bytes(1000))
+                time.sleep(0.1)
+        except OSError:
+            pass
+
+handler = functools.partial(Handler, directory=sys.argv[1])
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+print("Serving HTTP on 127.0.0.1 port", server.server_address[1], "...")
+server.serve_forever()
+' "$out/site" > "$out/site.log" 2>&1 &
 server=$!
 for _ in $(seq 50); do
   grep -q '^Serving HTTP' "$out/site.log" && break
@@ -1469,11 +1499,13 @@ if [ "$active" != 1 ]; then
   echo "skip: restoring Spaces. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
-# The page's download goes in the check's folder, and ⇧⌘J from the page opens the Library on
-# Downloads, which lists it.
+# The page's downloads go in the check's folder, and ⇧⌘J from the page opens the Library on
+# Downloads, which lists them. The slow one runs until the quit.
 send type d
 expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
+send type s
+expect '^browser: download [0-9]* running slow.bin$' "the page's slow download didn't start"
 send key j cmd shift
 expect '^browser: command view-downloads via page$' "⇧⌘J with the page focused didn't reach the UI"
 expect '^browser: library section downloads$' "⇧⌘J didn't open the Library on Downloads"
@@ -1534,10 +1566,23 @@ send type news
 ../tools/window-screenshot.sh "$pid" "$out/rename-tab.png" || fail "no window to capture"
 send key return
 expect "^browser: title $c news\$" "return didn't name the tab"
-# ⌘Q is the driver's last command: the app doesn't report it done.
-echo "key q cmd" >&3
+# With a download running, ⌘Q asks first, in Chrome's alert. Continue Downloading keeps the browser
+# running and shows the Library's Downloads, and Quit quits, cancelling it.
+post key q cmd
+expect '^browser: command quit via ' "⌘Q didn't reach the UI"
+expect '^browser: modal shown Download is in progress, .*, Continue Downloading, Quit$' \
+  "⌘Q with a download running didn't ask first"
+send choose Continue Downloading
+expect '^browser: command view-downloads via chrome$' \
+  "Continue Downloading didn't show the downloads"
+expect '^browser: library section downloads$' \
+  "Continue Downloading didn't show the Library's Downloads"
+../tools/window-screenshot.sh "$pid" "$out/quit-downloads.png" || fail "no window to capture"
+post key q cmd
+expect '^browser: modal shown Download is in progress, ' "⌘Q didn't ask again"
+# Quit is the driver's last command: the app doesn't report it done.
+post choose Quit
 exec 3>&-
-await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 
 # Launched again, the app shows the first Space with the tab for example.net, and tab a under it
@@ -1577,8 +1622,10 @@ grep -q "^browser: loaded $e " "$log" && fail "the second Space's tab loaded wit
 ../tools/window-screenshot.sh "$pid" "$out/restored.png" || fail "no window to capture"
 await '^browser: archive 1 tabs$' || fail "the relaunch didn't bring back the archived tab"
 await '^browser: download [0-9]* done notes.txt$' || fail "the relaunch didn't list the download"
+await '^browser: download [0-9]* cancelled slow.bin$' ||
+  fail "the download the quit cancelled didn't come back cancelled"
 # Newest first, so the first is this run's.
-d=$(grep -m1 '^browser: download [0-9]* done notes.txt$' "$log" | cut -d' ' -f3)
+s=$(grep -m1 '^browser: download [0-9]* cancelled slow.bin$' "$log" | cut -d' ' -f3)
 check_layout "after the relaunch, with the sidebar it had" 300
 send click $page_point
 if [ "$active" != 1 ]; then
@@ -1617,18 +1664,25 @@ expect '^browser: library hidden$' "reopening a tab didn't close the Library"
 send click $page_point
 send key w cmd
 expect_tabs "$c $a" "$c" "after closing the tab from the archive"
-# Remove from List in the download's menu takes it off the list and keeps its file.
+# Remove from List in the cancelled download's menu takes it off the list, and Clear List in the
+# finished one's takes off every download that isn't running and keeps their files.
 send key j cmd shift
 expect '^browser: library section downloads$' "⇧⌘J didn't open the Library on Downloads"
 expect '^browser: library shown$' "⇧⌘J didn't open the Library after the relaunch"
 listed=$(grep '^browser: downloads ' "$log" | tail -1 | cut -d' ' -f3)
 post rightclick 300 111
-expect '^browser: menu shown Open, Show in Finder, Remove from List, Clear List$' \
-  "a right-click on the download's row didn't show its menu"
+expect '^browser: menu shown Remove from List, Clear List$' \
+  "a right-click on the cancelled download's row didn't show its menu"
 send choose Remove from List
-expect "^browser: download $d Remove via download menu\$" "Remove from List didn't reach it"
+expect "^browser: download $s Remove via download menu\$" "Remove from List didn't reach it"
 expect "^browser: downloads $((listed - 1))\$" "Remove from List didn't take the download off"
-[ -f "$out/downloads/notes.txt" ] || fail "Remove from List deleted the download's file"
+post rightclick 300 111
+expect '^browser: menu shown Open, Show in Finder, Remove from List, Clear List$' \
+  "a right-click on the finished download's row didn't show its menu"
+send choose Clear List
+expect '^browser: command clear-downloads via download menu$' "Clear List didn't run"
+expect '^browser: downloads 0$' "Clear List didn't empty the list"
+[ -f "$out/downloads/notes.txt" ] || fail "Clear List deleted the download's file"
 send key j cmd shift
 expect '^browser: library hidden$' "⇧⌘J didn't close the Library"
 switch "2 cmd" "$a"
@@ -1703,7 +1757,7 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's download is listed in the Library's Downloads, which ⇧⌘J opens, after the relaunch too, and Remove from List takes it off and keeps its file. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
 
 # Find in page, and zoom. The test page has three apples and one 日本語, and puts its zoom in its

@@ -39,10 +39,12 @@
 #include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/interaction/browser_elements_views_impl.h"
+#include "chrome/common/webui_url_constants.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "components/sessions/core/serialized_user_agent_override.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/url_constants.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/menus/simple_menu_model.h"
@@ -243,11 +245,28 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
 
 // static
 void Window::AdjustNavigate(NavigateParams& params) {
+  Window* window = params.browser ? ForBrowser(params.browser) : nullptr;
+  if (!window) {
+    return;
+  }
   // Popups become tabs (decision 3). So do new windows: the app opens its own.
-  if ((params.disposition == WindowOpenDisposition::NEW_POPUP ||
-       params.disposition == WindowOpenDisposition::NEW_WINDOW) &&
-      params.browser && ForBrowser(params.browser)) {
+  if (params.disposition == WindowOpenDisposition::NEW_POPUP ||
+      params.disposition == WindowOpenDisposition::NEW_WINDOW) {
     params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  }
+  // Chrome's downloads page, which it opens after the user stopped a quit to let downloads finish,
+  // is the Library's Downloads here.
+  if (params.url.SchemeIs(content::kChromeUIScheme) &&
+      params.url.host() == chrome::kChromeUIDownloadsHost) {
+    params.disposition = WindowOpenDisposition::IGNORE_ACTION;
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](base::WeakPtr<Window> window) {
+                         if (window && Host().window_show_downloads) {
+                           Host().window_show_downloads(Host().context, window->id());
+                         }
+                       },
+                       window->weak_factory_.GetWeakPtr()));
   }
 }
 
