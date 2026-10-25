@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "base/functional/callback_forward.h"
+#include "base/time/time.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "url/gurl.h"
 
@@ -22,6 +23,8 @@ struct SavedTab {
   int current = 0;
   // A pinned tab's pinned URL.
   GURL pinned_url;
+  // When a window last stopped showing a Today tab, if it was saved with one.
+  base::Time last_seen;
 };
 
 // |history|, with the page it's loading if it has no page yet.

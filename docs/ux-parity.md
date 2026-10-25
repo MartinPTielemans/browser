@@ -190,7 +190,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Clear (⇧⌘K and the divider button) | MVP | closes the Space's Today tabs but the one shown, in one frame, no toast; pinned and favorites stay | Arc 1.170.0 rec |
 | [x] | Undo Clear | MVP | ⌘Z brings them back in place, unloaded; the tab shown stays | Arc 1.170.0 rec |
 | [ ] | Reopen closed tab ⇧⌘T | MVP | position, pin, group, name, icon, mute, back/forward | Dia P§2 |
-| [ ] | Auto-archive interval and default | MVP | 12 hours by default; other intervals: measure | Arc 1.170.0 settings |
+| [x] | Auto-archive | MVP | a Today tab unseen for 12 hours goes in the archive, counted across a quit | Arc 1.170.0 settings |
+| [ ] | Auto-archive's other intervals | MVP | the setting; measure its options | Arc 1.170.0 settings |
 | [x] | ⌘W on a Today tab | MVP | Archive Tab: the tab goes in the archive | Arc 1.170.0 menus |
 | [x] | Library | MVP | takes the sidebar's place, pushes the card to 417 at its width on spring 0.245 s / ζ 0.92; column of sections, back button; ⇧⌘L, View Library, footer button | Arc 1.170.0 cap, ax, rec |
 | [x] | Archived Tabs | MVP | search on the buttons' row, day headings, rows 56 apart with favicon, title and host; a click reopens the tab | Arc 1.170.0 cap, ax |

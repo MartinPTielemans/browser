@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "base/strings/utf_string_conversions.h"
+#include "base/time/time.h"
 #include "browser_core/archive.h"
 #include "browser_core/favicon.h"
 #include "browser_core/find.h"
@@ -330,8 +331,11 @@ void bc_tab_set_pinned(bc_id id, bool pinned) {
   } else {
     space->Unpin(id);
   }
+  browser_core::Tab* tab = browser_core::Tab::FromWebContents(contents);
+  // Handled now, so a pinned tab unpinned unseen has its 12 hours in Today before it's archived.
+  tab->set_last_seen(base::Time::Now());
   // Whether it's away from its pinned URL.
-  browser_core::Tab::FromWebContents(contents)->StateChanged();
+  tab->StateChanged();
 }
 
 void bc_tab_move(bc_id id, bool pinned, size_t index) {
@@ -341,8 +345,11 @@ void bc_tab_move(bc_id id, bool pinned, size_t index) {
     return;
   }
   space->Move(id, pinned, index, browser_core::Tab::PageUrl(contents));
+  browser_core::Tab* tab = browser_core::Tab::FromWebContents(contents);
+  // As bc_tab_set_pinned's.
+  tab->set_last_seen(base::Time::Now());
   // Whether it's away from its pinned URL.
-  browser_core::Tab::FromWebContents(contents)->StateChanged();
+  tab->StateChanged();
 }
 
 bc_id bc_tab_duplicate(bc_id id) {

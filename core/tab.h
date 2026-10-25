@@ -3,6 +3,7 @@
 
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/time/time.h"
 #include "browser_core/public/browser_core.h"
 #include "components/favicon/core/favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
@@ -42,6 +43,10 @@ class Tab : public content::WebContentsObserver,
   // none comes during the app's call that made them.
   void StateChanged();
 
+  // When a window last stopped showing the tab, else when it opened, for the auto-archive.
+  base::Time last_seen() const { return last_seen_; }
+  void set_last_seen(base::Time time) { last_seen_ = time; }
+
  private:
   friend class content::WebContentsUserData<Tab>;
 
@@ -71,6 +76,7 @@ class Tab : public content::WebContentsObserver,
   void ReportTitle();
 
   const bc_id id_;
+  base::Time last_seen_ = base::Time::Now();
   bool state_report_posted_ = false;
   // The favicon the app was last told of.
   gfx::Image favicon_;

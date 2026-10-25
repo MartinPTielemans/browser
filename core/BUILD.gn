@@ -14,6 +14,8 @@ source_set("browser_core") {
     "api.cc",
     "archive.cc",
     "archive.h",
+    "auto_archive.cc",
+    "auto_archive.h",
     "browser_window_stand_in.cc",
     "browser_window_stand_in.h",
     "favicon.cc",

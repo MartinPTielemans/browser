@@ -56,6 +56,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static Window* ForBrowser(const BrowserWindowInterface* browser);
   // Closes every window at once, at quit, once their Browsers are gone.
   static void CloseAll();
+  // Whether a window shows |tab|.
+  static bool Showing(bc_id tab);
   // Chrome's navigator calls this before it picks the Browser for a navigation.
   static void AdjustNavigate(NavigateParams& params);
   // As |tab| closes: takes it out of its Space, and has each window that showed it show the tab its

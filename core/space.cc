@@ -12,6 +12,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/host.h"
 #include "browser_core/session.h"
 
@@ -256,6 +257,7 @@ void Space::ForgetOpener(bc_id tab) {
 
 void Space::ReportChanged() {
   SessionChanged();
+  ScheduleAutoArchive();
   // Posted: the app often changed the Space itself, and hears of it once its call has returned.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(
