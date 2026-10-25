@@ -37,8 +37,8 @@
 #      them, and a double-click on it puts the width back.
 #   5. A page's popup opens as a tab in the window, under the page. The page's context menu is
 #      Chrome's without the items the window can't do, its Open Link in New Tab opens a tab under
-#      the page without showing it, and its Print shows print preview centred over the page, at
-#      its top, which escape closes.
+#      the page without showing it, and its Print and ⌘P from the page show print preview
+#      centred over the page, at its top, which escape closes.
 #   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
 #      and while a page loads, reload is stop, which ⌘., escape and the button do. A tab's row
@@ -967,7 +967,8 @@ page='data:text/html,<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 // A popup needs a user gesture, which a key press is.
-addEventListener("keydown", e => e.key == "p" && open("https://example.com/", "", "popup,width=400,height=300"));
+addEventListener("keydown", e =>
+  e.key == "p" && !e.metaKey && open("https://example.com/", "", "popup,width=400,height=300"));
 </script>'
 log="$out/popup.log"
 step=0
@@ -1002,45 +1003,60 @@ send choose Open Link in New Tab
 expect "^browser: tab [0-9]* opened by $opener in the background\$" \
   "Open Link in New Tab didn't open a tab under the page"
 none_since '^browser: selected' || fail "Open Link in New Tab showed its tab"
+# Print preview is the tab's dialog, a child window centred over the page, at its top. Once $1
+# has asked for it: waits for it, captures it in $out/$2 once it has drawn over before-print.png,
+# a capture of the window before, and closes it with escape.
+print_preview() {
+  child=""
+  for _ in $(seq 50); do
+    send layout
+    child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
+      cut -d' ' -f4-)
+    [ -n "$child" ] && break
+    sleep 0.1
+  done
+  [ -n "$child" ] || fail "$1 didn't show print preview"
+  shown=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+    grep -o 'WebContentsViewCocoa [0-9,]* [0-9x]*' | cut -d' ' -f2-)
+  x=${child%%,*} y=${child#*,} y=${y%% *} width=${child#* } width=${width%x*}
+  page_x=${shown%%,*} page_y=${shown#*,} page_y=${page_y%% *} page_width=${shown#* }
+  page_width=${page_width%x*}
+  off=$((2 * x + width - 2 * page_x - page_width))
+  [ "$y" -eq "$page_y" ] && [ "$off" -ge -1 ] && [ "$off" -le 1 ] ||
+    fail "$1 showed print preview at $child, over the page at $shown"
+  # Its window is on screen before its page draws, which then takes escape once it has loaded.
+  for _ in $(seq 50); do
+    ../tools/window-screenshot.sh "$pid" "$out/$2" || fail "no window to capture"
+    cmp -s "$out/before-print.png" "$out/$2" || break
+    sleep 0.1
+  done
+  for _ in $(seq 50); do
+    send key escape
+    send layout
+    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: layout child' || break
+    sleep 0.1
+  done
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: layout child' &&
+    fail "escape didn't close the print preview $1 showed"
+  rm "${out:?}/before-print.png"
+}
 send click $page_point
+../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
 post rightclick $page_point
 expect '^browser: menu tracked Back, ' "a right-click on the page didn't show the page's menu"
 menu=$(grep '^browser: menu tracked' "$log" | tail -1 | cut -d' ' -f4-)
 [ "$menu" = "Back, Forward, Reload, Save As…, Print…, View Page Source, Inspect" ] ||
   fail "the page's menu is $menu"
-# Print preview is the tab's dialog, a child window centred over the page, at its top.
 send choose Print…
-child=""
-for _ in $(seq 50); do
-  send layout
-  child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
-    cut -d' ' -f4-)
-  [ -n "$child" ] && break
-  sleep 0.1
-done
-[ -n "$child" ] || fail "Print… didn't show print preview"
-shown=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
-  grep -o 'WebContentsViewCocoa [0-9,]* [0-9x]*' | cut -d' ' -f2-)
-x=${child%%,*} y=${child#*,} y=${y%% *} width=${child#* } width=${width%x*}
-page_x=${shown%%,*} page_y=${shown#*,} page_y=${page_y%% *} page_width=${shown#* }
-page_width=${page_width%x*}
-off=$((2 * x + width - 2 * page_x - page_width))
-[ "$y" -eq "$page_y" ] && [ "$off" -ge -1 ] && [ "$off" -le 1 ] ||
-  fail "print preview is at $child, over the page at $shown"
-# Print preview's page takes escape once it has loaded, so the capture before the escape that
-# closes it shows the preview.
-for _ in $(seq 50); do
-  ../tools/window-screenshot.sh "$pid" "$out/print.png" || fail "no window to capture"
-  send key escape
-  send layout
-  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: layout child' || break
-  sleep 0.1
-done
-sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: layout child' &&
-  fail "escape didn't close print preview"
+print_preview "the page menu's Print…" print.png
+# ⌘P, as File › Print, with the page focused.
+send click $page_point
+../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
+page_shortcut p print
+print_preview ⌘P print-key.png
 exec 3>&-
 quit
-echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do, Open Link in New Tab opens a tab under the page, and Print shows print preview centred over the page, at its top, which escape closes. Windows: $out/popup.png, $out/link-menu.png, $out/print.png"
+echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do, Open Link in New Tab opens a tab under the page, and Print and ⌘P show print preview centred over the page, at its top, which escape closes. Windows: $out/popup.png, $out/link-menu.png, $out/print.png, $out/print-key.png"
 
 # Back, forward, reload and stop. stuck.test leads to a server that takes connections and never
 # answers, so its page keeps loading until it's stopped.

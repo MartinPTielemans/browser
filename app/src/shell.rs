@@ -285,6 +285,10 @@ pub enum Command {
     ZoomOut,
     /// Opens the page's source in a tab under it.
     ViewSource,
+    /// Asks where to save the page, and saves it.
+    SavePage,
+    /// Shows print preview for the page.
+    Print,
     /// Opens the page's DevTools, or closes them.
     DevTools,
     /// Opens the page's DevTools picking an element.
@@ -355,6 +359,8 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-+", Command::ZoomIn, false),
     ("cmd--", Command::ZoomOut, false),
     ("alt-cmd-u", Command::ViewSource, false),
+    ("shift-cmd-s", Command::SavePage, false),
+    ("cmd-p", Command::Print, false),
     ("alt-cmd-i", Command::DevTools, false),
     ("alt-cmd-c", Command::InspectElements, false),
     ("alt-cmd-j", Command::JavaScriptConsole, false),
@@ -463,6 +469,8 @@ impl Command {
             Command::ZoomIn => "zoom-in",
             Command::ZoomOut => "zoom-out",
             Command::ViewSource => "view-source",
+            Command::SavePage => "save-page",
+            Command::Print => "print",
             Command::DevTools => "devtools",
             Command::InspectElements => "inspect-elements",
             Command::JavaScriptConsole => "javascript-console",
@@ -603,6 +611,10 @@ pub trait Browser {
     fn zoom(&self, tab: u64, step: i32, cx: &mut App);
     /// Opens the tab's source in a tab under it.
     fn view_source(&self, tab: u64, cx: &mut App);
+    /// Asks where to save the tab's page, and saves it there.
+    fn save_page(&self, tab: u64, cx: &mut App);
+    /// Shows print preview for the tab's page.
+    fn print(&self, tab: u64, cx: &mut App);
     /// Opens or closes the tab's DevTools (0), opens or closes them at the console (1), or opens
     /// them picking an element (2).
     fn devtools(&self, tab: u64, what: i32, cx: &mut App);
@@ -1635,6 +1647,8 @@ impl Shell {
             Command::ZoomIn => return self.browser.zoom(self.selected, 1, cx),
             Command::ZoomOut => return self.browser.zoom(self.selected, -1, cx),
             Command::ViewSource => return self.browser.view_source(self.selected, cx),
+            Command::SavePage => return self.browser.save_page(self.selected, cx),
+            Command::Print => return self.browser.print(self.selected, cx),
             Command::DevTools => return self.browser.devtools(self.selected, 0, cx),
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
