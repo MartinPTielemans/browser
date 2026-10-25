@@ -101,6 +101,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Library fade | out in 33 ms; in over 130 ms from 80 ms | the sidebar under the Library, where it is, opened or closed by a click | Arc 1.x video 60 fps, 2 opens and 2 closes |
 | Library recede | opacity 1 − p/0.66; scale 1 − 0.076p about (sidebar edge + 128, window middle); the Library's edge from 0.29 at 0.92 its width a way | the sidebar under the Library, with p how far the card has gone (0 to 1), while fingers move it and on after they let go, both ways | Arc 1.170 rec at 2×, a slow swipe open and one closed |
 | New Space pull | readying: white closes in over 60 ms, the dot shrinks into the + over 70 ms, pop to 1.13× and back over 120 ms from 40 ms; un-readying: the colour grows back over 120 ms; let go readied: the form at once, the circle back under the edge over 100 ms, ease-in-out | the circle past the last Space, and the Space it makes | Arc 1.170 rec at 1× and 2×, 3 pulls |
+| Space form leave | each part over 150 ms, opacity 1 − t³ and sinking 20t² pt: the buttons from 0 without sinking (opacity 1 − t), the field from 80 ms, the title from 130 ms | the Create a Space form after Create, from the bottom up | Arc 1.170 rec at 2×, one Space made |
 | Group expand | spring 0.30 s / ζ 0.82 | group or folder open and close (*interim*) | Dia rec |
 | Spinner | 0 → −2π (clockwise), 1.88 s, linear, repeating | tab loading | Dia 1.50.1 bin |
 
@@ -407,7 +408,13 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
   - The detent is AppKit's alignment haptic. Swipes don't page while the Create a Space form, a rename or a row drag is up.
 - The window tint cross-fades between the two Spaces' colours during a swipe (Ardia; Dia and Arc durations: measure).
   - Ours (*interim*): the gradient is as much of each Space's colour as its page shows, during a swipe and while a switch's pages slide.
-- Measure in Arc: the Space title, create, icon and colour flows, and how a Space shows its profile.
+- Measure in Arc: the Space title, icon and colour flows, the form's Profile and Choose a Theme rows, and how a Space shows its profile.
+
+**Creating** (Arc 1.170 rec at 2×, one Space named and made)
+
+- New Space, from the menu or a pull past the last Space, shows the Create a Space form in the sidebar. Arc's has an illustration, a title and a subtitle, the name field, Profile and Choose a Theme rows, and at the bottom Create Space and Cancel. Ours has the title "New Space" and the field, as the illustration and the copy are Arc's.
+- Create Space is Arc's blue, #2129FB, 36 tall with a radius of 8 and a white label, semibold 13. Until the field has a name, all of the button is at 0.4. Cancel is white 0.6, semibold 12. Create Space doesn't change under the pointer or while pressed; Cancel's wasn't recorded.
+- Create, or ↩ with a name, sends the form away from the bottom up (Space form leave): the buttons fade, then the rows, the field and the title fade as they sink. Arc then plays its illustration for about 2 s and shows the Space's rows within a frame. Ours shows them once the form is gone, 0.28 s after Create.
 
 **Renaming and deleting** (Arc's menu; our wording)
 

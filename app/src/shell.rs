@@ -267,13 +267,18 @@ const SPACE_SHOWN: u32 = 0xffffff80;
 const SPACE_OTHER: u32 = 0xffffff30;
 const SPACE_HOVERED: u32 = 0xffffff4d;
 // The form (Arc): a white title, plates of white 0.075, a placeholder of white 0.55, and Create
-// Space in the dark blue Space's accent, labelled white 0.27 until there's a name. Its label with a
-// name, and the name itself, are white (ours: Arc's aren't captured).
+// Space in Arc's blue with a white label, all of it at 0.4 until there's a name.
 const FORM_TEXT: u32 = 0xffffff;
 const FORM_PLATE: u32 = 0xffffff13;
 const FORM_PLACEHOLDER: u32 = 0xffffff8c;
-const CREATE: u32 = 0x25278a;
-const CREATE_LABEL_DISABLED: u32 = 0xffffff45;
+const CREATE: u32 = 0x2129fb;
+const CREATE_UNNAMED: f32 = 0.4;
+// Create sends the form away from the bottom up, as Arc does (docs/ux-spec.md › Creating): the
+// buttons fade, then the field and the title fade as they sink, each over 150 ms.
+const FORM_LEAVE: f32 = 0.15;
+const FORM_LEAVE_FIELD: f32 = 0.08;
+const FORM_LEAVE_TITLE: f32 = 0.13;
+const FORM_SINK: f32 = 20.;
 // The reveal panel's radius and its 0.5 pt light border, as in a capture of Arc at 1×: a circle of
 // 12, and one pixel of white 0.27 over the panel, which half a pixel of white 0.54 makes.
 const REVEAL_RADIUS: f32 = 12.;
@@ -1332,6 +1337,8 @@ pub struct Shell {
     /// The Space the window shows.
     space: u64,
     form: Option<SpaceForm>,
+    /// The form Create sent away, and when, until it's gone and its Space shows its rows.
+    leaving_form: Option<(SpaceForm, Instant)>,
     /// The form's field takes GPUI's focus at the next draw, which is when the shell has a window.
     focus_form: bool,
     renaming: Option<Renaming>,
@@ -1463,6 +1470,7 @@ impl Shell {
             spaces: Vec::new(),
             space: 0,
             form: None,
+            leaving_form: None,
             focus_form: false,
             renaming: None,
             focus_renaming: false,
@@ -2562,7 +2570,7 @@ impl Shell {
         // check.sh waits for these lines.
         eprintln!("browser: create space {} {name}", form.space);
         self.browser.rename_space(form.space, &name, cx);
-        self.form = None;
+        self.leaving_form = self.form.take().map(|form| (form, Instant::now()));
         window.focus(&self.focus_handle, cx);
         cx.notify();
     }
@@ -4654,9 +4662,25 @@ impl Shell {
         )
     }
 
-    /// The Create a Space form, in place of the URL field and the Space's tabs.
-    fn space_form(&self, form: &SpaceForm, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// The Create a Space form, in place of the URL field and the Space's tabs, and as it leaves,
+    /// `left` seconds after Create.
+    fn space_form(
+        &self,
+        form: &SpaceForm,
+        left: Option<f32>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let named = !form.name.read(cx).text().trim().is_empty();
+        // How far a part has gone, from 0 to 1, if it starts to leave `delay` after Create. It
+        // fades and sinks slowly at first, as Arc's do.
+        let gone = |delay: f32| left.map_or(0., |left| ((left - delay) / FORM_LEAVE).clamp(0., 1.));
+        let sinking = |delay: f32| {
+            let gone = gone(delay);
+            (1. - gone.powi(3), FORM_SINK * gone * gone)
+        };
+        let (title_opacity, title_sink) = sinking(FORM_LEAVE_TITLE);
+        let (field_opacity, field_sink) = sinking(FORM_LEAVE_FIELD);
+        let buttons_opacity = 1. - gone(0.);
         let plate = |id: &'static str| {
             div()
                 .id(id)
@@ -4671,7 +4695,8 @@ impl Shell {
         };
         let title = div()
             .absolute()
-            .top(px(FORM_TITLE_TOP))
+            .top(px(FORM_TITLE_TOP + title_sink))
+            .opacity(title_opacity)
             .w_full()
             .h(px(FORM_TITLE_HEIGHT))
             .flex()
@@ -4682,7 +4707,8 @@ impl Shell {
             .text_color(rgb(FORM_TEXT))
             .child("New Space");
         let field = plate("space-name-field")
-            .top(px(FORM_FIELD_TOP))
+            .top(px(FORM_FIELD_TOP + field_sink))
+            .opacity(field_opacity)
             .px(px(FORM_TEXT_X - FORM_INSET))
             .bg(rgba(FORM_PLATE))
             .text_size(px(14.))
@@ -4692,14 +4718,11 @@ impl Shell {
         let create = plate("create-space")
             .bottom(px(CREATE_BOTTOM))
             .justify_center()
+            .opacity(buttons_opacity * if named { 1. } else { CREATE_UNNAMED })
             .bg(rgb(CREATE))
             .text_size(px(13.))
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(if named {
-                rgb(FORM_TEXT)
-            } else {
-                rgba(CREATE_LABEL_DISABLED)
-            })
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgb(FORM_TEXT))
             .child("Create Space")
             .on_click(cx.listener(|shell, _, window, cx| shell.create_space(window, cx)));
         let cancel = div()
@@ -4709,6 +4732,7 @@ impl Shell {
             .h(px(CANCEL_HEIGHT))
             .flex()
             .justify_center()
+            .opacity(buttons_opacity)
             .child(
                 div()
                     .id("cancel-space")
@@ -4717,7 +4741,7 @@ impl Shell {
                     .items_center()
                     .block_mouse_except_scroll()
                     .text_size(px(12.))
-                    .font_weight(FontWeight::MEDIUM)
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgba(SECONDARY))
                     .child("Cancel")
                     .on_click(cx.listener(|shell, _, window, cx| shell.cancel_space(window, cx))),
@@ -4837,6 +4861,15 @@ impl Render for Shell {
         }
         self.step_library(window, cx);
         self.step_new_space(window);
+        if let Some((_, left)) = &self.leaving_form {
+            if left.elapsed().as_secs_f32() < FORM_LEAVE_TITLE + FORM_LEAVE {
+                window.request_animation_frame();
+            } else {
+                self.leaving_form = None;
+                // check.sh waits for this line.
+                eprintln!("browser: space form gone");
+            }
+        }
         if self.list_moving() {
             window.request_animation_frame();
         }
@@ -4988,9 +5021,14 @@ impl Shell {
             .bottom_0()
             .w(px(self.width()))
             .children(self.nav_buttons(cx));
-        let sidebar = match self.form() {
-            Some(form) => sidebar.child(self.space_form(form, cx)),
-            None => sidebar
+        let leaving = self.leaving_form.as_ref().filter(|(form, _)| form.space == self.space);
+        let sidebar = match (self.form(), leaving) {
+            (Some(form), _) => sidebar.child(self.space_form(form, None, cx)),
+            (None, Some((form, left))) => {
+                let left = left.elapsed().as_secs_f32();
+                sidebar.child(self.space_form(form, Some(left), cx))
+            }
+            (None, None) => sidebar
                 .child(self.url_field(cx))
                 .children(self.tiles(cx))
                 .child(self.space_pages(cx))

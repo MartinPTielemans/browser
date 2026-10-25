@@ -1,15 +1,15 @@
 # New Space in the Spaces menu makes a Space and shows it, empty and without a page, with a form
 # that takes the keyboard from the page. Japanese input composes in its field, return while
-# composing only commits, and return names the Space; ⌘T then opens a tab in it. ⌃1–⌃9, ⌥⌘← and ⌥⌘→,
-# with the page or the UI focused, and clicks on the switcher's dots show another Space, which shows
-# the tab it showed last. Two fingers across the sidebar page to the Space a flick or the pages'
-# place points at, never past the last, fingers along it don't, and a wheel's tick across pages
-# once. A tab's menu moves the tab to another Space, which the window shows with it. Return with no
-# name does nothing, New Space shows a form already open, and Cancel deletes its Space and goes
-# back. A right-click on the Space's name or a dot shows Rename Space, its colours and Delete Space.
-# Rename, and a double-click on the name, turn it into a field, where return keeps the name and
-# escape cancels. Delete asks first for a Space with tabs, which close with it and reopen with ⇧⌘T
-# in the Space shown, and the last Space can't be deleted.
+# composing only commits, and return names the Space and sends the form away; ⌘T then opens a tab in
+# it. ⌃1–⌃9, ⌥⌘← and ⌥⌘→, with the page or the UI focused, and clicks on the switcher's dots show
+# another Space, which shows the tab it showed last. Two fingers across the sidebar page to the
+# Space a flick or the pages' place points at, never past the last, fingers along it don't, and a
+# wheel's tick across pages once. A tab's menu moves the tab to another Space, which the window
+# shows with it. Return with no name does nothing, New Space shows a form already open, and Cancel
+# deletes its Space and goes back. A right-click on the Space's name or a dot shows Rename Space,
+# its colours and Delete Space. Rename, and a double-click on the name, turn it into a field, where
+# return keeps the name and escape cancels. Delete asks first for a Space with tabs, which close
+# with it and reopen with ⇧⌘T in the Space shown, and the last Space can't be deleted.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last.
 page='data:text/html,<title>loading</title>
@@ -64,6 +64,7 @@ send ime off
 send key return
 expect "^browser: create space $second reading 日本語\$" "return didn't name the Space: $(grep '^browser: create space' "$log" | tail -1)"
 expect "^browser: renamed space $second reading 日本語\$" "the core didn't rename the Space"
+expect '^browser: space form gone$' "the form didn't leave after Create"
 ../tools/window-screenshot.sh "$pid" "$out/new-space.png" || fail "no window to capture"
 send key t cmd
 expect '^browser: command new-tab via ui$' "⌘T in the new Space didn't reach the UI"
