@@ -383,10 +383,10 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
 }
 
 void Window::ShowSpace(bc_id space) {
-  Space* to = Space::FromId(space);
-  if (!to || space == space_) {
+  if (!Space::FromId(space) || space == space_) {
     return;
   }
+  const bc_id tab = TabToShowIn(space);
   if (space_) {
     selected_in_space_[space_] = selected_;
   }
@@ -400,16 +400,26 @@ void Window::ShowSpace(bc_id space) {
                        }
                      },
                      weak_factory_.GetWeakPtr(), space));
-  auto last = selected_in_space_.find(space);
-  if (last != selected_in_space_.end() && to->Has(last->second)) {
-    Select(last->second);
-  } else if (!to->today().empty()) {
-    Select(to->today().front());
-  } else if (!to->pinned().empty()) {
-    Select(to->pinned().front());
+  if (tab) {
+    Select(tab);
   } else {
     ShowNothing();
   }
+}
+
+bc_id Window::TabToShowIn(bc_id space) const {
+  Space* in = Space::FromId(space);
+  if (!in || space == space_) {
+    return in ? selected_ : 0;
+  }
+  auto last = selected_in_space_.find(space);
+  if (last != selected_in_space_.end() && in->Has(last->second)) {
+    return last->second;
+  }
+  if (!in->today().empty()) {
+    return in->today().front();
+  }
+  return in->pinned().empty() ? 0 : in->pinned().front();
 }
 
 bc_id Window::SelectedIn(bc_id space) const {

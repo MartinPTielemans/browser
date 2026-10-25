@@ -160,6 +160,11 @@ impl Browser for Fake {
         });
     }
 
+    // The made-up Spaces' pages slide in without a selected row.
+    fn space_tab(&self, _: u64) -> u64 {
+        0
+    }
+
     fn create_space(&self, name: &str, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
@@ -194,6 +199,8 @@ impl Browser for Fake {
     fn show_reveal(&self, _: f32, _: &mut App) {}
 
     fn hide_reveal(&self, _: &mut App) {}
+
+    fn detent(&self, _: &mut App) {}
 
     // Menus and alerts are AppKit's, which the preview goes without.
     fn menu(

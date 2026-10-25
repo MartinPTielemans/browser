@@ -37,7 +37,9 @@
 #      form that takes the keyboard from the page. Japanese input composes in its field, return
 #      while composing only commits, and return names the Space; ⌘T then opens a tab in it.
 #      ⌃1–⌃9, ⌥⌘← and ⌥⌘→, with the page or the UI focused, and clicks on the switcher's dots show
-#      another Space, which shows the tab it showed last. Return with no name does nothing, New
+#      another Space, which shows the tab it showed last. Two fingers across the sidebar page to
+#      the Space a flick or the pages' place points at, never past the last, fingers along it
+#      don't, and a wheel's tick across pages once. Return with no name does nothing, New
 #      Space shows a form already open, and Cancel deletes its Space and goes back. A right-click
 #      on the Space's name or a dot shows Rename Space and Delete Space. Rename, and a
 #      double-click on the name, turn it into a field, where return keeps the name and escape
@@ -1078,6 +1080,37 @@ show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 ../tools/window-screenshot.sh "$pid" "$out/spaces.png" || fail "no window to capture"
 
+# Two fingers across the sidebar page between Spaces. A flick goes on to the next Space, a drag let
+# go still goes to the Space nearest its place, and past the last Space the pages come back. Fingers
+# along the list scroll it, and a wheel's tick across pages once. Held partway, the next Space's
+# page shows beside the first's.
+swipe_point="110 500"
+post swipe $swipe_point -10 0 10 1500
+await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
+../tools/window-screenshot.sh "$pid" "$out/swipe.png" || fail "no window to capture"
+await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
+none_since '^browser: space [0-9]' || fail "a swipe let go short of halfway showed another Space"
+# $1 is the driver's swipe, $2 the Space it shows and $3 that Space's tab.
+swipe_to() {
+  send swipe $swipe_point $1
+  expect '^browser: command select-space via swipe$' "a swipe of $1 didn't page"
+  expect "^browser: space $2 in " "a swipe of $1 didn't show Space $2"
+  expect_tabs "$3" "$3" "after a swipe of $1 showed Space $2"
+}
+swipe_to "-12 0 10" "$second" "$b"
+swipe_to "12 0 10" "$first" "$a"
+swipe_to "-30 0 20 200" "$second" "$b"
+send swipe $swipe_point -12 0 10
+expect '^browser: swipe across$' "two fingers across the sidebar didn't page"
+none_since '^browser: space [0-9]' || fail "a flick past the last Space showed another"
+send swipe $swipe_point 1 -10 10
+expect '^browser: swipe along$' "two fingers along the list didn't read as scrolling"
+none_since '^browser: space [0-9]' || fail "two fingers along the list showed another Space"
+send wheel $swipe_point 1
+expect '^browser: command select-space via wheel$' "a wheel's tick across the sidebar didn't page"
+expect "^browser: space $first in " "a wheel's tick across the sidebar didn't show the first Space"
+expect_tabs "$a" "$a" "after a wheel's tick showed the first Space"
+
 send menu New Space…
 expect "^browser: spaces $first $second [0-9]*\$" "New Space didn't make a third Space"
 third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f5)
@@ -1087,6 +1120,8 @@ none_since '^browser: create space' || fail "return with no name named the Space
 show_space "key 1 ctrl" select-space ui "$first" "$a"
 send menu New Space…
 expect "^browser: space $third in " "New Space didn't show the form already open"
+# Clicks wait for the Space's page to slide into place.
+expect "^browser: settled space $third\$" "the form's page didn't settle"
 none_since '^browser: spaces ' || fail "New Space with a form open made another Space"
 send state
 in_browser AccessKitSubclassOfGPUIView "back in the third Space's form"
@@ -1095,6 +1130,7 @@ expect "^browser: cancel space $third\$" "a click on Cancel didn't cancel"
 expect "^browser: space $first in " "Cancel didn't show the first Space again"
 expect "^browser: spaces $first $second\$" "Cancel didn't delete the third Space"
 expect_tabs "$a" "$a" "after Cancel"
+expect "^browser: settled space $first\$" "the first Space's page didn't settle after Cancel"
 
 # A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
 name_point="100 112"
@@ -1136,7 +1172,7 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/space-menu.png, $out/space-delete.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/space-menu.png, $out/space-delete.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each

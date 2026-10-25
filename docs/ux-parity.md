@@ -101,12 +101,12 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Switcher band | MVP | 28 tall, 31 in from each side, 12 pt per item, 7 before scrolling, edge scale 0.75–1 | Dia 1.50.1 bin |
 | [ ] | Switcher dot | MVP | 6 pt; alpha 0.85 / 0.4 / 0.2 | Dia 1.50.1 bin |
 | [ ] | Space icons in the switcher | MVP | measure | — |
-| [ ] | Swipe tracking | MVP | −0.5 × horizontal delta; ignores the system swipe setting | Dia 1.50.1 bin |
-| [ ] | Rubber band | MVP | `255·(1 − 1/(0.15·x/255 + 1))` | Dia 1.50.1 bin |
-| [ ] | Release | MVP | ≥ 5 pt/s goes on; ±1 Space; 100 ms velocity history | Dia 1.50.1 bin |
-| [ ] | Settle | MVP | critically damped 0.25 s, carrying the velocity; detent haptic | Dia 1.50.1 bin |
-| [ ] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
-| [ ] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
+| [x] | Swipe tracking | MVP | −0.5 × horizontal delta; ignores the system swipe setting | Dia 1.50.1 bin |
+| [x] | Rubber band | MVP | `255·(1 − 1/(0.15·x/255 + 1))` | Dia 1.50.1 bin |
+| [x] | Release | MVP | ≥ 5 pt/s goes on; ±1 Space; 100 ms velocity history | Dia 1.50.1 bin |
+| [x] | Settle | MVP | critically damped 0.25 s, carrying the velocity; detent haptic | Dia 1.50.1 bin |
+| [x] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
+| [x] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
 | [ ] | Colour cross-fade | MVP | measure | Ardia |
 | [ ] | Space title, create, colour, icon | MVP | measure | — |
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks if it has tabs | Arc, ours |
