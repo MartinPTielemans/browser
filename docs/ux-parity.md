@@ -75,7 +75,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
 | [x] | Row fill change | MVP | 300 ms ease-out, as the hover fill leaves *interim*; Arc's: measure | Dia 1.50.1 bin |
 | [x] | Close ✕ | MVP | on hover, the selected row's too; 26 × 26, 5 inside the plate's right edge | Arc 1.170.0 cap |
-| [ ] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
+| [x] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
 | [ ] | Sleeping tab | MVP | faded favicon (alpha: measure) | Dia |
 | [ ] | "+ New Tab" row | MVP | label white 0.55, plus 0.25, 3 under the last row, sticky at the bottom | Dia 1.50.1 bin |
 | [x] | Scroll edge | MVP | 1 pt P3 white 0.09 at favorites + 4; fades 100 ms cubic-bezier(0.25, 0.46, 0.45, 0.94) *interim*, Arc's: measure | Dia 1.53.0 bin |

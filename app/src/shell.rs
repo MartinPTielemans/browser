@@ -155,6 +155,9 @@ const FAVICON_SIZE: f32 = 18.;
 // rather than scaled up soft.
 const FAVICON_DRAWN: f32 = 16.;
 const LOADING_SIZE: f32 = 12.;
+// A row narrower than this, such as a split's segment in a narrow sidebar, leaves the spinner out
+// (Dia), as it would leave the title no room.
+const LOADING_ROW_MIN: f32 = 48.;
 // One clockwise turn (docs/ux-spec.md › Motion).
 const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
@@ -4461,9 +4464,15 @@ impl Shell {
         self.select(tab, cx)
     }
 
-    /// A tab's segment of its split view's row: its favicon and its title, bright if `focused`,
-    /// after a line unless it's the `first`.
-    fn segment(&self, tab: u64, first: bool, focused: bool) -> gpui::Div {
+    /// How wide each segment of a split view's row is, `count` of them `depth` folders in.
+    fn segment_width(&self, depth: usize, count: usize) -> f32 {
+        let plate = self.width() - 2. * PLATE_INSET - depth as f32 * FOLDER_INDENT;
+        (plate - (FAVICON_X - PLATE_INSET - SEGMENT_FAVICON_X)) / count as f32
+    }
+
+    /// A tab's segment of its split view's row, `width` wide: its favicon and its title, bright if
+    /// `focused`, after a line unless it's the `first`.
+    fn segment(&self, tab: u64, width: f32, first: bool, focused: bool) -> gpui::Div {
         let page = self.page(tab);
         let icon = div()
             .flex_none()
@@ -4493,7 +4502,9 @@ impl Shell {
             .when(!first, |segment| segment.child(line))
             .child(icon)
             .child(title(self.title(tab), focused))
-            .when(page.loading, |segment| segment.child(loading_ring(tab)))
+            .when(page.loading && width >= LOADING_ROW_MIN, |segment| {
+                segment.child(loading_ring(tab))
+            })
     }
 
     /// `segment`, which a click shows focused, a double-click renames and a right-click shows the
@@ -4501,11 +4512,12 @@ impl Shell {
     fn split_segment(
         &self,
         tab: u64,
+        width: f32,
         first: bool,
         focused: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        self.segment(tab, first, focused)
+        self.segment(tab, width, first, focused)
             .id(("segment", tab))
             .on_mouse_down(
                 MouseButton::Left,
@@ -4550,12 +4562,13 @@ impl Shell {
             }
             None => {
                 let close = (hovered && closable).then(|| self.close_button(panes.clone(), cx));
+                let width = self.segment_width(self.depth(first), panes.len());
                 let segments: Vec<_> = panes
                     .iter()
                     .enumerate()
                     .map(|(index, &tab)| {
                         let focused = row_selected && tab == self.selected;
-                        self.split_segment(tab, index == 0, focused, cx)
+                        self.split_segment(tab, width, index == 0, focused, cx)
                     })
                     .collect();
                 split_plate(segments).children(close)
@@ -5194,8 +5207,10 @@ impl Shell {
             }
             let panes = space.panes(tab);
             if panes.len() > 1 {
-                let segments =
-                    panes.iter().map(|&pane| self.segment(pane, pane == tab, pane == selected));
+                let width = self.segment_width(space.depth(tab), panes.len());
+                let segments = panes
+                    .iter()
+                    .map(|&pane| self.segment(pane, width, pane == tab, pane == selected));
                 return row.child(
                     split_plate(segments)
                         .when(panes.contains(&selected), |plate| selected_plate(plate, 1.)),
