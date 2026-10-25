@@ -1400,10 +1400,20 @@ send choose Space 1
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "moving the tab back didn't show the first Space"
 expect_tabs "$a" "$a" "after moving the tab back"
 show_space "key 2 ctrl" select-space ui "$second" "$b"
-show_space "key 1 ctrl" select-space ui "$first" "$a"
 
-send menu New Space…
-expect "^browser: spaces $first $second [0-9]*\$" "New Space didn't make a third Space"
+# Fingers pull the last Space's page past its place and bring in a circle, which readies a new
+# Space once its ring closes. Let go short of that, the page goes back; let go readied, they make
+# the Space with its form, as New Space… does.
+expect "^browser: settled space $second\$" "the second Space's page didn't settle"
+send swipe $swipe_point -10 0 10
+expect '^browser: swipe across$' "two fingers across the sidebar didn't page"
+none_since '^browser: new space ready$' || fail "a short pull past the last Space readied a Space"
+post swipe $swipe_point -30 0 10 1500
+expect '^browser: new space ready$' "a long pull past the last Space didn't ready a Space"
+../tools/window-screenshot.sh "$pid" "$out/new-space-pull.png" || fail "no window to capture"
+await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
+expect '^browser: command new-space via swipe$' "letting go of a readied pull didn't make a Space"
+expect "^browser: spaces $first $second [0-9]*\$" "the pull didn't make a third Space"
 third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f5)
 expect "^browser: space $third in " "the window didn't show the third Space"
 send key return
@@ -1418,10 +1428,13 @@ send state
 in_browser AccessKitSubclassOfGPUIView "back in the third Space's form"
 send click 114 $((${content#*x} - 74))
 expect "^browser: cancel space $third\$" "a click on Cancel didn't cancel"
-expect "^browser: space $first in " "Cancel didn't show the first Space again"
+# The pull opened the form from the second Space.
+expect "^browser: space $second in " "Cancel didn't show the second Space again"
 expect "^browser: spaces $first $second\$" "Cancel didn't delete the third Space"
-expect_tabs "$a" "$a" "after Cancel"
-expect "^browser: settled space $first\$" "the first Space's page didn't settle after Cancel"
+expect_tabs "$b" "$b" "after Cancel"
+expect "^browser: settled space $second\$" "the second Space's page didn't settle after Cancel"
+show_space "key 1 ctrl" select-space ui "$first" "$a"
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 
 # A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
 name_point="100 112"
@@ -1466,7 +1479,7 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back; a tab's menu moves it to another Space, which shows with it; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/library-swipe.png, $out/space-menu.png, $out/space-delete.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel deletes a new Space and goes back to the Space it was made from. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/library-swipe.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
