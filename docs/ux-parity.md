@@ -119,6 +119,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Swipe tracking | MVP | −0.5 × horizontal delta; ignores the system swipe setting | Dia 1.50.1 bin |
 | [x] | Rubber band | MVP | `255·(1 − 1/(0.15·x/255 + 1))` | Dia 1.50.1 bin |
 | [x] | Past the first Space, the Library | MVP | fingers move its open, opening past halfway or on a flick; a wheel's tick opens it; back from it the same way. Arc's finger tracking: measure | Arc release notes, Arc 1.x video |
+| [x] | Past the last Space, a new Space | MVP | the page pulls ≤ 41 (2×); a circle's ring closes at 38 and readies it, with Arc's morph and pop; let go readied makes the Space with its form, the page in from 46 over 170 ms. Arc's 4-point sparkle: ours is the dot growing into the + | Arc 1.x video |
 | [x] | Release | MVP | ≥ 5 pt/s goes on; ±1 Space; 100 ms velocity history | Dia 1.50.1 bin |
 | [x] | Settle | MVP | critically damped 0.25 s, carrying the velocity; detent haptic | Dia 1.50.1 bin |
 | [x] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |

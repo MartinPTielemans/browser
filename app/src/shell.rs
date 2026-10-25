@@ -25,10 +25,12 @@ use gpui::{
 use crate::text_input::TextInput;
 
 mod library;
+mod new_space;
 mod split_targets;
 
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 use library::{LIBRARY_WIDTH, Section, swiped_opacity};
+use new_space::NEW_SPACE_PULL;
 
 /// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
@@ -1269,6 +1271,8 @@ struct Swipe {
     samples: VecDeque<(Instant, f32)>,
     /// The Space nearest its place, for the detent as it changes.
     nearest: u64,
+    /// When they pulled the last Space far enough to ready a new Space, while they still do.
+    ready: Option<Instant>,
 }
 
 /// A Space's page settling on its place, after a swipe or a switch.
@@ -1410,6 +1414,8 @@ pub struct Shell {
     library_motion: Option<(f32, f32, Instant)>,
     /// While the sidebar under the Library fades: its opacity when it started, and when.
     sidebar_fade: Option<(f32, Instant)>,
+    /// When a Space the fingers pulled for came, while its form comes in.
+    form_entered: Option<Instant>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -1488,6 +1494,7 @@ impl Shell {
             library_open: false,
             library_motion: None,
             sidebar_fade: None,
+            form_entered: None,
             switching: None,
             background_pressed: false,
             accent_color,
@@ -3462,7 +3469,7 @@ impl Shell {
     /// Where a swipe has taken the page of the Space it began at: with the fingers, but
     /// rubber-banding past the first and last Spaces, and past one Space either side. Past the
     /// first Space is the Library, its width away. A swipe in the Library goes back that far, to
-    /// the Space shown.
+    /// the Space shown. Past the last, the band stops at the pull that makes a new Space.
     fn swiped_to(&self, swipe: &Swipe) -> f32 {
         if swipe.library {
             return rubber_band(swipe.way, -LIBRARY_WIDTH, 0.);
@@ -3474,8 +3481,10 @@ impl Shell {
             0 => 0.,
             _ => width,
         };
-        let low = if index + 1 < self.spaces.len() { -width } else { 0. };
-        rubber_band(swipe.way, low, high)
+        if index + 1 < self.spaces.len() {
+            return rubber_band(swipe.way, -width, high);
+        }
+        rubber_band(swipe.way, 0., high).max(-NEW_SPACE_PULL)
     }
 
     /// Whether fingers going right from `space` bring out the Library: from the first Space, in the
@@ -3526,6 +3535,7 @@ impl Shell {
                     way: 0.,
                     samples: VecDeque::new(),
                     nearest: self.space,
+                    ready: None,
                 });
             }
             TouchPhase::Ended | TouchPhase::Cancelled => return self.release(cx),
@@ -3563,6 +3573,7 @@ impl Shell {
             while swipe.samples.front().is_some_and(|&(at, _)| now - at > SWIPE_HISTORY) {
                 swipe.samples.pop_front();
             }
+            self.ready_new_space(&mut swipe, cx);
             let near = library_near(self, &swipe);
             if near.is_some() {
                 if self.library.is_none() {
@@ -3606,6 +3617,10 @@ impl Shell {
             }
             let opacity = swiped_opacity(out);
             self.move_library(open, out, velocity / LIBRARY_WIDTH, opacity, cx);
+            return true;
+        }
+        if swipe.ready.is_some() {
+            self.make_pulled_space(cx);
             return true;
         }
         let toward = if velocity.abs() >= SWIPE_FLICK {
@@ -4679,7 +4694,7 @@ impl Shell {
             }))
             .absolute()
             .top_0()
-            .left_0()
+            .left(px(self.form_left()))
             .w(px(self.width()))
             .bottom_0()
             .child(title)
@@ -4790,6 +4805,7 @@ impl Render for Shell {
             }
         }
         self.step_library(window, cx);
+        self.step_new_space(window);
         if self.list_moving() {
             window.request_animation_frame();
         }
@@ -4924,6 +4940,7 @@ impl Shell {
                 .child(self.url_field(cx))
                 .children(self.tiles(cx))
                 .child(self.space_pages(cx))
+                .children(self.new_space_circle())
                 .children(self.dragged_tile(cx)),
         };
         sidebar
