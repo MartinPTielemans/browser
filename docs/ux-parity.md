@@ -70,6 +70,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Sleeping tab | MVP | faded favicon (alpha: measure) | Dia |
 | [ ] | "+ New Tab" row | MVP | label white 0.55, plus 0.25, 3 under the last row, sticky at the bottom | Dia 1.50.1 bin |
 | [ ] | Scroll edge | MVP | 1 pt P3 white 0.09 at favorites + 4; fades 100 ms cubic-bezier(0.25, 0.46, 0.45, 0.94) | Dia 1.53.0 bin |
+| [x] | ⌘T's plate | MVP | "+ New Tab" has the selected plate while ⌘T's bar is open, in one frame | Arc 1.170.0 rec 120 fps |
 | [x] | Open tab motion | MVP | new row in place at once, its plate fading in; rows below slide; spring 0.13 s / ζ 0.9 | Arc 1.170.0 rec 120 fps |
 | [x] | Close tab motion | MVP | the row fades as the rows below slide up over it; spring 0.13 s / ζ 0.9 | Arc 1.170.0 rec 120 fps |
 | [x] | Undo motion | MVP | the tabs Undo brings back fade in in place; spring 0.13 s / ζ 0.9 | Arc 1.170.0 rec 120 fps |

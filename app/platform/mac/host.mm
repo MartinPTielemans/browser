@@ -69,6 +69,7 @@ NSView* g_ui_view;
 NSWindow* g_overlay;
 NSView* g_overlay_view;
 bool g_overlay_shown = false;
+void (*g_overlay_dismissed)(void);
 
 // The find bar's window and view, and its distance from the top right of the browser window's
 // content.
@@ -193,8 +194,8 @@ void host_show_window(void* ui_view) {
                                           } else if (event.window == g_find_bar) {
                                             g_find_bar_keyboard = true;
                                           }
-                                          if (g_overlay_shown && event.window != g_overlay) {
-                                            host_hide_overlay();
+                                          if (event.window != g_overlay) {
+                                            host_dismiss_overlay();
                                           }
                                           return event;
                                         }];
@@ -210,8 +211,9 @@ void host_show_window(void* ui_view) {
                                               }];
 }
 
-void host_add_overlay(void* overlay_view) {
+void host_add_overlay(void* overlay_view, void (*dismissed)(void)) {
   g_overlay_view = (__bridge NSView*)overlay_view;
+  g_overlay_dismissed = dismissed;
   g_overlay = g_overlay_view.window;
   MakeOverlay(g_overlay);
   // The UI draws the bar's shape, which grows out of the URL field. A titled window would draw its
@@ -226,7 +228,7 @@ void host_add_overlay(void* overlay_view) {
                       object:nil
                        queue:nil
                   usingBlock:^(NSNotification*) {
-                    host_hide_overlay();
+                    host_dismiss_overlay();
                   }];
   // Chromium makes its window key by itself, such as when a page commits and its view replaces
   // the one that had focus. That isn't the user leaving, so the overlay takes the keyboard back.
@@ -239,7 +241,7 @@ void host_add_overlay(void* overlay_view) {
                       if (window == g_window) {
                         [g_overlay makeKeyWindow];
                       } else {
-                        host_hide_overlay();
+                        host_dismiss_overlay();
                       }
                     } else if (!g_overlay_shown && window == g_window && g_find_bar_shown &&
                                g_find_bar_keyboard) {
@@ -323,6 +325,19 @@ void host_hide_overlay(void) {
   [g_overlay orderOut:nil];
   [g_find_bar_shown && g_find_bar_keyboard ? g_find_bar : g_window makeKeyWindow];
   fprintf(stderr, "browser: command bar hidden\n");
+}
+
+void host_dismiss_overlay(void) {
+  if (!g_overlay_shown) {
+    return;
+  }
+  host_hide_overlay();
+  // Posted: the UI may be handling the event that closed the overlay.
+  if (g_overlay_dismissed) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      g_overlay_dismissed();
+    });
+  }
 }
 
 void host_add_find_bar(void* find_bar_view, double right, double top) {

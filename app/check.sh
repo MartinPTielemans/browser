@@ -7,9 +7,10 @@
 #      page, and the others reach the page first, which can keep them. ⌘Q quits. The command
 #      bar opens over the page with the keyboard, never showing the last query, gives the
 #      keyboard back when it closes, and loads what's typed in it, over https for a host typed
-#      without one, or searches DuckDuckGo for words. Japanese input composes and commits in the
-#      page and in the command bar, where return and escape go to the input method while it
-#      composes. The Edit menu's Undo, Redo and Select All reach the focused page.
+#      without one, or searches DuckDuckGo for words. While ⌘T's is open, "New Tab" has the
+#      selected plate. Japanese input composes and commits in the page and in the command bar,
+#      where return and escape go to the input method while it composes. The Edit menu's Undo,
+#      Redo and Select All reach the focused page.
 #   3. A tab opened from the command bar goes at the top of the Space's Today tabs and shows. The
 #      command bar suggests pages from history as it's typed in, growing to fit them, with the
 #      tabs already at them, never the one shown, and well-known sites under them. ↑, ↓ and ⌃N
@@ -252,6 +253,11 @@ page_shortcut() {
 for shortcut in "t new-tab" "l edit-url"; do
   page_shortcut $shortcut
   expect '^browser: command bar shown$' "$shortcut didn't open the command bar"
+  # ⌘T's bar gives "New Tab" the selected plate, and the tab gets it back when the bar closes.
+  if [ "$shortcut" = "t new-tab" ]; then
+    expect '^browser: new tab plate 1$' "⌘T didn't give New Tab the selected plate"
+    ../tools/window-screenshot.sh "$pid" "$out/new-tab-plate.png" || fail "no window to capture"
+  fi
   # A shortcut the page doesn't keep comes back after the page has had it, so after the
   # driver's done.
   send state
@@ -259,6 +265,9 @@ for shortcut in "t new-tab" "l edit-url"; do
     fail "the command bar opened without the keyboard, which is in $key, on $focus"
   send key escape
   expect '^browser: command bar hidden$' "escape didn't close the command bar"
+  if [ "$shortcut" = "t new-tab" ]; then
+    expect '^browser: new tab plate 0$' "escape didn't give the tab back its plate"
+  fi
   in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 done
 send key f cmd
@@ -275,6 +284,7 @@ expect '^browser: command new-tab via ui$' "⌘T with the UI focused didn't reac
 expect '^browser: command bar shown$' "⌘T with the UI focused didn't open the command bar"
 send click $page_point
 expect '^browser: command bar hidden$' "a click on the page didn't close the command bar"
+expect '^browser: new tab plate 0$' "a click on the page didn't give the tab back its plate"
 in_browser RenderWidgetHostViewCocoa "after a click on the page closed the command bar"
 send type d
 # Input reaches the page in order, so by now it has seen the x and the shortcuts, if they got there.
@@ -358,7 +368,7 @@ echo "key q cmd" >&3
 exec 3>&-
 await '^browser: command quit via page$' || fail "⌘Q with the page focused didn't reach the UI"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q quits, the command bar takes the keyboard and gives it back, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new
 # tab does. The app asks Chrome to trace its tab switches, timed as Chrome times its own: from the
@@ -392,11 +402,13 @@ open_from_bar() {
   before=$(today)
   send key t cmd
   expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+  expect '^browser: new tab plate 1$' "⌘T didn't give New Tab the selected plate"
   send type "$1"
   send key return
   expect "^browser: today [0-9][0-9]*${before:+ $before}\$" "the tab for $1 didn't open at the top of Today"
   tab=$(today | cut -d' ' -f1)
   expect "^browser: selected $tab\$" "the tab for $1 wasn't shown"
+  expect '^browser: new tab plate 0$' "the tab for $1 didn't take the selected plate"
   expect "^browser: loaded $tab https://$1/\$" "$1 didn't load in its tab"
 }
 # The driver's key $1 shows tab $2, as a switch the app times.

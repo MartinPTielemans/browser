@@ -27,8 +27,9 @@ void* host_ui_view(void);
 void host_show_window(void* ui_view);
 
 // Makes the window of |overlay_view| float over the browser window when shown, for UI that has
-// to draw over the page. It starts hidden.
-void host_add_overlay(void* overlay_view);
+// to draw over the page. It starts hidden. |dismissed| runs, after the event, when the user leaves
+// the overlay without choosing anything in it.
+void host_add_overlay(void* overlay_view, void (*dismissed)(void));
 
 // Shows the overlay and gives it the keyboard, |width| points wide: with its top left at |left|,
 // |top| in the browser window's content and ending at least 8 points inside it, or if |centered|,
@@ -43,6 +44,9 @@ void host_reshape_overlay(void);
 
 // Hides the overlay. The browser window gets the keyboard back, with the focus where it was.
 void host_hide_overlay(void);
+
+// Hides the overlay as the user leaving it, as escape does.
+void host_dismiss_overlay(void);
 
 // Makes the window of |find_bar_view| float over the browser window when shown, |right| and |top|
 // points from the top right corner of the window's content, for the find bar. It starts hidden.
