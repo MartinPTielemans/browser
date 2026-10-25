@@ -71,6 +71,11 @@ NSView* g_overlay_view;
 bool g_overlay_shown = false;
 void (*g_overlay_dismissed)(void);
 
+// The dialog's window and view.
+NSWindow* g_dialog;
+NSView* g_dialog_view;
+bool g_dialog_shown = false;
+
 // The find bar's window and view, and its distance from the top right of the browser window's
 // content.
 NSWindow* g_find_bar;
@@ -247,6 +252,9 @@ void host_show_window(void* ui_view) {
                                                 if (g_hud_shown) {
                                                   PlaceHud();
                                                 }
+                                                if (g_dialog_shown) {
+                                                  [g_dialog setFrame:g_window.frame display:YES];
+                                                }
                                               }];
 }
 
@@ -282,8 +290,8 @@ void host_add_overlay(void* overlay_view, void (*dismissed)(void)) {
                       } else {
                         host_dismiss_overlay();
                       }
-                    } else if (!g_overlay_shown && window == g_window && g_find_bar_shown &&
-                               g_find_bar_keyboard) {
+                    } else if (!g_overlay_shown && !g_dialog_shown && window == g_window &&
+                               g_find_bar_shown && g_find_bar_keyboard) {
                       // The same for the find bar, which the user left only by clicking.
                       [g_find_bar makeKeyWindow];
                     }
@@ -557,6 +565,56 @@ void host_hide_drop_targets(void) {
   [g_window removeChildWindow:g_drop_targets];
   [g_drop_targets orderOut:nil];
   fprintf(stderr, "browser: drop targets hidden\n");
+}
+
+void host_add_dialog(void* dialog_view) {
+  g_dialog_view = (__bridge NSView*)dialog_view;
+  g_dialog = g_dialog_view.window;
+  MakeOverlay(g_dialog);
+  // Titled, as GPUI made it, so its corners are the browser window's. It draws the dim over all
+  // of the browser window, which has its own shadow.
+  g_dialog.hasShadow = NO;
+  // The dialog is answered before anything else, as an alert is. Chromium makes its window key by
+  // itself, such as when a page commits, and the dialog takes the keyboard back.
+  [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification
+                                                  object:nil
+                                                   queue:nil
+                                              usingBlock:^(NSNotification* notification) {
+                                                if (g_dialog_shown &&
+                                                    notification.object != g_dialog) {
+                                                  [g_dialog makeKeyWindow];
+                                                }
+                                              }];
+}
+
+void host_show_dialog(void) {
+  if (!g_dialog || !g_window || g_dialog_shown) {
+    return;
+  }
+  g_dialog_shown = true;
+  // After the UI's update that asked, since the window draws here: at the browser window's frame,
+  // before it shows, since it keeps the last frame it drew.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_dialog_shown) {
+      return;
+    }
+    [g_dialog setFrame:g_window.frame display:NO];
+    [g_dialog_view.layer setNeedsDisplay];
+    [g_dialog_view.layer displayIfNeeded];
+    [g_window addChildWindow:g_dialog ordered:NSWindowAbove];
+    [g_dialog makeKeyAndOrderFront:nil];
+    fprintf(stderr, "browser: dialog window shown\n");
+  });
+}
+
+void host_hide_dialog(void) {
+  if (!g_dialog_shown) {
+    return;
+  }
+  g_dialog_shown = false;
+  [g_window removeChildWindow:g_dialog];
+  [g_dialog orderOut:nil];
+  [g_find_bar_shown && g_find_bar_keyboard ? g_find_bar : g_window makeKeyWindow];
 }
 
 void host_show_window_buttons(bool shown) {
@@ -866,15 +924,13 @@ void host_hide_settings(void) {
   [g_settings orderOut:nil];
 }
 
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
-             bool destructive) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
   NSAlert* alert = [[NSAlert alloc] init];
   alert.messageText = @(message);
   alert.informativeText = @(detail);
   for (size_t i = 0; i < count; ++i) {
     [alert addButtonWithTitle:@(buttons[i])];
   }
-  alert.buttons.firstObject.hasDestructiveAction = destructive;
   g_alert = alert;
   fprintf(stderr, "browser: alert shown %s\n", message);
   NSModalResponse response = [alert runModal];

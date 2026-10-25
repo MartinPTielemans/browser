@@ -769,6 +769,11 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("escape", CancelName, Some("Naming")),
     ]);
     cx.on_action(|run: &Run, cx| {
+        // The menu's keys reach it from the dialog's window too, and the dialog has to be
+        // answered first, as an alert's does.
+        if crate::dialog::asking(cx) {
+            return;
+        }
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
             shell
                 .update(cx, |shell, cx| shell.run(run.0, "ui", cx))
@@ -819,6 +824,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/chevron-down.svg", include_bytes!("../assets/icons/chevron-down.svg")),
     ("icons/chevron-up.svg", include_bytes!("../assets/icons/chevron-up.svg")),
     ("icons/chevrons-up-down.svg", include_bytes!("../assets/icons/chevrons-up-down.svg")),
+    ("icons/corner-down-left.svg", include_bytes!("../assets/icons/corner-down-left.svg")),
     ("icons/file.svg", include_bytes!("../assets/icons/file.svg")),
     ("icons/folder.svg", include_bytes!("../assets/icons/folder.svg")),
     ("icons/folder-open.svg", include_bytes!("../assets/icons/folder-open.svg")),
@@ -5565,7 +5571,7 @@ fn title(title: SharedString, selected: bool) -> gpui::Div {
 
 /// Where a CSS cubic-bezier(`x1`, `y1`, `x2`, `y2`) curve is at `x`, from 0 to 1: the x of each
 /// control point, then its y.
-fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
+pub(crate) fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     let at = |t: f32, p1: f32, p2: f32| {
         let u = 1. - t;
         3. * u * u * t * p1 + 3. * u * t * t * p2 + t * t * t

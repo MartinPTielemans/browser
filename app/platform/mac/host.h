@@ -84,6 +84,17 @@ void host_show_drop_targets(void);
 // Hides the drop targets' window.
 void host_hide_drop_targets(void);
 
+// Makes the window of |dialog_view| the dialog's, which covers the browser window when shown, with
+// the keyboard until it's hidden. It starts hidden.
+void host_add_dialog(void* dialog_view);
+
+// Shows the dialog's window over the browser window, as the UI draws it now, with the keyboard.
+void host_show_dialog(void);
+
+// Hides the dialog's window. The browser window gets the keyboard back, with the focus where it
+// was.
+void host_hide_dialog(void);
+
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 
@@ -119,9 +130,8 @@ int host_menu(const host_menu_item* items, size_t count, double x, double y, int
 
 // Asks |message| in an alert, with |detail| under it and the |count| |buttons|, the first the
 // default and a "Cancel" one taking escape, and returns the index of the one chosen once it
-// closes. With |destructive|, the first does what can't be undone.
-int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
-             bool destructive);
+// closes.
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count);
 
 // Shows the browser window's close, minimize and zoom buttons, or hides them, as Arc does while its
 // sidebar is hidden.
