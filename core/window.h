@@ -109,12 +109,12 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // another.
   void Select(bc_id tab);
 
-  // Closes the Today tabs of the Space the window shows, for UndoClear to bring back. One shown goes
-  // first, for the lowest pinned tab still loaded, else no page. Returns how many.
+  // Closes the Today tabs of the Space the window shows, all but the one it shows, for UndoClear to
+  // bring back. Returns how many.
   size_t Clear();
-  // Brings back the tabs the last Clear closed, at the top of their Space's Today tabs and unloaded,
-  // showing the one it closed shown. Once only, and not those ReopenClosedTab brought back.
-  void UndoClear();
+  // Brings back the tabs the last Clear closed, at their places in their Space's Today tabs and
+  // unloaded. Once only, and not those ReopenClosedTab brought back. Returns how many.
+  size_t UndoClear();
   // Reopens the tab closed last, in any window, with its history: at its place in its Space's Today
   // tabs, else at the top of the Space the window shows. Shows it, and its Space. Returns its id, or
   // 0 if there's none.
@@ -167,13 +167,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
     raw_ptr<BrowserWindowInterface> browser;
     base::CallbackListSubscription close_cancelled;
   };
+  // A tab Clear closed, and its place in Today before.
   struct Cleared {
-    // The ids the tabs had, top to bottom.
-    std::vector<bc_id> tabs;
-    // The one the window showed, or 0.
-    bc_id shown = 0;
+    bc_id tab;
+    size_t index;
   };
-
   Window(bc_id id, const gfx::Rect& bounds, void* ui_view);
 
   // The Browser for |profile|'s tabs in this window, made when there's none or it's closing. Null
@@ -209,7 +207,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   double page_corner_radius_ = 0;
   double sidebar_width_;
   std::map<Profile*, Held> browsers_;
-  Cleared cleared_;
+  // The tabs the last Clear closed, top to bottom.
+  std::vector<Cleared> cleared_;
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;

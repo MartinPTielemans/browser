@@ -74,12 +74,12 @@
 #  11. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, to a
 #      pasteboard of the run's own. The sidebar shows Clear and the URL field's button only while
 #      the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and
-#      Clear on the divider, close the Space's Today tabs and show the lowest pinned tab still
-#      loaded, with a toast that hides by itself. Its Undo brings the tabs back in place, showing
-#      the one shown and leaving the other unloaded. ⇧⌘T from the page and the UI reopens the tab
-#      closed last, where it was and with its history, and after a Clear, Undo brings back only the
-#      tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, whose Duplicate Tab, Close Tabs
-#      Below and Unpin Tab work.
+#      Clear on the divider, close the Space's Today tabs but the one shown, with no toast, and ⌘Z
+#      from the page and the UI brings them back in place, unloaded, unless the page's text field
+#      has the keyboard, when ⌘Z is its own. ⇧⌘T from the page and the UI reopens the tab closed
+#      last, where it was and with its history, and after a Clear, ⌘Z brings back only the tabs ⇧⌘T
+#      didn't. A right-click on a row shows its tab's menu, whose Duplicate Tab, Close Tabs Below
+#      and Unpin Tab work.
 # Runs 2 to 11 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -1282,10 +1282,15 @@ echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
 # tab's history, the tab each showed and the Space the window showed. Only a tab shown loads, and
 # one that doesn't shows its title and its favicon from the profile's history, which keeps none
-# for data: pages, so the first page is served. A tab the user closed stays closed.
+# for data: pages, so the first page is served. A tab the user closed stays closed. The page's text
+# field, along its bottom, puts what's in it in the title.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>' > "$out/site/index.html"
+<textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+text.oninput = () => document.title = "value " + text.value;
+</script>' > "$out/site/index.html"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
   base64 -D > "$out/site/icon.png"
 python3 -I -u -m http.server 0 --bind 127.0.0.1 --directory "$out/site" > "$out/site.log" 2>&1 &
@@ -1836,11 +1841,11 @@ if [ "$active" != 1 ]; then
   echo "skip: Clear. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
-# Clear on the divider, which sits under the one pinned tab, the toast's Undo, over the bottom of
-# the list in the 800 pt tall window, and the URL field's button.
+# Clear on the divider, which sits under the one pinned tab, the URL field's button, and the
+# served page's text field, along the bottom of the 800 pt tall window.
 clear_point="200 185"
-undo_point="192 732"
 copy_point="202 64"
+field_point="600 760"
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -1876,51 +1881,62 @@ send move $page_point
 expect '^browser: sidebar hovered 0$' "the sidebar didn't see the pointer leave"
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-away.png" || fail "no window to capture"
 
-# ⇧⌘K with the page focused closes the Today tabs and shows the pinned tab, without loading it.
+# ⇧⌘K with the page focused closes the Today tabs but the one shown, here the middle of three,
+# without showing or loading another.
+open_from_bar example.net
+x=$tab
+switch "3 cmd" "$c"
 send click $page_point
 send key k cmd shift
 expect '^browser: command clear via page$' "⇧⌘K with the page focused didn't reach the UI"
-expect '^browser: toast cleared 2$' "Clear didn't show its toast for two tabs"
-expect "^browser: tab $c closed\$" "Clear didn't close the tab shown"
-expect "^browser: tab $b closed\$" "Clear didn't close the other Today tab"
-expect_lists "$a" " *" "after Clear"
-expect "^browser: selected $a\$" "Clear didn't show the pinned tab still loaded"
+expect '^browser: cleared 2$' "Clear didn't close the two tabs not shown"
+expect "^browser: tab $b closed\$" "Clear didn't close the bottom tab"
+expect "^browser: tab $x closed\$" "Clear didn't close the top tab"
+expect_lists "$a" "$c" "after Clear"
+none_since '^browser: selected' || fail "Clear showed another tab"
 none_since '^browser: loaded' || fail "Clear loaded a page"
+none_since '^browser: toast' || fail "Clear showed a toast"
 ../tools/window-screenshot.sh "$pid" "$out/clear.png" || fail "no window to capture"
 
-# Undo brings them back in place, showing the one shown and leaving the other unloaded.
-send click $undo_point
-expect '^browser: command undo-clear via sidebar$' "a click on the toast's Undo didn't run it"
-expect '^browser: toast hidden$' "Undo left the toast"
-expect "^browser: today [0-9][0-9]* [0-9][0-9]*\$" "Undo didn't bring back two Today tabs: Today is \"$(today)\""
-c=$(today | cut -d' ' -f1)
-b=$(today | cut -d' ' -f2)
-expect "^browser: selected $c\$" "Undo didn't show the tab Clear closed shown"
-expect "^browser: loaded $c https://example.org/\$" "the tab Undo showed didn't load at its page"
-expect "^browser: page $b back 0 forward 0 loading 0 https://example.com/\$" "the other tab didn't come back at its page"
-expect "^browser: page $b unloaded 1\$" "the tab Undo didn't show came back loaded"
-none_since "^browser: loaded $b " || fail "the tab Undo didn't show loaded"
+# ⌘Z with the page focused puts them back in place, unloaded, and the tab shown stays.
+send key z cmd
+expect '^browser: command undo-clear via page$' "⌘Z with the page focused didn't undo Clear"
+expect "^browser: today [0-9][0-9]* $c [0-9][0-9]*\$" \
+  "Undo didn't put the tabs back around the one shown: Today is \"$(today)\""
+b=$(today | cut -d' ' -f3)
+expect "^browser: page $b back 0 forward 0 loading 0 https://example.com/\$" \
+  "the bottom tab didn't come back at its page"
+expect "^browser: page $b unloaded 1\$" "the tab Undo brought back came back loaded"
+none_since '^browser: selected' || fail "Undo showed another tab"
+none_since '^browser: loaded' || fail "Undo loaded a page"
 
-# The divider's Clear, under the pointer, and the toast hides by itself.
+# The divider's Clear, under the pointer.
 send move $clear_point
 expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over Clear"
 send click $clear_point
 expect '^browser: command clear via sidebar$' "a click on Clear didn't run it"
-expect '^browser: toast cleared 2$' "Clear on the divider didn't show its toast"
-expect_lists "$a" " *" "after Clear on the divider"
-expect '^browser: toast hidden$' "the toast didn't hide by itself"
+expect '^browser: cleared 2$' "Clear on the divider didn't close the two tabs not shown"
+expect_lists "$a" "$c" "after Clear on the divider"
 
-# ⇧⌘K with the UI focused, then with no Today tab left to clear.
-open_from_bar example.com
-d=$tab
+# With a Clear to undo, ⌘Z in the page's text field undoes typing there.
+switch "1 cmd" "$a"
+send click $field_point
+send type ab
+expect '^browser: title [0-9]* value ab$' "typing didn't reach the served page's text field"
+send key z cmd
+expect '^browser: title [0-9]* value a$' "⌘Z in the page's text field didn't undo typing there"
+none_since '^browser: command undo-clear' || fail "⌘Z in the page's text field undid Clear"
+
+# ⇧⌘K with the UI focused and the pinned tab shown closes every Today tab, then finds none.
 send click $sidebar_point
 send key k cmd shift
 expect '^browser: command clear via ui$' "⇧⌘K with the UI focused didn't run"
-expect "^browser: tab $d closed\$" "⇧⌘K with the UI focused didn't close the Today tab"
-expect "^browser: selected $a\$" "⇧⌘K with the UI focused didn't show the pinned tab"
+expect '^browser: cleared 1$' "⇧⌘K with the pinned tab shown didn't close the Today tab"
+expect "^browser: tab $c closed\$" "⇧⌘K with the UI focused didn't close the Today tab"
+expect_lists "$a" " *" "after Clear with the pinned tab shown"
 send key k cmd shift
 expect '^browser: command clear via ui$' "⇧⌘K without Today tabs didn't run"
-none_since '^browser: toast cleared' || fail "Clear without Today tabs showed a toast"
+none_since '^browser: cleared' || fail "Clear without Today tabs closed some"
 
 # ⇧⌘T with the UI focused reopens the tab closed last and shows it.
 send key t cmd shift
@@ -1928,7 +1944,7 @@ expect '^browser: command reopen-closed-tab via ui$' "⇧⌘T with the UI focuse
 expect "^browser: today [0-9][0-9]*\$" "⇧⌘T didn't reopen the tab Clear closed: Today is \"$(today)\""
 d=$(today)
 expect "^browser: selected $d\$" "⇧⌘T didn't show the tab it reopened"
-expect "^browser: loaded $d https://example.com/\$" "the reopened tab didn't load its page"
+expect "^browser: loaded $d https://example.org/\$" "the reopened tab didn't load its page"
 
 # ⇧⌘T with the page focused puts a tab back where it was, with its history.
 open_from_bar example.net
@@ -1952,22 +1968,24 @@ expect "^browser: selected $e\$" "⇧⌘T didn't show the tab it reopened"
 expect_page example.org 1 0 "after ⇧⌘T"
 ../tools/window-screenshot.sh "$pid" "$out/reopen.png" || fail "no window to capture"
 
-# After Clear, ⇧⌘T reopens the tab it closed last, and Undo brings back only the others.
+# After Clear, ⇧⌘T reopens the tab it closed last, the top one, and ⌘Z with the UI focused brings
+# back only the other.
 send click $page_point
 send key k cmd shift
 expect '^browser: command clear via page$' "⇧⌘K with the page focused didn't reach the UI"
-expect '^browser: toast cleared 3$' "Clear didn't show its toast for three tabs"
-expect_lists "$a" " *" "after clearing three tabs"
+expect '^browser: cleared 2$' "Clear didn't close the two tabs not shown"
+expect_lists "$a" "$e" "after clearing around the tab shown"
 send click $sidebar_point
 send key t cmd shift
 expect '^browser: command reopen-closed-tab via ui$' "⇧⌘T after Clear didn't reach the UI"
-expect "^browser: today [0-9][0-9]*\$" "⇧⌘T after Clear didn't reopen one tab: Today is \"$(today)\""
-d=$(today)
-send click $undo_point
-expect '^browser: command undo-clear via sidebar$' "a click on the toast's Undo didn't run it"
-expect "^browser: today [0-9][0-9]* [0-9][0-9]* $d\$" "Undo after ⇧⌘T didn't bring back just the other two: Today is \"$(today)\""
-e=$(today | cut -d' ' -f2)
-expect "^browser: selected $e\$" "Undo didn't show the tab Clear closed shown"
+expect "^browser: today [0-9][0-9]* $e\$" \
+  "⇧⌘T after Clear didn't reopen the top tab: Today is \"$(today)\""
+t=$(today | cut -d' ' -f1)
+send key z cmd
+expect '^browser: command undo-clear via ui$' "⌘Z with the UI focused didn't run"
+expect "^browser: today $t $e [0-9][0-9]*\$" \
+  "Undo after ⇧⌘T didn't bring back just the bottom tab: Today is \"$(today)\""
+none_since "^browser: selected" || fail "Undo after ⇧⌘T showed another tab"
 
 # A right-click on a row shows its tab's menu, with the shortcuts. Duplicate Tab opens a copy under
 # it, with its history, and shows it. Rows count from the one pinned tab.
@@ -2005,4 +2023,4 @@ expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to t
 exec 3>&-
 quit
 kill "$server"
-echo "ok: ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs and show the pinned tab still loaded, with a toast that hides by itself. Undo brings the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and Undo brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. Windows: $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png"
+echo "ok: ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. Windows: $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png"

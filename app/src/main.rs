@@ -11,7 +11,7 @@ use std::{
 };
 
 use browser::shell::{self, Browser, Command, MenuEntry, Page, Shell, WindowButton};
-use browser::text_input::{Copy, Cut, Paste, SelectAll};
+use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
     ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, Size,
@@ -104,9 +104,6 @@ fn key_equivalent(keystroke: &str) -> (String, [bool; 4]) {
 const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
 
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
-// The Edit menu's Undo and Redo go to the first responder, which undoes for itself, as a page does.
-// They're bound only so the menu shows their keys.
-actions!(edit, [Undo, Redo]);
 
 thread_local! {
     // The core calls back into the UI from Chromium's event handling, outside any GPUI update.
@@ -238,8 +235,8 @@ impl Browser for Engine {
         unsafe { bc::bc_window_clear(WINDOW.get()) };
     }
 
-    fn undo_clear(&self, _: &mut App) {
-        unsafe { bc::bc_window_undo_clear(WINDOW.get()) };
+    fn undo_clear(&self, _: &mut App) -> usize {
+        unsafe { bc::bc_window_undo_clear(WINDOW.get()) }
     }
 
     fn reopen_closed_tab(&self, _: &mut App) {
@@ -459,14 +456,16 @@ fn keystroke(key: &bc::bc_key) -> String {
 
 /// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't.
 fn run_page_shortcut(key: *const bc::bc_key, reserved: bool) -> bool {
-    let Some(command) = Command::for_keystroke(&keystroke(unsafe { &*key }), reserved) else {
+    let key = unsafe { &*key };
+    let Some(command) = Command::for_keystroke(&keystroke(key), reserved) else {
         return false;
     };
+    // ⌘Z in a text field is the page's, which the Edit menu gives it.
+    if command == Command::UndoClear && key.editing {
+        return false;
+    }
     let mut ran = false;
-    update_shell(|shell, cx| {
-        shell.run(command, "page", cx);
-        ran = true;
-    });
+    update_shell(|shell, cx| ran = shell.run_for_page(command, cx));
     ran
 }
 
@@ -603,8 +602,6 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("cmd-h", Hide, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
-            KeyBinding::new("cmd-z", Undo, Some("TextInput")),
-            KeyBinding::new("shift-cmd-z", Redo, Some("TextInput")),
         ]);
         cx.set_menus(menus());
         open_window(cx);

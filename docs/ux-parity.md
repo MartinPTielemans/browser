@@ -186,9 +186,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [x] | Clear (⇧⌘K and the divider button) | MVP | closes all Today tabs of the Space; pinned and favorites stay | Arc (Ardia) |
-| [ ] | Clear toast with Undo | MVP | Undo restores all in place; look and timing: measure | Arc (Ardia), Ardia |
-| [ ] | Clear unselected Today tabs | MVP | as Arc's `clearOthers` | Arc (Ardia) bin |
+| [x] | Clear (⇧⌘K and the divider button) | MVP | closes the Space's Today tabs but the one shown, in one frame, no toast; pinned and favorites stay | Arc 1.170.0 rec |
+| [x] | Undo Clear | MVP | ⌘Z brings them back in place, unloaded; the tab shown stays | Arc 1.170.0 rec |
 | [ ] | Reopen closed tab ⇧⌘T | MVP | position, pin, group, name, icon, mute, back/forward | Dia P§2 |
 | [ ] | Auto-archive interval and default | MVP | measure | — |
 | [ ] | ⌘W on a Today tab | MVP | measure | — |

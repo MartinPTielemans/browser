@@ -37,6 +37,9 @@ typedef struct bc_key {
   const char* key;
   // The BC_MODIFIER_ flags held.
   uint32_t modifiers;
+  // The page's focused element takes text, as a text field does, so editing keys such as ⌘Z are
+  // its own.
+  bool editing;
 } bc_key;
 
 // Where a tab's page is: what the URL field, back, forward and reload show.
@@ -229,15 +232,14 @@ BC_EXPORT void bc_window_set_page_frame(bc_id window, bc_rect frame, double corn
 // window_space_shown if the Space changed, and window_selected.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
-// Clears the Space the window shows: closes its Today tabs, as bc_tab_close does, for
-// bc_window_undo_clear to bring back. If one was shown, the window shows the lowest pinned tab still
-// loaded, else no page, first. Returns how many tabs it closed.
+// Clears the Space the window shows: closes its Today tabs but the one it shows, as bc_tab_close
+// does, for bc_window_undo_clear to bring back. Returns how many tabs it closed.
 BC_EXPORT size_t bc_window_clear(bc_id window);
 
-// Brings back the tabs the window's last bc_window_clear closed, at the top of their Space's Today
-// tabs and unloaded, showing the one it closed shown. Once only, and not those
-// bc_window_reopen_closed_tab brought back. Then space_changed.
-BC_EXPORT void bc_window_undo_clear(bc_id window);
+// Brings back the tabs the window's last bc_window_clear closed, at their places in their Space's
+// Today tabs and unloaded. Once only, and not those bc_window_reopen_closed_tab brought back. Then
+// space_changed. Returns how many it brought back.
+BC_EXPORT size_t bc_window_undo_clear(bc_id window);
 
 // Reopens the Today tab closed last, in any window, with its history: at its place in its Space's
 // Today tabs, else at the top of the Space the window shows. The window shows it, and its Space.
