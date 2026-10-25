@@ -85,8 +85,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 
 | Name | Value | Used for | Source |
 |---|---|---|---|
-| Row slide | cubic-bezier(0.25, 0.1, 0.25, 1), 140 ms, no overshoot | rows making or closing room | Dia rec 120 fps, D›Opening and closing tabs |
-| Row fade | cubic-bezier(0, 0, 0.58, 1), 100 ms | a closed row leaving | same |
+| Row motion | spring 0.13 s / ζ 0.9 (CSS ease ≈ 115–120 ms): within 0.75 pt of rest 83–92 ms in | rows making or closing room; a closed row fading, its opacity the slide's remaining fraction; a new tab's plate fading in; rows Undo brings back fading in | Arc 1.170.0 rec 120 fps: ⌘T then a pick, ⌘W, Undo after Clear |
 | Row fill change | ease-out, 300 ms | tab row background changes. Ours: the hover fill fading once the pointer leaves a row; it fills at once, and selection moves at once (Tab rows › Behavior) | Dia 1.50.1 bin |
 | Reorder | critically damped, ω ≈ 90 rad/s: 91 % in 43 ms, done by 76 ms | neighbours making way during a drag | Dia rec 60 fps, D›Reordering |
 | Hover card in | opacity cubic-bezier(0.25, 0.46, 0.45, 0.94) 100 ms; scale 0.92 → 1 spring 0.25 s / ζ 0.75 | tab and favorite hover card | Dia bin, D›Tab hover card motion |
@@ -270,8 +269,9 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 
 **Behavior**
 
-- **Opening a tab** (Dia rec 120 fps). The new row appears in its slot, opaque and already selected, and the old selection drops at once. Rows below slide down one pitch (Row slide), drawn under the new row and revealed from beneath its bottom edge.
-- **Closing a tab.** Selection moves to the neighbour at once. The closed row drops its selected fill, fades in place (Row fade), and the rows below slide up over it, starting at the same moment. Hover follows the final layout at once. Several closes fade together.
+- **Opening a tab** (Arc rec 120 fps). The new row appears in its slot at once, already selected, and its plate fades in (Row motion). The old selection drops at once. Rows below slide down one pitch (Row motion), drawn under the new row and revealed from beneath its bottom edge (Dia).
+- **Closing a tab** (Arc rec 120 fps). Selection moves to the neighbour at once. The closed row drops its selected fill and stays in place, fading as the rows below slide up over it (Row motion), all starting at the same moment. Hover follows the final layout at once. Several closes fade together.
+- **Tabs coming back.** When several rows come at once, as after Undo, they fade in in place (Arc rec) and the rows below them slide.
 - **Hover card** for rows and tiles (Dia bin). It is a child window that scales from its top-left corner. In and out per Motion; both start from the current values, so a leaving card comes back from where it is.
   - It shows after 0.5 s, or 0.1 s from one hover source that wasn't identified. It shows at once when another card is already up.
   - Moving from row to row moves the card without animation.
@@ -750,7 +750,6 @@ Record at 120 fps on a ProMotion display, 60 fps at the least. Use each frame's 
 | Feature | Record | Time |
 |---|---|---|
 | Sidebar | ⌘S show from hidden (the one path Ardia's recording lacks); ⌘S hide; the reveal in and out at the default width | spring or curve of the card edge and panel edge |
-| Sidebar | ⌘T then a pick; ⌘W on a Today tab (archive); closing a pinned tab | row slide and fade curves; whether the new row appears at once |
 | Sidebar | Dragging a row past three neighbours, into favorites and back | neighbour spring; drop settle |
 | Sidebar | Hovering a favorite, then moving to the next | show delay, leave delay, tooltip motion |
 | Sidebar | Folder expand and collapse | spring |

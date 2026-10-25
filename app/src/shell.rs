@@ -56,10 +56,10 @@ const REVEAL_OUT: f32 = 0.15;
 /// spring's overshoot.
 const REVEAL_OVERSHOOT: f32 = 8.;
 
-// Rows make room and close it on Dia's curves, and a closed tab's row fades (docs/ux-spec.md ›
-// Motion: Row slide, Row fade). A row's hover fill fades out on Row fill change.
-const ROW_SLIDE: f32 = 0.14;
-const ROW_FADE: f32 = 0.1;
+// Rows make room and close it, a closed tab's row fades and new rows fade in on one spring, Arc's
+// (docs/ux-spec.md › Motion: Row motion). A row's hover fill fades out on Row fill change.
+const ROW_RESPONSE: f32 = 0.13;
+const ROW_DAMPING: f32 = 0.9;
 const ROW_FILL: f32 = 0.3;
 // A pressed row comes away once the pointer has moved this far (ours), and the rows around a
 // dragged one make way critically damped (docs/ux-spec.md › Motion: Reorder).
@@ -694,6 +694,20 @@ enum Slot {
     NewTab,
 }
 
+/// Tabs' rows new in the list, fading in since `start`: a new tab's plate, or whole rows when
+/// several come at once, as after Undo.
+struct Opened {
+    tabs: Vec<u64>,
+    start: Instant,
+}
+
+impl Opened {
+    /// How far they've faded in, or None once they have.
+    fn done(&self) -> Option<f32> {
+        row_spring(self.start.elapsed().as_secs_f32())
+    }
+}
+
 /// A closed tab's row, fading where it was.
 struct Closing {
     title: SharedString,
@@ -705,7 +719,7 @@ struct Closing {
 /// How a row slides to its place.
 #[derive(Clone, Copy)]
 enum Curve {
-    /// Making room for a tab's row or closing it (Row slide).
+    /// Making room for a tab's row or closing it (Row motion).
     Slide,
     /// Making way for a dragged row (Reorder).
     Reorder,
@@ -715,9 +729,7 @@ impl Curve {
     /// How far along the slide is `t` seconds in, or None once it's done.
     fn at(self, t: f32) -> Option<f32> {
         match self {
-            Curve::Slide => {
-                (t < ROW_SLIDE).then(|| cubic_bezier(0.25, 0.1, 0.25, 1., t / ROW_SLIDE))
-            }
+            Curve::Slide => row_spring(t),
             Curve::Reorder => {
                 let left = (1. + REORDER_OMEGA * t) * (-REORDER_OMEGA * t).exp();
                 (left > 0.01).then_some(1. - left)
@@ -815,8 +827,8 @@ pub struct Shell {
     unhovered: Vec<(Row, Instant)>,
     /// Rows on their way to their place: how far from it each started, and when.
     slides: HashMap<Slot, (f32, Instant, Curve)>,
-    /// A tab's new row, which the rows sliding down to make room come out from beneath.
-    opened: Option<u64>,
+    /// Tabs' new rows, which the rows sliding down to make room come out from beneath.
+    opened: Option<Opened>,
     closing: Vec<Closing>,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
@@ -1940,8 +1952,8 @@ impl Shell {
     }
 
     /// Starts the list's rows from where they were in `before` to where they are now: rows still
-    /// there slide, a new tab's row is in its place at once, and a closed one fades where it was
-    /// (docs/ux-spec.md › Tab rows).
+    /// there slide, a new tab's row is in its place at once with its plate fading in, several new
+    /// ones fade in whole, and a closed one fades where it was (docs/ux-spec.md › Tab rows).
     fn move_rows(&mut self, before: HashMap<Slot, f32>) {
         let now = Instant::now();
         let after = slots(self.pinned(), self.today());
@@ -1952,12 +1964,17 @@ impl Shell {
                 (from != 0.).then_some((slot, (from, now, Curve::Slide)))
             })
             .collect();
-        let opened = after
+        let mut opened = after
             .iter()
-            .filter(|(slot, _)| matches!(slot, Slot::Tab(_)) && !before.contains_key(slot))
-            .min_by(|(_, a), (_, b)| a.total_cmp(b));
-        if let Some((&Slot::Tab(tab), _)) = opened {
-            self.opened = Some(tab);
+            .filter_map(|(&slot, &top)| match slot {
+                Slot::Tab(tab) if !before.contains_key(&slot) => Some((top, tab)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if !opened.is_empty() {
+            opened.sort_by(|(a, _), (b, _)| a.total_cmp(b));
+            let tabs = opened.into_iter().map(|(_, tab)| tab).collect();
+            self.opened = Some(Opened { tabs, start: now });
         }
         for (&slot, &top) in &before {
             let Slot::Tab(tab) = slot else { continue };
@@ -2356,16 +2373,17 @@ impl Shell {
     fn list_moving(&mut self) -> bool {
         self.slides
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
-        self.closing.retain(|row| row.start.elapsed().as_secs_f32() < ROW_FADE);
+        self.closing.retain(|row| row_spring(row.start.elapsed().as_secs_f32()).is_some());
         self.unhovered.retain(|(_, start)| start.elapsed().as_secs_f32() < ROW_FILL);
         if self.slides.is_empty() {
-            self.opened = None;
+            self.opened.take_if(|opened| opened.done().is_none());
         }
         if let Some(settle) = self.settle.take_if(|settle| settle.offset().is_none()) {
             // check.sh reads these lines.
             eprintln!("browser: settled space {}", settle.space);
         }
         !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
+            || self.opened.is_some()
             || self.settle.is_some()
     }
 
@@ -2531,9 +2549,18 @@ impl Shell {
                 1. - cubic_bezier(0., 0., 0.58, 1., t)
             })
         };
+        // A new tab's plate fades in, and rows that come together fade in whole.
+        let opened = self.opened.as_ref().filter(|opened| {
+            matches!(row, Row::Tab(tab) if opened.tabs.contains(&tab))
+        });
+        let (row_in, plate_in) = opened.map_or((1., 1.), |opened| {
+            let done = opened.done().unwrap_or(1.).clamp(0., 1.);
+            if opened.tabs.len() > 1 { (done, 1.) } else { (1., done) }
+        });
         row_box()
             .id(id)
             .group("row")
+            .opacity(row_in)
             // A dragged row is drawn over the list, from `list`.
             .top(px(if dragging == Some(slot) { 0. } else { self.slide(slot) }))
             .block_mouse_except_scroll()
@@ -2542,7 +2569,7 @@ impl Shell {
             }))
             .child(
                 plate(icon, label)
-                    .when(selected, selected_plate)
+                    .when(selected, |plate| selected_plate(plate, plate_in))
                     .id("plate")
                     .when_some(hover.filter(|_| !selected), |plate, hover| {
                         plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
@@ -2562,9 +2589,10 @@ impl Shell {
             )
     }
 
-    /// A closed tab's row where it was, fading, without the selected fill it may have had.
+    /// A closed tab's row where it was, without the selected fill it may have had, fading as the
+    /// rows below slide over it.
     fn closing_row(&self, row: &Closing) -> impl IntoElement + use<> {
-        let t = (row.start.elapsed().as_secs_f32() / ROW_FADE).min(1.);
+        let done = row_spring(row.start.elapsed().as_secs_f32()).unwrap_or(1.);
         div()
             .absolute()
             .top(px(row.top))
@@ -2573,7 +2601,7 @@ impl Shell {
             .h(px(ROW_HEIGHT))
             .px(px(PLATE_INSET))
             .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
-            .opacity(1. - cubic_bezier(0., 0., 0.58, 1., t))
+            .opacity((1. - done).clamp(0., 1.))
             .child(plate(
                 favicon(row.favicon.clone()),
                 div()
@@ -3080,7 +3108,7 @@ impl Shell {
                 .child(icon);
             row_box().child(
                 plate(icon, title(self.title(tab), tab == selected).pr(px(PLATE_INSET)))
-                    .when(tab == selected, selected_plate),
+                    .when(tab == selected, |plate| selected_plate(plate, 1.)),
             )
         };
         let (plus, new_tab) = new_tab_label();
@@ -3123,7 +3151,10 @@ impl Shell {
         });
         let under = self
             .opened
-            .and_then(|opened| rows.iter().position(|&(tab, _)| tab == Some(opened)))
+            .as_ref()
+            .and_then(|opened| {
+                rows.iter().position(|&(tab, _)| tab.is_some_and(|tab| opened.tabs.contains(&tab)))
+            })
             .map_or(rows.len(), |row| row + 1);
         let under = rows.split_off(under).into_iter().map(|(_, row)| row).collect::<Vec<_>>();
         div()
@@ -3294,6 +3325,11 @@ fn settle_progress(start: Instant) -> Option<f32> {
     (left > 0.001).then_some(1. - left)
 }
 
+/// How far the list's motion is `t` seconds in, or None once it's done.
+fn row_spring(t: f32) -> Option<f32> {
+    spring(t, ROW_RESPONSE, ROW_DAMPING)
+}
+
 fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
     let omega = std::f32::consts::TAU / response;
     let decay = (-damping * omega * t).exp();
@@ -3437,9 +3473,11 @@ fn favicon(favicon: Option<Arc<Image>>) -> AnyElement {
     }
 }
 
-/// The selected tab's plate.
-fn selected_plate(plate: gpui::Div) -> gpui::Div {
-    plate.bg(rgba(SELECTED)).border_color(rgba(SELECTED_HAIRLINE))
+/// The selected tab's plate, at `opacity` while it fades in.
+fn selected_plate(plate: gpui::Div, opacity: f32) -> gpui::Div {
+    plate
+        .bg(Hsla::from(rgba(SELECTED)).opacity(opacity))
+        .border_color(Hsla::from(rgba(SELECTED_HAIRLINE)).opacity(opacity))
 }
 
 /// A tab row's title, cut off at the row's trailing edge.
