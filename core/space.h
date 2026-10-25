@@ -1,7 +1,9 @@
 #ifndef BROWSER_CORE_SPACE_H_
 #define BROWSER_CORE_SPACE_H_
 
+#include <cstdint>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,6 +31,8 @@ class Space {
 
   bc_id id() const { return id_; }
   const std::string& name() const { return name_; }
+  // 0xRRGGBB in sRGB, if it has one.
+  std::optional<uint32_t> color() const { return color_; }
   const std::vector<bc_id>& pinned() const { return pinned_; }
   const std::vector<bc_id>& today() const { return today_; }
   bool Has(bc_id tab) const;
@@ -37,6 +41,7 @@ class Space {
   GURL PinnedUrl(bc_id tab) const;
 
   void SetName(std::string name);
+  void SetColor(std::optional<uint32_t> color);
 
   // Puts |tab| in Today. One the user opened (|opener| 0) goes at the top, under "+ New Tab". One a
   // page in this Space opened goes in Chrome's place: right under its opener if it opened in front,
@@ -76,6 +81,7 @@ class Space {
 
   const bc_id id_;
   std::string name_;
+  std::optional<uint32_t> color_;
   std::vector<bc_id> pinned_;
   std::map<bc_id, GURL> pinned_urls_;
   std::vector<bc_id> today_;

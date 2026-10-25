@@ -41,6 +41,7 @@ namespace {
 
 struct SavedSpace {
   std::string name;
+  std::optional<uint32_t> color;
   // Each top to bottom.
   std::vector<SavedTab> pinned;
   std::vector<SavedTab> today;
@@ -101,6 +102,7 @@ Saved Collect() {
     }
     SavedSpace& to = saved.spaces.emplace_back();
     to.name = space->name();
+    to.color = space->color();
     const bc_id shown = window ? window->SelectedIn(space->id()) : 0;
     int index = 0;
     for (auto [ids, tabs] : {std::pair(&space->pinned(), &to.pinned),
@@ -146,11 +148,15 @@ std::optional<std::string> ToJson(const Saved& saved) {
   };
   base::ListValue spaces;
   for (const SavedSpace& space : saved.spaces) {
-    spaces.Append(base::DictValue()
-                      .Set("name", space.name)
-                      .Set("pinned", to_list(space.pinned))
-                      .Set("today", to_list(space.today))
-                      .Set("shown", space.shown));
+    base::DictValue dict = base::DictValue()
+                               .Set("name", space.name)
+                               .Set("pinned", to_list(space.pinned))
+                               .Set("today", to_list(space.today))
+                               .Set("shown", space.shown);
+    if (space.color) {
+      dict.Set("color", static_cast<int>(*space.color));
+    }
+    spaces.Append(std::move(dict));
   }
   base::DictValue root;
   root.Set("spaces", std::move(spaces));
@@ -212,6 +218,9 @@ std::optional<Saved> Read(const base::FilePath& path) {
     }
     SavedSpace& to = saved.spaces.emplace_back();
     to.name = *name;
+    if (std::optional<int> color = space->FindInt("color")) {
+      to.color = static_cast<uint32_t>(*color) & 0xffffff;
+    }
     const int shown = space->FindInt("shown").value_or(-1);
     // Saved before Spaces had pinned tabs, it has none.
     const base::ListValue no_pinned;
@@ -359,6 +368,7 @@ bool RestoreSession(Window& window) {
   for (size_t i = 0; i < saved->spaces.size(); ++i) {
     const SavedSpace& saved_space = saved->spaces[i];
     Space* space = Space::Create(saved_space.name);
+    space->SetColor(saved_space.color);
     if (static_cast<int>(i) == saved->shown) {
       shown = space->id();
     }

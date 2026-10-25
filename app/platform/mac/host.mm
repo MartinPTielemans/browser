@@ -22,6 +22,9 @@
   // check.sh waits for this line before it chooses.
   NSMutableArray<NSString*>* titles = [NSMutableArray array];
   auto add = ^(NSMenuItem* item, NSString* title) {
+    if (item.state == NSControlStateValueOn) {
+      title = [title stringByAppendingString:@" (checked)"];
+    }
     [titles addObject:item.enabled ? title : [title stringByAppendingString:@" (disabled)"]];
   };
   for (NSMenuItem* item in menu.itemArray) {
@@ -42,6 +45,21 @@
 @end
 
 namespace {
+
+// A round swatch of |color|, 0xRRGGBB in sRGB, for a menu item.
+NSImage* Swatch(int32_t color) {
+  NSColor* fill = [NSColor colorWithSRGBRed:((color >> 16) & 0xff) / 255.0
+                                      green:((color >> 8) & 0xff) / 255.0
+                                       blue:(color & 0xff) / 255.0
+                                      alpha:1];
+  return [NSImage imageWithSize:NSMakeSize(12, 12)
+                        flipped:NO
+                 drawingHandler:^BOOL(NSRect rect) {
+                   [fill setFill];
+                   [[NSBezierPath bezierPathWithOvalInRect:rect] fill];
+                   return YES;
+                 }];
+}
 
 // The browser window, once shown, and the view the UI draws in.
 NSWindow* g_window;
@@ -517,6 +535,10 @@ int host_menu(const host_menu_item* items, size_t count, double x, double y, boo
     item.target = target;
     item.tag = static_cast<NSInteger>(i);
     item.enabled = items[i].enabled;
+    item.state = items[i].checked ? NSControlStateValueOn : NSControlStateValueOff;
+    if (items[i].swatch >= 0) {
+      item.image = Swatch(items[i].swatch);
+    }
   }
   // The UI draws what the menu changed, such as its row's fill, now: it can't once the menu's
   // event loop runs.

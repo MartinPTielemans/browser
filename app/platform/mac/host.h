@@ -70,6 +70,10 @@ typedef struct {
   bool control;
   // The index of the item whose submenu it's in, or -1.
   int parent;
+  // Whether it shows a check mark.
+  bool checked;
+  // A round swatch of this colour, 0xRRGGBB in sRGB, before its title, or -1 for none.
+  int32_t swatch;
 } host_menu_item;
 
 // Shows a menu of the |count| |items| at |x|, |y|, in points from the top-left of the browser
