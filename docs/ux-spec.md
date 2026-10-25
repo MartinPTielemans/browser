@@ -140,6 +140,7 @@ The command bar, menus, hover cards, Peek, find and every prompt over the page a
 | Use selection for find / jump to selection / find and replace | — | — (⌘E is Chat) / ⌘J / ⌥⌘F | ⌘E / ⌘J / ⌥⌘F |
 | Copy URL / as Markdown / as Quote | ⇧⌘C / ⌥⇧⌘C / ⌃⇧⌘C (menus) | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C |
 | Downloads | measure | ⇧⌘J | ⇧⌘J |
+| Save page / print | ⇧⌘S / ⌘P (menus) | ⇧⌘S / ⌘P | same |
 | DevTools / console / inspect / view source | — | ⌥⌘I or F12 / ⌥⌘J / ⌥⌘C / ⌥⌘U | same |
 | Back / forward | measure | ⌘[ / ⌘], ⌘← / ⌘→ | same |
 | Reload / force reload / stop | measure | ⌘R / ⇧⌘R / — | ⌘R / ⇧⌘R / ⌘. and Esc |
@@ -160,6 +161,7 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the same command as its key and shows that key.
 
 - **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Window, as Arc's App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help. Extensions and Help come with their features.
+- **File.** New Tab…, Restore Last Closed Tab, Open Command Bar, Archive Tab (⌘W), then Save Page As (⇧⌘S) and Print (⌘P), as Arc's. Save Page As shows Chrome's save panel and Print its print preview, over the page. Arc's window, profile, Note, Easel, Share and Capture items come with their features.
 - **Archive.** Go Back, Go Forward, View Archive and Clear Archive, as Arc's. Arc's View History (⌘Y) comes with history.
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu.
 - **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).

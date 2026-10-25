@@ -379,6 +379,14 @@ BC_EXPORT void bc_tab_devtools(bc_id tab, int what);
 // Opens the source of the tab's page in a new tab under it, at its view-source: URL.
 BC_EXPORT void bc_tab_view_source(bc_id tab);
 
+// Shows Chrome's print preview for the page of the tab shown, over the page, as ⌘P does in Chrome.
+// Nothing while the tab shows another dialog, or its page has crashed. The user's: agents get none.
+BC_EXPORT void bc_tab_print(bc_id tab);
+
+// Asks where to save the page of the tab shown, as Chrome's Save Page As, and saves it there. The
+// user's: agents get none.
+BC_EXPORT void bc_tab_save_page(bc_id tab);
+
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
 // a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its
 // Space instead, and only its page goes: a window showing it shows the Space's top Today tab, else

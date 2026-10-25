@@ -19,6 +19,7 @@
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
@@ -398,6 +399,23 @@ void bc_tab_view_source(bc_id id) {
   if (contents && contents->GetController().CanViewSource()) {
     // Content opens it as a tab its page opened, which goes under it.
     contents->GetPrimaryMainFrame()->ViewSource();
+  }
+}
+
+void bc_tab_print(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  // Chrome's command prints its Browser's active tab, which is the one its window shows.
+  if (tab && tab->IsActivated() && chrome::CanPrint(tab->GetBrowserWindowInterface())) {
+    chrome::Print(tab->GetBrowserWindowInterface());
+  }
+}
+
+void bc_tab_save_page(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  if (tab && tab->IsActivated() && chrome::CanSavePage(tab->GetBrowserWindowInterface())) {
+    chrome::SavePage(tab->GetBrowserWindowInterface());
   }
 }
 

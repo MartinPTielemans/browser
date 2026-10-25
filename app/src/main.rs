@@ -301,6 +301,18 @@ impl Browser for Engine {
         }
     }
 
+    fn save_page(&self, tab: u64, _: &mut App) {
+        if tab != 0 {
+            unsafe { bc::bc_tab_save_page(tab) };
+        }
+    }
+
+    fn print(&self, tab: u64, _: &mut App) {
+        if tab != 0 {
+            unsafe { bc::bc_tab_print(tab) };
+        }
+    }
+
     fn devtools(&self, tab: u64, what: i32, _: &mut App) {
         if tab != 0 {
             unsafe { bc::bc_tab_devtools(tab, what) };
@@ -684,6 +696,9 @@ fn menus() -> Vec<Menu> {
                 item("Open Command Bar", Command::EditUrl),
                 MenuItem::separator(),
                 item("Archive Tab", Command::CloseTab),
+                MenuItem::separator(),
+                item("Save Page As", Command::SavePage),
+                item("Print", Command::Print),
             ],
         ),
         menu(
