@@ -19,6 +19,7 @@
 #include "base/pickle.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
+#include "base/time/time.h"
 #include "base/values.h"
 #include "browser_core/archive.h"
 #include "browser_core/space.h"
@@ -119,6 +120,10 @@ Saved Collect() {
           to.shown = index;
         }
         tab.pinned_url = space->PinnedUrl(id);
+        if (tabs == &to.today) {
+          tab.last_seen = Window::Showing(id) ? base::Time::Now()
+                                              : Tab::FromWebContents(contents)->last_seen();
+        }
         tabs->push_back(std::move(tab));
         ++index;
       }
@@ -144,6 +149,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       dict.Set("current", tab.current);
       if (tab.pinned_url.is_valid()) {
         dict.Set("pinned_url", tab.pinned_url.spec());
+      }
+      if (!tab.last_seen.is_null()) {
+        dict.Set("seen", tab.last_seen.InMillisecondsFSinceUnixEpoch());
       }
       list.Append(std::move(dict));
     }
@@ -204,6 +212,9 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   }
   if (const std::string* url = dict->FindString("pinned_url")) {
     tab.pinned_url = GURL(*url);
+  }
+  if (std::optional<double> seen = dict->FindDouble("seen")) {
+    tab.last_seen = base::Time::FromMillisecondsSinceUnixEpoch(*seen);
   }
   return tab;
 }
@@ -408,6 +419,9 @@ bool RestoreSession(Window& window) {
       }
       const bc_id tab = Tab::IdOf(contents);
       Tab::FromWebContents(contents)->Restored();
+      if (!saved_tab.last_seen.is_null()) {
+        Tab::FromWebContents(contents)->set_last_seen(saved_tab.last_seen);
+      }
       if (index == saved_space.shown) {
         window.SetSelectedIn(space->id(), tab);
       }

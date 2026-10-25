@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app fifteen times and checks:
+# Runs the app eighteen times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -59,6 +59,8 @@
 #      their titles and favicons. A tab closed before the quit stays closed, in the archive, from
 #      which the Library reopens it at its page. A SIGTERM, which macOS sends at logout and
 #      restart, keeps a tab opened just before it. Reports how long putting them back takes.
+#      With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long
+#      goes in the archive, counting the time across a quit, and the tab shown stays.
 #   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n/m",
 #      once Japanese input has committed, and return, shift-return, ⌘G and ⇧⌘G and the bar's
 #      arrows go through the matches, from the bar and from the page. A text the page doesn't have
@@ -1490,7 +1492,37 @@ exited
 print(*[len(space["today"]) for space in json.load(open(sys.argv[1]))["spaces"]])' "$saved")" = "2 2" ] ||
   fail "the tab opened before the SIGTERM wasn't kept"
 restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restored.log" "$out/restored-again.log" | tr '\n' ' ')
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed, in the archive, from which it reopens at its page. A SIGTERM keeps a tab opened just before it."
+
+# Auto-archive, 8 s instead of 12 hours. Tab a, then b, opens over the Spaces, and a isn't seen
+# after b shows. Past a's 8 s, the next launch archives a at once and b 8 s after c shows.
+log="$out/archive-a.log"
+rm -f "$saved"
+BROWSER_URL="${site}?a" "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+pid=$!
+await "^browser: loaded [0-9]* ${site}?a\$" || fail "tab a didn't load"
+quit
+log="$out/archive-b.log"
+BROWSER_URL="${site}?b" "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+pid=$!
+await "^browser: loaded [0-9]* ${site}?b\$" || fail "tab b didn't load over tab a"
+seen=$(date +%s)
+quit
+wait=$((seen + 9 - $(date +%s)))
+[ "$wait" -le 0 ] || sleep "$wait"
+log="$out/archive-c.log"
+start=$(date +%s)
+BROWSER_URL="${site}?c" "$app/Contents/MacOS/Browser" --archive-tabs-after=8 < /dev/null \
+  > "$log" 2>&1 &
+pid=$!
+await '^browser: archive 1 tabs$' || fail "tab a, unseen for 8 s across the quit, wasn't archived"
+[ $(($(date +%s) - start)) -lt 6 ] || fail "tab a was archived 8 s after the launch, not at once"
+await "^browser: loaded [0-9]* ${site}?c\$" || fail "tab c didn't load"
+c=$(sed -n "s|^browser: loaded \([0-9]*\) ${site}?c\$|\1|p" "$log" | head -1)
+await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed, wasn't archived"
+[ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
+await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
+quit
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed, in the archive, from which it reopens at its page. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
 
 # Find in page. The test page has three apples and one 日本語.

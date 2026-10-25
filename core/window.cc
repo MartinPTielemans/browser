@@ -13,7 +13,9 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "browser_core/archive.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/browser_window_stand_in.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
@@ -111,6 +113,14 @@ std::optional<ClosedTab> TakeClosed(bc_id id) {
   return tab;
 }
 
+// |contents|, leaving a window, was seen until now.
+void Seen(content::WebContents* contents) {
+  if (Tab* tab = contents ? Tab::FromWebContents(contents) : nullptr) {
+    tab->set_last_seen(base::Time::Now());
+  }
+  ScheduleAutoArchive();
+}
+
 }  // namespace
 
 // Makes the window's close button Window::Close, so pages get their unload handlers first.
@@ -173,6 +183,12 @@ void Window::CloseAll() {
   while (!Windows().empty()) {
     Windows().begin()->second->Destroy();
   }
+}
+
+// static
+bool Window::Showing(bc_id tab) {
+  return std::ranges::any_of(Windows(),
+                             [tab](const auto& entry) { return entry.second->selected_ == tab; });
 }
 
 // static
@@ -443,6 +459,9 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
   // new page takes it.
   platform::ShowPage(widget_.get(), contents->GetNativeView(), frame, page_corner_radius_);
+  if (shown_.get() != contents) {
+    Seen(shown_.get());
+  }
   shown_ = contents->GetWeakPtr();
   FocusPageSoon();
 }
@@ -506,6 +525,7 @@ void Window::SetSidebarWidth(double width) {
 
 void Window::ShowNothing() {
   selected_ = 0;
+  Seen(shown_.get());
   shown_ = nullptr;
   platform::ShowPage(widget_.get(), gfx::NativeView(), page_frame_, page_corner_radius_);
   ReportSelected();
