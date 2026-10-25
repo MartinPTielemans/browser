@@ -153,6 +153,16 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 - ⌘-click on back, forward or reload opens the result in a background tab.
 - Double-click a tab to rename it.
 
+### Menus
+
+Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the same command as its key and shows that key.
+
+- **Order.** App, File, Edit, View, Spaces, Tabs, History, Window, as Arc's App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help. Arc's Archive menu holds Go Back, Go Forward and View History; ours is History until there's an archive. Extensions and Help come with their features.
+- **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu.
+- **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
+- **Window.** Minimize Window (⌘M). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above it, and Enter Full Screen to View.
+- **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Refresh the Page, Force Refresh the Page, Go Back, Go Forward. ⌘W says Close Tab until there's an archive.
+
 ## Phase 3 features
 
 ### Window

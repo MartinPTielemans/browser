@@ -11,10 +11,11 @@ use std::{
 };
 
 use browser::shell::{self, Browser, Command, MenuEntry, Page, Shell, WindowButton};
+use browser::text_input::{Copy, Cut, Paste, SelectAll};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
-    ImageFormat, Menu, MenuItem, Pixels, Point, SharedString, Size, WeakEntity, Window,
-    WindowBackgroundAppearance, WindowOptions, actions, prelude::*,
+    ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, Size,
+    WeakEntity, Window, WindowBackgroundAppearance, WindowOptions, actions, prelude::*,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -102,7 +103,10 @@ fn key_equivalent(keystroke: &str) -> (String, [bool; 4]) {
 }
 const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
 
-actions!(browser, [Quit]);
+actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
+// The Edit menu's Undo and Redo go to the first responder, which undoes for itself, as a page does.
+// They're bound only so the menu shows their keys.
+actions!(edit, [Undo, Redo]);
 
 thread_local! {
     // The core calls back into the UI from Chromium's event handling, outside any GPUI update.
@@ -591,34 +595,111 @@ unsafe extern "C" fn started(_: *mut c_void) {
     let app = gpui_platform::application().with_assets(shell::Assets).run_embedded(|cx| {
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
-        cx.on_action(|_: &Quit, _| unsafe { bc::bc_quit() });
-        cx.set_menus([
-            Menu {
-                name: "Browser".into(),
-                items: vec![MenuItem::action("Quit Browser", Quit)],
-                disabled: false,
-            },
-            Menu {
-                name: "Spaces".into(),
-                items: vec![
-                    shell::menu_item("New Space…", Command::NewSpace),
-                    MenuItem::separator(),
-                    shell::menu_item("Next Space", Command::NextSpace),
-                    shell::menu_item("Previous Space", Command::PreviousSpace),
-                    MenuItem::separator(),
-                    shell::menu_item("Clear Unpinned Tabs", Command::Clear),
-                ],
-                disabled: false,
-            },
-            Menu {
-                name: "View".into(),
-                items: vec![shell::menu_item("Toggle Sidebar", Command::ToggleSidebar)],
-                disabled: false,
-            },
+        cx.on_action(|_: &Hide, cx| cx.hide());
+        cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
+        cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
+        cx.on_action(|_: &Minimize, _| unsafe { platform::host_press_window_button(1) });
+        cx.bind_keys([
+            KeyBinding::new("cmd-h", Hide, Some(shell::KEY_CONTEXT)),
+            KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
+            KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
+            KeyBinding::new("cmd-z", Undo, Some("TextInput")),
+            KeyBinding::new("shift-cmd-z", Redo, Some("TextInput")),
         ]);
+        cx.set_menus(menus());
         open_window(cx);
     });
     APP.set(Some(app));
+}
+
+/// The menu bar: Arc's menus, with the commands the browser has (docs/ux-spec.md › Menus). The
+/// Edit menu's standard items go to the first responder, so a focused page cuts, copies, pastes,
+/// selects and undoes for itself.
+fn menus() -> Vec<Menu> {
+    let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
+    let item = shell::menu_item;
+    vec![
+        menu(
+            "Browser",
+            vec![
+                MenuItem::action("Hide Browser", Hide),
+                MenuItem::action("Hide Others", HideOthers),
+                MenuItem::action("Show All", ShowAll),
+                MenuItem::separator(),
+                item("Quit Browser", Command::Quit),
+            ],
+        ),
+        menu(
+            "File",
+            vec![
+                item("New Tab…", Command::NewTab),
+                item("Restore Last Closed Tab", Command::ReopenClosedTab),
+                MenuItem::separator(),
+                item("Open Command Bar", Command::EditUrl),
+                MenuItem::separator(),
+                item("Close Tab", Command::CloseTab),
+            ],
+        ),
+        menu(
+            "Edit",
+            vec![
+                MenuItem::os_action("Undo", Undo, OsAction::Undo),
+                MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                MenuItem::separator(),
+                MenuItem::os_action("Cut", Cut, OsAction::Cut),
+                MenuItem::os_action("Copy", Copy, OsAction::Copy),
+                item("Copy URL", Command::CopyUrl),
+                item("Copy URL as Markdown", Command::CopyMarkdownLink),
+                MenuItem::os_action("Paste", Paste, OsAction::Paste),
+                MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
+                MenuItem::separator(),
+                MenuItem::submenu(menu(
+                    "Find",
+                    vec![
+                        item("Find…", Command::Find),
+                        item("Find Next", Command::FindNext),
+                        item("Find Previous", Command::FindPrevious),
+                    ],
+                )),
+            ],
+        ),
+        menu(
+            "View",
+            vec![
+                item("Show/Hide Sidebar", Command::ToggleSidebar),
+                MenuItem::separator(),
+                item("Stop Loading", Command::Stop),
+                item("Refresh the Page", Command::Reload),
+                item("Force Refresh the Page", Command::ForceReload),
+            ],
+        ),
+        menu(
+            "Spaces",
+            vec![
+                item("New Space…", Command::NewSpace),
+                MenuItem::separator(),
+                item("Next Space", Command::NextSpace),
+                item("Previous Space", Command::PreviousSpace),
+            ],
+        ),
+        menu(
+            "Tabs",
+            vec![
+                item("New Tab…", Command::NewTab),
+                item("Pin/Unpin Tab", Command::TogglePin),
+                MenuItem::separator(),
+                item("Next Tab", Command::NextTab),
+                item("Previous Tab", Command::PreviousTab),
+                MenuItem::separator(),
+                item("Clear Unpinned Tabs", Command::Clear),
+            ],
+        ),
+        menu(
+            "History",
+            vec![item("Go Back", Command::Back), item("Go Forward", Command::Forward)],
+        ),
+        menu("Window", vec![MenuItem::action("Minimize Window", Minimize)]),
+    ]
 }
 
 // There's one window, so closing it quits, as its close button does in Chrome's last window.
