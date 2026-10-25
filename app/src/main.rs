@@ -54,6 +54,7 @@ mod platform {
         pub fn host_detent();
         pub fn host_accent_color() -> u32;
         pub fn host_watch_accent_color(changed: extern "C" fn());
+        pub fn host_watch_control(released: extern "C" fn());
         pub fn host_menu(
             items: *const host_menu_item,
             count: usize,
@@ -395,6 +396,10 @@ impl Browser for Engine {
         unsafe { platform::host_accent_color() }
     }
 
+    fn watch_control(&self, _: &mut App) {
+        unsafe { platform::host_watch_control(control_released) };
+    }
+
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,
@@ -515,6 +520,10 @@ fn restore_spaces() {
 
 extern "C" fn accent_color_changed() {
     update_shell(|shell, cx| shell.accent_color_changed(cx));
+}
+
+extern "C" fn control_released() {
+    update_shell(|shell, cx| shell.control_released(cx));
 }
 
 /// Opens the browser window, the shell inside it under the page, and its Spaces.

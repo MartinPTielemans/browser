@@ -253,6 +253,11 @@ impl Browser for Fake {
 
     fn detent(&self, _: &mut App) {}
 
+    // The preview doesn't hear ⌃ go up, so each ⌃Tab there ends its walk.
+    fn watch_control(&self, cx: &mut App) {
+        self.later(cx, |shell, cx| shell.control_released(cx));
+    }
+
     // macOS's default blue.
     fn accent_color(&self) -> u32 {
         0x007aff
