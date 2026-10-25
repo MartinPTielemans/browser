@@ -185,6 +185,8 @@ const PLATE_INSET: f32 = 8.;
 // What's in a folder sits this far in from it (Arc).
 const FOLDER_INDENT: f32 = 16.;
 const NEW_FOLDER: &str = "New Folder";
+// The Clear button's tooltip (Arc).
+const CLEAR_TOOLTIP: &str = "Clear unpinned tabs in this space";
 pub const PLATE_RADIUS: f32 = 12.;
 const FAVICON_X: f32 = 17.;
 const FAVICON_SIZE: f32 = 18.;
@@ -694,6 +696,13 @@ pub struct Shell {
     /// until ⌃ goes up, and then its last one does, though a click may have shown another since.
     walked: Option<u64>,
     hovered: Option<Row>,
+    /// The pointer is over Clear.
+    clear_hovered: bool,
+    /// The tooltip asked for.
+    tooltip: Option<SharedString>,
+    /// The row pressed while under the pointer, whose tooltip stays away until the pointer leaves
+    /// it, as AppKit's does after a click.
+    clicked: Option<Row>,
     /// The tab whose menu is up, whose row keeps its hover fill until the menu closes.
     menu_row: Option<u64>,
     /// Rows the pointer left, whose hover fill is fading, and since when.
@@ -846,6 +855,9 @@ impl Shell {
             hovered: None,
             menu_row: None,
             unhovered: Vec::new(),
+            clear_hovered: false,
+            tooltip: None,
+            clicked: None,
             slides: HashMap::new(),
             folding: false,
             tile_slides: HashMap::new(),
@@ -1563,6 +1575,9 @@ impl Shell {
             self.unhovered.retain(|&(old, _)| old != left);
             self.unhovered.push((left, Instant::now()));
         }
+        if self.clicked != self.hovered {
+            self.clicked = None;
+        }
         cx.notify();
     }
 
@@ -1641,6 +1656,7 @@ impl Render for Shell {
             let outline = self.shown_space().map(|space| space.outline(0)).unwrap_or_default();
             log!("browser: outline {outline}");
         }
+        self.update_tooltip();
         // As the outline's, so a click on Clear, which shows only under the pointer, finds it.
         if std::mem::take(&mut self.hover_changed) {
             log!("browser: sidebar hovered {}", self.sidebar_hovered as u8);

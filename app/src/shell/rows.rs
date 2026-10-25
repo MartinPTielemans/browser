@@ -530,6 +530,10 @@ impl Shell {
             clear_label()
                 .id("clear")
                 .block_mouse_except_scroll()
+                .on_hover(cx.listener(|shell, hovered: &bool, _, cx| {
+                    shell.clear_hovered = *hovered;
+                    cx.notify();
+                }))
                 .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)))
         });
         divider_box(clear).top(px(self.slide(Slot::Divider)))

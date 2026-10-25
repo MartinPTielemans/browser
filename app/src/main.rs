@@ -79,6 +79,7 @@ mod platform {
                 count: usize,
             ) -> bool,
         );
+        pub fn host_set_tooltip(text: *const c_char);
         pub fn host_copy(text: *const c_char);
         pub fn host_day_starts(starts: *mut f64);
         pub fn host_menu(
@@ -917,6 +918,12 @@ impl Browser for Engine {
 
     fn watch_control(&self, _: &mut App) {
         unsafe { platform::host_watch_control(control_released) };
+    }
+
+    fn tooltip(&self, text: Option<&str>) {
+        let text = text.and_then(|text| CString::new(text).ok());
+        let text = text.as_ref().map_or(std::ptr::null(), |text| text.as_ptr());
+        unsafe { platform::host_set_tooltip(text) };
     }
 
     fn copy(&self, text: &str, _: &mut App) {

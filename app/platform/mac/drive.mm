@@ -495,8 +495,8 @@ void OrderFrontCharacterPalette(id, SEL, id) {
   fprintf(stderr, "browser: character palette shown\n");
 }
 
-// Frames are in points from the content view's bottom-left corner. A plain NSView and the core's
-// window view only hold others, so the views in them are listed instead.
+// Frames are in points from the content view's bottom-left corner. A plain NSView, the UI's tooltip
+// view and the core's window view only hold others, so the views in them are listed instead.
 void AppendViews(NSMutableString* line, NSView* content, NSView* parent) {
   for (NSView* view in parent.subviews) {
     // Views that only hold others: the core's, and the UI's that GPUI's is in.

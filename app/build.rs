@@ -7,6 +7,7 @@ fn main() {
         .cpp(true)
         .file("platform/mac/host.mm")
         .file("platform/mac/drive.mm")
+        .file("platform/mac/tool_tip_view.mm")
         .flag("-std=c++20")
         .flag("-fobjc-arc")
         .define("NDEBUG", None)

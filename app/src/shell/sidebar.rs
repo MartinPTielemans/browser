@@ -1,19 +1,21 @@
 //! The sidebar's width, which its edge drags; hiding and showing it, and while it's
-//! hidden, its reveal over the page (docs/ux-spec.md › Sidebar reveal); and its
-//! gradient in the Space's colour.
+//! hidden, its reveal over the page (docs/ux-spec.md › Sidebar reveal); its gradient in
+//! the Space's colour; and the tooltips its favorites, folders and Clear ask for.
 
 use std::time::Instant;
 
 use gpui::{
     Context, CursorStyle, DispatchPhase, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Rgba, canvas, div, linear_color_stop, linear_gradient, prelude::*, px, rgb,
+    MouseUpEvent, Rgba, SharedString, canvas, div, linear_color_stop, linear_gradient, prelude::*,
+    px, rgb,
 };
 
 use super::{
-    CARD_INSET, GRADIENT_ALPHA, MATERIAL_STAND_IN, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, REVEAL_HOLD,
-    REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING, REVEAL_OUT_RESPONSE,
-    REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX, SIDEBAR_MIN,
-    SIDEBAR_SHOW, SIDEBAR_WIDTH, Shell, rubber_band, settle_progress, spring,
+    CARD_INSET, CLEAR_TOOLTIP, GRADIENT_ALPHA, MATERIAL_STAND_IN, NEUTRAL, NEUTRAL_GRADIENT_ALPHA,
+    Naming, REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
+    REVEAL_OUT_RESPONSE, REVEAL_OVERSHOOT, REVEAL_WAIT, Row, SIDEBAR_EDGE, SIDEBAR_HIDE,
+    SIDEBAR_MAX, SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Shell, rubber_band, settle_progress,
+    spring,
 };
 
 impl Shell {
@@ -298,6 +300,41 @@ impl Shell {
             self.reveal_motion = None;
             self.browser.hide_reveal(cx);
         }
+    }
+
+    /// The tooltip for what's under the pointer: a favorite's title, a folder's name, or Clear's,
+    /// as Arc has them. None for a row pressed since the pointer came, renamed or with its menu up,
+    /// and none yet in the reveal's panel, whose view the host's tooltips aren't in.
+    fn wanted_tooltip(&self) -> Option<SharedString> {
+        if self.drag.is_some() || self.menu_row.is_some() || self.sidebar_hidden {
+            return None;
+        }
+        if self.clear_hovered && self.tools_shown() {
+            return Some(CLEAR_TOOLTIP.into());
+        }
+        let Some(Row::Tab(row)) = self.hovered.filter(|&row| self.clicked != Some(row)) else {
+            return None;
+        };
+        let renaming = self.renaming.as_ref().map(|renaming| renaming.naming);
+        if self.is_folder(row) && renaming != Some(Naming::Folder(row)) {
+            return Some(self.folder_name(row));
+        }
+        self.favorites().contains(&row).then(|| self.title(row))
+    }
+
+    /// Asks for the tooltip under the pointer, when it changed.
+    pub(super) fn update_tooltip(&mut self) {
+        if self.drag.is_some() {
+            self.clicked = self.hovered;
+        }
+        let wanted = self.wanted_tooltip();
+        if wanted == self.tooltip {
+            return;
+        }
+        // check.sh reads this line.
+        log!("browser: tooltip {}", wanted.as_deref().unwrap_or("none"));
+        self.browser.tooltip(wanted.as_deref());
+        self.tooltip = wanted;
     }
 
     pub(super) fn sidebar_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {

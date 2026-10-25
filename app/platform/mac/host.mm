@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "host.h"
+#import "tool_tip_view.h"
 
 // Takes the menu's choice, and says when it shows.
 @interface HostMenuTarget : NSObject <NSMenuDelegate>
@@ -55,8 +56,8 @@ bool (*g_dragged)(int, double, double, const host_dragged*, size_t);
 }  // namespace
 
 // The view the UI draws in. It takes the links and files dragged onto it, from the page or another
-// app, for the UI.
-@interface HostUIView : NSView
+// app, for the UI, and shows the tooltips the UI asks for.
+@interface HostUIView : ToolTipView
 @end
 
 @implementation HostUIView {
@@ -858,6 +859,10 @@ void host_watch_control(void (*released)(void)) {
               usingBlock:^(NSNotification*) {
                 ControlReleased();
               }];
+}
+
+void host_set_tooltip(const char* text) {
+  [(ToolTipView*)g_ui_view setToolTipAtMousePoint:text ? @(text) : nil];
 }
 
 void host_copy(const char* text) {

@@ -1,16 +1,16 @@
 # Add to Favorites in a Today tab's menu takes the tab out of Today into a tile above the Space's
-# rows, without showing it. A click on the tile shows it, and ⌘1–⌘9 count favorites first. Past its
-# top, the list shows an edge under the tile, and showing a tab under its bottom scrolls to the
-# tab's row. Away from its URL, a double-click on the tile goes back there. ⌘W unloads it and keeps
-# the tile, showing the top Today tab. The tile's menu duplicates it to the top of Today. Launched
-# again, the app brings the favorite back, shown, and Remove from Favorites in its menu puts it at
-# the top of Today. Today rows dragged onto the tiles become favorites where they're dropped, a tile
-# dragged across the other goes before it, one dragged into the list goes there, and escape puts a
-# dragged tile back. Tiles taller than 40 % of the window scroll with the list. ⌘, from the page and
-# the UI opens Settings, where switches turn the warning before quitting and the haptics off and the
-# menu of a pop-up button sets how long Today tabs wait for the archive, and all three stay after
-# the quit, when ⌘Q quits without asking. ⌘W and the window's close button hide it, and More
-# Settings… opens Chromium's settings in a tab.
+# rows, without showing it. A click on the tile shows it, its tooltip is its title, and ⌘1–⌘9 count
+# favorites first. Past its top, the list shows an edge under the tile, and showing a tab under its
+# bottom scrolls to the tab's row. Away from its URL, a double-click on the tile goes back there. ⌘W
+# unloads it and keeps the tile, showing the top Today tab. The tile's menu duplicates it to the top
+# of Today. Launched again, the app brings the favorite back, shown, and Remove from Favorites in
+# its menu puts it at the top of Today. Today rows dragged onto the tiles become favorites where
+# they're dropped, a tile dragged across the other goes before it, one dragged into the list goes
+# there, and escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the
+# list. ⌘, from the page and the UI opens Settings, where switches turn the warning before quitting
+# and the haptics off and the menu of a pop-up button sets how long Today tabs wait for the archive,
+# and all three stay after the quit, when ⌘Q quits without asking. ⌘W and the window's close button
+# hide it, and More Settings… opens Chromium's settings in a tab.
 
 # Favorites, from the served page with example.org above it.
 serve
@@ -59,6 +59,14 @@ send click $tile
 expect '^browser: command select via favorite$' "a click on the tile didn't run"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
 ../tools/window-screenshot.sh "$pid" "$out/favorites.png" || fail "no window to capture"
+# The tile's tooltip is the favorite's title once the pointer has left the tile it clicked and come
+# back, and it goes when the pointer leaves.
+send move $(tiled_row 0)
+send move $tile
+title=$(grep "^browser: title $a " "$log" | tail -1 | cut -d' ' -f4-)
+expect "^browser: tooltip $title\$" "the tile's tooltip isn't the favorite's title, $title"
+send move $(tiled_row 0)
+expect '^browser: tooltip none$' "the tile's tooltip stayed after the pointer left it"
 send click $(tiled_row 0)
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" \
   "a click on the Today row under the tile didn't show its tab"

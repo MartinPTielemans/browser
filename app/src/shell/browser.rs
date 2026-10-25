@@ -212,6 +212,9 @@ pub trait Browser {
     fn detent(&self, cx: &mut App);
     /// Calls `Shell::control_released` once the user lets go of ⌃.
     fn watch_control(&self, cx: &mut App);
+    /// Shows the system's tooltip with `text`, after its delay, for what's under the pointer in the
+    /// window's UI. None takes it away.
+    fn tooltip(&self, text: Option<&str>);
     /// Puts `text` on the clipboard.
     fn copy(&self, text: &str, cx: &mut App);
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the

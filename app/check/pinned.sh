@@ -7,10 +7,10 @@
 # without loading it. Dragging a row moves its tab in the pinned tabs, pins it and unpins it,
 # without showing it, and escape puts it back. New Folder makes a folder under the pinned tabs,
 # which takes the name typed. A row dragged right under it goes in and dragged left comes out, a
-# folder drags as a row, and a click closes and opens it. Launched again, the app brings it back
-# closed, a double-click renames it, and Delete Folder in its menu leaves its tab where it was.
-# Links and files dragged onto the list from the page or another app open as tabs where the pointer
-# lets go, and dragged text that isn't a web link doesn't.
+# folder drags as a row, a click closes and opens it, and its tooltip is its name. Launched again,
+# the app brings it back closed, a double-click renames it, and Delete Folder in its menu leaves its
+# tab where it was. Links and files dragged onto the list from the page or another app open as tabs
+# where the pointer lets go, and dragged text that isn't a web link doesn't.
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 serve
@@ -251,6 +251,13 @@ expect '^browser: command toggle-folder via sidebar$' "a click on the folder did
 expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it: $(outline)"
 send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
+# The folder's tooltip is its name once the pointer has left the row it clicked and come back, and
+# it goes when the pointer leaves.
+send move $(pinned_row 1)
+send move $(pinned_row 0)
+expect '^browser: tooltip work$' "the folder's tooltip isn't its name"
+send move $(pinned_row 1)
+expect '^browser: tooltip none$' "the folder's tooltip stayed after the pointer left it"
 # The command bar finds commands by their names' letters in order, those that start with what's
 # typed first, four at most, and one found by its letters alone after the search row. ↩ runs the
 # command selected.

@@ -216,6 +216,10 @@ enum { HOST_DRAG_OVER, HOST_DRAG_LEFT, HOST_DRAG_DROP };
 void host_take_drops(bool (*dragged)(int phase, double x, double y, const host_dragged* items,
                                      size_t count));
 
+// Shows the system's tooltip with |text|, after its usual delay, for what's under the pointer in
+// the browser window's UI. NULL takes it away.
+void host_set_tooltip(const char* text);
+
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);

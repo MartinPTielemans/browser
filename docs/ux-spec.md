@@ -256,7 +256,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Resting | fill white 0.10, 0.5 pt stroke white 0.14. Under the pointer white 0.15, fading out on the rows' hover curve (ours) | Dia 1.50.1 bin |
 | Favicon | centred, as a row's: 16 in an 18 box, at half opacity while unloaded. Size: measure | Dia cap |
 | Badge for a tile away from its URL | none | Dia 1.53.0 bin |
-| Hover | hover card with title and URL (see Motion) | Dia, D›Tab hover card motion |
+| Hover | the system's tooltip with its title after a moment (Arc 1.170.0 cap), which a click on the tile keeps away until the pointer leaves it, as AppKit's does. Dia's hover card with title and URL: later (see Motion) | Arc 1.170.0 cap; the click ours |
 | Double-click | goes back to the favorite's URL, like ⌘↩. A tile already there doesn't reload | Dia, P§2 |
 
 The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the icon at no more than 32 px on its long side. Average its pixels with alpha ≥ 0.975, then take their mean RGB distance from that average:
@@ -294,7 +294,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 | Indent | 16 per folder: in one, the favicon is at x 33, the title at x 59 and the plate from 24 | Arc 1.170.0 ax, cap |
 | Row | a tab row's, with the folder's icon in the favicon's place, open or closed, and its name as the title | Arc 1.170.0 cap |
 | Closing and opening | Arc's accessibility call moves the rows below in one frame; a click: measure | Arc 1.170.0 rec |
-| Hover | the row plate, and a tooltip with the name after a moment | Arc 1.170.0 cap |
+| Hover | the row plate, and the system's tooltip with the name after a moment, kept away after a click as a tile's is | Arc 1.170.0 cap |
 | ⌘1–⌘9 | count the tabs in an open folder | Arc 1.170.0 |
 | New Folder… | in the Tabs menu, under Open Little Arc or Peek | Arc 1.170.0 menus |
 
@@ -307,7 +307,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
   - Dragging. Where a dragged row would land at the end of folders or after one, the pointer's travel right of where it pressed takes it in, a level for each 16 pt, between the levels that place allows: from the row below's to one inside the row above, if that's a folder. A folder drags as a row, among the pinned tabs only, never into itself. What's in it stays while it's dragged and moves with it when it lands.
   - Folders come back after a quit with their names and whether they're open.
   - Collapse All Folders in the command bar closes every folder of the Space shown, on one fold.
-  - Later: the tooltip, making a folder inside one, and Arc's folder drag, captured.
+  - Later: making a folder inside one, and Arc's folder drag, captured.
 
 **Clear divider and Today tabs** (Arc bin and a user's screenshot, D›Arc note: Clear)
 

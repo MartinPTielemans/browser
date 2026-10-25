@@ -673,6 +673,8 @@ impl Browser for Fake {
         self.later(cx, |shell, cx| shell.control_released(cx));
     }
 
+    fn tooltip(&self, _: Option<&str>) {}
+
     // The preview leaves the clipboard alone.
     fn copy(&self, _: &str, _: &mut App) {}
 
