@@ -81,10 +81,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses | Dia bin |
 | [ ] | Background tabs | MVP | load when first shown; sidebar scrolls to them | Dia |
 | [ ] | Opener order | MVP | Chrome's TabStripModel rules | Chrome |
-| [x] | ⌘S hide (docked) | MVP | ease-out cubic 100 ms | Arc (Ardia) rec |
-| [x] | ⌘S show (hidden) | MVP | measure (*interim* Dia spring 0.215 s / ζ 0.79) | Dia rec 240 fps |
-| [x] | Sidebar reveal in | MVP | spring 0.14 s / ζ 0.8 (fitted), no fade: 3.5 pt overshoot at 120 ms | Arc (Ardia) rec |
-| [x] | Sidebar reveal out | MVP | ease-in-out ≈ 150 ms | Arc (Ardia) rec |
+| [x] | ⌘S hide (docked) | MVP | ease-out cubic 110 ms | Arc 1.170.0 rec 120 fps |
+| [x] | ⌘S show (hidden) | MVP | ease-out cubic 100 ms | Arc 1.170.0 rec 120 fps |
+| [x] | Sidebar reveal in | MVP | after ≈ 100 ms at the edge; spring 0.175 s / ζ 0.80, no fade, ≈ 4 pt overshoot | Arc 1.170.0 rec 120 fps |
+| [x] | Sidebar reveal out | MVP | spring 0.175 s / ζ 0.76 | Arc 1.170.0 rec 120 fps |
 | [x] | Reveal panel | MVP | inset 5 left/top/bottom, docked width, 0.5 pt light border | Arc (Ardia) rec |
 | [x] | Reveal hold zone | MVP | 24 pt past the panel (Arc ≈ 21); trigger the full left edge | Arc (Ardia), Ardia |
 | [x] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |

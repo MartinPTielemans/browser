@@ -29,11 +29,10 @@ pub const CARD_INSET: f32 = 10.;
 /// window at 2×.
 pub const CARD_RADIUS: f32 = 6.;
 
-// ⌘S hides the sidebar along Arc's curve, an ease-out cubic of 100 ms, and shows it on Dia's
-// spring (docs/ux-spec.md › Motion: Sidebar hide, and Sidebar hide/show, *interim*).
-const SIDEBAR_HIDE: f32 = 0.1;
-const SIDEBAR_SHOW_RESPONSE: f32 = 0.215;
-const SIDEBAR_SHOW_DAMPING: f32 = 0.79;
+// ⌘S hides and shows the sidebar on Arc's ease-out cubics (docs/ux-spec.md › Motion: Sidebar hide
+// and Sidebar show).
+const SIDEBAR_HIDE: f32 = 0.11;
+const SIDEBAR_SHOW: f32 = 0.1;
 // The sidebar's edge drags its width between Ardia's limits (docs/ux-spec.md › Sidebar › Width),
 // rubber-banding past them as the Space pages do. Let go past one, it settles there as they settle,
 // and a double-click on the edge settles it back at the width it starts at. The edge is the margin
@@ -43,15 +42,16 @@ const SIDEBAR_MAX: f32 = 400.;
 const SIDEBAR_EDGE: f32 = 6.;
 
 // The sidebar reveal (docs/ux-spec.md › Sidebar reveal): the hidden sidebar slides over the page as
-// a panel when the pointer reaches the window's left edge, on Arc's spring, and slides away on an
-// ease-in-out once the pointer is past the hold zone. Its window starts at the browser window's
-// top-left corner, so a point is at the same place in both.
+// a panel once the pointer has been at the window's left edge for a moment, and slides away once
+// the pointer is past the hold zone, both on Arc's springs. Its window starts at the browser
+// window's top-left corner, so a point is at the same place in both.
 pub const REVEAL_INSET: f32 = 5.;
 const REVEAL_HOLD: f32 = 24.;
-// Fitted to Arc's recording (3.5 pt past rest at 120 ms); Ardia's 0.185 s / 0.77 overshoots 5 pt.
-const REVEAL_IN_RESPONSE: f32 = 0.14;
+const REVEAL_WAIT: Duration = Duration::from_millis(100);
+const REVEAL_IN_RESPONSE: f32 = 0.175;
 const REVEAL_IN_DAMPING: f32 = 0.8;
-const REVEAL_OUT: f32 = 0.15;
+const REVEAL_OUT_RESPONSE: f32 = 0.175;
+const REVEAL_OUT_DAMPING: f32 = 0.76;
 /// The panel's window at rest ends at its edge, and is this much wider while it moves, for the
 /// spring's overshoot.
 const REVEAL_OVERSHOOT: f32 = 8.;
@@ -869,6 +869,8 @@ pub struct Shell {
     revealed: bool,
     /// While the reveal panel moves: how far out it started (`reveal_out`), and when.
     reveal_motion: Option<(f32, Instant)>,
+    /// The pointer is at the window's left edge, waiting to bring the sidebar out.
+    reveal_wait: Option<Task<()>>,
     /// The card's left edge the page was last laid out at.
     page_left: f32,
     /// The tab or Space the user asked for and when, until it's shown.
@@ -926,6 +928,7 @@ impl Shell {
             sidebar_motion: None,
             revealed: false,
             reveal_motion: None,
+            reveal_wait: None,
             page_left: sidebar_width,
             switching: None,
             background_pressed: false,
@@ -1076,11 +1079,8 @@ impl Shell {
     /// How far the sidebar has moved since `start`, or None once it's there.
     fn sidebar_progress(&self, start: Instant) -> Option<f32> {
         let t = start.elapsed().as_secs_f32();
-        if self.sidebar_hidden {
-            (t < SIDEBAR_HIDE).then(|| 1. - (1. - t / SIDEBAR_HIDE).powi(3))
-        } else {
-            spring(t, SIDEBAR_SHOW_RESPONSE, SIDEBAR_SHOW_DAMPING)
-        }
+        let time = if self.sidebar_hidden { SIDEBAR_HIDE } else { SIDEBAR_SHOW };
+        (t < time).then(|| 1. - (1. - t / time).powi(3))
     }
 
     /// Hides the docked sidebar, or shows it, from wherever it is.
@@ -1130,8 +1130,7 @@ impl Shell {
         if self.revealed {
             spring(t, REVEAL_IN_RESPONSE, REVEAL_IN_DAMPING).map(|eased| from + (1. - from) * eased)
         } else {
-            // Core Animation's ease-in-out.
-            (t < REVEAL_OUT).then(|| from * (1. - cubic_bezier(0.42, 0., 0.58, 1., t / REVEAL_OUT)))
+            spring(t, REVEAL_OUT_RESPONSE, REVEAL_OUT_DAMPING).map(|eased| from * (1. - eased))
         }
     }
 
@@ -1185,17 +1184,40 @@ impl Shell {
         Hsla::from(rgb(MATERIAL_STAND_IN)).blend(self.gradient_color(0.5))
     }
 
-    /// The pointer is at `x` in the browser window: at its left edge it brings the hidden sidebar
-    /// out over the page, and more than the hold zone past the panel's edge it sends it away.
+    /// The pointer is at `x` in the browser window: kept at its left edge it brings the hidden
+    /// sidebar out over the page, and more than the hold zone past the panel's edge it sends it
+    /// away.
     pub fn pointer_at(&mut self, x: f32, cx: &mut Context<Self>) {
-        if !self.sidebar_hidden || self.sidebar_motion.is_some() || self.page_fullscreen {
+        if !self.can_reveal() {
             return;
         }
-        if x < CARD_INSET {
-            self.set_revealed(true, cx);
-        } else if x > REVEAL_INSET + self.width() + REVEAL_HOLD {
-            self.set_revealed(false, cx);
+        // The edge is the card's margin. Left of the window, the pointer has gone to another
+        // window or display.
+        if !(0. ..CARD_INSET).contains(&x) {
+            self.reveal_wait = None;
+            if x > REVEAL_INSET + self.width() + REVEAL_HOLD {
+                self.set_revealed(false, cx);
+            }
+        } else if !self.revealed && self.reveal_wait.is_none() {
+            // Arc waits a moment, so a pointer passing the edge on its way to another window or
+            // display leaves the sidebar where it is.
+            self.reveal_wait = Some(cx.spawn(async move |shell, cx| {
+                cx.background_executor().timer(REVEAL_WAIT).await;
+                shell
+                    .update(cx, |shell, cx| {
+                        shell.reveal_wait = None;
+                        if shell.can_reveal() {
+                            shell.set_revealed(true, cx);
+                        }
+                    })
+                    .ok();
+            }));
         }
+    }
+
+    /// Whether the sidebar is hidden and still, so the reveal can bring it out.
+    fn can_reveal(&self) -> bool {
+        self.sidebar_hidden && self.sidebar_motion.is_none() && !self.page_fullscreen
     }
 
     /// Starts the reveal's panel moving out over the page, or away, from wherever it is.
@@ -3373,8 +3395,6 @@ fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
     Some(1. - decay * ((damped * t).cos() + damping * omega / damped * (damped * t).sin()))
 }
 
-/// Where a CSS cubic-bezier(`x1`, `y1`, `x2`, `y2`) curve is at `x`, from 0 to 1: the x of each
-/// control point, then its y.
 /// Where the list's rows are from its top, by the heights they're drawn at in `list`.
 fn slots(pinned: &[u64], today: &[u64]) -> HashMap<Slot, f32> {
     let rows = pinned
@@ -3524,6 +3544,8 @@ fn title(title: SharedString, selected: bool) -> gpui::Div {
         .child(title)
 }
 
+/// Where a CSS cubic-bezier(`x1`, `y1`, `x2`, `y2`) curve is at `x`, from 0 to 1: the x of each
+/// control point, then its y.
 fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     let at = |t: f32, p1: f32, p2: f32| {
         let u = 1. - t;
