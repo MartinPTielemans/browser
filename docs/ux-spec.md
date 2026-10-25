@@ -135,33 +135,33 @@ Arc's note at the window's top right, after something done without showing it (A
 
 | Action | Arc (recorded) | Dia | Ours |
 |---|---|---|---|
-| New tab / window / incognito window | ⌘T | ⌘T / ⌘N / ⇧⌘N | ⌘T / ⌘N / ⇧⌘N |
-| Command bar on the current URL | measure | ⌘L | ⌘L |
-| Close tab / window | measure | ⌘W / ⇧⌘W | ⌘W / ⇧⌘W |
-| Reopen closed tab | measure | ⇧⌘T | ⇧⌘T |
+| New tab / window / incognito window | ⌘T / ⌘N / ⇧⌘N (menus); Blank Window ⌃⌘N | ⌘T / ⌘N / ⇧⌘N | ⌘T / ⌘N / ⇧⌘N |
+| Command bar on the current URL | ⌘L (menus) | ⌘L | ⌘L |
+| Close tab / window | ⌘W (Archive Tab) / ⇧⌘W (menus) | ⌘W / ⇧⌘W | ⌘W / ⇧⌘W |
+| Reopen closed tab | ⇧⌘T (menus) | ⇧⌘T | ⇧⌘T |
 | Clear Today tabs | ⇧⌘K | ⇧⌘K (Close All Tabs) | ⇧⌘K |
 | Pin / unpin tab | ⌘D | — (⌘D bookmarks) | ⌘D, *owner to confirm* |
 | Back to pinned URL | measure | ⌘↩ | ⌘↩ |
 | Toggle sidebar | ⌘S | ⌘S (Auto-Hide Tabs) | ⌘S |
 | Library | ⇧⌘L (menus) | — | ⇧⌘L, which closes it too |
 | Little Arc / open it in the main window | ⌥⌘N / ⌘O | — | ⌥⌘N / ⌘O (⌘O stays Open File in main windows) |
-| Switch Space 1–9 | measure | ⌃1–⌃9 (profiles) | ⌃1–⌃9 |
-| Next / previous tab | measure | ⇧⌘] / ⇧⌘[, ⌥⌘→ / ⌥⌘←, ⌥⌘↓ / ⌥⌘↑ | Dia's, *interim* |
-| Select tab 1–8 / last | measure | ⌘1–⌘8 / ⌘9 in sidebar order | Dia's |
+| Switch Space 1–9 / next / previous | ⌃1–⌃9 / ⌥⌘→ / ⌥⌘← (menus) | ⌃1–⌃9 (profiles) | Arc's |
+| Next / previous tab | ⌥⌘↓ / ⌥⌘↑ (menus) | ⇧⌘] / ⇧⌘[, ⌥⌘→ / ⌥⌘←, ⌥⌘↓ / ⌥⌘↑ | Arc's |
+| Select tab 1–8 / last | ⌘1–⌘8 / ⌘9, pinned tabs first, counting those in an open folder (ax) | ⌘1–⌘8 / ⌘9 in sidebar order | Dia's |
 | Tab used last, then further back | ⌃Tab (rec) | ⌃Tab / ⌃⇧Tab (switcher) | ⌃Tab / ⌃⇧Tab, no switcher |
 | Search tabs | measure | ⇧⌘A | ⇧⌘A |
 | Split: add pane / close pane / focus next / previous | ⌃+ / ⌃⇧- (menus) | ⌃⇧= / — / ⌃⇧] / ⌃⇧[ | Arc's; focus Dia's, *interim* |
-| Find / next / previous | measure | ⌘F / ⌘G / ⇧⌘G | ⌘F / ⌘G / ⇧⌘G |
-| Use selection for find / jump to selection / find and replace | — | — (⌘E is Chat) / ⌘J / ⌥⌘F | ⌘E / ⌘J / ⌥⌘F |
+| Find / next / previous | ⌘F / ⌘G / ⇧⌘G (menus) | ⌘F / ⌘G / ⇧⌘G | ⌘F / ⌘G / ⇧⌘G |
+| Use selection for find / jump to selection / find and replace | — / ⌘J / ⌥⌘F (menus) | — (⌘E is Chat) / ⌘J / ⌥⌘F | ⌘E / ⌘J / ⌥⌘F |
 | Copy URL / as Markdown / as Quote | ⇧⌘C / ⌥⇧⌘C / ⌃⇧⌘C (menus) | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C |
-| Downloads | measure | ⇧⌘J | ⇧⌘J |
+| Downloads | ⇧⌘J (menus) | ⇧⌘J | ⇧⌘J |
 | Save page / print | ⇧⌘S / ⌘P (menus) | ⇧⌘S / ⌘P | same |
-| DevTools / console / inspect / view source | — | ⌥⌘I or F12 / ⌥⌘J / ⌥⌘C / ⌥⌘U | same |
-| Back / forward | measure | ⌘[ / ⌘], ⌘← / ⌘→ | same |
-| Reload / force reload / stop | measure | ⌘R / ⇧⌘R / — | ⌘R / ⇧⌘R / ⌘. and Esc |
-| Zoom actual / in / out | — | ⌘0 / ⌘+ / ⌘- | same, plus hidden ⌘= |
-| History / clear browsing data | — | ⌘Y / ⇧⌘⌫ | same |
-| Full screen | — | Globe-F | Globe-F, plus hidden ⌃⌘F |
+| DevTools / console / inspect / view source | ⌥⌘I / ⌥⌘J / ⌥⌘C / ⌥⌘U (menus) | ⌥⌘I or F12 / ⌥⌘J / ⌥⌘C / ⌥⌘U | same |
+| Back / forward | ⌘[ / ⌘] (menus) | ⌘[ / ⌘], ⌘← / ⌘→ | same |
+| Reload / force reload / stop | ⌘R / ⇧⌘R / ⌘. (menus) | ⌘R / ⇧⌘R / — | ⌘R / ⇧⌘R / ⌘. and Esc |
+| Zoom actual / in / out | ⌘0 / ⌘+ / ⌘- (menus) | ⌘0 / ⌘+ / ⌘- | same, plus hidden ⌘= |
+| History / clear browsing data | ⌘Y / — (menus) | ⌘Y / ⇧⌘⌫ | same |
+| Full screen | ⌃⌘F (menus) | Globe-F | Globe-F, plus hidden ⌃⌘F |
 | Settings | ⌘, | ⌘, | ⌘, |
 
 Mouse (Dia and Chrome, P§ Keyboard shortcuts):
@@ -192,10 +192,10 @@ Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the 
 
 | Item | Value | Source |
 |---|---|---|
-| Card inset, sidebar docked or hidden | 10 on every side. Measure whether the docked left inset is counted inside the sidebar width | Arc (Ardia), D›Arc note: hiding |
+| Card inset, sidebar docked or hidden | 10 on every side. Docked, the card starts at the sidebar's width (228), so the 10 on its left is inside the sidebar | Arc 1.170.0 ax and cap |
 | Card inset (reference) | left = sidebar width, top 6, right 7, bottom 7. With the sidebar hidden, 6 / 6 / 6 | Dia 1.49 cap |
 | Card corner radius | 6, circular; the page in the card is clipped to it. Dia's is 10, continuous | Arc cap, Dia cap |
-| Traffic lights | Arc: centre y 23.75, x measure. Dia: centres x 24.75 / 47.75 / 70.75, y 26.75 (a 23 pt pitch) | Arc (Ardia) P§4, Dia 1.50.1 bin |
+| Traffic lights | Arc: 16 × 16, centres (20, 24), (43, 24), (66, 24), a 23 pt pitch. Dia: centres x 24.75 / 47.75 / 70.75, y 26.75 | Arc 1.170.0 ax, Dia 1.50.1 bin |
 | A page before its first paint | the card colour, composited opaque over the tint, never white | Ardia, P§7 |
 
 - **Dragging the window.** The empty sidebar below the rows, the header row outside its buttons, and the margins around the card all move the window (the left margin only while the sidebar is hidden). A double-click there does the system's title-bar action from System Settings › Desktop & Dock. The exception is a double-click on the empty sidebar, which opens a new tab (Dia 1.50; Arc: confirm). Rows, tiles, buttons and the URL field keep their own presses. The outer ~3 pt is the resize edge (Dia and Arc, P§1).
@@ -234,11 +234,11 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 
 | Item | Value | Source |
 |---|---|---|
-| Default | Dia 190. Arc: measure on a fresh install. The 227.5 in Ardia's Arc recording may have been resized | Dia 1.50.1 bin |
+| Default | 228 on a fresh install, at 1280 × 800 and at 1512 × 949. Dia's is 190 | Arc 1.170.0 ax and preferences, Dia 1.50.1 bin |
 | Minimum / maximum | measure. Ardia uses 160 / 400. Dragging past a limit rubber-bands | Dia, P§4 |
 | Persistence | kept per window; double-click on the handle resets it | Dia, P§4 |
 
-- Ours (*interim* until Arc's are measured): 228 at first, 160 to 400. The handle is the 6 pt margin right of the rows, with the left-right resize cursor, or the left or right one at a limit. Past a limit the width rubber-bands on the Space pages' curve and, let go, settles at the limit on their spring, as does a double-click's reset to 228. The core saves the width with the Spaces. A header button shows while its plate ends at least 5 pt inside the sidebar, so reload goes under 227 and forward under 193.
+- Ours: 228 at first, and 160 to 400 (*interim* until Arc's limits are measured). The handle is the 6 pt margin right of the rows, with the left-right resize cursor, or the left or right one at a limit. Past a limit the width rubber-bands on the Space pages' curve and, let go, settles at the limit on their spring, as does a double-click's reset to 228. The core saves the width with the Spaces. A header button shows while its plate ends at least 5 pt inside the sidebar, so reload goes under 227 and forward under 193.
 
 **Sections, top to bottom.** Header, URL field, favorites, then the Space's pinned tabs, the Clear divider, the Today tabs and "+ New Tab". The footer holds the Space switcher (Arc structure). Measure in Arc where the Space name sits and what the footer holds. The favorites stay put while the list scrolls. A favorites block taller than 40 % of the sidebar scrolls with the list instead (Ardia).
 
@@ -845,60 +845,86 @@ These are kept so the numbers aren't lost. Add them to a phase before building t
 
 ## What Arc still has to give us
 
-Arc shuts down on 2026-12-22. This is the capture plan, by feature. Where it says "screenshot", it means a 2× window capture of the named state. Where it says "record", it means a recording of the interaction.
+Arc shuts down on 2026-12-22. Most of Arc 1.170.0 is captured: the values above that cite it come from window captures (cap), its accessibility tree (ax), 120 fps recordings (rec), its menu bar (menus), its asset catalogs and its preferences. What's left needs the owner's hands in Arc, in one sitting of eleven takes. Where it says "screenshot", it means a 2× window capture of the named state. Where it says "record", it means a recording of the interaction.
 
 **Setup**
 
-- Use a throwaway Arc profile on public sites, never the owner's accounts (AGENTS.md, trap 4).
-- Note Arc's version. Start from a fresh install so defaults (sidebar width, archive interval) are Arc's own, and screenshot before resizing anything.
-- Use a 1512 × 949 window to match the Dia captures. Capture dark and light, key and inactive.
+- Use a throwaway Arc profile with an empty Space, on public sites and local test pages, never the owner's accounts (AGENTS.md, trap 5).
+- Note Arc's version. Use a 1512 × 949 window on the MacBook's own screen, on mains power, with no Chromium build running. Capture dark and light, key and inactive, where a shot says so.
 - Capture Arc's window only, by pid, with `tools/window-screenshot.sh` (AGENTS.md, trap 2). Window-only captures never show the blur. For translucency, put a solid-colour window of our own behind Arc and composite the windows below Arc's frame (`CGWindowListCreateImage` with on-screen-below-window and including-window), cropped to Arc's frame (D›Window translucency).
-- The owner performs the interactions; nothing sends synthetic input to Arc (AGENTS.md, trap 1).
+- The owner performs the interactions; nothing sends synthetic input to Arc (AGENTS.md, trap 1). Haptics and sounds can't be recorded, so the owner says what they feel and hear.
+- Record at 120 fps. Use each frame's own timestamp, because recorders deliver frames unevenly. Repeat each interaction 3 times or more. Trace an edge per frame at 2× and fit a spring (response, damping ratio) or a curve and duration, reporting the rms error.
 
-**Static values** (measurable any time, machine load doesn't matter)
+**Every Arc motion**
 
-| Feature | Capture |
-|---|---|
-| Asset reads, no UI | `assetutil --info` on Arc's `Assets.car` files for every colour token, light and dark. The full menu bar with shortcuts. Settings defaults (archive interval, sidebar width) from Arc's preferences. Values only; never copy images, icons or fonts |
-| Window | Screenshots, sidebar docked and hidden: card insets on all four sides, card radius, traffic-light centres. Translucency composites over black, grey and white backdrops, for each preset Space colour, key and inactive |
-| Sidebar header | Screenshot at the default width: sidebar button, back, forward, reload (enabled, disabled, hovered), URL field idle, hovered and focused, an insecure site, a zoomed site, with two pinned extensions |
-| Sidebar width | The default on a fresh install; the minimum and maximum, by dragging to each limit and screenshotting |
-| Favorites | Screenshots with 1, 3, 4, 6, 9 and 12 favorites at the default width and at the minimum and maximum (columns, tile size, gaps, radius, favicon size). Selected colourful, one-colour and white icons; hovered tile with its tooltip; audio playing |
-| Pinned tabs | Screenshots: a pinned tab resting, selected, navigated away (and hovered while away), unloaded after ⌘W; a folder expanded and collapsed |
-| Today tabs | Screenshots: rows resting, hovered (✕), pressed, selected, loading, sleeping, playing audio, with a long title; "+ New Tab" row; the Clear divider; the scroll-edge line after scrolling. Row height and pitch (confirm 36) |
-| Sidebar hidden | Screenshot of the reveal panel at rest at 2×, to tell its 0.5 pt border from a 1 pt one |
-| Spaces | Screenshots: the switcher with 2, 5 and 10 Spaces, with icons and without; hovered and selected; the Space title row; create, rename, colour and icon flows; the profile picker for a Space; a Space whose profile differs. Answer: do favorites follow the Space or the profile? |
-| Command bar | Screenshots: ⌘T empty; typing "git" with an inline completion; 8 suggestions with one selected and another hovered; a Switch to Tab row; a command row; ⌘L on a page; the bar with the sidebar hidden. Answer: what ⌘↩ and ⌥↩ do |
-| Split view | Screenshots: 2, 3 and 4 panes, side by side and stacked; the divider or gap; the focused-pane indicator; the unfocused dim; the sidebar row of a split; drop zones while a tab is dragged over the page |
-| Archive | Screenshots: the archive view with archived tabs, search in it, the archive settings with every interval option, the toast after an archive |
-| Profiles | Screenshots: profile settings, creating a profile, an incognito window |
-| Extensions | Screenshots: where pinned extensions sit, an extension popup anchored, the install prompt for a throwaway Web Store extension, the remove confirmation, Arc's site-controls panel |
-| Passwords | Screenshots: the save prompt after a fake login on a local page, the autofill dropdown, the password settings |
-| Downloads | Screenshots: the indicator during and after a download, the downloads list |
-| Find | Screenshots: the find bar with matches and with none, its position against the page |
-| DevTools | Screenshots: the default docked side and size, undocked |
-| Import | Screenshots of each step of Arc's import from Chrome. Answer: where do Chrome's bookmarks land? |
-| Peek | Screenshots: open from a favorite's link, and from every other click that opens one: size, position, radius, shadow, backdrop dim, buttons |
-| Little Arc | Screenshots: opened by a link from another app: size, position, bar height and colours, the buttons; after ⌘L |
-| Themes | Screenshots of each editor state; the window at intensity 0, 0.5 and 1, noise 0 and 1 for each texture, translucency on and off, as composites |
-| Boosts | Screenshots: every way to start a Boost, each editor state, Zap picking an element, a site with a Boost in Site Controls, on and off. Answer: do Boosts follow the Space, the profile or the account? |
-| Updates | Screenshot of the update prompt, if one can still be triggered |
+Each motion Arc has, with where its measure is, or the take that records it. "One frame" means Arc doesn't animate it.
 
-**Timings** (need an unloaded machine: no Chromium build running, display awake, on mains power)
+| Feature | Motion | Measured | Take |
+|---|---|---|---|
+| Window | ⌘N, a new window | — | 9 |
+| Window | Full screen in and out, sidebar docked | — | 9 |
+| Window | The warning on closing a window with tabs, if Arc has one | — | 9 |
+| Window | The dialog that asks before a delete | Motion › Dialog | done |
+| Window | The toast | Motion › Toast | done |
+| Sidebar | ⌘S hiding and showing it | Motion › Sidebar hide, Sidebar show | done |
+| Sidebar | The reveal at the window's left edge | Motion › Sidebar reveal in, out | done |
+| Sidebar | A new tab's row, a closed tab's row, rows Undo brings back | Motion › Row motion | done |
+| Sidebar | Clear; ⌘T's plate; ⌃Tab | one frame | done |
+| Sidebar | A row's hover fill coming and going | — (ours: Dia's Row fill change) | 1 |
+| Sidebar | A dragged row's neighbours making way, and its drop settling | — (ours: Dia's Reorder) | 1 |
+| Sidebar | A row dragged into favorites and back out, the row and the tile turning into each other | — | 1 |
+| Sidebar | A row dragged into a folder and out | — | 1 |
+| Sidebar | A folder closed and opened by a click | — (ours: Dia's Group expand) | 1 |
+| Sidebar | Clear and the URL field's buttons, with the pointer coming onto the sidebar and leaving | — | 1 |
+| Sidebar | A favorite's tooltip, coming, moving to the next favorite, and going | — | 1 |
+| Sidebar | The width dragged past each limit and let go; a double-click on the edge | — (ours: the Space pages' rubber band and spring) | 1 |
+| Sidebar | A tab loading | — (ours: Dia's Spinner) | 1 |
+| Sidebar | The scroll edge under the favorites | — (ours: Dia's Scroll edge) | 1 |
+| Spaces | A swipe tracking the fingers, let go, and settling | Motion › Space settle | done |
+| Spaces | ⌃1–⌃9 and a click on the switcher | Motion › Space settle | done |
+| Spaces | The window's colour going from one Space's to the next | — | 2 |
+| Spaces | The pull past the last Space, and the Create a Space form | Motion › New Space pull, Space form leave | done |
+| Spaces | Past the first Space, the Library | Motion › Library recede | done |
+| Spaces | ⌘Z bringing a deleted Space back | — (ours: the switch's slide) | 2 |
+| Spaces | Renaming a Space, and picking its colour, icon and profile | — | 2 |
+| Command bar | ⌘T open and Esc | one frame | done |
+| Command bar | The first suggestions as a character is typed | 33–42 ms, one frame | done |
+| Command bar | ⌘L or a click from the sidebar's field, then Esc | — (ours: Dia's Panel grow) | 3 |
+| Command bar | The selection moving with ↓ and ↑, and the pointer over the rows | — | 3 |
+| Split view | Add Split View | one frame | done |
+| Split view | The targets as a tab is dragged onto the page | — (ours: Dia's) | 4 |
+| Split view | A drop on each side, the new pane coming in | — | 4 |
+| Split view | The divider dragged; a pane closed; Expand Current Split | — | 4 |
+| Split view | A tab dropped away from the targets, its new window | — (ours: Dia's) | 4 |
+| Library | Opening and closing | Motion › Library push, Library fade | done |
+| Library | The archive's Filter, a row's hover and its menu | — | 5 |
+| Pop-ups | Copy URL's note; the zoom pop-up; a tab archived by ⌘W | — | 6 |
+| Pop-ups | The find bar | one frame | done |
+| Downloads | A download flying in, and the footer while it runs | — | 7 |
+| DevTools | Opening, docked | two steps, no motion | done |
+| Peek | Opening from a favorite's link, closing, expanding into a tab | — | 8 |
+| Little Arc | Opening from another app's link, ⌘O into the main window, ⌘W | — | 8 |
+| Extensions | A popup opening and closing | — | 10 |
+| Passwords | The save prompt coming and going | — | 10 |
 
-Record at 120 fps on a ProMotion display, 60 fps at the least. Use each frame's own timestamp, because recorders deliver frames unevenly. Repeat each interaction 3 times or more. Trace an edge per frame at 2× and fit a spring (response, damping ratio) or a curve and duration, reporting the rms error, as Ardia did.
+**The takes**
 
-| Feature | Record | Time |
-|---|---|---|
-| Sidebar | Dragging a row past three neighbours, into favorites and back | neighbour spring; drop settle |
-| Sidebar | Hovering a favorite, then moving to the next | show delay, leave delay, tooltip motion |
-| Sidebar | Folder expand and collapse | spring |
-| Spaces | A slow two-finger swipe, a flick, an overscroll at the last Space; a click on the switcher; ⌃2 | tracking ratio, settle spring, rubber band, colour cross-fade duration |
-| Command bar | ⌘T open and Esc; ⌘L open from the sidebar field and Esc; typing the first character | open and close curves; time to the first suggestion |
-| Split view | Dragging a tab onto the page until the targets show; a drop on each side; dragging the divider; closing a pane | target slide-in and grow; pane slide-in; close |
-| Downloads | Starting a download | indicator fly-in and its duration |
-| Find | ⌘F and Esc | bar in and out |
-| Peek | Opening, closing, expanding into a tab | each curve |
-| Little Arc | A link from another app, then ⌘O, then a second link and ⌘W | window appear, the move to the main window, close |
-| Extensions | Popup open and close | curve |
-| Window | ⌘N; entering and leaving full screen with the sidebar docked | what the sidebar does, frame by frame |
+1. **Sidebar motion.** Record each sidebar motion above. Screenshot the sidebar at its narrowest and widest, and a row held pressed.
+2. **Spaces.** Make a second Space in another colour. Record ⌃1 and ⌃2 and clicks on the switcher, both ways; that Space deleted, then ⌘Z; a Space renamed, then its colour, icon and profile picked. Screenshot the switcher with 2 and 5 Spaces, with an icon and without. Answer: do the favorites follow the Space or the profile?
+3. **Command bar.** Record the two command bar motions above. Screenshot the command list with nothing typed and with a few letters, and ⌘T over a page. Answer: does the row under the pointer light up while the keyboard selection is on another, and what opens Search Tabs?
+4. **Split view.** Record each split motion above. Screenshot 3 and 4 panes, side by side and stacked, and an unfocused pane. Answer: how many panes at most?
+5. **Library.** Record the archive's Filter, a row's hover and its menu. Screenshot each.
+6. **Toasts and pop-ups.** Record ⇧⌘C, ⌘+ then ⌘0, and ⌘W on a Today tab.
+7. **Downloads.** Record a download from a local test page, to its end. Screenshot the footer after it, and the Downloads list.
+8. **Peek and Little Arc.** Record Peek from a favorite's link: opened, closed, opened and expanded. Record Little Arc from a link the session hands Arc: ⌘O, then a second link and ⌘W. Screenshot Peek at rest. Little Arc opens on the main display, the external monitor.
+9. **Window.** Record ⌘N, full screen in and out, and closing a window with tabs.
+10. **Profiles, extensions, passwords.** Record a profile made for a new Space (the sitting's first step). Screenshot profile settings and an incognito window. Install a throwaway Web Store extension and screenshot its install prompt, its pinned icon, Site Controls and its removal; record its popup opening and closing. On a local fake login, record Arc's offer to save the password, and click Never.
+11. **Still images.** Screenshot:
+    - the right-click menus of a tab, a page, a link and an image, and Settings' Archive tabs after menu open;
+    - a tab playing audio, and one with a long title;
+    - a pinned tab a link took away from its URL, at rest and hovered, and record what takes it back;
+    - favorites, 2, 5 and 8 of them, at the default width, 8 at the narrowest and widest, and selected with colourful, one-colour and white icons.
+
+    Answer: does ⌘↩ take a pinned tab back to its URL?
+
+**After parity** (the owner's call for Import; the editors with their phases): each step of Arc's import from Chrome and where Chrome's bookmarks land; the theme editor's states and the window at its extremes; every way to start a Boost, its editor and Site Controls; the update prompt, if one can still be triggered.
