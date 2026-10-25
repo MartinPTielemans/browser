@@ -202,6 +202,10 @@ BC_EXPORT size_t bc_space_pinned(bc_id space, bc_id* tabs, size_t capacity);
 // Today tab, else its top pinned tab, else no page. Then window_space_shown and window_selected.
 BC_EXPORT void bc_window_show_space(bc_id window, bc_id space);
 
+// The tab bc_window_show_space would show for |space|, or the tab shown for the Space shown. 0 for
+// none.
+BC_EXPORT bc_id bc_window_space_tab(bc_id window, bc_id space);
+
 // Where the window shows its tab's page, in the window, and the radius of the page's corners, 0 for
 // square ones. Set it again when the layout changes; the page keeps its distance from the window's
 // edges as the window resizes.

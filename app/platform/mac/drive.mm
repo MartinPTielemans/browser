@@ -19,6 +19,11 @@
 //   type <text>                           lowercase letters, dots and spaces
 //   scroll <x> <y> <dy> <count>           <count> trackpad scroll events at (x, y), each moving
 //                                         the content up by <dy> points, at a trackpad's pace
+//   swipe <x> <y> <dx> <dy> <count> [<rest>]
+//                                         two fingers at (x, y): <count> trackpad scroll events,
+//                                         each <dx> points right and <dy> down, from the touch's
+//                                         start, then its end after <rest> ms more, else at once
+//   wheel <x> <y> <dx>                    a mouse wheel's tick across at (x, y), <dx> lines right
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
 //   layout                                logs the frames of the window's views and child
@@ -188,6 +193,39 @@ void Scroll(NSWindow* window, double x, double y, double dy, int count, void (^d
       dispatch_source_cancel(timer);
       done();
     }
+  });
+  dispatch_resume(timer);
+}
+
+// Two fingers, as a trackpad reports them: a touch that begins, moves, rests for |rest_ms| and
+// ends, with the phases AppKit reads from Quartz's field.
+void Swipe(NSWindow* window, double x, double y, double dx, double dy, int count, int rest_ms,
+           void (^done)(void)) {
+  long window_number = window.windowNumber;
+  void (^post)(double, double, int64_t) = ^(double across, double along, int64_t phase) {
+    CGEventRef event = CGEventCreateScrollWheelEvent2(nullptr, kCGScrollEventUnitPixel, 2,
+                                                      (int32_t)along, (int32_t)across, 0);
+    CGEventSetIntegerValueField(event, kCGScrollWheelEventScrollPhase, phase);
+    CGEventSetIntegerValueField(event, kWindowNumberField, window_number);
+    CGEventSetWindowLocation(event, CGPointMake(x, y));
+    [NSApp postEvent:[NSEvent eventWithCGEvent:event] atStart:NO];
+    CFRelease(event);
+  };
+  __block int sent = 0;
+  dispatch_source_t timer =
+      dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+  dispatch_source_set_timer(timer, DISPATCH_TIME_NOW, 8 * NSEC_PER_MSEC, NSEC_PER_MSEC);
+  dispatch_source_set_event_handler(timer, ^{
+    post(dx, dy, sent == 0 ? kCGScrollPhaseBegan : kCGScrollPhaseChanged);
+    if (++sent < count) {
+      return;
+    }
+    dispatch_source_cancel(timer);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)rest_ms * NSEC_PER_MSEC),
+                   dispatch_get_main_queue(), ^{
+                     post(0, 0, kCGScrollPhaseEnded);
+                     done();
+                   });
   });
   dispatch_resume(timer);
 }
@@ -438,6 +476,30 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     Scroll(window, x, y, dy, count, done);
+    return true;
+  }
+  if (action == "swipe") {
+    double x, y, dx, dy;
+    int count, rest = 0;
+    if (!(words >> x >> y >> dx >> dy >> count) || count < 1) {
+      return false;
+    }
+    words >> rest;
+    Swipe(window, x, y, dx, dy, count, rest, done);
+    return true;
+  }
+  if (action == "wheel") {
+    double x, y, dx;
+    if (!(words >> x >> y >> dx)) {
+      return false;
+    }
+    CGEventRef event =
+        CGEventCreateScrollWheelEvent2(nullptr, kCGScrollEventUnitLine, 2, 0, (int32_t)dx, 0);
+    CGEventSetIntegerValueField(event, kWindowNumberField, window.windowNumber);
+    CGEventSetWindowLocation(event, CGPointMake(x, y));
+    [NSApp postEvent:[NSEvent eventWithCGEvent:event] atStart:NO];
+    CFRelease(event);
+    done();
     return true;
   }
   if (action == "resize") {

@@ -312,6 +312,12 @@ void host_show_window_buttons(bool shown) {
   }
 }
 
+void host_detent(void) {
+  [NSHapticFeedbackManager.defaultPerformer
+      performFeedbackPattern:NSHapticFeedbackPatternAlignment
+             performanceTime:NSHapticFeedbackPerformanceTimeNow];
+}
+
 void host_press_window_button(int button) {
   // After the UI's update that asked, since closing or going full screen calls back into it.
   dispatch_async(dispatch_get_main_queue(), ^{

@@ -87,6 +87,9 @@ void host_show_reveal(double width);
 // Hides the reveal's window.
 void host_hide_reveal(void);
 
+// A detent on the trackpad, as a swipe's nearest Space changes.
+void host_detent(void);
+
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);

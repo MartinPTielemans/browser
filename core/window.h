@@ -87,6 +87,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void ShowSpace(bc_id space);
   // The tab the window shows in |space|, or showed there last. 0 if none.
   bc_id SelectedIn(bc_id space) const;
+  // The tab ShowSpace shows for |space|, or the tab shown for the Space shown. 0 for none.
+  bc_id TabToShowIn(bc_id space) const;
   // Has ShowSpace show |tab| in |space|, as if the window showed it there last.
   void SetSelectedIn(bc_id space, bc_id tab);
   // Where the selected tab's page goes, in the window, and the radius of its corners.

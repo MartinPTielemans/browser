@@ -318,6 +318,11 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
   - Release velocity comes from the last 100 ms of samples. At |velocity| ≥ 5 pt/s the target is the next Space in that direction, otherwise the nearest. A swipe moves at most one Space from where it began. The settle carries the release velocity when it points at the target.
   - Settle per Motion. A haptic detent sounds as the nearest Space changes.
   - Wheel mice: deltas sum while they come less than 0.049 s apart. Once |sum| > 1 pt, it pages one Space and then ignores the wheel for 0.25 s.
+- Ours, where Dia and Arc aren't measured:
+  - The first move decides the axis: across if it's more across than along. Momentum after a page swipe is ignored, and a wheel tick counts as 10 pt, so one tick pages.
+  - The window shows the new Space when the fingers lift, not while they move. Until then the page beside shows that Space's rows as they will show, with the tab it would show selected, and takes no input.
+  - A dot click, ⌃1–⌃9 and ⌥⌘←/→ slide the new Space's page in from its side on the Space settle curve, pushing the old one out.
+  - The detent is AppKit's alignment haptic. Swipes don't page while the Create a Space form, a rename or a row drag is up.
 - The window tint cross-fades between the two Spaces' colours during a swipe (Ardia; Dia and Arc durations: measure).
 - Measure in Arc: the Space title, create, icon and colour flows, and how a Space shows its profile.
 

@@ -4,7 +4,7 @@
 
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -13,9 +13,10 @@ use std::{
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, DispatchPhase,
     Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding, MenuItem,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size,
-    Subscription, Task, Transformation, WeakEntity, Window, actions,
-    canvas, div, img, percentage, point, prelude::*, px, rgb, rgba, size, svg,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta,
+    ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase, Transformation,
+    WeakEntity, Window, actions, canvas, div, img, percentage, point, prelude::*, px, rgb, rgba,
+    size, svg,
 };
 
 use crate::text_input::TextInput;
@@ -57,6 +58,17 @@ const ROW_FILL: f32 = 0.3;
 // dragged one make way critically damped (docs/ux-spec.md › Motion: Reorder).
 const DRAG_START: f32 = 4.;
 const REORDER_OMEGA: f32 = 90.;
+// Two fingers across the sidebar page between Spaces (docs/ux-spec.md › Spaces › Switching). The
+// pages follow at half the fingers' way and rubber-band past the ends. Let go, they settle
+// critically damped on the next Space if the last 100 ms moved them faster than a flick, else on
+// the nearest. A wheel pages once per burst of ticks, then rests. AppKit's line is about 10 pt.
+const SWIPE_TRACKING: f32 = 0.5;
+const SWIPE_FLICK: f32 = 5.;
+const SWIPE_HISTORY: Duration = Duration::from_millis(100);
+const SPACE_SETTLE: f32 = 0.25;
+const WHEEL_LINE: f32 = 10.;
+const WHEEL_BURST: Duration = Duration::from_millis(49);
+const WHEEL_REST: Duration = Duration::from_millis(250);
 
 // The header's buttons: their plates' tops and left edges, from the window's. The sidebar button's
 // is a pitch before back's, as Arc's is.
@@ -408,6 +420,8 @@ pub trait Browser {
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
     fn stop(&self, tab: u64, cx: &mut App);
     fn show_space(&self, space: u64, cx: &mut App);
+    /// The tab the window shows when it shows `space`, or the one it shows, else 0.
+    fn space_tab(&self, space: u64) -> u64;
     /// Makes an empty Space named `name` after the others, and returns it.
     fn create_space(&self, name: &str, cx: &mut App) -> u64;
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
@@ -446,6 +460,8 @@ pub trait Browser {
     /// anywhere in the browser's windows until it's hidden.
     fn show_reveal(&self, width: f32, cx: &mut App);
     fn hide_reveal(&self, cx: &mut App);
+    /// A detent on the trackpad, as a swipe's nearest Space changes.
+    fn detent(&self, cx: &mut App);
     /// Opens the command bar, for a new tab or on `editing`'s URL.
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
     /// Opens the tab's find bar with the keyboard.
@@ -583,6 +599,45 @@ struct Drag {
     dropped: bool,
 }
 
+/// Two fingers on the trackpad over the sidebar, which may page between Spaces.
+struct Swipe {
+    /// The Space shown when they came down.
+    from: u64,
+    /// Across the sidebar, to page, or along it, to scroll the list. None until they first move.
+    across: Option<bool>,
+    /// How far they've taken the page of the Space they began at, before the rubber band.
+    way: f32,
+    /// Where that page was over the last SWIPE_HISTORY, for how fast it's let go.
+    samples: VecDeque<(Instant, f32)>,
+    /// The Space nearest its place, for the detent as it changes.
+    nearest: u64,
+}
+
+/// A Space's page settling on its place, after a swipe or a switch.
+struct Settle {
+    space: u64,
+    /// The page it pushes out: the Space shown before a switch. After a swipe it's the Space next
+    /// to it on the side it's coming from.
+    beside: Option<u64>,
+    /// How far from its place it started, and how fast it was going.
+    from: f32,
+    velocity: f32,
+    start: Instant,
+}
+
+impl Settle {
+    /// How far the page is from its place, or None once it's there.
+    fn offset(&self) -> Option<f32> {
+        let omega = std::f32::consts::TAU / SPACE_SETTLE;
+        let t = self.start.elapsed().as_secs_f32();
+        let decay = (-omega * t).exp();
+        let rise = self.velocity + omega * self.from;
+        let offset = (self.from + rise * t) * decay;
+        let speed = (self.velocity - omega * rise * t) * decay;
+        (offset.abs() > 0.25 || speed.abs() > 10.).then_some(offset)
+    }
+}
+
 pub struct Shell {
     browser: Rc<dyn Browser>,
     /// Holds GPUI's focus while nothing in the shell takes it, so the shortcuts have their context.
@@ -611,6 +666,14 @@ pub struct Shell {
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
+    swipe: Option<Swipe>,
+    settle: Option<Settle>,
+    /// The last swipe paged, so its momentum, which comes without a touch, doesn't scroll the list.
+    swiped: bool,
+    /// A wheel's ticks across the sidebar: their sum and the last one's time, and when they last
+    /// paged.
+    wheel: Option<(f32, Instant)>,
+    wheel_paged: Option<Instant>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
     toast: Option<Toast>,
@@ -653,6 +716,11 @@ impl Shell {
             closing: Vec::new(),
             drag: None,
             dragged: false,
+            swipe: None,
+            settle: None,
+            swiped: false,
+            wheel: None,
+            wheel_paged: None,
             hovered_favicon: None,
             toast: None,
             page_fullscreen: false,
@@ -856,7 +924,27 @@ impl Shell {
             }
             _ => eprintln!("browser: space {space}"),
         }
-        self.space = space;
+        let before = std::mem::replace(&mut self.space, space);
+        // A swipe that began in another Space is over, and its momentum with it.
+        if self.swipe.as_ref().is_some_and(|swipe| swipe.from != space) {
+            self.swipe = None;
+            self.swiped = true;
+        }
+        // A Space shown some other way slides in from its side, pushing the one before out. One a
+        // swipe settles on is moving already.
+        let index = |id| self.spaces.iter().position(|other| other.id == id);
+        if !self.settle.as_ref().is_some_and(|settle| settle.space == space)
+            && let (Some(from), Some(to)) = (index(before), index(space))
+            && from != to
+        {
+            self.settle = Some(Settle {
+                space,
+                beside: Some(before),
+                from: if to > from { SIDEBAR_WIDTH } else { -SIDEBAR_WIDTH },
+                velocity: 0.,
+                start: Instant::now(),
+            });
+        }
         self.slides.clear();
         self.opened = None;
         self.closing.clear();
@@ -1480,6 +1568,196 @@ impl Shell {
         true
     }
 
+    /// The Spaces' pages the sidebar draws, and where from its left edge: the shown Space's, and
+    /// while a swipe or a settle moves one, it and the page beside it.
+    fn pages(&self) -> Vec<(u64, f32)> {
+        let swipe = self.swipe.as_ref().filter(|swipe| swipe.across == Some(true));
+        let (space, x, beside) = match (swipe, &self.settle) {
+            (Some(swipe), _) => (swipe.from, self.swiped_to(swipe), None),
+            (None, Some(settle)) => (settle.space, settle.offset().unwrap_or(0.), settle.beside),
+            (None, None) => return vec![(self.space, 0.)],
+        };
+        let beside = beside.or_else(|| {
+            let index = self.spaces.iter().position(|other| other.id == space)?;
+            let index = if x > 0. { index.checked_sub(1)? } else { index + 1 };
+            self.spaces.get(index).map(|other| other.id)
+        });
+        let mut pages = vec![(space, x)];
+        if x != 0.
+            && let Some(beside) = beside
+        {
+            pages.push((beside, x - x.signum() * SIDEBAR_WIDTH));
+        }
+        pages
+    }
+
+    /// Where a swipe has taken the page of the Space it began at: with the fingers, but
+    /// rubber-banding past the first and last Spaces, and past one Space either side.
+    fn swiped_to(&self, swipe: &Swipe) -> f32 {
+        let index = self.spaces.iter().position(|space| space.id == swipe.from).unwrap_or(0);
+        let high = if index > 0 { SIDEBAR_WIDTH } else { 0. };
+        let low = if index + 1 < self.spaces.len() { -SIDEBAR_WIDTH } else { 0. };
+        let band = |past: f32| 255. * (1. - 1. / (0.15 * past / 255. + 1.));
+        match swipe.way {
+            way if way > high => high + band(way - high),
+            way if way < low => low - band(low - way),
+            way => way,
+        }
+    }
+
+    /// The Space whose page is nearest its place while `from`'s is at `x`: it or a neighbour.
+    fn nearest(&self, from: u64, x: f32) -> Option<u64> {
+        let index = self.spaces.iter().position(|space| space.id == from)? as f32;
+        let index = index - (x / SIDEBAR_WIDTH).round().clamp(-1., 1.);
+        let index = index.clamp(0., self.spaces.len().saturating_sub(1) as f32) as usize;
+        self.spaces.get(index).map(|space| space.id)
+    }
+
+    /// Fingers or a wheel over the sidebar. Across it they page between Spaces, and along it they
+    /// scroll the list. Returns whether paging took the event.
+    fn scroll(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
+        if self.form.is_some() || self.renaming.is_some() || self.drag.is_some() {
+            return false;
+        }
+        let delta = match event.delta {
+            ScrollDelta::Pixels(delta) => delta.map(f32::from),
+            ScrollDelta::Lines(lines) => return self.wheel(lines, cx),
+        };
+        match event.touch_phase {
+            TouchPhase::Started => {
+                self.swiped = false;
+                self.swipe = Some(Swipe {
+                    from: self.space,
+                    across: None,
+                    way: 0.,
+                    samples: VecDeque::new(),
+                    nearest: self.space,
+                });
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => return self.release(cx),
+            TouchPhase::Moved => {}
+        }
+        let Some(mut swipe) = self.swipe.take() else {
+            // A page swipe's momentum, across, doesn't scroll the list.
+            return self.swiped && delta.x.abs() > delta.y.abs();
+        };
+        if swipe.across.is_none() && (delta.x != 0. || delta.y != 0.) {
+            let across = delta.x.abs() > delta.y.abs();
+            swipe.across = Some(across);
+            // check.sh waits for this line.
+            eprintln!("browser: swipe {}", if across { "across" } else { "along" });
+            // Fingers catch a page that's still settling where it is.
+            if across
+                && let Some(settle) = self.settle.take()
+                && let Some(x) = settle.offset()
+            {
+                (swipe.from, swipe.way, swipe.nearest) = (settle.space, x, settle.space);
+            }
+        }
+        let across = swipe.across == Some(true);
+        if across {
+            swipe.way += SWIPE_TRACKING * delta.x;
+            let (now, x) = (Instant::now(), self.swiped_to(&swipe));
+            swipe.samples.push_back((now, x));
+            while swipe.samples.front().is_some_and(|&(at, _)| now - at > SWIPE_HISTORY) {
+                swipe.samples.pop_front();
+            }
+            if let Some(nearest) = self.nearest(swipe.from, x)
+                && nearest != swipe.nearest
+            {
+                swipe.nearest = nearest;
+                self.browser.detent(cx);
+            }
+            cx.notify();
+        }
+        self.swipe = Some(swipe);
+        across
+    }
+
+    /// The fingers lifted. The pages settle on the next Space in the direction of a flick, else
+    /// on the one nearest its place, keeping the release's speed if it's heading there.
+    fn release(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(swipe) = self.swipe.take().filter(|swipe| swipe.across == Some(true)) else {
+            return false;
+        };
+        self.swiped = true;
+        let (now, x) = (Instant::now(), self.swiped_to(&swipe));
+        let recent = swipe.samples.iter().filter(|&&(at, _)| now - at <= SWIPE_HISTORY);
+        let velocity = match (recent.clone().next(), recent.last()) {
+            (Some(&(start, from)), Some(&(end, to))) if end > start => {
+                (to - from) / (end - start).as_secs_f32()
+            }
+            _ => 0.,
+        };
+        let toward = if velocity.abs() >= SWIPE_FLICK {
+            velocity.signum() * SIDEBAR_WIDTH
+        } else {
+            x
+        };
+        let Some(space) = self.nearest(swipe.from, toward) else {
+            return true;
+        };
+        let index = |id| self.spaces.iter().position(|other| other.id == id).unwrap_or(0) as f32;
+        let from = x + (index(space) - index(swipe.from)) * SIDEBAR_WIDTH;
+        let velocity = if velocity * from < 0. { velocity } else { 0. };
+        self.settle = Some(Settle { space, beside: None, from, velocity, start: now });
+        if space != self.space {
+            // check.sh waits for this line.
+            eprintln!("browser: command select-space via swipe");
+            self.show_space(space, cx);
+        }
+        cx.notify();
+        true
+    }
+
+    /// A wheel's ticks across the sidebar page once per burst, then rest.
+    fn wheel(&mut self, lines: Point<f32>, cx: &mut Context<Self>) -> bool {
+        if lines.x.abs() <= lines.y.abs() {
+            return false;
+        }
+        let now = Instant::now();
+        if self.wheel_paged.is_some_and(|paged| now - paged < WHEEL_REST) {
+            return true;
+        }
+        let sum = match self.wheel {
+            Some((sum, last)) if now - last < WHEEL_BURST => sum + lines.x,
+            _ => lines.x,
+        };
+        self.wheel = Some((sum, now));
+        if (sum * WHEEL_LINE).abs() > 1. {
+            self.wheel = None;
+            self.wheel_paged = Some(now);
+            if let Some(space) = self.nearest(self.space, sum.signum() * SIDEBAR_WIDTH)
+                && space != self.space
+            {
+                // check.sh waits for this line.
+                eprintln!("browser: command select-space via wheel");
+                self.show_space(space, cx);
+            }
+        }
+        true
+    }
+
+    /// Fingers and wheels over the sidebar, heard ahead of the list, which would scroll with them.
+    fn scroll_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let shell = cx.weak_entity();
+        canvas(
+            |_, _, _| {},
+            move |bounds, _, window, _| {
+                window.on_mouse_event(move |event: &ScrollEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture
+                        && bounds.contains(&event.position)
+                        && shell.update(cx, |shell, cx| shell.scroll(event, cx)).unwrap_or(false)
+                    {
+                        cx.stop_propagation();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full()
+    }
+
     /// The pointer's moves and release anywhere in the window, for a pressed row, which only hears
     /// the pointer while it's over the row.
     fn drag_listeners(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -1504,7 +1782,7 @@ impl Shell {
         .size_0()
     }
 
-    /// Drops the list's motion that's done, and returns whether any is left.
+    /// Drops the list's and the pages' motion that's done, and returns whether any is left.
     fn list_moving(&mut self) -> bool {
         self.slides
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
@@ -1513,7 +1791,12 @@ impl Shell {
         if self.slides.is_empty() {
             self.opened = None;
         }
+        if let Some(settle) = self.settle.take_if(|settle| settle.offset().is_none()) {
+            // check.sh reads these lines.
+            eprintln!("browser: settled space {}", settle.space);
+        }
         !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
+            || self.settle.is_some()
     }
 
     /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
@@ -1632,16 +1915,11 @@ impl Shell {
                 1. - cubic_bezier(0., 0., 0.58, 1., t)
             })
         };
-        div()
+        row_box()
             .id(id)
             .group("row")
-            .flex_none()
-            .h(px(ROW_HEIGHT))
-            .mb(px(ROW_PITCH - ROW_HEIGHT))
             // A dragged row is drawn over the list, from `list`.
             .top(px(if dragging == Some(slot) { 0. } else { self.slide(slot) }))
-            .px(px(PLATE_INSET))
-            .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
             .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(row, *hovered, cx)
@@ -1776,18 +2054,7 @@ impl Shell {
 
     fn name_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let space = self.space;
-        let row = div()
-            .id("space-name")
-            .flex_none()
-            .h(px(NAME_HEIGHT))
-            .flex()
-            .items_center()
-            .pl(px(NAME_X))
-            .pr(px(PLATE_INSET))
-            .block_mouse_except_scroll()
-            .text_size(px(13.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgba(SPACE_NAME));
+        let row = name_box().id("space-name").block_mouse_except_scroll();
         if let Some(renaming) = self.renaming.as_ref().filter(|renaming| renaming.space == space) {
             return row
                 .key_context("SpaceName")
@@ -1955,38 +2222,11 @@ impl Shell {
 
     /// The line over Today, and Clear at its end, where the titles end.
     fn divider(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let clear = div()
+        let clear = clear_label()
             .id("clear")
-            .flex_none()
-            .ml(px(DIVIDER_GAP - CLEAR_ARROW_INSET))
-            .h_full()
-            .flex()
-            .items_center()
-            .gap(px(CLEAR_GAP - CLEAR_ARROW_INSET))
             .block_mouse_except_scroll()
-            .text_size(px(10.))
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgba(CLEAR))
-            .child(
-                svg()
-                    .path("icons/arrow-down.svg")
-                    .size(px(CLEAR_ARROW))
-                    .text_color(rgba(CLEAR)),
-            )
-            .child("Clear")
             .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)));
-        div().flex_none().h(px(DIVIDER_HEIGHT)).top(px(self.slide(Slot::Divider))).child(
-            div()
-                .absolute()
-                .top(px(DIVIDER_LINE_Y - CLEAR_HEIGHT / 2.))
-                .left(px(FAVICON_X))
-                .right(px(2. * PLATE_INSET))
-                .h(px(CLEAR_HEIGHT))
-                .flex()
-                .items_center()
-                .child(div().flex_1().h(px(1.)).bg(rgba(DIVIDER)))
-                .child(clear),
-        )
+        divider_box(clear).top(px(self.slide(Slot::Divider)))
     }
 
     /// The toast after Clear, over the bottom of the list, with Undo.
@@ -2029,14 +2269,7 @@ impl Shell {
     }
 
     fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let plus = div()
-            .text_size(px(18.))
-            .text_color(rgba(NEW_TAB_PLUS))
-            .child("+");
-        let label = div()
-            .text_size(px(14.))
-            .text_color(rgba(NEW_TAB))
-            .child("New Tab");
+        let (plus, label) = new_tab_label();
         self.row(Row::NewTab, plus, label, cx)
             .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::NewTab, "sidebar", cx)))
     }
@@ -2149,9 +2382,69 @@ impl Shell {
             .children(self.nav_buttons(cx));
         let sidebar = match self.form() {
             Some(form) => sidebar.child(self.space_form(form, cx)),
-            None => sidebar.child(self.url_field()).child(self.list(cx)),
+            None => sidebar.child(self.url_field()).child(self.space_pages(cx)),
         };
-        sidebar.children(self.toast(cx)).children(self.switcher(cx))
+        sidebar
+            .children(self.toast(cx))
+            .children(self.switcher(cx))
+            .child(self.scroll_listener(cx))
+    }
+
+    /// The Spaces' pages under the URL field, side by side while they move. Each keeps its own
+    /// scroll.
+    fn space_pages(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let mut pages = Vec::new();
+        for (space, x) in self.pages() {
+            let page = match self.spaces.iter().find(|other| other.id == space) {
+                _ if space == self.space => self.list(cx).into_any_element(),
+                Some(other) => self.still_page(other).into_any_element(),
+                None => continue,
+            };
+            pages.push(
+                div()
+                    .id(("page", space))
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px(x))
+                    .w(px(SIDEBAR_WIDTH))
+                    .child(page),
+            );
+        }
+        div()
+            .absolute()
+            .top(px(LIST_TOP))
+            .left_0()
+            .w(px(SIDEBAR_WIDTH))
+            .bottom(px(FOOTER_HEIGHT))
+            .overflow_hidden()
+            .children(pages)
+    }
+
+    /// Another Space's page as it shows once shown, while it slides in or out: its name, and its
+    /// rows with the tab it would show selected. It takes no input.
+    fn still_page(&self, space: &Space) -> impl IntoElement + use<> {
+        let selected = self.browser.space_tab(space.id);
+        let row = |tab: u64| {
+            let icon = favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()));
+            let icon = div()
+                .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+                .child(icon);
+            row_box().child(
+                plate(icon, title(self.title(tab)).pr(px(PLATE_INSET)))
+                    .when(tab == selected, |plate| plate.bg(rgba(SELECTED))),
+            )
+        };
+        let (plus, new_tab) = new_tab_label();
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(name_box().child(div().truncate().child(space.name.clone())))
+            .children(space.pinned.iter().map(|&tab| row(tab)))
+            .when(!space.today.is_empty(), |page| page.child(divider_box(clear_label())))
+            .child(row_box().child(plate(plus, new_tab)))
+            .children(space.today.iter().map(|&tab| row(tab)))
     }
 
     /// The Space's name, its pinned tabs, the divider, New Tab and its Today tabs, under the URL
@@ -2185,14 +2478,12 @@ impl Shell {
         let under = rows.split_off(under).into_iter().map(|(_, row)| row).collect::<Vec<_>>();
         div()
             .id("today")
-            .absolute()
-            .top(px(LIST_TOP))
-            .left_0()
-            .w(px(SIDEBAR_WIDTH))
-            .bottom(px(FOOTER_HEIGHT))
+            .size_full()
             .flex()
             .flex_col()
             .overflow_y_scroll()
+            // Fingers across the list page between Spaces instead.
+            .restrict_scroll_to_axis()
             .children(self.closing.iter().map(|row| self.closing_row(row)))
             .children(rows.into_iter().map(|(_, row)| row))
             .when(!under.is_empty(), |list| {
@@ -2361,6 +2652,74 @@ fn slots(pinned: &[u64], today: &[u64]) -> HashMap<Slot, f32> {
         (slot, top - height)
     })
     .collect()
+}
+
+/// A row of the list, around its plate.
+fn row_box() -> gpui::Div {
+    div()
+        .flex_none()
+        .h(px(ROW_HEIGHT))
+        .mb(px(ROW_PITCH - ROW_HEIGHT))
+        .px(px(PLATE_INSET))
+        .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
+}
+
+/// The row with the Space's name, over its tabs.
+fn name_box() -> gpui::Div {
+    div()
+        .flex_none()
+        .h(px(NAME_HEIGHT))
+        .flex()
+        .items_center()
+        .pl(px(NAME_X))
+        .pr(px(PLATE_INSET))
+        .text_size(px(13.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(rgba(SPACE_NAME))
+}
+
+/// The divider under the pinned tabs: a line, then `clear`.
+fn divider_box(clear: impl IntoElement) -> gpui::Div {
+    div().flex_none().h(px(DIVIDER_HEIGHT)).child(
+        div()
+            .absolute()
+            .top(px(DIVIDER_LINE_Y - CLEAR_HEIGHT / 2.))
+            .left(px(FAVICON_X))
+            .right(px(2. * PLATE_INSET))
+            .h(px(CLEAR_HEIGHT))
+            .flex()
+            .items_center()
+            .child(div().flex_1().h(px(1.)).bg(rgba(DIVIDER)))
+            .child(clear),
+    )
+}
+
+/// The divider's Clear: an arrow down and its label.
+fn clear_label() -> gpui::Div {
+    div()
+        .flex_none()
+        .ml(px(DIVIDER_GAP - CLEAR_ARROW_INSET))
+        .h_full()
+        .flex()
+        .items_center()
+        .gap(px(CLEAR_GAP - CLEAR_ARROW_INSET))
+        .text_size(px(10.))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(rgba(CLEAR))
+        .child(
+            svg()
+                .path("icons/arrow-down.svg")
+                .size(px(CLEAR_ARROW))
+                .text_color(rgba(CLEAR)),
+        )
+        .child("Clear")
+}
+
+/// "+ New Tab": its plus and its label.
+fn new_tab_label() -> (gpui::Div, gpui::Div) {
+    let plus = div().text_size(px(18.)).text_color(rgba(NEW_TAB_PLUS)).child("+");
+    let label = div().text_size(px(14.)).text_color(rgba(NEW_TAB)).child("New Tab");
+    (plus, label)
 }
 
 /// A row's plate: its icon in the favicon's square, then its label.

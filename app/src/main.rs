@@ -50,6 +50,7 @@ mod platform {
         pub fn host_add_reveal(reveal_view: *mut c_void, pointer_moved: extern "C" fn(x: f64));
         pub fn host_show_reveal(width: f64);
         pub fn host_hide_reveal();
+        pub fn host_detent();
         pub fn host_menu(items: *const host_menu_item, count: usize, x: f64, y: f64) -> i32;
         pub fn host_confirm(message: *const c_char, detail: *const c_char, action: *const c_char)
         -> bool;
@@ -213,6 +214,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_show_space(WINDOW.get(), space) };
     }
 
+    fn space_tab(&self, space: u64) -> u64 {
+        unsafe { bc::bc_window_space_tab(WINDOW.get(), space) }
+    }
+
     fn create_space(&self, name: &str, _: &mut App) -> u64 {
         create_space(name)
     }
@@ -302,6 +307,10 @@ impl Browser for Engine {
 
     fn hide_reveal(&self, _: &mut App) {
         unsafe { platform::host_hide_reveal() };
+    }
+
+    fn detent(&self, _: &mut App) {
+        unsafe { platform::host_detent() };
     }
 
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
