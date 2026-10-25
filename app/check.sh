@@ -67,6 +67,8 @@
 #      shows NOT FOUND. A click on the page leaves the bar open, and the bar keeps its place
 #      through a resize and full screen. Each tab has its own find, which a new tab starts from the
 #      text found last; escape and the bar's close button close it, and so does another page.
+#      ⌘0 and ⌘- from the page and the View menu's Zoom In zoom the page, and the zoom HUD shows
+#      the percent under the find bar for a moment, and goes at once when another tab shows.
 #  10. ⌘D pins the tab shown, from the page and from the UI, at the bottom of the pinned tabs, and
 #      unpins it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, or the ✕ under the
 #      pointer, unloads a pinned tab and keeps its row, which has no ✕ then, and shows the top
@@ -1525,10 +1527,15 @@ quit
 echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed, in the archive, from which it reopens at its page. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
 
-# Find in page. The test page has three apples and one 日本語.
+# Find in page, and zoom. The test page has three apples and one 日本語, and puts its zoom in its
+# title as it changes.
 page='data:text/html;charset=utf-8,<title>loading</title>
 <p style="font:24px system-ui">apple banana apple cherry apple 日本語</p>
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+const unzoomed = devicePixelRatio;
+onresize = () => document.title = "zoom " + Math.round(100 * devicePixelRatio / unzoomed);
+</script>'
 log="$out/find.log"
 step=0
 rm -f "$saved"
@@ -1676,6 +1683,43 @@ in_browser RenderWidgetHostViewCocoa "after a click on the find bar's close butt
 send key f cmd
 expect '^browser: find bar shown$' "⌘F after the close button didn't open the find bar again"
 
+# ⌘0 and ⌘- from the page and the View menu's Zoom In zoom it, for its site, which the profile
+# keeps, so ⌘0 first. The HUD shows the zoom over the card's top right, 8 points under the find
+# bar. A tab shown in its place hides it at once.
+send click $page_point
+send key 0 cmd
+expect '^browser: command actual-size via page$' "⌘0 with the page focused didn't reach the UI"
+expect "^browser: zoom $first 100%\$" "⌘0 didn't zoom the page to 100 %"
+send key - cmd
+expect '^browser: command zoom-out via page$' "⌘- with the page focused didn't reach the UI"
+expect "^browser: zoom $first 90%\$" "⌘- didn't zoom the page out to 90 %"
+expect '^browser: title [0-9]* zoom 90$' "⌘- didn't zoom the page out"
+expect '^browser: zoom hud shown$' "⌘- didn't show the zoom HUD"
+send layout
+hud=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child .* 80x32$' |
+  sed 's/^browser: layout child //')
+[ "$hud" = "$((content - 100)),60 80x32" ] ||
+  fail "the zoom HUD is at ${hud:-nowhere} in a window $content wide, under the find bar"
+../tools/window-screenshot.sh "$pid" "$out/zoom.png" || fail "no window to capture"
+send menu "Zoom In"
+expect '^browser: command zoom-in via ui$' "the View menu's Zoom In didn't reach the UI"
+expect "^browser: zoom $first 100%\$" "the View menu's Zoom In didn't zoom the page in to 100 %"
+send menu "Zoom In"
+expect '^browser: title [0-9]* zoom 110$' "the View menu's Zoom In didn't zoom the page in"
+send key 1 cmd
+expect "^browser: selected $second" "⌘1 didn't show the second tab"
+send state
+awk -v state="browser: drive $step: state" '
+  /^browser: zoom hud shown$/ { hidden = 0 }
+  /^browser: zoom hud hidden$/ { hidden = 1 }
+  $0 == state { exit !hidden }' "$log" ||
+  fail "the zoom HUD stayed over the tab shown in place of the one zoomed"
+send key 2 cmd
+expect "^browser: selected $first" "⌘2 didn't show the first tab again"
+send key 0 cmd
+expect '^browser: title [0-9]* zoom 100$' "⌘0 didn't zoom the page back to 100 %"
+expect '^browser: zoom hud hidden$' "the zoom HUD didn't go after a moment"
+
 # Another page closes it.
 send key l cmd
 expect '^browser: command bar shown$' "⌘L in the find bar didn't open the command bar"
@@ -1688,7 +1732,7 @@ echo "key q cmd" >&3
 exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png"
+echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png"
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 log="$out/pinned.log"

@@ -13,9 +13,9 @@
 //   dragto <x> <y>                        moves the pointer pressed to (x, y)
 //   release <x> <y>                       lets go of it at (x, y)
 //   move <x> <y>                          moves the pointer to (x, y), without a button down
-//   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "[", "]",
-//                                         return, escape, tab, space, backspace, up, down, left
-//                                         or right
+//   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "-", "[",
+//                                         "]", return, escape, tab, space, backspace, up, down,
+//                                         left or right
 //   flags [cmd] [shift] [alt] [ctrl]      the modifiers held from now, as a modifier key going
 //                                         down or up; key holds them only for its own key
 //   type <text>                           lowercase letters, dots and spaces
@@ -68,8 +68,8 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"l", 37}, {"j", 38}, {"k", 40}, {"n", 45}, {"m", 46}, {"return", 36}, {"tab", 48},
     {" ", 49}, {"space", 49}, {".", 47}, {"escape", 53}, {"1", 18},   {"2", 19},
     {"3", 20}, {"4", 21}, {"5", 23}, {"6", 22}, {"7", 26}, {"8", 28},      {"9", 25},
-    {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125}, {"left", 123}, {"right", 124},
-    {"backspace", 51},
+    {"0", 29}, {"-", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
+    {"left", 123}, {"right", 124}, {"backspace", 51},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey.
 const std::map<std::string, std::string> kCharacters = {

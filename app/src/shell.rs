@@ -279,6 +279,10 @@ pub enum Command {
     /// Reloads without the cache.
     ForceReload,
     Stop,
+    /// Zooms the page's site to 100 %.
+    ActualSize,
+    ZoomIn,
+    ZoomOut,
     NewSpace,
     /// The Space at this index in the switcher.
     SelectSpace(usize),
@@ -334,6 +338,14 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-r", Command::Reload, false),
     ("shift-cmd-r", Command::ForceReload, false),
     ("cmd-.", Command::Stop, false),
+    ("cmd-0", Command::ActualSize, false),
+    // The first is the one the menu shows. ⌘+ is ⇧⌘= on most layouts, which a page names either
+    // way, and ⌘= is Chrome's hidden second ⌘+.
+    ("cmd-+", Command::ZoomIn, false),
+    ("cmd-=", Command::ZoomIn, false),
+    ("shift-cmd-=", Command::ZoomIn, false),
+    ("shift-cmd-+", Command::ZoomIn, false),
+    ("cmd--", Command::ZoomOut, false),
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("escape", Command::Stop, false),
@@ -435,6 +447,9 @@ impl Command {
             Command::Reload => "reload",
             Command::ForceReload => "force-reload",
             Command::Stop => "stop",
+            Command::ActualSize => "actual-size",
+            Command::ZoomIn => "zoom-in",
+            Command::ZoomOut => "zoom-out",
             Command::NewSpace => "new-space",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
@@ -568,6 +583,8 @@ pub trait Browser {
     fn go_forward(&self, tab: u64, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
     fn stop(&self, tab: u64, cx: &mut App);
+    /// Zooms the tab's page in (1), out (-1) or to 100 % (0), for its site.
+    fn zoom(&self, tab: u64, step: i32, cx: &mut App);
     fn show_space(&self, space: u64, cx: &mut App);
     /// The tab the window shows when it shows `space`, or the one it shows, else 0.
     fn space_tab(&self, space: u64) -> u64;
@@ -1593,6 +1610,9 @@ impl Shell {
             Command::Reload => return self.browser.reload(self.selected, false, cx),
             Command::ForceReload => return self.browser.reload(self.selected, true, cx),
             Command::Stop => return self.browser.stop(self.selected, cx),
+            Command::ActualSize => return self.browser.zoom(self.selected, 0, cx),
+            Command::ZoomIn => return self.browser.zoom(self.selected, 1, cx),
+            Command::ZoomOut => return self.browser.zoom(self.selected, -1, cx),
             Command::Quit => return self.browser.quit(cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),

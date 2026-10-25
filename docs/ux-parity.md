@@ -45,7 +45,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | URL text | MVP | host only, no `www.`; Show Full URL off by default | Dia 1.50.1 bin |
 | [x] | URL on hover | MVP | the field's buttons, not the full URL (Dia shows it) | Arc 1.170.0 cap |
 | [x] | URL field Copy URL button | MVP | 30 × 30, while the pointer is over the sidebar; Site Control Center: later | Arc 1.170.0 cap |
-| [ ] | Insecure and zoom indicators | MVP | lock-warning glyph; magnifier with − / + / Reset | Dia, Chrome P§8 |
+| [ ] | Insecure indicator | MVP | Arc: none; Dia and Chrome: a lock-warning glyph | Dia, Chrome P§8, Arc 1.170.0 cap |
 | [ ] | Favorite tile | MVP | 41 tall, 6 apart, inset 6, radius 10 *interim* | Dia 1.50.1 bin + cap |
 | [ ] | Favorite columns | MVP | 3 at 190 *interim*; Arc's rule: measure | Dia P§2 |
 | [ ] | Favorite resting look | MVP | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
@@ -259,6 +259,14 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Bar position, size, contents, no-match state, motion | MVP | 300 × 32, 10 in from the card's top right, radius 6; search, field, count, previous, next, divider, close; NOT FOUND in red; one frame in and out | Arc 1.170.0 rec, cap |
 | [ ] | Bar colour, shadow, glyphs | MVP | Arc (19,29,50) and ≈16 pt shadow; ours the window's colour and AppKit's shadow; glyphs: measure | Arc 1.170.0 cap |
 
+## Zoom
+
+| Done | Item | Phase | Target | Source |
+|---|---|---|---|---|
+| [x] | Keys and menu | MVP | ⌘0 / ⌘+ / ⌘-, hidden ⌘=; View › Zoom to Actual Size, Zoom In, Zoom Out; per site, kept | Arc 1.170.0 menus, Chrome |
+| [x] | HUD | MVP | the percent over the card's top right for a moment; nothing in the URL field | Arc 1.170.0 cap |
+| [ ] | HUD look and timing | MVP | Arc's pill, time shown and fade: measure | — |
+
 ## DevTools
 
 | Done | Item | Phase | Target | Source |
@@ -306,7 +314,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Menu bar | MVP | Arc's menus in Arc's order, with the commands the browser has | Arc 1.170.0 menus |
 | [x] | Edit menu in pages | MVP | Undo, Redo, Cut, Copy, Paste, Select All reach the focused page or field | Arc 1.170.0 menus |
 | [x] | Hide, Hide Others, Minimize | MVP | ⌘H, ⌥⌘H, ⌘M | Arc 1.170.0 menus |
-| [ ] | Arc's other menu items | MVP | windows, Save Page As, Print, Zoom, Developer, Space 1–9, View History, Extensions, Help, as each feature lands | Arc 1.170.0 menus |
+| [ ] | Arc's other menu items | MVP | windows, Save Page As, Print, Developer, Space 1–9, View History, Extensions, Help, as each feature lands | Arc 1.170.0 menus |
 
 ## Phase 4
 

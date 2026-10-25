@@ -362,6 +362,10 @@ BC_EXPORT void bc_tab_close_below(bc_id tab);
 // with it.
 BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
 
+// Zooms the tab's page in (|step| 1) or out (-1) to Chrome's next level, or back to 100 % (0), for
+// its whole site, as Chrome does, and the profile keeps it. Returns the zoom in percent after.
+BC_EXPORT int bc_tab_zoom(bc_id tab, int step);
+
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
 // a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its
 // Space instead, and only its page goes: a window showing it shows the Space's top Today tab, else

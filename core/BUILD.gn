@@ -83,6 +83,7 @@ source_set("browser_core") {
     "//components/tabs:public",
     "//components/url_formatter",
     "//components/web_modal",
+    "//components/zoom",
     "//content/public/browser",
     "//content/public/common",
     "//third_party/blink/public/common",

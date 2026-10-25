@@ -218,6 +218,8 @@ impl Browser for Fake {
 
     fn stop(&self, _: u64, _: &mut App) {}
 
+    fn zoom(&self, _: u64, _: i32, _: &mut App) {}
+
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,
