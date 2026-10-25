@@ -118,9 +118,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Switching to another profile's Space | MVP | the window's profile switches with it | decision 5 |
 | [ ] | Moving a tab across profiles | MVP | reloads after a one-time warning | Dia P§1 |
 | [x] | Favorites per Space or per profile | MVP | per profile; confirm in Arc | Arc |
-| [ ] | Switcher footer | MVP | 41 tall; library cell left; overflow 42 wide, 3 from right | Dia 1.50.1 bin |
-| [ ] | Switcher band | MVP | 28 tall, 31 in from each side, 12 pt per item, 7 before scrolling, edge scale 0.75–1 | Dia 1.50.1 bin |
-| [ ] | Switcher dot | MVP | 6 pt; alpha 0.85 / 0.4 / 0.2 | Dia 1.50.1 bin |
+| [x] | Switcher footer | MVP | 50 tall; Library 32 at 8 in on the left; + 32 at 8 in on the right, its menu New Space… and New Folder… *interim*, Arc's: measure | Arc 1.170.0 cap, ax |
+| [x] | Switcher band | MVP | 42 in from each side; items 36 × 34 at a 34 pitch; none with one Space; more than fit: narrower *interim*, Arc's: measure | Arc 1.170.0 ax |
+| [x] | Switcher dot | MVP | 8 pt; white 0.50 shown, 0.19 others | Arc 1.170.0 cap |
 | [ ] | Space icons in the switcher | MVP | measure | — |
 | [x] | Swipe tracking | MVP | −0.5 × horizontal delta; ignores the system swipe setting | Dia 1.50.1 bin |
 | [x] | Rubber band | MVP | `255·(1 − 1/(0.15·x/255 + 1))` | Dia 1.50.1 bin |
