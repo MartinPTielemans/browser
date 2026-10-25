@@ -46,6 +46,7 @@ source_set("browser_core") {
 
   deps = [
     "//base",
+    "//chrome/app:command_ids",
     "//chrome/browser",
     "//chrome/browser:chrome_browser_main",
     "//chrome/browser:chrome_content_browser_client",
@@ -94,6 +95,7 @@ source_set("browser_core") {
     "//ui/gfx",
     "//ui/gfx/codec",
     "//ui/gfx/geometry",
+    "//ui/menus",
     "//ui/native_theme",
     "//ui/views",
     "//ui/views/controls/webview",

@@ -112,6 +112,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_adjust_navigate = &Window::AdjustNavigate;
   g_browser_core_can_dock_devtools = &Window::CanDockDevTools;
   g_browser_core_update_devtools = &Window::UpdateDevTools;
+  g_browser_core_trim_page_menu = &Window::TrimPageMenu;
   return ChromeMain(argc, argv);
 }
 
