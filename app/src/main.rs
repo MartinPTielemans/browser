@@ -7,10 +7,10 @@ use std::{
     ffi::{CStr, CString, c_char, c_int, c_void},
     rc::Rc,
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
-use browser::{command_bar, dialog};
+use browser::{command_bar, dialog, toast};
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
     Page, Shell, WindowButton,
@@ -92,6 +92,9 @@ mod platform {
         pub fn host_add_dialog(dialog_view: *mut c_void);
         pub fn host_show_dialog();
         pub fn host_hide_dialog();
+        pub fn host_add_toast(toast_view: *mut c_void);
+        pub fn host_show_toast();
+        pub fn host_hide_toast();
     }
 
     /// Where host_menu shows a menu.
@@ -301,6 +304,19 @@ impl dialog::Host for DialogHost {
     }
 }
 
+/// The toast's requests, to the host's toast window.
+struct ToastHost;
+
+impl toast::Host for ToastHost {
+    fn show(&self) {
+        unsafe { platform::host_show_toast() };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_toast() };
+    }
+}
+
 /// The command bar's requests, as calls to the core and to the host's overlay window.
 struct Bar;
 
@@ -466,6 +482,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_undo_clear(WINDOW.get()) }
     }
 
+    fn undo_delete_space(&self, _: &mut App) -> bool {
+        unsafe { bc::bc_window_undo_delete_space(WINDOW.get()) != 0 }
+    }
+
     fn reopen_closed_tab(&self, _: &mut App) {
         unsafe { bc::bc_window_reopen_closed_tab(WINDOW.get()) };
     }
@@ -587,8 +607,8 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_rename(tab, name.as_ptr()) };
     }
 
-    fn delete_space(&self, space: u64, _: &mut App) {
-        unsafe { bc::bc_space_delete(space) };
+    fn delete_space(&self, space: u64, _: &mut App) -> bool {
+        unsafe { bc::bc_space_delete(space) }
     }
 
     fn set_space_color(&self, space: u64, color: Option<u32>, _: &mut App) {
@@ -687,6 +707,10 @@ impl Browser for Engine {
     fn copy(&self, text: &str, _: &mut App) {
         let text = CString::new(text.replace('\0', "")).unwrap_or_default();
         unsafe { platform::host_copy(text.as_ptr()) };
+    }
+
+    fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {
+        toast::show(text, key, time, cx);
     }
 
     fn command_bar(
@@ -789,7 +813,7 @@ fn run_page_shortcut(key: *const bc::bc_key, reserved: bool) -> bool {
         return false;
     };
     // ⌘Z in a text field is the page's, which the Edit menu gives it.
-    if command == Command::UndoClear && key.editing {
+    if command == Command::Undo && key.editing {
         return false;
     }
     let mut ran = false;
@@ -914,6 +938,15 @@ fn open_window(cx: &mut App) {
                 unsafe { platform::host_add_dialog(view) };
             }
             if let Ok(shell) = window.entity(cx) {
+                let fill = shell.clone();
+                if let Some(toast) = toast::open(
+                    Rc::new(ToastHost),
+                    move |cx| fill.read(cx).window_fill(),
+                    cx,
+                ) && let Ok(view) = toast.update(cx, |_, window, _| ns_view(window))
+                {
+                    unsafe { platform::host_add_toast(view) };
+                }
                 find_bar::open(shell.clone(), cx);
                 zoom_hud::open(shell.clone(), cx);
                 drop_targets::open(shell.clone(), cx);

@@ -43,28 +43,6 @@ namespace browser_core {
 
 namespace {
 
-struct SavedFolder {
-  std::string name;
-  bool open = true;
-  // How many folders it's in.
-  int depth = 0;
-  // The pinned tab saved under it, counted among them.
-  size_t at = 0;
-};
-
-struct SavedSpace {
-  std::string name;
-  std::optional<uint32_t> color;
-  // Each top to bottom.
-  std::vector<SavedTab> pinned;
-  std::vector<SavedFolder> folders;
-  std::vector<SavedTab> today;
-  // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
-  int shown = -1;
-  // The favorite the window showed there instead, or -1.
-  int shown_favorite = -1;
-};
-
 struct Saved {
   // Left to right.
   std::vector<SavedTab> favorites;
@@ -118,6 +96,49 @@ SavedTab SaveTab(content::NavigationController& history) {
   return tab;
 }
 
+SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today) {
+  SavedSpace to;
+  to.name = space.name();
+  to.color = space.color();
+  int index = 0;
+  for (auto [ids, tabs] : {std::pair(&space.pinned_rows(), &to.pinned),
+                           std::pair(&space.today(), &to.today)}) {
+    bc_id above = 0;
+    for (bc_id id : *ids) {
+      if (space.IsFolder(id)) {
+        to.folders.push_back({.name = space.FolderName(id),
+                              .open = space.IsOpen(id),
+                              .depth = DepthOf(space, id),
+                              .at = to.pinned.size()});
+        continue;
+      }
+      content::WebContents* contents = Tab::FromId(id);
+      SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
+      if (tab.history.empty()) {
+        continue;
+      }
+      if (id == shown) {
+        to.shown = index;
+      }
+      tab.split = above && std::ranges::contains(space.Panes(id), above);
+      above = id;
+      tab.pinned_url = space.PinnedUrl(id);
+      tab.name = Tab::FromWebContents(contents)->name();
+      tab.depth = DepthOf(space, id);
+      if (tabs == &to.today) {
+        tab.last_seen = Window::Showing(id) ? base::Time::Now()
+                                            : Tab::FromWebContents(contents)->last_seen();
+        if (today) {
+          today->push_back(id);
+        }
+      }
+      tabs->push_back(std::move(tab));
+      ++index;
+    }
+  }
+  return to;
+}
+
 namespace {
 
 Saved Collect() {
@@ -143,45 +164,10 @@ Saved Collect() {
     if (window && space->id() == window->space()) {
       saved.shown = saved.spaces.size();
     }
-    SavedSpace& to = saved.spaces.emplace_back();
-    to.name = space->name();
-    to.color = space->color();
     const bc_id shown = window ? window->SelectedIn(space->id()) : 0;
+    SavedSpace& to = saved.spaces.emplace_back(SaveSpace(*space, shown));
     if (auto favorite = favorites.find(shown); favorite != favorites.end()) {
       to.shown_favorite = favorite->second;
-    }
-    int index = 0;
-    for (auto [ids, tabs] : {std::pair(&space->pinned_rows(), &to.pinned),
-                             std::pair(&space->today(), &to.today)}) {
-      bc_id above = 0;
-      for (bc_id id : *ids) {
-        if (space->IsFolder(id)) {
-          to.folders.push_back({.name = space->FolderName(id),
-                                .open = space->IsOpen(id),
-                                .depth = DepthOf(*space, id),
-                                .at = to.pinned.size()});
-          continue;
-        }
-        content::WebContents* contents = Tab::FromId(id);
-        SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
-        if (tab.history.empty()) {
-          continue;
-        }
-        if (id == shown) {
-          to.shown = index;
-        }
-        tab.split = above && std::ranges::contains(space->Panes(id), above);
-        above = id;
-        tab.pinned_url = space->PinnedUrl(id);
-        tab.name = Tab::FromWebContents(contents)->name();
-        tab.depth = DepthOf(*space, id);
-        if (tabs == &to.today) {
-          tab.last_seen = Window::Showing(id) ? base::Time::Now()
-                                              : Tab::FromWebContents(contents)->last_seen();
-        }
-        tabs->push_back(std::move(tab));
-        ++index;
-      }
     }
   }
   saved.archive = Archived();
@@ -520,6 +506,85 @@ double SavedSidebarWidth() {
   return g_saver && g_saver->loaded() ? g_saver->loaded()->sidebar_width : 0;
 }
 
+namespace {
+
+// Opens |saved| unloaded in |window|, as the tab it was. Returns its id, or 0.
+bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
+  content::WebContents* contents = window.RestoreTab(profile, saved.history, saved.current);
+  if (!contents) {
+    return 0;
+  }
+  // Which makes its Tab.
+  const bc_id tab = Tab::IdOf(contents);
+  Tab::FromWebContents(contents)->set_name(saved.name);
+  Tab::FromWebContents(contents)->Restored();
+  if (!saved.last_seen.is_null()) {
+    Tab::FromWebContents(contents)->set_last_seen(saved.last_seen);
+  }
+  return tab;
+}
+
+}  // namespace
+
+Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
+  Space* space = Space::Create(saved_space.name, id);
+  space->SetColor(saved_space.color);
+  const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
+    const bc_id tab = RestoreSavedTab(window, profile, saved_tab);
+    if (tab && index == saved_space.shown) {
+      window.SetSelectedIn(space->id(), tab);
+    }
+    return tab;
+  };
+  const int pinned = static_cast<int>(saved_space.pinned.size());
+  std::vector<bc_id> pinned_ids(saved_space.pinned.size());
+  std::vector<bc_id> today_ids(saved_space.today.size());
+  // The folders holding the row being put back, outermost first.
+  std::vector<bc_id> holders;
+  const auto holder = [&](int depth) {
+    holders.resize(std::min(static_cast<size_t>(depth), holders.size()));
+    return holders.empty() ? 0 : holders.back();
+  };
+  size_t folders = 0;
+  const auto restore_folders = [&](size_t above) {
+    for (; folders < saved_space.folders.size() && saved_space.folders[folders].at <= above;
+         ++folders) {
+      const SavedFolder& saved_folder = saved_space.folders[folders];
+      const bc_id folder = space->AddFolder(saved_folder.name, holder(saved_folder.depth),
+                                            space->pinned_rows().size());
+      space->SetOpen(folder, saved_folder.open);
+      holders.push_back(folder);
+    }
+  };
+  for (int j = 0; j < pinned; ++j) {
+    restore_folders(j);
+    const SavedTab& saved_tab = saved_space.pinned[j];
+    if (bc_id tab = pinned_ids[j] = restore(saved_tab, j)) {
+      // Saved before pinned tabs kept their pinned URL, it's pinned where it is.
+      space->AddPinned(tab, holder(saved_tab.depth), space->pinned_rows().size(),
+                       saved_tab.pinned_url.is_valid()
+                           ? saved_tab.pinned_url
+                           : saved_tab.history[saved_tab.current].virtual_url());
+    }
+  }
+  restore_folders(saved_space.pinned.size());
+  // Bottom up, as each goes at the top.
+  for (size_t j = saved_space.today.size(); j-- > 0;) {
+    if (bc_id tab = today_ids[j] = restore(saved_space.today[j], pinned + static_cast<int>(j))) {
+      space->Add(tab, /*opener=*/0, /*foreground=*/false);
+    }
+  }
+  for (auto [tabs, ids] : {std::pair(&saved_space.pinned, &pinned_ids),
+                           std::pair(&saved_space.today, &today_ids)}) {
+    for (size_t j = 1; j < ids->size(); ++j) {
+      if ((*tabs)[j].split && (*ids)[j] && (*ids)[j - 1]) {
+        space->Split((*ids)[j], (*ids)[j - 1], GURL());
+      }
+    }
+  }
+  return space;
+}
+
 bool RestoreSession(Window& window) {
   std::optional<Saved> saved = g_saver ? g_saver->TakeLoaded() : std::nullopt;
   // Chrome made the profile it starts with before the core's calls work.
@@ -527,25 +592,10 @@ bool RestoreSession(Window& window) {
   if (!saved || !profile || !Space::All().empty()) {
     return false;
   }
-  const auto restore_tab = [&](const SavedTab& saved_tab) -> bc_id {
-    content::WebContents* contents =
-        window.RestoreTab(profile, saved_tab.history, saved_tab.current);
-    if (!contents) {
-      return 0;
-    }
-    // Which makes its Tab.
-    const bc_id tab = Tab::IdOf(contents);
-    Tab::FromWebContents(contents)->set_name(saved_tab.name);
-    Tab::FromWebContents(contents)->Restored();
-    if (!saved_tab.last_seen.is_null()) {
-      Tab::FromWebContents(contents)->set_last_seen(saved_tab.last_seen);
-    }
-    return tab;
-  };
   // First, as a Space may show one.
   std::vector<bc_id> favorites;
   for (const SavedTab& saved_tab : saved->favorites) {
-    const bc_id tab = favorites.emplace_back(restore_tab(saved_tab));
+    const bc_id tab = favorites.emplace_back(RestoreSavedTab(window, profile, saved_tab));
     if (tab) {
       Favorites::Add(tab,
                      saved_tab.pinned_url.is_valid()
@@ -557,66 +607,12 @@ bool RestoreSession(Window& window) {
   bc_id shown = 0;
   for (size_t i = 0; i < saved->spaces.size(); ++i) {
     const SavedSpace& saved_space = saved->spaces[i];
-    Space* space = Space::Create(saved_space.name);
-    space->SetColor(saved_space.color);
+    Space* space = RestoreSpace(window, profile, saved_space);
     if (static_cast<int>(i) == saved->shown) {
       shown = space->id();
     }
     if (saved_space.shown_favorite >= 0 && favorites[saved_space.shown_favorite]) {
       window.SetSelectedIn(space->id(), favorites[saved_space.shown_favorite]);
-    }
-    const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
-      const bc_id tab = restore_tab(saved_tab);
-      if (tab && index == saved_space.shown) {
-        window.SetSelectedIn(space->id(), tab);
-      }
-      return tab;
-    };
-    const int pinned = static_cast<int>(saved_space.pinned.size());
-    std::vector<bc_id> pinned_ids(saved_space.pinned.size());
-    std::vector<bc_id> today_ids(saved_space.today.size());
-    // The folders holding the row being put back, outermost first.
-    std::vector<bc_id> holders;
-    const auto holder = [&](int depth) {
-      holders.resize(std::min(static_cast<size_t>(depth), holders.size()));
-      return holders.empty() ? 0 : holders.back();
-    };
-    size_t folders = 0;
-    const auto restore_folders = [&](size_t above) {
-      for (; folders < saved_space.folders.size() && saved_space.folders[folders].at <= above;
-           ++folders) {
-        const SavedFolder& saved_folder = saved_space.folders[folders];
-        const bc_id folder = space->AddFolder(saved_folder.name, holder(saved_folder.depth),
-                                              space->pinned_rows().size());
-        space->SetOpen(folder, saved_folder.open);
-        holders.push_back(folder);
-      }
-    };
-    for (int j = 0; j < pinned; ++j) {
-      restore_folders(j);
-      const SavedTab& saved_tab = saved_space.pinned[j];
-      if (bc_id tab = pinned_ids[j] = restore(saved_tab, j)) {
-        // Saved before pinned tabs kept their pinned URL, it's pinned where it is.
-        space->AddPinned(tab, holder(saved_tab.depth), space->pinned_rows().size(),
-                         saved_tab.pinned_url.is_valid()
-                             ? saved_tab.pinned_url
-                             : saved_tab.history[saved_tab.current].virtual_url());
-      }
-    }
-    restore_folders(saved_space.pinned.size());
-    // Bottom up, as each goes at the top.
-    for (size_t j = saved_space.today.size(); j-- > 0;) {
-      if (bc_id tab = today_ids[j] = restore(saved_space.today[j], pinned + static_cast<int>(j))) {
-        space->Add(tab, /*opener=*/0, /*foreground=*/false);
-      }
-    }
-    for (auto [tabs, ids] : {std::pair(&saved_space.pinned, &pinned_ids),
-                             std::pair(&saved_space.today, &today_ids)}) {
-      for (size_t j = 1; j < ids->size(); ++j) {
-        if ((*tabs)[j].split && (*ids)[j] && (*ids)[j - 1]) {
-          space->Split((*ids)[j], (*ids)[j - 1], GURL());
-        }
-      }
     }
   }
   window.ShowSpace(shown);

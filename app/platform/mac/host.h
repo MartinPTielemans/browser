@@ -95,6 +95,16 @@ void host_show_dialog(void);
 // was.
 void host_hide_dialog(void);
 
+// Makes the window of |toast_view| the toast's, which floats over the browser window's top right
+// corner when shown, as its child, and lets the mouse through. It starts hidden.
+void host_add_toast(void* toast_view);
+
+// Shows the toast's window, as the UI draws it now.
+void host_show_toast(void);
+
+// Hides the toast's window.
+void host_hide_toast(void);
+
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 

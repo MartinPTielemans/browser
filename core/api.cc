@@ -310,6 +310,11 @@ size_t bc_window_undo_clear(bc_id window_id) {
   return window ? window->UndoClear() : 0;
 }
 
+bc_id bc_window_undo_delete_space(bc_id window_id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window ? window->UndoDeleteSpace() : 0;
+}
+
 bc_id bc_window_reopen_closed_tab(bc_id window_id) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window ? window->ReopenClosedTab() : 0;

@@ -76,6 +76,11 @@ NSWindow* g_dialog;
 NSView* g_dialog_view;
 bool g_dialog_shown = false;
 
+// The toast's window and view.
+NSWindow* g_toast;
+NSView* g_toast_view;
+bool g_toast_shown = false;
+
 // The find bar's window and view, and its distance from the top right of the browser window's
 // content.
 NSWindow* g_find_bar;
@@ -166,6 +171,13 @@ void PlaceFindBar() {
                                          NSMaxY(content) - g_find_bar_top - size.height)];
 }
 
+// At the browser window's top right corner, where the toast draws itself.
+void PlaceToast() {
+  NSRect frame = g_window.frame;
+  NSSize size = g_toast.frame.size;
+  [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - size.width, NSMaxY(frame) - size.height)];
+}
+
 // 8 points below the find bar while it shows, where the HUD would cover it.
 void PlaceHud() {
   NSRect content = [g_window contentRectForFrameRect:g_window.frame];
@@ -254,6 +266,9 @@ void host_show_window(void* ui_view) {
                                                 }
                                                 if (g_dialog_shown) {
                                                   [g_dialog setFrame:g_window.frame display:YES];
+                                                }
+                                                if (g_toast_shown) {
+                                                  PlaceToast();
                                                 }
                                               }];
 }
@@ -615,6 +630,47 @@ void host_hide_dialog(void) {
   [g_window removeChildWindow:g_dialog];
   [g_dialog orderOut:nil];
   [g_find_bar_shown && g_find_bar_keyboard ? g_find_bar : g_window makeKeyWindow];
+}
+
+void host_add_toast(void* toast_view) {
+  g_toast_view = (__bridge NSView*)toast_view;
+  g_toast = g_toast_view.window;
+  MakeOverlay(g_toast);
+  g_toast.styleMask = NSWindowStyleMaskBorderless;
+  // The toast draws its own, which scales with it.
+  g_toast.hasShadow = NO;
+  g_toast.ignoresMouseEvents = YES;
+}
+
+void host_show_toast(void) {
+  if (!g_toast || !g_window || g_toast_shown) {
+    return;
+  }
+  g_toast_shown = true;
+  // After the UI's update that asked, since the window draws here, before it shows, since it
+  // keeps the last frame it drew.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_toast_shown) {
+      return;
+    }
+    PlaceToast();
+    [g_toast_view.layer setNeedsDisplay];
+    [g_toast_view.layer displayIfNeeded];
+    [g_window addChildWindow:g_toast ordered:NSWindowAbove];
+    if (g_overlay_shown) {
+      [g_overlay orderWindow:NSWindowAbove relativeTo:g_toast.windowNumber];
+    }
+    fprintf(stderr, "browser: toast window shown\n");
+  });
+}
+
+void host_hide_toast(void) {
+  if (!g_toast_shown) {
+    return;
+  }
+  g_toast_shown = false;
+  [g_window removeChildWindow:g_toast];
+  [g_toast orderOut:nil];
 }
 
 void host_show_window_buttons(bool shown) {

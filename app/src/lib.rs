@@ -5,3 +5,4 @@ pub mod command_bar;
 pub mod dialog;
 pub mod shell;
 pub mod text_input;
+pub mod toast;

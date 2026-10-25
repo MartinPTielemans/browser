@@ -40,8 +40,10 @@ void ReportSpacesChanged() {
 }  // namespace
 
 // static
-Space* Space::Create(std::string name) {
-  const bc_id id = NewId();
+Space* Space::Create(std::string name, bc_id id) {
+  if (!id) {
+    id = NewId();
+  }
   Space* space = new Space(id, std::move(name));
   Spaces()[id] = base::WrapUnique(space);
   ReportSpacesChanged();
