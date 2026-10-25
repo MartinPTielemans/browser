@@ -29,11 +29,12 @@
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
 //
-// Clicks, drags and scrolls go to the browser window, and keys and clickkey to the key window. It
-// logs "browser: drive <n>: <command>" when command n arrives and "browser: drive <n> done, key
-// <window class>, focus <view class>, active <0|1>, marked <location,length|none>" once AppKit has
-// handled its events. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
-// background process make it active.
+// Clicks, drags and moves go to the app's window on top at that point of the browser window, such
+// as the sidebar reveal over its edge, scrolls to the browser window, and keys and clickkey to the
+// key window. It logs "browser: drive <n>: <command>" when command n arrives and "browser: drive
+// <n> done, key <window class>, focus <view class>, active <0|1>, marked <location,length|none>"
+// once AppKit has handled its events. A page ignores clicks while the app isn't the active app,
+// and macOS doesn't let a background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
@@ -103,6 +104,27 @@ void PostMouse(NSWindow* window, NSEventType type, double x, double y, int count
     CFRelease(right);
   }
   [NSApp postEvent:event atStart:NO];
+}
+
+// (x, y) in |from| as a point in |to|, each from its window's top-left corner.
+void Convert(NSWindow* from, NSWindow* to, double* x, double* y) {
+  NSPoint screen = [from convertPointToScreen:NSMakePoint(*x, NSHeight(from.frame) - *y)];
+  NSPoint at = [to convertPointFromScreen:screen];
+  *x = at.x;
+  *y = NSHeight(to.frame) - at.y;
+}
+
+// The window of the app's that the pointer at (x, y) in |browser| is over, as the window server
+// picks it: the top one there, such as the sidebar reveal over the browser window's edge.
+NSWindow* WindowAt(NSWindow* browser, double x, double y) {
+  NSPoint screen = [browser convertPointToScreen:NSMakePoint(x, NSHeight(browser.frame) - y)];
+  NSInteger number = [NSWindow windowNumberAtPoint:screen belowWindowWithWindowNumber:0];
+  for (NSWindow* window in NSApp.windows) {
+    if (window.visible && window.windowNumber == number) {
+      return window;
+    }
+  }
+  return browser;
 }
 
 void Click(NSWindow* window, double x, double y, int count) {
@@ -305,7 +327,9 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!(words >> x >> y)) {
       return false;
     }
-    Click(window, x, y, 1);
+    NSWindow* target = WindowAt(window, x, y);
+    Convert(window, target, &x, &y);
+    Click(target, x, y, 1);
     done();
     return true;
   }
@@ -323,8 +347,10 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!(words >> x >> y)) {
       return false;
     }
-    PostMouse(window, NSEventTypeRightMouseDown, x, y, 1);
-    PostMouse(window, NSEventTypeRightMouseUp, x, y, 1);
+    NSWindow* target = WindowAt(window, x, y);
+    Convert(window, target, &x, &y);
+    PostMouse(target, NSEventTypeRightMouseDown, x, y, 1);
+    PostMouse(target, NSEventTypeRightMouseUp, x, y, 1);
     done();
     return true;
   }
@@ -333,8 +359,10 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!(words >> x >> y)) {
       return false;
     }
-    Click(window, x, y, 1);
-    Click(window, x, y, 2);
+    NSWindow* target = WindowAt(window, x, y);
+    Convert(window, target, &x, &y);
+    Click(target, x, y, 1);
+    Click(target, x, y, 2);
     done();
     return true;
   }
@@ -343,9 +371,12 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!(words >> x >> y >> x2 >> y2)) {
       return false;
     }
-    PostMouse(window, NSEventTypeLeftMouseDown, x, y, 1);
-    PostMouse(window, NSEventTypeLeftMouseDragged, x2, y2, 1);
-    PostMouse(window, NSEventTypeLeftMouseUp, x2, y2, 1);
+    NSWindow* target = WindowAt(window, x, y);
+    Convert(window, target, &x, &y);
+    Convert(window, target, &x2, &y2);
+    PostMouse(target, NSEventTypeLeftMouseDown, x, y, 1);
+    PostMouse(target, NSEventTypeLeftMouseDragged, x2, y2, 1);
+    PostMouse(target, NSEventTypeLeftMouseUp, x2, y2, 1);
     done();
     return true;
   }
@@ -354,20 +385,24 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!(words >> x >> y)) {
       return false;
     }
-    // AppKit hands moves to tracking areas, where views such as GPUI's hear them, only for the
-    // window server's events, so this one goes to the view under the pointer itself.
+    NSWindow* target = WindowAt(window, x, y);
+    Convert(window, target, &x, &y);
     NSEvent* move = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
-                                       location:NSMakePoint(x, NSHeight(window.frame) - y)
+                                       location:NSMakePoint(x, NSHeight(target.frame) - y)
                                   modifierFlags:0
                                       timestamp:NSProcessInfo.processInfo.systemUptime
-                                   windowNumber:window.windowNumber
+                                   windowNumber:target.windowNumber
                                         context:nil
                                     eventNumber:0
                                      clickCount:0
                                        pressure:0];
-    NSView* content = window.contentView;
+    // AppKit hands moves to tracking areas, where views such as GPUI's hear them, only for the
+    // window server's events, so this one goes to the view under the pointer itself. It's also
+    // posted, for the app's event monitors.
+    NSView* content = target.contentView;
     [[content hitTest:[content.superview convertPoint:move.locationInWindow fromView:nil]]
         mouseMoved:move];
+    [NSApp postEvent:move atStart:NO];
     done();
     return true;
   }

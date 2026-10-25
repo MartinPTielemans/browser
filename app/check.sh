@@ -781,9 +781,52 @@ send resize 1000 700
 check_layout "after a resize with the sidebar hidden" inset
 send key s cmd
 toggle ui shown "⌘S after a resize"
+
+# With the sidebar hidden, the pointer at the window's left edge brings it out over the page in a
+# window of its own, which takes clicks and leaves the keyboard to the browser window, and the
+# pointer well past it sends it away. A click on its sidebar button, or ⌘S, docks the sidebar.
+# check_reveal <what> [shown]: the reveal's window covers the left edge, or there's none.
+check_reveal() {
+  send layout
+  child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
+    cut -d' ' -f4-)
+  height=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+    sed 's/^browser: layout content [0-9]*x\([0-9]*\),.*/\1/')
+  expected=
+  [ "${2:-}" = shown ] && expected="0,0 233x$height"
+  [ "$child" = "$expected" ] ||
+    fail "$1: the reveal's window is at ${child:-none}, not ${expected:-none}"
+}
+send key s cmd
+toggle ui hidden "⌘S before the reveal"
+send move 400 300
+send move 3 300
+expect '^browser: reveal shown$' "the pointer at the window's edge didn't bring the sidebar out"
+check_reveal "with the sidebar out" shown
+check_layout "with the sidebar out" inset
+check_buttons "with the sidebar out" hidden
+../tools/window-screenshot.sh "$pid" "$out/sidebar-reveal.png" || fail "no window to capture"
+send move 200 300
+send move 250 300
+check_reveal "with the pointer over the sidebar out" shown
+send move 400 300
+expect '^browser: reveal hidden$' "the pointer past the sidebar out didn't send it away"
+check_reveal "after the sidebar went away"
+send move 3 300
+expect '^browser: reveal shown$' "the pointer at the edge didn't bring the sidebar back out"
+send click 104 24
+toggle sidebar shown "a click on the sidebar button of the sidebar out"
+check_reveal "with the sidebar docked from its sidebar button"
+send key s cmd
+toggle ui hidden "⌘S after docking the sidebar out"
+send move 3 300
+expect '^browser: reveal shown$' "the pointer at the edge didn't bring the sidebar out again"
+send key s cmd
+toggle ui shown "⌘S with the sidebar out"
+check_reveal "with the sidebar docked by ⌘S"
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer at the window's edge brings the hidden sidebar out over the page and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png"
 
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.

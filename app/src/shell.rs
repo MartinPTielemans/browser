@@ -11,10 +11,10 @@ use std::{
 };
 
 use gpui::{
-    Action, Animation, AnimationExt, App, AssetSource, Bounds, Context, Entity, FocusHandle,
-    Focusable, FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, Subscription, Task,
-    Transformation, WeakEntity, Window, actions,
+    Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, Entity,
+    FocusHandle, Focusable, FontWeight, Global, Image, KeyBinding, MenuItem, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, SharedString, Size, Subscription,
+    Task, Transformation, WeakEntity, Window, actions,
     div, img, percentage, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
@@ -33,6 +33,20 @@ pub const CARD_RADIUS: f32 = 6.;
 const SIDEBAR_HIDE: f32 = 0.1;
 const SIDEBAR_SHOW_RESPONSE: f32 = 0.215;
 const SIDEBAR_SHOW_DAMPING: f32 = 0.79;
+
+// The sidebar reveal (docs/ux-spec.md › Sidebar reveal): the hidden sidebar slides over the page as
+// a panel when the pointer reaches the window's left edge, on Arc's spring, and slides away on an
+// ease-in-out once the pointer is past the hold zone. Its window starts at the browser window's
+// top-left corner, so a point is at the same place in both.
+pub const REVEAL_INSET: f32 = 5.;
+const REVEAL_HOLD: f32 = 24.;
+// Fitted to Arc's recording (3.5 pt past rest at 120 ms); Ardia's 0.185 s / 0.77 overshoots 5 pt.
+const REVEAL_IN_RESPONSE: f32 = 0.14;
+const REVEAL_IN_DAMPING: f32 = 0.8;
+const REVEAL_OUT: f32 = 0.15;
+/// The panel's window at rest ends at its edge, and is this much wider while it moves, for the
+/// spring's overshoot.
+const REVEAL_OVERSHOOT: f32 = 8.;
 
 // The header's buttons: their plates' tops and left edges, from the window's. The sidebar button's
 // is a pitch before back's, as Arc's is.
@@ -145,6 +159,17 @@ const FORM_PLATE: u32 = 0xffffff13;
 const FORM_PLACEHOLDER: u32 = 0xffffff8c;
 const CREATE: u32 = 0x25278a;
 const CREATE_LABEL_DISABLED: u32 = 0xffffff45;
+// The reveal panel's 0.5 pt light border: the selected row's hairline (ours: Arc's colour isn't
+// measured).
+const REVEAL_BORDER: u32 = 0xffffff26;
+// The panel draws the window's buttons itself, since AppKit's stay in the browser window, under
+// it: their centres from the panel's corner, as the docked sidebar's are from the window's, their
+// size, and their colours, sampled from AppKit's in a capture of the browser window. The glyphs
+// show while the pointer is over any of them, as AppKit's do.
+const WINDOW_BUTTONS: [(f32, u32); 3] = [(20., 0xe0604f), (43., 0xf3bf12), (66., 0x58bb18)];
+const WINDOW_BUTTON_Y: f32 = 24.;
+const WINDOW_BUTTON_SIZE: f32 = 14.;
+const WINDOW_BUTTON_GLYPH: u32 = 0x00000080;
 
 /// A browser command, from a key or the sidebar.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -315,7 +340,8 @@ pub fn menu_item(name: &'static str, command: Command) -> MenuItem {
     MenuItem::action(name, Run(command))
 }
 
-/// The shell's glyphs, built in. Lucide's (NOTICE).
+/// The shell's glyphs, built in. Lucide's (NOTICE), and the loading ring and the window buttons'
+/// glyphs, which are ours.
 pub struct Assets;
 
 const ICONS: &[(&str, &[u8])] = &[
@@ -326,6 +352,9 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
     ("icons/panel-left.svg", include_bytes!("../assets/icons/panel-left.svg")),
     ("icons/rotate-cw.svg", include_bytes!("../assets/icons/rotate-cw.svg")),
+    ("icons/window-close.svg", include_bytes!("../assets/icons/window-close.svg")),
+    ("icons/window-full-screen.svg", include_bytes!("../assets/icons/window-full-screen.svg")),
+    ("icons/window-minimize.svg", include_bytes!("../assets/icons/window-minimize.svg")),
     ("icons/x.svg", include_bytes!("../assets/icons/x.svg")),
 ];
 
@@ -398,6 +427,13 @@ pub trait Browser {
     fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, cx: &mut App);
     /// Shows the window's close, minimize and zoom buttons, or hides them.
     fn show_window_buttons(&self, shown: bool, cx: &mut App);
+    /// Does what a click on the window's close, minimize or zoom button does.
+    fn press_window_button(&self, button: WindowButton, cx: &mut App);
+    /// Shows the sidebar reveal's window over the page, `width` points wide from the browser
+    /// window's left edge and as tall as it. It calls `Shell::pointer_at` as the pointer moves
+    /// anywhere in the browser's windows until it's hidden.
+    fn show_reveal(&self, width: f32, cx: &mut App);
+    fn hide_reveal(&self, cx: &mut App);
     /// Opens the command bar, for a new tab or on `editing`'s URL.
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
     /// Opens the tab's find bar with the keyboard.
@@ -405,6 +441,13 @@ pub trait Browser {
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     fn quit(&self, cx: &mut App);
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum WindowButton {
+    Close,
+    Minimize,
+    Zoom,
 }
 
 /// Where a tab's page is, as the browser reports it.
@@ -492,6 +535,10 @@ pub struct Shell {
     sidebar_hidden: bool,
     /// While the sidebar moves: where the card's left edge started from, and when.
     sidebar_motion: Option<(f32, Instant)>,
+    /// Whether the hidden sidebar is out over the page, or on its way.
+    revealed: bool,
+    /// While the reveal panel moves: how far out it started (`reveal_out`), and when.
+    reveal_motion: Option<(f32, Instant)>,
     /// The card's left edge the page was last laid out at.
     page_left: f32,
     /// The tab or Space the user asked for and when, until it's shown.
@@ -521,6 +568,8 @@ impl Shell {
             page_fullscreen: false,
             sidebar_hidden: false,
             sidebar_motion: None,
+            revealed: false,
+            reveal_motion: None,
             page_left: SIDEBAR_WIDTH,
             switching: None,
             background_pressed: false,
@@ -577,6 +626,9 @@ impl Shell {
         if self.page_fullscreen {
             return;
         }
+        if self.dock(cx) {
+            return;
+        }
         let from = self.card_left();
         self.sidebar_hidden = !self.sidebar_hidden;
         self.sidebar_motion = Some((from, Instant::now()));
@@ -585,6 +637,78 @@ impl Shell {
             self.browser.show_window_buttons(false, cx);
         }
         cx.notify();
+    }
+
+    /// Docks the sidebar the reveal has out, in one frame (Arc), and returns whether it was out.
+    fn dock(&mut self, cx: &mut Context<Self>) -> bool {
+        if !self.reveal_shown() {
+            return false;
+        }
+        self.conceal_now(cx);
+        self.sidebar_hidden = false;
+        self.sidebar_motion = None;
+        self.browser.show_window_buttons(true, cx);
+        // check.sh waits for this line.
+        eprintln!("browser: sidebar shown");
+        cx.notify();
+        true
+    }
+
+    /// Whether the reveal's panel is on screen, moving or not.
+    pub fn reveal_shown(&self) -> bool {
+        self.revealed || self.reveal_motion.is_some()
+    }
+
+    /// How far out the reveal's panel is while it moves: 0 off the window, 1 at rest over the page
+    /// and past 1 as it overshoots. None once it's at rest.
+    fn reveal_step(&self) -> Option<f32> {
+        let (from, start) = self.reveal_motion?;
+        let t = start.elapsed().as_secs_f32();
+        if self.revealed {
+            spring(t, REVEAL_IN_RESPONSE, REVEAL_IN_DAMPING).map(|eased| from + (1. - from) * eased)
+        } else {
+            // Core Animation's ease-in-out.
+            (t < REVEAL_OUT).then(|| from * (1. - cubic_bezier(0.42, 0., 0.58, 1., t / REVEAL_OUT)))
+        }
+    }
+
+    fn reveal_out(&self) -> f32 {
+        self.reveal_step().unwrap_or(if self.revealed { 1. } else { 0. })
+    }
+
+    /// The pointer is at `x` in the browser window: at its left edge it brings the hidden sidebar
+    /// out over the page, and more than the hold zone past the panel's edge it sends it away.
+    pub fn pointer_at(&mut self, x: f32, cx: &mut Context<Self>) {
+        if !self.sidebar_hidden || self.sidebar_motion.is_some() || self.page_fullscreen {
+            return;
+        }
+        if x < CARD_INSET {
+            self.set_revealed(true, cx);
+        } else if x > REVEAL_INSET + SIDEBAR_WIDTH + REVEAL_HOLD {
+            self.set_revealed(false, cx);
+        }
+    }
+
+    /// Starts the reveal's panel moving out over the page, or away, from wherever it is.
+    fn set_revealed(&mut self, revealed: bool, cx: &mut Context<Self>) {
+        if revealed == self.revealed {
+            return;
+        }
+        self.reveal_motion = Some((self.reveal_out(), Instant::now()));
+        self.revealed = revealed;
+        if revealed {
+            self.browser.show_reveal(REVEAL_INSET + SIDEBAR_WIDTH + REVEAL_OVERSHOOT, cx);
+        }
+        cx.notify();
+    }
+
+    /// Takes the reveal's panel off screen at once.
+    fn conceal_now(&mut self, cx: &mut Context<Self>) {
+        if self.reveal_shown() {
+            self.revealed = false;
+            self.reveal_motion = None;
+            self.browser.hide_reveal(cx);
+        }
     }
 
     /// The Spaces, by id and name, in the switcher's order.
@@ -737,6 +861,9 @@ impl Shell {
 
     pub fn set_page_fullscreen(&mut self, fullscreen: bool, cx: &mut Context<Self>) {
         self.page_fullscreen = fullscreen;
+        if fullscreen {
+            self.conceal_now(cx);
+        }
         cx.notify();
     }
 
@@ -751,6 +878,10 @@ impl Shell {
         let space = self.spaces.iter().position(|space| space.id == self.space);
         // Next and previous wrap around for tabs, as in Chrome, and stop at the ends for Spaces, as
         // in Arc.
+        // The command bar opens over the page, and the reveal's panel makes way for it.
+        if matches!(command, Command::NewTab | Command::EditUrl) {
+            self.set_revealed(false, cx);
+        }
         let target = match command {
             Command::NewTab => return self.browser.command_bar(None, cx),
             Command::EditUrl => {
@@ -858,6 +989,8 @@ impl Shell {
     }
 
     fn focus_form(&mut self, cx: &mut Context<Self>) {
+        // The panel never takes the keyboard, and goes when the pointer leaves it.
+        self.dock(cx);
         self.browser.focus_ui(cx);
         self.focus_form = true;
         cx.notify();
@@ -933,6 +1066,8 @@ impl Shell {
             name,
             _blur: None,
         });
+        // As for the form.
+        self.dock(cx);
         self.browser.focus_ui(cx);
         self.focus_renaming = true;
         cx.notify();
@@ -1595,14 +1730,7 @@ impl Render for Shell {
             (card_left - SIDEBAR_WIDTH) * SIDEBAR_WIDTH / (SIDEBAR_WIDTH - CARD_INSET);
         let sidebar_shown =
             !self.page_fullscreen && (!self.sidebar_hidden || self.sidebar_motion.is_some());
-        let new_tab = self.new_tab_row(cx);
-        let pinned: Vec<_> = self.pinned().iter().map(|&tab| self.tab_row(tab, cx)).collect();
-        let divider = (!self.today().is_empty()).then(|| self.divider(cx));
-        let rows: Vec<_> = self.today().iter().map(|&tab| self.tab_row(tab, cx)).collect();
-        let nav = self.nav_buttons(cx);
-        let switcher = self.switcher(cx);
-        let toast = self.toast(cx);
-        let form = self.form().map(|form| self.space_form(form, cx));
+        let sidebar = sidebar_shown.then(|| self.sidebar(cx).left(px(sidebar_left)));
         div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
@@ -1616,13 +1744,14 @@ impl Render for Shell {
                 MouseButton::Left,
                 cx.listener(|shell, _, _, _| shell.background_pressed = true),
             )
-            .on_mouse_move(cx.listener(|shell, event: &MouseMoveEvent, window, _| {
+            .on_mouse_move(cx.listener(|shell, event: &MouseMoveEvent, window, cx| {
                 if shell.background_pressed && event.dragging() {
                     shell.background_pressed = false;
                     // check.sh reads this line.
                     eprintln!("browser: window move");
                     window.start_window_move();
                 }
+                shell.pointer_at(event.position.x.into(), cx);
             }))
             .on_mouse_up(
                 MouseButton::Left,
@@ -1643,38 +1772,130 @@ impl Render for Shell {
                     .rounded(px(CARD_RADIUS))
                     .bg(rgb(CARD)),
             )
-            .when(sidebar_shown, |shell| {
-                let sidebar = div()
+            .children(sidebar)
+    }
+}
+
+impl Shell {
+    /// The sidebar: the header's buttons, the URL field and the Space's tabs, or the Create a
+    /// Space form, over the switcher. Docked, or in the reveal's panel.
+    fn sidebar(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let sidebar = div()
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .w(px(SIDEBAR_WIDTH))
+            .children(self.nav_buttons(cx));
+        let sidebar = match self.form() {
+            Some(form) => sidebar.child(self.space_form(form, cx)),
+            None => sidebar.child(self.url_field()).child(
+                div()
+                    .id("today")
                     .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .left(px(sidebar_left))
+                    .top(px(LIST_TOP))
+                    .left_0()
                     .w(px(SIDEBAR_WIDTH))
-                    .children(nav);
-                let sidebar = match form {
-                    Some(form) => sidebar.child(form),
-                    None => sidebar.child(self.url_field()).child(
-                        div()
-                            .id("today")
-                            .absolute()
-                            .top(px(LIST_TOP))
-                            .left_0()
-                            .w(px(SIDEBAR_WIDTH))
-                            .bottom(px(FOOTER_HEIGHT))
-                            .flex()
-                            .flex_col()
-                            .overflow_y_scroll()
-                            .child(self.name_row(cx))
-                            .children(pinned)
-                            .children(divider)
-                            .child(new_tab)
-                            .children(rows),
-                    ),
+                    .bottom(px(FOOTER_HEIGHT))
+                    .flex()
+                    .flex_col()
+                    .overflow_y_scroll()
+                    .child(self.name_row(cx))
+                    .children(self.pinned().iter().map(|&tab| self.tab_row(tab, cx)))
+                    .children((!self.today().is_empty()).then(|| self.divider(cx)))
+                    .child(self.new_tab_row(cx))
+                    .children(self.today().iter().map(|&tab| self.tab_row(tab, cx))),
+            ),
+        };
+        sidebar.children(self.toast(cx)).children(self.switcher(cx))
+    }
+
+    /// What the reveal's window shows: the sidebar in a panel, as far out as it is.
+    pub fn render_reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        if self.reveal_motion.is_some() {
+            if self.reveal_step().is_some() {
+                window.request_animation_frame();
+            } else {
+                self.reveal_motion = None;
+                // check.sh waits for these lines.
+                if self.revealed {
+                    eprintln!("browser: reveal shown");
+                    // Its window ends at its edge, so the page past it takes clicks again.
+                    self.browser.show_reveal(REVEAL_INSET + SIDEBAR_WIDTH, cx);
+                } else {
+                    eprintln!("browser: reveal hidden");
+                    self.browser.hide_reveal(cx);
                 }
-                .children(toast)
-                .children(switcher);
-                shell.child(sidebar)
-            })
+            }
+        }
+        let left = REVEAL_INSET - (REVEAL_INSET + SIDEBAR_WIDTH) * (1. - self.reveal_out());
+        div()
+            .size_full()
+            .font_family(".SystemUIFont")
+            // A double-click below the rows opens a new tab, as in the docked sidebar.
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|shell, event: &MouseUpEvent, _, cx| {
+                    let below_rows = event.position.y >= px(REVEAL_INSET + LIST_TOP);
+                    if event.click_count == 2 && below_rows && shell.form().is_none() {
+                        shell.run(Command::NewTab, "sidebar", cx);
+                    }
+                }),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(left))
+                    .top(px(REVEAL_INSET))
+                    .bottom(px(REVEAL_INSET))
+                    .w(px(SIDEBAR_WIDTH))
+                    .rounded(px(CARD_RADIUS))
+                    .border(px(0.5))
+                    .border_color(rgba(REVEAL_BORDER))
+                    .bg(rgb(WINDOW))
+                    .child(self.window_buttons(cx))
+                    .child(self.sidebar(cx).left_0()),
+            )
+            .into_any_element()
+    }
+
+    /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
+    fn window_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let buttons = [
+            (WindowButton::Close, "icons/window-close.svg"),
+            (WindowButton::Minimize, "icons/window-minimize.svg"),
+            (WindowButton::Zoom, "icons/window-full-screen.svg"),
+        ];
+        let (first, _) = WINDOW_BUTTONS[0];
+        let (second, _) = WINDOW_BUTTONS[1];
+        div()
+            .absolute()
+            .left(px(first - WINDOW_BUTTON_SIZE / 2.))
+            .top(px(WINDOW_BUTTON_Y - WINDOW_BUTTON_SIZE / 2.))
+            .flex()
+            .gap(px(second - first - WINDOW_BUTTON_SIZE))
+            .group("window-buttons")
+            .children(buttons.into_iter().zip(WINDOW_BUTTONS).map(|((button, glyph), (_, colour))| {
+                div()
+                    .id(glyph)
+                    .size(px(WINDOW_BUTTON_SIZE))
+                    .rounded_full()
+                    .bg(rgb(colour))
+                    .block_mouse_except_scroll()
+                    .on_click(cx.listener(move |shell, _, _, cx| {
+                        // check.sh waits for this line.
+                        eprintln!("browser: window button {button:?}");
+                        shell.browser.press_window_button(button, cx);
+                    }))
+                    .child(
+                        svg()
+                            .path(glyph)
+                            .size(px(WINDOW_BUTTON_SIZE))
+                            .text_color(rgba(0))
+                            .group_hover("window-buttons", |style| {
+                                style.text_color(rgba(WINDOW_BUTTON_GLYPH))
+                            }),
+                    )
+            }))
     }
 }
 
@@ -1718,6 +1939,26 @@ fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
     }
     let damped = omega * (1. - damping * damping).sqrt();
     Some(1. - decay * ((damped * t).cos() + damping * omega / damped * (damped * t).sin()))
+}
+
+/// Where a CSS cubic-bezier(`x1`, `y1`, `x2`, `y2`) curve is at `x`, from 0 to 1: the x of each
+/// control point, then its y.
+fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
+    let at = |t: f32, p1: f32, p2: f32| {
+        let u = 1. - t;
+        3. * u * u * t * p1 + 3. * u * t * t * p2 + t * t * t
+    };
+    // x rises with t for every curve CSS allows, so halving finds t to well under a pixel.
+    let (mut low, mut high) = (0., 1.);
+    for _ in 0..20 {
+        let t = (low + high) / 2.;
+        if at(t, x1, x2) < x {
+            low = t;
+        } else {
+            high = t;
+        }
+    }
+    at((low + high) / 2., y1, y2)
 }
 
 /// The URL field's text for `url`: its host without "www." (Arc), or the URL itself if it has none.

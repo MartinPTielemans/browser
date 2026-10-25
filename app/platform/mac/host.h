@@ -70,6 +70,23 @@ bool host_confirm(const char* message, const char* detail, const char* action);
 // sidebar is hidden.
 void host_show_window_buttons(bool shown);
 
+// Does what a click on the browser window's close (0), minimize (1) or zoom (2) button does.
+void host_press_window_button(int button);
+
+// Makes the window of |reveal_view| the sidebar reveal's, which shows over the browser window's
+// left edge without taking the keyboard. It starts hidden. While it shows, |pointer_moved| hears
+// where the pointer is across the browser window's content, in points from its left edge, as it
+// moves anywhere in the app's windows, and an x past them all when the app stops being the
+// active one.
+void host_add_reveal(void* reveal_view, void (*pointer_moved)(double x));
+
+// Shows the reveal's window, |width| points wide from the browser window's left edge and as tall
+// as its content, or makes it that wide if it shows.
+void host_show_reveal(double width);
+
+// Hides the reveal's window.
+void host_hide_reveal(void);
+
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);

@@ -10,7 +10,7 @@ use std::{
     time::Instant,
 };
 
-use browser::shell::{self, Browser, Command, Page, Shell};
+use browser::shell::{self, Browser, Command, Page, Shell, WindowButton};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Context, Focusable, Image, ImageFormat, Menu,
     MenuItem, Pixels, Point, SharedString, Size, WeakEntity, Window, WindowOptions, actions,
@@ -20,6 +20,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 mod command_bar;
 mod find_bar;
+mod reveal;
 
 /// The core's API, generated from core/public/browser_core.h.
 #[allow(non_camel_case_types, dead_code)]
@@ -45,6 +46,10 @@ mod platform {
         pub fn host_hide_find_bar();
         pub fn host_focus(view: *mut c_void);
         pub fn host_show_window_buttons(shown: bool);
+        pub fn host_press_window_button(button: i32);
+        pub fn host_add_reveal(reveal_view: *mut c_void, pointer_moved: extern "C" fn(x: f64));
+        pub fn host_show_reveal(width: f64);
+        pub fn host_hide_reveal();
         pub fn host_menu(items: *const host_menu_item, count: usize, x: f64, y: f64) -> i32;
         pub fn host_confirm(message: *const c_char, detail: *const c_char, action: *const c_char)
         -> bool;
@@ -278,6 +283,23 @@ impl Browser for Engine {
         unsafe { platform::host_show_window_buttons(shown) };
     }
 
+    fn press_window_button(&self, button: WindowButton, _: &mut App) {
+        let button = match button {
+            WindowButton::Close => 0,
+            WindowButton::Minimize => 1,
+            WindowButton::Zoom => 2,
+        };
+        unsafe { platform::host_press_window_button(button) };
+    }
+
+    fn show_reveal(&self, width: f32, _: &mut App) {
+        unsafe { platform::host_show_reveal(width.into()) };
+    }
+
+    fn hide_reveal(&self, _: &mut App) {
+        unsafe { platform::host_hide_reveal() };
+    }
+
     fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
         command_bar::show(editing, cx);
     }
@@ -425,6 +447,9 @@ fn open_window(cx: &mut App) {
             unsafe { platform::host_show_window(ui_view) };
             command_bar::open(cx);
             find_bar::open(cx);
+            if let Ok(shell) = window.entity(cx) {
+                reveal::open(shell, cx);
+            }
             // Once the page frame is set, so the tab shown loads at its size.
             restore_spaces();
         }
