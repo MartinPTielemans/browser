@@ -127,7 +127,10 @@
 #      Today. Launched again, the app brings the favorite back, shown, and Remove from Favorites
 #      in its menu puts it at the top of Today. Today rows dragged onto the tiles become favorites
 #      where they're dropped, a tile dragged across the other goes before it, one dragged into the
-#      list goes there, and escape puts a dragged tile back.
+#      list goes there, and escape puts a dragged tile back. ⌘, from the page and the UI opens
+#      Settings, where the menu of a pop-up button sets how long Today tabs wait for the archive
+#      and a switch turns the haptics off, and both stay after the quit. ⌘W and the window's close
+#      button hide it, and More Settings… opens Chromium's settings in a tab.
 # Runs 2 to 13 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -2981,6 +2984,25 @@ expect "^browser: today [0-9][0-9]* $b\$" \
 c=$(today | cut -d' ' -f1)
 expect "^browser: selected $c\$" "Duplicate Tab didn't show the copy"
 expect "^browser: loaded $c $site\$" "the copy didn't load the favorite's page"
+# ⌘, from the page opens Settings on General. The menu of its pop-up button sets how long Today
+# tabs wait for the archive, the switch on its Advanced tab turns the haptics off, and ⌘W hides it.
+send click $page_point
+send key , cmd
+expect '^browser: command settings via page$' "⌘, from the page didn't run Settings"
+expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
+../tools/window-screenshot.sh "$pid" "$out/settings.png" || fail "no window to capture"
+post clickkey 500 131
+expect '^browser: menu shown 12 hours (default) (checked), 24 hours, 7 days, 30 days$' \
+  "a click on Archive tabs after didn't show the times, with 12 hours chosen"
+send choose 24 hours
+expect '^browser: archive tabs after 24 hours$' "choosing 24 hours in Settings didn't set it"
+send clickkey 398 60
+expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+send clickkey 592 126
+expect '^browser: haptics off$' "a click on the haptics switch didn't turn them off"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+none_since '^browser: command close-tab' || fail "⌘W in Settings closed a tab"
 # The quit leaves the favorite shown.
 send click $tile
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
@@ -3062,7 +3084,31 @@ expect '^browser: command stop via ' "escape during a tile's drag didn't reach t
 send release 100 300
 none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it"
 [ "$(favorites)" = "$a" ] || fail "a tile's drag escape put back moved it: \"$(favorites)\""
+# Settings kept the time and the haptics across the quit. ⌘, from the UI opens it, its close
+# button hides it, and More Settings… opens Chromium's settings in a tab.
+send click $sidebar_point
+send key , cmd
+expect '^browser: command settings via ui$' "⌘, from the UI didn't run Settings"
+expect '^browser: settings shown General$' "⌘, from the UI didn't show Settings"
+post clickkey 500 131
+expect '^browser: menu shown 12 hours (default), 24 hours (checked), 7 days, 30 days$' \
+  "Settings didn't keep 24 hours across the quit"
+send choose "12 hours (default)"
+expect '^browser: archive tabs after 12 hours (default)$' "choosing 12 hours didn't set it"
+send clickkey 398 60
+expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
+send clickkey 592 126
+expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"
+send clickkey 16 16
+expect '^browser: settings hidden$' "the close button didn't hide Settings"
+send menu Settings…
+expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
+send clickkey 120 169
+expect '^browser: more settings$' "a click on More Settings… didn't run it"
+expect '^browser: settings hidden$' "More Settings… didn't hide Settings"
+expect '^browser: loaded [0-9]* chrome://settings/$' \
+  "More Settings… didn't open Chromium's settings"
 exec 3>&-
 quit
 kill "$server"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Windows: $out/favorites.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. ⌘, from the page and the UI opens Settings, whose pop-up sets the archive's time and whose switch sets the haptics, both kept across a quit; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorites.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/settings.png"

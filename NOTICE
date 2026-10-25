@@ -10,8 +10,9 @@ engine/patches/ours/chromium-core-embedded-view.patch.
 
 Lucide (https://github.com/lucide-icons/lucide), ISC License, some icons MIT License
 Used in app/assets/icons/: archive, arrow-down, arrow-down-to-line, arrow-left, arrow-right,
-chevron-down, chevron-up, file, folder, folder-open, globe, link, panel-left, rotate-cw, search
-and x, at commit 7faf87628a1ad6175975bc595344337ce14a7db4.
+chevron-down, chevron-up, chevrons-up-down, file, folder, folder-open, globe, keyboard, link,
+panel-left, rotate-cw, search, settings, sliders-horizontal, vibrate and x, at commit
+7faf87628a1ad6175975bc595344337ce14a7db4.
 
   ISC License
 

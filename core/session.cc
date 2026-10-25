@@ -74,6 +74,7 @@ struct Saved {
   // The window's docked sidebar's width, or 0 for none.
   double sidebar_width = 0;
   std::vector<ArchivedTab> archive;
+  Settings settings;
 };
 
 // A navigation's page state is left out past this, as in Chrome's sessions.
@@ -124,6 +125,7 @@ Saved Collect() {
   const std::vector<Window*> windows = Window::All();
   const Window* window = windows.empty() ? nullptr : windows.front();
   saved.sidebar_width = window ? window->sidebar_width() : 0;
+  saved.settings = UserSettings();
   // Each favorite saved, by its place among them.
   std::map<bc_id, int> favorites;
   for (bc_id id : Favorites::All()) {
@@ -257,6 +259,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
                        .Set("archived", tab.archived.InMillisecondsFSinceUnixEpochIgnoringNull()));
   }
   root.Set("archive", std::move(archive));
+  root.Set("settings", base::DictValue()
+                           .Set("archive_after", saved.settings.archive_after.InSecondsF())
+                           .Set("haptics", saved.settings.haptics));
   return base::WriteJson(root);
 }
 
@@ -386,6 +391,13 @@ std::optional<Saved> Read(const base::FilePath& path) {
       }
     }
   }
+  if (const base::DictValue* settings = root->FindDict("settings")) {
+    const double archive_after = settings->FindDouble("archive_after").value_or(0);
+    if (archive_after > 0) {
+      saved.settings.archive_after = base::Seconds(archive_after);
+    }
+    saved.settings.haptics = settings->FindBool("haptics").value_or(true);
+  }
   return saved;
 }
 
@@ -453,6 +465,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
   void OnRead(base::OnceClosure loaded, std::optional<Saved> saved) {
     if (saved) {
       LoadArchive(std::exchange(saved->archive, {}));
+      UserSettings() = saved->settings;
     }
     loaded_ = std::move(saved);
     std::move(loaded).Run();
@@ -493,6 +506,11 @@ void FlushSession() {
   if (g_saver) {
     g_saver->Flush();
   }
+}
+
+Settings& UserSettings() {
+  static Settings settings;
+  return settings;
 }
 
 double SavedSidebarWidth() {

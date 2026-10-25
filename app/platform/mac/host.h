@@ -105,10 +105,17 @@ typedef struct {
   int32_t swatch;
 } host_menu_item;
 
+// Where host_menu shows a menu.
+#define HOST_IN_WINDOW 0
+#define HOST_IN_REVEAL 1
+#define HOST_IN_SETTINGS 2
+
 // Shows a menu of the |count| |items| at |x|, |y|, in points from the top-left of the browser
-// window's content, or of the reveal panel's if |in_reveal|, as a right-click there does. Returns
-// the index of the one chosen once it closes, or -1.
-int host_menu(const host_menu_item* items, size_t count, double x, double y, bool in_reveal);
+// window's content, the reveal panel's or the Settings window's (|in|), as a right-click there
+// does. With |over| an item's index, that item's title goes at |x|, |y| instead, as a pop-up
+// button shows its menu over its own title. Returns the index of the one chosen once it closes,
+// or -1.
+int host_menu(const host_menu_item* items, size_t count, double x, double y, int in, int over);
 
 // Asks in an alert whether to do what |message| asks, with |detail| under it, and returns whether
 // the user chose |action| over Cancel once it closes.
@@ -134,6 +141,17 @@ void host_show_reveal(double width);
 
 // Hides the reveal's window.
 void host_hide_reveal(void);
+
+// Makes the window of |settings_view| the Settings window: a standard one, dark, that can show
+// over the browser window in full screen. It starts hidden.
+void host_add_settings(void* settings_view);
+
+// Shows the Settings window, as the UI draws it now, in front and with the keyboard. The first
+// time, it's centred over the browser window, on its display.
+void host_show_settings(void);
+
+// Hides the Settings window, which keeps its place for the next host_show_settings.
+void host_hide_settings(void);
 
 // A detent on the trackpad, as a swipe's nearest Space changes.
 void host_detent(void);

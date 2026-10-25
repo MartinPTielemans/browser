@@ -202,6 +202,18 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Expand Current Split | MVP | measure | Arc menus |
 | [ ] | Commands | MVP | Flip, Change Orientation, Move Pane Left/Right, Separate All | Dia P§6 |
 
+## Settings
+
+| Done | Item | Phase | Target | Source |
+|---|---|---|---|---|
+| [x] | Settings window | MVP | 684 × 650, ⌘, and Settings…; toolbar of tabs with the accent on a plate; ⌘W and close hide it; opens on the tab shown last | Arc 1.170.0 cap, ax |
+| [x] | Boxes, rows, switch, pop-up and buttons | MVP | the spec's measures; the pop-up's menu opens over it | Arc 1.170.0 cap, ax |
+| [x] | Shortcuts tab | MVP | the browser's shortcuts by section, read-only | Ours |
+| [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
+| [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
+| [ ] | Warn before quitting | MVP | General; with Close confirmations | Arc 1.170.0 cap |
+| [ ] | Arc's other tabs | MVP | Profiles, Links, Icon, Previews: with their features | Arc 1.170.0 cap |
+
 ## Archive
 
 | Done | Item | Phase | Target | Source |
@@ -210,7 +222,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Undo Clear | MVP | ⌘Z brings them back in place, unloaded; the tab shown stays | Arc 1.170.0 rec |
 | [ ] | Reopen closed tab ⇧⌘T | MVP | position, pin, group, name, icon, mute, back/forward | Dia P§2 |
 | [x] | Auto-archive | MVP | a Today tab unseen for 12 hours goes in the archive, counted across a quit | Arc 1.170.0 settings |
-| [ ] | Auto-archive's other intervals | MVP | the setting; measure its options | Arc 1.170.0 settings |
+| [x] | Auto-archive's other intervals | MVP | Settings › General: 12 hours (default), 24 hours, 7 days, 30 days, kept with the Spaces | Arc 1.170.0 bin |
 | [x] | ⌘W on a Today tab | MVP | Archive Tab: the tab goes in the archive | Arc 1.170.0 menus |
 | [x] | Library | MVP | slides in from its width to the left as it pushes the card to 417 at its width, on spring 0.245 s / ζ 0.92; the sidebar fades out in 33 ms, and back in over 130 ms from 80 ms; column of sections, back button; ⇧⌘L, View Library, footer button | Arc 1.170.0 cap, ax, rec; Arc 1.x video |
 | [x] | Archived Tabs | MVP | search on the buttons' row, day headings, rows 56 apart with favicon, title and host; a click reopens the tab | Arc 1.170.0 cap, ax |

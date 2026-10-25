@@ -74,7 +74,7 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {" ", 49}, {"space", 49}, {".", 47}, {"escape", 53}, {"1", 18},   {"2", 19},
     {"3", 20}, {"4", 21}, {"5", 23}, {"6", 22}, {"7", 26}, {"8", 28},      {"9", 25},
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
-    {"left", 123}, {"right", 124}, {"backspace", 51},
+    {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey.
 const std::map<std::string, std::string> kCharacters = {

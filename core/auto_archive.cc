@@ -13,6 +13,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "base/timer/wall_clock_timer.h"
+#include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -23,21 +24,20 @@ namespace browser_core {
 
 namespace {
 
-// Arc's default. Its other intervals, in its settings, aren't offered yet.
-constexpr base::TimeDelta kArchiveAfter = base::Hours(12);
-
-// For the app's check, which can't wait 12 hours.
+// For the app's check, which can't wait 12 hours. It wins over the user's settings.
 constexpr char kArchiveAfterSwitch[] = "archive-tabs-after";
 
 base::TimeDelta ArchiveAfter() {
-  static const base::TimeDelta after = [] {
+  static const std::optional<base::TimeDelta> given = []() -> std::optional<base::TimeDelta> {
     int seconds = 0;
     const std::string value =
         base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(kArchiveAfterSwitch);
-    return base::StringToInt(value, &seconds) && seconds > 0 ? base::Seconds(seconds)
-                                                             : kArchiveAfter;
+    if (base::StringToInt(value, &seconds) && seconds > 0) {
+      return base::Seconds(seconds);
+    }
+    return std::nullopt;
   }();
-  return after;
+  return given.value_or(UserSettings().archive_after);
 }
 
 base::WallClockTimer& Timer() {

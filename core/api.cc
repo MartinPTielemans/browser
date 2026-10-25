@@ -7,6 +7,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "browser_core/archive.h"
+#include "browser_core/auto_archive.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/downloads.h"
 #include "browser_core/favicon.h"
@@ -321,6 +322,28 @@ bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
 
 void bc_archive_clear(void) {
   browser_core::ClearArchive();
+}
+
+double bc_archive_after(void) {
+  return browser_core::UserSettings().archive_after.InSecondsF();
+}
+
+void bc_set_archive_after(double seconds) {
+  if (!(seconds > 0)) {
+    return;
+  }
+  browser_core::UserSettings().archive_after = base::Seconds(seconds);
+  browser_core::ScheduleAutoArchive();
+  browser_core::SessionChanged();
+}
+
+bool bc_haptics(void) {
+  return browser_core::UserSettings().haptics;
+}
+
+void bc_set_haptics(bool haptics) {
+  browser_core::UserSettings().haptics = haptics;
+  browser_core::SessionChanged();
 }
 
 void bc_page_favicon(const char* url) {

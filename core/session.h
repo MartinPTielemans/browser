@@ -58,6 +58,18 @@ void FlushSession();
 // The docked sidebar's width the last launch saved for its window, or 0.
 double SavedSidebarWidth();
 
+// What the user chose in the app's Settings. The core keeps it with the Spaces, and reads it back
+// with them, before the app opens its window.
+struct Settings {
+  // How long a Today tab no window shows waits before it goes in the archive.
+  base::TimeDelta archive_after = base::Hours(12);
+  // Whether the app taps the trackpad at its detents.
+  bool haptics = true;
+};
+
+// The user's settings. Call SessionChanged after changing them.
+Settings& UserSettings();
+
 // Puts the favorites and Spaces the last launch saved in |window|, which shows the Space it
 // showed, unless there are Spaces already. Returns whether it did.
 bool RestoreSession(Window& window);
