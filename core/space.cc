@@ -99,6 +99,11 @@ void Space::SetName(std::string name) {
   ReportSpacesChanged();
 }
 
+void Space::SetColor(std::optional<uint32_t> color) {
+  color_ = color;
+  ReportSpacesChanged();
+}
+
 void Space::Add(bc_id tab, bc_id opener, bool foreground) {
   const bool pinned_opener = opener && IsPinned(opener);
   // A pinned opener sits above the Today tabs.

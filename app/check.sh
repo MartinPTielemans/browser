@@ -43,15 +43,15 @@
 #      the Space a flick or the pages' place points at, never past the last, fingers along it
 #      don't, and a wheel's tick across pages once. A tab's menu moves the tab to another Space,
 #      which the window shows with it. Return with no name does nothing, New Space shows a form
-#      already open, and Cancel deletes its Space and goes back. A right-click
-#      on the Space's name or a dot shows Rename Space and Delete Space. Rename, and a
+#      already open, and Cancel deletes its Space and goes back. A right-click on the Space's name
+#      or a dot shows Rename Space, its colours and Delete Space. Rename, and a
 #      double-click on the name, turn it into a field, where return keeps the name and escape
 #      cancels. Delete asks first for a Space with tabs, which close with it and reopen with ⇧⌘T
 #      in the Space shown, and the last Space can't be deleted.
 #   8. Launched again after ⌘Q, and again after its window's close button, the app brings back
-#      the Spaces: their names, their tabs with each tab's history, the tab each showed and the
-#      Space it showed, and the sidebar's width. Only a tab shown loads; the others show their
-#      titles and favicons. A tab closed before the quit stays closed. A SIGTERM, which macOS
+#      the Spaces: their names and colours, their tabs with each tab's history, the tab each showed
+#      and the Space it showed, and the sidebar's width. Only a tab shown loads; the others show
+#      their titles and favicons. A tab closed before the quit stays closed. A SIGTERM, which macOS
 #      sends at logout and restart, keeps a tab opened just before it. Reports how long putting
 #      them back takes.
 #   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n of
@@ -90,6 +90,9 @@ rm -rf "$out"
 mkdir -p "$out"
 # The Spaces the app saves for its next launch. Each run starts without them, but the relaunches.
 saved="$HOME/Library/Caches/browser-app/Spaces.json"
+# A Space's colours in its menu, for a Space without one.
+colors="Color › System Accent (checked), Color › Gray, Color › Red, Color › Orange, \
+Color › Yellow, Color › Green, Color › Blue, Color › Pink, Color › Purple"
 # After a failure, nothing the check started keeps running.
 cleanup() {
   # The server may be gone already, and under set -e a failed kill would end the trap here.
@@ -1199,7 +1202,8 @@ expect "^browser: settled space $first\$" "the first Space's page didn't settle 
 # A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
 name_point="100 112"
 post rightclick $name_point
-expect '^browser: menu shown Rename Space, Delete Space$' "a right-click on the Space's name didn't show its menu"
+expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+  "a right-click on the Space's name didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
 send choose Rename Space
 expect "^browser: rename space $first\$" "Rename Space didn't open the name's field"
@@ -1216,7 +1220,8 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 none_since '^browser: renamed space' || fail "escape in the name's field renamed the Space"
 # Deleting a Space with tabs asks first. Its tabs close with it, and ⇧⌘T reopens them here.
 post rightclick 131 $dots_y
-expect '^browser: menu shown Rename Space, Delete Space$' "a right-click on a dot didn't show its Space's menu"
+expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+  "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: alert shown Delete “reading 日本語”?$' "Delete Space didn't ask first"
 ../tools/window-screenshot.sh "$pid" "$out/space-delete.png" || fail "no window to capture"
@@ -1229,14 +1234,15 @@ expect "^browser: today [0-9]* $a\$" "⇧⌘T didn't reopen the deleted Space's 
 expect "^browser: loaded $(today | cut -d' ' -f1) https://example.com/\$" "the reopened tab didn't load its page"
 # The last Space can't go.
 post rightclick $name_point
-expect '^browser: menu shown Rename Space, Delete Space (disabled)$' "the last Space's menu offered Delete"
+expect "^browser: menu shown Rename Space, $colors, Delete Space (disabled)\$" \
+  "the last Space's menu offered Delete"
 send choose Rename Space
 send key escape
 expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; a tab's menu moves it to another Space, which shows with it; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/space-menu.png, $out/space-delete.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; a tab's menu moves it to another Space, which shows with it; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/space-menu.png, $out/space-delete.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
@@ -1304,6 +1310,12 @@ send key return
 expect '^browser: today [0-9][0-9]*$' "the tab for example.com didn't open in the new Space"
 e=$(today)
 expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in the new Space's tab"
+post rightclick 100 112
+expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+  "the Space's menu didn't offer its colours"
+send choose Pink
+expect "^browser: colored space $second bf556a\$" "Pink didn't give the Space its colour"
+../tools/window-screenshot.sh "$pid" "$out/space-color.png" || fail "no window to capture"
 send key 1 ctrl
 expect "^browser: space $first in " "⌃1 didn't show the first Space"
 expect_tabs "$c $a" "$c" "back in the first Space"
@@ -1328,6 +1340,8 @@ first=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f3)
 second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
 grep -q "^browser: added space $first Space 1\$" "$log" || fail "the first Space came back without its name"
 grep -q "^browser: added space $second reading list\$" "$log" || fail "the second Space came back without its name"
+grep -q "^browser: colored space $second bf556a\$" "$log" ||
+  fail "the second Space came back without its colour"
 await "^browser: space $first\$" || fail "the relaunch didn't show the first Space"
 # Without the tab closed before the quit.
 await '^browser: today [0-9]* [0-9]*$' || fail "the first Space didn't come back with its two tabs"
@@ -1396,7 +1410,7 @@ exited
 print(*[len(space["today"]) for space in json.load(open(sys.argv[1]))["spaces"]])' "$saved")" = "2 2" ] ||
   fail "the tab opened before the SIGTERM wasn't kept"
 restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restored.log" "$out/restored-again.log" | tr '\n' ' ')
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed. A SIGTERM keeps a tab opened just before it."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed. A SIGTERM keeps a tab opened just before it."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
 
 # Find in page. The test page has three apples and one 日本語.

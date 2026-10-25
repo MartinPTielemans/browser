@@ -51,7 +51,7 @@ Material output measured over solid backdrops. Ports without AppKit materials ap
 
 - Ours (*interim*):
   - Dark only. The light layers come with the Appearance menu.
-  - Spaces have no colour yet, so every Space's gradient is the system accent colour. A colour under HSL saturation 0.1 counts as neutral.
+  - A colour under HSL saturation 0.1 counts as neutral.
   - Where the window's look has to be opaque, it stands the material in with its output over grey 20 under the tint, #131313, and puts the gradient over that. That's the reveal's panel over the page, a dragged row, and the Clear toast over the rows.
   - Over solid backdrops of black / grey 20 / grey 60 / white, our sidebar reads 11 / 19 / 35 / 51 before the gradient. That's the material at 18 / 32 / 58 / 85, against Dia's 24 / 32 / 45 / 104.
 
@@ -333,6 +333,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
   - A dot click, ⌃1–⌃9 and ⌥⌘←/→ slide the new Space's page in from its side on the Space settle curve, pushing the old one out.
   - The detent is AppKit's alignment haptic. Swipes don't page while the Create a Space form, a rename or a row drag is up.
 - The window tint cross-fades between the two Spaces' colours during a swipe (Ardia; Dia and Arc durations: measure).
+  - Ours (*interim*): the gradient is as much of each Space's colour as its page shows, during a swipe and while a switch's pages slide.
 - Measure in Arc: the Space title, create, icon and colour flows, and how a Space shows its profile.
 
 **Renaming and deleting** (Arc's menu; our wording)
@@ -342,6 +343,10 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 - Delete Space asks first in an alert naming the Space, if it has tabs, and its tabs close with it. Its Today tabs reopen with ⇧⌘T in the Space shown; its pinned tabs don't come back. An empty Space goes without asking.
 
 **Colour.** The Space colour drives the window gradient (Shared rules), the New Tab band and halo, and the accent. Dia's hue families are neutral, red, orange, yellow, green, blue, pink and purple. Only pink is measured: tint #B25B6B (P3), New Tab band #B5556B. Arc's presets and editor are under Themes.
+
+- Ours (*interim* until Arc's colour flow is captured): the Space's menu has Color, between Rename Space and Delete Space. Its submenu has System Accent, for no colour, then Dia's families as Gray, Red, Orange, Yellow, Green, Blue, Pink and Purple. Each has a round swatch, and the Space's own is checked.
+  - Pink is Dia's, #BF556A in sRGB. The others share its HSL saturation 0.45 and lightness 0.54, at hues 4°, 26°, 46°, 145°, 214° and 268°; Gray has no saturation.
+  - A new Space has no colour. The core keeps the colour with the Space's name.
 
 **Agent Space** (ours: decision 8 and the `prototypes/arcish` reference). The kind exists in the Phase 3 data model; its UI comes in Phase 4. Neither Arc nor Dia has a reference, so the layout values are ours to set.
 

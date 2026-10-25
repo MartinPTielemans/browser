@@ -19,8 +19,9 @@ unsafe extern "C" {
     fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
 }
 
-// Two Spaces, so the switcher shows. The tabs are in the first, the top two pinned.
-const SPACES: [&str; 2] = ["Space 1", "Reading"];
+// Two Spaces, so the switcher shows, the second in Dia's pink. The tabs are in the first, the top
+// two pinned.
+const SPACES: [(&str, Option<u32>); 2] = [("Space 1", None), ("Reading", Some(0xbf556a))];
 const TABS: [(&str, &str); 5] = [
     (
         "Arc (web browser) - Wikipedia",
@@ -38,7 +39,7 @@ const TABS: [(&str, &str); 5] = [
 struct Fake {
     shell: WeakEntity<Shell>,
     next_id: Cell<u64>,
-    spaces: RefCell<Vec<(u64, SharedString)>>,
+    spaces: RefCell<Vec<(u64, SharedString, Option<u32>)>>,
 }
 
 impl Fake {
@@ -205,20 +206,27 @@ impl Browser for Fake {
     fn create_space(&self, name: &str, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
-        self.spaces.borrow_mut().push((space, name.to_string().into()));
+        self.spaces.borrow_mut().push((space, name.to_string().into(), None));
         self.report_spaces(cx);
         space
     }
 
     fn rename_space(&self, space: u64, name: &str, cx: &mut App) {
-        if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, _)| *id == space) {
+        if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, ..)| *id == space) {
             entry.1 = name.to_string().into();
         }
         self.report_spaces(cx);
     }
 
     fn delete_space(&self, space: u64, cx: &mut App) {
-        self.spaces.borrow_mut().retain(|(id, _)| *id != space);
+        self.spaces.borrow_mut().retain(|(id, ..)| *id != space);
+        self.report_spaces(cx);
+    }
+
+    fn set_space_color(&self, space: u64, color: Option<u32>, cx: &mut App) {
+        if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, ..)| *id == space) {
+            entry.2 = color;
+        }
         self.report_spaces(cx);
     }
 
@@ -300,9 +308,9 @@ fn main() {
         let window = cx.open_window(options, |window, cx| {
             let shell = cx.new(|cx| {
                 let first_space = TABS.len() as u64 + 1;
-                let spaces: Vec<(u64, SharedString)> = (first_space..)
+                let spaces: Vec<(u64, SharedString, Option<u32>)> = (first_space..)
                     .zip(SPACES)
-                    .map(|(id, name)| (id, name.into()))
+                    .map(|(id, (name, color))| (id, name.into(), color))
                     .collect();
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),

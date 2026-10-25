@@ -75,6 +75,8 @@ mod platform {
         pub option: bool,
         pub control: bool,
         pub parent: i32,
+        pub checked: bool,
+        pub swatch: i32,
     }
 }
 
@@ -275,6 +277,10 @@ impl Browser for Engine {
         unsafe { bc::bc_space_delete(space) };
     }
 
+    fn set_space_color(&self, space: u64, color: Option<u32>, _: &mut App) {
+        unsafe { bc::bc_space_set_color(space, color.is_some(), color.unwrap_or(0)) };
+    }
+
     fn menu(
         &self,
         items: Vec<MenuEntry>,
@@ -310,6 +316,8 @@ impl Browser for Engine {
                         option: *option,
                         control: *control,
                         parent: item.parent.map_or(-1, |parent| parent as i32),
+                        checked: item.checked,
+                        swatch: item.swatch.map_or(-1, |color| color as i32),
                     }
                 })
                 .collect();
@@ -620,7 +628,10 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
             let mut name = vec![0u8; length + 1];
             unsafe { bc::bc_space_name(space, name.as_mut_ptr().cast(), name.len()) };
             name.truncate(length);
-            (space, String::from_utf8_lossy(&name).into_owned().into())
+            let mut color = 0;
+            let has_color = unsafe { bc::bc_space_color(space, &mut color) };
+            let name = String::from_utf8_lossy(&name).into_owned().into();
+            (space, name, has_color.then_some(color))
         })
         .collect();
     update_shell(|shell, cx| shell.set_spaces(spaces, cx));

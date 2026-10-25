@@ -13,7 +13,7 @@ use std::{
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, CursorStyle,
     DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding,
-    MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Rgba,
     ScrollDelta, ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase, Transformation,
     WeakEntity, Window, actions, canvas, div, img, linear_color_stop, linear_gradient, percentage,
     point, prelude::*, px, rgb, rgba, size, svg,
@@ -159,6 +159,18 @@ const GRADIENT_ALPHA: f32 = 0.18;
 const NEUTRAL_GRADIENT_ALPHA: f32 = 0.06;
 // A colour under this HSL saturation is neutral (ours: Dia's line isn't measured).
 const NEUTRAL: f32 = 0.1;
+// The colours a Space's menu offers: Dia's hue families, in its order. Its pink is measured, ≈
+// #BF556A; the others are ours, at the pink's HSL saturation and lightness.
+const SPACE_COLORS: [(&str, u32); 8] = [
+    ("Gray", 0x8a8a8a),
+    ("Red", 0xbf5c55),
+    ("Orange", 0xbf8355),
+    ("Yellow", 0xbfa655),
+    ("Green", 0x55bf81),
+    ("Blue", 0x5583bf),
+    ("Pink", 0xbf556a),
+    ("Purple", 0x8655bf),
+];
 // What stands in for the material where the window's look has to be opaque, under rows it covers
 // or in the reveal's panel over the page: the material over grey 20, under the tint (ours).
 const MATERIAL_STAND_IN: u32 = 0x131313;
@@ -307,11 +319,22 @@ pub struct MenuEntry {
     pub shortcut: Option<&'static str>,
     /// The item whose submenu it's in, by index.
     pub parent: Option<usize>,
+    /// Whether it shows a check mark.
+    pub checked: bool,
+    /// A round swatch of this colour, 0xRRGGBB, before its title.
+    pub swatch: Option<u32>,
 }
 
 impl MenuEntry {
     fn new(title: impl Into<SharedString>, enabled: bool) -> Self {
-        MenuEntry { title: title.into(), enabled, shortcut: None, parent: None }
+        MenuEntry {
+            title: title.into(),
+            enabled,
+            shortcut: None,
+            parent: None,
+            checked: false,
+            swatch: None,
+        }
     }
 
     fn line() -> Self {
@@ -321,6 +344,14 @@ impl MenuEntry {
     /// In the submenu of the item at `parent`.
     fn under(self, parent: usize) -> Self {
         MenuEntry { parent: Some(parent), ..self }
+    }
+
+    fn checked(self, checked: bool) -> Self {
+        MenuEntry { checked, ..self }
+    }
+
+    fn swatch(self, color: u32) -> Self {
+        MenuEntry { swatch: Some(color), ..self }
     }
 
     /// Shows the shortcut that runs `command`.
@@ -485,6 +516,8 @@ pub trait Browser {
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
     /// Deletes a Space, closing its tabs.
     fn delete_space(&self, space: u64, cx: &mut App);
+    /// Gives a Space a colour, 0xRRGGBB, or none, for the system's accent colour.
+    fn set_space_color(&self, space: u64, color: Option<u32>, cx: &mut App);
     /// Shows a menu of `items` at `position` in the window, or in the reveal's panel if
     /// `in_reveal`, as a right-click there does. Then calls `chosen` once it closes, with the index
     /// of the item chosen, if any.
@@ -582,6 +615,8 @@ struct Tab {
 struct Space {
     id: u64,
     name: SharedString,
+    /// 0xRRGGBB, if it has one.
+    color: Option<u32>,
     /// Its pinned tabs and its Today tabs, each top to bottom.
     pinned: Vec<u64>,
     today: Vec<u64>,
@@ -1039,13 +1074,29 @@ impl Shell {
         cx.notify();
     }
 
-    /// The Space's gradient down the window, at `y` from its top (0) to its bottom (1): the
-    /// Space's colour, going to the same at HSL lightness + 0.25. Spaces have no colour yet, so
-    /// it's the system's accent colour, as in Dia when a Space has none.
+    /// The gradient down the window, at `y` from its top (0) to its bottom (1): the Space's
+    /// colour, going to the same at HSL lightness + 0.25. While the sidebar pages between two
+    /// Spaces, it cross-fades from one's to the other's as the pages move.
     fn gradient_color(&self, y: f32) -> Hsla {
-        let color = Hsla::from(rgb(self.accent_color));
-        let alpha = if color.s < NEUTRAL { NEUTRAL_GRADIENT_ALPHA } else { GRADIENT_ALPHA };
-        Hsla { l: (color.l + 0.25 * y).min(1.), ..color }.opacity(alpha)
+        let color_of = |space| {
+            // A Space without a colour has the system's accent colour, as in Dia.
+            let space = self.spaces.iter().find(|each| each.id == space);
+            let color = space.and_then(|space| space.color).unwrap_or(self.accent_color);
+            let color = Hsla::from(rgb(color));
+            let alpha = if color.s < NEUTRAL { NEUTRAL_GRADIENT_ALPHA } else { GRADIENT_ALPHA };
+            Rgba::from(Hsla { l: (color.l + 0.25 * y).min(1.), ..color }.opacity(alpha))
+        };
+        let pages = self.pages();
+        let (space, x) = pages[0];
+        let from = color_of(space);
+        let Some(&(beside, _)) = pages.get(1) else {
+            return from.into();
+        };
+        let to = color_of(beside);
+        let t = (x.abs() / self.width()).min(1.);
+        let mix = |from: f32, to: f32| from + (to - from) * t;
+        let (r, g, b) = (mix(from.r, to.r), mix(from.g, to.g), mix(from.b, to.b));
+        Rgba { r, g, b, a: mix(from.a, to.a) }.into()
     }
 
     /// The gradient as a background, over `base` where the window's look has to be opaque.
@@ -1098,19 +1149,27 @@ impl Shell {
     }
 
     /// The Spaces, by id and name, in the switcher's order.
-    pub fn set_spaces(&mut self, spaces: Vec<(u64, SharedString)>, cx: &mut Context<Self>) {
+    pub fn set_spaces(
+        &mut self,
+        spaces: Vec<(u64, SharedString, Option<u32>)>,
+        cx: &mut Context<Self>,
+    ) {
         // check.sh reads these lines.
-        let ids: Vec<String> = spaces.iter().map(|(id, _)| id.to_string()).collect();
+        let ids: Vec<String> = spaces.iter().map(|(id, ..)| id.to_string()).collect();
         eprintln!("browser: spaces {}", ids.join(" "));
         let mut old = std::mem::take(&mut self.spaces);
         self.spaces = spaces
             .into_iter()
-            .map(|(id, name)| {
+            .map(|(id, name, color)| {
                 let Some(space) = old.iter_mut().find(|space| space.id == id) else {
                     eprintln!("browser: added space {id} {name}");
+                    if let Some(color) = color {
+                        eprintln!("browser: colored space {id} {color:06x}");
+                    }
                     return Space {
                         id,
                         name,
+                        color,
                         pinned: Vec::new(),
                         today: Vec::new(),
                     };
@@ -1118,9 +1177,14 @@ impl Shell {
                 if space.name != name {
                     eprintln!("browser: renamed space {id} {name}");
                 }
+                if space.color != color {
+                    let color = color.map_or("none".to_string(), |color| format!("{color:06x}"));
+                    eprintln!("browser: colored space {id} {color}");
+                }
                 Space {
                     id,
                     name,
+                    color,
                     pinned: std::mem::take(&mut space.pinned),
                     today: std::mem::take(&mut space.today),
                 }
@@ -1450,22 +1514,46 @@ impl Shell {
         cx.notify();
     }
 
-    /// The menu a right-click on a Space's name or dot shows (Arc).
+    /// The menu a right-click on a Space's name or dot shows (Arc), with its colour (ours).
     fn space_menu(&mut self, space: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
+        type Action = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
+        let color = self.spaces.iter().find(|each| each.id == space).and_then(|each| each.color);
+        let mut items: Vec<(MenuEntry, Action)> = vec![
+            (
+                MenuEntry::new("Rename Space", true),
+                Box::new(move |shell, cx| shell.rename_space(space, cx)),
+            ),
+            (MenuEntry::new("Color", true), Box::new(|_, _| {})),
+            (
+                MenuEntry::new("System Accent", true)
+                    .under(1)
+                    .checked(color.is_none())
+                    .swatch(self.accent_color),
+                Box::new(move |shell, cx| shell.browser.set_space_color(space, None, cx)),
+            ),
+        ];
+        for (name, each) in SPACE_COLORS {
+            items.push((
+                MenuEntry::new(name, true).under(1).checked(color == Some(each)).swatch(each),
+                Box::new(move |shell, cx| shell.browser.set_space_color(space, Some(each), cx)),
+            ));
+        }
+        items.push((
+            MenuEntry::new("Delete Space", self.spaces.len() > 1),
+            Box::new(move |shell, cx| shell.delete_space(space, cx)),
+        ));
+        let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
         let shell = cx.weak_entity();
         self.browser.menu(
-            vec![
-                MenuEntry::new("Rename Space", true),
-                MenuEntry::new("Delete Space", self.spaces.len() > 1),
-            ],
+            entries,
             position,
             self.sidebar_hidden,
             Box::new(move |chosen, cx| {
                 shell
-                    .update(cx, |shell, cx| match chosen {
-                        Some(0) => shell.rename_space(space, cx),
-                        Some(_) => shell.delete_space(space, cx),
-                        None => {}
+                    .update(cx, |shell, cx| {
+                        if let Some((_, action)) = chosen.and_then(|at| items.into_iter().nth(at)) {
+                            action(shell, cx)
+                        }
                     })
                     .ok();
             }),

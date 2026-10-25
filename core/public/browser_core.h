@@ -183,6 +183,14 @@ BC_EXPORT size_t bc_space_name(bc_id space, char* name, size_t capacity);
 // Renames the Space to |name|, UTF-8. Then spaces_changed.
 BC_EXPORT void bc_space_set_name(bc_id space, const char* name);
 
+// Puts the Space's colour, 0xRRGGBB in sRGB, in |color|, and returns true. False if it has none,
+// and the window follows the system's accent colour.
+BC_EXPORT bool bc_space_color(bc_id space, uint32_t* color);
+
+// Gives the Space |color|, 0xRRGGBB in sRGB, or no colour if |has_color| is false. Then
+// spaces_changed.
+BC_EXPORT void bc_space_set_color(bc_id space, bool has_color, uint32_t color);
+
 // Deletes the Space, unless it's the last, and returns whether it will. A window showing it shows
 // the Space before it, else the one after it. Its tabs close, and it goes with the last of them; a
 // page that keeps its tab open keeps the Space until it closes. Its Today tabs reopen with

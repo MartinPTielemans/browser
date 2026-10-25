@@ -104,6 +104,21 @@ void bc_space_set_name(bc_id id, const char* name) {
   }
 }
 
+bool bc_space_color(bc_id id, uint32_t* color) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  if (!space || !space->color()) {
+    return false;
+  }
+  *color = *space->color();
+  return true;
+}
+
+void bc_space_set_color(bc_id id, bool has_color, uint32_t color) {
+  if (browser_core::Space* space = browser_core::Space::FromId(id)) {
+    space->SetColor(has_color ? std::optional(color & 0xffffff) : std::nullopt);
+  }
+}
+
 bool bc_space_delete(bc_id id) {
   return browser_core::Window::DeleteSpace(id);
 }
