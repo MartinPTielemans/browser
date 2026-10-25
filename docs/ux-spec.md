@@ -49,6 +49,12 @@ Material output measured over solid backdrops. Ports without AppKit materials ap
 | 13, light | 137 / 146 / 165 / 243 | (239, 237, 236) |
 | 13, dark | 33 / 44 / 72 / 182 | (58, 54, 53) |
 
+- Ours (*interim*):
+  - Dark only. The light layers come with the Appearance menu.
+  - Spaces have no colour yet, so every Space's gradient is the system accent colour. A colour under HSL saturation 0.1 counts as neutral.
+  - Where the window's look has to be opaque, it stands the material in with its output over grey 20 under the tint, #131313, and puts the gradient over that. That's the reveal's panel over the page, a dragged row, and the Clear toast over the rows.
+  - Over solid backdrops of black / grey 20 / grey 60 / white, our sidebar reads 11 / 19 / 35 / 51 before the gradient. That's the material at 18 / 32 / 58 / 85, against Dia's 24 / 32 / 45 / 104.
+
 ### Colour tokens (Dia asset catalogs, unchanged 1.49.1 → 1.50.1, D›Color tokens)
 
 | Token | Dark | Light |

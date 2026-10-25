@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <algorithm>
 #include <initializer_list>
 
 #include "host.h"
@@ -137,6 +138,19 @@ void* host_ui_view(void) {
 void host_show_window(void* ui_view) {
   g_ui_view = (__bridge NSView*)ui_view;
   g_window = g_ui_view.window;
+  // Dia's window material (docs/ux-spec.md › Window material): what's behind the window, blurred,
+  // under the UI, which tints it. AppKit swaps it for an opaque fill while the window is inactive,
+  // and with Reduce Transparency or Increase Contrast.
+  NSVisualEffectView* material = [[NSVisualEffectView alloc] initWithFrame:g_ui_view.bounds];
+  material.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  material.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+  // Dia's dark material, which AppKit doesn't name.
+  material.material = (NSVisualEffectMaterial)29;
+  material.state = NSVisualEffectStateFollowsWindowActiveState;
+  material.emphasized = YES;
+  material.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+  // Under the UI's view, since the core keeps only the UI's and the page's views in its own.
+  [g_ui_view addSubview:material positioned:NSWindowBelow relativeTo:nil];
   [g_window makeKeyAndOrderFront:nil];
   [NSApp activateIgnoringOtherApps:YES];
 
@@ -354,6 +368,24 @@ void host_detent(void) {
   [NSHapticFeedbackManager.defaultPerformer
       performFeedbackPattern:NSHapticFeedbackPatternAlignment
              performanceTime:NSHapticFeedbackPerformanceTimeNow];
+}
+
+uint32_t host_accent_color(void) {
+  NSColor* color = [NSColor.controlAccentColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+  auto channel = [](CGFloat value) {
+    return (uint32_t)lround(std::clamp(value, (CGFloat)0, (CGFloat)1) * 255);
+  };
+  return channel(color.redComponent) << 16 | channel(color.greenComponent) << 8 |
+         channel(color.blueComponent);
+}
+
+void host_watch_accent_color(void (*changed)(void)) {
+  [NSNotificationCenter.defaultCenter addObserverForName:NSSystemColorsDidChangeNotification
+                                                  object:nil
+                                                   queue:nil
+                                              usingBlock:^(NSNotification*) {
+                                                changed();
+                                              }];
 }
 
 void host_press_window_button(int button) {

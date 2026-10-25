@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -103,6 +104,12 @@ void host_hide_reveal(void);
 
 // A detent on the trackpad, as a swipe's nearest Space changes.
 void host_detent(void);
+
+// The system's accent colour in sRGB, as 0xRRGGBB.
+uint32_t host_accent_color(void);
+
+// Calls |changed| each time the user changes the system's accent colour.
+void host_watch_accent_color(void (*changed)(void));
 
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
