@@ -114,9 +114,11 @@ const LOADING_SIZE: f32 = 12.;
 // One clockwise turn (docs/ux-spec.md › Motion).
 const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
-const CLOSE_SIZE: f32 = 26.;
-// From its right edge to the plate's: Arc's 189 from the plate's left, at 228 wide.
-const CLOSE_RIGHT: f32 = 5.;
+// Dia's ≈ 22 pt hover square, its centre 18 from the plate's right edge as before.
+const CLOSE_SIZE: f32 = 22.;
+const CLOSE_RIGHT: f32 = 7.;
+// The selected plate's inner line, which every plate keeps clear so that nothing moves.
+const HAIRLINE: f32 = 0.5;
 // The Clear divider, under the pinned tabs. Its line's centre is 25 pt above the centre of the first
 // row under it, and it ends 7.5 pt before Clear's arrow.
 const DIVIDER_HEIGHT: f32 = 15.;
@@ -176,15 +178,22 @@ const SPACE_COLORS: [(&str, u32); 8] = [
 const MATERIAL_STAND_IN: u32 = 0x131313;
 // Dia's card, #121212 at 0.5: what shows before a page first paints.
 const CARD: u32 = 0x1212_1280;
-// Arc's tokens (docs/ux-spec.md › Colour tokens), P3 #FAFBFF taken as sRGB.
-const TITLE: u32 = 0xdedfff;
-const SELECTED: u32 = 0xfafbff33;
-const HOVERED: u32 = 0xfafbff1a;
-const PRESSED: u32 = 0xfafbff11;
+// Dia's tokens (docs/ux-spec.md › Colour tokens). A row is white 0.16 hovered and 0.31 pressed,
+// and selected it's #121212 at 0.5 inside a 0.5 pt hairline of white 0.15. Titles are white, at
+// 0.78 unless selected.
+const TITLE: u32 = 0xffffffff;
+const UNSELECTED_TITLE: u32 = 0xffffffc7;
+const SELECTED: u32 = 0x1212_1280;
+const SELECTED_HAIRLINE: u32 = 0xffffff26;
+const HOVERED: u32 = 0xffffff29;
+const PRESSED: u32 = 0xffffff4f;
 const SECONDARY: u32 = 0xffffff99;
+// The close button's square under the pointer: Dia's subtle fill, white 0.12, at the header
+// buttons' radius (ours: Dia's fill isn't measured).
+const CLOSE_HOVERED: u32 = 0xffffff1f;
 const URL_FIELD: u32 = 0xffffff1a;
-const NEW_TAB: u32 = 0xffffff73;
-const NEW_TAB_PLUS: u32 = 0xffffff80;
+const NEW_TAB: u32 = 0xffffff8c;
+const NEW_TAB_PLUS: u32 = 0xffffff40;
 // The Clear divider's line, white 0.08 (Arc), and its button (ours: Arc's colour isn't measured).
 const DIVIDER: u32 = 0xffffff14;
 const CLEAR: u32 = 0xffffff73;
@@ -2341,13 +2350,17 @@ impl Shell {
             }))
             .child(
                 plate(icon, label)
+                    .when(selected, selected_plate)
                     .id("plate")
-                    .when(selected, |plate| plate.bg(rgba(SELECTED)))
                     .when_some(hover.filter(|_| !selected), |plate, hover| {
                         plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
                     })
                     .when(!selected && dragging != Some(slot), |plate| {
-                        plate.group_active("row", |style| style.bg(rgba(PRESSED)))
+                        // GPUI keeps an element's pressed state only once a listener gives it a
+                        // hitbox.
+                        plate
+                            .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                            .group_active("row", |style| style.bg(rgba(PRESSED)))
                     })
                     // A dragged row covers the rows it passes, in the colours it has in place.
                     .when(dragging == Some(slot), |plate| {
@@ -2378,7 +2391,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .pr(px(PLATE_INSET))
-                    .child(title(row.title.clone())),
+                    .child(title(row.title.clone(), false)),
             ))
     }
 
@@ -2391,14 +2404,17 @@ impl Shell {
         // Away from its pinned URL, a pinned tab's favicon is a way back.
         let away = page.away_from_pinned_url;
         let back = away && self.hovered_favicon == Some(tab);
-        let title = title(if back { "Back to Pinned URL".into() } else { self.title(tab) });
+        let label = if back { "Back to Pinned URL".into() } else { self.title(tab) };
+        let title = title(label, tab == self.selected);
         // The close button shows under the pointer, and the title truncates before it.
         let close = div()
             .id(("close", tab))
             .flex_none()
             .ml(px(4.))
-            .mr(px(CLOSE_RIGHT))
+            .mr(px(CLOSE_RIGHT - HAIRLINE))
             .size(px(CLOSE_SIZE))
+            .rounded(px(NAV_RADIUS))
+            .hover(|style| style.bg(rgba(CLOSE_HOVERED)))
             .flex()
             .items_center()
             .justify_center()
@@ -2685,7 +2701,7 @@ impl Shell {
                 .block_mouse_except_scroll()
                 .bg(self.window_fill().blend(rgba(TOAST).into()))
                 .text_size(px(13.))
-                .text_color(rgb(TITLE))
+                .text_color(rgba(TITLE))
                 .child(format!("Cleared {cleared} {tabs}"))
                 .child(undo),
         )
@@ -2868,8 +2884,8 @@ impl Shell {
                 .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
                 .child(icon);
             row_box().child(
-                plate(icon, title(self.title(tab)).pr(px(PLATE_INSET)))
-                    .when(tab == selected, |plate| plate.bg(rgba(SELECTED))),
+                plate(icon, title(self.title(tab), tab == selected).pr(px(PLATE_INSET)))
+                    .when(tab == selected, selected_plate),
             )
         };
         let (plus, new_tab) = new_tab_label();
@@ -3184,10 +3200,11 @@ fn plate(icon: impl IntoElement, label: impl IntoElement) -> gpui::Div {
         .flex()
         .items_center()
         .rounded(px(PLATE_RADIUS))
+        .border(px(HAIRLINE))
         .child(
             div()
                 .flex_none()
-                .ml(px(FAVICON_X - PLATE_INSET))
+                .ml(px(FAVICON_X - PLATE_INSET - HAIRLINE))
                 .mr(px(TITLE_GAP))
                 .size(px(FAVICON_SIZE))
                 .flex()
@@ -3210,14 +3227,19 @@ fn favicon(favicon: Option<Arc<Image>>) -> AnyElement {
     }
 }
 
+/// The selected tab's plate.
+fn selected_plate(plate: gpui::Div) -> gpui::Div {
+    plate.bg(rgba(SELECTED)).border_color(rgba(SELECTED_HAIRLINE))
+}
+
 /// A tab row's title, cut off at the row's trailing edge.
-fn title(title: SharedString) -> gpui::Div {
+fn title(title: SharedString, selected: bool) -> gpui::Div {
     div()
         .flex_1()
         .min_w_0()
         .truncate()
         .text_size(px(14.))
-        .text_color(rgb(TITLE))
+        .text_color(rgba(if selected { TITLE } else { UNSELECTED_TITLE }))
         .child(title)
 }
 

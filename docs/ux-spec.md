@@ -261,6 +261,8 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 | "+ New Tab" row | label white 0.55 (secondary), plus sign white 0.25 (tertiary); hover as rows. 3 pt under the row above. It sticks to the bottom when the list overflows |
 | New Tab tab's icon | our mark, 16 wide, white 0.28 in dark mode over any row state |
 
+- Ours (*interim* until Arc's rows are captured): the states use Dia's fills and title colours, on Arc's geometry. An unselected row has no fill, as in Arc. The ✕'s square is the subtle fill, white 0.12, at the header buttons' radius 6. A selected or dragged row shows no pressed fill. Titles end in an ellipsis, since GPUI has no mask for the fade.
+
 **Behavior**
 
 - **Opening a tab** (Dia rec 120 fps). The new row appears in its slot, opaque and already selected, and the old selection drops at once. Rows below slide down one pitch (Row slide), drawn under the new row and revealed from beneath its bottom edge.
