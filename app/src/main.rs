@@ -226,13 +226,18 @@ fn set_page_frame((frame, radius): (Bounds<Pixels>, f32)) {
 
 /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it.
 fn open_tab(url: &str) {
-    let Ok(url) = CString::new(url) else {
-        return;
-    };
-    let window = WINDOW.get();
-    let tab = unsafe { bc::bc_tab_open(window, url.as_ptr()) };
+    let tab = open_tab_behind(url);
     if tab != 0 {
-        unsafe { bc::bc_window_select(window, tab) };
+        unsafe { bc::bc_window_select(WINDOW.get(), tab) };
+    }
+}
+
+/// Opens a tab loading `url` at the top of the Space's Today tabs, behind the one shown. Returns
+/// it, or 0.
+fn open_tab_behind(url: &str) -> u64 {
+    match CString::new(url) {
+        Ok(url) => unsafe { bc::bc_tab_open(WINDOW.get(), url.as_ptr()) },
+        Err(_) => 0,
     }
 }
 
@@ -273,13 +278,26 @@ fn navigate(tab: u64, url: &str) {
 
 /// The page the address bar goes to for `text` typed in it: the one it names, else a search.
 fn typed_url(text: &str) -> Option<String> {
+    url_for(text, bc::bc_typed_url)
+}
+
+/// A search for `text` with the default search engine, even if it names a page.
+fn search_url(text: &str) -> Option<String> {
+    url_for(text, bc::bc_search_url)
+}
+
+/// The URL the core's `get` copies for `text`.
+fn url_for(
+    text: &str,
+    get: unsafe extern "C" fn(*const c_char, *mut c_char, usize) -> usize,
+) -> Option<String> {
     let text = CString::new(text).ok()?;
     // Long enough for most, so the core reads what was typed once.
     let mut url = vec![0u8; 2048];
-    let length = unsafe { bc::bc_typed_url(text.as_ptr(), url.as_mut_ptr().cast(), url.len()) };
+    let length = unsafe { get(text.as_ptr(), url.as_mut_ptr().cast(), url.len()) };
     if length >= url.len() {
         url.resize(length + 1, 0);
-        unsafe { bc::bc_typed_url(text.as_ptr(), url.as_mut_ptr().cast(), url.len()) };
+        unsafe { get(text.as_ptr(), url.as_mut_ptr().cast(), url.len()) };
     }
     url.truncate(length);
     (length > 0).then(|| String::from_utf8_lossy(&url).into_owned())
@@ -1267,6 +1285,7 @@ unsafe extern "C" fn window_suggestions(
             detail: string(suggestion.detail).into(),
             tab: suggestion.tab,
             completion: string(suggestion.completion),
+            removable: suggestion.removable,
             command: None,
             shortcut: None,
         })

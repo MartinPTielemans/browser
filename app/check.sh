@@ -22,7 +22,8 @@
 #      tabs in the order they were shown, and ⌃⇧Tab the other way, until ⌃ goes up or a click. A
 #      tab a page opens goes under it and closing it goes back there, and ⌘W otherwise shows the
 #      tab below, or above at the bottom. Closing the last tab leaves the Space empty, where ⌘T
-#      still works.
+#      still works. There ⌘↩ opens a row's page behind and the bar stays open, ⇧⌦ takes a page
+#      out of the rows, ⇧⌘↩ searches for what was typed and ⌃↩ goes to www.<word>.com.
 #      Reports how long switches take.
 #   4. The page view keeps its margins and GPUI's view fills the window through a resize and
 #      full screen, and the window's buttons stay in the header row. A page that goes full
@@ -676,11 +677,52 @@ expect_tabs "$b" "$b" "after closing the bottom tab"
 send key w cmd
 expect_tabs " *" 0 "after closing the last tab"
 ../tools/window-screenshot.sh "$pid" "$out/empty.png" || fail "no window to capture"
+# ⌘↩ opens a row's page in a tab behind, at the top of Today, and the bar stays open, as Arc's
+# does. ⇧⌦ takes a page from history out of the rows.
 send key t cmd
 expect '^browser: command new-tab via ui$' "⌘T in an empty Space didn't reach the UI"
 expect '^browser: command bar shown$' "⌘T in an empty Space didn't open the command bar"
+send type example
+expect '^browser: command bar completes "example" with "\.' \
+  "the command bar didn't complete \"example\""
+send key backspace
+expect '^browser: command bar suggestions "example" in .*?q=example, .*https://example.org/' \
+  "the command bar didn't suggest example.org: $(suggestions | tr '\n' ' ')"
+for _ in 1 2 3 4 5 6 7 8; do
+  send key down
+  grep '^browser: command bar selected' "$log" | tail -1 | grep -q ' https://example.org/$' && break
+done
+send key return cmd
+expect '^browser: command bar behind https://example.org/$' \
+  "⌘↩ didn't open example.org's row behind"
+expect '^browser: today [0-9][0-9]*$' "⌘↩ didn't open a tab in Today: Today is \"$(today)\""
+none_since '^browser: command bar hidden$' || fail "⌘↩ closed the command bar"
+none_since '^browser: selected [1-9]' || fail "⌘↩ showed the tab it opened"
+send key delete shift
+expect '^browser: command bar removes https://example.org/$' "⇧⌦ didn't take example.org's row out"
+expect '^browser: command bar suggestions "example" in ' \
+  "the command bar didn't list its rows again after ⇧⌦"
+suggestions | grep -q '^https://example.org/' && fail "example.org's row stayed after ⇧⌦"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
+# ⇧⌘↩ searches for what was typed even when it names a page, and ⌃↩ goes to www.<word>.com, as
+# Chrome's does.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type example.com
+send key return shift cmd
+expect '^browser: command bar go https://duckduckgo.com/?q=example.com$' \
+  "⇧⌘↩ didn't search for what was typed: $(grep '^browser: command bar go' "$log" | tail -1)"
+expect '^browser: command bar hidden$' "⇧⌘↩ didn't close the command bar"
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type example
+expect '^browser: command bar completes "example" with "\.' \
+  "the command bar didn't complete \"example\""
+send key return ctrl
+expect '^browser: command bar go https*://www.example.com/$' \
+  "⌃↩ didn't go to www.example.com: $(grep '^browser: command bar go' "$log" | tail -1)"
+expect '^browser: command bar hidden$' "⌃↩ didn't close the command bar"
 exec 3>&-
 # Chrome writes the trace before it quits, once every process has started tracing or 10 s have
 # passed, so a renderer that closed early can hold the quit that long.
@@ -713,7 +755,7 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
+echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⌘↩ opens a row behind and stays open, ⇧⌦ removes one, ⇧⌘↩ searches and ⌃↩ adds www. and .com, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
 echo "  Switch, key to the core's report: $app_ms. Windows: $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/empty.png"
 

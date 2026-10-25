@@ -17,6 +17,9 @@ void SetUpSearch(Profile* profile);
 // it with the default search engine. Invalid if it names neither.
 GURL TypedUrl(Profile* profile, std::string_view text);
 
+// A search for |text| with |profile|'s default search engine. Invalid if it has none.
+GURL SearchUrl(Profile* profile, std::string_view text);
+
 }  // namespace browser_core
 
 #endif  // BROWSER_CORE_SEARCH_H_

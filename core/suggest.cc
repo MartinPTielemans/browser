@@ -92,6 +92,17 @@ void Suggestions::Start(const std::u16string& text, bool complete) {
   controller_.Start(input);
 }
 
+void Suggestions::Remove(const GURL& url) {
+  const AutocompleteResult& result = controller_.result();
+  auto match = std::ranges::find_if(result, [&](const AutocompleteMatch& match) {
+    return match.destination_url == url && match.SupportsDeletion();
+  });
+  if (match != result.end()) {
+    // A copy, as removing it changes the result it's in.
+    controller_.DeleteMatch(AutocompleteMatch(*match));
+  }
+}
+
 void Suggestions::OnResultChanged(AutocompleteController* controller, bool default_match_changed) {
   Changed();
 }
@@ -116,6 +127,7 @@ void Suggestions::Report() {
     std::string url, text, detail, completion;
     bc_id tab = 0;
     bool typed_search = false;
+    bool removable = false;
   };
   std::vector<Row> rows;
   const AutocompleteResult& result = controller_.result();
@@ -138,6 +150,7 @@ void Suggestions::Report() {
                                       : TabAt(Stripped(match.destination_url, engines), *window,
                                               window->selected(), engines),
         .typed_search = match.type == AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
+        .removable = match.SupportsDeletion(),
     });
   }
   // As Dia lists them: the search for what was typed right after the top row.
@@ -177,7 +190,8 @@ void Suggestions::Report() {
                            .text = row.text.c_str(),
                            .detail = row.detail.c_str(),
                            .tab = row.tab,
-                           .completion = row.completion.c_str()});
+                           .completion = row.completion.c_str(),
+                           .removable = row.removable});
   }
   const std::string text = base::UTF16ToUTF8(text_);
   Host().window_suggestions(Host().context, window_, text.c_str(), suggestions.data(),

@@ -370,6 +370,13 @@ void bc_window_suggest(bc_id window_id, const char* text, bool complete) {
   }
 }
 
+void bc_window_remove_suggestion(bc_id window_id, const char* url) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  if (window && url) {
+    window->RemoveSuggestion(GURL(url));
+  }
+}
+
 bc_id bc_tab_open(bc_id window_id, const char* url) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   // Chrome made the profile it starts with before the core's calls work.
@@ -390,6 +397,13 @@ size_t bc_typed_url(const char* text, char* url, size_t capacity) {
   Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
   const GURL typed = profile && text ? browser_core::TypedUrl(profile, text) : GURL();
   return typed.is_valid() ? CopyString(typed.spec(), url, capacity) : 0;
+}
+
+size_t bc_search_url(const char* text, char* url, size_t capacity) {
+  // Chrome made the profile it starts with before the core's calls work.
+  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  const GURL search = profile && text ? browser_core::SearchUrl(profile, text) : GURL();
+  return search.is_valid() ? CopyString(search.spec(), url, capacity) : 0;
 }
 
 void bc_tab_show(bc_id id, bc_rect frame) {

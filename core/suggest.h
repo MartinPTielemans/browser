@@ -9,6 +9,7 @@
 #include "base/scoped_observation.h"
 #include "browser_core/public/browser_core.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
+#include "url/gurl.h"
 
 class ChromeAutocompleteSchemeClassifier;
 class Profile;
@@ -30,6 +31,10 @@ class Suggestions : public AutocompleteController::Observer {
   // Lists suggestions for |text|, and again as more are found. Empty text lists none. |complete|
   // lets the first complete |text| inline.
   void Start(const std::u16string& text, bool complete);
+
+  // Takes the removable suggestion going to |url| out of the profile's history, and lists the
+  // others again.
+  void Remove(const GURL& url);
 
  private:
   // AutocompleteController::Observer:
