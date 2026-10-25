@@ -14,11 +14,14 @@ use gpui::{
 };
 
 use crate::{
-    WINDOW, bc, navigate, ns_view, open_split, open_tab, platform, split_tab, typed_url,
-    update_shell,
+    WINDOW, bc, navigate, ns_view, open_split, open_tab, open_tab_behind, platform, search_url,
+    split_tab, typed_url, update_shell,
 };
 
-actions!(command_bar, [Go, GoBeside, Dismiss, Next, Previous]);
+actions!(
+    command_bar,
+    [Go, GoBeside, GoBehind, GoDotCom, Search, Dismiss, Next, Previous, First, Last, Remove]
+);
 
 const WIDTH: f32 = 640.;
 /// The input's row.
@@ -56,6 +59,8 @@ pub struct Suggestion {
     pub tab: u64,
     /// What completes the text typed to this row, for the first row only.
     pub completion: String,
+    /// Whether ⇧⌦ can take it out of the profile's history.
+    pub removable: bool,
     /// The browser command the row runs instead, and its shortcut.
     pub command: Option<shell::Command>,
     pub shortcut: Option<SharedString>,
@@ -69,6 +74,7 @@ impl From<shell::BarCommand> for Suggestion {
             detail: SharedString::default(),
             tab: 0,
             completion: String::new(),
+            removable: false,
             command: Some(command.command),
             shortcut: command.shortcut,
         }
@@ -117,11 +123,19 @@ pub fn open(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("enter", Go, Some("CommandBar")),
         KeyBinding::new("alt-enter", GoBeside, Some("CommandBar")),
+        KeyBinding::new("cmd-enter", GoBehind, Some("CommandBar")),
+        KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar")),
+        KeyBinding::new("shift-cmd-enter", Search, Some("CommandBar")),
         KeyBinding::new("escape", Dismiss, Some("CommandBar")),
         KeyBinding::new("down", Next, Some("CommandBar")),
         KeyBinding::new("up", Previous, Some("CommandBar")),
         KeyBinding::new("ctrl-n", Next, Some("CommandBar")),
         KeyBinding::new("ctrl-p", Previous, Some("CommandBar")),
+        KeyBinding::new("tab", Next, Some("CommandBar")),
+        KeyBinding::new("shift-tab", Previous, Some("CommandBar")),
+        KeyBinding::new("pageup", First, Some("CommandBar")),
+        KeyBinding::new("pagedown", Last, Some("CommandBar")),
+        KeyBinding::new("shift-delete", Remove, Some("CommandBar")),
     ]);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
@@ -401,13 +415,16 @@ impl CommandBar {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // The page selected stays selected as more suggestions come for what was asked.
+        // The page selected stays selected as more suggestions come for what was asked, and when
+        // it's taken out, the row that takes its place is, as in Chrome.
         let selected = self.rows.get(self.selected).filter(|_| text == self.suggested);
-        self.selected = selected
-            .and_then(|old| {
-                rows.iter().position(|row| row.url == old.url && row.command == old.command)
-            })
-            .unwrap_or(0);
+        self.selected = match selected {
+            Some(old) => rows
+                .iter()
+                .position(|row| row.url == old.url && row.command == old.command)
+                .unwrap_or(self.selected.min(rows.len().saturating_sub(1))),
+            None => 0,
+        };
         self.rows = rows;
         self.suggested = text;
         let rows = self.rows.len() as f32;
@@ -417,6 +434,22 @@ impl CommandBar {
         cx.notify();
     }
 
+    /// The row ↩ takes, once there are rows for what's typed. A completion comes from the first
+    /// row, even before the rows for the last key arrive.
+    fn chosen(&self) -> Option<&Suggestion> {
+        let current = self.suggested == self.asked || !self.completion.is_empty();
+        self.rows.get(self.selected).filter(|_| current)
+    }
+
+    /// What the user typed, without a completion still selected after it.
+    fn typed(&self, cx: &App) -> String {
+        let input = self.input.read(cx);
+        let completing = !self.completion.is_empty()
+            && input.selection() == (self.asked.len()..input.text().len());
+        let typed = if completing { self.asked.as_str() } else { input.text() };
+        typed.trim().to_string()
+    }
+
     fn go(&mut self, _: &Go, _: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).text().trim().to_string();
         if text.is_empty() {
@@ -424,20 +457,73 @@ impl CommandBar {
         }
         // check.sh reads these lines.
         eprintln!("browser: command bar typed {text}");
-        // A completion comes from the first row, even before the rows for the last key arrive.
-        if (self.suggested == self.asked || !self.completion.is_empty())
-            && self.selected < self.rows.len()
-        {
+        if self.chosen().is_some() {
             self.take(self.selected, cx);
             return;
         }
         // Before the suggestions for what's typed come, ↩ goes where the first of them will.
-        let Some(url) = typed_url(&text) else {
+        if let Some(url) = typed_url(&text) {
+            self.go_to(&url, cx);
+        }
+    }
+
+    /// Shows `url` where the bar shows the page chosen, and closes the bar.
+    fn go_to(&self, url: &str, cx: &mut App) {
+        // check.sh reads this line.
+        eprintln!("browser: command bar go {url}");
+        self.show_page(url, cx);
+        unsafe { platform::host_hide_overlay() };
+    }
+
+    /// ⌘↩: opens where ↩ would go in a tab behind the one shown, at the top of Today, and the bar
+    /// stays open (Arc). A command runs as ↩ runs it, and over a new pane ⌘↩ is ↩.
+    fn go_behind(&mut self, _: &GoBehind, window: &mut Window, cx: &mut Context<Self>) {
+        let command = self.chosen().is_some_and(|row| row.command.is_some());
+        if command || matches!(self.target, Target::Beside(_)) {
+            return self.go(&Go, window, cx);
+        }
+        let text = self.input.read(cx).text().trim().to_string();
+        let url = match self.chosen() {
+            Some(row) => Some(row.url.clone()),
+            None if text.is_empty() => None,
+            None => typed_url(&text),
+        };
+        if let Some(url) = url {
+            // check.sh reads this line.
+            eprintln!("browser: command bar behind {url}");
+            open_tab_behind(&url);
+        }
+    }
+
+    /// ⌃↩: goes to www.<word>.com for a word typed, as Chrome does, and else where ↩ goes.
+    fn go_dot_com(&mut self, _: &GoDotCom, window: &mut Window, cx: &mut Context<Self>) {
+        let typed = self.typed(cx);
+        let word = !typed.is_empty() && typed.chars().all(|c| c.is_alphanumeric() || c == '-');
+        match word.then(|| typed_url(&format!("www.{typed}.com"))).flatten() {
+            Some(url) => self.go_to(&url, cx),
+            None => self.go(&Go, window, cx),
+        }
+    }
+
+    /// ⇧⌘↩: searches for what was typed, even if it names a page, where ↩ goes (Dia).
+    fn search(&mut self, _: &Search, _: &mut Window, cx: &mut Context<Self>) {
+        let typed = self.typed(cx);
+        if let Some(url) = search_url(&typed).filter(|_| !typed.is_empty()) {
+            self.go_to(&url, cx);
+        }
+    }
+
+    /// ⇧⌦: takes the selected row's page out of the profile's history, if it came from there, as
+    /// Chrome does. The core lists the rows again without it.
+    fn remove(&mut self, _: &Remove, _: &mut Window, _: &mut Context<Self>) {
+        let Some(row) = self.chosen().filter(|row| row.removable) else {
             return;
         };
-        eprintln!("browser: command bar go {url}");
-        self.show_page(&url, cx);
-        unsafe { platform::host_hide_overlay() };
+        // check.sh reads this line.
+        eprintln!("browser: command bar removes {}", row.url);
+        if let Ok(url) = std::ffi::CString::new(row.url.as_str()) {
+            unsafe { bc::bc_window_remove_suggestion(WINDOW.get(), url.as_ptr()) };
+        }
     }
 
     /// ⌥↩: goes where ↩ would, in a new tab in a split view with the tab shown, or the tab the
@@ -476,10 +562,7 @@ impl CommandBar {
             return;
         }
         match (row.tab, self.target) {
-            (0, _) => {
-                eprintln!("browser: command bar go {}", row.url);
-                self.show_page(&row.url, cx);
-            }
+            (0, _) => return self.go_to(&row.url, cx),
             (tab, Target::Beside(with)) => {
                 eprintln!("browser: command bar split with tab {tab}");
                 split_tab(tab, with, cx);
@@ -495,10 +578,17 @@ impl CommandBar {
     /// Selects the next row, or the one before, wrapping at the ends as Chrome does.
     fn select_next(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         let count = self.rows.len();
-        if count == 0 {
+        if count > 0 {
+            self.select((self.selected + if forward { 1 } else { count - 1 }) % count, window, cx);
+        }
+    }
+
+    /// Selects row `index`, if there is one.
+    fn select(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if index >= self.rows.len() {
             return;
         }
-        self.selected = (self.selected + if forward { 1 } else { count - 1 }) % count;
+        self.selected = index;
         // check.sh reads this line.
         let row = &self.rows[self.selected];
         let name = if row.command.is_some() { row.text.as_ref() } else { row.url.as_str() };
@@ -593,6 +683,10 @@ impl Render for CommandBar {
                 .key_context("CommandBar")
                 .on_action(cx.listener(Self::go))
                 .on_action(cx.listener(Self::go_beside))
+                .on_action(cx.listener(Self::go_behind))
+                .on_action(cx.listener(Self::go_dot_com))
+                .on_action(cx.listener(Self::search))
+                .on_action(cx.listener(Self::remove))
                 .on_action(cx.listener(Self::dismiss))
                 .on_action(
                     cx.listener(|bar, _: &Next, window, cx| bar.select_next(true, window, cx)),
@@ -600,6 +694,10 @@ impl Render for CommandBar {
                 .on_action(
                     cx.listener(|bar, _: &Previous, window, cx| bar.select_next(false, window, cx)),
                 )
+                .on_action(cx.listener(|bar, _: &First, window, cx| bar.select(0, window, cx)))
+                .on_action(cx.listener(|bar, _: &Last, window, cx| {
+                    bar.select(bar.rows.len().saturating_sub(1), window, cx)
+                }))
                 .absolute()
                 .left(shape.left())
                 .top(shape.top())

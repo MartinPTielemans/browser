@@ -65,4 +65,14 @@ GURL TypedUrl(Profile* profile, std::string_view text) {
   return match.destination_url;
 }
 
+GURL SearchUrl(Profile* profile, std::string_view text) {
+  TemplateURLService* engines = TemplateURLServiceFactory::GetForProfile(profile);
+  const TemplateURL* engine = engines ? engines->GetDefaultSearchProvider() : nullptr;
+  if (!engine) {
+    return GURL();
+  }
+  return GURL(engine->url_ref().ReplaceSearchTerms(
+      TemplateURLRef::SearchTermsArgs(base::UTF8ToUTF16(text)), engines->search_terms_data()));
+}
+
 }  // namespace browser_core

@@ -86,6 +86,8 @@ typedef struct bc_suggestion {
   // For the first suggestion, what to show after the text typed, selected, to complete it to this
   // suggestion's URL or title, when bc_window_suggest allowed it. Else "".
   const char* completion;
+  // Whether bc_window_remove_suggestion can take it out of the profile's history.
+  bool removable;
 } bc_suggestion;
 
 // One of the archive's tabs: a Today tab that closed, as Arc's Library lists them.
@@ -416,6 +418,10 @@ BC_EXPORT void bc_page_favicon(const char* url);
 // or pasting, with the caret elsewhere, or while an input method composes.
 BC_EXPORT void bc_window_suggest(bc_id window, const char* text, bool complete);
 
+// Takes the window's removable suggestion going to |url| out of the profile's history and
+// bookmarks' suggestions, as ⇧⌦ does in Chrome's address bar. Then window_suggestions without it.
+BC_EXPORT void bc_window_remove_suggestion(bc_id window, const char* url);
+
 // Opens a tab in the window, loading |url|, in the default profile, at the top of the Today tabs of
 // the Space it shows. It isn't shown until bc_window_select or bc_tab_show. Returns 0 if the window
 // is closing or gone.
@@ -426,6 +432,10 @@ BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url);
 // else a search for it with the default search engine, DuckDuckGo until the user picks another.
 // Returns 0 if |text| names neither.
 BC_EXPORT size_t bc_typed_url(const char* text, char* url, size_t capacity);
+
+// As bc_typed_url, the URL of a search for |text| with the default search engine, even when |text|
+// names a page. Returns 0 if there's no engine.
+BC_EXPORT size_t bc_search_url(const char* text, char* url, size_t capacity);
 
 // Shows the tab's page at |frame| in its window, in place of the page the window showed. It keeps
 // its distance from the window's edges as the window resizes, and takes the keyboard if that page

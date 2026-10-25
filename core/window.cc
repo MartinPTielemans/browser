@@ -610,6 +610,12 @@ void Window::Suggest(Profile* profile, const std::u16string& text, bool complete
   suggestions_->Start(text, complete);
 }
 
+void Window::RemoveSuggestion(const GURL& url) {
+  if (suggestions_) {
+    suggestions_->Remove(url);
+  }
+}
+
 content::WebContents* Window::OpenTab(Profile* profile, const GURL& url) {
   BrowserWindowInterface* browser = BrowserFor(profile);
   if (!browser) {

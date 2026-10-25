@@ -500,16 +500,17 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 
 | Key | Action | Source |
 |---|---|---|
-| ↩ | open in this tab | Chrome |
-| ⌘↩ / ⌥↩ | new tab. Chrome opens ⌘↩ behind and ⌥↩ in front; Dia: measure | Chrome |
+| ↩ | open where the bar shows pages: a new tab for ⌘T, the tab for ⌘L | Chrome |
+| ⌘↩ | a tab behind the one shown, at the top of Today; the bar stays open. A command runs as for ↩ | Arc 1.170.0 cap |
+| ⌥↩ | a new pane on the right of the page, in a split view | Arc 1.170.0 cap |
 | ⇧↩ | new window | Chrome |
-| ⇧⌘↩ | search for what was typed | Dia |
-| ⌃↩ / ⌃⇧↩ | add www. and .com / the same in a new window | Chrome |
+| ⇧⌘↩ | search for what was typed, even if it names a page | Dia |
+| ⌃↩ / ⌃⇧↩ | www.<word>.com for a word typed, else as ↩ / the same in a new window | Chrome |
 | ↑ ↓, ⌃N ⌃P | move, wrapping at the ends | Chrome |
 | ⇞ ⇟ | first / last row | Chrome |
-| Tab / ⇧Tab | enter site search when hinted / previous row | Chrome |
+| Tab / ⇧Tab | enter site search when hinted, else the next row / previous row | Chrome |
 | Esc | leave site search; otherwise close the panel, drop the typed text and give the page its focus back | Ardia |
-| ⇧⌦ | remove the selected history row | Chrome |
+| ⇧⌦ | take the selected row's page out of the history; the row under it takes its place | Chrome |
 
 - ⌘V, ⌘C, ⌘X or ⌘A pressed right after ⌘T, ⌘L or ⌘F waits up to 400 ms for the new field and lands there, never in the old page (Ardia, from a user report).
 - A click anywhere outside the panel, or another window or app taking focus, closes it like Esc; the click still does its own thing.

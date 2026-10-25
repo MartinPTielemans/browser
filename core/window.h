@@ -160,6 +160,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Lists the command bar's suggestions for |text|, from |profile|. See bc_window_suggest.
   void Suggest(Profile* profile, const std::u16string& text, bool complete);
 
+  // Takes a suggestion out of the profile's history. See bc_window_remove_suggestion.
+  void RemoveSuggestion(const GURL& url);
+
   // Opens a tab for |profile| loading |url|, not shown. Null while the window is closing or
   // Chromium is quitting.
   content::WebContents* OpenTab(Profile* profile, const GURL& url);

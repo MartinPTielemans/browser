@@ -152,7 +152,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Inline eligibility | MVP | typed ≥ 1 host / ≥ 2 deeper | Chrome O |
 | [x] | Well-known sites | MVP | built in; fill the rows left under the profile's own, never row 0 | ours |
 | [ ] | Site search | MVP | Tab when hinted, Space after exact host; ⌫ in empty leaves and restores | Chrome O |
-| [ ] | Keys | MVP | ↩, ⌘↩, ⌥↩, ⇧↩, ⇧⌘↩, ⌃↩, ⌃⇧↩, ↑↓ wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Chrome, Dia O |
+| [x] | Keys | MVP | ↩, ⌘↩ behind with the bar open, ⌥↩ beside, ⇧⌘↩, ⌃↩, ↑↓ and Tab ⇧Tab wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Arc 1.170.0 cap, Chrome, Dia O |
+| [ ] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows | Chrome |
 | [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms) | Ardia P§7 |
 | [ ] | Click outside | MVP | closes and still acts | AGENTS.md |
 | [ ] | Switch to Tab rows | MVP | across windows, never the current tab | Dia, O |

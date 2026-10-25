@@ -14,9 +14,9 @@
 //   release <x> <y>                       lets go of it at (x, y)
 //   move <x> <y>                          moves the pointer to (x, y), without a button down
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "-", "+",
-//                                         "[", "]", return, escape, tab, space, backspace, up,
-//                                         down, left or right. "+" is on "-"'s key, as on a
-//                                         Danish keyboard
+//                                         "[", "]", return, escape, tab, space, backspace,
+//                                         delete (forward), pageup, pagedown, up, down, left or
+//                                         right. "+" is on "-"'s key, as on a Danish keyboard
 //   flags [cmd] [shift] [alt] [ctrl]      the modifiers held from now, as a modifier key going
 //                                         down or up; key holds them only for its own key
 //   type <text>                           lowercase letters, dots and spaces
@@ -74,9 +74,11 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {" ", 49}, {"space", 49}, {".", 47}, {"escape", 53}, {"1", 18},   {"2", 19},
     {"3", 20}, {"4", 21}, {"5", 23}, {"6", 22}, {"7", 26}, {"8", 28},      {"9", 25},
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
-    {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43},
+    {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43}, {"delete", 117},
+    {"pageup", 116}, {"pagedown", 121},
 };
-// AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey.
+// AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey, and for
+// the others NSDeleteFunctionKey, NSPageUpFunctionKey and NSPageDownFunctionKey.
 const std::map<std::string, std::string> kCharacters = {
     {"return", "\r"},
     {"tab", "\t"},
@@ -87,6 +89,9 @@ const std::map<std::string, std::string> kCharacters = {
     {"down", "\xEF\x9C\x81"},
     {"left", "\xEF\x9C\x82"},
     {"right", "\xEF\x9C\x83"},
+    {"delete", "\xEF\x9C\xA8"},
+    {"pageup", "\xEF\x9C\xAC"},
+    {"pagedown", "\xEF\x9C\xAD"},
 };
 
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
@@ -166,9 +171,12 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
   }
   auto special = kCharacters.find(key);
   NSString* characters = @((special == kCharacters.end() ? key : special->second).c_str());
-  // The keyboard marks arrow keys as function and keypad keys.
+  // The keyboard marks arrow keys as function and keypad keys, and the keys above them as function
+  // keys.
   if (key == "up" || key == "down" || key == "left" || key == "right") {
     flags |= NSEventModifierFlagFunction | NSEventModifierFlagNumericPad;
+  } else if (key == "delete" || key == "pageup" || key == "pagedown") {
+    flags |= NSEventModifierFlagFunction;
   }
   for (NSEventType type : {NSEventTypeKeyDown, NSEventTypeKeyUp}) {
     [NSApp postEvent:[NSEvent keyEventWithType:type
