@@ -261,9 +261,35 @@ BC_EXPORT bool bc_space_delete(bc_id space);
 // it has. The ones the user opened are newest first; one a page opened sits under the page's tab.
 BC_EXPORT size_t bc_space_today(bc_id space, bc_id* tabs, size_t capacity);
 
-// Copies up to |capacity| of the Space's pinned tabs into |tabs|, top to bottom, and returns how
-// many it has. They sit above its Today tabs.
+// Copies up to |capacity| of the Space's pinned tabs and folders into |tabs|, top to bottom, and
+// returns how many it has. Each folder is followed by what's in it. They sit above its Today tabs.
 BC_EXPORT size_t bc_space_pinned(bc_id space, bc_id* tabs, size_t capacity);
+
+// Whether |id| is a folder, and if it is, whether it shows what's in it in |open|.
+BC_EXPORT bool bc_folder(bc_id id, bool* open);
+
+// Copies the folder's name into |name| as bc_space_name does.
+BC_EXPORT size_t bc_folder_name(bc_id folder, char* name, size_t capacity);
+
+// The folder holding the pinned tab or folder |id|, else 0.
+BC_EXPORT bc_id bc_folder_of(bc_id id);
+
+// Makes an open folder named |name| at |index| in |folder| if it isn't 0, else in the Space's
+// pinned tabs, counted as bc_tab_move counts, or at the end past it. Returns it. Then
+// space_changed.
+BC_EXPORT bc_id bc_folder_create(bc_id space, const char* name, bc_id folder, size_t index);
+
+// Then space_changed.
+BC_EXPORT void bc_folder_rename(bc_id folder, const char* name);
+BC_EXPORT void bc_folder_set_open(bc_id folder, bool open);
+
+// Moves the folder, with what's in it, to |index| in |folder| if it isn't 0, else in the pinned
+// tabs, counted as bc_tab_move counts. Not into itself. Then space_changed.
+BC_EXPORT void bc_folder_move(bc_id folder, bc_id to, size_t index);
+
+// Deletes the folder, leaving what was in it where it was, in the folder that held it. Then
+// space_changed.
+BC_EXPORT void bc_folder_delete(bc_id folder);
 
 // Copies up to |capacity| of the favorites into |tabs|, left to right, and returns how many there
 // are. They're tabs in no Space, which every Space shows above its own, as Arc shows a profile's.
@@ -432,13 +458,14 @@ BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
 // tab_state_changed for a tab of a Space.
 BC_EXPORT void bc_tab_move_to_favorites(bc_id tab, size_t index);
 
-// Moves the tab, with the rest of its split view, to |index| in its Space's pinned tabs or in its
-// Today tabs, counted without them, else to the bottom, and below a split |index| is inside. A
-// Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned tab moved to Today
-// is unpinned. A favorite leaves the favorites for the Space its window shows, pinned at its
-// favorite's URL in the pinned tabs, and a window showing it keeps showing it. Then space_changed
-// and tab_state_changed, and favorites_changed for a favorite.
-BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, size_t index);
+// Moves the tab, with the rest of its split view, to |index| in its Space's Today tabs, or in its
+// pinned tabs, inside |folder| if it isn't 0, counted without them, else to the bottom, and below a
+// split |index| is inside. In the pinned tabs or a folder, |index| counts the tabs and folders
+// directly in it. A Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned
+// tab moved to Today is unpinned. A favorite leaves the favorites for the Space its window shows,
+// pinned at its favorite's URL in the pinned tabs, and a window showing it keeps showing it. Then
+// space_changed and tab_state_changed, and favorites_changed for a favorite.
+BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, bc_id folder, size_t index);
 
 // Loads a pinned tab's pinned URL, or a favorite's URL, unless it's there already. Then
 // tab_state_changed.

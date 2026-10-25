@@ -398,7 +398,7 @@ void Window::MoveToFavorites(bc_id tab, size_t index) {
 }
 
 // static
-void Window::Unfavorite(bc_id tab, bool pinned, size_t index) {
+void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
   content::WebContents* contents = Tab::FromId(tab);
   tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   Window* window = in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
@@ -408,7 +408,7 @@ void Window::Unfavorite(bc_id tab, bool pinned, size_t index) {
   }
   // In the Space before it leaves the favorites, as above.
   if (pinned) {
-    shown->AddPinned(tab, index, Favorites::Url(tab));
+    shown->AddPinned(tab, folder, index, Favorites::Url(tab));
   } else {
     shown->AddAt(tab, index);
   }
@@ -463,7 +463,7 @@ void Window::MoveToSpace(bc_id tab, bc_id space) {
   // In its new Space before it leaves the old, so the UI never hears of it in neither and forgets
   // its title.
   if (pinned) {
-    to->AddPinned(tab, to->pinned().size(), url);
+    to->AddPinned(tab, 0, to->pinned_rows().size(), url);
   } else {
     to->AddAt(tab, 0);
   }

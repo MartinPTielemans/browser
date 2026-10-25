@@ -53,7 +53,7 @@ bc_id TabAt(const GURL& url, const Window& window, bc_id shown, const TemplateUR
   std::ranges::stable_partition(spaces, [&](Space* space) { return space->id() == window.space(); });
   std::vector<const std::vector<bc_id>*> lists = {&Favorites::All()};
   for (Space* space : spaces) {
-    lists.push_back(&space->pinned());
+    lists.push_back(&space->pinned_rows());
     lists.push_back(&space->today());
   }
   for (const std::vector<bc_id>* tabs : lists) {

@@ -98,7 +98,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Rename | MVP | double-click or Rename Tab renames inline; the name shows over the page's title and is kept across a quit; an empty one gives the title back | Dia P§2, ours |
 | [ ] | Emoji icon | MVP | a row's icon changed to an emoji | Dia P§2 |
 | [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Rename, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
-| [ ] | Folders | MVP | measure (Dia groups: chevron 8 after the name, ≈ 150 ms) | Dia rec |
+| [x] | Folders | MVP | in the pinned tabs, indented 16 a level: New Folder…, a click opens and closes, a double-click or the menu renames, Delete Folder keeps the tabs, a drag right or left takes a row in or out, kept over a quit; motion and icon *interim* | Arc ax, cap, menus |
+| [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
+| [ ] | Folder motion and drag | MVP | measure Arc's open and close by a click, and how a dragged row goes into a folder | — |
+| [ ] | Folder tooltip | MVP | the name after a moment | Arc cap |
+| [ ] | Collapse All Folders | MVP | a command bar command | Arc cap |
 
 ## Spaces
 

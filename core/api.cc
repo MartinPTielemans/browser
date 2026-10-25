@@ -169,9 +169,59 @@ size_t bc_space_pinned(bc_id id, bc_id* tabs, size_t capacity) {
   if (!space) {
     return 0;
   }
-  const std::vector<bc_id>& pinned = space->pinned();
+  const std::vector<bc_id>& pinned = space->pinned_rows();
   std::copy_n(pinned.begin(), std::min(capacity, pinned.size()), tabs);
   return pinned.size();
+}
+
+bool bc_folder(bc_id id, bool* open) {
+  browser_core::Space* space = browser_core::Space::HoldingFolder(id);
+  if (space && open) {
+    *open = space->IsOpen(id);
+  }
+  return space;
+}
+
+size_t bc_folder_name(bc_id folder, char* name, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::HoldingFolder(folder);
+  return space ? CopyString(space->FolderName(folder), name, capacity) : 0;
+}
+
+bc_id bc_folder_of(bc_id id) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  if (!space) {
+    space = browser_core::Space::HoldingFolder(id);
+  }
+  return space ? space->FolderOf(id) : 0;
+}
+
+bc_id bc_folder_create(bc_id id, const char* name, bc_id folder, size_t index) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return space ? space->AddFolder(name ? name : "", folder, index) : 0;
+}
+
+void bc_folder_rename(bc_id folder, const char* name) {
+  if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
+    space->RenameFolder(folder, name ? name : "");
+  }
+}
+
+void bc_folder_set_open(bc_id folder, bool open) {
+  if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
+    space->SetOpen(folder, open);
+  }
+}
+
+void bc_folder_move(bc_id folder, bc_id to, size_t index) {
+  if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
+    space->Move(folder, /*pinned=*/true, to, index, &PageUrlOf);
+  }
+}
+
+void bc_folder_delete(bc_id folder) {
+  if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
+    space->DeleteFolder(folder);
+  }
 }
 
 size_t bc_favorites(bc_id* tabs, size_t capacity) {
@@ -406,9 +456,9 @@ void bc_tab_move_to_favorites(bc_id id, size_t index) {
   browser_core::Window::MoveToFavorites(id, index);
 }
 
-void bc_tab_move(bc_id id, bool pinned, size_t index) {
+void bc_tab_move(bc_id id, bool pinned, bc_id folder, size_t index) {
   if (browser_core::Favorites::Has(id)) {
-    browser_core::Window::Unfavorite(id, pinned, index);
+    browser_core::Window::Unfavorite(id, pinned, folder, index);
     return;
   }
   browser_core::Space* space = browser_core::Space::Holding(id);
@@ -416,7 +466,7 @@ void bc_tab_move(bc_id id, bool pinned, size_t index) {
   if (!space || !contents) {
     return;
   }
-  space->Move(id, pinned, index, &PageUrlOf);
+  space->Move(id, pinned, folder, index, &PageUrlOf);
   SplitMoved(*space, id);
 }
 

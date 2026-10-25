@@ -80,6 +80,10 @@ const ROW_FILL: f32 = 0.3;
 // dragged one make way critically damped (docs/ux-spec.md › Motion: Reorder).
 const DRAG_START: f32 = 4.;
 const REORDER_OMEGA: f32 = 90.;
+// The rows under a folder make room as it opens and close up as it closes on Dia's group spring
+// (docs/ux-spec.md › Motion: Group expand).
+const FOLD_RESPONSE: f32 = 0.3;
+const FOLD_DAMPING: f32 = 0.82;
 // Two fingers across the sidebar page between Spaces (docs/ux-spec.md › Spaces › Switching). The
 // pages follow at half the fingers' way and rubber-band past the ends. Let go, they settle
 // critically damped on the next Space if the last 100 ms moved them faster than a flick, else on
@@ -131,6 +135,9 @@ const ROW_PITCH: f32 = 41.;
 const ROW_HEIGHT: f32 = 40.;
 const PLATE_HEIGHT: f32 = 36.;
 const PLATE_INSET: f32 = 8.;
+// What's in a folder sits this far in from it (Arc).
+const FOLDER_INDENT: f32 = 16.;
+const NEW_FOLDER: &str = "New Folder";
 pub const PLATE_RADIUS: f32 = 12.;
 const FAVICON_X: f32 = 17.;
 const FAVICON_SIZE: f32 = 18.;
@@ -295,6 +302,8 @@ pub enum Command {
     SelectLastTab,
     /// Pins the selected tab, or unpins it.
     TogglePin,
+    /// Makes a folder at the bottom of the pinned tabs, and names it.
+    NewFolder,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
     /// Closes the Today tabs of the Space shown, but the one shown.
@@ -509,6 +518,7 @@ impl Command {
             Command::SelectTab(_) => "select-tab",
             Command::SelectLastTab => "select-last-tab",
             Command::TogglePin => "toggle-pin",
+            Command::NewFolder => "new-folder",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::Clear => "clear",
             Command::UndoClear => "undo-clear",
@@ -630,6 +640,8 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/chevron-down.svg", include_bytes!("../assets/icons/chevron-down.svg")),
     ("icons/chevron-up.svg", include_bytes!("../assets/icons/chevron-up.svg")),
     ("icons/file.svg", include_bytes!("../assets/icons/file.svg")),
+    ("icons/folder.svg", include_bytes!("../assets/icons/folder.svg")),
+    ("icons/folder-open.svg", include_bytes!("../assets/icons/folder-open.svg")),
     ("icons/globe.svg", include_bytes!("../assets/icons/globe.svg")),
     ("icons/link.svg", include_bytes!("../assets/icons/link.svg")),
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
@@ -677,10 +689,22 @@ pub trait Browser {
     /// Makes `tab` the favorite at `index` of the favorites without it, else the last, out of its
     /// Space, or moves it there among them.
     fn move_to_favorites(&self, tab: u64, index: usize, cx: &mut App);
-    /// Moves `tab` to `index` in its Space's pinned tabs or Today, pinning or unpinning it, with
-    /// the rest of its split view. `index` counts tabs, not rows, without the split's. A favorite
-    /// goes to the Space shown.
-    fn move_tab(&self, tab: u64, pinned: bool, index: usize, cx: &mut App);
+    /// Moves `tab` to `index` in its Space's Today tabs, or in its pinned tabs, inside `folder` if
+    /// it isn't 0, pinning or unpinning it, with the rest of its split view. `index` counts tabs,
+    /// not rows, without the split's, and folders directly in the pinned tabs or `folder` count
+    /// one. A favorite goes to the Space shown.
+    fn move_tab(&self, tab: u64, pinned: bool, folder: u64, index: usize, cx: &mut App);
+    /// Makes an open folder named `name` at `index` in `folder`, else in the pinned tabs of
+    /// `space`, counted as `move_tab` counts, else at the bottom, and returns it.
+    fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, cx: &mut App)
+    -> u64;
+    fn rename_folder(&self, folder: u64, name: &str, cx: &mut App);
+    fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App);
+    /// Moves `folder`, with what's in it, to `index` in `to`, else in the pinned tabs, counted as
+    /// `move_tab` counts.
+    fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App);
+    /// Deletes `folder`, leaving what was in it where it was.
+    fn delete_folder(&self, folder: u64, cx: &mut App);
     /// Takes `tab` out of its split view.
     fn separate(&self, tab: u64, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
@@ -842,26 +866,82 @@ struct Tab {
     favicon: Option<Arc<Image>>,
 }
 
+/// A Space's folders in its pinned tabs. What's in each follows it there.
+#[derive(Clone, Default)]
+pub struct Folders {
+    /// Each folder's name, and whether it's open.
+    pub folders: HashMap<u64, (SharedString, bool)>,
+    /// The folder holding each pinned tab or folder in one.
+    pub parents: HashMap<u64, u64>,
+}
+
 struct Space {
     id: u64,
     name: SharedString,
     /// 0xRRGGBB, if it has one.
     color: Option<u32>,
-    /// Its pinned tabs and its Today tabs, each top to bottom.
+    /// Its pinned tabs and folders and its Today tabs, each top to bottom.
     pinned: Vec<u64>,
     today: Vec<u64>,
     /// Its split views, each its tabs left to right, which sit together in their list as one row.
     splits: Vec<Vec<u64>>,
+    folders: Folders,
+    /// The tab it shows, or showed last.
+    shown: u64,
 }
 
 impl Space {
-    /// The tabs of its pinned rows and its Today rows: each split's first stands for the split.
+    /// The tabs and folders of its pinned rows and its Today rows: each split's first stands for
+    /// the split, and what's in a closed folder has none, but the tab shown's (Arc).
     fn rows(&self) -> (Vec<u64>, Vec<u64>) {
-        let rows = |tabs: &[u64]| {
-            let later = |tab: &u64| self.splits.iter().any(|split| split[1..].contains(tab));
-            tabs.iter().copied().filter(|tab| !later(tab)).collect()
-        };
-        (rows(&self.pinned), rows(&self.today))
+        let later = |tab: &u64| self.splits.iter().any(|split| split[1..].contains(tab));
+        let rows = |tabs: &[u64]| tabs.iter().copied().filter(|tab| !later(tab)).collect();
+        let shown = self.panes(self.shown)[0];
+        let rows_shown = |row: &u64| !self.shut(*row) || *row == shown;
+        let pinned = self.pinned.iter().copied().filter(|row| !later(row) && rows_shown(row));
+        (pinned.collect(), rows(&self.today))
+    }
+
+    /// Whether `row` is in a closed folder.
+    fn shut(&self, row: u64) -> bool {
+        self.holders(row).any(|folder| !self.is_open(folder))
+    }
+
+    fn is_folder(&self, row: u64) -> bool {
+        self.folders.folders.contains_key(&row)
+    }
+
+    fn is_open(&self, folder: u64) -> bool {
+        self.folders.folders.get(&folder).is_some_and(|&(_, open)| open)
+    }
+
+    /// The folder holding `row`, else 0.
+    fn folder_of(&self, row: u64) -> u64 {
+        self.folders.parents.get(&row).copied().unwrap_or(0)
+    }
+
+    /// The folders `row` is in, innermost first.
+    fn holders(&self, row: u64) -> impl Iterator<Item = u64> + '_ {
+        std::iter::successors(Some(self.folder_of(row)), |&folder| Some(self.folder_of(folder)))
+            .take_while(|&folder| folder != 0)
+    }
+
+    fn depth(&self, row: u64) -> usize {
+        self.holders(row).count()
+    }
+
+    /// Its pinned tabs and folders as check.sh reads them: each folder followed by `+` if it's
+    /// open, else `-`, and what's in it in brackets.
+    fn outline(&self, folder: u64) -> String {
+        let rows = self.pinned.iter().filter(|&&row| self.folder_of(row) == folder);
+        let rows = rows.map(|&row| match self.is_folder(row) {
+            true => {
+                let open = if self.is_open(row) { '+' } else { '-' };
+                format!("{row}{open}[{}]", self.outline(row))
+            }
+            false => row.to_string(),
+        });
+        rows.collect::<Vec<_>>().join(" ")
     }
 
     /// The tabs shown with `tab`, left to right: its split's, else `tab` alone.
@@ -891,6 +971,7 @@ struct SpaceForm {
 enum Naming {
     Space(u64),
     Tab(u64),
+    Folder(u64),
 }
 
 /// The field a Space's name or a tab's title turns into for renaming it.
@@ -919,6 +1000,8 @@ enum Slot {
 /// several come at once, as after Undo.
 struct Opened {
     tabs: Vec<u64>,
+    /// Whether whole rows fade in, else only a new tab's plate.
+    whole: bool,
     start: Instant,
 }
 
@@ -933,6 +1016,10 @@ impl Opened {
 struct Closing {
     title: SharedString,
     favicon: Option<Arc<Image>>,
+    /// A folder's row's, if it was open.
+    folder: Option<bool>,
+    /// How far in from a tab's place it was, in its folders.
+    indent: f32,
     top: f32,
     start: Instant,
 }
@@ -944,6 +1031,8 @@ enum Curve {
     Slide,
     /// Making way for a dragged row (Reorder).
     Reorder,
+    /// Making room as a folder opens, or closing it up as it closes (Group expand).
+    Fold,
 }
 
 impl Curve {
@@ -955,6 +1044,7 @@ impl Curve {
                 let left = (1. + REORDER_OMEGA * t) * (-REORDER_OMEGA * t).exp();
                 (left > 0.01).then_some(1. - left)
             }
+            Curve::Fold => spring(t, FOLD_RESPONSE, FOLD_DAMPING),
         }
     }
 }
@@ -986,6 +1076,9 @@ struct Drag {
     span: (f32, f32),
     from: Place,
     to: Place,
+    /// How many folders it was in, and would be in where it goes.
+    from_depth: usize,
+    depth: usize,
     /// How far the other rows are drawn from their places to make room for it there, and whether
     /// the divider stays, which goes once the last Today tab would leave.
     room: HashMap<Slot, f32>,
@@ -1047,6 +1140,8 @@ pub struct Shell {
     renaming: Option<Renaming>,
     /// The same for the renaming field.
     focus_renaming: bool,
+    /// The pinned tabs and folders changed and haven't been drawn since.
+    outline_changed: bool,
     /// The favorites, left to right, which every Space shows over its own tabs.
     favorites: Vec<u64>,
     /// The tabs of every Space, and the favorites.
@@ -1063,6 +1158,8 @@ pub struct Shell {
     unhovered: Vec<(Row, Instant)>,
     /// Rows on their way to their place: how far from it each started, and when.
     slides: HashMap<Slot, (f32, Instant, Curve)>,
+    /// The user opened or closed a folder, whose rows move once the browser reports it.
+    folding: bool,
     /// The same for tiles, by their left, top and width, and for the list's top as the favorites
     /// take a row more or fewer.
     tile_slides: HashMap<u64, ([f32; 3], Instant, Curve)>,
@@ -1163,6 +1260,7 @@ impl Shell {
             focus_form: false,
             renaming: None,
             focus_renaming: false,
+            outline_changed: false,
             favorites: Vec::new(),
             tabs: HashMap::new(),
             recent: Vec::new(),
@@ -1172,6 +1270,7 @@ impl Shell {
             menu_row: None,
             unhovered: Vec::new(),
             slides: HashMap::new(),
+            folding: false,
             tile_slides: HashMap::new(),
             list_slide: None,
             list_scroll: ScrollHandle::new(),
@@ -1256,6 +1355,28 @@ impl Shell {
     /// The tab whose row is `tab`'s: its split's first.
     fn row_of(&self, tab: u64) -> u64 {
         self.panes(tab)[0]
+    }
+
+    fn is_folder(&self, row: u64) -> bool {
+        self.shown_space().is_some_and(|space| space.is_folder(row))
+    }
+
+    /// How many folders `row` is in, in the Space shown.
+    fn depth(&self, row: u64) -> usize {
+        self.shown_space().map_or(0, |space| space.depth(row))
+    }
+
+    /// What a row says: a folder's name, else the tab's title.
+    fn label(&self, row: u64) -> SharedString {
+        match self.is_folder(row) {
+            true => self.folder_name(row),
+            false => self.title(row),
+        }
+    }
+
+    /// The folders of the Space shown, for the preview.
+    pub fn folders(&self) -> Folders {
+        self.shown_space().map(|space| space.folders.clone()).unwrap_or_default()
     }
 
     /// The tab a row shows: the one of its split shown last, else the first.
@@ -1614,6 +1735,8 @@ impl Shell {
                         pinned: Vec::new(),
                         today: Vec::new(),
                         splits: Vec::new(),
+                        folders: Folders::default(),
+                        shown: 0,
                     };
                 };
                 if space.name != name {
@@ -1630,6 +1753,8 @@ impl Shell {
                     pinned: std::mem::take(&mut space.pinned),
                     today: std::mem::take(&mut space.today),
                     splits: std::mem::take(&mut space.splits),
+                    folders: std::mem::take(&mut space.folders),
+                    shown: space.shown,
                 }
             })
             .collect();
@@ -1699,6 +1824,7 @@ impl Shell {
         pinned: Vec<u64>,
         today: Vec<u64>,
         splits: Vec<Vec<u64>>,
+        folders: Folders,
         cx: &mut Context<Self>,
     ) {
         let Some(entry) = self.spaces.iter_mut().find(|entry| entry.id == space) else {
@@ -1710,6 +1836,13 @@ impl Shell {
         entry.pinned = pinned;
         entry.today = today;
         entry.splits = splits;
+        for (folder, (name, _)) in &folders.folders {
+            if entry.folders.folders.get(folder).is_some_and(|(was, _)| was != name) {
+                // check.sh waits for this line.
+                eprintln!("browser: renamed folder {folder} {name}");
+            }
+        }
+        entry.folders = folders;
         let has_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
         // After a Clear, the rows left are in their places at once (Arc).
         let cleared = space == self.space && {
@@ -1727,7 +1860,9 @@ impl Shell {
             if let Some(drag) = self.drag.as_ref().filter(|drag| drag.moving) {
                 before.entry(Slot::Tab(drag.tab)).or_insert(drag.top);
             }
-            self.move_rows(before);
+            // A folder the user opened or closed moves the rows under it on its own spring.
+            let curve = if std::mem::take(&mut self.folding) { Curve::Fold } else { Curve::Slide };
+            self.move_rows(before, curve);
         }
         if space == self.space {
             let tiles = self.drawn();
@@ -1781,7 +1916,7 @@ impl Shell {
         }
     }
 
-    fn log_tabs(&self) {
+    fn log_tabs(&mut self) {
         // check.sh reads these lines, the pinned one first.
         let ids = |tabs: &[u64]| tabs.iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         eprintln!("browser: pinned {}", ids(self.pinned()));
@@ -1790,12 +1925,17 @@ impl Shell {
             space.splits.iter().map(|split| ids(split).replace(' ', "+")).collect()
         });
         eprintln!("browser: splits {}", splits.join(" "));
+        self.outline_changed = true;
     }
 
-    /// The sidebar's rows in its order, the favorites then the Space's pinned and Today rows, each
-    /// by its first tab.
+    /// The sidebar's tabs' rows in its order, the favorites then the Space's pinned and Today rows,
+    /// each by its first tab, leaving out folders and what closed ones hide, the tab shown's too,
+    /// so each keeps its number.
     fn sidebar_rows(&self) -> Vec<u64> {
         let (pinned, today) = self.rows();
+        let space = self.shown_space();
+        let shut = |row: u64| space.is_some_and(|space| space.shut(row));
+        let pinned = pinned.into_iter().filter(|&row| !self.is_folder(row) && !shut(row)).collect();
         [self.favorites.clone(), pinned, today].concat()
     }
 
@@ -1808,6 +1948,7 @@ impl Shell {
             _ => eprintln!("browser: selected {tab}"),
         }
         self.selected = tab;
+        self.show_in_space(tab);
         if !self.walking {
             self.shown(tab);
         }
@@ -1835,6 +1976,25 @@ impl Shell {
             // check.sh reads this line.
             eprintln!("browser: new tab plate {}", new_tab as u8);
             cx.notify();
+        }
+    }
+
+    /// Makes `tab` the Space's shown tab, whose row a closed folder keeps, and moves the rows if
+    /// that changes them.
+    fn show_in_space(&mut self, tab: u64) {
+        let space = self.spaces.iter_mut().find(|space| space.id == self.space);
+        let Some(space) = space.filter(|space| space.shown != tab) else {
+            return;
+        };
+        // Only a closed folder changes the rows, and a tab switch has nothing more to do.
+        if !space.folders.folders.values().any(|&(_, open)| !open) {
+            space.shown = tab;
+            return;
+        }
+        let before = space.slots();
+        space.shown = tab;
+        if space.slots() != before {
+            self.move_rows(before, Curve::Slide);
         }
     }
 
@@ -1938,6 +2098,7 @@ impl Shell {
                 }
                 return;
             }
+            Command::NewFolder => return self.new_folder(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::Clear => return self.clear(cx),
             Command::UndoClear => {
@@ -2244,9 +2405,12 @@ impl Shell {
     /// with their shortcuts.
     fn tab_menu(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
         let row = Row::Tab(self.row_of(tab));
-        let items = match self.favorites.contains(&tab) {
-            true => self.favorite_menu(tab),
-            false => self.space_tab_menu(tab),
+        let items = if self.favorites.contains(&tab) {
+            self.favorite_menu(tab)
+        } else if self.is_folder(tab) {
+            self.folder_menu(tab)
+        } else {
+            self.space_tab_menu(tab)
         };
         let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
         let shell = cx.weak_entity();
@@ -2296,7 +2460,7 @@ impl Shell {
                 MenuEntry::new("Remove from Favorites", true),
                 "remove-from-favorites",
                 // To the top of Today.
-                Box::new(move |shell, cx| shell.browser.move_tab(tab, false, 0, cx)),
+                Box::new(move |shell, cx| shell.browser.move_tab(tab, false, 0, 0, cx)),
             ),
             (MenuEntry::line(), "", Box::new(|_, _| {})),
             // One closed already has nothing to close.
@@ -2304,6 +2468,23 @@ impl Shell {
                 MenuEntry::new("Close Tab", !page.unloaded).shortcut(Command::CloseTab),
                 "close-tab",
                 Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
+            ),
+        ]
+    }
+
+    /// A folder's menu.
+    fn folder_menu(&self, folder: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        vec![
+            (
+                MenuEntry::new("Rename Folder", true),
+                "rename-folder",
+                Box::new(move |shell, cx| shell.rename_folder(folder, cx)),
+            ),
+            (MenuEntry::line(), "", Box::new(|_, _| {})),
+            (
+                MenuEntry::new("Delete Folder", true),
+                "delete-folder",
+                Box::new(move |shell, cx| shell.browser.delete_folder(folder, cx)),
             ),
         ]
     }
@@ -2445,8 +2626,62 @@ impl Shell {
         cx.notify();
     }
 
-    /// Renames the Space or the tab to what the field holds, and closes the field. A Space keeps
-    /// its name rather than none, and a tab named nothing shows its page's title again.
+    /// Shows the folder's name in a field, all selected, to type a new one over.
+    fn rename_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
+        let name = self.folder_name(folder);
+        self.name_folder(folder, name, cx);
+    }
+
+    fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
+        let name = cx.new(|cx| {
+            TextInput::new("Folder name", cx)
+                .placeholder_color(rgba(FORM_PLACEHOLDER))
+                .with_text(name)
+        });
+        self.renaming = Some(Renaming {
+            naming: Naming::Folder(folder),
+            name,
+            _blur: None,
+        });
+        // As for a Space's name.
+        self.dock(cx);
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
+    /// Makes a folder at the bottom of the pinned tabs of the Space shown, with its name in a field
+    /// to type over.
+    fn new_folder(&mut self, cx: &mut Context<Self>) {
+        let name = SharedString::from(NEW_FOLDER);
+        let folder = self.browser.create_folder(self.space, &name, 0, usize::MAX, cx);
+        if folder != 0 {
+            self.name_folder(folder, name, cx);
+        }
+    }
+
+    /// The folder's name in the Space shown.
+    fn folder_name(&self, folder: u64) -> SharedString {
+        let space = self.shown_space();
+        let folder = space.and_then(|space| space.folders.folders.get(&folder));
+        folder.map(|(name, _)| name.clone()).unwrap_or_default()
+    }
+
+    /// Opens or closes the folder, unless the click ended a drag or renames it.
+    fn click_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
+        let renaming = self.renaming.as_ref().map(|renaming| renaming.naming);
+        if self.dragged || self.dragging().is_some() || renaming == Some(Naming::Folder(folder)) {
+            return;
+        }
+        let open = self.shown_space().is_some_and(|space| space.is_open(folder));
+        eprintln!("browser: command toggle-folder via sidebar");
+        self.folding = true;
+        self.browser.set_folder_open(folder, !open, cx);
+    }
+
+    /// Renames the Space, the tab or the folder to what the field holds, and closes the field. A
+    /// Space or a folder keeps its name rather than none, and a tab named nothing shows its page's
+    /// title again.
     fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(renaming) = self.renaming.take() else {
             return;
@@ -2458,6 +2693,10 @@ impl Shell {
             // Left as it was, the title stays the page's, which changes with it.
             Naming::Tab(tab) if *name == *self.title(tab) => {}
             Naming::Tab(tab) => self.browser.rename_tab(tab, &name, cx),
+            Naming::Folder(folder) if !name.is_empty() => {
+                self.browser.rename_folder(folder, &name, cx)
+            }
+            Naming::Folder(_) => {}
         }
         window.focus(&self.focus_handle, cx);
         cx.notify();
@@ -2575,14 +2814,14 @@ impl Shell {
     /// Starts the list's rows from where they were in `before` to where they are now: rows still
     /// there slide, a new tab's row is in its place at once with its plate fading in, several new
     /// ones fade in whole, and a closed one fades where it was (docs/ux-spec.md › Tab rows).
-    fn move_rows(&mut self, before: HashMap<Slot, f32>) {
+    fn move_rows(&mut self, before: HashMap<Slot, f32>, curve: Curve) {
         let now = Instant::now();
         let after = self.layout();
         let slides = after
             .iter()
             .filter_map(|(&slot, &top)| {
                 let from = before.get(&slot)? + self.slide(slot) - top;
-                (from != 0.).then_some((slot, (from, now, Curve::Slide)))
+                (from != 0.).then_some((slot, (from, now, curve)))
             })
             .collect();
         let mut opened = after
@@ -2594,16 +2833,22 @@ impl Shell {
             .collect::<Vec<_>>();
         if !opened.is_empty() {
             opened.sort_by(|(a, _), (b, _)| a.total_cmp(b));
-            let tabs = opened.into_iter().map(|(_, tab)| tab).collect();
-            self.opened = Some(Opened { tabs, start: now });
+            let tabs: Vec<u64> = opened.into_iter().map(|(_, tab)| tab).collect();
+            // Rows a folder shows as it opens come whole, as several new tabs do.
+            let whole = tabs.len() > 1 || tabs.iter().any(|&tab| self.depth(tab) > 0);
+            self.opened = Some(Opened { tabs, whole, start: now });
         }
         for (&slot, &top) in &before {
             let Slot::Tab(tab) = slot else { continue };
             // One gone to the favorites is a tile now.
             if !after.contains_key(&slot) && !self.favorites.contains(&tab) {
+                let space = self.shown_space();
+                let folder = space.filter(|space| space.is_folder(tab));
                 self.closing.push(Closing {
-                    title: self.title(tab),
+                    title: self.label(tab),
                     favicon: self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()),
+                    folder: folder.map(|space| space.is_open(tab)),
+                    indent: self.depth(tab) as f32 * FOLDER_INDENT,
                     top: top + self.slide(slot),
                     start: now,
                 });
@@ -2695,6 +2940,8 @@ impl Shell {
             span: (top, top),
             from,
             to: from,
+            from_depth: self.depth(tab),
+            depth: self.depth(tab),
             room: HashMap::new(),
             divider: true,
             dropped: false,
@@ -2704,8 +2951,9 @@ impl Shell {
     /// The pointer pressing a row or a tile moved to `position`. Past DRAG_START the tab comes away
     /// and follows it. Over the favorites it's a tile, and the tiles make room for it at the place
     /// nearest it. Over the list it's a row, which goes up and down, and the rows make room for it
-    /// at the place, in the pinned tabs or Today, nearest where it's drawn. A split view's row
-    /// stays in the list.
+    /// at the place, in the pinned tabs or Today, nearest where it's drawn. Where that's at the end
+    /// of folders or after one, the pointer moved right takes it into them, a row in for each
+    /// FOLDER_INDENT. A split view's row stays in the list, and a folder's in the pinned tabs.
     fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped) else {
             return;
@@ -2716,12 +2964,18 @@ impl Shell {
         }
         let (tab, to, grab, span) = (drag.tab, drag.to, drag.grab, drag.span);
         let pointer = in_sidebar(position, drag.origin);
+        // Rows in, from where it was, by how far the pointer has gone right.
+        let moved_in = (pointer.x - in_sidebar(drag.press, drag.origin).x) / FOLDER_INDENT;
+        let wants = (drag.from_depth as f32 + moved_in).round().max(0.) as usize;
         let others = |rows: Vec<u64>| rows.into_iter().filter(|&other| other != tab).collect();
         let (pinned, today) = self.rows();
         let (pinned, today): (Vec<u64>, Vec<u64>) = (others(pinned), others(today));
         let favorites = self.favorites.iter().filter(|&&other| other != tab).count();
-        let over_favorites =
-            self.panes(tab).len() == 1 && pointer.y < self.list_top_with(favorites + 1);
+        let folder = self.is_folder(tab);
+        let over_favorites = !folder
+            && self.panes(tab).len() == 1
+            && pointer.y < self.list_top_with(favorites + 1);
+        let mut depth = 0;
         let (place, layout, span) = if over_favorites {
             let centre = pointer - grab.1;
             let places = self.tile_places(favorites + 1);
@@ -2734,8 +2988,10 @@ impl Shell {
             let index = (0..places.len()).min_by(|a, b| distance(a).total_cmp(&distance(b)));
             (Place::Favorite(index.unwrap_or(0)), slots(&pinned, &today), span)
         } else {
-            let places = (0..=pinned.len()).map(|index| (true, index));
-            let places = places.chain((0..=today.len()).map(|index| (false, index)));
+            let fits = |&gap: &usize| self.gap_depths(&pinned, gap, tab).is_some();
+            let places = (0..=pinned.len()).filter(fits).map(|index| (true, index));
+            let today_places = (0..=today.len()).filter(|_| !folder);
+            let places = places.chain(today_places.map(|index| (false, index)));
             let layouts: Vec<_> = places
                 .map(|(in_pinned, index)| {
                     let (mut pinned, mut today) = (pinned.clone(), today.clone());
@@ -2753,12 +3009,16 @@ impl Shell {
             else {
                 return;
             };
+            if in_pinned && let Some((low, high)) = self.gap_depths(&pinned, index, tab) {
+                depth = wants.clamp(low, high);
+            }
             (Place::List(in_pinned, index), layout, span)
         };
         if let Some(drag) = &mut self.drag {
             drag.moving = true;
             drag.pointer = pointer;
             drag.span = span;
+            drag.depth = depth;
         }
         if place != to {
             // The rows and tiles that make room, or no longer need to, start from where they're
@@ -2800,8 +3060,8 @@ impl Shell {
             return;
         }
         self.dragged = true;
-        let (tab, to) = (drag.tab, drag.to);
-        if drag.to == drag.from {
+        let (tab, to, drag_depth) = (drag.tab, drag.to, drag.depth);
+        if drag.to == drag.from && drag.depth == drag.from_depth {
             self.settle_drag();
         } else {
             drag.dropped = true;
@@ -2811,20 +3071,79 @@ impl Shell {
                     eprintln!("browser: dragged {tab} to favorites {index}");
                     self.browser.move_to_favorites(tab, index, cx);
                 }
-                Place::List(pinned, index) => {
+                Place::List(true, gap) => {
+                    let (rows, _) = self.rows();
+                    let rows: Vec<u64> = rows.into_iter().filter(|&row| row != tab).collect();
+                    let (folder, index) = self.pinned_place(&rows, gap, drag_depth, tab);
+                    // check.sh waits for these lines.
+                    match folder {
+                        0 => eprintln!("browser: dragged {tab} to pinned {gap}"),
+                        _ => eprintln!("browser: dragged {tab} to folder {folder} {index}"),
+                    }
+                    match self.is_folder(tab) {
+                        true => self.browser.move_folder(tab, folder, index, cx),
+                        false => self.browser.move_tab(tab, true, folder, index, cx),
+                    }
+                }
+                Place::List(false, index) => {
                     // check.sh waits for this line.
-                    let list = if pinned { "pinned" } else { "today" };
-                    eprintln!("browser: dragged {tab} to {list} {index}");
+                    eprintln!("browser: dragged {tab} to today {index}");
                     // The browser counts tabs, and the rows above may be split views.
-                    let (pinned_rows, today_rows) = self.rows();
-                    let rows = if pinned { pinned_rows } else { today_rows };
+                    let (_, rows) = self.rows();
                     let rows = rows.into_iter().filter(|&row| row != tab).take(index);
                     let index = rows.map(|row| self.panes(row).len()).sum();
-                    self.browser.move_tab(tab, pinned, index, cx);
+                    self.browser.move_tab(tab, false, 0, index, cx);
                 }
             }
         }
         cx.notify();
+    }
+
+    /// The depths a row dropped at `gap` in the pinned rows `rows`, which leave out `dragged`, may
+    /// be at: from the row's below, out of the folders it ends, to the row's above, or one in if
+    /// that's a folder. None at a gap inside `dragged`, a folder.
+    fn gap_depths(&self, rows: &[u64], gap: usize, dragged: u64) -> Option<(usize, usize)> {
+        let space = self.shown_space()?;
+        let above = gap.checked_sub(1).map(|at| rows[at]);
+        let below = rows.get(gap).copied();
+        let inside = |row: u64| space.holders(row).any(|folder| folder == dragged);
+        if below.is_some_and(inside) {
+            return None;
+        }
+        let low = below.map_or(0, |row| space.depth(row));
+        let high = match above {
+            None => 0,
+            // Not into itself.
+            Some(row) if inside(row) => space.depth(dragged),
+            Some(row) => space.depth(row) + space.is_folder(row) as usize,
+        };
+        Some((low, high.max(low)))
+    }
+
+    /// Where a row dropped at `gap` in the pinned rows `rows`, without `dragged`, at `depth`
+    /// goes: the folder, else 0, and its index among what's directly in that, counted as the
+    /// browser counts, without `dragged`.
+    fn pinned_place(&self, rows: &[u64], gap: usize, depth: usize, dragged: u64) -> (u64, usize) {
+        let Some(space) = self.shown_space() else {
+            return (0, gap);
+        };
+        let above = gap.checked_sub(1).map(|at| rows[at]);
+        let folder = match above {
+            _ if depth == 0 => 0,
+            Some(row) if space.is_folder(row) && depth == space.depth(row) + 1 => row,
+            // The folder holding the row above at that depth.
+            Some(row) => space.holders(row).nth(space.depth(row) - depth).unwrap_or(0),
+            None => 0,
+        };
+        let before = rows.get(gap).copied().filter(|&row| space.folder_of(row) == folder);
+        let panes = space.panes(dragged);
+        let index = space
+            .pinned
+            .iter()
+            .take_while(|&&row| Some(row) != before)
+            .filter(|&&row| space.folder_of(row) == folder && !panes.contains(&row))
+            .count();
+        (folder, index)
     }
 
     /// Puts the tab the pointer drags back where it was, and returns whether there was one.
@@ -2843,7 +3162,7 @@ impl Shell {
     /// drawn.
     fn settle_drag(&mut self) {
         let tiles = self.drawn();
-        self.move_rows(self.layout());
+        self.move_rows(self.layout(), Curve::Slide);
         self.drag = None;
         self.move_tiles(tiles, Curve::Slide);
     }
@@ -3129,8 +3448,13 @@ impl Shell {
 
     /// Drops the list's and the pages' motion that's done, and returns whether any is left.
     fn list_moving(&mut self) -> bool {
+        let sliding = !self.slides.is_empty();
         self.slides
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
+        if sliding && self.slides.is_empty() {
+            // check.sh waits for this line before it presses a row that moved.
+            eprintln!("browser: rows settled");
+        }
         self.tile_slides
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
         self.list_slide
@@ -3310,9 +3634,16 @@ impl Shell {
         });
         let (row_in, plate_in) = opened.map_or((1., 1.), |opened| {
             let done = opened.done().unwrap_or(1.).clamp(0., 1.);
-            if opened.tabs.len() > 1 { (done, 1.) } else { (1., done) }
+            if opened.whole { (done, 1.) } else { (1., done) }
         });
+        // In from its folders, or where a dragged row would go.
+        let depth = match (row, &self.drag) {
+            (_, Some(drag)) if dragging == Some(slot) => drag.depth,
+            (Row::Tab(tab), _) => self.depth(tab),
+            (Row::NewTab, _) => 0,
+        };
         row_box()
+            .pl(px(PLATE_INSET + depth as f32 * FOLDER_INDENT))
             .id(id)
             .group("row")
             .opacity(row_in)
@@ -3563,10 +3894,11 @@ impl Shell {
             .w(px(self.width()))
             .h(px(ROW_HEIGHT))
             .px(px(PLATE_INSET))
+            .pl(px(PLATE_INSET + row.indent))
             .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
             .opacity((1. - done).clamp(0., 1.))
             .child(plate(
-                favicon(row.favicon.clone()),
+                row.folder.map_or_else(|| favicon(row.favicon.clone()), folder_icon),
                 div()
                     .flex_1()
                     .min_w_0()
@@ -3578,13 +3910,50 @@ impl Shell {
             ))
     }
 
-    /// A tab's row, or its split view's for the split's first tab.
+    /// A tab's row, its split view's for the split's first tab, or a folder's.
     fn tab_row(&self, tab: u64, cx: &mut Context<Self>) -> AnyElement {
+        if self.is_folder(tab) {
+            return self.folder_row(tab, cx).into_any_element();
+        }
         let panes = self.panes(tab);
         match panes.len() > 1 {
             true => self.split_row(panes, cx).into_any_element(),
             false => self.single_row(tab, cx).into_any_element(),
         }
+    }
+
+    /// A folder's row: its icon, open or closed, and its name. A click opens or closes it, a
+    /// double-click renames it and a right-click shows its menu.
+    fn folder_row(&self, folder: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let open = self.shown_space().is_some_and(|space| space.is_open(folder));
+        let renaming =
+            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Folder(folder));
+        let label = match renaming {
+            Some(renaming) => self.naming_field(renaming, cx),
+            None => title(self.folder_name(folder), false).pr(px(PLATE_INSET)),
+        };
+        let renaming = renaming.is_some();
+        self.row(Row::Tab(folder), plate(folder_icon(open), label), cx).when(!renaming, |row| {
+            row.on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    // The first click opened or closed it.
+                    if event.click_count == 2 {
+                        return shell.rename_folder(folder, cx);
+                    }
+                    shell.press_row(folder, event.position)
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    if shell.dragging().is_none() {
+                        shell.tab_menu(folder, event.position, cx)
+                    }
+                }),
+            )
+            .on_click(cx.listener(move |shell, _, _, cx| shell.click_folder(folder, cx)))
+        })
     }
 
     /// The button that closes `tabs`, which shows under the pointer at a row's end.
@@ -4053,16 +4422,33 @@ impl Focusable for Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // check.sh reads this line. It comes as the rows are drawn, so a click it sends next goes
+        // to what's drawn.
+        if std::mem::take(&mut self.outline_changed) {
+            let outline = self.shown_space().map(|space| space.outline(0)).unwrap_or_default();
+            eprintln!("browser: outline {outline}");
+        }
         if std::mem::take(&mut self.focus_form)
             && let Some(form) = self.form()
         {
             window.focus(&form.name.focus_handle(cx), cx);
         }
-        if std::mem::take(&mut self.focus_renaming)
+        // A new folder's field is drawn once the browser reports the folder, and blurs if focused
+        // before.
+        let drawn = self.renaming.as_ref().is_some_and(|renaming| match renaming.naming {
+            Naming::Folder(folder) => self.is_folder(folder),
+            _ => true,
+        });
+        if drawn
+            && std::mem::take(&mut self.focus_renaming)
             && let Some(renaming) = &mut self.renaming
         {
             let field = renaming.name.focus_handle(cx);
             window.focus(&field, cx);
+            // check.sh waits for this line, which says the field has the keyboard.
+            if let Naming::Folder(folder) = renaming.naming {
+                eprintln!("browser: rename folder {folder}");
+            }
             renaming._blur =
                 Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
         }
@@ -4258,11 +4644,16 @@ impl Shell {
     fn still_page(&self, space: &Space) -> impl IntoElement + use<> {
         let selected = self.browser.space_tab(space.id);
         let row = |tab: u64| {
+            let row = row_box().pl(px(PLATE_INSET + space.depth(tab) as f32 * FOLDER_INDENT));
+            if let Some((name, open)) = space.folders.folders.get(&tab) {
+                let name = title(name.clone(), false).pr(px(PLATE_INSET));
+                return row.child(plate(folder_icon(*open), name));
+            }
             let panes = space.panes(tab);
             if panes.len() > 1 {
                 let segments =
                     panes.iter().map(|&pane| self.segment(pane, pane == tab, pane == selected));
-                return row_box().child(
+                return row.child(
                     split_plate(segments)
                         .when(panes.contains(&selected), |plate| selected_plate(plate, 1.)),
                 );
@@ -4271,7 +4662,7 @@ impl Shell {
             let icon = div()
                 .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
                 .child(icon);
-            row_box().child(
+            row.child(
                 plate(icon, title(self.title(tab), tab == selected).pr(px(PLATE_INSET)))
                     .when(tab == selected, |plate| selected_plate(plate, 1.)),
             )
@@ -4659,6 +5050,15 @@ fn plate(icon: impl IntoElement, label: impl IntoElement) -> gpui::Div {
                 .child(icon),
         )
         .child(label)
+}
+
+/// A folder's icon, open or closed.
+fn folder_icon(open: bool) -> AnyElement {
+    svg()
+        .path(if open { "icons/folder-open.svg" } else { "icons/folder.svg" })
+        .size(px(FAVICON_DRAWN))
+        .text_color(rgba(SECONDARY))
+        .into_any_element()
 }
 
 /// A tab's favicon, or a globe for a page without one.

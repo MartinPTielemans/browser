@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app twenty-two times and checks:
+# Runs the app twenty-three times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -91,6 +91,10 @@
 #      the UI, and a click on its favicon, go back there. Launched again, the app brings back the
 #      pinned tab pinned and away from its pinned URL, without loading it. Dragging a row moves its
 #      tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back.
+#      New Folder makes a folder under the pinned tabs, which takes the name typed. A row dragged
+#      right under it goes in and dragged left comes out, a folder drags as a row, and a click
+#      closes and opens it. Launched again, the app brings it back closed, a double-click renames
+#      it, and Delete Folder in its menu leaves its tab where it was.
 #  11. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, to a
 #      pasteboard of the run's own. The sidebar shows Clear and the URL field's button only while
 #      the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and
@@ -2251,9 +2255,109 @@ expect "^browser: selected $c in " "a click on the pinned tab's favicon didn't s
 expect "^browser: loaded $c https://example.org/\$" "a click on the pinned tab's favicon didn't load its pinned URL"
 expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pinned URL"
 none_since "^browser: loaded $c https://example.com/" || fail "the unloaded tab loaded its old page on the way back"
+
+# New Folder makes a folder under the pinned tabs with its name's field, which takes what's typed.
+# The pinned tabs and folders the app last drew: each folder with + if it's open, else -, and
+# what's in it in brackets.
+outline() {
+  grep '^browser: outline' "$log" | tail -1 | sed 's/^browser: outline *//'
+}
+# Waits for the rows moving since the last outline to come to rest, so a press lands on the row
+# drawn there.
+settled() {
+  for _ in $(seq 300); do
+    awk '/^browser: outline/ { s = 0 } /^browser: rows settled/ { s = 1 } END { exit !s }' \
+      "$log" && return 0
+    sleep 0.1
+  done
+  fail "the rows didn't come to rest"
+}
+send menu New Folder…
+expect '^browser: command new-folder via ui$' "New Folder in the Tabs menu didn't run new-folder"
+expect '^browser: rename folder [0-9]*$' "New Folder didn't give the folder's name field the keyboard"
+f=$(grep '^browser: rename folder' "$log" | tail -1 | cut -d' ' -f4)
+[ "$(outline)" = "$c $f+[]" ] || fail "New Folder didn't make an open folder under the pinned tab: $(outline)"
+send type work
+send key return
+expect "^browser: renamed folder $f work\$" "the new folder didn't take the name typed"
+# Dragged right of where it was, under the folder, a pinned tab goes in, and dragged left of it,
+# out. A folder drags as a row does.
+send press $(pinned_row 0)
+send dragto 110 180
+send dragto 120 200
+send release 120 200
+expect "^browser: dragged $c to folder $f 0\$" "a pinned tab dragged right under the folder didn't go in"
+expect "^browser: outline $f+\\[$c\\]\$" "the tab dragged in isn't in the folder: $(outline)"
+settled
+send press $(pinned_row 1)
+send dragto 90 197
+send dragto 76 199
+send release 76 199
+expect "^browser: dragged $c to pinned 1\$" "a tab dragged left out of the folder didn't come out"
+expect "^browser: outline $f+\\[\\] $c\$" "the tab dragged out is still in the folder: $(outline)"
+settled
+send drag $(pinned_row 0) 100 200
+expect "^browser: dragged $f to pinned 1\$" "a drag of the folder down didn't move it"
+expect "^browser: outline $c $f+\\[\\]\$" "the folder dragged down isn't under the tab: $(outline)"
+settled
+send press $(pinned_row 0)
+send dragto 110 180
+send dragto 120 200
+send release 120 200
+expect "^browser: outline $f+\\[$c\\]\$" "the tab dragged under the folder didn't go in: $(outline)"
+settled
+none_since '^browser: selected' || fail "dragging into and out of a folder showed a tab"
+../tools/window-screenshot.sh "$pid" "$out/folder.png" || fail "no window to capture"
+# A click closes the folder and another opens it.
+send click $(pinned_row 0)
+expect '^browser: command toggle-folder via sidebar$' "a click on the folder didn't run toggle-folder"
+expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it: $(outline)"
+send click $(pinned_row 0)
+expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
+send click $(pinned_row 0)
+expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it again: $(outline)"
+echo "key q cmd" >&3
+exec 3>&-
+await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
+exited
+
+# Launched again, the folder comes back closed with its tab. A double-click renames it, and Delete
+# Folder in its menu leaves its tab where it was.
+log="$out/folder-restored.log"
+step=0
+BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
+await '^browser: outline [0-9]*-\[[0-9]*\]$' || fail "the folder didn't come back closed with its tab: $(outline)"
+f=$(outline | cut -d- -f1)
+c=$(outline | sed 's/.*\[\(.*\)\]/\1/')
+# Ids are new after a launch.
+await '^browser: today [0-9][0-9]*$' || fail "the Today tab didn't come back"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: the restored folder. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# The first click opens it.
+send doubleclick $(pinned_row 0)
+expect "^browser: rename folder $f\$" "a double-click on the folder didn't open its name field"
+expect "^browser: outline $f+\\[$c\\]\$" "the double-click's first click didn't open the folder: $(outline)"
+send type later
+send key return
+expect "^browser: renamed folder $f later\$" "the folder didn't take the name typed over its old one"
+../tools/window-screenshot.sh "$pid" "$out/folder-restored.png" || fail "no window to capture"
+post rightclick $(pinned_row 0)
+expect '^browser: menu shown Rename Folder, Delete Folder$' "the folder's menu isn't Rename Folder, Delete Folder"
+send choose Delete Folder
+expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run delete-folder"
+expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, and a click closes and opens it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png"
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 log="$out/clear.log"

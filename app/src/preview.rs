@@ -9,8 +9,8 @@ use std::{
 };
 
 use browser::shell::{
-    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, MenuEntry, Page,
-    Shell, WindowButton,
+    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
+    Page, Shell, WindowButton,
 };
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, TitlebarOptions,
@@ -24,7 +24,7 @@ unsafe extern "C" {
 }
 
 // Two Spaces, so the switcher shows, the second in Dia's pink. The tabs are in the first, the top
-// two pinned.
+// two pinned, the second in a folder.
 const SPACES: [(&str, Option<u32>); 2] = [("Space 1", None), ("Reading", Some(0xbf556a))];
 const TABS: [(&str, &str); 5] = [
     (
@@ -73,6 +73,64 @@ const RUNNING: DownloadState = DownloadState::Running;
 const PAUSED: DownloadState = DownloadState::Paused;
 const DONE: DownloadState = DownloadState::Done;
 
+/// Reports the Space shown with `today` as its Today tabs.
+fn set_today(shell: &mut Shell, today: Vec<u64>, cx: &mut gpui::Context<Shell>) {
+    set_lists(shell, shell.pinned().to_vec(), today, cx);
+}
+
+fn set_lists(shell: &mut Shell, pinned: Vec<u64>, today: Vec<u64>, cx: &mut gpui::Context<Shell>) {
+    let (splits, folders) = (shell.splits(), shell.folders());
+    shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+}
+
+/// The folders holding `row`, innermost first.
+fn holders(folders: &Folders, row: u64) -> impl Iterator<Item = u64> + '_ {
+    std::iter::successors(folders.parents.get(&row).copied(), |folder| {
+        folders.parents.get(folder).copied()
+    })
+}
+
+/// Where `row`'s rows end in `pinned`: past what's in it, if it's a folder.
+fn end_of(pinned: &[u64], folders: &Folders, row: u64) -> usize {
+    let at = pinned.iter().position(|&id| id == row).map_or(0, |at| at + 1);
+    let within = pinned[at..].iter().take_while(|&&id| holders(folders, id).any(|f| f == row));
+    at + within.count()
+}
+
+/// Where `index` in `folder`, else in the pinned tabs, is in `pinned`, as the core counts.
+fn pinned_at(pinned: &[u64], folders: &Folders, folder: u64, index: usize) -> usize {
+    let start = pinned.iter().position(|&id| id == folder).map_or(0, |at| at + 1);
+    let end = if folder == 0 { pinned.len() } else { end_of(pinned, folders, folder) };
+    let parent = |at: &usize| folders.parents.get(&pinned[*at]).copied().unwrap_or(0) == folder;
+    (start..end).filter(parent).nth(index).unwrap_or(end)
+}
+
+/// Moves `row`, with what's in it if it's a folder, to `index` in `folder`, else in the pinned
+/// tabs, as the core does.
+fn move_pinned(
+    shell: &mut Shell,
+    row: u64,
+    folder: u64,
+    index: usize,
+    cx: &mut gpui::Context<Shell>,
+) {
+    let (mut pinned, mut folders) = (shell.pinned().to_vec(), shell.folders());
+    let block = match pinned.iter().position(|&id| id == row) {
+        Some(at) => pinned.drain(at..end_of(&pinned, &folders, row)).collect(),
+        None => vec![row],
+    };
+    match folder {
+        0 => folders.parents.remove(&row),
+        folder => folders.parents.insert(row, folder),
+    };
+    let to = pinned_at(&pinned, &folders, folder, index);
+    pinned.splice(to..to, block);
+    let mut today = shell.today().to_vec();
+    today.retain(|&id| id != row);
+    let splits = shell.splits();
+    shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+}
+
 fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |now| now.as_millis() as f64)
 }
@@ -106,6 +164,24 @@ impl Fake {
         self.later(cx, move |shell, cx| shell.set_downloads(downloads, cx));
     }
 
+    /// Changes a folder's name or whether it's open.
+    fn change_folder(
+        &self,
+        folder: u64,
+        cx: &mut App,
+        change: impl FnOnce(&mut (SharedString, bool)) + 'static,
+    ) {
+        self.later(cx, move |shell, cx| {
+            let mut folders = shell.folders();
+            if let Some(entry) = folders.folders.get_mut(&folder) {
+                change(entry);
+            }
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let splits = shell.splits();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
     fn report_spaces(&self, cx: &mut App) {
         let spaces = self.spaces.borrow().clone();
         self.later(cx, move |shell, cx| shell.set_spaces(spaces, cx));
@@ -133,7 +209,7 @@ impl Browser for Fake {
             };
             today.remove(index);
             let next = today.get(index).or(today.last()).copied().unwrap_or(0);
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
+            set_today(shell, today, cx);
             if shell.selected() == tab {
                 shell.set_selected(next, cx);
             }
@@ -150,7 +226,7 @@ impl Browser for Fake {
             if !today.contains(&shell.selected()) && !shell.pinned().contains(&shell.selected()) {
                 shell.set_selected(tab, cx);
             }
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
+            set_today(shell, today, cx);
         });
     }
 
@@ -164,7 +240,7 @@ impl Browser for Fake {
             today.insert(at, copy);
             shell.set_title(copy, shell.title(tab), cx);
             shell.set_page(copy, shell.page(tab), cx);
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
+            set_today(shell, today, cx);
             shell.set_selected(copy, cx);
         });
     }
@@ -184,7 +260,7 @@ impl Browser for Fake {
             let at = if pinned { tabs[to].len() } else { 0 };
             tabs[to].insert(at, tab);
             let [pinned, today] = tabs;
-            shell.set_tabs(shell.space(), pinned, today, shell.splits(), cx);
+            set_lists(shell, pinned, today, cx);
         });
     }
 
@@ -203,25 +279,75 @@ impl Browser for Fake {
                 today.retain(|&id| id != tab);
                 splits.iter_mut().for_each(|split| split.retain(|&id| id != tab));
                 splits.retain(|split| split.len() > 1);
-                shell.set_tabs(shell.space(), pinned, today, splits, cx);
+                let folders = shell.folders();
+                shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
             }
         });
     }
 
-    fn move_tab(&self, tab: u64, pinned: bool, index: usize, cx: &mut App) {
+    fn move_tab(&self, tab: u64, pinned: bool, folder: u64, index: usize, cx: &mut App) {
         self.later(cx, move |shell, cx| {
-            let mut tabs = [shell.pinned().to_vec(), shell.today().to_vec()];
-            for list in &mut tabs {
-                list.retain(|&id| id != tab);
+            if pinned {
+                move_pinned(shell, tab, folder, index, cx);
+            } else {
+                let mut tabs = [shell.pinned().to_vec(), shell.today().to_vec()];
+                for list in &mut tabs {
+                    list.retain(|&id| id != tab);
+                }
+                tabs[1].insert(index.min(tabs[1].len()), tab);
+                let [pinned, today] = tabs;
+                set_lists(shell, pinned, today, cx);
             }
-            let to = &mut tabs[if pinned { 0 } else { 1 }];
-            to.insert(index.min(to.len()), tab);
-            let [pinned, today] = tabs;
-            shell.set_tabs(shell.space(), pinned, today, shell.splits(), cx);
             if shell.favorites().contains(&tab) {
                 let favorites = shell.favorites().iter().copied().filter(|&id| id != tab);
                 shell.set_favorites(favorites.collect(), cx);
             }
+        });
+    }
+
+    fn create_folder(&self, _: u64, name: &str, folder: u64, index: usize, cx: &mut App) -> u64 {
+        let id = self.next_id.get();
+        self.next_id.set(id + 1);
+        let name: SharedString = name.to_string().into();
+        self.later(cx, move |shell, cx| {
+            let (mut pinned, mut folders) = (shell.pinned().to_vec(), shell.folders());
+            let at = pinned_at(&pinned, &folders, folder, index);
+            pinned.insert(at, id);
+            folders.folders.insert(id, (name, true));
+            if folder != 0 {
+                folders.parents.insert(id, folder);
+            }
+            let (today, splits) = (shell.today().to_vec(), shell.splits());
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+        id
+    }
+
+    fn rename_folder(&self, folder: u64, name: &str, cx: &mut App) {
+        let name: SharedString = name.to_string().into();
+        self.change_folder(folder, cx, move |entry| entry.0 = name);
+    }
+
+    fn set_folder_open(&self, folder: u64, open: bool, cx: &mut App) {
+        self.change_folder(folder, cx, move |entry| entry.1 = open);
+    }
+
+    fn move_folder(&self, folder: u64, to: u64, index: usize, cx: &mut App) {
+        self.later(cx, move |shell, cx| move_pinned(shell, folder, to, index, cx));
+    }
+
+    fn delete_folder(&self, folder: u64, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let (mut pinned, mut folders) = (shell.pinned().to_vec(), shell.folders());
+            pinned.retain(|&id| id != folder);
+            folders.folders.remove(&folder);
+            let holder = folders.parents.remove(&folder).unwrap_or(0);
+            for parent in folders.parents.values_mut().filter(|parent| **parent == folder) {
+                *parent = holder;
+            }
+            folders.parents.retain(|_, parent| *parent != 0);
+            let (today, splits) = (shell.today().to_vec(), shell.splits());
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
         });
     }
 
@@ -230,7 +356,7 @@ impl Browser for Fake {
         self.later(cx, |shell, cx| {
             let selected = shell.selected();
             let today = shell.today().iter().copied().filter(|&tab| tab == selected).collect();
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
+            set_today(shell, today, cx);
         });
     }
 
@@ -329,7 +455,7 @@ impl Browser for Fake {
         self.later(cx, move |shell, cx| {
             let mut today = shell.today().to_vec();
             today.insert(0, tab);
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
+            set_today(shell, today, cx);
             shell.set_selected(tab, cx);
         });
     }
@@ -509,9 +635,10 @@ fn main() {
                     .collect();
                 let first_favorite = first_download + DOWNLOADS.len() as u64;
                 let favorites: Vec<u64> = (first_favorite..).take(FAVORITES.len()).collect();
+                let folder = first_favorite + FAVORITES.len() as u64;
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(first_favorite + FAVORITES.len() as u64),
+                    next_id: Cell::new(folder + 1),
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
@@ -543,11 +670,15 @@ fn main() {
                     };
                     shell.set_page(tab, page, cx);
                 }
-                // The last two in a split view.
-                let pinned = vec![1, 2];
+                // The second in a folder, and the last two in a split view.
+                let pinned = vec![1, folder, 2];
+                let folders = Folders {
+                    folders: [(folder, ("Docs".into(), true))].into(),
+                    parents: [(2, folder)].into(),
+                };
                 let today = (3..=TABS.len() as u64).collect();
                 let split = vec![TABS.len() as u64 - 1, TABS.len() as u64];
-                shell.set_tabs(first_space, pinned, today, vec![split], cx);
+                shell.set_tabs(first_space, pinned, today, vec![split], folders, cx);
                 shell.set_selected(1, cx);
                 shell
             });

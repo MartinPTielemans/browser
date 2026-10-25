@@ -268,6 +268,27 @@ What a favorite does (ours, *interim* until Arc's are captured):
 - Links ⌘-clicked in a pinned tab gather in a group just below the pinned tabs (Dia rec, P§2). Measure what Arc does: Peek covers some of these links.
 - ⌘D pins or unpins. Dragging a tab above the divider pins it, below unpins it, and onto the favorites makes it a favorite.
 
+**Folders** (Arc: in the pinned tabs, per Space. Arc 1.170.0 ax and cap, sessions 10–14)
+
+| Item | Value | Source |
+|---|---|---|
+| Indent | 16 per folder: in one, the favicon is at x 33, the title at x 59 and the plate from 24 | Arc 1.170.0 ax, cap |
+| Row | a tab row's, with the folder's icon in the favicon's place, open or closed, and its name as the title | Arc 1.170.0 cap |
+| Closing and opening | Arc's accessibility call moves the rows below in one frame; a click: measure | Arc 1.170.0 rec |
+| Hover | the row plate, and a tooltip with the name after a moment | Arc 1.170.0 cap |
+| ⌘1–⌘9 | count the tabs in an open folder | Arc 1.170.0 |
+| New Folder… | in the Tabs menu, under Open Little Arc or Peek | Arc 1.170.0 menus |
+
+- Ours (*interim* until Arc's folders are captured):
+  - The icon is Lucide's folder or folder-open at the favicon's size, in the secondary colour.
+  - New Folder… makes an open folder named "New Folder" at the bottom of the pinned tabs, with its name in a field, all selected. ↩ keeps what's typed, and Esc or nothing typed keeps "New Folder".
+  - A click opens or closes it. The rows under it move on Group expand, and the rows it shows fade in together, as rows Undo brings back do.
+  - A double-click renames it, after its first click has opened or closed it, and so does Rename Folder in its menu. The menu also has Delete Folder, which leaves what was in it where it was, in the folder that held it.
+  - Closed, it hides its rows but the tab shown's, which stays under it until another tab shows (Arc; confirm in the capture). ⌘1–⌘9 skip what a closed folder hides, so each row keeps its number.
+  - Dragging. Where a dragged row would land at the end of folders or after one, the pointer's travel right of where it pressed takes it in, a level for each 16 pt, between the levels that place allows: from the row below's to one inside the row above, if that's a folder. A folder drags as a row, among the pinned tabs only, never into itself. What's in it stays while it's dragged and moves with it when it lands.
+  - Folders come back after a quit with their names and whether they're open.
+  - Later: the tooltip, Collapse All Folders (Arc's command bar has it), making a folder inside one, and Arc's folder drag, captured.
+
 **Clear divider and Today tabs** (Arc bin and a user's screenshot, D›Arc note: Clear)
 
 - Today tabs are the Space's unpinned tabs. They are archived (see Archive).

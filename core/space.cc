@@ -80,14 +80,46 @@ Space* Space::Holding(bc_id tab) {
   return nullptr;
 }
 
+// static
+Space* Space::HoldingFolder(bc_id folder) {
+  for (auto& [id, space] : Spaces()) {
+    if (space->IsFolder(folder)) {
+      return space.get();
+    }
+  }
+  return nullptr;
+}
+
 Space::Space(bc_id id, std::string name) : id_(id), name_(std::move(name)) {}
 
 bool Space::Has(bc_id tab) const {
   return IsPinned(tab) || std::ranges::contains(today_, tab);
 }
 
+std::vector<bc_id> Space::pinned() const {
+  std::vector<bc_id> tabs;
+  std::ranges::copy_if(pinned_, std::back_inserter(tabs),
+                       [this](bc_id id) { return !IsFolder(id); });
+  return tabs;
+}
+
 bool Space::IsPinned(bc_id tab) const {
-  return std::ranges::contains(pinned_, tab);
+  return !IsFolder(tab) && std::ranges::contains(pinned_, tab);
+}
+
+bc_id Space::FolderOf(bc_id id) const {
+  auto it = folder_of_.find(id);
+  return it == folder_of_.end() ? 0 : it->second;
+}
+
+std::string Space::FolderName(bc_id folder) const {
+  auto it = folders_.find(folder);
+  return it == folders_.end() ? std::string() : it->second.name;
+}
+
+bool Space::IsOpen(bc_id folder) const {
+  auto it = folders_.find(folder);
+  return it != folders_.end() && it->second.open;
 }
 
 GURL Space::PinnedUrl(bc_id tab) const {
@@ -141,8 +173,14 @@ void Space::AddAt(bc_id tab, size_t index) {
   ReportChanged();
 }
 
-void Space::AddPinned(bc_id tab, size_t index, GURL url) {
-  pinned_.insert(pinned_.begin() + OutsideSplits(pinned_, index), tab);
+void Space::AddPinned(bc_id tab, bc_id folder, size_t index, GURL url) {
+  if (!IsFolder(folder)) {
+    folder = 0;
+  }
+  pinned_.insert(pinned_.begin() + PinnedAt(folder, index), tab);
+  if (folder) {
+    folder_of_[tab] = folder;
+  }
   pinned_urls_[tab] = std::move(url);
   ReportChanged();
 }
@@ -167,6 +205,7 @@ void Space::Unpin(bc_id tab) {
   for (bc_id pane : panes) {
     std::erase(pinned_, pane);
     pinned_urls_.erase(pane);
+    folder_of_.erase(pane);
   }
   // Where a tab the user opens goes.
   today_.insert(today_.begin(), panes.begin(), panes.end());
@@ -175,19 +214,40 @@ void Space::Unpin(bc_id tab) {
 
 void Space::Move(bc_id tab,
                  bool pinned,
+                 bc_id folder,
                  size_t index,
                  base::FunctionRef<GURL(bc_id)> url_of) {
-  if (!Has(tab)) {
+  const bool is_folder = IsFolder(tab);
+  if ((!Has(tab) && !is_folder) || (is_folder && !pinned) || (folder && !IsFolder(folder)) ||
+      (is_folder && Within(folder, tab))) {
     return;
   }
-  const bool was_pinned = IsPinned(tab);
-  const std::vector<bc_id> panes = Panes(tab);
-  for (bc_id pane : panes) {
-    std::erase(was_pinned ? pinned_ : today_, pane);
+  const bool was_pinned = IsPinned(tab) || is_folder;
+  // A folder's rows, else the tab's split.
+  std::vector<bc_id> rows;
+  if (is_folder) {
+    auto first = std::ranges::find(pinned_, tab);
+    rows.assign(first, pinned_.begin() + EndOf(tab));
+    pinned_.erase(first, pinned_.begin() + EndOf(tab));
+  } else {
+    rows = Panes(tab);
+    for (bc_id pane : rows) {
+      std::erase(was_pinned ? pinned_ : today_, pane);
+    }
   }
-  std::vector<bc_id>& to = pinned ? pinned_ : today_;
-  to.insert(to.begin() + OutsideSplits(to, index), panes.begin(), panes.end());
-  for (bc_id pane : panes) {
+  if (pinned) {
+    pinned_.insert(pinned_.begin() + PinnedAt(folder, index), rows.begin(), rows.end());
+  } else {
+    today_.insert(today_.begin() + OutsideSplits(today_, index), rows.begin(), rows.end());
+  }
+  for (bc_id row : is_folder ? std::vector<bc_id>{tab} : rows) {
+    if (pinned && folder) {
+      folder_of_[row] = folder;
+    } else {
+      folder_of_.erase(row);
+    }
+  }
+  for (bc_id pane : is_folder ? std::vector<bc_id>() : rows) {
     if (pinned && !was_pinned) {
       pinned_urls_[pane] = url_of(pane);
     } else if (!pinned) {
@@ -199,12 +259,58 @@ void Space::Move(bc_id tab,
 }
 
 void Space::Remove(bc_id tab) {
-  if (std::erase(today_, tab) == 0 && std::erase(pinned_, tab) == 0) {
+  if (IsFolder(tab) || (std::erase(today_, tab) == 0 && std::erase(pinned_, tab) == 0)) {
     return;
   }
   pinned_urls_.erase(tab);
+  folder_of_.erase(tab);
   ForgetOpener(tab);
   LeaveSplit(tab);
+  ReportChanged();
+}
+
+bc_id Space::AddFolder(std::string name, bc_id folder, size_t index) {
+  if (!IsFolder(folder)) {
+    folder = 0;
+  }
+  const bc_id id = NewId();
+  pinned_.insert(pinned_.begin() + PinnedAt(folder, index), id);
+  folders_[id] = {.name = std::move(name)};
+  if (folder) {
+    folder_of_[id] = folder;
+  }
+  ReportChanged();
+  return id;
+}
+
+void Space::RenameFolder(bc_id folder, std::string name) {
+  if (auto it = folders_.find(folder); it != folders_.end()) {
+    it->second.name = std::move(name);
+    ReportChanged();
+  }
+}
+
+void Space::SetOpen(bc_id folder, bool open) {
+  if (auto it = folders_.find(folder); it != folders_.end() && it->second.open != open) {
+    it->second.open = open;
+    ReportChanged();
+  }
+}
+
+void Space::DeleteFolder(bc_id folder) {
+  if (!IsFolder(folder)) {
+    return;
+  }
+  const bc_id holder = FolderOf(folder);
+  for (auto& [id, its_folder] : folder_of_) {
+    if (its_folder == folder) {
+      its_folder = holder;
+    }
+  }
+  std::erase_if(folder_of_, [](const auto& entry) { return entry.second == 0; });
+  folder_of_.erase(folder);
+  folders_.erase(folder);
+  std::erase(pinned_, folder);
   ReportChanged();
 }
 
@@ -227,6 +333,12 @@ bool Space::Split(bc_id tab, bc_id with, GURL url) {
     pinned_urls_[tab] = was_pinned ? pinned_url : std::move(url);
   } else {
     pinned_urls_.erase(tab);
+  }
+  // In the folder its split is in.
+  if (bc_id folder = FolderOf(with)) {
+    folder_of_[tab] = folder;
+  } else {
+    folder_of_.erase(tab);
   }
   ForgetOpener(tab);
   if (auto split = SplitOf(with); split != splits_.end()) {
@@ -266,17 +378,18 @@ bc_id Space::NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> load
       return *left;
     }
   }
-  if (auto pinned = std::ranges::find(pinned_, leaving); pinned != pinned_.end()) {
+  const std::vector<bc_id> tabs = pinned();
+  if (auto pinned = std::ranges::find(tabs, leaving); pinned != tabs.end()) {
     // As Dia: the top Today tab, else a pinned tab already loaded, so closing one loads no other.
     if (!today_.empty()) {
       return today_.front();
     }
-    auto below = std::find_if(pinned + 1, pinned_.end(), loaded);
-    if (below != pinned_.end()) {
+    auto below = std::find_if(pinned + 1, tabs.end(), loaded);
+    if (below != tabs.end()) {
       return *below;
     }
-    auto above = std::find_if(std::make_reverse_iterator(pinned), pinned_.rend(), loaded);
-    return above != pinned_.rend() ? *above : 0;
+    auto above = std::find_if(std::make_reverse_iterator(pinned), tabs.rend(), loaded);
+    return above != tabs.rend() ? *above : 0;
   }
   auto it = std::ranges::find(today_, leaving);
   // A favorite, which is in no Space.
@@ -305,8 +418,9 @@ bc_id Space::NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> load
 }
 
 bc_id Space::LastLoadedPinned(base::FunctionRef<bool(bc_id)> loaded) const {
-  auto pinned = std::find_if(pinned_.rbegin(), pinned_.rend(), loaded);
-  return pinned != pinned_.rend() ? *pinned : 0;
+  const std::vector<bc_id> tabs = pinned();
+  auto pinned = std::find_if(tabs.rbegin(), tabs.rend(), loaded);
+  return pinned != tabs.rend() ? *pinned : 0;
 }
 
 bc_id Space::OpenerOf(bc_id tab) const {
@@ -348,6 +462,38 @@ size_t Space::OutsideSplits(const std::vector<bc_id>& tabs, size_t index) const 
     ++index;
   }
   return index;
+}
+
+bool Space::Within(bc_id id, bc_id folder) const {
+  for (; id; id = FolderOf(id)) {
+    if (id == folder) {
+      return true;
+    }
+  }
+  return false;
+}
+
+size_t Space::EndOf(bc_id folder) const {
+  if (!folder) {
+    return pinned_.size();
+  }
+  size_t end = std::ranges::find(pinned_, folder) - pinned_.begin();
+  if (end < pinned_.size()) {
+    for (++end; end < pinned_.size() && Within(pinned_[end], folder); ++end) {
+    }
+  }
+  return end;
+}
+
+size_t Space::PinnedAt(bc_id folder, size_t index) const {
+  size_t at = folder ? std::ranges::find(pinned_, folder) - pinned_.begin() + 1 : 0;
+  const size_t end = EndOf(folder);
+  for (; at < end; ++at) {
+    if (FolderOf(pinned_[at]) == folder && index-- == 0) {
+      break;
+    }
+  }
+  return OutsideSplits(pinned_, std::min(at, end));
 }
 
 void Space::LeaveSplit(bc_id tab) {
