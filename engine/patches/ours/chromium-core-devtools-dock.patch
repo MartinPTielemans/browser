@@ -1,0 +1,68 @@
+Lets the core dock DevTools in its windows (//browser_core/hooks.h), which have none of Chrome's
+views, and so no DevtoolsUIController to dock them in.
+
+--- a/chrome/browser/devtools/devtools_window.cc
++++ b/chrome/browser/devtools/devtools_window.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/devtools/devtools_window.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -137,6 +138,11 @@
+ using content::GlobalRenderFrameHostId;
+ using content::WebContents;
+ 
++// browser_core: the core docks DevTools in its windows (//browser_core/hooks.h).
++bool (*g_browser_core_can_dock_devtools)(BrowserWindowInterface* browser) = nullptr;
++void (*g_browser_core_update_devtools)(BrowserWindowInterface* browser,
++                                       content::WebContents* inspected) = nullptr;
++
+ namespace {
+ 
+ typedef std::vector<DevToolsWindow*> DevToolsWindows;
+@@ -1079,6 +1085,9 @@
+     if (auto* devtools_ui_controller =
+             DevtoolsUIController::From(inspected_browser)) {
+       devtools_ui_controller->UpdateDevtools(inspected_web_contents);
++    } else if (g_browser_core_update_devtools) {
++      // browser_core: the core docks DevTools in its windows.
++      g_browser_core_update_devtools(inspected_browser, inspected_web_contents);
+     }
+     main_web_contents_->SetInitialFocus();
+     inspected_window->Show();
+@@ -1403,7 +1412,11 @@
+ #endif  // BUILDFLAG(IS_MAC)
+     DevtoolsUIController* devtools_ui_controller =
+         browser ? DevtoolsUIController::From(browser) : nullptr;
+-    if (!devtools_ui_controller || !devtools_ui_controller->CanDockDevtools()) {
++    // browser_core: or the core docks them in its window.
++    if ((!devtools_ui_controller ||
++         !devtools_ui_controller->CanDockDevtools()) &&
++        !(browser && g_browser_core_can_dock_devtools &&
++          g_browser_core_can_dock_devtools(browser))) {
+       can_dock = false;
+     }
+   }
+--- a/chrome/browser/devtools/devtools_window_views.cc
++++ b/chrome/browser/devtools/devtools_window_views.cc
+@@ -2,6 +2,7 @@
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+ 
++#include "browser_core/hooks.h"  // nogncheck
+ #include "chrome/browser/devtools/devtools_ui_controller.h"
+ #include "chrome/browser/devtools/devtools_window.h"
+ #include "chrome/browser/ui/browser_window.h"
+@@ -138,6 +139,9 @@
+   if (auto* devtools_ui_controller =
+           DevtoolsUIController::From(inspected_browser)) {
+     devtools_ui_controller->UpdateDevtools(inspected_web_contents);
++  } else if (g_browser_core_update_devtools) {
++    // browser_core: the core docks DevTools in its windows.
++    g_browser_core_update_devtools(inspected_browser, inspected_web_contents);
+   }
+ }
+ 

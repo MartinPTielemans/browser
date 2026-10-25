@@ -283,6 +283,14 @@ pub enum Command {
     ActualSize,
     ZoomIn,
     ZoomOut,
+    /// Opens the page's source in a tab under it.
+    ViewSource,
+    /// Opens the page's DevTools, or closes them.
+    DevTools,
+    /// Opens the page's DevTools picking an element.
+    InspectElements,
+    /// Opens the page's DevTools at the console, or closes them there.
+    JavaScriptConsole,
     NewSpace,
     /// The Space at this index in the switcher.
     SelectSpace(usize),
@@ -346,6 +354,10 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-=", Command::ZoomIn, false),
     ("shift-cmd-+", Command::ZoomIn, false),
     ("cmd--", Command::ZoomOut, false),
+    ("alt-cmd-u", Command::ViewSource, false),
+    ("alt-cmd-i", Command::DevTools, false),
+    ("alt-cmd-c", Command::InspectElements, false),
+    ("alt-cmd-j", Command::JavaScriptConsole, false),
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("escape", Command::Stop, false),
@@ -450,6 +462,10 @@ impl Command {
             Command::ActualSize => "actual-size",
             Command::ZoomIn => "zoom-in",
             Command::ZoomOut => "zoom-out",
+            Command::ViewSource => "view-source",
+            Command::DevTools => "devtools",
+            Command::InspectElements => "inspect-elements",
+            Command::JavaScriptConsole => "javascript-console",
             Command::NewSpace => "new-space",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
@@ -585,6 +601,11 @@ pub trait Browser {
     fn stop(&self, tab: u64, cx: &mut App);
     /// Zooms the tab's page in (1), out (-1) or to 100 % (0), for its site.
     fn zoom(&self, tab: u64, step: i32, cx: &mut App);
+    /// Opens the tab's source in a tab under it.
+    fn view_source(&self, tab: u64, cx: &mut App);
+    /// Opens or closes the tab's DevTools (0), opens or closes them at the console (1), or opens
+    /// them picking an element (2).
+    fn devtools(&self, tab: u64, what: i32, cx: &mut App);
     fn show_space(&self, space: u64, cx: &mut App);
     /// The tab the window shows when it shows `space`, or the one it shows, else 0.
     fn space_tab(&self, space: u64) -> u64;
@@ -1613,6 +1634,10 @@ impl Shell {
             Command::ActualSize => return self.browser.zoom(self.selected, 0, cx),
             Command::ZoomIn => return self.browser.zoom(self.selected, 1, cx),
             Command::ZoomOut => return self.browser.zoom(self.selected, -1, cx),
+            Command::ViewSource => return self.browser.view_source(self.selected, cx),
+            Command::DevTools => return self.browser.devtools(self.selected, 0, cx),
+            Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
+            Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::Quit => return self.browser.quit(cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),

@@ -164,7 +164,7 @@ Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the 
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu.
 - **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
 - **Window.** Minimize Window (⌘M), then View Library (⇧⌘L). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above them, and Enter Full Screen to View.
-- **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Archive Tab (⌘W), Refresh the Page, Force Refresh the Page, Go Back, Go Forward, Zoom to Actual Size, Zoom In, Zoom Out.
+- **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Archive Tab (⌘W), Refresh the Page, Force Refresh the Page, Go Back, Go Forward, Zoom to Actual Size, Zoom In, Zoom Out, and View › Developer's View Source, Developer Tools, Inspect Elements and JavaScript Console.
 
 ## Phase 3 features
 
@@ -590,10 +590,13 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
 
 ### DevTools
 
-Chrome's DevTools (Dia, P§23).
+Chrome's DevTools (Dia, P§23), docked in the card as Arc's.
 
-- **Keys.** ⌥⌘I or F12 toggles them. ⌥⌘J opens the console, ⌥⌘C inspect, ⌥⌘U view source (a `view-source:` tab). The page menu has Inspect.
-- **Docking.** They dock on the right by default, and the dock side is remembered per profile. An undocked window is titled "Developer Tools - <url>", opens where it was last left, and is 640 × 640 the first time.
+- **Keys.** ⌥⌘I opens or closes them, ⌥⌘J opens or closes them at the console, ⌥⌘C opens them picking an element, and ⌥⌘U opens the page's source in a `view-source:` tab under it. They're Arc's View › Developer items: View Source, Developer Tools, Inspect Elements and JavaScript Console. From the page and from DevTools they reach the UI unless the page keeps them. Dia and Chrome also have F12, and Inspect in the page menu.
+- **Arc's docking** (Arc 1.170.0 cap). On the right inside the card, full height, with their own 26 pt toolbar at the card's top. The page keeps the card's left part: 853 of 1274, so DevTools take a third. They open in two steps with no animation: an empty dark pane at once, then DevTools drawn in it ≈140 ms later with the page laid out narrower. ⌥⌘I again closes them.
+- **Docking.** As Chrome's window does it: DevTools fill the card, and the page goes where they leave it, rounded at the card's corners it reaches. Each tab has its own; a tab without them shows its page across the card. Closing them gives the page the keyboard back. DevTools' own menu docks them on another side, where the page goes the same way.
+- Ours: Chrome's width, 555 pt the first time, then wherever the user drags the divider, which DevTools keep per profile. Arc's third may be the capture's saved width.
+- **Undocked.** DevTools' Dock side menu undocks them into Chrome's own window, which takes the keyboard, and docks them again. Dia's is titled "Developer Tools - <url>", opens where it was last left, and is 640 × 640 the first time.
 - **Task Manager.** Window › Task Manager opens Chrome's.
 - **Agents.** DevTools are for the user. Agents get no DevTools and no remote-debugging port (decision 8).
 

@@ -16,6 +16,8 @@
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
+#include "chrome/browser/devtools/devtools_toggle_action.h"
+#include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
@@ -25,6 +27,7 @@
 #include "components/zoom/zoom_controller.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/reload_type.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/page_zoom.h"
 #include "ui/gfx/geometry/rect.h"
@@ -363,6 +366,39 @@ int bc_tab_zoom(bc_id id, int step) {
   }
   zoom::PageZoom::Zoom(contents, static_cast<content::PageZoom>(std::clamp(step, -1, 1)));
   return zoom->GetZoomPercent();
+}
+
+void bc_tab_devtools(bc_id id, int what) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  if (!tab) {
+    return;
+  }
+  // As Chrome's ⌥⌘I, ⌥⌘J and ⌥⌘C, on the Browser's active tab, which is the one its window shows.
+  switch (what) {
+    case BC_DEVTOOLS_CONSOLE:
+      DevToolsWindow::ToggleDevToolsWindow(tab->GetBrowserWindowInterface(),
+                                           DevToolsToggleAction::ShowConsolePanel(),
+                                           DevToolsOpenedByAction::kConsoleShortcut);
+      break;
+    case BC_DEVTOOLS_INSPECT:
+      DevToolsWindow::ToggleDevToolsWindow(tab->GetBrowserWindowInterface(),
+                                           DevToolsToggleAction::Inspect(),
+                                           DevToolsOpenedByAction::kInspectorModeShortcut);
+      break;
+    default:
+      DevToolsWindow::ToggleDevToolsWindow(tab->GetBrowserWindowInterface(),
+                                           DevToolsToggleAction::Toggle(),
+                                           DevToolsOpenedByAction::kToggleShortcut);
+  }
+}
+
+void bc_tab_view_source(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (contents && contents->GetController().CanViewSource()) {
+    // Content opens it as a tab its page opened, which goes under it.
+    contents->GetPrimaryMainFrame()->ViewSource();
+  }
 }
 
 bc_id bc_tab_duplicate(bc_id id) {

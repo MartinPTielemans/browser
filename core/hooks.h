@@ -8,10 +8,22 @@
 // read it too.
 extern bool g_browser_core_supplies_windows;
 
+class BrowserWindowInterface;
 struct NavigateParams;
+
+namespace content {
+class WebContents;
+}
 
 // chrome/browser/ui/navigator/browser_navigator.cc: changes where a navigation opens, before Chrome
 // picks the Browser for it.
 extern void (*g_browser_core_adjust_navigate)(NavigateParams& params);
+
+// chrome/browser/devtools/devtools_window.cc: the core docks DevTools in its windows, which have no
+// DevtoolsUIController. Whether |browser|'s window can, and the call as the docked DevTools of
+// |inspected|, a tab of |browser|, open, lay out again or close.
+extern bool (*g_browser_core_can_dock_devtools)(BrowserWindowInterface* browser);
+extern void (*g_browser_core_update_devtools)(BrowserWindowInterface* browser,
+                                              content::WebContents* inspected);
 
 #endif  // BROWSER_CORE_HOOKS_H_

@@ -60,6 +60,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static bool Showing(bc_id tab);
   // Chrome's navigator calls this before it picks the Browser for a navigation.
   static void AdjustNavigate(NavigateParams& params);
+  // From Chrome's DevTools: whether |browser|'s window docks them, as the core's windows do, and
+  // that the docked DevTools of |inspected|, a tab of |browser|, opened, laid out again or closed.
+  static bool CanDockDevTools(BrowserWindowInterface* browser);
+  static void UpdateDevTools(BrowserWindowInterface* browser, content::WebContents* inspected);
   // As |tab| closes: takes it out of its Space, and has each window that showed it show the tab its
   // Space picks next.
   static void OnTabClosing(bc_id tab);
@@ -191,6 +195,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void SelectAfterClosing(bc_id next);
   // Shows no page, as for a Space without tabs.
   void ShowNothing();
+  // Puts the page shown, and its docked DevTools if it has them, at the page frame.
+  void LayOutPage();
   void ReportSelected();
 
   // Gives the page shown the keyboard if the window is key and its keyboard is the page's.
