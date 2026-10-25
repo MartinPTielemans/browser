@@ -38,7 +38,8 @@
 #   5. A page's popup opens as a tab in the window, under the page. The page's context menu is
 #      Chrome's without the items the window can't do, its Open Link in New Tab opens a tab under
 #      the page without showing it, and its Print and ⌘P from the page show print preview
-#      centred over the page, at its top, which escape closes.
+#      centred over the page, at its top, which escape closes. Switching or closing a full-screen
+#      page's tab ends its full screen and the window's.
 #   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
 #      and while a page loads, reload is stop, which ⌘., escape and the button do. A tab's row
@@ -969,6 +970,8 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 // A popup needs a user gesture, which a key press is.
 addEventListener("keydown", e =>
   e.key == "p" && !e.metaKey && open("https://example.com/", "", "popup,width=400,height=300"));
+addEventListener("keydown", e =>
+  e.key == "f" && !e.metaKey && document.documentElement.requestFullscreen());
 </script>'
 log="$out/popup.log"
 step=0
@@ -1054,9 +1057,26 @@ send click $page_point
 ../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
 page_shortcut p print
 print_preview ⌘P print-key.png
+# Switching or closing a full-screen page's tab ends its full screen, and the window's with it.
+send click $page_point
+send key f
+expect '^browser: page entered full screen$' "the page didn't go full screen"
+expect '^browser: window entered full screen$' "the window didn't go full screen with the page"
+send key down cmd alt
+expect '^browser: page left full screen$' "switching tabs didn't take the page out of full screen"
+expect '^browser: window left full screen$' "the window stayed full screen as its page's tab left"
+check_layout "after switching away from a full-screen page"
+send key up cmd alt
+expect "^browser: selected $opener in " "⌥⌘↑ didn't show the page again"
+send key f
+expect '^browser: window entered full screen$' "the page didn't go full screen again"
+send key w cmd
+expect '^browser: page left full screen$' "closing its tab didn't take the page out of full screen"
+expect '^browser: window left full screen$' "the window didn't leave full screen as its page closed"
+check_layout "after closing a full-screen page's tab"
 exec 3>&-
 quit
-echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do, Open Link in New Tab opens a tab under the page, and Print and ⌘P show print preview centred over the page, at its top, which escape closes. Windows: $out/popup.png, $out/link-menu.png, $out/print.png, $out/print-key.png"
+echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do, Open Link in New Tab opens a tab under the page, and Print and ⌘P show print preview centred over the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and the window's. Windows: $out/popup.png, $out/link-menu.png, $out/print.png, $out/print-key.png"
 
 # Back, forward, reload and stop. stuck.test leads to a server that takes connections and never
 # answers, so its page keeps loading until it's stopped.

@@ -128,8 +128,9 @@ typedef struct bc_host {
   void (*tab_favicon_changed)(void* context, bc_id tab, const uint8_t* png, size_t size);
   // The tab's page went full screen, as a video's full-screen button takes it, or came back. Show
   // it filling its window while it's full screen. The window goes full screen with it unless it
-  // already was, and comes back with it. Escape, or the user taking the window out of full screen,
-  // brings the page back.
+  // already was, and comes back with it. Escape, the user taking the window out of full screen,
+  // and switching or closing the tab bring the page back; the last two report it for a tab no
+  // longer shown, or gone.
   void (*tab_fullscreen_changed)(void* context, bc_id tab, bool fullscreen);
   // The tab's find in page changed: its find bar opened or closed, its text changed, or the page
   // counted matches or selected another.

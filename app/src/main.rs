@@ -998,8 +998,10 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
         return;
     };
     cx.update(|cx| {
+        // A page leaves full screen as its tab is switched away from or closes, and only one page
+        // is full screen at a time.
         let shown = shell.read_with(cx, |shell, _| shell.selected() == tab).unwrap_or(false);
-        if !shown {
+        if fullscreen && !shown {
             return;
         }
         let (card_left, push) = shell
