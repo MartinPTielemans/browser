@@ -1,36 +1,74 @@
-//! Past the last Space, fingers pull its page left a little and bring in a circle from the
-//! sidebar's right edge, whose ring closes as they pull. Once it closes the circle readies a new
-//! Space, and letting go makes one, as New Space… does (Arc on video; docs/ux-spec.md › Spaces).
+//! Past the last Space, fingers pull its page left and bring a circle out from under the page's
+//! edge, with a glow, as a ring round it closes. Once it closes the circle readies a new Space and
+//! the trackpad clicks, as it does again if the fingers go back; letting go readied makes the
+//! Space, as New Space… does (Arc 1.170 on video; docs/ux-spec.md › Spaces).
 
 use std::{f32::consts::PI, time::Instant};
 
 use gpui::{
-    BoxShadow, Context, Hsla, PathBuilder, Window, canvas, div, hsla, point, prelude::*, px, size,
+    Bounds, BoxShadow, Context, Hsla, PathBuilder, Window, canvas, div, fill, hsla,
+    linear_color_stop, linear_gradient, point, prelude::*, px, rgb, size,
 };
 
-use super::{Command, Settle, Shell, Swipe};
+use super::{Command, Shell, Swipe};
 
-/// How far fingers pull the last Space's page past its place at most, and how far to ready a new
-/// Space (Arc on video: 41 and 38 of a 448 sidebar, at 2×).
-pub(super) const NEW_SPACE_PULL: f32 = 20.5;
-const NEW_SPACE_READY: f32 = 19.;
-/// The circle: across, its ring, and how far inside the sidebar's right edge its centre comes at
-/// the full pull, from just past the edge.
-const CIRCLE: f32 = 25.;
-const RING: f32 = 2.;
-const CIRCLE_INSET: f32 = 24.;
+/// How far fingers pull the last Space's page past its place to ready a new Space, and by how far
+/// the ring has closed (Arc on video: the fingers 333 pt across).
+const NEW_SPACE_READY: f32 = 22.7;
+const RING_FULL: f32 = 22.;
+/// The circle: across, its white ring, and the line of the sidebar's colour inside the ring.
+const CIRCLE: f32 = 30.;
+const RING: f32 = 2.5;
+const CUT: f32 = 0.5;
+/// The circle's centre at rest, right of the page's edge, how much faster than the page it comes
+/// out, and how far left of the edge it stops, while the page goes on.
+const CIRCLE_START: f32 = 20.;
+const CIRCLE_SPEED: f32 = 3.1;
+const CIRCLE_INSET: f32 = 27.;
+const TRAVEL: f32 = CIRCLE_START + CIRCLE_INSET;
 /// The + on it: its arms across, and their thickness.
-const PLUS: f32 = 10.;
+const PLUS: f32 = 13.;
 const PLUS_STROKE: f32 = 1.5;
-/// Readying, the ring closes in on the cream over 80 ms to a dot, which turns into a cream + on
-/// the dark as the circle pops to 1.2× and back over 130 ms.
-const CLOSE: f32 = 0.08;
-const DOT: f32 = 11.;
-const POP: f32 = 0.13;
-const POP_SCALE: f32 = 1.2;
-/// The new Space's form comes in from this far right, easing out over 170 ms.
-const ENTER: f32 = 23.;
-const ENTER_TIME: f32 = 0.17;
+/// The Space's colour on the circle is no lighter than this, for the white on it.
+const ACCENT_LIGHTNESS: f32 = 0.55;
+/// The circle's white has this much of the Space's colour.
+const WHITE_TINT: f32 = 0.09;
+/// Readying, the white closes in on the colour to a dot over 60 ms, which shrinks into a + over
+/// 70 ms more, as the circle pops to 1.13× and back over 120 ms from 40 ms in.
+const CLOSE: f32 = 0.06;
+const DOT: f32 = 13.;
+const MORPH: f32 = 0.07;
+const POP_AT: f32 = 0.04;
+const POP: f32 = 0.12;
+const POP_SCALE: f32 = 1.13;
+/// Going back, the colour grows out from the middle over 120 ms.
+const UNREADY: f32 = 0.12;
+/// Let go readied, the circle goes back under the edge over 100 ms.
+const EXIT: f32 = 0.1;
+/// The glow: its brightest white, how far left its middle reaches, and the strips it's drawn in.
+const GLOW: f32 = 0.18;
+const GLOW_WIDTH: f32 = 80.;
+const GLOW_STRIP: f32 = 4.;
+
+/// The circle going back under the page's edge after a pull made `space`, and where the fingers
+/// left the page they pulled.
+pub(super) struct CircleExit {
+    space: u64,
+    accent: Hsla,
+    start: Instant,
+    held: f32,
+}
+
+/// What the circle shows.
+#[derive(Clone, Copy)]
+enum Look {
+    /// The ring `way` of the way round.
+    Pulling(f32),
+    /// This long since it readied.
+    Readying(f32),
+    /// This long since it stopped being ready, going back to the ring `way` of the way round.
+    Unreadying(f32, f32),
+}
 
 impl Shell {
     /// Whether `swipe` has pulled the last Space's page far enough to ready a new Space.
@@ -39,86 +77,113 @@ impl Shell {
         last && !swipe.library && self.swiped_to(swipe) <= -NEW_SPACE_READY
     }
 
-    /// Readies a new Space as the fingers' pull reaches it, with the detent, and lets it go as
-    /// they go back.
+    /// Readies a new Space as the fingers' pull reaches it and lets it go as they go back, with a
+    /// detent each way.
     pub(super) fn ready_new_space(&mut self, swipe: &mut Swipe, cx: &mut Context<Self>) {
         let ready = self.pull_ready(swipe);
-        if ready == swipe.ready.is_some() {
+        if ready == swipe.ready {
             return;
         }
-        swipe.ready = ready.then(Instant::now);
-        if ready {
-            // check.sh waits for this line.
-            eprintln!("browser: new space ready");
-            self.browser.detent(cx);
-        }
+        swipe.ready = ready;
+        swipe.turned = Some(Instant::now());
+        // check.sh waits for these lines.
+        eprintln!("browser: new space {}", if ready { "ready" } else { "unready" });
+        self.browser.detent(cx);
     }
 
-    /// Makes the Space the fingers readied, with the form for naming it. Its form comes in from
-    /// just right of its place, and the window's colour goes to the new Space's almost at once.
-    pub(super) fn make_pulled_space(&mut self, cx: &mut Context<Self>) {
-        let before = self.space;
+    /// Makes the Space the fingers readied and shows it at once, with the form for naming it, as
+    /// the circle goes back.
+    pub(super) fn make_pulled_space(&mut self, held: f32, cx: &mut Context<Self>) {
+        let accent = self.circle_accent(self.space);
         self.run(Command::NewSpace, "swipe", cx);
-        let Some(space) = self.form.as_ref().map(|form| form.space) else {
-            return;
-        };
-        let start = Instant::now();
-        self.settle = Some(Settle {
-            space,
-            beside: Some(before),
-            from: ENTER,
-            velocity: 0.,
-            start,
-        });
-        self.form_entered = Some(start);
+        if let Some(form) = &self.form {
+            let (space, start) = (form.space, Instant::now());
+            self.circle_exit = Some(CircleExit { space, accent, start, held });
+        }
     }
 
-    /// Where the form is from its place, as it comes in after a pull.
-    pub(super) fn form_left(&self) -> f32 {
-        let Some(start) = self.form_entered else {
-            return 0.;
-        };
-        let t = (start.elapsed().as_secs_f32() / ENTER_TIME).min(1.);
-        ENTER * (1. - t).powi(4)
+    /// `space` shows. Returns whether a pull made it, which then shows where it is rather than
+    /// sliding in. Another Space shown ends the circle going back.
+    pub(super) fn pulled_space_shown(&mut self, space: u64) -> bool {
+        self.circle_exit.take_if(|exit| exit.space != space);
+        self.circle_exit.is_some()
     }
 
-    /// Asks for frames while the circle readies or the form comes in.
+    /// Where the page a pull made a Space from stays, as the fingers left it, until that Space
+    /// shows, while the circle goes back.
+    pub(super) fn held_page(&self) -> Option<f32> {
+        let exit = self.circle_exit.as_ref()?;
+        let going = exit.start.elapsed().as_secs_f32() < EXIT;
+        (exit.space != self.space && going).then_some(exit.held)
+    }
+
+    /// Asks for frames while the circle readies or goes back.
     pub(super) fn step_new_space(&mut self, window: &mut Window) {
-        let readying = self.swipe.as_ref().and_then(|swipe| swipe.ready);
-        if readying.is_some_and(|at| at.elapsed().as_secs_f32() < CLOSE + POP) {
+        let turned = self.swipe.as_ref().and_then(|swipe| swipe.turned);
+        let turning = (CLOSE + MORPH).max(POP_AT + POP).max(UNREADY);
+        if turned.is_some_and(|at| at.elapsed().as_secs_f32() < turning) {
             window.request_animation_frame();
         }
-        match self.form_entered {
-            Some(start) if start.elapsed().as_secs_f32() < ENTER_TIME => {
+        if let Some(exit) = &self.circle_exit {
+            if exit.start.elapsed().as_secs_f32() < EXIT {
                 window.request_animation_frame();
+            } else if exit.space == self.space {
+                self.circle_exit = None;
             }
-            Some(_) => self.form_entered = None,
-            None => {}
         }
     }
 
-    /// How far past its place the last Space's page is, while fingers or its settle have it there.
-    fn pulled(&self) -> Option<f32> {
+    /// The last Space and how far past its place its page is, while fingers or its settle have
+    /// it there.
+    fn pulled(&self) -> Option<(u64, f32)> {
         if self.form().is_some() {
             return None;
         }
         let (space, x) = *self.pages().first()?;
         let last = self.spaces.last().is_some_and(|last| last.id == space);
-        (last && x < 0.).then_some(-x)
+        (last && x < 0.).then_some((space, -x))
     }
 
-    /// The circle at the sidebar's right edge, halfway down, while the last Space's page is pulled.
+    /// The circle's colour: `space`'s, dark enough for white on it.
+    fn circle_accent(&self, space: u64) -> Hsla {
+        let space = self.spaces.iter().find(|each| each.id == space);
+        let color = space.and_then(|space| space.color).unwrap_or(self.accent_color);
+        let color = Hsla::from(rgb(color));
+        Hsla { l: color.l.min(ACCENT_LIGHTNESS), ..color }
+    }
+
+    /// The circle halfway down the page's edge and its glow, while the last Space's page is pulled
+    /// and as the circle goes back after making a Space.
     pub(super) fn new_space_circle(&self) -> Option<impl IntoElement + use<>> {
-        let pulled = self.pulled()?;
-        let fill = self.window_fill();
-        let dark = Hsla { l: fill.l * 0.6, ..fill };
-        let cream = hsla(0., 0., 0.96, 1.).blend(fill.opacity(0.08));
-        let readying = self.swipe.as_ref().and_then(|swipe| swipe.ready);
-        let t = readying.map(|at| at.elapsed().as_secs_f32());
-        let popped = t.map_or(0., |t| ((t - CLOSE) / POP).clamp(0., 1.));
-        let across = CIRCLE * (1. + (POP_SCALE - 1.) * (PI * popped).sin());
-        let centre = self.width() + CIRCLE / 2.
-            - (CIRCLE / 2. + CIRCLE_INSET) * (pulled / NEW_SPACE_PULL).min(1.);
+        let (travel, accent, look) = match &self.circle_exit {
+            Some(exit) => {
+                let t = exit.start.elapsed().as_secs_f32() / EXIT;
+                if t >= 1. {
+                    return None;
+                }
+                (TRAVEL * (1. - smoothstep(t)), exit.accent, Look::Readying(1.))
+            }
+            None => {
+                let (space, pulled) = self.pulled()?;
+                let way = (pulled / RING_FULL).min(1.);
+                let swipe = self.swipe.as_ref();
+                let since = swipe.and_then(|swipe| swipe.turned);
+                let since = since.map(|at| at.elapsed().as_secs_f32());
+                let look = match (swipe.is_some_and(|swipe| swipe.ready), since) {
+                    (true, Some(t)) => Look::Readying(t),
+                    (false, Some(t)) if t < UNREADY => Look::Unreadying(t, way),
+                    _ => Look::Pulling(way),
+                };
+                ((CIRCLE_SPEED * pulled).min(TRAVEL), self.circle_accent(space), look)
+            }
+        };
+        let white = hsla(0., 0., 1., 1.).blend(accent.opacity(WHITE_TINT));
+        let popped = match look {
+            Look::Readying(t) => (PI * ((t - POP_AT) / POP).clamp(0., 1.)).sin(),
+            _ => 0.,
+        };
+        let scale = 1. + (POP_SCALE - 1.) * popped;
+        let across = CIRCLE * scale;
         let disc = div()
             .relative()
             .size(px(across))
@@ -130,67 +195,117 @@ impl Shell {
                 spread_radius: px(0.),
                 inset: false,
             }]);
-        let disc = match t {
-            None => disc
-                .bg(cream)
-                .child(ring((pulled / NEW_SPACE_READY).min(1.), dark))
-                .children(plus(across, PLUS, PLUS_STROKE, dark)),
-            // The ring closes in on the cream, then the dot left turns into a +.
-            Some(t) if t < CLOSE => {
-                let dot = CIRCLE - 2. * RING + (DOT - CIRCLE + 2. * RING) * ease_out(t / CLOSE);
-                disc.bg(dark).children(plus(across, dot, dot, cream))
+        let inner = CIRCLE - 2. * (RING + CUT);
+        let disc = match look {
+            Look::Pulling(way) => disc
+                .bg(accent)
+                .child(ring(way, white, Some(self.window_fill())))
+                .children(plus(across, PLUS, PLUS_STROKE, white)),
+            // The colour grows back out under the white, which thins to the ring.
+            Look::Unreadying(t, way) => {
+                let grown = CIRCLE * smoothstep(t / UNREADY);
+                let cut = (grown >= inner).then(|| self.window_fill());
+                disc.bg(white)
+                    .child(dot(across, grown, accent))
+                    .child(ring(way, white, cut))
+                    .children(plus(across, PLUS, PLUS_STROKE, white))
             }
-            Some(_) => {
-                let way = ease_out(popped);
-                let arms = DOT + (PLUS - DOT) * way;
-                let stroke = DOT + (PLUS_STROKE - DOT) * way;
-                disc.bg(dark).children(plus(across, arms, stroke, cream))
+            // The white closes in on the colour, and the dot left shrinks into a +.
+            Look::Readying(t) if t < CLOSE => {
+                let closed = inner + (DOT - inner) * ease_out(t / CLOSE);
+                disc.bg(white).child(dot(across, closed * scale, accent))
+            }
+            Look::Readying(t) => {
+                let shrunk = DOT + (PLUS_STROKE - DOT) * ease_out((t - CLOSE) / MORPH);
+                disc.bg(white)
+                    .child(dot(across, shrunk * scale, accent))
+                    .children(plus(across, PLUS * scale, PLUS_STROKE * scale, accent))
             }
         };
+        let width = self.width();
+        let centre = width + CIRCLE_START - travel;
         Some(
             div()
                 .absolute()
                 .top_0()
                 .bottom_0()
-                .left(px(centre - across / 2.))
-                .w(px(across))
-                .flex()
-                .items_center()
-                .child(disc),
+                .left_0()
+                .w(px(width))
+                .overflow_hidden()
+                .child(glow(width, travel / TRAVEL))
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left(px(centre - across / 2.))
+                        .w(px(across))
+                        .flex()
+                        .items_center()
+                        .child(disc),
+                ),
         )
     }
 }
 
-/// The dark ring over the cream's edge, from 12 o'clock anticlockwise `way` of the way round.
-fn ring(way: f32, color: Hsla) -> impl IntoElement {
+/// The white ring over the disc's edge, from 12 o'clock anticlockwise `way` of the way round with
+/// round ends, and inside it a line of `cut`, the sidebar's colour.
+fn ring(way: f32, white: Hsla, cut: Option<Hsla>) -> impl IntoElement {
     canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
-            let radius = px(CIRCLE / 2. - RING / 2.);
+            if way <= 0. {
+                return;
+            }
+            let scale = f32::from(bounds.size.width) / CIRCLE;
             let centre = bounds.center();
-            let at = |angle: f32| {
-                centre + point(-radius * angle.sin(), -radius * angle.cos())
+            let mut arc = |radius: f32, stroke: f32, color: Hsla| {
+                let radius = px(radius * scale);
+                let at = |way: f32| {
+                    let angle = 2. * PI * way;
+                    centre + point(-radius * angle.sin(), -radius * angle.cos())
+                };
+                let mut path = PathBuilder::stroke(px(stroke * scale));
+                path.move_to(at(0.));
+                // Half the way round or less at a time, so a full ring closes.
+                let mut done = 0.;
+                while done < way {
+                    done += (way - done).min(0.5);
+                    path.arc_to(point(radius, radius), px(0.), false, false, at(done));
+                }
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, color);
+                }
+                if way < 1. {
+                    let end = px(stroke * scale);
+                    for at in [at(0.), at(way)] {
+                        let bounds = Bounds::centered_at(at, size(end, end));
+                        window.paint_quad(fill(bounds, color).corner_radii(end / 2.));
+                    }
+                }
             };
-            let mut path = PathBuilder::stroke(px(RING));
-            path.move_to(at(0.));
-            // An arc of half the way or less at a time, so a full ring closes.
-            let mut done = 0.;
-            while done < way {
-                let step = (way - done).min(0.5);
-                done += step;
-                path.arc_to(point(radius, radius), px(0.), false, false, at(2. * PI * done));
+            if let Some(cut) = cut {
+                arc((CIRCLE - RING - CUT) / 2., RING + CUT, cut);
             }
-            if let Ok(path) = path.build() {
-                window.paint_path(path, color);
-            }
+            arc((CIRCLE - RING) / 2., RING, white);
         },
     )
     .absolute()
     .size_full()
 }
 
-/// A + `arms` across with arms `stroke` thick and round ends, centred on a disc `across` wide. At
-/// `arms` = `stroke` it's a dot.
+/// A dot `across` wide, centred on a disc `disc` wide.
+fn dot(disc: f32, across: f32, color: Hsla) -> impl IntoElement {
+    div()
+        .absolute()
+        .left(px((disc - across) / 2.))
+        .top(px((disc - across) / 2.))
+        .size(px(across))
+        .rounded_full()
+        .bg(color)
+}
+
+/// A + `arms` across with arms `stroke` thick and round ends, centred on a disc `across` wide.
 fn plus(across: f32, arms: f32, stroke: f32, color: Hsla) -> [impl IntoElement; 2] {
     let bar = |bar: gpui::Size<f32>| {
         div()
@@ -205,6 +320,47 @@ fn plus(across: f32, arms: f32, stroke: f32, color: Hsla) -> [impl IntoElement; 
     [bar(size(arms, stroke)), bar(size(stroke, arms))]
 }
 
+/// The glow that comes out with the circle, `out` of the way: white, brightest on the page's edge
+/// (`edge` from the left) halfway down, fading to nothing GLOW_WIDTH left of it and at the top and
+/// bottom. It slides out from under the edge as the circle does. A cone, drawn in strips across
+/// as GPUI has no radial gradient.
+fn glow(edge: f32, out: f32) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let half = f32::from(bounds.size.height) / 2.;
+            let middle = f32::from(bounds.origin.y) + half;
+            let tip = f32::from(bounds.origin.x) + edge + GLOW_WIDTH * (1. - out);
+            let mut from_middle = 0.;
+            while from_middle < half {
+                let down = (from_middle + GLOW_STRIP / 2.) / half;
+                let reach = GLOW_WIDTH * (1. - down * down).max(0.).sqrt();
+                let brightest = GLOW * (1. - down).max(0.);
+                let shade = linear_gradient(
+                    90.,
+                    linear_color_stop(hsla(0., 0., 1., 0.), 0.),
+                    linear_color_stop(hsla(0., 0., 1., brightest), 1.),
+                );
+                for top in [middle - from_middle - GLOW_STRIP, middle + from_middle] {
+                    let strip = Bounds::new(
+                        point(px(tip - reach), px(top)),
+                        size(px(reach), px(GLOW_STRIP)),
+                    );
+                    window.paint_quad(fill(strip, shade));
+                }
+                from_middle += GLOW_STRIP;
+            }
+        },
+    )
+    .absolute()
+    .size_full()
+}
+
 fn ease_out(t: f32) -> f32 {
     1. - (1. - t.clamp(0., 1.)).powi(3)
+}
+
+fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0., 1.);
+    t * t * (3. - 2. * t)
 }
