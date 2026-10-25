@@ -26,7 +26,7 @@ use crate::text_input::TextInput;
 
 mod library;
 mod new_space;
-mod scaled;
+pub(crate) mod scaled;
 mod split_targets;
 
 pub use library::{Archived, Download, DownloadAction, DownloadState};
@@ -177,8 +177,10 @@ const CLEAR_ARROW: f32 = 8. * 24. / 14.;
 const CLEAR_ARROW_INSET: f32 = CLEAR_ARROW * 5. / 24.;
 const CLEAR_GAP: f32 = 3.;
 const CLEAR_HEIGHT: f32 = 20.;
-// How long the toast after a copy shows (ours: Arc's isn't measured).
+// How long the toast after a copy shows (ours: Arc's isn't measured), and after a Space is deleted
+// (Arc).
 const COPIED_TIME: Duration = Duration::from_secs(2);
+const DELETED_TIME: Duration = Duration::from_secs(5);
 // The footer's Space switcher, between where Arc has its Home and + buttons.
 const FOOTER_HEIGHT: f32 = 50.;
 const SWITCHER_LEFT: f32 = 42.;
@@ -244,9 +246,6 @@ const NEW_TAB_PLUS: u32 = 0xffffff40;
 // The Clear divider's line, white 0.15 (Arc), and its button (ours: Arc's colour isn't measured).
 const DIVIDER: u32 = 0xffffff26;
 const CLEAR: u32 = 0xffffff73;
-// The toast: white 0.1 over the window, opaque over the rows it covers (ours: Arc's isn't
-// measured).
-const TOAST: u32 = 0xffffff1a;
 // A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 const SLEEPING_FAVICON: f32 = 0.5;
 // A favorite's tile: white 0.10 with a white 0.14 edge at rest (Dia), and the one shown white 0.20
@@ -323,8 +322,8 @@ pub enum Command {
     BackToPinnedUrl,
     /// Closes the Today tabs of the Space shown, but the one shown.
     Clear,
-    /// Brings back the tabs the last Clear closed.
-    UndoClear,
+    /// Brings back the tabs the last Clear closed, or the Space deleted last, whichever was last.
+    Undo,
     /// Copies the selected tab's URL.
     CopyUrl,
     /// Copies a Markdown link to the selected tab: its title, then its URL.
@@ -405,7 +404,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-d", Command::TogglePin, false),
     ("cmd-enter", Command::BackToPinnedUrl, false),
     ("shift-cmd-k", Command::Clear, false),
-    ("cmd-z", Command::UndoClear, false),
+    ("cmd-z", Command::Undo, false),
     ("shift-cmd-c", Command::CopyUrl, false),
     ("alt-shift-cmd-c", Command::CopyMarkdownLink, false),
     ("cmd-f", Command::Find, false),
@@ -697,7 +696,7 @@ impl Command {
             Command::CollapseFolders => "collapse-folders",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::Clear => "clear",
-            Command::UndoClear => "undo-clear",
+            Command::Undo => "undo",
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
             Command::Find => "find",
@@ -909,6 +908,8 @@ pub trait Browser {
     fn clear(&self, cx: &mut App);
     /// Brings back the tabs the last clear closed, and returns how many.
     fn undo_clear(&self, cx: &mut App) -> usize;
+    /// Brings back the Space deleted last, and shows it. Returns whether it did.
+    fn undo_delete_space(&self, cx: &mut App) -> bool;
     /// Reopens the Today tab closed last, and shows it.
     fn reopen_closed_tab(&self, cx: &mut App);
     /// Reopens the archived tab `archived` at the top of the Today tabs of the Space shown, and
@@ -954,8 +955,8 @@ pub trait Browser {
     /// Names a tab, which shows `name` for its title from then on, or gives it back its page's
     /// title for an empty one.
     fn rename_tab(&self, tab: u64, name: &str, cx: &mut App);
-    /// Deletes a Space, closing its tabs.
-    fn delete_space(&self, space: u64, cx: &mut App);
+    /// Deletes a Space, closing its tabs, and returns whether it will, as the last can't go.
+    fn delete_space(&self, space: u64, cx: &mut App) -> bool;
     /// Gives a Space a colour, 0xRRGGBB, or none, for the system's accent colour.
     fn set_space_color(&self, space: u64, color: Option<u32>, cx: &mut App);
     /// Shows a menu of `items` at `position` in the window, or in the reveal's panel if
@@ -1008,6 +1009,9 @@ pub trait Browser {
     fn watch_control(&self, cx: &mut App);
     /// Puts `text` on the clipboard.
     fn copy(&self, text: &str, cx: &mut App);
+    /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
+    /// words after it if there's a key.
+    fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);
     /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
     /// it changes.
     fn accent_color(&self) -> u32;
@@ -1053,10 +1057,11 @@ pub struct Page {
     pub away_from_pinned_url: bool,
 }
 
-/// The toast over the bottom of the list until it hides: what was just done.
-struct Toast {
-    text: SharedString,
-    _hide: Task<()>,
+/// What ⌘Z undoes: the last of what the user did that it can.
+#[derive(Clone, Copy)]
+enum Undo {
+    Clear,
+    DeleteSpace,
 }
 
 #[derive(Default)]
@@ -1400,7 +1405,7 @@ pub struct Shell {
     wheel_paged: Option<Instant>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
-    toast: Option<Toast>,
+    undo: Option<Undo>,
     /// Whether the pointer is over the docked sidebar, which shows Clear and the URL field's button
     /// only then.
     sidebar_hovered: bool,
@@ -1508,7 +1513,7 @@ impl Shell {
             wheel: None,
             wheel_paged: None,
             hovered_favicon: None,
-            toast: None,
+            undo: None,
             sidebar_hovered: false,
             page_fullscreen: false,
             sidebar_hidden: false,
@@ -2334,8 +2339,8 @@ impl Shell {
             Command::CollapseFolders => return self.collapse_folders(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::Clear => return self.clear(cx),
-            Command::UndoClear => {
-                self.browser.undo_clear(cx);
+            Command::Undo => {
+                self.undo(cx);
                 return;
             }
             Command::CopyUrl => return self.copy_url(false, cx),
@@ -2471,23 +2476,33 @@ impl Shell {
             return;
         }
         self.browser.clear(cx);
+        self.undo = Some(Undo::Clear);
         // check.sh reads this line.
         eprintln!("browser: cleared {}", self.clearing.len());
     }
 
-    /// Runs `command` for a key the page didn't keep, and returns whether it was used. With no
-    /// Clear to undo, ⌘Z goes back, for the Edit menu to give the page.
+    /// Undoes the last Clear or Space deleted, once, and returns whether it did.
+    fn undo(&mut self, cx: &mut Context<Self>) -> bool {
+        match self.undo.take() {
+            Some(Undo::Clear) => self.browser.undo_clear(cx) > 0,
+            Some(Undo::DeleteSpace) => self.browser.undo_delete_space(cx),
+            None => false,
+        }
+    }
+
+    /// Runs `command` for a key the page didn't keep, and returns whether it was used. With
+    /// nothing to undo, ⌘Z goes back, for the Edit menu to give the page.
     pub fn run_for_page(&mut self, command: Command, cx: &mut Context<Self>) -> bool {
-        if command != Command::UndoClear {
+        if command != Command::Undo {
             self.run(command, "page", cx);
             return true;
         }
-        let undone = self.browser.undo_clear(cx);
-        if undone > 0 {
+        let undone = self.undo(cx);
+        if undone {
             // check.sh waits for this line.
-            eprintln!("browser: command undo-clear via page");
+            eprintln!("browser: command undo via page");
         }
-        undone > 0
+        undone
     }
 
     /// Copies the selected tab's URL, or a Markdown link to it, and says so in the toast.
@@ -2506,24 +2521,7 @@ impl Shell {
         self.browser.copy(&text, cx);
         // check.sh reads this line.
         eprintln!("browser: copied {text}");
-        self.show_toast(toast.into(), COPIED_TIME, cx);
-    }
-
-    /// Shows `text` in the toast for `time`, in place of any toast showing.
-    fn show_toast(&mut self, text: SharedString, time: Duration, cx: &mut Context<Self>) {
-        let hide = cx.spawn(async move |shell, cx| {
-            cx.background_executor().timer(time).await;
-            shell.update(cx, |shell, cx| shell.hide_toast(cx)).ok();
-        });
-        self.toast = Some(Toast { text, _hide: hide });
-        cx.notify();
-    }
-
-    fn hide_toast(&mut self, cx: &mut Context<Self>) {
-        if self.toast.take().is_some() {
-            eprintln!("browser: toast hidden");
-            cx.notify();
-        }
+        self.browser.toast(toast, None, COPIED_TIME, cx);
     }
 
     /// Makes a Space and shows it with the form for naming it, or shows the form already open.
@@ -3005,10 +3003,10 @@ impl Shell {
         };
         let tabs = found.pinned.len() + found.today.len();
         if tabs == 0 {
-            self.browser.delete_space(space, cx);
+            self.delete_space_now(space, cx);
             return;
         }
-        let browser = self.browser.clone();
+        let shell = cx.weak_entity();
         self.browser.confirm(
             format!("Delete “{}”?", found.name),
             if tabs == 1 {
@@ -3017,9 +3015,19 @@ impl Shell {
                 format!("Its {tabs} tabs close too.")
             },
             "Delete",
-            Box::new(move |cx| browser.delete_space(space, cx)),
+            Box::new(move |cx| {
+                shell.update(cx, |shell, cx| shell.delete_space_now(space, cx)).ok();
+            }),
             cx,
         );
+    }
+
+    /// Deletes the Space, for ⌘Z to bring back, and says so in the toast (Arc).
+    fn delete_space_now(&mut self, space: u64, cx: &mut Context<Self>) {
+        if self.browser.delete_space(space, cx) {
+            self.undo = Some(Undo::DeleteSpace);
+            self.browser.toast("Space deleted! Use", Some(("⌘Z", "to undo.")), DELETED_TIME, cx);
+        }
     }
 
     fn shown_space(&self) -> Option<&Space> {
@@ -4779,29 +4787,6 @@ impl Shell {
         divider_box(clear).top(px(self.slide(Slot::Divider)))
     }
 
-    /// The toast over the bottom of the list.
-    fn toast(&self) -> Option<impl IntoElement + use<>> {
-        let toast = self.toast.as_ref()?;
-        Some(
-            div()
-                .id("toast")
-                .absolute()
-                .left(px(PLATE_INSET))
-                .w(px(self.width() - 2. * PLATE_INSET))
-                .bottom(px(FOOTER_HEIGHT))
-                .h(px(PLATE_HEIGHT))
-                .flex()
-                .items_center()
-                .px(px(URL_FIELD_TEXT_X - PLATE_INSET))
-                .rounded(px(PLATE_RADIUS))
-                .block_mouse_except_scroll()
-                .bg(self.window_fill().blend(rgba(TOAST).into()))
-                .text_size(px(13.))
-                .text_color(rgba(TITLE))
-                .child(toast.text.clone()),
-        )
-    }
-
     fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let (plus, label) = new_tab_label();
         self.row(Row::NewTab, plate(plus, label), cx)
@@ -5043,7 +5028,6 @@ impl Shell {
         };
         sidebar
             .children(self.new_space_circle())
-            .children(self.toast())
             .child(self.library_button(cx))
             .children(self.switcher(cx))
             .child(self.press_listener())
@@ -5336,8 +5320,6 @@ fn card(bounds: Bounds<Pixels>) -> gpui::Div {
         .bg(rgba(CARD))
 }
 
-/// Where a spring from 0 to 1, at rest at 0, is `t` seconds in, by SwiftUI's response and damping
-/// fraction. None once it's within a thousandth of 1 for good.
 /// `way`, but past `low` or `high` only a little further, on the Space pages' rubber band.
 fn rubber_band(way: f32, low: f32, high: f32) -> f32 {
     let band = |past: f32| 255. * (1. - 1. / (0.15 * past / 255. + 1.));
@@ -5386,7 +5368,9 @@ fn spring_to(
     Some((at, going))
 }
 
-fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
+/// Where a spring from 0 to 1, at rest at 0, is `t` seconds in, by SwiftUI's response and damping
+/// fraction. None once it's within a thousandth of 1 for good.
+pub(crate) fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
     let omega = std::f32::consts::TAU / response;
     let decay = (-damping * omega * t).exp();
     if decay < 0.001 {

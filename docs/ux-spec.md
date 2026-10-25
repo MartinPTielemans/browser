@@ -52,7 +52,7 @@ Material output measured over solid backdrops. Ports without AppKit materials ap
 - Ours (*interim*):
   - Dark only. The light layers come with the Appearance menu.
   - A colour under HSL saturation 0.1 counts as neutral.
-  - Where the window's look has to be opaque, it stands the material in with its output over grey 20 under the tint, #131313, and puts the gradient over that. That's the reveal's panel over the page, a dragged row, and the toast over the rows.
+  - Where the window's look has to be opaque, it stands the material in with its output over grey 20 under the tint, #131313, and puts the gradient over that. That's the reveal's panel over the page and a dragged row.
   - Over solid backdrops of black / grey 20 / grey 60 / white, our sidebar reads 11 / 19 / 35 / 51 before the gradient. That's the material at 18 / 32 / 58 / 85, against Dia's 24 / 32 / 45 / 104.
 
 ### Colour tokens (Dia asset catalogs, unchanged 1.49.1 → 1.50.1, D›Color tokens)
@@ -103,6 +103,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | New Space pull | readying: white closes in over 60 ms, the dot shrinks into the + over 70 ms, pop to 1.13× and back over 120 ms from 40 ms; un-readying: the colour grows back over 120 ms; let go readied: the form at once, the circle back under the edge over 100 ms, ease-in-out | the circle past the last Space, and the Space it makes | Arc 1.170 rec at 1× and 2×, 3 pulls |
 | Space form leave | each part over 150 ms, opacity 1 − t³ and sinking 20t² pt: the buttons from 0 without sinking (opacity 1 − t), the field from 80 ms, the title from 130 ms | the Create a Space form after Create, from the bottom up | Arc 1.170 rec at 2×, one Space made |
 | Dialog | in: the window dims and the card comes down 32 pt into place over 275 ms, ease-in-out, opaque after its first 135 ms; out: back up the same way, fading over all of it | the dialog that asks before a delete, and what it asked for after it has gone, 0.33 s after the click | Arc 1.170 rec at 2×, one Space deleted |
+| Toast | in: from 0.7 its size about the middle of its top edge, spring 0.32 s / ζ 0.52 (1.04 at its peak, ≈ 160 ms in), fading in linearly over 100 ms; out: back to 0.7 and transparent over 70 ms, ease-in | the toast at the window's top right | Arc 1.170 rec at 2×, two Spaces deleted |
 | Group expand | spring 0.30 s / ζ 0.82 | group or folder open and close (*interim*) | Dia rec |
 | Spinner | 0 → −2π (clockwise), 1.88 s, linear, repeating | tab loading | Dia 1.50.1 bin |
 
@@ -116,6 +117,15 @@ The command bar, menus, hover cards, Peek, find and every prompt over the page a
 - A 20 pt icon slot holds 13 pt glyphs, with text 10 pt after the slot, so titles start at 46. Separators sit 16 in, with 5 above and below.
 - Header: the icon box is 16 from the top and left, with title and subtitle at 13/16 and 11/14 pt centred on it, and 8 pt below it.
 - Placement: 8 from the card's side and 8 below the page's top. A panel taller than the page scrolls inside an 8 pt bottom margin.
+
+### Toast
+
+Arc's note at the window's top right, after something done without showing it (Arc 1.170 rec at 2×, two Spaces deleted). It's a child window the mouse goes through.
+
+- 46.5 tall, 4.5 in from the window's right edge and 4 down from its top, over the card's margin. Radius 10, with 0.5 pt of black 0.3 around it and a faint shadow below. Its fill goes down from the window's colour to darker (Arc's from (40,22,80) to (31,17,62) in a purple Space).
+- White medium text, 12.5 in from its left and 13.5 from its right. A key's chip sits 8 from the words each side of it: 26 tall at radius 6, white 0.1, with the key semibold 9 in from each side.
+- It comes and goes on Motion › Toast. After a Space is deleted it says "Space deleted! Use ⌘Z to undo." from about 0.1 s after the Space switch until 5 s after it. A new toast takes the words of one showing.
+- Ours (*interim*): 13.5 pt text, which makes Arc's 256.5 wide, as measured; the fill's 0.78 darkening at the bottom and the shadow (black 0.25, 4 down, blur 12) are estimates. It shows as soon as it's asked, rather than Arc's 0.1 s after the switch.
 
 ### Keyboard
 
@@ -218,7 +228,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Downloads button (reference) | Dia: centre (166, 26) at 190 pt, in the header. Arc: measure | Dia, D›Sidebar |
 
 - Ours (*interim* until Site Control Center is built): Copy URL takes Site Control Center's place, 3 pt inside the field's end rather than Arc's 1 pt past it, with Lucide's link glyph at 14 pt, the header's glyph colour and hover plate. The host truncates before it.
-- **Copy URL** (Arc 1.170.0 menus). ⇧⌘C copies the tab's URL, and ⌥⇧⌘C a Markdown link, `[title](url)`. Arc also has Copy URL as Quote (⌃⇧⌘C). Ours: the title's brackets are escaped, the URL is copied as it is (Dia strips trackers), and the toast says "Copied URL" or "Copied URL as Markdown" for 2 s, since Arc's feedback isn't recorded.
+- **Copy URL** (Arc 1.170.0 menus). ⇧⌘C copies the tab's URL, and ⌥⇧⌘C a Markdown link, `[title](url)`. Arc also has Copy URL as Quote (⌃⇧⌘C). Ours: the title's brackets are escaped, the URL is copied as it is (Dia strips trackers), and the toast (Shared rules › Toast) says "Copied URL" or "Copied URL as Markdown" for 2 s, since Arc's feedback isn't recorded.
 
 **Width**
 
@@ -421,7 +431,8 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 
 - A right-click on the Space's name, or on its dot in the switcher, shows a native menu with Rename Space and Delete Space. Delete Space is off for the last Space.
 - Rename Space, or a double-click on the name, turns the name into a field with all of it selected. ↩ keeps what's typed unless it's empty, Esc cancels, and a click elsewhere in the sidebar keeps it.
-- Delete Space asks first, if the Space has tabs, and its tabs close with it. Its Today tabs reopen with ⇧⌘T in the Space shown; its pinned tabs don't come back. An empty Space goes without asking.
+- Delete Space asks first, if the Space has tabs, and its tabs close with it. An empty Space goes without asking. Either way the toast says "Space deleted! Use ⌘Z to undo." (Toast).
+- ⌘Z brings the Space back where it was in the switcher, with its name, colour, folders and pinned tabs, and the Today tabs that went to the archive, unloaded, and pages the sidebar to it with the usual slide. The toast stays until its time is up. Its Today tabs also reopen with ⇧⌘T in the Space shown; ⌘Z then leaves out those already back. Ours: ⌘Z undoes whichever of Clear and Delete Space came last, once, after the toast as well as during it, as Clear's does.
 - **The dialog** (Arc 1.170 rec at 2×; ours asks before Clear Archive too). The window dims to #151515 at 0.62 under a card 450 wide, centred on it: #161B2F at radius 16, with a 1 pt line of white 0.1 inside its edge, 0.5 pt of black 0.9 outside it, and a shadow of black 0.56, 16 down and blurred 16.
   - Text is inset 38 from the card's top and left: the question in 18 pt medium white on a 22 pt line, then 15.5 below it the detail in 14 pt at white 0.78 on 18. The buttons are 38 under it, at the right, 28 in from the card's right and bottom and 8 apart.
   - The buttons are 36 tall at radius 8, the label in macOS's control font, 13 pt regular, 12 in from the left, and the key's chip, 20 tall at radius 5, 8 after it and 12 in from the right. Cancel is #2F305F with a 1 pt line of #6462A9 and text at white 0.9, its ESC chip 34.5 wide, #4D4B77 with 11 pt semibold #BBB9E3. The action is #E1492C on a 2 pt ledge of its colour at 0.2, and #CC4126 under the pointer, with a ↩ chip 30 wide, white 0.1 with a line of white 0.27.
@@ -683,7 +694,7 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
   - From its left edge, all 28 pt squares 2 pt from the top: the search glyph at 2; the field at 31, 152.5 wide and 18 tall; the count ("1/12") at 185.5; previous and next at 212 and 238; a divider; close at 270.
   - With no match, "NOT FOUND" in capitals and red (219,25,41) takes the place of the count and the arrows.
   - It opens and closes in one frame, with no animation.
-- Ours: Arc's layout. The fill is the window's colour, as the toast's, since Arc's (19,29,50) looks like its Space's colour, and AppKit's window shadow stands in for Arc's. The glyphs are Lucide's search, chevrons and x at 14 pt, in the header's colours and hover plate; the count is 12 pt and NOT FOUND 11 pt semibold.
+- Ours: Arc's layout. The fill is the window's colour, as the zoom HUD's, since Arc's (19,29,50) looks like its Space's colour, and AppKit's window shadow stands in for Arc's. The glyphs are Lucide's search, chevrons and x at 14 pt, in the header's colours and hover plate; the count is 12 pt and NOT FOUND 11 pt semibold.
 
 ### Zoom
 

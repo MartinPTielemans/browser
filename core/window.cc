@@ -90,6 +90,21 @@ std::vector<ClosedTab>& ClosedTabs() {
   return *closed;
 }
 
+// The Space deleted last, for UndoDeleteSpace.
+struct DeletedSpace {
+  bc_id id = 0;
+  SavedSpace saved;
+  // The Today tabs saved, which went to the archive.
+  std::vector<bc_id> today;
+  // The tab or favorite the window showed there, or 0.
+  bc_id shown = 0;
+};
+
+std::optional<DeletedSpace>& LastDeleted() {
+  static base::NoDestructor<std::optional<DeletedSpace>> deleted;
+  return *deleted;
+}
+
 // Keeps |contents|, a tab closing, for ReopenClosedTab, and archives it.
 void KeepClosed(content::WebContents* contents) {
   const bc_id id = Tab::IdOf(contents);
@@ -490,6 +505,11 @@ bool Window::DeleteSpace(bc_id space) {
     return false;
   }
   Space* neighbour = it != staying.begin() ? *(it - 1) : *(it + 1);
+  // Before the windows leave it, so it keeps the tab the first one showed there.
+  DeletedSpace& deleted = LastDeleted().emplace();
+  deleted.id = space;
+  deleted.shown = Windows().empty() ? 0 : Windows().begin()->second->SelectedIn(space);
+  deleted.saved = SaveSpace(**it, deleted.shown, &deleted.today);
   for (auto& [id, window] : Windows()) {
     if (window->space_ == space) {
       window->ShowSpace(neighbour->id());
@@ -837,6 +857,49 @@ size_t Window::UndoClear() {
     above = id;
   }
   return reopened;
+}
+
+bc_id Window::UndoDeleteSpace() {
+  std::optional<DeletedSpace>& deleted = LastDeleted();
+  // Chrome made the profile it starts with before the core's calls work.
+  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  // Not while a page keeps one of its tabs open, which keeps the Space.
+  if (!deleted || !profile || Space::FromId(deleted->id)) {
+    return 0;
+  }
+  DeletedSpace space = *std::exchange(deleted, std::nullopt);
+  // Its Today tabs leave the archive and the closed tabs as they come back, but for those that
+  // came back some other way, such as ⇧⌘T, or left the archive.
+  const int pinned = static_cast<int>(space.saved.pinned.size());
+  const int shown = space.saved.shown;
+  std::vector<SavedTab> today;
+  bool above = false;
+  for (size_t i = 0; i < space.today.size(); ++i) {
+    const bc_id tab = space.today[i];
+    const int index = pinned + static_cast<int>(i);
+    if (!std::ranges::contains(Archived(), tab, &ArchivedTab::tab)) {
+      if (index == shown) {
+        space.saved.shown = -1;
+      } else if (index < shown) {
+        --space.saved.shown;
+      }
+      above = false;
+      continue;
+    }
+    if (!TakeClosed(tab)) {
+      Unarchive(tab);
+    }
+    SavedTab& saved = today.emplace_back(std::move(space.saved.today[i]));
+    saved.split = saved.split && above;
+    above = true;
+  }
+  space.saved.today = std::move(today);
+  RestoreSpace(*this, profile, space.saved, space.id);
+  if (Favorites::Has(space.shown)) {
+    SetSelectedIn(space.id, space.shown);
+  }
+  ShowSpace(space.id);
+  return space.id;
 }
 
 bc_id Window::ReopenClosedTab() {

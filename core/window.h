@@ -144,6 +144,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Brings back the tabs the last Clear closed, at their places in their Space's Today tabs and
   // unloaded. Once only, and not those ReopenClosedTab brought back. Returns how many.
   size_t UndoClear();
+  // Brings back the Space DeleteSpace deleted last, at its place and with its id, and shows it. See
+  // bc_window_undo_delete_space. Returns its id, or 0.
+  bc_id UndoDeleteSpace();
   // Reopens the tab closed last, in any window, with its history: at its place in its Space's Today
   // tabs, else at the top of the Space the window shows. Shows it, and its Space. Returns its id, or
   // 0 if there's none.

@@ -2,19 +2,25 @@
 
 use gpui::{
     AnyElement, App, Bounds, Element, ElementId, GlobalElementId, InspectorElementId, IntoElement,
-    LayoutId, Pixels, Point, Window,
+    LayoutId, Pixels, Point, Window, point,
 };
 
 /// `child`, painted at `factor` its size about `origin`, in the window's coordinates. It's laid
 /// out and hit where it would be at full size.
 pub fn scaled(child: impl IntoElement, factor: f32, origin: Point<Pixels>) -> Scaled {
-    Scaled { child: child.into_any_element(), factor, origin }
+    Scaled { child: child.into_any_element(), factor, origin: Some(origin) }
+}
+
+/// `child`, painted at `factor` its size about the middle of its top edge.
+pub fn scaled_from_top(child: impl IntoElement, factor: f32) -> Scaled {
+    Scaled { child: child.into_any_element(), factor, origin: None }
 }
 
 pub struct Scaled {
     child: AnyElement,
     factor: f32,
-    origin: Point<Pixels>,
+    /// Else the middle of its top edge.
+    origin: Option<Point<Pixels>>,
 }
 
 impl IntoElement for Scaled {
@@ -63,7 +69,7 @@ impl Element for Scaled {
         &mut self,
         _: Option<&GlobalElementId>,
         _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
+        bounds: Bounds<Pixels>,
         _: &mut (),
         _: &mut (),
         window: &mut Window,
@@ -72,6 +78,7 @@ impl Element for Scaled {
         if self.factor == 1. {
             return self.child.paint(window, cx);
         }
-        window.with_scale(self.factor, self.origin, |window| self.child.paint(window, cx));
+        let origin = self.origin.unwrap_or(point(bounds.center().x, bounds.top()));
+        window.with_scale(self.factor, origin, |window| self.child.paint(window, cx));
     }
 }

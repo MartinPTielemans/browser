@@ -256,7 +256,8 @@ BC_EXPORT void bc_space_set_color(bc_id space, bool has_color, uint32_t color);
 // Deletes the Space, unless it's the last, and returns whether it will. A window showing it shows
 // the Space before it, else the one after it. Its tabs close, and it goes with the last of them; a
 // page that keeps its tab open keeps the Space until it closes. Its Today tabs reopen with
-// bc_window_reopen_closed_tab, in the Space shown. Then spaces_changed.
+// bc_window_reopen_closed_tab, in the Space shown, and the Space with
+// bc_window_undo_delete_space. Then spaces_changed.
 BC_EXPORT bool bc_space_delete(bc_id space);
 
 // Copies up to |capacity| of the Space's Today tabs into |tabs|, top to bottom, and returns how many
@@ -350,6 +351,13 @@ BC_EXPORT size_t bc_window_clear(bc_id window);
 // Today tabs and unloaded. Once only, and not those bc_window_reopen_closed_tab brought back. Then
 // space_changed. Returns how many it brought back.
 BC_EXPORT size_t bc_window_undo_clear(bc_id window);
+
+// Brings back the Space bc_space_delete deleted last, with its id at its place among the Spaces,
+// its name, colour, folders and pinned tabs, and the Today tabs that went to the archive and
+// haven't come back some other way, all unloaded and leaving the archive. The window shows it, at
+// the tab it showed there. Once only, and not while a page keeps one of its tabs open. Then
+// spaces_changed and window_space_shown. Returns the Space, or 0.
+BC_EXPORT bc_id bc_window_undo_delete_space(bc_id window);
 
 // Reopens the Today tab closed last, in any window, with its history: at its place in its Space's
 // Today tabs, else at the top of the Space the window shows. The window shows it, and its Space,

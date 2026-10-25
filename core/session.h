@@ -1,13 +1,18 @@
 #ifndef BROWSER_CORE_SESSION_H_
 #define BROWSER_CORE_SESSION_H_
 
+#include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "base/functional/callback_forward.h"
 #include "base/time/time.h"
+#include "browser_core/public/browser_core.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "url/gurl.h"
+
+class Profile;
 
 namespace content {
 class NavigationController;
@@ -15,6 +20,7 @@ class NavigationController;
 
 namespace browser_core {
 
+class Space;
 class Window;
 
 // A tab's history, as the session file keeps it.
@@ -36,6 +42,38 @@ struct SavedTab {
 
 // |history|, with the page it's loading if it has no page yet.
 SavedTab SaveTab(content::NavigationController& history);
+
+// A folder of pinned tabs, as the session file keeps it.
+struct SavedFolder {
+  std::string name;
+  bool open = true;
+  // How many folders it's in.
+  int depth = 0;
+  // The pinned tab saved under it, counted among them.
+  size_t at = 0;
+};
+
+// A Space, as the session file keeps it.
+struct SavedSpace {
+  std::string name;
+  std::optional<uint32_t> color;
+  // Each top to bottom.
+  std::vector<SavedTab> pinned;
+  std::vector<SavedFolder> folders;
+  std::vector<SavedTab> today;
+  // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
+  int shown = -1;
+  // The favorite the window showed there instead, or -1.
+  int shown_favorite = -1;
+};
+
+// |space|, where a window shows |shown|, without its shown favorite. Puts the Today tabs it saved
+// in |today| if it isn't null.
+SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today = nullptr);
+
+// Makes |saved| a Space, its tabs unloaded in |window| and |profile|, with the id |id|, a deleted
+// Space's, if it isn't 0. The window shows its shown tab there. Returns it.
+Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved, bc_id id = 0);
 
 // The Spaces as the user left them: their names, their tabs with each tab's history, the tab each
 // showed and the Space the window showed, and the favorites. The core saves them a while after

@@ -26,7 +26,8 @@ class Space {
   // The most tabs a split shows.
   static constexpr size_t kMaxPanes = 3;
 
-  static Space* Create(std::string name);
+  // With the id |id|, a deleted Space's, if it isn't 0, which puts it back at its place.
+  static Space* Create(std::string name, bc_id id = 0);
   // Deletes the Space, which windows no longer show.
   static void Delete(bc_id id);
   static Space* FromId(bc_id id);

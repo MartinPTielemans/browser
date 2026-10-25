@@ -116,7 +116,7 @@ none_since '^browser: toast' || fail "Clear showed a toast"
 
 # ⌘Z with the page focused puts them back in place, unloaded, and the tab shown stays.
 send key z cmd
-expect '^browser: command undo-clear via page$' "⌘Z with the page focused didn't undo Clear"
+expect '^browser: command undo via page$' "⌘Z with the page focused didn't undo Clear"
 expect "^browser: today [0-9][0-9]* $c [0-9][0-9]*\$" \
   "Undo didn't put the tabs back around the one shown: Today is \"$(today)\""
 b=$(today | cut -d' ' -f3)
@@ -141,7 +141,7 @@ send type ab
 expect '^browser: title [0-9]* value ab$' "typing didn't reach the served page's text field"
 send key z cmd
 expect '^browser: title [0-9]* value a$' "⌘Z in the page's text field didn't undo typing there"
-none_since '^browser: command undo-clear' || fail "⌘Z in the page's text field undid Clear"
+none_since '^browser: command undo' || fail "⌘Z in the page's text field undid Clear"
 
 # ⇧⌘K with the UI focused and the pinned tab shown closes every Today tab, then finds none.
 send click $sidebar_point
@@ -198,7 +198,7 @@ expect "^browser: today [0-9][0-9]* $e\$" \
   "⇧⌘T after Clear didn't reopen the top tab: Today is \"$(today)\""
 t=$(today | cut -d' ' -f1)
 send key z cmd
-expect '^browser: command undo-clear via ui$' "⌘Z with the UI focused didn't run"
+expect '^browser: command undo via ui$' "⌘Z with the UI focused didn't run"
 expect "^browser: today $t $e [0-9][0-9]*\$" \
   "Undo after ⇧⌘T didn't bring back just the bottom tab: Today is \"$(today)\""
 none_since "^browser: selected" || fail "Undo after ⇧⌘T showed another tab"

@@ -5,7 +5,7 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use browser::shell::{
@@ -364,6 +364,10 @@ impl Browser for Fake {
         0
     }
 
+    fn undo_delete_space(&self, _: &mut App) -> bool {
+        false
+    }
+
     fn reopen_closed_tab(&self, _: &mut App) {}
 
     // Takes it out of the archive, without opening it.
@@ -507,9 +511,10 @@ impl Browser for Fake {
         }
     }
 
-    fn delete_space(&self, space: u64, cx: &mut App) {
+    fn delete_space(&self, space: u64, cx: &mut App) -> bool {
         self.spaces.borrow_mut().retain(|(id, ..)| *id != space);
         self.report_spaces(cx);
+        true
     }
 
     fn set_space_color(&self, space: u64, color: Option<u32>, cx: &mut App) {
@@ -563,6 +568,9 @@ impl Browser for Fake {
 
     // The preview leaves the clipboard alone.
     fn copy(&self, _: &str, _: &mut App) {}
+
+    // The toast's window is one the app's host lays over the browser window.
+    fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {}
 
     // macOS's default blue.
     fn accent_color(&self) -> u32 {
