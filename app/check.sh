@@ -39,8 +39,9 @@
 #      ⌃1–⌃9, ⌥⌘← and ⌥⌘→, with the page or the UI focused, and clicks on the switcher's dots show
 #      another Space, which shows the tab it showed last. Two fingers across the sidebar page to
 #      the Space a flick or the pages' place points at, never past the last, fingers along it
-#      don't, and a wheel's tick across pages once. Return with no name does nothing, New
-#      Space shows a form already open, and Cancel deletes its Space and goes back. A right-click
+#      don't, and a wheel's tick across pages once. A tab's menu moves the tab to another Space,
+#      which the window shows with it. Return with no name does nothing, New Space shows a form
+#      already open, and Cancel deletes its Space and goes back. A right-click
 #      on the Space's name or a dot shows Rename Space and Delete Space. Rename, and a
 #      double-click on the name, turn it into a field, where return keeps the name and escape
 #      cancels. Delete asks first for a Space with tabs, which close with it and reopen with ⇧⌘T
@@ -1112,6 +1113,23 @@ expect '^browser: command select-space via wheel$' "a wheel's tick across the si
 expect "^browser: space $first in " "a wheel's tick across the sidebar didn't show the first Space"
 expect_tabs "$a" "$a" "after a wheel's tick showed the first Space"
 
+# A tab's menu moves it to another Space, and the window goes with the tab it shows.
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+post rightclick $(row 0)
+expect '^browser: menu shown Pin Tab, Duplicate Tab, Move to Space › reading 日本語, Close Tab, Close Tabs Below (disabled)$' "the tab's menu didn't offer the other Space"
+send choose reading 日本語
+expect '^browser: command move-to-space via tab menu$' "Move to Space didn't run"
+expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to Space didn't show the tab's new Space"
+expect_tabs "$a $b" "$a" "after Move to Space"
+expect "^browser: settled space $second\$" "the second Space's page didn't settle"
+post rightclick $(row 0)
+expect '^browser: menu shown Pin Tab, Duplicate Tab, Move to Space › Space 1, Close Tab, Close Tabs Below$' "the moved tab's menu didn't offer the first Space"
+send choose Space 1
+expect "^browser: space $first\( in .*\)\{0,1\}\$" "moving the tab back didn't show the first Space"
+expect_tabs "$a" "$a" "after moving the tab back"
+show_space "key 2 ctrl" select-space ui "$second" "$b"
+show_space "key 1 ctrl" select-space ui "$first" "$a"
+
 send menu New Space…
 expect "^browser: spaces $first $second [0-9]*\$" "New Space didn't make a third Space"
 third=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f5)
@@ -1173,7 +1191,7 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/space-menu.png, $out/space-delete.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; a tab's menu moves it to another Space, which shows with it; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/space-menu.png, $out/space-delete.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
@@ -1807,7 +1825,7 @@ expect "^browser: selected $e\$" "Undo didn't show the tab Clear closed shown"
 d=$(today | cut -d' ' -f3)
 t=$(today | cut -d' ' -f1)
 post rightclick $(row 2)
-expect '^browser: menu shown Pin Tab, Duplicate Tab, Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
+expect '^browser: menu shown Pin Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
 ../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
 send choose Duplicate Tab
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
@@ -1817,7 +1835,7 @@ expect "^browser: selected $tab\$" "Duplicate Tab didn't show the copy"
 expect_page example.org 1 0 "the copy Duplicate Tab made"
 # Close Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
-expect '^browser: menu shown Pin Tab, Duplicate Tab, Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
+expect '^browser: menu shown Pin Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
 send choose Close Tabs Below
 expect '^browser: command close-tabs-below via tab menu$' "Close Tabs Below didn't run"
 expect_lists "$a" "$t" "after Close Tabs Below"
@@ -1831,7 +1849,7 @@ send key t cmd shift
 expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Close Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
 # A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
 post rightclick $(pinned_row 0)
-expect '^browser: menu shown Unpin Tab, Back to Pinned URL (disabled), Duplicate Tab, Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
+expect '^browser: menu shown Unpin Tab, Back to Pinned URL (disabled), Duplicate Tab, Move to Space (disabled), Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
 send choose Unpin Tab
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""

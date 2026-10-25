@@ -280,19 +280,28 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
 ];
 
 /// An item in a menu the host shows. A line between items has no title.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct MenuEntry {
-    pub title: &'static str,
+    pub title: SharedString,
     pub enabled: bool,
     /// The keystroke it shows, as SHORTCUTS writes it.
     pub shortcut: Option<&'static str>,
+    /// The item whose submenu it's in, by index.
+    pub parent: Option<usize>,
 }
 
 impl MenuEntry {
-    pub const LINE: MenuEntry = MenuEntry { title: "", enabled: false, shortcut: None };
+    fn new(title: impl Into<SharedString>, enabled: bool) -> Self {
+        MenuEntry { title: title.into(), enabled, shortcut: None, parent: None }
+    }
 
-    fn new(title: &'static str, enabled: bool) -> Self {
-        MenuEntry { title, enabled, shortcut: None }
+    fn line() -> Self {
+        MenuEntry::new("", false)
+    }
+
+    /// In the submenu of the item at `parent`.
+    fn under(self, parent: usize) -> Self {
+        MenuEntry { parent: Some(parent), ..self }
     }
 
     /// Shows the shortcut that runs `command`.
@@ -431,6 +440,8 @@ pub trait Browser {
     fn close_below(&self, tab: u64, cx: &mut App);
     /// Opens a copy of `tab` with its history, under it in Today, and shows it.
     fn duplicate(&self, tab: u64, cx: &mut App);
+    /// Moves `tab` to `space`. The window goes with it if it shows it.
+    fn move_to_space(&self, tab: u64, space: u64, cx: &mut App);
     /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
     /// Moves `tab` to `index` in its Space's pinned tabs or Today, pinning or unpinning it.
@@ -455,12 +466,14 @@ pub trait Browser {
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
     /// Deletes a Space, closing its tabs.
     fn delete_space(&self, space: u64, cx: &mut App);
-    /// Shows a menu of `items` at `position` in the window, as a right-click there does. Then calls
-    /// `chosen` once it closes, with the index of the item chosen, if any.
+    /// Shows a menu of `items` at `position` in the window, or in the reveal's panel if
+    /// `in_reveal`, as a right-click there does. Then calls `chosen` once it closes, with the index
+    /// of the item chosen, if any.
     fn menu(
         &self,
         items: Vec<MenuEntry>,
         position: Point<Pixels>,
+        in_reveal: bool,
         chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
     );
@@ -1261,6 +1274,7 @@ impl Shell {
                 MenuEntry::new("Delete Space", self.spaces.len() > 1),
             ],
             position,
+            self.sidebar_hidden,
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| match chosen {
@@ -1277,50 +1291,73 @@ impl Shell {
     /// The menu a right-click on a tab's row shows: Chrome's tab actions that Arc's sidebar has,
     /// with their shortcuts.
     fn tab_menu(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
-        type Action = fn(&mut Shell, u64, &mut Context<Shell>);
+        type Action = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
         let pinned = self.pinned().contains(&tab);
         let page = self.page(tab);
         let below = self.today().iter().skip_while(|&&id| id != tab).count() > 1;
+        let others: Vec<(u64, SharedString)> = self
+            .spaces
+            .iter()
+            .filter(|space| space.id != self.space)
+            .map(|space| (space.id, space.name.clone()))
+            .collect();
         let pin = MenuEntry::new(if pinned { "Unpin Tab" } else { "Pin Tab" }, true);
         let mut items: Vec<(MenuEntry, &'static str, Action)> = vec![(
             pin.shortcut(Command::TogglePin),
             "toggle-pin",
-            |shell, tab, cx| {
+            Box::new(move |shell, cx| {
                 let pinned = shell.pinned().contains(&tab);
                 shell.browser.set_pinned(tab, !pinned, cx)
-            },
+            }),
         )];
         if pinned {
             items.push((
                 MenuEntry::new("Back to Pinned URL", page.away_from_pinned_url)
                     .shortcut(Command::BackToPinnedUrl),
                 "back-to-pinned-url",
-                |shell, tab, cx| shell.browser.back_to_pinned_url(tab, cx),
+                Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ));
         }
-        items.push((MenuEntry::new("Duplicate Tab", true), "duplicate-tab", |shell, tab, cx| {
-            shell.browser.duplicate(tab, cx)
-        }));
-        items.push((MenuEntry::LINE, "", |_, _, _| {}));
+        items.push((
+            MenuEntry::new("Duplicate Tab", true),
+            "duplicate-tab",
+            Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+        ));
+        // Each other Space, in the switcher's order.
+        let move_to = items.len();
+        items.push((
+            MenuEntry::new("Move to Space", !others.is_empty()),
+            "",
+            Box::new(|_, _| {}),
+        ));
+        for (space, name) in others {
+            items.push((
+                MenuEntry::new(name, true).under(move_to),
+                "move-to-space",
+                Box::new(move |shell, cx| shell.browser.move_to_space(tab, space, cx)),
+            ));
+        }
+        items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         // A pinned tab closed already has nothing to close.
         let closable = !(page.unloaded && pinned);
         items.push((
             MenuEntry::new("Close Tab", closable).shortcut(Command::CloseTab),
             "close-tab",
-            |shell, tab, cx| shell.browser.close(tab, cx),
+            Box::new(move |shell, cx| shell.browser.close(tab, cx)),
         ));
         if !pinned {
             items.push((
                 MenuEntry::new("Close Tabs Below", below),
                 "close-tabs-below",
-                |shell, tab, cx| shell.browser.close_below(tab, cx),
+                Box::new(move |shell, cx| shell.browser.close_below(tab, cx)),
             ));
         }
-        let entries = items.iter().map(|&(entry, ..)| entry).collect();
+        let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
         let shell = cx.weak_entity();
         self.browser.menu(
             entries,
             position,
+            self.sidebar_hidden,
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| {
@@ -1330,9 +1367,10 @@ impl Shell {
                             shell.unhovered.push((Row::Tab(tab), Instant::now()));
                         }
                         cx.notify();
-                        if let Some(&(_, name, action)) = chosen.and_then(|at| items.get(at)) {
+                        let item = chosen.and_then(|at| items.into_iter().nth(at));
+                        if let Some((_, name, action)) = item {
                             eprintln!("browser: command {name} via tab menu");
-                            action(shell, tab, cx)
+                            action(shell, cx)
                         }
                     })
                     .ok();

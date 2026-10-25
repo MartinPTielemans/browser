@@ -248,6 +248,36 @@ void Window::CloseBelow(bc_id tab) {
 }
 
 // static
+void Window::MoveToSpace(bc_id tab, bc_id space) {
+  Space* from = Space::Holding(tab);
+  Space* to = Space::FromId(space);
+  if (!from || !to || from == to || DeletingSpaces().contains(space)) {
+    return;
+  }
+  const bool pinned = from->IsPinned(tab);
+  const GURL url = from->PinnedUrl(tab);
+  const bc_id next = from->NextAfterLeaving(tab, &Tab::Loaded);
+  // In its new Space before it leaves the old, so the UI never hears of it in neither and forgets
+  // its title.
+  if (pinned) {
+    to->AddPinned(tab, url);
+  } else {
+    to->AddAt(tab, 0);
+  }
+  from->Remove(tab);
+  for (auto& [id, window] : Windows()) {
+    if (window->selected_ == tab) {
+      // ShowSpace keeps |next| as the tab the old Space shows.
+      window->selected_ = next;
+      window->SetSelectedIn(space, tab);
+      window->ShowSpace(space);
+    } else if (window->SelectedIn(from->id()) == tab) {
+      window->SetSelectedIn(from->id(), next);
+    }
+  }
+}
+
+// static
 bool Window::DeleteSpace(bc_id space) {
   std::vector<Space*> staying = Space::All();
   std::erase_if(staying, [](Space* each) { return DeletingSpaces().contains(each->id()); });

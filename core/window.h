@@ -73,6 +73,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Closes the Today tabs below |tab| as the user does, bottom up, so ⇧⌘T reopens each at its
   // place. A window showing one shows |tab| first, so none shows or loads on the way out.
   static void CloseBelow(bc_id tab);
+  // Moves |tab| to |space|: a pinned tab to the bottom of its pinned tabs, still pinned at its
+  // pinned URL, a Today tab to the top of its Today tabs. A window showing the tab goes with it, as
+  // Chrome's active tab does to another window, and its old Space shows next what it would once the
+  // tab closed.
+  static void MoveToSpace(bc_id tab, bc_id space);
 
   Window(const Window&) = delete;
   Window& operator=(const Window&) = delete;

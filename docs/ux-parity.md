@@ -87,7 +87,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Tab switcher ⌃Tab | MVP | most recent first; overlay after 140 ms; commits on ⌃ release | Dia 1.50.1 bin P§2 |
 | [ ] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
 | [ ] | Rename and emoji icon | MVP | double-click renames inline | Dia P§2 |
-| [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Duplicate, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
+| [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
 | [ ] | Folders | MVP | measure (Dia groups: chevron 8 after the name, ≈ 150 ms) | Dia rec |
 
 ## Spaces
