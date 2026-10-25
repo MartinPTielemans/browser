@@ -56,16 +56,16 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25 | Dia cap, Ardia |
-| [x] | Clear divider line | MVP | 1 pt white ≈ 0.08, centre 25 above the first row's centre | Arc (Ardia) D›Arc note: Clear |
+| [x] | Clear divider line | MVP | one device pixel, white 0.15, 18 in from each side; ends 7.5 before Clear while it shows; centre 25 above the first row's centre | Arc 1.170.0 cap and tokens, Arc (Ardia) |
 | [ ] | Clear label and arrow | MVP | arrow 7 × 8, 3 pt from "Clear", semibold ≈ 10 pt, ends with the titles | Arc (Ardia) |
 | [x] | Clear on hover | MVP | shows only while the pointer is over the sidebar; its fade: measure | Arc 1.170.0 cap |
-| [ ] | Row pitch / height | MVP | 36 Arc (confirm) / Dia 37 and 34 | Arc (Ardia), Dia 1.50.1 bin |
-| [ ] | Row radius | MVP | min(h/3, 10) continuous | Dia 1.50.1 bin |
-| [ ] | Row favicon and title | MVP | 16 pt at x 9; title 7 after, 13 pt, trailing fade | Dia 1.50.1 bin |
-| [x] | Row states | MVP | hover white 0.16, pressed 0.31, selected #121212 0.5 + 0.5 pt white 0.15 hairline; unselected none (Arc; Dia 0.06) | Dia asset catalogs |
+| [x] | Row pitch / height | MVP | 41 / 40 | Arc 1.170.0 ax |
+| [x] | Row plate | MVP | 36 tall, x 8 to width − 8, radius ≈ 12 | Arc 1.170.0 cap |
+| [ ] | Row favicon and title | MVP | favicon 18 at x 17, title at x 43; the title's trailing fade (ours: an ellipsis) | Arc 1.170.0 ax |
+| [x] | Row states | MVP | selected white 0.20, hover 0.12, pressed 0.065; no line or shadow in dark mode; unselected none | Arc 1.170.0 tokens and cap |
 | [x] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
 | [x] | Row fill change | MVP | 300 ms ease-out, as the hover fill leaves | Dia 1.50.1 bin |
-| [x] | Close ✕ | MVP | on hover, ≈ 22 pt hover square | Dia cap |
+| [x] | Close ✕ | MVP | on hover, the selected row's too; 26 × 26, 5 inside the plate's right edge | Arc 1.170.0 cap |
 | [ ] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
 | [ ] | Sleeping tab | MVP | faded favicon (alpha: measure) | Dia |
 | [ ] | "+ New Tab" row | MVP | label white 0.55, plus 0.25, 3 under the last row, sticky at the bottom | Dia 1.50.1 bin |

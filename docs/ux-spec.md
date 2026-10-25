@@ -252,30 +252,29 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 
 - Today tabs are the Space's unpinned tabs. They are archived (see Archive).
 - The divider shows with the section while the Space has Today tabs. It has no hover state.
-- Clear shows only while the pointer is over the sidebar (Arc 1.170.0 cap). Ours: it shows and hides at once, keeping its place so the line doesn't move, since Arc's fade isn't recorded. The reveal's panel, which shows only under the pointer, always shows it.
-- The line is 1 pt at white ≈ 0.08. It runs from the favicons' left edge to 7.5 pt before the arrow. Its centre is 25 pt above the centre of the first Today row.
+- Clear shows only while the pointer is over the sidebar (Arc 1.170.0 cap). Ours: it shows and hides at once, since Arc's fade isn't recorded. The reveal's panel, which shows only under the pointer, always shows it.
+- The line is one device pixel of white 0.15 (Arc's separator token; the capture reads 0.14–0.16), 18 pt in from each side of the sidebar (Arc 1.170.0 cap). While Clear shows, it ends 7.5 pt before the arrow. Its centre is 25 pt above the centre of the first Today row.
 - The down arrow is 7 × 8 and sits 3 pt before the label "Clear". The label is semibold, with a cap height 0.75 of the tab titles' (≈ 10 pt beside 13 pt titles), and it ends where the titles end.
 - The button's tooltip is "Clear unpinned tabs in this space". The menu item is Clear Unpinned Tabs (⇧⌘K). The command bar finds it by "close unpinned tabs", "clear tabs" and "clear today".
 
-**Tab rows** (Dia 1.50.1 bin and cap, D›Sidebar rows. Arc's pitch is 36 against Dia's 37: measure.)
+**Tab rows** (Arc 1.170.0 ax, cap and colour tokens; Dia 1.50.1 bin and cap where noted)
 
 | Item | Value |
 |---|---|
-| Pitch / row height | 37 / 34 (the background is inset 1.5 top and bottom) |
-| Side inset | 6 |
-| Radius | min(height / 3, 10), continuous corners |
-| Favicon | 16 × 16, 9 into the row, vertically centred |
-| Title | starts 7 after the favicon (4 more with a badge slot). 13–14 pt (Dia 1.49 estimate; Ardia uses 13). Fades out at the trailing edge, never an ellipsis |
-| Selected | the selected fill plus a 0.5 pt inner hairline of white 0.15 on all four sides. White title |
-| Hover | hover fill and an ✕ at the trailing end with its own ≈ 22 pt hover square |
-| Trailing affordance | at width − 8 − its size |
+| Pitch / row height | 41 / 40 |
+| Plate | 36 tall, centred in the row, from x 8 to the width − 8 (from 24 in a folder), radius ≈ 12 |
+| Favicon | 18 × 18 at x 17, vertically centred |
+| Title | at x 43, 14 pt. Fades out at the trailing edge, never an ellipsis (Dia) |
+| Selected | white 0.20 (Arc's p3 (0.98, 0.984, 1)), with no line or shadow in dark mode. Light mode: white 0.85 with a black 0.2 shadow (tokens). White title (Dia) |
+| Hover | white 0.12, and a close button 26 × 26, 5 inside the plate's right edge, that the title truncates before. The selected row shows it too |
+| Pressed | white 0.065 |
 | Audio | a speaker glyph after the favicon. Muting applies to the site in that profile and follows navigation (Dia, P§2) |
 | Loading | a 12 × 12 ring at width − 8 − 12, only in rows at least 48 wide, hidden under the hover ✕. The track and ring are 1.5 pt lines on a circle inset 1.25. The ring covers 72 % with round caps in the secondary label colour, the track is the same colour at 0.18, and it spins per Motion |
 | Sleeping tab | faded favicon (alpha: measure) |
-| "+ New Tab" row | label white 0.55 (secondary), plus sign white 0.25 (tertiary); hover as rows. 3 pt under the row above. It sticks to the bottom when the list overflows |
+| "+ New Tab" row | the first row under the divider, where new tabs open below it (Arc). Label white 0.55 (secondary), plus sign white 0.25 (tertiary); hover as rows (Dia) |
 | New Tab tab's icon | our mark, 16 wide, white 0.28 in dark mode over any row state |
 
-- Ours (*interim* until Arc's rows are captured): the states use Dia's fills and title colours, on Arc's geometry. An unselected row has no fill, as in Arc. The ✕'s square is the subtle fill, white 0.12, at the header buttons' radius 6. A selected or dragged row shows no pressed fill. Titles end in an ellipsis, since GPUI has no mask for the fade.
+- Ours: titles are Dia's, white for the selected row and 0.78 for the others, since Arc's aren't measured. The ✕'s square is the subtle fill, white 0.12, at the header buttons' radius 6. A selected or dragged row shows no pressed fill. Titles end in an ellipsis, since GPUI has no mask for the fade.
 
 **Behavior**
 
