@@ -13,7 +13,7 @@ use browser::shell::{
     Shell, WindowButton,
 };
 use gpui::{
-    App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
+    App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
 };
 
@@ -117,7 +117,7 @@ impl Browser for Fake {
         self.later(cx, move |shell, cx| shell.set_selected(tab, cx));
     }
 
-    fn close(&self, tab: u64, cx: &mut App) {
+    fn close(&self, tab: u64, _split: bool, cx: &mut App) {
         self.later(cx, move |shell, cx| {
             let mut today = shell.today().to_vec();
             let Some(index) = today.iter().position(|&id| id == tab) else {
@@ -125,7 +125,7 @@ impl Browser for Fake {
             };
             today.remove(index);
             let next = today.get(index).or(today.last()).copied().unwrap_or(0);
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
             if shell.selected() == tab {
                 shell.set_selected(next, cx);
             }
@@ -142,7 +142,7 @@ impl Browser for Fake {
             if !today.contains(&shell.selected()) && !shell.pinned().contains(&shell.selected()) {
                 shell.set_selected(tab, cx);
             }
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
         });
     }
 
@@ -156,7 +156,7 @@ impl Browser for Fake {
             today.insert(at, copy);
             shell.set_title(copy, shell.title(tab), cx);
             shell.set_page(copy, shell.page(tab), cx);
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
             shell.set_selected(copy, cx);
         });
     }
@@ -176,7 +176,7 @@ impl Browser for Fake {
             let at = if pinned { tabs[to].len() } else { 0 };
             tabs[to].insert(at, tab);
             let [pinned, today] = tabs;
-            shell.set_tabs(shell.space(), pinned, today, cx);
+            shell.set_tabs(shell.space(), pinned, today, shell.splits(), cx);
         });
     }
 
@@ -189,7 +189,7 @@ impl Browser for Fake {
             let to = &mut tabs[if pinned { 0 } else { 1 }];
             to.insert(index.min(to.len()), tab);
             let [pinned, today] = tabs;
-            shell.set_tabs(shell.space(), pinned, today, cx);
+            shell.set_tabs(shell.space(), pinned, today, shell.splits(), cx);
         });
     }
 
@@ -198,7 +198,7 @@ impl Browser for Fake {
         self.later(cx, |shell, cx| {
             let selected = shell.selected();
             let today = shell.today().iter().copied().filter(|&tab| tab == selected).collect();
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
         });
     }
 
@@ -297,7 +297,7 @@ impl Browser for Fake {
         self.later(cx, move |shell, cx| {
             let mut today = shell.today().to_vec();
             today.insert(0, tab);
-            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, shell.splits(), cx);
             shell.set_selected(tab, cx);
         });
     }
@@ -360,7 +360,16 @@ impl Browser for Fake {
     fn focus_ui(&self, _: &mut App) {}
 
     // There's no page, and the window's buttons stay where GPUI put them.
-    fn lay_out_page(&self, _: Size<Pixels>, _: f32, _: f32, _: &mut App) {}
+    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {}
+
+    fn set_focus_color(&self, _: u32, _: &mut App) {}
+
+    fn set_page_right(&self, _: f32, _: &mut App) {}
+
+    // No command bar here, as for a new tab, and no split views but the made-up one.
+    fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {}
+
+    fn separate(&self, _: u64, _: &mut App) {}
 
     fn show_window_buttons(&self, _: bool, _: &mut App) {}
 
@@ -494,8 +503,11 @@ fn main() {
                     };
                     shell.set_page(tab, page, cx);
                 }
+                // The last two in a split view.
                 let pinned = vec![1, 2];
-                shell.set_tabs(first_space, pinned, (3..=TABS.len() as u64).collect(), cx);
+                let today = (3..=TABS.len() as u64).collect();
+                let split = vec![TABS.len() as u64 - 1, TABS.len() as u64];
+                shell.set_tabs(first_space, pinned, today, vec![split], cx);
                 shell.set_selected(1, cx);
                 shell
             });

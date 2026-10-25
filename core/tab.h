@@ -73,6 +73,7 @@ class Tab : public content::WebContentsObserver,
   void DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) override;
   void TitleWasSet(content::NavigationEntry* entry) override;
   void DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) override;
+  void DidGetUserInteraction(const blink::WebInputEvent& event) override;
   void WebContentsDestroyed() override;
 
   // favicon::FaviconDriverObserver:

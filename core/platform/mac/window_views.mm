@@ -8,25 +8,49 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/widget/widget.h"
 
-// Holds the app's UI view and, over it, the page shown, with its DevTools when they're docked.
-// Flipped, so frames run from the top-left as the core's do.
-@interface BrowserCoreWindowView : NSView
-@property(strong, nonatomic) NSView* uiView;
-@property(weak, nonatomic) NSView* pageView;
-@property(weak, nonatomic) NSView* devtoolsView;
-// The distance from each edge of the page's frame, which it keeps as the window resizes.
-@property(nonatomic) NSEdgeInsets pageInsets;
+// A page the window shows, with its DevTools when they're docked.
+@interface BrowserCorePane : NSObject
+@property(weak, nonatomic) NSView* page;
+@property(weak, nonatomic) NSView* devtools;
+// The distance from each edge of the window to the page's frame, which it keeps as the window
+// resizes.
+@property(nonatomic) NSEdgeInsets insets;
 // With DevTools docked, where the page goes in its frame, from the frame's top-left.
 @property(nonatomic) NSRect pageInDevTools;
+@end
+
+@implementation BrowserCorePane
+@synthesize page = _page;
+@synthesize devtools = _devtools;
+@synthesize insets = _insets;
+@synthesize pageInDevTools = _pageInDevTools;
+@end
+
+// The ring inside the focused page's edge in a split view, over the page. Clicks go through it.
+@interface BrowserCoreFocusRing : NSView
+@end
+
+@implementation BrowserCoreFocusRing
+- (NSView*)hitTest:(NSPoint)point {
+  return nil;
+}
+@end
+
+// Holds the app's UI view and, over it, the pages shown, left to right, with the focused one's ring
+// in a split view. Flipped, so frames run from the top-left as the core's do.
+@interface BrowserCoreWindowView : NSView
+@property(strong, nonatomic) NSView* uiView;
+@property(copy, nonatomic) NSArray<BrowserCorePane*>* panes;
+@property(nonatomic) NSUInteger focused;
+@property(strong, nonatomic) BrowserCoreFocusRing* ring;
 - (void)layOutPage;
 @end
 
 @implementation BrowserCoreWindowView
 @synthesize uiView = _uiView;
-@synthesize pageView = _pageView;
-@synthesize devtoolsView = _devtoolsView;
-@synthesize pageInsets = _pageInsets;
-@synthesize pageInDevTools = _pageInDevTools;
+@synthesize panes = _panes;
+@synthesize focused = _focused;
+@synthesize ring = _ring;
 
 - (BOOL)isFlipped {
   return YES;
@@ -39,24 +63,33 @@
   [self layOutPage];
 }
 
-- (void)layOutPage {
-  NSView* page = self.pageView;
-  if (page.superview != self) {
-    return;
-  }
+- (NSRect)frameOf:(BrowserCorePane*)pane {
   NSRect bounds = self.bounds;
-  NSEdgeInsets insets = self.pageInsets;
-  NSRect frame = NSMakeRect(insets.left, insets.top, NSWidth(bounds) - insets.left - insets.right,
-                            NSHeight(bounds) - insets.top - insets.bottom);
-  NSView* devtools = self.devtoolsView;
-  if (devtools.superview != self) {
-    page.frame = frame;
-    return;
+  NSEdgeInsets insets = pane.insets;
+  return NSMakeRect(insets.left, insets.top, NSWidth(bounds) - insets.left - insets.right,
+                    NSHeight(bounds) - insets.top - insets.bottom);
+}
+
+- (void)layOutPage {
+  for (BrowserCorePane* pane in self.panes) {
+    NSView* page = pane.page;
+    if (page.superview != self) {
+      continue;
+    }
+    NSRect frame = [self frameOf:pane];
+    NSView* devtools = pane.devtools;
+    if (devtools.superview != self) {
+      page.frame = frame;
+      continue;
+    }
+    devtools.frame = frame;
+    // The core places the page again for each new frame, and DevTools once they've laid out at it.
+    page.frame = NSIntersectionRect(
+        NSOffsetRect(pane.pageInDevTools, NSMinX(frame), NSMinY(frame)), frame);
   }
-  devtools.frame = frame;
-  // The core places the page again for each new frame, and DevTools once they've laid out at it.
-  page.frame = NSIntersectionRect(
-      NSOffsetRect(self.pageInDevTools, NSMinX(frame), NSMinY(frame)), frame);
+  if (self.ring.superview == self && self.focused < self.panes.count) {
+    self.ring.frame = [self frameOf:self.panes[self.focused]];
+  }
 }
 @end
 
@@ -126,56 +159,86 @@ void AddWindowViews(views::Widget* widget, void* ui_view) {
   content.embeddedView = view;
 }
 
-void ShowPage(views::Widget* widget,
-              gfx::NativeView page,
-              const gfx::Rect& frame,
-              double corner_radius,
-              const DockedDevTools* devtools) {
+void ShowPages(views::Widget* widget,
+               base::span<const Pane> panes,
+               double corner_radius,
+               size_t focused,
+               uint32_t ring_color) {
   BrowserCoreWindowView* view = WindowView(widget);
-  NSView* page_view = page.GetNativeNSView();
-  NSView* devtools_view = devtools ? devtools->view.GetNativeNSView() : nil;
+  NSMutableSet<NSView*>* staying = [NSMutableSet set];
+  for (const Pane& pane : panes) {
+    [staying addObject:pane.page.GetNativeNSView()];
+    if (pane.devtools) {
+      [staying addObject:pane.devtools->view.GetNativeNSView()];
+    }
+  }
   for (NSView* subview in [view.subviews copy]) {
-    if (subview != view.uiView && subview != page_view && subview != devtools_view) {
+    if (subview != view.uiView && subview != view.ring && ![staying containsObject:subview]) {
       [subview removeFromSuperview];
     }
   }
-  view.devtoolsView = devtools_view;
-  if (!page_view) {
-    view.pageView = nil;
-    return;
+  NSRect bounds = view.bounds;
+  NSMutableArray<BrowserCorePane*>* shown = [NSMutableArray array];
+  for (const Pane& pane : panes) {
+    NSView* page_view = pane.page.GetNativeNSView();
+    NSView* devtools_view = pane.devtools ? pane.devtools->view.GetNativeNSView() : nil;
+    BrowserCorePane* record = [[BrowserCorePane alloc] init];
+    record.page = page_view;
+    record.devtools = devtools_view;
+    Unhide(page_view);
+    if (devtools_view) {
+      Unhide(devtools_view);
+      RoundCorners(devtools_view, corner_radius, kAllCorners);
+      record.pageInDevTools = pane.devtools->page_frame.ToCGRect();
+      RoundCorners(page_view, corner_radius,
+                   CornersReached(page_view, record.pageInDevTools, pane.frame.size().ToCGSize()));
+      if (devtools_view.superview != view) {
+        [view addSubview:devtools_view positioned:NSWindowAbove relativeTo:view.uiView];
+      }
+    } else {
+      RoundCorners(page_view, corner_radius, kAllCorners);
+    }
+    if (page_view.superview != view) {
+      [view addSubview:page_view];
+    }
+    if (devtools_view) {
+      // Only when it's out of order: a view moved loses the keyboard.
+      NSArray<NSView*>* subviews = view.subviews;
+      const bool page_over =
+          [subviews indexOfObject:page_view] > [subviews indexOfObject:devtools_view];
+      if (page_over == pane.devtools->page_under) {
+        [view addSubview:page_view
+              positioned:pane.devtools->page_under ? NSWindowBelow : NSWindowAbove
+              relativeTo:devtools_view];
+      }
+    }
+    NSRect rect = pane.frame.ToCGRect();
+    record.insets = NSEdgeInsetsMake(NSMinY(rect), NSMinX(rect), NSHeight(bounds) - NSMaxY(rect),
+                                     NSWidth(bounds) - NSMaxX(rect));
+    [shown addObject:record];
   }
-  Unhide(page_view);
-  if (devtools_view) {
-    Unhide(devtools_view);
-    RoundCorners(devtools_view, corner_radius, kAllCorners);
-    view.pageInDevTools = devtools->page_frame.ToCGRect();
-    RoundCorners(page_view, corner_radius,
-                 CornersReached(page_view, view.pageInDevTools, frame.size().ToCGSize()));
-    if (devtools_view.superview != view) {
-      [view addSubview:devtools_view positioned:NSWindowAbove relativeTo:view.uiView];
+  view.panes = shown;
+  view.focused = focused;
+  if (shown.count > 1) {
+    if (!view.ring) {
+      view.ring = [[BrowserCoreFocusRing alloc] init];
+      view.ring.wantsLayer = YES;
+      // Arc's: 2 pt, inside the page's edge.
+      view.ring.layer.borderWidth = 2;
+    }
+    view.ring.layer.cornerRadius = corner_radius;
+    view.ring.layer.borderColor = [NSColor colorWithSRGBRed:((ring_color >> 16) & 0xff) / 255.0
+                                                      green:((ring_color >> 8) & 0xff) / 255.0
+                                                       blue:(ring_color & 0xff) / 255.0
+                                                      alpha:1]
+                                      .CGColor;
+    // Moving the ring, which never has the keyboard, rather than a page.
+    if (view.subviews.lastObject != view.ring) {
+      [view addSubview:view.ring positioned:NSWindowAbove relativeTo:nil];
     }
   } else {
-    RoundCorners(page_view, corner_radius, kAllCorners);
+    [view.ring removeFromSuperview];
   }
-  if (page_view.superview != view) {
-    [view addSubview:page_view];
-  }
-  if (devtools_view) {
-    // Only when it's out of order: a view moved loses the keyboard.
-    NSArray<NSView*>* subviews = view.subviews;
-    const bool page_over =
-        [subviews indexOfObject:page_view] > [subviews indexOfObject:devtools_view];
-    if (page_over == devtools->page_under) {
-      [view addSubview:page_view
-            positioned:devtools->page_under ? NSWindowBelow : NSWindowAbove
-            relativeTo:devtools_view];
-    }
-  }
-  NSRect bounds = view.bounds;
-  NSRect rect = frame.ToCGRect();
-  view.pageView = page_view;
-  view.pageInsets = NSEdgeInsetsMake(NSMinY(rect), NSMinX(rect), NSHeight(bounds) - NSMaxY(rect),
-                                     NSWidth(bounds) - NSMaxX(rect));
   [view layOutPage];
 }
 
@@ -188,8 +251,15 @@ bool KeyboardForPage(views::Widget* widget) {
   }
   BrowserCoreWindowView* view = WindowView(widget);
   NSView* focused = base::apple::ObjCCast<NSView>(window.firstResponder);
-  return [focused isDescendantOf:view] && ![focused isDescendantOf:view.uiView] &&
-         !(view.devtoolsView && [focused isDescendantOf:view.devtoolsView]);
+  if (![focused isDescendantOf:view] || [focused isDescendantOf:view.uiView]) {
+    return false;
+  }
+  for (BrowserCorePane* pane in view.panes) {
+    if (pane.devtools && [focused isDescendantOf:pane.devtools]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace browser_core::platform

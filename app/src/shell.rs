@@ -11,7 +11,8 @@ use std::{
 };
 
 use gpui::{
-    Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, CursorStyle,
+    Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, BoxShadow, Context,
+    CursorStyle,
     DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding,
     MenuItem, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, Pixels,
     Point, Rgba, ScrollDelta, ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase,
@@ -33,6 +34,13 @@ pub const CARD_INSET: f32 = 10.;
 /// The radius of the card's corners and the page's in it: Arc's, a circle of 12 pixels in its
 /// window at 2×.
 pub const CARD_RADIUS: f32 = 6.;
+/// Between the pages of a split view, as in Arc. The core's is the same.
+const SPLIT_GAP: f32 = 10.;
+/// The most pages a split view shows, as the core's Space has it.
+const MAX_PANES: usize = 3;
+/// The glow outside a split view's focused page, in its ring's colour (Arc: ≈ 8 pt).
+const FOCUS_GLOW: f32 = 8.;
+const FOCUS_GLOW_ALPHA: f32 = 0.5;
 
 // ⌘S hides and shows the sidebar on Arc's ease-out cubics (docs/ux-spec.md › Motion: Sidebar hide
 // and Sidebar show).
@@ -127,6 +135,13 @@ const TITLE_GAP: f32 = 8.;
 // Arc's close button, 5 inside the plate's right edge.
 const CLOSE_SIZE: f32 = 26.;
 const CLOSE_RIGHT: f32 = 5.;
+// A split's row (Arc): a segment per tab, all as wide, each after the first behind a line. Its
+// favicon is 7 pt after the line, its title 10 pt after the favicon, and it ends 5 pt before the
+// next line.
+const SEGMENT_FAVICON_X: f32 = 7.;
+const SEGMENT_TITLE_GAP: f32 = 10.;
+const SEGMENT_END: f32 = 5.;
+const SEGMENT_LINE: f32 = 16.;
 // Arc's divider line: one device pixel at 2x, 18 in from each side of the sidebar.
 const HAIRLINE: f32 = 0.5;
 const DIVIDER_X: f32 = 18.;
@@ -310,6 +325,15 @@ pub enum Command {
     ClearArchive,
     /// Opens the Library on the downloads, or closes it there.
     ViewDownloads,
+    /// Opens the command bar over a new pane beside the pages shown, for a split view.
+    AddSplit,
+    /// Closes the split view's focused page.
+    CloseSplitPane,
+    /// Takes the split view's focused page out of it, to show alone.
+    SeparatePane,
+    /// Focuses the split view's page right of the focused one, or left of it.
+    NextPane,
+    PreviousPane,
     Quit,
 }
 
@@ -370,6 +394,16 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
+    // ⌃+ is ⌃⇧= on most layouts, as ⌘+ is.
+    ("ctrl-+", Command::AddSplit, false),
+    ("ctrl-shift-=", Command::AddSplit, false),
+    ("ctrl-shift-+", Command::AddSplit, false),
+    ("ctrl-shift--", Command::CloseSplitPane, false),
+    ("ctrl-shift-_", Command::CloseSplitPane, false),
+    ("ctrl-shift-]", Command::NextPane, false),
+    ("ctrl-shift-}", Command::NextPane, false),
+    ("ctrl-shift-[", Command::PreviousPane, false),
+    ("ctrl-shift-{", Command::PreviousPane, false),
     ("escape", Command::Stop, false),
     ("ctrl-1", Command::SelectSpace(0), false),
     ("ctrl-2", Command::SelectSpace(1), false),
@@ -487,6 +521,11 @@ impl Command {
             Command::ViewArchive => "view-archive",
             Command::ClearArchive => "clear-archive",
             Command::ViewDownloads => "view-downloads",
+            Command::AddSplit => "add-split",
+            Command::CloseSplitPane => "close-split-pane",
+            Command::SeparatePane => "separate-pane",
+            Command::NextPane => "next-pane",
+            Command::PreviousPane => "previous-pane",
             Command::Quit => "quit",
         }
     }
@@ -528,6 +567,27 @@ pub fn bind_keys(cx: &mut App) {
                 .ok();
         }
     });
+}
+
+/// The command bar is about to show a page in the pane being added, if one is: the pages shown take
+/// back its room first, so the split view shows at its place at once.
+pub fn pane_added(cx: &mut App) {
+    if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
+        shell
+            .update(cx, |shell, cx| {
+                if shell.adding_pane.take().is_some() {
+                    shell.lay_out_page(cx);
+                    cx.notify();
+                }
+            })
+            .ok();
+    }
+}
+
+/// The tab the window shows, or 0.
+pub fn shown_tab(cx: &App) -> u64 {
+    let shell = cx.try_global::<ShellHandle>().and_then(|handle| handle.0.upgrade());
+    shell.map_or(0, |shell| shell.read(cx).selected)
 }
 
 /// A menu item that runs `command`, showing its shortcut.
@@ -584,8 +644,9 @@ impl AssetSource for Assets {
 /// during the call.
 pub trait Browser {
     fn select(&self, tab: u64, cx: &mut App);
-    /// Closes a Today tab. A pinned tab stays, and only its page goes.
-    fn close(&self, tab: u64, cx: &mut App);
+    /// Closes a Today tab. A pinned tab stays, and only its page goes. A tab in a split view
+    /// leaves it, unless `split` closes the rest of the split with it.
+    fn close(&self, tab: u64, split: bool, cx: &mut App);
     /// Closes the Today tabs below `tab`, showing `tab` if one of them showed.
     fn close_below(&self, tab: u64, cx: &mut App);
     /// Opens a copy of `tab` with its history, under it in Today, and shows it.
@@ -594,8 +655,11 @@ pub trait Browser {
     fn move_to_space(&self, tab: u64, space: u64, cx: &mut App);
     /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
-    /// Moves `tab` to `index` in its Space's pinned tabs or Today, pinning or unpinning it.
+    /// Moves `tab` to `index` in its Space's pinned tabs or Today, pinning or unpinning it, with
+    /// the rest of its split view. `index` counts tabs, not rows, without the split's.
     fn move_tab(&self, tab: u64, pinned: bool, index: usize, cx: &mut App);
+    /// Takes `tab` out of its split view.
+    fn separate(&self, tab: u64, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     /// Closes the Today tabs of the Space shown, but the one shown.
@@ -671,9 +735,14 @@ pub trait Browser {
     );
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
-    /// Lays the page out in a window whose content is `viewport`, with the card's left edge at
-    /// `card_left`, pushed `push` further right (`page_frame`).
-    fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, push: f32, cx: &mut App);
+    /// Lays the page out at `frame` in the window, with corners of `radius`
+    /// (`Shell::page_frame`). A split view's pages share it.
+    fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, cx: &mut App);
+    /// The colour of the ring inside a split view's focused page, 0xRRGGBB.
+    fn set_focus_color(&self, color: u32, cx: &mut App);
+    /// Keeps the find bar and the zoom HUD `right` points further in from the window's right
+    /// edge, at the corner of a split view's focused page.
+    fn set_page_right(&self, right: f32, cx: &mut App);
     /// Shows the window's close, minimize and zoom buttons, or hides them.
     fn show_window_buttons(&self, shown: bool, cx: &mut App);
     /// Does what a click on the window's close, minimize or zoom button does.
@@ -704,6 +773,9 @@ pub trait Browser {
         field: Option<Bounds<Pixels>>,
         cx: &mut App,
     );
+    /// Opens the command bar over `pane`, a new pane in the card at `card`, for a page to show
+    /// there in a split view with `with`.
+    fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App);
     /// Opens the tab's find bar with the keyboard.
     fn find(&self, tab: u64, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
@@ -754,6 +826,31 @@ struct Space {
     /// Its pinned tabs and its Today tabs, each top to bottom.
     pinned: Vec<u64>,
     today: Vec<u64>,
+    /// Its split views, each its tabs left to right, which sit together in their list as one row.
+    splits: Vec<Vec<u64>>,
+}
+
+impl Space {
+    /// The tabs of its pinned rows and its Today rows: each split's first stands for the split.
+    fn rows(&self) -> (Vec<u64>, Vec<u64>) {
+        let rows = |tabs: &[u64]| {
+            let later = |tab: &u64| self.splits.iter().any(|split| split[1..].contains(tab));
+            tabs.iter().copied().filter(|tab| !later(tab)).collect()
+        };
+        (rows(&self.pinned), rows(&self.today))
+    }
+
+    /// The tabs shown with `tab`, left to right: its split's, else `tab` alone.
+    fn panes(&self, tab: u64) -> Vec<u64> {
+        let split = self.splits.iter().find(|split| split.contains(&tab));
+        split.cloned().unwrap_or_else(|| vec![tab])
+    }
+
+    /// Where its rows are in the list, from its top.
+    fn slots(&self) -> HashMap<Slot, f32> {
+        let (pinned, today) = self.rows();
+        slots(&pinned, &today)
+    }
 }
 
 /// The Create a Space form, which a Space New Space made shows until it's named, cancelled or has
@@ -970,9 +1067,17 @@ pub struct Shell {
     reveal_motion: Option<(f32, Instant)>,
     /// The pointer is at the window's left edge, waiting to bring the sidebar out.
     reveal_wait: Option<Task<()>>,
-    /// The card's left edge the page was last laid out at, and how far the Library pushed it.
-    page_left: f32,
-    page_push: f32,
+    /// The window's content size at the last draw, and the frame and corner radius the page was
+    /// last laid out at.
+    viewport: Size<Pixels>,
+    page_laid: Option<(Bounds<Pixels>, f32)>,
+    /// While the command bar is open for a pane beside the tab shown, that tab. The pages shown
+    /// make room on their right for the pane (Arc).
+    adding_pane: Option<u64>,
+    /// The colour last given for a split view's focused page.
+    focus_color: Option<u32>,
+    /// How far in from the page frame's right edge the focused page's ends, as last given.
+    page_right: f32,
     /// Every Space's archived tabs, newest first, and the favicons asked for their URLs.
     archive: Vec<Archived>,
     page_favicons: HashMap<SharedString, Option<Arc<Image>>>,
@@ -1042,8 +1147,11 @@ impl Shell {
             revealed: false,
             reveal_motion: None,
             reveal_wait: None,
-            page_left: sidebar_width,
-            page_push: 0.,
+            viewport: Size::default(),
+            page_laid: None,
+            adding_pane: None,
+            focus_color: None,
+            page_right: 0.,
             archive: Vec::new(),
             page_favicons: HashMap::new(),
             downloads: Vec::new(),
@@ -1068,8 +1176,63 @@ impl Shell {
         self.shown_space().map_or(&[], |space| &space.today)
     }
 
+    /// The split views of the Space shown, each its tabs left to right.
+    pub fn splits(&self) -> Vec<Vec<u64>> {
+        self.shown_space().map_or_else(Vec::new, |space| space.splits.clone())
+    }
+
+    /// The tabs of the rows of the Space shown, pinned and Today (`Space::rows`).
+    fn rows(&self) -> (Vec<u64>, Vec<u64>) {
+        self.shown_space().map_or_else(Default::default, Space::rows)
+    }
+
+    /// Where the rows of the Space shown are in the list.
+    fn layout(&self) -> HashMap<Slot, f32> {
+        self.shown_space().map_or_else(|| slots(&[], &[]), Space::slots)
+    }
+
+    /// The tabs shown with `tab` in the Space shown, left to right: its split's, else `tab` alone.
+    fn panes(&self, tab: u64) -> Vec<u64> {
+        self.shown_space().map_or_else(|| vec![tab], |space| space.panes(tab))
+    }
+
+    /// The tab whose row is `tab`'s: its split's first.
+    fn row_of(&self, tab: u64) -> u64 {
+        self.panes(tab)[0]
+    }
+
+    /// The tab a row shows: the one of its split shown last, else the first.
+    fn row_tab(&self, row: u64) -> u64 {
+        let panes = self.panes(row);
+        self.recent.iter().copied().find(|tab| panes.contains(tab)).unwrap_or(row)
+    }
+
     pub fn space(&self) -> u64 {
         self.space
+    }
+
+    /// Where the page goes in a window whose content is `viewport`, and the radius of its corners.
+    /// While a pane is being added beside the tab shown, the pages shown make room for it.
+    pub fn page_frame(&self, viewport: Size<Pixels>) -> (Bounds<Pixels>, f32) {
+        let card_left = self.card_left();
+        let frame = page_frame(viewport, card_left, self.card_push());
+        let radius = if card_left == 0. { 0. } else { CARD_RADIUS };
+        match self.adding_pane.map(|with| self.panes(with).len()) {
+            Some(count) => {
+                let last = pane_frames(frame, count + 1)[count - 1];
+                (Bounds::from_corners(frame.origin, last.bottom_right()), radius)
+            }
+            None => (frame, radius),
+        }
+    }
+
+    /// Lays the page out at `page_frame`, unless it's there already.
+    fn lay_out_page(&mut self, cx: &mut Context<Self>) {
+        let frame = self.page_frame(self.viewport);
+        if self.page_laid != Some(frame) {
+            self.page_laid = Some(frame);
+            self.browser.lay_out_page(frame.0, frame.1, cx);
+        }
     }
 
     pub fn selected(&self) -> u64 {
@@ -1393,6 +1556,7 @@ impl Shell {
                         color,
                         pinned: Vec::new(),
                         today: Vec::new(),
+                        splits: Vec::new(),
                     };
                 };
                 if space.name != name {
@@ -1408,6 +1572,7 @@ impl Shell {
                     color,
                     pinned: std::mem::take(&mut space.pinned),
                     today: std::mem::take(&mut space.today),
+                    splits: std::mem::take(&mut space.splits),
                 }
             })
             .collect();
@@ -1476,6 +1641,7 @@ impl Shell {
         space: u64,
         pinned: Vec<u64>,
         today: Vec<u64>,
+        splits: Vec<Vec<u64>>,
         cx: &mut Context<Self>,
     ) {
         let Some(entry) = self.spaces.iter_mut().find(|entry| entry.id == space) else {
@@ -1483,9 +1649,10 @@ impl Shell {
         };
         // The rows of the Space shown move from where they were, unless it's being filled.
         let had_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
-        let before = (space == self.space && had_tabs).then(|| slots(&entry.pinned, &entry.today));
+        let before = (space == self.space && had_tabs).then(|| entry.slots());
         entry.pinned = pinned;
         entry.today = today;
+        entry.splits = splits;
         let has_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
         // After a Clear, the rows left are in their places at once (Arc).
         let cleared = space == self.space && {
@@ -1531,11 +1698,16 @@ impl Shell {
         let ids = |tabs: &[u64]| tabs.iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         eprintln!("browser: pinned {}", ids(self.pinned()));
         eprintln!("browser: today {}", ids(self.today()));
+        let splits = self.shown_space().map_or_else(Vec::new, |space| {
+            space.splits.iter().map(|split| ids(split).replace(' ', "+")).collect()
+        });
+        eprintln!("browser: splits {}", splits.join(" "));
     }
 
-    /// The Space's tabs in the sidebar's order: pinned, then Today.
-    fn sidebar_tabs(&self) -> Vec<u64> {
-        [self.pinned(), self.today()].concat()
+    /// The Space's rows in the sidebar's order, pinned then Today, each by its first tab.
+    fn sidebar_rows(&self) -> Vec<u64> {
+        let (pinned, today) = self.rows();
+        [pinned, today].concat()
     }
 
     pub fn set_selected(&mut self, tab: u64, cx: &mut Context<Self>) {
@@ -1550,13 +1722,21 @@ impl Shell {
         if !self.walking {
             self.shown(tab);
         }
+        // check.sh reads this line.
+        let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
+        eprintln!("browser: panes {panes}");
         self.set_new_tab(false, cx);
+        self.adding_pane = None;
         cx.notify();
     }
 
     /// The user left the command bar without choosing anything in it.
     pub fn command_bar_dismissed(&mut self, cx: &mut Context<Self>) {
         self.set_new_tab(false, cx);
+        if self.adding_pane.take().is_some() {
+            self.lay_out_page(cx);
+            cx.notify();
+        }
     }
 
     /// Gives "New Tab" the selected plate while ⌘T's command bar is open, or gives it back.
@@ -1569,9 +1749,9 @@ impl Shell {
         }
     }
 
-    /// The row with the selected plate.
+    /// The row with the selected plate: the tab shown's, or its split's.
     fn selected_row(&self) -> Row {
-        if self.new_tab { Row::NewTab } else { Row::Tab(self.selected) }
+        if self.new_tab { Row::NewTab } else { Row::Tab(self.row_of(self.selected)) }
     }
 
     fn shown(&mut self, tab: u64) {
@@ -1632,9 +1812,9 @@ impl Shell {
     pub fn run(&mut self, command: Command, from: &str, cx: &mut Context<Self>) {
         // check.sh waits for these lines.
         eprintln!("browser: command {} via {from}", command.name());
-        let tabs = self.sidebar_tabs();
-        let position = tabs.iter().position(|&tab| tab == self.selected);
-        let count = tabs.len();
+        let rows = self.sidebar_rows();
+        let position = rows.iter().position(|&row| row == self.row_of(self.selected));
+        let count = rows.len();
         let space = self.spaces.iter().position(|space| space.id == self.space);
         // Next and previous wrap around for tabs, as in Chrome, and stop at the ends for Spaces, as
         // in Arc.
@@ -1643,7 +1823,7 @@ impl Shell {
             return;
         }
         // The command bar opens over the page, and the reveal's panel makes way for it.
-        if matches!(command, Command::NewTab | Command::EditUrl) {
+        if matches!(command, Command::NewTab | Command::EditUrl | Command::AddSplit) {
             self.set_revealed(false, cx);
         }
         let target = match command {
@@ -1658,7 +1838,7 @@ impl Shell {
             }
             Command::CloseTab => {
                 if self.selected != 0 {
-                    self.browser.close(self.selected, cx);
+                    self.browser.close(self.selected, false, cx);
                 }
                 return;
             }
@@ -1693,6 +1873,18 @@ impl Shell {
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::Quit => return self.browser.quit(cx),
+            Command::AddSplit => return self.add_pane(cx),
+            Command::CloseSplitPane | Command::SeparatePane => {
+                if self.panes(self.selected).len() > 1 {
+                    match command {
+                        Command::CloseSplitPane => self.browser.close(self.selected, false, cx),
+                        _ => self.browser.separate(self.selected, cx),
+                    }
+                }
+                return;
+            }
+            Command::NextPane => return self.focus_pane(true, cx),
+            Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
             Command::ViewLibrary => return self.set_library(!self.library_open, cx),
             Command::ViewArchive => return self.view_section(Section::Archive, cx),
@@ -1707,27 +1899,59 @@ impl Shell {
             Command::Find => return self.browser.find(self.selected, cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),
             Command::FindPrevious => return self.browser.find_next(self.selected, false, cx),
-            Command::RecentTab => return self.walk(tabs, true, cx),
-            Command::RecentTabBack => return self.walk(tabs, false, cx),
+            Command::RecentTab => return self.walk(rows, true, cx),
+            Command::RecentTabBack => return self.walk(rows, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
             Command::SelectTab(index) => (index < count).then_some(index),
             Command::SelectLastTab => count.checked_sub(1),
         };
         if let Some(index) = target {
-            self.select(tabs[index], cx);
+            self.select(self.row_tab(rows[index]), cx);
         }
     }
 
+    /// ⌃+: opens the command bar over a new pane right of the pages shown, which make room for it
+    /// in the same frame (Arc). What it opens shows there, in a split view with the tab shown.
+    fn add_pane(&mut self, cx: &mut Context<Self>) {
+        let with = self.selected;
+        let count = self.panes(with).len();
+        if with == 0 || count >= MAX_PANES {
+            return;
+        }
+        self.adding_pane = Some(with);
+        self.lay_out_page(cx);
+        let card = page_frame(self.viewport, self.card_left(), self.card_push());
+        let pane = pane_frames(card, count + 1)[count];
+        self.browser.split_bar(with, pane, card, cx);
+        cx.notify();
+    }
+
+    /// Focuses the split view's page right of the focused one, or left of it, round the ends.
+    fn focus_pane(&mut self, forward: bool, cx: &mut Context<Self>) {
+        let panes = self.panes(self.selected);
+        let count = panes.len();
+        let Some(at) = panes.iter().position(|&tab| tab == self.selected).filter(|_| count > 1)
+        else {
+            return;
+        };
+        let next = if forward { (at + 1) % count } else { (at + count - 1) % count };
+        self.select(panes[next], cx);
+    }
+
     /// ⌃Tab, as in Arc: shows the Space's tab shown before this one at once, with no switcher.
-    /// While ⌃ is held, each ⌃Tab goes on to the one shown before that, and ⌃⇧Tab back.
-    fn walk(&mut self, tabs: Vec<u64>, forward: bool, cx: &mut Context<Self>) {
-        // Then the tabs not shown yet, in the sidebar's order.
-        let mut order: Vec<u64> =
-            self.recent.iter().copied().filter(|tab| tabs.contains(tab)).collect();
-        order.extend(tabs.into_iter().filter(|tab| !self.recent.contains(tab)));
+    /// While ⌃ is held, each ⌃Tab goes on to the one shown before that, and ⌃⇧Tab back. A split's
+    /// row counts once.
+    fn walk(&mut self, rows: Vec<u64>, forward: bool, cx: &mut Context<Self>) {
+        // Then the rows not shown yet, in the sidebar's order.
+        let mut order: Vec<u64> = Vec::new();
+        for row in self.recent.iter().map(|&tab| self.row_of(tab)).chain(rows.iter().copied()) {
+            if rows.contains(&row) && !order.contains(&row) {
+                order.push(row);
+            }
+        }
         let count = order.len();
-        let next = match order.iter().position(|&tab| tab == self.selected) {
+        let next = match order.iter().position(|&row| row == self.row_of(self.selected)) {
             Some(at) if forward => (at + 1) % count,
             Some(at) => (at + count - 1) % count,
             // With no tab shown, the tab shown last (Arc).
@@ -1737,20 +1961,22 @@ impl Shell {
                 None => return,
             },
         };
-        if order[next] == self.selected {
+        let tab = self.row_tab(order[next]);
+        if tab == self.selected {
             return;
         }
         if !self.walking {
             self.walking = true;
             self.browser.watch_control(cx);
         }
-        self.select(order[next], cx);
+        self.select(tab, cx);
     }
 
     /// Clears the Space shown, but the tab shown. Its rows go in one frame, with no toast (Arc).
     fn clear(&mut self, cx: &mut Context<Self>) {
-        let selected = self.selected;
-        self.clearing = self.today().iter().copied().filter(|&tab| tab != selected).collect();
+        // A split view shown stays whole.
+        let shown = self.panes(self.selected);
+        self.clearing = self.today().iter().copied().filter(|tab| !shown.contains(tab)).collect();
         if self.clearing.is_empty() {
             return;
         }
@@ -1931,7 +2157,10 @@ impl Shell {
         type Action = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
         let pinned = self.pinned().contains(&tab);
         let page = self.page(tab);
-        let below = self.today().iter().skip_while(|&&id| id != tab).count() > 1;
+        let panes = self.panes(tab);
+        let last = panes[panes.len() - 1];
+        let below = self.today().iter().skip_while(|&&id| id != last).count() > 1;
+        let row = Row::Tab(panes[0]);
         let others: Vec<(u64, SharedString)> = self
             .spaces
             .iter()
@@ -1965,6 +2194,13 @@ impl Shell {
             "duplicate-tab",
             Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
         ));
+        if panes.len() > 1 {
+            items.push((
+                MenuEntry::new("Separate from Split View", true),
+                "separate-pane",
+                Box::new(move |shell, cx| shell.browser.separate(tab, cx)),
+            ));
+        }
         // Each other Space, in the switcher's order.
         let move_to = items.len();
         items.push((
@@ -1985,7 +2221,7 @@ impl Shell {
         items.push((
             MenuEntry::new("Close Tab", closable).shortcut(Command::CloseTab),
             "close-tab",
-            Box::new(move |shell, cx| shell.browser.close(tab, cx)),
+            Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
         ));
         if !pinned {
             items.push((
@@ -2005,8 +2241,8 @@ impl Shell {
                     .update(cx, |shell, cx| {
                         // The fill fades as the pointer leaving the row fades it.
                         shell.menu_row = None;
-                        if shell.hovered != Some(Row::Tab(tab)) {
-                            shell.unhovered.push((Row::Tab(tab), Instant::now()));
+                        if shell.hovered != Some(row) {
+                            shell.unhovered.push((row, Instant::now()));
                         }
                         cx.notify();
                         let item = chosen.and_then(|at| items.into_iter().nth(at));
@@ -2019,7 +2255,7 @@ impl Shell {
             }),
             cx,
         );
-        self.menu_row = Some(tab);
+        self.menu_row = Some(panes[0]);
         cx.notify();
     }
 
@@ -2206,7 +2442,7 @@ impl Shell {
     /// ones fade in whole, and a closed one fades where it was (docs/ux-spec.md › Tab rows).
     fn move_rows(&mut self, before: HashMap<Slot, f32>) {
         let now = Instant::now();
-        let after = slots(self.pinned(), self.today());
+        let after = self.layout();
         let slides = after
             .iter()
             .filter_map(|(&slot, &top)| {
@@ -2264,11 +2500,12 @@ impl Shell {
             return;
         }
         let pinned = self.pinned().contains(&tab);
-        let tabs = if pinned { self.pinned() } else { self.today() };
-        let Some(index) = tabs.iter().position(|&other| other == tab) else {
+        let (pinned_rows, today_rows) = self.rows();
+        let rows = if pinned { pinned_rows } else { today_rows };
+        let Some(index) = rows.iter().position(|&other| other == tab) else {
             return;
         };
-        let top = slots(self.pinned(), self.today())[&Slot::Tab(tab)];
+        let top = self.layout()[&Slot::Tab(tab)];
         self.dragged = false;
         self.drag = Some(Drag {
             tab,
@@ -2296,8 +2533,9 @@ impl Shell {
             return;
         }
         let (tab, top, to) = (drag.tab, drag.top + f32::from(moved.y), drag.to);
-        let others = |tabs: &[u64]| tabs.iter().copied().filter(|&other| other != tab).collect();
-        let (pinned, today): (Vec<u64>, Vec<u64>) = (others(self.pinned()), others(self.today()));
+        let others = |rows: Vec<u64>| rows.into_iter().filter(|&other| other != tab).collect();
+        let (pinned, today) = self.rows();
+        let (pinned, today): (Vec<u64>, Vec<u64>) = (others(pinned), others(today));
         let places = (0..=pinned.len()).map(|index| (true, index));
         let places = places.chain((0..=today.len()).map(|index| (false, index)));
         let layouts: Vec<_> = places
@@ -2319,7 +2557,8 @@ impl Shell {
         if place != to {
             // The rows that make room, or no longer need to, start from where they're drawn.
             let now = Instant::now();
-            let room: HashMap<Slot, f32> = slots(self.pinned(), self.today())
+            let room: HashMap<Slot, f32> = self
+                .layout()
                 .into_iter()
                 .filter(|&(slot, _)| slot != Slot::Tab(tab))
                 .filter_map(|(slot, top)| {
@@ -2359,13 +2598,18 @@ impl Shell {
         let (tab, (pinned, index)) = (drag.tab, drag.to);
         if drag.to == drag.from {
             // Nothing moves in the browser, so the rows settle from where they're drawn.
-            self.move_rows(slots(self.pinned(), self.today()));
+            self.move_rows(self.layout());
             self.drag = None;
         } else {
             drag.dropped = true;
             // check.sh waits for this line.
             let list = if pinned { "pinned" } else { "today" };
             eprintln!("browser: dragged {tab} to {list} {index}");
+            // The browser counts tabs, and the rows above may be split views.
+            let (pinned_rows, today_rows) = self.rows();
+            let rows = if pinned { pinned_rows } else { today_rows };
+            let rows = rows.into_iter().filter(|&row| row != tab).take(index);
+            let index = rows.map(|row| self.panes(row).len()).sum();
             self.browser.move_tab(tab, pinned, index, cx);
         }
         cx.notify();
@@ -2378,7 +2622,7 @@ impl Shell {
         }
         // The release that ends the drag isn't a click.
         self.dragged = true;
-        self.move_rows(slots(self.pinned(), self.today()));
+        self.move_rows(self.layout());
         self.drag = None;
         cx.notify();
         true
@@ -2776,8 +3020,7 @@ impl Shell {
     fn row(
         &self,
         row: Row,
-        icon: impl IntoElement,
-        label: impl IntoElement,
+        content: gpui::Div,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let selected = row == self.selected_row();
@@ -2818,7 +3061,7 @@ impl Shell {
                 shell.hover(row, *hovered, cx)
             }))
             .child(
-                plate(icon, label)
+                content
                     .when(selected, |plate| selected_plate(plate, plate_in))
                     .id("plate")
                     .when_some(hover.filter(|_| !selected), |plate, hover| {
@@ -2865,20 +3108,19 @@ impl Shell {
             ))
     }
 
-    fn tab_row(&self, tab: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let page = self.page(tab);
-        let loading = page.loading;
-        // A pinned tab closed already has nothing to close.
-        let closable = !(page.unloaded && self.pinned().contains(&tab));
-        let hovered = self.hovered == Some(Row::Tab(tab));
-        // Away from its pinned URL, a pinned tab's favicon is a way back.
-        let away = page.away_from_pinned_url;
-        let back = away && self.hovered_favicon == Some(tab);
-        let label = if back { "Back to Pinned URL".into() } else { self.title(tab) };
-        let title = title(label, Row::Tab(tab) == self.selected_row());
-        // The close button shows under the pointer, and the title truncates before it.
-        let close = div()
-            .id(("close", tab))
+    /// A tab's row, or its split view's for the split's first tab.
+    fn tab_row(&self, tab: u64, cx: &mut Context<Self>) -> AnyElement {
+        let panes = self.panes(tab);
+        match panes.len() > 1 {
+            true => self.split_row(panes, cx).into_any_element(),
+            false => self.single_row(tab, cx).into_any_element(),
+        }
+    }
+
+    /// The button that closes `tabs`, which shows under the pointer at a row's end.
+    fn close_button(&self, tabs: Vec<u64>, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(("close", tabs[0]))
             .flex_none()
             .ml(px(4.))
             .mr(px(CLOSE_RIGHT))
@@ -2894,30 +3136,173 @@ impl Shell {
             .on_click(cx.listener(move |shell, _, _, cx| {
                 cx.stop_propagation();
                 eprintln!("browser: command close-tab via sidebar");
-                shell.browser.close(tab, cx);
-            }));
-        let renaming =
-            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Tab(tab));
-        let label = div()
+                shell.browser.close(tabs[0], true, cx);
+            }))
+    }
+
+    /// The field that renames a tab, in place of its title.
+    fn naming_field(&self, renaming: &Renaming, cx: &mut Context<Self>) -> gpui::Div {
+        div()
             .flex_1()
             .min_w_0()
             .h_full()
             .flex()
-            .items_center();
+            .items_center()
+            .pr(px(PLATE_INSET))
+            .key_context("Naming")
+            .on_action(cx.listener(|shell, _: &KeepName, window, cx| shell.keep_name(window, cx)))
+            .on_action(
+                cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
+            )
+            .text_size(px(14.))
+            .text_color(rgb(FORM_TEXT))
+            .child(renaming.name.clone())
+    }
+
+    /// A click on `tab`'s row, or its segment of a split view's, shows it, unless it ended a drag.
+    fn click_row(&mut self, tab: u64, cx: &mut Context<Self>) {
+        let renaming = self.renaming.as_ref().map(|renaming| renaming.naming);
+        if self.dragged || self.dragging().is_some() || renaming == Some(Naming::Tab(tab)) {
+            return;
+        }
+        eprintln!("browser: command select via sidebar");
+        self.select(tab, cx)
+    }
+
+    /// A tab's segment of its split view's row: its favicon and its title, bright if `focused`,
+    /// after a line unless it's the `first`.
+    fn segment(&self, tab: u64, first: bool, focused: bool) -> gpui::Div {
+        let page = self.page(tab);
+        let icon = div()
+            .flex_none()
+            .size(px(FAVICON_SIZE))
+            .mr(px(SEGMENT_TITLE_GAP))
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(page.unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+            .child(favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone())));
+        let line = div()
+            .absolute()
+            .left_0()
+            .top(px((PLATE_HEIGHT - SEGMENT_LINE) / 2.))
+            .w(px(1.))
+            .h(px(SEGMENT_LINE))
+            .bg(rgba(DIVIDER));
+        div()
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .flex()
+            .items_center()
+            .pl(px(SEGMENT_FAVICON_X))
+            .pr(px(SEGMENT_END))
+            .when(!first, |segment| segment.child(line))
+            .child(icon)
+            .child(title(self.title(tab), focused))
+            .when(page.loading, |segment| segment.child(loading_ring(tab)))
+    }
+
+    /// `segment`, which a click shows focused, a double-click renames and a right-click shows the
+    /// tab's menu for.
+    fn split_segment(
+        &self,
+        tab: u64,
+        first: bool,
+        focused: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<gpui::Div> {
+        self.segment(tab, first, focused)
+            .id(("segment", tab))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    // The first click selected the tab (Dia).
+                    if event.click_count == 2 {
+                        cx.stop_propagation();
+                        shell.rename_tab(tab, cx);
+                    }
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    if shell.dragging().is_none() {
+                        shell.tab_menu(tab, event.position, cx)
+                    }
+                }),
+            )
+            .on_click(cx.listener(move |shell, _, _, cx| shell.click_row(tab, cx)))
+    }
+
+    /// A split view's row, for its first tab: a segment per tab, left to right. A click on one
+    /// shows the split with its page focused, and the close button closes them all.
+    fn split_row(&self, panes: Vec<u64>, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let first = panes[0];
+        let row_selected = self.selected_row() == Row::Tab(first);
+        let hovered = self.hovered == Some(Row::Tab(first));
+        // A pinned tab closed already has nothing to close.
+        let pinned = self.pinned().contains(&first);
+        let closable = panes.iter().any(|&tab| !(self.page(tab).unloaded && pinned));
+        let renaming = self.renaming.as_ref().filter(|renaming| {
+            matches!(renaming.naming, Naming::Tab(tab) if panes.contains(&tab))
+        });
+        let content = match renaming {
+            Some(renaming) => {
+                let Naming::Tab(tab) = renaming.naming else {
+                    unreachable!()
+                };
+                let icon = favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()));
+                plate(icon, self.naming_field(renaming, cx))
+            }
+            None => {
+                let close = (hovered && closable).then(|| self.close_button(panes.clone(), cx));
+                let segments: Vec<_> = panes
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &tab)| {
+                        let focused = row_selected && tab == self.selected;
+                        self.split_segment(tab, index == 0, focused, cx)
+                    })
+                    .collect();
+                split_plate(segments).children(close)
+            }
+        };
+        let renaming = renaming.is_some();
+        self.row(Row::Tab(first), content, cx).when(!renaming, |row| {
+            row.on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, event: &MouseDownEvent, _, _| {
+                    shell.press_row(first, event.position)
+                }),
+            )
+        })
+    }
+
+    fn single_row(&self, tab: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let page = self.page(tab);
+        let loading = page.loading;
+        // A pinned tab closed already has nothing to close.
+        let closable = !(page.unloaded && self.pinned().contains(&tab));
+        let hovered = self.hovered == Some(Row::Tab(tab));
+        // Away from its pinned URL, a pinned tab's favicon is a way back.
+        let away = page.away_from_pinned_url;
+        let back = away && self.hovered_favicon == Some(tab);
+        let label = if back { "Back to Pinned URL".into() } else { self.title(tab) };
+        let title = title(label, Row::Tab(tab) == self.selected_row());
+        // The close button shows under the pointer, and the title truncates before it.
+        let close = self.close_button(vec![tab], cx);
+        let renaming =
+            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Tab(tab));
         let label = match renaming {
-            Some(renaming) => label
-                .pr(px(PLATE_INSET))
-                .key_context("Naming")
-                .on_action(
-                    cx.listener(|shell, _: &KeepName, window, cx| shell.keep_name(window, cx)),
-                )
-                .on_action(
-                    cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
-                )
-                .text_size(px(14.))
-                .text_color(rgb(FORM_TEXT))
-                .child(renaming.name.clone()),
-            None => label
+            Some(renaming) => self.naming_field(renaming, cx),
+            None => div()
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .flex()
+                .items_center()
                 .when(!(hovered && closable), |label| label.pr(px(PLATE_INSET)))
                 .child(title)
                 .when(hovered && closable, |label| label.child(close))
@@ -2956,7 +3341,7 @@ impl Shell {
             })
             .child(icon);
         // The field takes the row's clicks while it's up.
-        self.row(Row::Tab(tab), icon, label, cx).when(!renaming, |row| {
+        self.row(Row::Tab(tab), plate(icon, label), cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -2975,15 +3360,7 @@ impl Shell {
                     }
                 }),
             )
-            .on_click(cx.listener(move |shell, _, _, cx| {
-                let renaming = shell.renaming.as_ref().map(|renaming| renaming.naming);
-                if shell.dragged || shell.dragging().is_some() || renaming == Some(Naming::Tab(tab))
-                {
-                    return;
-                }
-                eprintln!("browser: command select via sidebar");
-                shell.select(tab, cx)
-            }))
+            .on_click(cx.listener(move |shell, _, _, cx| shell.click_row(tab, cx)))
         })
     }
 
@@ -3193,7 +3570,7 @@ impl Shell {
 
     fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let (plus, label) = new_tab_label();
-        self.row(Row::NewTab, plus, label, cx)
+        self.row(Row::NewTab, plate(plus, label), cx)
             .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::NewTab, "sidebar", cx)))
     }
 }
@@ -3246,14 +3623,25 @@ impl Render for Shell {
             window.request_animation_frame();
         }
         // The page is laid out at every step, as in Arc.
+        self.viewport = window.viewport_size();
+        self.lay_out_page(cx);
         let card_left = self.card_left();
-        let push = self.card_push();
-        if card_left != self.page_left || push != self.page_push {
-            self.page_left = card_left;
-            self.page_push = push;
-            self.browser.lay_out_page(window.viewport_size(), card_left, push, cx);
+        let focus_color = self.shown_space().and_then(|space| space.color);
+        let focus_color = focus_color.unwrap_or(self.accent_color);
+        if self.focus_color != Some(focus_color) {
+            self.focus_color = Some(focus_color);
+            self.browser.set_focus_color(focus_color, cx);
         }
-        let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
+        // The find bar and the zoom HUD sit at the focused page's corner.
+        let (frame, _) = self.page_frame(self.viewport);
+        let panes = self.panes(self.selected);
+        let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
+        let pane = pane_frames(frame, panes.len())[focused];
+        let page_right = f32::from(frame.right() - pane.right());
+        if self.page_right != page_right {
+            self.page_right = page_right;
+            self.browser.set_page_right(page_right, cx);
+        }
         // The Library takes the sidebar's place at once, and the card uncovers it as it moves.
         let library = self.library.is_some() && !self.page_fullscreen;
         let library = library.then(|| self.library_panel(cx));
@@ -3298,17 +3686,8 @@ impl Render for Shell {
                 }),
             )
             .child(div().absolute().size_full().bg(self.gradient(None)))
-            // The page view goes over the card, as a native view.
-            .child(
-                div()
-                    .absolute()
-                    .left(px(card_left + push))
-                    .top(px(card_inset))
-                    .right(px(card_inset - push))
-                    .bottom(px(card_inset))
-                    .rounded(px(CARD_RADIUS))
-                    .bg(rgba(CARD)),
-            )
+            // The page views go over the cards, as native views.
+            .children(self.cards())
             .children(library)
             .children(sidebar)
             .children(edge)
@@ -3316,6 +3695,37 @@ impl Render for Shell {
 }
 
 impl Shell {
+    /// The cards under the pages shown: a page's own in a split view, so the gaps between them
+    /// show the window, with the focused page's glowing in its ring's colour. While a pane is
+    /// being added, its card is there, empty.
+    fn cards(&self) -> Vec<gpui::Div> {
+        let (frame, _) = self.page_frame(self.viewport);
+        let panes = self.panes(self.selected);
+        let glow = BoxShadow {
+            color: Hsla::from(rgb(self.focus_color.unwrap_or(self.accent_color)))
+                .opacity(FOCUS_GLOW_ALPHA),
+            offset: point(px(0.), px(0.)),
+            blur_radius: px(FOCUS_GLOW),
+            spread_radius: px(0.),
+            inset: false,
+        };
+        let split = panes.len() > 1;
+        let mut cards: Vec<_> = pane_frames(frame, panes.len())
+            .into_iter()
+            .zip(&panes)
+            .map(|(bounds, &tab)| {
+                let focused = split && tab == self.selected;
+                card(bounds).when(focused, |card| card.shadow(vec![glow.clone()]))
+            })
+            .collect();
+        if let Some(with) = self.adding_pane {
+            let count = self.panes(with).len() + 1;
+            let full = page_frame(self.viewport, self.card_left(), self.card_push());
+            cards.push(card(pane_frames(full, count)[count - 1]));
+        }
+        cards
+    }
+
     /// The sidebar: the header's buttons, the URL field and the Space's tabs, or the Create a
     /// Space form, over the switcher. Docked, or in the reveal's panel.
     fn sidebar(&self, cx: &mut Context<Self>) -> gpui::Div {
@@ -3373,6 +3783,15 @@ impl Shell {
     fn still_page(&self, space: &Space) -> impl IntoElement + use<> {
         let selected = self.browser.space_tab(space.id);
         let row = |tab: u64| {
+            let panes = space.panes(tab);
+            if panes.len() > 1 {
+                let segments =
+                    panes.iter().map(|&pane| self.segment(pane, pane == tab, pane == selected));
+                return row_box().child(
+                    split_plate(segments)
+                        .when(panes.contains(&selected), |plate| selected_plate(plate, 1.)),
+                );
+            }
             let icon = favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()));
             let icon = div()
                 .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
@@ -3383,17 +3802,18 @@ impl Shell {
             )
         };
         let (plus, new_tab) = new_tab_label();
+        let (pinned, today) = space.rows();
         div()
             .size_full()
             .flex()
             .flex_col()
             .child(name_box().child(div().truncate().child(space.name.clone())))
-            .children(space.pinned.iter().map(|&tab| row(tab)))
-            .when(!space.today.is_empty(), |page| {
+            .children(pinned.into_iter().map(row))
+            .when(!today.is_empty(), |page| {
                 page.child(divider_box(self.tools_shown().then(clear_label)))
             })
             .child(row_box().child(plate(plus, new_tab)))
-            .children(space.today.iter().map(|&tab| row(tab)))
+            .children(today.into_iter().map(row))
     }
 
     /// The Space's name, its pinned tabs, the divider, New Tab and its Today tabs, under the URL
@@ -3401,10 +3821,11 @@ impl Shell {
     /// tab's new row, they come out from beneath it.
     fn list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let mut rows = vec![(None, self.name_row(cx).into_any_element())];
-        for &tab in self.pinned() {
+        let (pinned, today) = self.rows();
+        for tab in pinned {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }
-        if !self.today().is_empty() {
+        if !today.is_empty() {
             let divider = match self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.divider) {
                 true => div().flex_none().h(px(DIVIDER_HEIGHT)).into_any_element(),
                 false => self.divider(cx).into_any_element(),
@@ -3412,7 +3833,7 @@ impl Shell {
             rows.push((None, divider));
         }
         rows.push((None, self.new_tab_row(cx).into_any_element()));
-        for &tab in self.today() {
+        for tab in today {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }
         // Over the rest, where the pointer has it.
@@ -3575,6 +3996,33 @@ pub fn page_frame(viewport: Size<Pixels>, card_left: f32, push: f32) -> Bounds<P
             viewport.height - px(2. * CARD_INSET),
         ),
     )
+}
+
+/// The pages of a split view of `count` in `frame`, left to right, where the core puts them: side
+/// by side, SPLIT_GAP apart, each as wide as the others to the point.
+fn pane_frames(frame: Bounds<Pixels>, count: usize) -> Vec<Bounds<Pixels>> {
+    let (x, span) = (f32::from(frame.origin.x), f32::from(frame.size.width) + SPLIT_GAP);
+    let edge = |index: usize| x + (span * index as f32 / count as f32).floor();
+    (0..count)
+        .map(|index| {
+            Bounds::from_corners(
+                point(px(edge(index)), frame.top()),
+                point(px(edge(index + 1) - SPLIT_GAP), frame.bottom()),
+            )
+        })
+        .collect()
+}
+
+/// A card at `bounds` in the window.
+fn card(bounds: Bounds<Pixels>) -> gpui::Div {
+    div()
+        .absolute()
+        .left(bounds.left())
+        .top(bounds.top())
+        .w(bounds.size.width)
+        .h(bounds.size.height)
+        .rounded(px(CARD_RADIUS))
+        .bg(rgba(CARD))
 }
 
 /// Where a spring from 0 to 1, at rest at 0, is `t` seconds in, by SwiftUI's response and damping
@@ -3740,6 +4188,18 @@ fn favicon(favicon: Option<Arc<Image>>) -> AnyElement {
             .text_color(rgba(SECONDARY))
             .into_any_element(),
     }
+}
+
+/// A split view's plate, holding its segments. Each segment's favicon is as far from its start as
+/// from the line before it, so the first's is where a tab's is.
+fn split_plate(segments: impl IntoIterator<Item = impl IntoElement>) -> gpui::Div {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .rounded(px(PLATE_RADIUS))
+        .pl(px(FAVICON_X - PLATE_INSET - SEGMENT_FAVICON_X))
+        .children(segments)
 }
 
 /// The selected tab's plate, at `opacity` while it fades in.

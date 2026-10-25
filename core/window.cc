@@ -74,6 +74,9 @@ struct ClosedTab {
 // As many as Chrome keeps.
 constexpr size_t kMaxClosedTabs = 25;
 
+// Between the pages of a split view, as in Arc.
+constexpr int kSplitGap = 10;
+
 // The Spaces going once their last tab closes.
 std::set<bc_id>& DeletingSpaces() {
   static base::NoDestructor<std::set<bc_id>> deleting;
@@ -194,8 +197,28 @@ void Window::CloseAll() {
 
 // static
 bool Window::Showing(bc_id tab) {
-  return std::ranges::any_of(Windows(),
-                             [tab](const auto& entry) { return entry.second->selected_ == tab; });
+  return std::ranges::any_of(Windows(), [tab](const auto& entry) {
+    return std::ranges::contains(entry.second->panes_, tab);
+  });
+}
+
+// static
+void Window::PanesChanged() {
+  for (auto& [id, window] : Windows()) {
+    Space* space = Space::Holding(window->selected_);
+    if (space && space->Panes(window->selected_) != window->panes_) {
+      window->Select(window->selected_);
+    }
+  }
+}
+
+// static
+void Window::OnPageClicked(bc_id tab) {
+  for (auto& [id, window] : Windows()) {
+    if (window->selected_ != tab && std::ranges::contains(window->panes_, tab)) {
+      window->Select(tab);
+    }
+  }
 }
 
 // static
@@ -206,7 +229,7 @@ bool Window::CanDockDevTools(BrowserWindowInterface* browser) {
 // static
 void Window::UpdateDevTools(BrowserWindowInterface* browser, content::WebContents* inspected) {
   Window* window = ForBrowser(browser);
-  if (window && window->shown_.get() == inspected) {
+  if (window && std::ranges::contains(window->panes_, Tab::IdOf(inspected))) {
     window->LayOutPage();
     // DevTools closed with the keyboard leave it with the window, and the page takes it back.
     window->FocusPageSoon();
@@ -286,28 +309,41 @@ void Window::OnTabClosing(bc_id tab) {
   for (auto& [id, window] : Windows()) {
     if (window->selected_ == tab) {
       window->selected_ = 0;
+      window->next_after_closing_ = next;
       // Posted: Chrome is part way through closing the tab, and its tab strip can't change yet.
       base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
-          base::BindOnce(&Window::SelectAfterClosing, window->weak_factory_.GetWeakPtr(), next));
+          base::BindOnce(&Window::SelectAfterClosing, window->weak_factory_.GetWeakPtr()));
+    } else if (!window->selected_ && window->next_after_closing_ == tab) {
+      // The tab it was to show is closing too, as a split view's tabs close together.
+      window->next_after_closing_ = next;
     }
   }
+  // A window showing it beside the tab it shows shows the rest of the split.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Window::PanesChanged));
   if (space->pinned().empty() && space->today().empty() && DeletingSpaces().erase(space->id())) {
     Space::Delete(space->id());
   }
 }
 
 // static
-void Window::UnloadPinned(bc_id tab) {
+void Window::UnloadPinned(bc_id tab, bool split) {
   Space* space = Space::Holding(tab);
-  content::WebContents* contents = Tab::FromId(tab);
-  if (!space || !space->IsPinned(tab) || !contents) {
+  if (!space || !space->IsPinned(tab) || !Tab::FromId(tab)) {
     return;
   }
-  const bc_id next = space->NextAfterLeaving(tab, &Tab::Loaded);
-  // Another tab first, so the page unloads out of sight.
+  const std::vector<bc_id> going = split ? space->Panes(tab) : std::vector<bc_id>{tab};
+  const bc_id next = space->NextAfterLeaving(tab, [&going](bc_id other) {
+    return !std::ranges::contains(going, other) && Tab::Loaded(other);
+  });
+  // Out of its split, so showing the rest of it doesn't load it again.
+  if (!split) {
+    space->Separate(tab);
+  }
+  // Another tab first, so the pages unload out of sight.
   for (auto& [id, window] : Windows()) {
-    if (window->selected_ == tab) {
+    if (std::ranges::contains(going, window->selected_)) {
       if (next) {
         window->Select(next);
       } else {
@@ -315,7 +351,12 @@ void Window::UnloadPinned(bc_id tab) {
       }
     }
   }
-  Tab::FromWebContents(contents)->Unload();
+  PanesChanged();
+  for (bc_id each : going) {
+    if (content::WebContents* contents = Tab::FromId(each)) {
+      Tab::FromWebContents(contents)->Unload();
+    }
+  }
 }
 
 // static
@@ -337,7 +378,9 @@ void Window::CloseBelow(bc_id tab) {
     return;
   }
   const std::vector<bc_id>& today = space->today();
-  const std::vector<bc_id> below(std::ranges::find(today, tab) + 1, today.end());
+  // Below its split, if it's in one.
+  const std::vector<bc_id> below(std::ranges::find(today, space->Panes(tab).back()) + 1,
+                                 today.end());
   for (auto& [id, window] : Windows()) {
     if (std::ranges::contains(below, window->selected_)) {
       window->Select(tab);
@@ -376,6 +419,7 @@ void Window::MoveToSpace(bc_id tab, bc_id space) {
       window->SetSelectedIn(from->id(), next);
     }
   }
+  PanesChanged();
 }
 
 // static
@@ -525,9 +569,15 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   TabStripModel* tabs =
       tabs::TabInterface::GetFromContents(contents)->GetBrowserWindowInterface()->GetTabStripModel();
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
-  if (shown_.get() != contents) {
-    Seen(shown_.get());
+  const bc_id tab = Tab::IdOf(contents);
+  Space* space = Space::Holding(tab);
+  std::vector<bc_id> panes = space ? space->Panes(tab) : std::vector<bc_id>{tab};
+  for (bc_id pane : panes_) {
+    if (!std::ranges::contains(panes, pane)) {
+      Seen(Tab::FromId(pane));
+    }
   }
+  panes_ = std::move(panes);
   shown_ = contents->GetWeakPtr();
   page_frame_ = frame;
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
@@ -537,26 +587,50 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
 }
 
 void Window::LayOutPage() {
-  content::WebContents* contents = shown_.get();
-  if (!contents) {
-    platform::ShowPage(widget_.get(), gfx::NativeView(), page_frame_, page_corner_radius_, nullptr);
-    return;
+  std::vector<content::WebContents*> shown;
+  for (bc_id pane : panes_) {
+    if (content::WebContents* contents = Tab::FromId(pane)) {
+      shown.push_back(contents);
+    }
   }
-  DevToolsContentsResizingStrategy strategy;
-  content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy);
-  if (!devtools) {
-    platform::ShowPage(widget_.get(), contents->GetNativeView(), page_frame_, page_corner_radius_,
-                       nullptr);
-    return;
+  // A page full screen takes the window, as in Chrome, and the rest of its split view waits.
+  if (shown_ && shown_->IsFullscreen()) {
+    shown = {shown_.get()};
   }
-  // As Chrome's window does: DevTools fill the frame, and the page goes where they leave it.
-  platform::DockedDevTools docked = {devtools->GetNativeView(), gfx::Rect(),
-                                     strategy.hide_inspected_contents()};
-  gfx::Rect devtools_frame;
-  ApplyDevToolsContentsResizingStrategy(strategy, gfx::Rect(page_frame_.size()), &devtools_frame,
-                                        &docked.page_frame);
-  platform::ShowPage(widget_.get(), contents->GetNativeView(), page_frame_, page_corner_radius_,
-                     &docked);
+  std::vector<platform::Pane> panes;
+  size_t focused = 0;
+  const int count = static_cast<int>(shown.size());
+  for (int i = 0; i < count; ++i) {
+    content::WebContents* contents = shown[i];
+    if (contents == shown_.get()) {
+      focused = i;
+    }
+    // Side by side, each as wide as the others.
+    const int span = page_frame_.width() + kSplitGap;
+    const int left = page_frame_.x() + span * i / count;
+    const int right = page_frame_.x() + span * (i + 1) / count - kSplitGap;
+    platform::Pane& pane = panes.emplace_back(
+        contents->GetNativeView(),
+        gfx::Rect(left, page_frame_.y(), right - left, page_frame_.height()));
+    DevToolsContentsResizingStrategy strategy;
+    if (content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy)) {
+      // As Chrome's window does: DevTools fill the frame, and the page goes where they leave it.
+      platform::DockedDevTools docked = {devtools->GetNativeView(), gfx::Rect(),
+                                         strategy.hide_inspected_contents()};
+      gfx::Rect devtools_frame;
+      ApplyDevToolsContentsResizingStrategy(strategy, gfx::Rect(pane.frame.size()),
+                                            &devtools_frame, &docked.page_frame);
+      pane.devtools = docked;
+    }
+  }
+  platform::ShowPages(widget_.get(), panes, page_corner_radius_, focused, focus_color_);
+  const gfx::Rect focused_frame = panes.empty() ? page_frame_ : panes[focused].frame;
+  if (focused_frame != focused_frame_) {
+    focused_frame_ = focused_frame;
+    for (web_modal::ModalDialogHostObserver& observer : dialog_observers_) {
+      observer.OnPositionRequiresUpdate();
+    }
+  }
 }
 
 void Window::ShowSpace(bc_id space) {
@@ -618,23 +692,26 @@ void Window::SetSidebarWidth(double width) {
 
 void Window::ShowNothing() {
   selected_ = 0;
-  Seen(shown_.get());
+  for (bc_id pane : std::exchange(panes_, {})) {
+    Seen(Tab::FromId(pane));
+  }
   shown_ = nullptr;
   LayOutPage();
   ReportSelected();
 }
 
 void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
-  const bool moved = frame != page_frame_;
   page_frame_ = frame;
   page_corner_radius_ = corner_radius;
   if (shown_) {
     Show(shown_.get(), frame);
   }
-  if (moved) {
-    for (web_modal::ModalDialogHostObserver& observer : dialog_observers_) {
-      observer.OnPositionRequiresUpdate();
-    }
+}
+
+void Window::SetFocusColor(uint32_t color) {
+  if (focus_color_ != color) {
+    focus_color_ = color;
+    LayOutPage();
   }
 }
 
@@ -663,8 +740,10 @@ size_t Window::Clear() {
   cleared_.clear();
   const std::vector<bc_id>& today = space->today();
   for (size_t index = 0; index < today.size(); ++index) {
-    if (today[index] != selected_) {
-      cleared_.push_back({today[index], index});
+    if (!std::ranges::contains(panes_, today[index])) {
+      const bool split = index > 0 && std::ranges::contains(space->Panes(today[index]),
+                                                            today[index - 1]);
+      cleared_.push_back({today[index], index, split});
     }
   }
   // Bottom up, so ReopenClosedTab brings back the top one first, at its place.
@@ -676,13 +755,20 @@ size_t Window::Clear() {
 
 size_t Window::UndoClear() {
   size_t reopened = 0;
+  bc_id above = 0;
   // Top down, each at its place before the Clear, which puts back the order with the tab kept.
   for (const Cleared& cleared : std::exchange(cleared_, {})) {
     // Not one whose page kept it open, or one already reopened.
     std::optional<ClosedTab> tab = TakeClosed(cleared.tab);
-    if (tab && Reopen(tab->space, cleared.index, tab->saved)) {
+    const bc_id id = tab ? Reopen(tab->space, cleared.index, tab->saved) : 0;
+    if (id) {
       ++reopened;
+      // Back in its split, if the tab beside it came back too.
+      if (Space* space = Space::Holding(id); space && cleared.split && above) {
+        space->Split(id, above, GURL());
+      }
     }
+    above = id;
   }
   return reopened;
 }
@@ -761,7 +847,8 @@ bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {
   return tab;
 }
 
-void Window::SelectAfterClosing(bc_id next) {
+void Window::SelectAfterClosing() {
+  const bc_id next = std::exchange(next_after_closing_, 0);
   if (next && Tab::FromId(next)) {
     Select(next);
   } else {
@@ -826,12 +913,12 @@ gfx::NativeView Window::GetHostView() const {
 
 gfx::Point Window::GetDialogPosition(const gfx::Size& size) {
   // As in Chrome's window: a tab's dialog, such as print preview, is centred over the page, at its
-  // top.
-  return gfx::Point(page_frame_.CenterPoint().x() - size.width() / 2, page_frame_.y());
+  // top. In a split view, over the focused page.
+  return gfx::Point(focused_frame_.CenterPoint().x() - size.width() / 2, focused_frame_.y());
 }
 
 gfx::Size Window::GetMaximumDialogSize() {
-  return page_frame_.size();
+  return focused_frame_.size();
 }
 
 void Window::AddObserver(web_modal::ModalDialogHostObserver* observer) {

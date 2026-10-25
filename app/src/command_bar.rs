@@ -13,9 +13,12 @@ use gpui::{
     WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size,
 };
 
-use crate::{WINDOW, bc, navigate, ns_view, open_tab, platform, typed_url, update_shell};
+use crate::{
+    WINDOW, bc, navigate, ns_view, open_split, open_tab, platform, split_tab, typed_url,
+    update_shell,
+};
 
-actions!(command_bar, [Go, Dismiss, Next, Previous]);
+actions!(command_bar, [Go, GoBeside, Dismiss, Next, Previous]);
 
 const WIDTH: f32 = 640.;
 /// The input's row.
@@ -26,6 +29,8 @@ const ROW_INSET: f32 = 4.;
 /// The text's inset, the URL field's, so the text stays where it was as the bar opens out of it.
 const TEXT_X: f32 = 13.;
 const RADIUS: f32 = 16.;
+/// Over a new pane of a split view, the bar stays this far inside the card's right edge (Arc).
+const BESIDE_END: f32 = 77.;
 const ROW_RADIUS: f32 = 10.;
 /// How long the bar takes to grow out of the URL field, in seconds.
 const GROW: f32 = 0.13;
@@ -51,10 +56,19 @@ pub struct Suggestion {
     pub completion: String,
 }
 
+/// Where the bar shows the page chosen.
+#[derive(Clone, Copy)]
+enum Target {
+    NewTab,
+    /// The tab whose URL it edits.
+    Tab(u64),
+    /// A new tab, in a split view with this one, on its right.
+    Beside(u64),
+}
+
 pub struct CommandBar {
     input: Entity<TextInput>,
-    /// The tab the bar loads in, or none for a new tab.
-    editing: Option<u64>,
+    target: Target,
     /// What was typed, which the core was last asked to suggest for, when, and whether it was
     /// allowed to complete it.
     asked: String,
@@ -83,6 +97,7 @@ impl Global for CommandBarWindow {}
 pub fn open(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("enter", Go, Some("CommandBar")),
+        KeyBinding::new("alt-enter", GoBeside, Some("CommandBar")),
         KeyBinding::new("escape", Dismiss, Some("CommandBar")),
         KeyBinding::new("down", Next, Some("CommandBar")),
         KeyBinding::new("up", Previous, Some("CommandBar")),
@@ -124,7 +139,7 @@ pub fn open(cx: &mut App) {
             .detach();
             CommandBar {
                 input,
-                editing: None,
+                target: Target::NewTab,
                 asked: String::new(),
                 asked_at: Instant::now(),
                 complete: false,
@@ -153,17 +168,39 @@ pub fn open(cx: &mut App) {
 /// field at `field` in the browser window, with its input centred on the field and its left edge
 /// at the field's, or shows centred.
 pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>, cx: &mut App) {
-    let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
-        return;
-    };
     let origin = field.map(|field| point(field.left(), field.center().y - px(HEIGHT / 2.)));
+    let grow = field.zip(origin);
+    let grow = grow.map(|(field, origin)| Bounds::new(field.origin - origin, field.size));
+    let target = editing.as_ref().map_or(Target::NewTab, |&(tab, _)| Target::Tab(tab));
+    let text = editing.map(|(_, url)| url).unwrap_or_default();
+    if reset(target, text, grow, cx) {
+        let (left, top) = origin.map_or((0., 0.), |origin| (origin.x.into(), origin.y.into()));
+        unsafe { platform::host_show_overlay(origin.is_none(), left, top, f64::from(WIDTH)) };
+    }
+}
+
+/// Shows the command bar, empty, over `pane`, a split view's new pane in the card at `card`, for
+/// a page to show there beside `with`. It's centred over the pane, as far into the card as it
+/// needs to be, and as far down the window as it opens for a new tab.
+pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
+    if reset(Target::Beside(with), SharedString::default(), None, cx) {
+        let left = pane.center().x - px(WIDTH / 2.);
+        let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
+        let top = (card.top() + card.bottom()) / 5.;
+        unsafe { platform::host_show_overlay(false, left.into(), top.into(), f64::from(WIDTH)) };
+    }
+}
+
+/// Puts the bar to `target` with `text` in its input, growing out of `grow` in its window if
+/// that's given. False if there's no bar.
+fn reset(target: Target, text: SharedString, grow: Option<Bounds<Pixels>>, cx: &mut App) -> bool {
+    let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
+        return false;
+    };
     window
         .update(cx, |bar, window, cx| {
-            bar.grow = field.zip(origin).map(|(field, origin)| {
-                (Bounds::new(field.origin - origin, field.size), Instant::now())
-            });
-            bar.editing = editing.as_ref().map(|(tab, _)| *tab);
-            let text = editing.map(|(_, url)| url).unwrap_or_default();
+            bar.grow = grow.map(|grow| (grow, Instant::now()));
+            bar.target = target;
             bar.asked = text.to_string();
             bar.complete = false;
             bar.completion.clear();
@@ -174,8 +211,7 @@ pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>,
         .ok();
     // The last query's suggestions are of no use now.
     suggest("", false);
-    let (left, top) = origin.map_or((0., 0.), |origin| (origin.x.into(), origin.y.into()));
-    unsafe { platform::host_show_overlay(origin.is_none(), left, top, f64::from(WIDTH)) };
+    true
 }
 
 /// The user left the bar without choosing anything in it.
@@ -343,7 +379,7 @@ impl CommandBar {
         if (self.suggested == self.asked || !self.completion.is_empty())
             && self.selected < self.rows.len()
         {
-            self.take(self.selected);
+            self.take(self.selected, cx);
             return;
         }
         // Before the suggestions for what's typed come, ↩ goes where the first of them will.
@@ -351,28 +387,51 @@ impl CommandBar {
             return;
         };
         eprintln!("browser: command bar go {url}");
-        match self.editing {
-            Some(tab) => navigate(tab, &url),
-            None => open_tab(&url),
-        }
+        self.show_page(&url, cx);
         unsafe { platform::host_hide_overlay() };
     }
 
-    /// Goes where row `index` goes: to its tab, else its page, in the tab the bar edits or a new
-    /// one.
-    fn take(&mut self, index: usize) {
+    /// ⌥↩: goes where ↩ would, in a new tab in a split view with the tab shown, or the tab the
+    /// bar edits, on its right (Arc).
+    fn go_beside(&mut self, _: &GoBeside, window: &mut Window, cx: &mut Context<Self>) {
+        let with = match self.target {
+            Target::Tab(tab) | Target::Beside(tab) => tab,
+            Target::NewTab => shell::shown_tab(cx),
+        };
+        if with != 0 {
+            self.target = Target::Beside(with);
+        }
+        self.go(&Go, window, cx);
+    }
+
+    /// Shows `url` where the bar shows the page chosen.
+    fn show_page(&self, url: &str, cx: &mut App) {
+        match self.target {
+            Target::NewTab => open_tab(url),
+            Target::Tab(tab) => navigate(tab, url),
+            Target::Beside(with) => open_split(url, with, cx),
+        }
+    }
+
+    /// Goes where row `index` goes: to its tab, else its page, where the bar shows the page
+    /// chosen. Beside a tab, its tab moves into the split view.
+    fn take(&mut self, index: usize, cx: &mut App) {
         let Some(row) = self.rows.get(index) else {
             return;
         };
         // check.sh reads these lines.
-        if row.tab != 0 {
-            eprintln!("browser: command bar switch to tab {}", row.tab);
-            unsafe { bc::bc_window_select(WINDOW.get(), row.tab) };
-        } else {
-            eprintln!("browser: command bar go {}", row.url);
-            match self.editing {
-                Some(tab) => navigate(tab, &row.url),
-                None => open_tab(&row.url),
+        match (row.tab, self.target) {
+            (0, _) => {
+                eprintln!("browser: command bar go {}", row.url);
+                self.show_page(&row.url, cx);
+            }
+            (tab, Target::Beside(with)) => {
+                eprintln!("browser: command bar split with tab {tab}");
+                split_tab(tab, with, cx);
+            }
+            (tab, _) => {
+                eprintln!("browser: command bar switch to tab {tab}");
+                unsafe { bc::bc_window_select(WINDOW.get(), tab) };
             }
         }
         unsafe { platform::host_hide_overlay() };
@@ -410,13 +469,17 @@ impl CommandBar {
                 true => line.bg(rgb(SELECTED)),
                 false => line.hover(|style| style.bg(rgba(HOVERED))),
             })
-            .on_click(cx.listener(move |bar, _, _, _| bar.take(index)))
+            .on_click(cx.listener(move |bar, _, _, cx| bar.take(index, cx)))
             .child(div().min_w_0().truncate().child(row.text.clone()))
             .when(!row.detail.is_empty(), |line| {
                 line.child(dim(format!("— {}", row.detail).into()).min_w_0().truncate())
             })
             .when(row.tab != 0, |line| {
-                line.child(dim("Switch to Tab".into()).flex_none().ml_auto())
+                let action = match self.target {
+                    Target::Beside(_) => "Add to Split View",
+                    _ => "Switch to Tab",
+                };
+                line.child(dim(action.into()).flex_none().ml_auto())
             })
     }
 }
@@ -461,6 +524,7 @@ impl Render for CommandBar {
             div()
                 .key_context("CommandBar")
                 .on_action(cx.listener(Self::go))
+                .on_action(cx.listener(Self::go_beside))
                 .on_action(cx.listener(Self::dismiss))
                 .on_action(
                     cx.listener(|bar, _: &Next, window, cx| bar.select_next(true, window, cx)),
