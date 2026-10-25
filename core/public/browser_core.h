@@ -300,11 +300,12 @@ BC_EXPORT size_t bc_favorites(bc_id* tabs, size_t capacity);
 // no Space. A split's tabs sit together in their list, in this order, as one row.
 BC_EXPORT size_t bc_tab_split(bc_id tab, bc_id* tabs, size_t capacity);
 
-// Puts |tab| in a split view with |with|, at its right end, making one if |with| is in none: a
-// window showing either shows them side by side. |tab| leaves any split it was in and moves after
-// the split, pinned at its page if |with| is pinned. Returns false, doing nothing, if |with|'s
-// split has three tabs already, or the two are in different Spaces. Then space_changed.
-BC_EXPORT bool bc_tab_split_with(bc_id tab, bc_id with);
+// Puts |tab| in a split view with |with|, at its left end if |left|, else its right end, making
+// one if |with| is in none: a window showing either shows them side by side. |tab| leaves any
+// split it was in and moves into the split's place in its list, pinned at its page if |with| is
+// pinned. Returns false, doing nothing, if |with|'s split has three tabs already, or the two are
+// in different Spaces. Then space_changed.
+BC_EXPORT bool bc_tab_split_with(bc_id tab, bc_id with, bool left);
 
 // Takes |tab| out of its split view, to just below the tabs left in it. A window showing it shows
 // it alone. The split goes once one tab is left. Then space_changed.

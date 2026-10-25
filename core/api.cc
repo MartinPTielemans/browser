@@ -240,10 +240,10 @@ size_t bc_tab_split(bc_id id, bc_id* tabs, size_t capacity) {
   return panes.size();
 }
 
-bool bc_tab_split_with(bc_id id, bc_id with) {
+bool bc_tab_split_with(bc_id id, bc_id with, bool left) {
   browser_core::Space* space = browser_core::Space::Holding(id);
   if (!space || browser_core::Space::Holding(with) != space ||
-      !space->Split(id, with, PageUrlOf(id))) {
+      !space->Split(id, with, PageUrlOf(id), left)) {
     return false;
   }
   SplitMoved(*space, id);

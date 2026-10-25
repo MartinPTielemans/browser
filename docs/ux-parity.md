@@ -190,11 +190,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | ⌥-click + New Tab; ⌥⇧-click link | MVP | split New Tab; right pane | Dia P§6 |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
 | [x] | Kept across a quit | MVP | yes | ours |
-| [ ] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
-| [ ] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
-| [ ] | Target under the card | MVP | 362 × 600, leaning 43 % toward the pointer, accent ≈ 0.15, dashes 7/7 ≈ 2 pt | Dia rec |
-| [ ] | Target timing | MVP | slide ≈ 110 ms, grow ≈ 120 ms, no overshoot | Dia rec |
-| [ ] | Drag picture | MVP | tab for 1–2 frames, then 209 × 109.5 window card | Dia rec |
+| [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |
+| [x] | Targets grown | MVP | 322 × 532, 30 in | Dia rec |
+| [x] | Target under the card | MVP | 362 × 600, leaning 43 % toward the pointer, accent ≈ 0.15, dashes 7/7 ≈ 2 pt | Dia rec |
+| [x] | Target timing | MVP | slide ≈ 110 ms, grow ≈ 120 ms, no overshoot | Dia rec |
+| [x] | Drag picture | MVP | tab for 1–2 frames, then 209 × 109.5 window card; ours shows the favicon and title, not the page's image | Dia rec |
 | [ ] | Drop away from a target | MVP | new window grows from the card ≈ 200 ms, takes focus | Dia rec |
 | [x] | Close pane, Separate | MVP | Close this Split Pane, Separate Page from Split View | Arc menus |
 | [ ] | Expand Current Split | MVP | measure | Arc menus |

@@ -538,7 +538,7 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
 - **Panes.** Up to 3 (Dia; Arc's maximum: measure), side by side and 10 pt apart, sharing the card. Each has its own page, history and docked DevTools. The focused one has a 2 pt ring inside its edge and a ≈ 8 pt glow outside it (Arc), in the Space's colour, else the accent. Unfocused panes aren't dimmed (*interim*, measure). A page in full screen takes the window alone.
 - **Focus.** A click in a pane focuses it. ⌘W and Close this Split Pane close the focused pane, and the one beside it takes focus. Separate Page from Split View puts the focused pane in its own row under the split, shown alone. The find bar, the zoom HUD and a tab's dialogs, such as print preview, go over the focused pane.
 - **In the sidebar.** A split is one row of equal segments with a 1 pt line between them: each segment's favicon (18) 7 into it, its title 10 after that, ending 5 before the next line (Arc). The row counts as one for ⌘1–⌘9, ⌃Tab and next or previous tab, which show the pane focused last. Its ✕ closes all its tabs, and on a pinned split it unloads them and the row stays a split. Moving or pinning the row moves the split; Move to Space takes one tab out.
-- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel 77 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). To build: ⌥-click on "+ New Tab" opens a New Tab pane, ⌥⇧-click on a link opens it in a right pane (Dia), and dragging a tab onto the page shows the targets.
+- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel 77 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). Dragging a tab from the sidebar onto the page shows the targets, below. To build: ⌥-click on "+ New Tab" opens a New Tab pane, and ⌥⇧-click on a link opens it in a right pane (Dia).
 - **Commands.** Arc's View menu: Add Split View ⌃+, Close this Split Pane ⌃⇧-, Separate Page from Split View, and Expand Current Split (to build). To build, from Dia: Flip, Change Orientation, Move Pane Left/Right, Separate All. ⌃⇧] and ⌃⇧[ focus the next and previous pane (Dia, *interim*).
 - **Kept.** A split comes back after a quit.
 
@@ -553,6 +553,14 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
 - **Timing.** The targets slide in from outside the card's edges in ≈ 110 ms, then grow over ≈ 120 ms with no overshoot. In the top strip they appeared when the pointer was 26 pt below the strip. For the sidebar, measure the trigger in Arc.
 - **What the drag looks like.** For a frame or two the tab itself follows the pointer. Then it becomes a 209 × 109.5 picture of a window, centred on the pointer, with a 0.5 pt light rim, a shadow and traffic lights. Over another window's tab list it turns back into a tab in ≈ 50 ms. Ardia then opens a tab-wide gap at the pointer in 120 ms; Dia's: measure.
 - **Drop.** On a target, the page splits and the new pane slides in on that side (timing: measure). Away from a target, the tab opens in its own window, which grows out of the card at the pointer in ≈ 200 ms and takes focus. A pane leaves its split the same way. Dragging the only tab on a page splits it with the tab used before it.
+- **Ours, until Arc's are measured:**
+  - The targets come once the pointer is 26 pt past the card's left edge, Dia's distance from its top strip. They go when it's back over the sidebar, and the tab is a row again.
+  - A target is under the tab while the pointer is in it. It stays so until the pointer leaves the bigger target it grows to, and grows and shrinks over 120 ms on an ease-out cubic.
+  - The look: a fill white 0.06 over the window's, a 0.5 pt edge of white 0.14, and dashes of white 0.25.
+  - The picture of the window: radius 10 with a white 0.25 rim, traffic lights 6 pt, and the tab's favicon and title on a page under them. Dia's picture has the page's image.
+  - The tab becomes the picture at once, not after a frame or two.
+  - On a drop, the split shows at once, focused on the tab dropped. Away from a target, the tab goes back to its row until there are windows to open.
+  - Targets are at the card's sides only, not at each pane's. Favorites, folders and split rows get none, and neither does a tab of the split shown or a split that is full.
 
 ### Archive
 

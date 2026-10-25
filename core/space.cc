@@ -314,7 +314,7 @@ void Space::DeleteFolder(bc_id folder) {
   ReportChanged();
 }
 
-bool Space::Split(bc_id tab, bc_id with, GURL url) {
+bool Space::Split(bc_id tab, bc_id with, GURL url, bool left) {
   if (tab == with || !Has(tab) || !Has(with)) {
     return false;
   }
@@ -328,7 +328,9 @@ bool Space::Split(bc_id tab, bc_id with, GURL url) {
   std::erase(was_pinned ? pinned_ : today_, tab);
   const bool pinned = IsPinned(with);
   std::vector<bc_id>& list = pinned ? pinned_ : today_;
-  list.insert(std::ranges::find(list, panes.back()) + 1, tab);
+  list.insert(left ? std::ranges::find(list, panes.front())
+                   : std::ranges::find(list, panes.back()) + 1,
+              tab);
   if (pinned) {
     pinned_urls_[tab] = was_pinned ? pinned_url : std::move(url);
   } else {
@@ -342,9 +344,9 @@ bool Space::Split(bc_id tab, bc_id with, GURL url) {
   }
   ForgetOpener(tab);
   if (auto split = SplitOf(with); split != splits_.end()) {
-    split->push_back(tab);
+    split->insert(left ? split->begin() : split->end(), tab);
   } else {
-    splits_.push_back({with, tab});
+    splits_.push_back(left ? std::vector<bc_id>{tab, with} : std::vector<bc_id>{with, tab});
   }
   ReportChanged();
   return true;
