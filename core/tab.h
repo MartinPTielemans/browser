@@ -1,6 +1,7 @@
 #ifndef BROWSER_CORE_TAB_H_
 #define BROWSER_CORE_TAB_H_
 
+#include <optional>
 #include <string>
 
 #include "base/memory/weak_ptr.h"
@@ -11,6 +12,7 @@
 #include "components/favicon/core/favicon_driver_observer.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
+#include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
@@ -55,6 +57,10 @@ class Tab : public content::WebContentsObserver,
   // Its name, else its page's title.
   std::string Title();
 
+  // The colour the tab's page shows until it draws its first frame, opaque. Each page view the tab
+  // swaps in takes it too, which Chrome's views do on their own only off the Mac.
+  void SetPageColor(SkColor color);
+
   // When a window last stopped showing the tab, else when it opened, for the auto-archive.
   base::Time last_seen() const { return last_seen_; }
   void set_last_seen(base::Time time) { last_seen_ = time; }
@@ -71,6 +77,9 @@ class Tab : public content::WebContentsObserver,
   void DidStopLoading() override;
   void NavigationEntriesDeleted() override;
   void DidFinishLoad(content::RenderFrameHost* frame, const GURL& url) override;
+  void RenderFrameHostChanged(content::RenderFrameHost* old_host,
+                              content::RenderFrameHost* new_host) override;
+  void RenderViewReady() override;
   void TitleWasSet(content::NavigationEntry* entry) override;
   void DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) override;
   void DidGetUserInteraction(const blink::WebInputEvent& event) override;
@@ -91,6 +100,7 @@ class Tab : public content::WebContentsObserver,
   const bc_id id_;
   std::string name_;
   base::Time last_seen_ = base::Time::Now();
+  std::optional<SkColor> page_color_;
   bool state_report_posted_ = false;
   // The favicon the app was last told of.
   gfx::Image favicon_;

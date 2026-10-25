@@ -690,6 +690,10 @@ void Window::LayOutPage() {
     if (contents == shown_.get()) {
       focused = i;
     }
+    if (Tab* tab = Tab::FromWebContents(contents); tab && page_color_) {
+      tab->SetPageColor(SkColorSetRGB(*page_color_ >> 16, *page_color_ >> 8 & 0xff,
+                                      *page_color_ & 0xff));
+    }
     // Side by side, each as wide as the others.
     const int span = page_frame_.width() + kSplitGap;
     const int left = page_frame_.x() + span * i / count;
@@ -797,6 +801,13 @@ void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
 void Window::SetFocusColor(uint32_t color) {
   if (focus_color_ != color) {
     focus_color_ = color;
+    LayOutPage();
+  }
+}
+
+void Window::SetPageColor(uint32_t color) {
+  if (page_color_ != color) {
+    page_color_ = color;
     LayOutPage();
   }
 }

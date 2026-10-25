@@ -656,6 +656,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_set_focus_color(WINDOW.get(), color) };
     }
 
+    fn set_page_color(&self, color: u32, _: &mut App) {
+        unsafe { bc::bc_window_set_page_color(WINDOW.get(), color) };
+    }
+
     fn set_page_right(&self, right: f32, _: &mut App) {
         unsafe { platform::host_set_page_right(right as f64) };
     }

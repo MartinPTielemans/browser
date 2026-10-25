@@ -337,6 +337,9 @@ BC_EXPORT void bc_window_set_page_frame(bc_id window, bc_rect frame, double corn
 // The colour of the ring inside the edge of the focused page of a split view, 0xRRGGBB.
 BC_EXPORT void bc_window_set_focus_color(bc_id window, uint32_t color);
 
+// What the window's pages show until they draw their first frame, in place of white, 0xRRGGBB.
+BC_EXPORT void bc_window_set_page_color(bc_id window, uint32_t color);
+
 // Shows |tab|, a tab in the window, at its page frame, in place of the page shown before, and its
 // Space if the window shows another. It takes the keyboard if that page had it. A tab in a split
 // view shows with the rest of its split, focused. A click in another page of the split focuses
