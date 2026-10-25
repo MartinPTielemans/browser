@@ -119,13 +119,14 @@ const LOADING_SIZE: f32 = 12.;
 // One clockwise turn (docs/ux-spec.md › Motion).
 const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
-// Dia's ≈ 22 pt hover square, its centre 18 from the plate's right edge as before.
-const CLOSE_SIZE: f32 = 22.;
-const CLOSE_RIGHT: f32 = 7.;
-// The selected plate's inner line, which every plate keeps clear so that nothing moves.
+// Arc's close button, 5 inside the plate's right edge.
+const CLOSE_SIZE: f32 = 26.;
+const CLOSE_RIGHT: f32 = 5.;
+// Arc's divider line: one device pixel at 2x, 18 in from each side of the sidebar.
 const HAIRLINE: f32 = 0.5;
+const DIVIDER_X: f32 = 18.;
 // The Clear divider, under the pinned tabs. Its line's centre is 25 pt above the centre of the first
-// row under it, and it ends 7.5 pt before Clear's arrow.
+// row under it. While Clear shows, the line ends 7.5 pt before Clear's arrow.
 const DIVIDER_HEIGHT: f32 = 15.;
 const DIVIDER_LINE_Y: f32 = DIVIDER_HEIGHT - (25. - ROW_HEIGHT / 2.);
 const DIVIDER_GAP: f32 = 7.5;
@@ -183,15 +184,14 @@ const SPACE_COLORS: [(&str, u32); 8] = [
 const MATERIAL_STAND_IN: u32 = 0x131313;
 // Dia's card, #121212 at 0.5: what shows before a page first paints.
 const CARD: u32 = 0x1212_1280;
-// Dia's tokens (docs/ux-spec.md › Colour tokens). A row is white 0.16 hovered and 0.31 pressed,
-// and selected it's #121212 at 0.5 inside a 0.5 pt hairline of white 0.15. Titles are white, at
-// 0.78 unless selected.
+// Arc's row tokens (docs/ux-spec.md › Tab rows): the tab shown is white 0.2, a row under the
+// pointer 0.12 and a pressed one 0.065, with no line or shadow in dark mode. Titles are Dia's,
+// white, at 0.78 unless selected (ours: Arc's aren't measured).
 const TITLE: u32 = 0xffffffff;
 const UNSELECTED_TITLE: u32 = 0xffffffc7;
-const SELECTED: u32 = 0x1212_1280;
-const SELECTED_HAIRLINE: u32 = 0xffffff26;
-const HOVERED: u32 = 0xffffff29;
-const PRESSED: u32 = 0xffffff4f;
+const SELECTED: u32 = 0xffff_ff33;
+const HOVERED: u32 = 0xffff_ff1f;
+const PRESSED: u32 = 0xffff_ff11;
 const SECONDARY: u32 = 0xffffff99;
 // The close button's square under the pointer: Dia's subtle fill, white 0.12, at the header
 // buttons' radius (ours: Dia's fill isn't measured).
@@ -199,8 +199,8 @@ const CLOSE_HOVERED: u32 = 0xffffff1f;
 const URL_FIELD: u32 = 0xffffff1a;
 const NEW_TAB: u32 = 0xffffff8c;
 const NEW_TAB_PLUS: u32 = 0xffffff40;
-// The Clear divider's line, white 0.08 (Arc), and its button (ours: Arc's colour isn't measured).
-const DIVIDER: u32 = 0xffffff14;
+// The Clear divider's line, white 0.15 (Arc), and its button (ours: Arc's colour isn't measured).
+const DIVIDER: u32 = 0xffffff26;
 const CLEAR: u32 = 0xffffff73;
 // The toast: white 0.1 over the window, opaque over the rows it covers (ours: Arc's isn't
 // measured).
@@ -226,8 +226,7 @@ const FORM_PLATE: u32 = 0xffffff13;
 const FORM_PLACEHOLDER: u32 = 0xffffff8c;
 const CREATE: u32 = 0x25278a;
 const CREATE_LABEL_DISABLED: u32 = 0xffffff45;
-// The reveal panel's 0.5 pt light border: the selected row's hairline (ours: Arc's colour isn't
-// measured).
+// The reveal panel's 0.5 pt light border, white 0.15 (ours: Arc's colour isn't measured).
 const REVEAL_BORDER: u32 = 0xffffff26;
 // The panel draws the window's buttons itself, since AppKit's stay in the browser window, under
 // it: their centres from the panel's corner, as the docked sidebar's are from the window's, their
@@ -2703,7 +2702,7 @@ impl Shell {
             .id(("close", tab))
             .flex_none()
             .ml(px(4.))
-            .mr(px(CLOSE_RIGHT - HAIRLINE))
+            .mr(px(CLOSE_RIGHT))
             .size(px(CLOSE_SIZE))
             .rounded(px(NAV_RADIUS))
             .hover(|style| style.bg(rgba(CLOSE_HOVERED)))
@@ -2953,8 +2952,9 @@ impl Shell {
 
     /// The line over Today, and Clear at its end, where the titles end.
     fn divider(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let clear = clear_label(self.tools_shown()).id("clear").when(self.tools_shown(), |clear| {
-            clear
+        let clear = self.tools_shown().then(|| {
+            clear_label()
+                .id("clear")
                 .block_mouse_except_scroll()
                 .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)))
         });
@@ -3174,7 +3174,7 @@ impl Shell {
             .child(name_box().child(div().truncate().child(space.name.clone())))
             .children(space.pinned.iter().map(|&tab| row(tab)))
             .when(!space.today.is_empty(), |page| {
-                page.child(divider_box(clear_label(self.tools_shown())))
+                page.child(divider_box(self.tools_shown().then(clear_label)))
             })
             .child(row_box().child(plate(plus, new_tab)))
             .children(space.today.iter().map(|&tab| row(tab)))
@@ -3447,26 +3447,26 @@ fn markdown_text(text: &str) -> String {
     escaped
 }
 
-/// The divider under the pinned tabs: a line, then `clear`.
-fn divider_box(clear: impl IntoElement) -> gpui::Div {
+/// The divider under the pinned tabs: a line, and `clear` at its end while it shows.
+fn divider_box(clear: Option<impl IntoElement>) -> gpui::Div {
+    let right = if clear.is_some() { 2. * PLATE_INSET } else { DIVIDER_X };
     div().flex_none().h(px(DIVIDER_HEIGHT)).child(
         div()
             .absolute()
             .top(px(DIVIDER_LINE_Y - CLEAR_HEIGHT / 2.))
-            .left(px(FAVICON_X))
-            .right(px(2. * PLATE_INSET))
+            .left(px(DIVIDER_X))
+            .right(px(right))
             .h(px(CLEAR_HEIGHT))
             .flex()
             .items_center()
-            .child(div().flex_1().h(px(1.)).bg(rgba(DIVIDER)))
-            .child(clear),
+            .child(div().flex_1().h(px(HAIRLINE)).bg(rgba(DIVIDER)))
+            .children(clear),
     )
 }
 
-/// The divider's Clear: an arrow down and its label. It keeps its place while it doesn't show.
-fn clear_label(shown: bool) -> gpui::Div {
+/// The divider's Clear: an arrow down and its label.
+fn clear_label() -> gpui::Div {
     div()
-        .when(!shown, |clear| clear.opacity(0.))
         .flex_none()
         .ml(px(DIVIDER_GAP - CLEAR_ARROW_INSET))
         .h_full()
@@ -3499,11 +3499,10 @@ fn plate(icon: impl IntoElement, label: impl IntoElement) -> gpui::Div {
         .flex()
         .items_center()
         .rounded(px(PLATE_RADIUS))
-        .border(px(HAIRLINE))
         .child(
             div()
                 .flex_none()
-                .ml(px(FAVICON_X - PLATE_INSET - HAIRLINE))
+                .ml(px(FAVICON_X - PLATE_INSET))
                 .mr(px(TITLE_GAP))
                 .size(px(FAVICON_SIZE))
                 .flex()
@@ -3528,9 +3527,7 @@ fn favicon(favicon: Option<Arc<Image>>) -> AnyElement {
 
 /// The selected tab's plate, at `opacity` while it fades in.
 fn selected_plate(plate: gpui::Div, opacity: f32) -> gpui::Div {
-    plate
-        .bg(Hsla::from(rgba(SELECTED)).opacity(opacity))
-        .border_color(Hsla::from(rgba(SELECTED_HAIRLINE)).opacity(opacity))
+    plate.bg(Hsla::from(rgba(SELECTED)).opacity(opacity))
 }
 
 /// A tab row's title, cut off at the row's trailing edge.
