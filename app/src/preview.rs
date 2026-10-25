@@ -569,7 +569,8 @@ impl Browser for Fake {
         0x007aff
     }
 
-    // Menus and alerts are AppKit's, which the preview goes without.
+    // Menus are AppKit's, and the dialog's window is one the app's host lays over the browser
+    // window. The preview goes without both.
     fn menu(
         &self,
         _: Vec<MenuEntry>,

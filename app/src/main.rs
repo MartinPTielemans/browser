@@ -10,7 +10,7 @@ use std::{
     time::Instant,
 };
 
-use browser::command_bar;
+use browser::{command_bar, dialog};
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
     Page, Shell, WindowButton,
@@ -88,8 +88,10 @@ mod platform {
             detail: *const c_char,
             buttons: *const *const c_char,
             count: usize,
-            destructive: bool,
         ) -> i32;
+        pub fn host_add_dialog(dialog_view: *mut c_void);
+        pub fn host_show_dialog();
+        pub fn host_hide_dialog();
     }
 
     /// Where host_menu shows a menu.
@@ -284,6 +286,19 @@ fn url_for(
     }
     url.truncate(length);
     (length > 0).then(|| String::from_utf8_lossy(&url).into_owned())
+}
+
+/// The dialog's requests, to the host's dialog window.
+struct DialogHost;
+
+impl dialog::Host for DialogHost {
+    fn show(&self) {
+        unsafe { platform::host_show_dialog() };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_dialog() };
+    }
 }
 
 /// The command bar's requests, as calls to the core and to the host's overlay window.
@@ -606,13 +621,7 @@ impl Browser for Engine {
         confirmed: Box<dyn FnOnce(&mut App)>,
         cx: &mut App,
     ) {
-        // As for a menu, and the alert's loop is AppKit's too.
-        cx.spawn(async move |cx| {
-            if ask(&message, &detail, &[action, "Cancel"], true) == 0 {
-                cx.update(|cx| confirmed(cx));
-            }
-        })
-        .detach();
+        dialog::ask(message, detail, action, confirmed, cx);
     }
 
     fn focus_ui(&self, _: &mut App) {
@@ -714,7 +723,7 @@ impl Browser for Engine {
         }
         cx.spawn(async move |_| {
             let buttons = ["Quit", "Quit, and don’t ask again", "Cancel"];
-            match ask("Quit Browser?", "", &buttons, false) {
+            match ask("Quit Browser?", "", &buttons) {
                 0 => {}
                 1 => {
                     // check.sh waits for this line.
@@ -732,7 +741,7 @@ impl Browser for Engine {
 /// Asks `message` in an alert with `buttons`, the first the default, and returns the index of the
 /// one chosen, or none if AppKit ended it. It blocks in AppKit's loop until the alert closes, so
 /// it's called in a task.
-fn ask(message: &str, detail: &str, buttons: &[&str], destructive: bool) -> usize {
+fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
     let text = |text: &str| CString::new(text).unwrap_or_default();
     let (message, detail) = (text(message), text(detail));
     let buttons: Vec<CString> = buttons.iter().map(|button| text(button)).collect();
@@ -743,7 +752,6 @@ fn ask(message: &str, detail: &str, buttons: &[&str], destructive: bool) -> usiz
             detail.as_ptr(),
             pointers.as_ptr(),
             pointers.len(),
-            destructive,
         )
     };
     usize::try_from(chosen).unwrap_or(usize::MAX)
@@ -899,6 +907,11 @@ fn open_window(cx: &mut App) {
                 && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
             {
                 unsafe { platform::host_add_overlay(view, command_bar_dismissed) };
+            }
+            if let Some(dialog) = dialog::open(Rc::new(DialogHost), cx)
+                && let Ok(view) = dialog.update(cx, |_, window, _| ns_view(window))
+            {
+                unsafe { platform::host_add_dialog(view) };
             }
             if let Ok(shell) = window.entity(cx) {
                 find_bar::open(shell.clone(), cx);

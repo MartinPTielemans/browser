@@ -102,6 +102,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Library recede | opacity 1 − p/0.66; scale 1 − 0.076p about (sidebar edge + 128, window middle); the Library's edge from 0.29 at 0.92 its width a way | the sidebar under the Library, with p how far the card has gone (0 to 1), while fingers move it and on after they let go, both ways | Arc 1.170 rec at 2×, a slow swipe open and one closed |
 | New Space pull | readying: white closes in over 60 ms, the dot shrinks into the + over 70 ms, pop to 1.13× and back over 120 ms from 40 ms; un-readying: the colour grows back over 120 ms; let go readied: the form at once, the circle back under the edge over 100 ms, ease-in-out | the circle past the last Space, and the Space it makes | Arc 1.170 rec at 1× and 2×, 3 pulls |
 | Space form leave | each part over 150 ms, opacity 1 − t³ and sinking 20t² pt: the buttons from 0 without sinking (opacity 1 − t), the field from 80 ms, the title from 130 ms | the Create a Space form after Create, from the bottom up | Arc 1.170 rec at 2×, one Space made |
+| Dialog | in: the window dims and the card comes down 32 pt into place over 275 ms, ease-in-out, opaque after its first 135 ms; out: back up the same way, fading over all of it | the dialog that asks before a delete, and what it asked for after it has gone, 0.33 s after the click | Arc 1.170 rec at 2×, one Space deleted |
 | Group expand | spring 0.30 s / ζ 0.82 | group or folder open and close (*interim*) | Dia rec |
 | Spinner | 0 → −2π (clockwise), 1.88 s, linear, repeating | tab loading | Dia 1.50.1 bin |
 
@@ -420,7 +421,11 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 
 - A right-click on the Space's name, or on its dot in the switcher, shows a native menu with Rename Space and Delete Space. Delete Space is off for the last Space.
 - Rename Space, or a double-click on the name, turns the name into a field with all of it selected. ↩ keeps what's typed unless it's empty, Esc cancels, and a click elsewhere in the sidebar keeps it.
-- Delete Space asks first in an alert naming the Space, if it has tabs, and its tabs close with it. Its Today tabs reopen with ⇧⌘T in the Space shown; its pinned tabs don't come back. An empty Space goes without asking.
+- Delete Space asks first, if the Space has tabs, and its tabs close with it. Its Today tabs reopen with ⇧⌘T in the Space shown; its pinned tabs don't come back. An empty Space goes without asking.
+- **The dialog** (Arc 1.170 rec at 2×; ours asks before Clear Archive too). The window dims to #151515 at 0.62 under a card 450 wide, centred on it: #161B2F at radius 16, with a 1 pt line of white 0.1 inside its edge, 0.5 pt of black 0.9 outside it, and a shadow of black 0.56, 16 down and blurred 16.
+  - Text is inset 38 from the card's top and left: the question in 18 pt medium white on a 22 pt line, then 15.5 below it the detail in 14 pt at white 0.78 on 18. The buttons are 38 under it, at the right, 28 in from the card's right and bottom and 8 apart.
+  - The buttons are 36 tall at radius 8, the label in macOS's control font, 13 pt regular, 12 in from the left, and the key's chip, 20 tall at radius 5, 8 after it and 12 in from the right. Cancel is #2F305F with a 1 pt line of #6462A9 and text at white 0.9, its ESC chip 34.5 wide, #4D4B77 with 11 pt semibold #BBB9E3. The action is #E1492C on a 2 pt ledge of its colour at 0.2, and #CC4126 under the pointer, with a ↩ chip 30 wide, white 0.1 with a line of white 0.27.
+  - Esc and Cancel cancel, ↩ and the action confirm, and the action happens once the dialog has gone (Motion › Dialog). Ours: a click on the dim cancels, Cancel doesn't change under the pointer, and the card has no icon over the question, where Arc's has its own.
 
 **Colour.** The Space colour drives the window gradient (Shared rules), the New Tab band and halo, and the accent. Dia's hue families are neutral, red, orange, yellow, green, blue, pink and purple. Only pink is measured: tint #B25B6B (P3), New Tab band #B5556B. Arc's presets and editor are under Themes.
 

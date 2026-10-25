@@ -36,7 +36,7 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 
 ## Quiet controls, loud thresholds
 
-- **Seen.** Create Space doesn't change under the pointer or while pressed. The dialog's Delete darkens to 0.9 under the pointer. The New Space pull pops to 1.13×, glows and clicks the trackpad as it readies, and clicks again if it un-readies. Arc's other haptic is for reordering tabs; it has none for swiping between Spaces (Settings › Advanced).
+- **Seen.** Create Space doesn't change under the pointer or while pressed. The dialog's Delete darkens to 0.9 under the pointer. The dialog's buttons are labelled in macOS's control font, 13 pt regular, and only its question is heavier, at medium (Spaces › Renaming and deleting). The New Space pull pops to 1.13×, glows and clicks the trackpad as it readies, and clicks again if it un-readies. Arc's other haptic is for reordering tabs; it has none for swiping between Spaces (Settings › Advanced).
 - **Reading.** The strongest feedback goes where a gesture crosses a line. Everyday buttons stay calm, and the one that destroys something reacts.
 - **Applies.** Haptics, glows and overshoot are for threshold crossings. Hover states go on actions with consequences, not on every control.
 

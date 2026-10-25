@@ -278,13 +278,14 @@ view=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layou
   sed -n 's/.*WebContentsViewCocoa \([0-9,]* [0-9x]*\).*/\1/p')
 [ "$view" = "$docked" ] || fail "the page is at $view after the Library, not back at $docked"
 # The Window menu's View Library opens it too, and the Archive menu's Clear Archive asks first,
-# then empties it. The Library's back button closes it, and the footer's button opens it.
+# and return in the dialog empties it. The Library's back button closes it, and the footer's
+# button opens it.
 send menu View Library
 expect '^browser: command view-library via ui$' "View Library didn't run"
 expect '^browser: library shown$' "View Library didn't open the Library"
-post menu Clear Archive
-expect '^browser: alert shown Clear the archive?$' "Clear Archive didn't ask first"
-send choose Clear Archive
+send menu Clear Archive
+expect '^browser: dialog shown Clear the archive?$' "Clear Archive didn't ask first"
+send key return
 expect '^browser: archive 0 tabs$' "Clear Archive didn't empty the archive"
 ../tools/window-screenshot.sh "$pid" "$out/library-empty.png" || fail "no window to capture"
 send click 24 $((height - 24))

@@ -2,5 +2,6 @@
 //! C API; `preview` runs it alone with made-up tabs.
 
 pub mod command_bar;
+pub mod dialog;
 pub mod shell;
 pub mod text_input;
