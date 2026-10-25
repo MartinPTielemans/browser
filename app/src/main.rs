@@ -173,6 +173,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_set_pinned(tab, pinned) };
     }
 
+    fn move_tab(&self, tab: u64, pinned: bool, index: usize, _: &mut App) {
+        unsafe { bc::bc_tab_move(tab, pinned, index) };
+    }
+
     fn back_to_pinned_url(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_back_to_pinned_url(tab) };
     }

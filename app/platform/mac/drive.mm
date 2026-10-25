@@ -9,6 +9,9 @@
 //   rightclick <x> <y>                    a right click
 //   clickkey <x> <y>                      a left click in the key window, such as the command bar
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
+//   press <x> <y>                         presses at (x, y), for a drag in steps
+//   dragto <x> <y>                        moves the pointer pressed to (x, y)
+//   release <x> <y>                       lets go of it at (x, y)
 //   move <x> <y>                          moves the pointer to (x, y), without a button down
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "[", "]",
 //                                         return, escape, tab, space, backspace, up, down, left
@@ -377,6 +380,28 @@ bool Run(const std::string& line, void (^done)(void)) {
     PostMouse(target, NSEventTypeLeftMouseDown, x, y, 1);
     PostMouse(target, NSEventTypeLeftMouseDragged, x2, y2, 1);
     PostMouse(target, NSEventTypeLeftMouseUp, x2, y2, 1);
+    done();
+    return true;
+  }
+  // A drag in steps goes to the window the press went to, as AppKit sends it.
+  static NSWindow* pressed;
+  if (action == "press" || action == "dragto" || action == "release") {
+    double x, y;
+    if (!(words >> x >> y)) {
+      return false;
+    }
+    if (action == "press") {
+      pressed = WindowAt(window, x, y);
+    }
+    NSWindow* target = pressed ?: window;
+    Convert(window, target, &x, &y);
+    NSEventType type = action == "press"    ? NSEventTypeLeftMouseDown
+                       : action == "dragto" ? NSEventTypeLeftMouseDragged
+                                            : NSEventTypeLeftMouseUp;
+    PostMouse(target, type, x, y, 1);
+    if (action == "release") {
+      pressed = nil;
+    }
     done();
     return true;
   }

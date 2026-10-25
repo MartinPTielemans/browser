@@ -70,7 +70,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Scroll edge | MVP | 1 pt P3 white 0.09 at favorites + 4; fades 100 ms cubic-bezier(0.25, 0.46, 0.45, 0.94) | Dia 1.53.0 bin |
 | [x] | Open tab motion | MVP | new row in place at once; rows below slide 140 ms cubic-bezier(0.25, 0.1, 0.25, 1) | Dia rec 120 fps |
 | [x] | Close tab motion | MVP | fade 100 ms cubic-bezier(0, 0, 0.58, 1); rows below slide 140 ms over it | Dia rec 120 fps |
-| [ ] | Reorder | MVP | neighbour moves at the centre crossing; critically damped ω ≈ 90 (done 76 ms) | Dia rec 60 fps |
+| [x] | Reorder | MVP | neighbour moves at the centre crossing; critically damped ω ≈ 90 (done 76 ms) | Dia rec 60 fps |
 | [ ] | Drag to another window / desktop | MVP | moves the live page; new window under the pointer | Dia P§1 |
 | [ ] | Drops on the list | MVP | files and http(s) open at the gap; never javascript:, data:, file: from text | Dia, Ardia |
 | [ ] | Hover card show | MVP | delay 0.5 s; opacity 100 ms + scale spring 0.92 → 1 (0.25 s, ζ 0.75) | Dia bin |

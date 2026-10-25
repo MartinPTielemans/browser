@@ -92,6 +92,19 @@ impl Browser for Fake {
         });
     }
 
+    fn move_tab(&self, tab: u64, pinned: bool, index: usize, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let mut tabs = [shell.pinned().to_vec(), shell.today().to_vec()];
+            for list in &mut tabs {
+                list.retain(|&id| id != tab);
+            }
+            let to = &mut tabs[if pinned { 0 } else { 1 }];
+            to.insert(index.min(to.len()), tab);
+            let [pinned, today] = tabs;
+            shell.set_tabs(shell.space(), pinned, today, cx);
+        });
+    }
+
     // As the core does, without the undo.
     fn clear(&self, cx: &mut App) {
         self.later(cx, |shell, cx| {

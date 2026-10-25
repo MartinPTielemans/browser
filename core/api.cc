@@ -287,6 +287,17 @@ void bc_tab_set_pinned(bc_id id, bool pinned) {
   browser_core::Tab::FromWebContents(contents)->StateChanged();
 }
 
+void bc_tab_move(bc_id id, bool pinned, size_t index) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (!space || !contents) {
+    return;
+  }
+  space->Move(id, pinned, index, browser_core::Tab::PageUrl(contents));
+  // Whether it's away from its pinned URL.
+  browser_core::Tab::FromWebContents(contents)->StateChanged();
+}
+
 void bc_tab_close(bc_id id) {
   if (browser_core::Space* space = browser_core::Space::Holding(id); space && space->IsPinned(id)) {
     browser_core::Window::UnloadPinned(id);
