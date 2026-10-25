@@ -38,11 +38,12 @@ mod platform {
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
         pub fn host_ui_view() -> *mut c_void;
         pub fn host_show_window(ui_view: *mut c_void);
-        pub fn host_add_overlay(overlay_view: *mut c_void);
+        pub fn host_add_overlay(overlay_view: *mut c_void, dismissed: extern "C" fn());
         pub fn host_show_overlay(centered: bool, left: f64, top: f64, width: f64);
         pub fn host_set_overlay_height(height: f64);
         pub fn host_reshape_overlay();
         pub fn host_hide_overlay();
+        pub fn host_dismiss_overlay();
         pub fn host_add_find_bar(find_bar_view: *mut c_void, right: f64, top: f64);
         pub fn host_show_find_bar(keyboard: bool);
         pub fn host_hide_find_bar();

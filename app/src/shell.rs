@@ -833,6 +833,9 @@ pub struct Shell {
     closing: Vec<Closing>,
     /// The tabs Clear is closing, whose rows go in one frame.
     clearing: Vec<u64>,
+    /// ⌘T's command bar is open, and "New Tab" has the selected plate in place of the tab shown
+    /// (Arc).
+    new_tab: bool,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
@@ -904,6 +907,7 @@ impl Shell {
             opened: None,
             closing: Vec::new(),
             clearing: Vec::new(),
+            new_tab: false,
             drag: None,
             dragged: false,
             swipe: None,
@@ -1392,7 +1396,28 @@ impl Shell {
         if !self.walking {
             self.shown(tab);
         }
+        self.set_new_tab(false, cx);
         cx.notify();
+    }
+
+    /// The user left the command bar without choosing anything in it.
+    pub fn command_bar_dismissed(&mut self, cx: &mut Context<Self>) {
+        self.set_new_tab(false, cx);
+    }
+
+    /// Gives "New Tab" the selected plate while ⌘T's command bar is open, or gives it back.
+    fn set_new_tab(&mut self, new_tab: bool, cx: &mut Context<Self>) {
+        if self.new_tab != new_tab {
+            self.new_tab = new_tab;
+            // check.sh reads this line.
+            eprintln!("browser: new tab plate {}", new_tab as u8);
+            cx.notify();
+        }
+    }
+
+    /// The row with the selected plate.
+    fn selected_row(&self) -> Row {
+        if self.new_tab { Row::NewTab } else { Row::Tab(self.selected) }
     }
 
     fn shown(&mut self, tab: u64) {
@@ -1467,8 +1492,12 @@ impl Shell {
             self.set_revealed(false, cx);
         }
         let target = match command {
-            Command::NewTab => return self.browser.command_bar(None, None, cx),
+            Command::NewTab => {
+                self.set_new_tab(true, cx);
+                return self.browser.command_bar(None, None, cx);
+            }
             Command::EditUrl => {
+                self.set_new_tab(false, cx);
                 let editing = (self.selected != 0).then(|| (self.selected, self.url(self.selected)));
                 return self.browser.command_bar(editing, self.url_field_bounds(), cx);
             }
@@ -2551,7 +2580,7 @@ impl Shell {
         label: impl IntoElement,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let selected = matches!(row, Row::Tab(tab) if tab == self.selected);
+        let selected = row == self.selected_row();
         let (id, slot) = match row {
             Row::NewTab => (("new-tab", 0), Slot::NewTab),
             Row::Tab(tab) => (("tab", tab), Slot::Tab(tab)),
@@ -2646,7 +2675,7 @@ impl Shell {
         let away = page.away_from_pinned_url;
         let back = away && self.hovered_favicon == Some(tab);
         let label = if back { "Back to Pinned URL".into() } else { self.title(tab) };
-        let title = title(label, tab == self.selected);
+        let title = title(label, Row::Tab(tab) == self.selected_row());
         // The close button shows under the pointer, and the title truncates before it.
         let close = div()
             .id(("close", tab))

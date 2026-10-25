@@ -279,6 +279,7 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 
 **Behavior**
 
+- **⌘T's command bar** (Arc rec 120 fps). While it's open, "+ New Tab" has the selected plate, and the tab shown loses it and its selected title, in one frame. A pick, Esc or a click outside the bar gives it back, in one frame. ⌘L's bar doesn't move the plate.
 - **Opening a tab** (Arc rec 120 fps). The new row appears in its slot at once, already selected, and its plate fades in (Row motion). The old selection drops at once. Rows below slide down one pitch (Row motion), drawn under the new row and revealed from beneath its bottom edge (Dia).
 - **Closing a tab** (Arc rec 120 fps). Selection moves to the neighbour at once. The closed row drops its selected fill and stays in place, fading as the rows below slide up over it (Row motion), all starting at the same moment. Hover follows the final layout at once. Several closes fade together.
 - **Tabs coming back.** When several rows come at once, as after Undo, they fade in in place (Arc rec) and the rows below them slide.

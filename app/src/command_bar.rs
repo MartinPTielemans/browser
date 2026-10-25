@@ -13,7 +13,7 @@ use gpui::{
     WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size,
 };
 
-use crate::{WINDOW, bc, navigate, ns_view, open_tab, platform, typed_url};
+use crate::{WINDOW, bc, navigate, ns_view, open_tab, platform, typed_url, update_shell};
 
 actions!(command_bar, [Go, Dismiss, Next, Previous]);
 
@@ -140,7 +140,7 @@ pub fn open(cx: &mut App) {
     match window {
         Ok(window) => {
             if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
-                unsafe { platform::host_add_overlay(view) };
+                unsafe { platform::host_add_overlay(view, dismissed) };
                 cx.set_global(CommandBarWindow(window));
             }
         }
@@ -176,6 +176,11 @@ pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>,
     suggest("", false);
     let (left, top) = origin.map_or((0., 0.), |origin| (origin.x.into(), origin.y.into()));
     unsafe { platform::host_show_overlay(origin.is_none(), left, top, f64::from(WIDTH)) };
+}
+
+/// The user left the bar without choosing anything in it.
+extern "C" fn dismissed() {
+    update_shell(|shell, cx| shell.command_bar_dismissed(cx));
 }
 
 /// How far the bar has grown out of the URL field, from 0 to 1 on an exponential ease-out, or none
@@ -387,7 +392,7 @@ impl CommandBar {
     }
 
     fn dismiss(&mut self, _: &Dismiss, _: &mut Window, _: &mut Context<Self>) {
-        unsafe { platform::host_hide_overlay() };
+        unsafe { platform::host_dismiss_overlay() };
     }
 
     fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
