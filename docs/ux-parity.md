@@ -62,14 +62,14 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Row favicon and title | MVP | 16 pt at x 9; title 7 after, 13 pt, trailing fade | Dia 1.50.1 bin |
 | [ ] | Row states | MVP | hover white 0.16, pressed 0.31, selected #121212 0.5 + 0.5 pt white 0.15 hairline, unselected 0.06 | Dia asset catalogs |
 | [ ] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
-| [ ] | Row fill change | MVP | 300 ms ease-out | Dia 1.50.1 bin |
+| [x] | Row fill change | MVP | 300 ms ease-out, as the hover fill leaves | Dia 1.50.1 bin |
 | [ ] | Close ✕ | MVP | on hover, ≈ 22 pt hover square | Dia cap |
 | [ ] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
 | [ ] | Sleeping tab | MVP | faded favicon (alpha: measure) | Dia |
 | [ ] | "+ New Tab" row | MVP | label white 0.55, plus 0.25, 3 under the last row, sticky at the bottom | Dia 1.50.1 bin |
 | [ ] | Scroll edge | MVP | 1 pt P3 white 0.09 at favorites + 4; fades 100 ms cubic-bezier(0.25, 0.46, 0.45, 0.94) | Dia 1.53.0 bin |
-| [ ] | Open tab motion | MVP | new row in place at once; rows below slide 140 ms cubic-bezier(0.25, 0.1, 0.25, 1) | Dia rec 120 fps |
-| [ ] | Close tab motion | MVP | fade 100 ms cubic-bezier(0, 0, 0.58, 1); rows below slide 140 ms over it | Dia rec 120 fps |
+| [x] | Open tab motion | MVP | new row in place at once; rows below slide 140 ms cubic-bezier(0.25, 0.1, 0.25, 1) | Dia rec 120 fps |
+| [x] | Close tab motion | MVP | fade 100 ms cubic-bezier(0, 0, 0.58, 1); rows below slide 140 ms over it | Dia rec 120 fps |
 | [ ] | Reorder | MVP | neighbour moves at the centre crossing; critically damped ω ≈ 90 (done 76 ms) | Dia rec 60 fps |
 | [ ] | Drag to another window / desktop | MVP | moves the live page; new window under the pointer | Dia P§1 |
 | [ ] | Drops on the list | MVP | files and http(s) open at the gap; never javascript:, data:, file: from text | Dia, Ardia |
