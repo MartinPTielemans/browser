@@ -309,6 +309,12 @@ BC_EXPORT bc_id bc_tab_duplicate(bc_id tab);
 // shows the tab first. Then tab_closed for each, and space_changed.
 BC_EXPORT void bc_tab_close_below(bc_id tab);
 
+// Moves the tab to |space|: a pinned tab to the bottom of its pinned tabs, still pinned, a Today
+// tab to the top of its Today tabs. A window showing the tab shows |space| with it. Then
+// space_changed for both Spaces, and window_space_shown and window_selected for a window that went
+// with it.
+BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
+
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed. The
 // window stays open without it. A pinned tab stays in its Space instead, and only its page goes: a
 // window showing it shows the Space's top Today tab, else the nearest pinned tab still loaded, else

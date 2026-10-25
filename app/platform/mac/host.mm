@@ -20,12 +20,20 @@
 - (void)menuWillOpen:(NSMenu*)menu {
   // check.sh waits for this line before it chooses.
   NSMutableArray<NSString*>* titles = [NSMutableArray array];
+  auto add = ^(NSMenuItem* item, NSString* title) {
+    [titles addObject:item.enabled ? title : [title stringByAppendingString:@" (disabled)"]];
+  };
   for (NSMenuItem* item in menu.itemArray) {
     if (item.separatorItem) {
       continue;
     }
-    [titles addObject:item.enabled ? item.title
-                                   : [item.title stringByAppendingString:@" (disabled)"]];
+    if (!item.submenu) {
+      add(item, item.title);
+    }
+    // A submenu's items as "Move to Space › Work".
+    for (NSMenuItem* inner in item.submenu.itemArray) {
+      add(inner, [NSString stringWithFormat:@"%@ › %@", item.title, inner.title]);
+    }
   }
   fprintf(stderr, "browser: menu shown %s\n",
           [titles componentsJoinedByString:@", "].UTF8String);
@@ -417,20 +425,34 @@ void host_focus(void* view) {
   [ns_view.window makeFirstResponder:ns_view];
 }
 
-int host_menu(const host_menu_item* items, size_t count, double x, double y) {
+int host_menu(const host_menu_item* items, size_t count, double x, double y, bool in_reveal) {
   HostMenuTarget* target = [[HostMenuTarget alloc] init];
   target.chosen = -1;
   NSMenu* menu = [[NSMenu alloc] init];
   menu.autoenablesItems = NO;
   menu.delegate = target;
+  // By index, for the items in their submenus.
+  NSMutableArray<NSMenuItem*>* made = [NSMutableArray array];
   for (size_t i = 0; i < count; ++i) {
+    NSMenu* in = menu;
+    if (items[i].parent >= 0 && static_cast<NSUInteger>(items[i].parent) < made.count) {
+      NSMenuItem* parent = made[items[i].parent];
+      if (!parent.submenu) {
+        parent.submenu = [[NSMenu alloc] init];
+        parent.submenu.autoenablesItems = NO;
+      }
+      in = parent.submenu;
+    }
     if (!items[i].title) {
-      [menu addItem:[NSMenuItem separatorItem]];
+      NSMenuItem* line = [NSMenuItem separatorItem];
+      [in addItem:line];
+      [made addObject:line];
       continue;
     }
-    NSMenuItem* item = [menu addItemWithTitle:@(items[i].title)
-                                       action:@selector(choose:)
-                                keyEquivalent:@(items[i].key)];
+    NSMenuItem* item = [in addItemWithTitle:@(items[i].title)
+                                     action:@selector(choose:)
+                              keyEquivalent:@(items[i].key)];
+    [made addObject:item];
     item.keyEquivalentModifierMask = (items[i].command ? NSEventModifierFlagCommand : 0) |
                                      (items[i].shift ? NSEventModifierFlagShift : 0) |
                                      (items[i].option ? NSEventModifierFlagOption : 0) |
@@ -441,11 +463,12 @@ int host_menu(const host_menu_item* items, size_t count, double x, double y) {
   }
   // The UI draws what the menu changed, such as its row's fill, now: it can't once the menu's
   // event loop runs.
-  for (NSView* ui in g_ui_view.subviews) {
+  NSArray<NSView*>* drawn = in_reveal && g_reveal_view ? @[ g_reveal_view ] : g_ui_view.subviews;
+  for (NSView* ui in drawn) {
     [ui.layer setNeedsDisplay];
     [ui.layer displayIfNeeded];
   }
-  NSView* view = g_window.contentView;
+  NSView* view = in_reveal && g_reveal_view ? g_reveal_view : g_window.contentView;
   NSPoint at = NSMakePoint(x, view.flipped ? y : NSHeight(view.bounds) - y);
   g_menu = menu;
   [menu popUpMenuPositioningItem:nil atLocation:at inView:view];
@@ -469,10 +492,13 @@ bool host_confirm(const char* message, const char* detail, const char* action) {
 bool host_choose(const char* title) {
   NSString* chosen = @(title);
   for (NSMenuItem* item in g_menu.itemArray) {
-    if ([item.title isEqual:chosen] && item.enabled) {
-      [g_menu performActionForItemAtIndex:[g_menu indexOfItem:item]];
-      [g_menu cancelTracking];
-      return true;
+    // An item in a submenu, else one in the menu.
+    for (NSMenuItem* each in item.submenu ? item.submenu.itemArray : @[ item ]) {
+      if ([each.title isEqual:chosen] && each.enabled && !each.submenu) {
+        [each.menu performActionForItemAtIndex:[each.menu indexOfItem:each]];
+        [g_menu cancelTracking];
+        return true;
+      }
     }
   }
   for (NSButton* button in g_alert.buttons) {

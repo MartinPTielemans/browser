@@ -51,7 +51,13 @@ mod platform {
         pub fn host_show_reveal(width: f64);
         pub fn host_hide_reveal();
         pub fn host_detent();
-        pub fn host_menu(items: *const host_menu_item, count: usize, x: f64, y: f64) -> i32;
+        pub fn host_menu(
+            items: *const host_menu_item,
+            count: usize,
+            x: f64,
+            y: f64,
+            in_reveal: bool,
+        ) -> i32;
         pub fn host_confirm(message: *const c_char, detail: *const c_char, action: *const c_char)
         -> bool;
     }
@@ -65,6 +71,7 @@ mod platform {
         pub shift: bool,
         pub option: bool,
         pub control: bool,
+        pub parent: i32,
     }
 }
 
@@ -200,6 +207,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_duplicate(tab) };
     }
 
+    fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
+        unsafe { bc::bc_tab_move_to_space(tab, space) };
+    }
+
     fn set_pinned(&self, tab: u64, pinned: bool, _: &mut App) {
         unsafe { bc::bc_tab_set_pinned(tab, pinned) };
     }
@@ -265,6 +276,7 @@ impl Browser for Engine {
         &self,
         items: Vec<MenuEntry>,
         position: Point<Pixels>,
+        in_reveal: bool,
         chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
     ) {
@@ -275,7 +287,7 @@ impl Browser for Engine {
                 .iter()
                 .map(|item| {
                     let (key, modifiers) = item.shortcut.map(key_equivalent).unwrap_or_default();
-                    let title = CString::new(item.title).unwrap_or_default();
+                    let title = CString::new(item.title.as_ref()).unwrap_or_default();
                     (title, CString::new(key).unwrap_or_default(), modifiers)
                 })
                 .collect();
@@ -294,11 +306,13 @@ impl Browser for Engine {
                         shift: *shift,
                         option: *option,
                         control: *control,
+                        parent: item.parent.map_or(-1, |parent| parent as i32),
                     }
                 })
                 .collect();
             let (x, y) = (f64::from(position.x), f64::from(position.y));
-            let index = unsafe { platform::host_menu(items.as_ptr(), items.len(), x, y) };
+            let index =
+                unsafe { platform::host_menu(items.as_ptr(), items.len(), x, y, in_reveal) };
             cx.update(|cx| chosen(usize::try_from(index).ok(), cx));
         })
         .detach();

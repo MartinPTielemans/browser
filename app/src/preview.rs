@@ -105,6 +105,9 @@ impl Browser for Fake {
         });
     }
 
+    // The made-up tabs stay in their Space.
+    fn move_to_space(&self, _: u64, _: u64, _: &mut App) {}
+
     // As the core does: pinned at the bottom of the pinned tabs, unpinned at the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App) {
         self.later(cx, move |shell, cx| {
@@ -236,6 +239,7 @@ impl Browser for Fake {
         &self,
         _: Vec<MenuEntry>,
         _: Point<Pixels>,
+        _: bool,
         _: Box<dyn FnOnce(Option<usize>, &mut App)>,
         _: &mut App,
     ) {

@@ -62,12 +62,14 @@ typedef struct {
   bool shift;
   bool option;
   bool control;
+  // The index of the item whose submenu it's in, or -1.
+  int parent;
 } host_menu_item;
 
 // Shows a menu of the |count| |items| at |x|, |y|, in points from the top-left of the browser
-// window's content, as a right-click there does. Returns the index of the one chosen once it closes,
-// or -1.
-int host_menu(const host_menu_item* items, size_t count, double x, double y);
+// window's content, or of the reveal panel's if |in_reveal|, as a right-click there does. Returns
+// the index of the one chosen once it closes, or -1.
+int host_menu(const host_menu_item* items, size_t count, double x, double y, bool in_reveal);
 
 // Asks in an alert whether to do what |message| asks, with |detail| under it, and returns whether
 // the user chose |action| over Cancel once it closes.
