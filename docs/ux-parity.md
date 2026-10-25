@@ -79,11 +79,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Opener order | MVP | Chrome's TabStripModel rules | Chrome |
 | [x] | ⌘S hide (docked) | MVP | ease-out cubic 100 ms | Arc (Ardia) rec |
 | [x] | ⌘S show (hidden) | MVP | measure (*interim* Dia spring 0.215 s / ζ 0.79) | Dia rec 240 fps |
-| [ ] | Sidebar reveal in | MVP | spring 0.185 s / ζ 0.77, no fade | Arc (Ardia) rec |
-| [ ] | Sidebar reveal out | MVP | ease-in-out ≈ 150 ms | Arc (Ardia) rec |
-| [ ] | Reveal panel | MVP | inset 5 left/top/bottom, docked width, 0.5 pt light border | Arc (Ardia) rec |
-| [ ] | Reveal hold zone | MVP | 24 pt past the panel (Arc ≈ 21); trigger the full left edge | Arc (Ardia), Ardia |
-| [ ] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
+| [x] | Sidebar reveal in | MVP | spring 0.14 s / ζ 0.8 (fitted), no fade: 3.5 pt overshoot at 120 ms | Arc (Ardia) rec |
+| [x] | Sidebar reveal out | MVP | ease-in-out ≈ 150 ms | Arc (Ardia) rec |
+| [x] | Reveal panel | MVP | inset 5 left/top/bottom, docked width, 0.5 pt light border | Arc (Ardia) rec |
+| [x] | Reveal hold zone | MVP | 24 pt past the panel (Arc ≈ 21); trigger the full left edge | Arc (Ardia), Ardia |
+| [x] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
 | [ ] | Tab switcher ⌃Tab | MVP | most recent first; overlay after 140 ms; commits on ⌃ release | Dia 1.50.1 bin P§2 |
 | [ ] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
 | [ ] | Rename and emoji icon | MVP | double-click renames inline | Dia P§2 |

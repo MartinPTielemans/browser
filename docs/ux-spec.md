@@ -88,7 +88,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Scroll edge | cubic-bezier(0.25, 0.46, 0.45, 0.94), 100 ms | sidebar separator fading in and out | Dia 1.53.0 bin |
 | Panel grow | exponential ease-out, ≈ 130 ms | command bar out of the URL field | Dia 1.52 rec |
 | Sidebar hide (Arc layout) | ease-out cubic, 100 ms | ⌘S hiding a docked sidebar | Arc (Ardia) rec |
-| Sidebar reveal in | spring 0.185 s / ζ 0.77, no fade: 93 % in 66 ms, 3.5 pt overshoot at 120 ms, at rest by 220 ms | sidebar reveal at the left edge | Arc (Ardia) rec |
+| Sidebar reveal in | no fade: 93 % in 66 ms, 3.5 pt overshoot at 120 ms, at rest by 220 ms. Ours: spring 0.14 s / ζ 0.8, fitted to those (Ardia's 0.185 s / ζ 0.77 overshoots 5 pt at 145 ms) | sidebar reveal at the left edge | Arc (Ardia) rec |
 | Sidebar reveal out | ease-in-out, ≈ 150 ms | same | Arc (Ardia) rec |
 | Sidebar hide/show (Dia layout, reference) | spring 0.215 s / ζ 0.79: 90 % in 100 ms, 1–2 pt overshoot | the Arc show path until measured (*interim*) | Dia rec 240 fps |
 | Space settle | critically damped, 0.25 s | Space pages after a swipe | Dia 1.50.1 bin |
@@ -278,6 +278,8 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
   - The panel is inset 5 from the window's left, top and bottom edges, as wide as the docked sidebar, rounded and dark, with a 0.5 pt light border. It holds the traffic lights, the header buttons, the URL field and the tabs.
   - It stays while the pointer is within 24 pt of its edge (Arc ≈ 21), then slides away (Sidebar reveal out).
   - Docking from the panel is instant: the page is laid out narrower in one frame.
+  - Ours (*interim* until the Arc capture): the trigger is the card's left margin, x < 10. The panel's radius is the card's 6 and its border white 0.15, with no shadow. It draws its own traffic lights, since AppKit's stay in the browser window under it.
+  - Ours: the panel never takes the keyboard, so renaming a Space or making one from it docks the sidebar first. The command bar opening, page full screen and the app going to the background send it away.
 
 **Tab switcher (⌃Tab)** (Dia 1.50.1 bin, P§2)
 

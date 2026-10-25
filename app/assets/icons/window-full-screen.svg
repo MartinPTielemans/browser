@@ -1,0 +1,12 @@
+<!-- The full-screen button's glyph, two corners pointing out, for the window's buttons the sidebar
+reveal draws (ours). -->
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="14"
+  height="14"
+  viewBox="0 0 14 14"
+  fill="currentColor"
+>
+  <path d="M4.25 4.25h4.25L4.25 8.5z" />
+  <path d="M9.75 9.75H5.5L9.75 5.5z" />
+</svg>

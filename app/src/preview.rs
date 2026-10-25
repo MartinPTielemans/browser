@@ -7,7 +7,7 @@ use std::{
     rc::Rc,
 };
 
-use browser::shell::{self, Browser, Page, Shell};
+use browser::shell::{self, Browser, Page, Shell, WindowButton};
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -174,6 +174,13 @@ impl Browser for Fake {
     fn lay_out_page(&self, _: Size<Pixels>, _: f32, _: &mut App) {}
 
     fn show_window_buttons(&self, _: bool, _: &mut App) {}
+
+    fn press_window_button(&self, _: WindowButton, _: &mut App) {}
+
+    // The reveal's window is the app's, over the page, which the preview has neither of.
+    fn show_reveal(&self, _: f32, _: &mut App) {}
+
+    fn hide_reveal(&self, _: &mut App) {}
 
     // Menus and alerts are AppKit's, which the preview goes without.
     fn menu(

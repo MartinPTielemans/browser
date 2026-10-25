@@ -51,6 +51,14 @@ double g_find_bar_top;
 // when the command bar closes, which isn't the user choosing it.
 bool g_find_bar_keyboard = false;
 
+// The sidebar reveal's window and view, the shell's handler for the pointer, the window's width,
+// and while it shows, the monitor that hands the handler the pointer.
+NSWindow* g_reveal;
+NSView* g_reveal_view;
+void (*g_reveal_pointer)(double x);
+double g_reveal_width;
+id g_reveal_monitor;
+
 // The menu or alert showing, for host_choose.
 NSMenu* g_menu;
 NSAlert* g_alert;
@@ -88,6 +96,15 @@ void PlaceFindBar() {
   NSSize size = g_find_bar.frame.size;
   [g_find_bar setFrameOrigin:NSMakePoint(NSMaxX(content) - g_find_bar_right - size.width,
                                          NSMaxY(content) - g_find_bar_top - size.height)];
+}
+
+// At the browser window's left edge and as tall as its content, so a point is at the same place in
+// both windows.
+void PlaceReveal() {
+  NSRect content = [g_window contentRectForFrameRect:g_window.frame];
+  [g_reveal setFrame:NSMakeRect(NSMinX(content), NSMinY(content), g_reveal_width,
+                                NSHeight(content))
+             display:NO];
 }
 
 }  // namespace
@@ -293,6 +310,95 @@ void host_show_window_buttons(bool shown) {
        {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
     [g_window standardWindowButton:button].hidden = !shown;
   }
+}
+
+void host_press_window_button(int button) {
+  // After the UI's update that asked, since closing or going full screen calls back into it.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    switch (button) {
+      case 0:
+        [g_window performClose:nil];
+        break;
+      case 1:
+        [g_window miniaturize:nil];
+        break;
+      default:
+        // What a click on the green button does.
+        [g_window toggleFullScreen:nil];
+    }
+  });
+}
+
+void host_add_reveal(void* reveal_view, void (*pointer_moved)(double x)) {
+  g_reveal_view = (__bridge NSView*)reveal_view;
+  g_reveal = g_reveal_view.window;
+  g_reveal_pointer = pointer_moved;
+  MakeOverlay(g_reveal);
+  // A click in the panel leaves the keyboard where it was, in the page or the browser window.
+  ((NSPanel*)g_reveal).becomesKeyOnlyIfNeeded = YES;
+  g_reveal.hasShadow = NO;
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  [center addObserverForName:NSWindowDidResizeNotification
+                      object:g_window
+                       queue:nil
+                  usingBlock:^(NSNotification*) {
+                    if (g_reveal_monitor) {
+                      PlaceReveal();
+                    }
+                  }];
+  // The pointer can't be in the panel's hold zone in an app that isn't the active one.
+  [center addObserverForName:NSApplicationDidResignActiveNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification*) {
+                    if (g_reveal_monitor) {
+                      g_reveal_pointer(INFINITY);
+                    }
+                  }];
+}
+
+void host_show_reveal(double width) {
+  // After the UI's update that asked: the window draws as it goes on screen and as it resizes.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_reveal || !g_window) {
+      return;
+    }
+    g_reveal_width = width;
+    if (g_reveal_monitor) {
+      PlaceReveal();
+      return;
+    }
+    // As the command bar does, it goes on screen once it has drawn what it shows now.
+    PlaceReveal();
+    [g_reveal_view.layer setNeedsDisplay];
+    [g_reveal_view.layer displayIfNeeded];
+    [g_window addChildWindow:g_reveal ordered:NSWindowAbove];
+    // The page's view takes the pointer's moves while it's over the page, so the panel's view
+    // doesn't hear them leave.
+    g_reveal_monitor = [NSEvent
+        addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged
+                                     handler:^NSEvent*(NSEvent* event) {
+                                       NSPoint at = event.locationInWindow;
+                                       if (event.window) {
+                                         at = [event.window convertPointToScreen:at];
+                                       }
+                                       g_reveal_pointer([g_window convertPointFromScreen:at].x);
+                                       return event;
+                                     }];
+    fprintf(stderr, "browser: reveal window shown\n");
+  });
+}
+
+void host_hide_reveal(void) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_reveal_monitor) {
+      return;
+    }
+    [NSEvent removeMonitor:g_reveal_monitor];
+    g_reveal_monitor = nil;
+    [g_window removeChildWindow:g_reveal];
+    [g_reveal orderOut:nil];
+  });
 }
 
 void host_focus(void* view) {
