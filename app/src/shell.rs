@@ -88,6 +88,9 @@ const REORDER_OMEGA: f32 = 90.;
 // (docs/ux-spec.md › Motion: Group expand).
 const FOLD_RESPONSE: f32 = 0.3;
 const FOLD_DAMPING: f32 = 0.82;
+// The edge under the favorites fades in once the list scrolls past its top and out back there, on
+// Dia's Scroll edge curve (docs/ux-spec.md › Motion).
+const SCROLL_EDGE_FADE: f32 = 0.1;
 // Two fingers across the sidebar page between Spaces (docs/ux-spec.md › Spaces › Switching). The
 // pages follow at half the fingers' way and rubber-band past the ends. Let go, they settle
 // critically damped on the next Space if the last 100 ms moved them faster than a flick, else on
@@ -245,6 +248,8 @@ const NEW_TAB: u32 = 0xffffff8c;
 const NEW_TAB_PLUS: u32 = 0xffffff40;
 // The Clear divider's line, white 0.15 (Arc), and its button (ours: Arc's colour isn't measured).
 const DIVIDER: u32 = 0xffffff26;
+// The edge under the favorites while the list is scrolled: Dia's separator, white 0.09.
+const SCROLL_EDGE: u32 = 0xffffff17;
 const CLEAR: u32 = 0xffffff73;
 // A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 const SLEEPING_FAVICON: f32 = 0.5;
@@ -1386,6 +1391,10 @@ pub struct Shell {
     /// for where the pointer is in them.
     list_scroll: ScrollHandle,
     sidebar_origin: Rc<Cell<Point<Pixels>>>,
+    /// Whether the list is past its top, and the edge under the favorites' fade since it last
+    /// went past or back, from how far in it was then.
+    scrolled: bool,
+    scroll_edge_fade: Option<(Instant, f32)>,
     /// Tabs' new rows, which the rows sliding down to make room come out from beneath.
     opened: Option<Opened>,
     closing: Vec<Closing>,
@@ -1505,6 +1514,8 @@ impl Shell {
             list_slide: None,
             list_scroll: ScrollHandle::new(),
             sidebar_origin: Rc::default(),
+            scrolled: false,
+            scroll_edge_fade: None,
             opened: None,
             closing: Vec::new(),
             clearing: Vec::new(),
@@ -4080,6 +4091,49 @@ impl Shell {
         })
     }
 
+    /// Fades the edge under the favorites in once the list is past its top, and out back there.
+    fn step_scroll_edge(&mut self, window: &mut Window) {
+        let scrolled = self.list_scroll.offset().y < px(0.);
+        if scrolled != self.scrolled {
+            self.scroll_edge_fade = Some((Instant::now(), self.scroll_edge()));
+            self.scrolled = scrolled;
+        }
+        if let Some((start, _)) = self.scroll_edge_fade {
+            if start.elapsed().as_secs_f32() < SCROLL_EDGE_FADE {
+                window.request_animation_frame();
+            } else {
+                self.scroll_edge_fade = None;
+                // check.sh waits for these lines.
+                eprintln!("browser: scroll edge {}", if scrolled { "shown" } else { "hidden" });
+            }
+        }
+    }
+
+    /// How far the edge under the favorites has faded in.
+    fn scroll_edge(&self) -> f32 {
+        let to = if self.scrolled { 1. } else { 0. };
+        self.scroll_edge_fade.map_or(to, |(start, from)| {
+            let t = (start.elapsed().as_secs_f32() / SCROLL_EDGE_FADE).min(1.);
+            from + (to - from) * cubic_bezier(0.25, 0.46, 0.45, 0.94, t)
+        })
+    }
+
+    /// The edge across the sidebar 4 under the favorites, or the URL field without them, while
+    /// the rows go under it (Dia).
+    fn scroll_edge_line(&self) -> Option<impl IntoElement + use<>> {
+        let shown = self.scroll_edge();
+        (shown > 0.).then(|| {
+            div()
+                .absolute()
+                .top(px(self.drawn_list_top() - 2.))
+                .left_0()
+                .w(px(self.width()))
+                .h(px(1.))
+                .bg(rgba(SCROLL_EDGE))
+                .opacity(shown)
+        })
+    }
+
     /// The favorites' tiles under the URL field, which stay put while the Spaces' pages move under
     /// them, and slide to their places as tiles come, go and make room for a dragged tab.
     fn tiles(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
@@ -4870,6 +4924,7 @@ impl Render for Shell {
         if self.list_moving() {
             window.request_animation_frame();
         }
+        self.step_scroll_edge(window);
         let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some());
         if drop_targets || self.drop_targets_shown {
             self.drop_targets_shown = drop_targets;
@@ -5035,6 +5090,7 @@ impl Shell {
             (None, None) => sidebar
                 .child(self.url_field(cx))
                 .children(self.tiles(cx))
+                .children(self.scroll_edge_line())
                 .child(self.space_pages(cx))
                 .children(self.dragged_tile(cx)),
         };
@@ -5201,6 +5257,7 @@ impl Shell {
         if self.list_moving() {
             window.request_animation_frame();
         }
+        self.step_scroll_edge(window);
         let left = REVEAL_INSET - (REVEAL_INSET + self.width()) * (1. - self.reveal_out());
         div()
             .size_full()

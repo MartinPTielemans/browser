@@ -250,3 +250,8 @@ dark() {
   set -- $1
   [ "$1" -lt 64 ] && [ "$2" -lt 64 ] && [ "$3" -lt 64 ]
 }
+# Whether the colour "r g b" is lighter than "r2 g2 b2" by 8 or more in each channel.
+brighter() {
+  set -- $1 $2
+  [ "$1" -ge $(($4 + 8)) ] && [ "$2" -ge $(($5 + 8)) ] && [ "$3" -ge $(($6 + 8)) ]
+}
