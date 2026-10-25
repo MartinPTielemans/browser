@@ -866,17 +866,20 @@ void host_hide_settings(void) {
   [g_settings orderOut:nil];
 }
 
-bool host_confirm(const char* message, const char* detail, const char* action) {
+int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count,
+             bool destructive) {
   NSAlert* alert = [[NSAlert alloc] init];
   alert.messageText = @(message);
   alert.informativeText = @(detail);
-  [alert addButtonWithTitle:@(action)].hasDestructiveAction = YES;
-  [alert addButtonWithTitle:@"Cancel"];
+  for (size_t i = 0; i < count; ++i) {
+    [alert addButtonWithTitle:@(buttons[i])];
+  }
+  alert.buttons.firstObject.hasDestructiveAction = destructive;
   g_alert = alert;
   fprintf(stderr, "browser: alert shown %s\n", message);
   NSModalResponse response = [alert runModal];
   g_alert = nil;
-  return response == NSAlertFirstButtonReturn;
+  return static_cast<int>(response - NSAlertFirstButtonReturn);
 }
 
 bool host_choose(const char* title) {

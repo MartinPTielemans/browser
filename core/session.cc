@@ -261,7 +261,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
   root.Set("archive", std::move(archive));
   root.Set("settings", base::DictValue()
                            .Set("archive_after", saved.settings.archive_after.InSecondsF())
-                           .Set("haptics", saved.settings.haptics));
+                           .Set("haptics", saved.settings.haptics)
+                           .Set("warn_before_quitting", saved.settings.warn_before_quitting));
   return base::WriteJson(root);
 }
 
@@ -397,6 +398,8 @@ std::optional<Saved> Read(const base::FilePath& path) {
       saved.settings.archive_after = base::Seconds(archive_after);
     }
     saved.settings.haptics = settings->FindBool("haptics").value_or(true);
+    saved.settings.warn_before_quitting =
+        settings->FindBool("warn_before_quitting").value_or(true);
   }
   return saved;
 }

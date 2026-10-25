@@ -346,6 +346,15 @@ void bc_set_haptics(bool haptics) {
   browser_core::SessionChanged();
 }
 
+bool bc_warn_before_quitting(void) {
+  return browser_core::UserSettings().warn_before_quitting;
+}
+
+void bc_set_warn_before_quitting(bool warn) {
+  browser_core::UserSettings().warn_before_quitting = warn;
+  browser_core::SessionChanged();
+}
+
 void bc_page_favicon(const char* url) {
   if (url) {
     browser_core::FindFavicon(url);
