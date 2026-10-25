@@ -61,7 +61,8 @@ The most common defect is a change that works on the path you tested and is miss
 
 ## Verifying
 
-- There's no test suite yet. Name the exact checks you ran. For the spike that's `./build.sh && ./check.sh`, then a look at the captures.
+- `cargo test --release --lib` in `app/` runs the UI's tests in under a second, without the engine. A test drives a GPUI view the way the user does, on a host that records what it asks of the core, so logic whose answer the UI decides, such as the command bar's keys, is tested there, and `check.sh` keeps what needs the engine: pages, focus, windows, what the core answers.
+- Name the exact checks you ran. For the spike that's `./build.sh && ./check.sh`, then a look at the captures.
 - For UI, the proof is the running app. Launch it, wait for the event that marks the milestone (a check that needs a fixed sleep to pass is wrong), capture the window with `tools/window-screenshot.sh`, and look at the image before saying it works. The owner is often away from the Mac, so your capture is the proof they get.
 - Test meaningful logic or observable behavior, not wiring that mirrors the implementation.
 

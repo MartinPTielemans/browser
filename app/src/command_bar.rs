@@ -2,21 +2,18 @@
 //! own that the host shows over the browser window, as its child. Under its input it lists the
 //! core's suggestions for what's typed, and the window grows down to fit them. While the first is
 //! selected, the input completes what's typed to it, as Chrome's address bar does. Opened from the
-//! URL field, it grows out of the field, as Dia's does (docs/ux-spec.md › Command bar).
+//! URL field, it grows out of the field, as Dia's does (docs/ux-spec.md › Command bar). What it
+//! asks of the core and of its window goes through `Host`.
 
-use std::time::Instant;
+use std::{rc::Rc, time::Instant};
 
-use browser::{shell, text_input::TextInput};
 use gpui::{
     App, Bounds, Context, Entity, Focusable, Global, KeyBinding, Pixels, SharedString,
     TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
     WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size,
 };
 
-use crate::{
-    WINDOW, bc, navigate, ns_view, open_split, open_tab, open_tab_behind, platform, search_url,
-    split_tab, typed_url, update_shell,
-};
+use crate::{shell, text_input::TextInput};
 
 actions!(
     command_bar,
@@ -81,6 +78,40 @@ impl From<shell::BarCommand> for Suggestion {
     }
 }
 
+/// What the bar asks of the browser: of the core, for suggestions and pages, and of the host, for
+/// the bar's window. The browser's are calls to the core's C API; the tests' are recorded.
+pub trait Host {
+    /// Asks for the suggestions for `text`, the first completing it if `complete`. They come back
+    /// through `suggested`.
+    fn suggest(&self, text: &str, complete: bool);
+    /// Takes the suggestion going to `url` out of the profile's history. The suggestions come
+    /// again without it.
+    fn remove_suggestion(&self, url: &str);
+    /// The page the address bar goes to for `text` typed in it: the one it names, else a search.
+    fn typed_url(&self, text: &str) -> Option<String>;
+    /// A search for `text` with the default search engine, even if it names a page.
+    fn search_url(&self, text: &str) -> Option<String>;
+    /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it unless
+    /// `behind`.
+    fn open_tab(&self, url: &str, behind: bool);
+    fn navigate(&self, tab: u64, url: &str);
+    fn select(&self, tab: u64);
+    /// Puts `tab` in a split view with `with`, on its right, and shows it there.
+    fn split(&self, tab: u64, with: u64, cx: &mut App);
+    /// Opens a tab loading `url` in a split view with `with`, on its right, and shows it there.
+    fn open_split(&self, url: &str, with: u64, cx: &mut App);
+    /// Shows the bar's window, `width` wide, with the keyboard: centred over the browser window,
+    /// else at `left` and `top` in it.
+    fn show(&self, centered: bool, left: f32, top: f32, width: f32);
+    fn set_height(&self, height: f32);
+    /// Hides the bar's window once the user has chosen something in it.
+    fn hide(&self);
+    /// Hides the bar's window as the user leaves it without choosing anything.
+    fn dismiss(&self);
+    /// The bar's shape changed as it grows, so its window's shadow has to follow.
+    fn reshape(&self);
+}
+
 /// Where the bar shows the page chosen.
 #[derive(Clone, Copy)]
 enum Target {
@@ -92,6 +123,7 @@ enum Target {
 }
 
 pub struct CommandBar {
+    host: Rc<dyn Host>,
     input: Entity<TextInput>,
     target: Target,
     /// What was typed, which the core was last asked to suggest for, when, and whether it was
@@ -117,9 +149,9 @@ struct CommandBarWindow(WindowHandle<CommandBar>);
 
 impl Global for CommandBarWindow {}
 
-/// Opens the command bar's window, hidden, over the browser window. Opening it ahead of time
-/// keeps window setup off the path from the shortcut to the bar on screen.
-pub fn open(cx: &mut App) {
+/// Opens the command bar's window, hidden, for `host` to show over the browser window. Opening it
+/// ahead of time keeps window setup off the path from the shortcut to the bar on screen.
+pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>> {
     cx.bind_keys([
         KeyBinding::new("enter", Go, Some("CommandBar")),
         KeyBinding::new("alt-enter", GoBeside, Some("CommandBar")),
@@ -171,6 +203,7 @@ pub fn open(cx: &mut App) {
             })
             .detach();
             CommandBar {
+                host,
                 input,
                 target: Target::NewTab,
                 asked: String::new(),
@@ -187,12 +220,13 @@ pub fn open(cx: &mut App) {
     });
     match window {
         Ok(window) => {
-            if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
-                unsafe { platform::host_add_overlay(view, dismissed) };
-                cx.set_global(CommandBarWindow(window));
-            }
+            cx.set_global(CommandBarWindow(window));
+            Some(window)
         }
-        Err(error) => eprintln!("couldn't open the command bar: {error}"),
+        Err(error) => {
+            eprintln!("couldn't open the command bar: {error}");
+            None
+        }
     }
 }
 
@@ -206,9 +240,9 @@ pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>,
     let grow = grow.map(|(field, origin)| Bounds::new(field.origin - origin, field.size));
     let target = editing.as_ref().map_or(Target::NewTab, |&(tab, _)| Target::Tab(tab));
     let text = editing.map(|(_, url)| url).unwrap_or_default();
-    if reset(target, text, grow, cx) {
+    if let Some(host) = reset(target, text, grow, cx) {
         let (left, top) = origin.map_or((0., 0.), |origin| (origin.x.into(), origin.y.into()));
-        unsafe { platform::host_show_overlay(origin.is_none(), left, top, f64::from(WIDTH)) };
+        host.show(origin.is_none(), left, top, WIDTH);
     }
 }
 
@@ -216,20 +250,23 @@ pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>,
 /// a page to show there beside `with`. It's centred over the pane, as far into the card as it
 /// needs to be, and as far down the window as it opens for a new tab.
 pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
-    if reset(Target::Beside(with), SharedString::default(), None, cx) {
+    if let Some(host) = reset(Target::Beside(with), SharedString::default(), None, cx) {
         let left = pane.center().x - px(WIDTH / 2.);
         let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
         let top = (card.top() + card.bottom()) / 5.;
-        unsafe { platform::host_show_overlay(false, left.into(), top.into(), f64::from(WIDTH)) };
+        host.show(false, left.into(), top.into(), WIDTH);
     }
 }
 
 /// Puts the bar to `target` with `text` in its input, growing out of `grow` in its window if
-/// that's given. False if there's no bar.
-fn reset(target: Target, text: SharedString, grow: Option<Bounds<Pixels>>, cx: &mut App) -> bool {
-    let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
-        return false;
-    };
+/// that's given. Returns its host, or none if there's no bar.
+fn reset(
+    target: Target,
+    text: SharedString,
+    grow: Option<Bounds<Pixels>>,
+    cx: &mut App,
+) -> Option<Rc<dyn Host>> {
+    let window = cx.try_global::<CommandBarWindow>()?.0;
     window
         .update(cx, |bar, window, cx| {
             bar.grow = grow.map(|grow| (grow, Instant::now()));
@@ -239,17 +276,12 @@ fn reset(target: Target, text: SharedString, grow: Option<Bounds<Pixels>>, cx: &
             bar.completion.clear();
             bar.before = (text.len(), 0);
             bar.set_rows(String::new(), Vec::new(), window, cx);
-            bar.input.update(cx, |input, cx| input.reset(text, window, cx))
+            bar.input.update(cx, |input, cx| input.reset(text, window, cx));
+            // The last query's suggestions are of no use now.
+            bar.host.suggest("", false);
+            bar.host.clone()
         })
-        .ok();
-    // The last query's suggestions are of no use now.
-    suggest("", false);
-    true
-}
-
-/// The user left the bar without choosing anything in it.
-extern "C" fn dismissed() {
-    update_shell(|shell, cx| shell.command_bar_dismissed(cx));
+        .ok()
 }
 
 /// How far the bar has grown out of the URL field, from 0 to 1 on an exponential ease-out, or none
@@ -287,13 +319,6 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
             bar.set_rows(text, rows, window, cx);
         })
         .ok();
-}
-
-/// Asks the core for its suggestions for `text`, the first of them completing it if `complete`.
-fn suggest(text: &str, complete: bool) {
-    if let Ok(text) = std::ffi::CString::new(text) {
-        unsafe { bc::bc_window_suggest(WINDOW.get(), text.as_ptr(), complete) };
-    }
 }
 
 impl CommandBar {
@@ -334,7 +359,7 @@ impl CommandBar {
         self.suggested.clear();
         self.completion.clear();
         self.show_completion(completion, window, cx);
-        suggest(&self.asked, complete);
+        self.host.suggest(&self.asked, complete);
     }
 
     /// Shows `completion` after what was typed, selected, or no completion.
@@ -429,7 +454,7 @@ impl CommandBar {
         self.suggested = text;
         let rows = self.rows.len() as f32;
         let height = HEIGHT + if rows > 0. { rows * ROW_HEIGHT + 2. * ROW_INSET } else { 0. };
-        unsafe { platform::host_set_overlay_height(f64::from(height)) };
+        self.host.set_height(height);
         self.update_completion(window, cx);
         cx.notify();
     }
@@ -462,7 +487,7 @@ impl CommandBar {
             return;
         }
         // Before the suggestions for what's typed come, ↩ goes where the first of them will.
-        if let Some(url) = typed_url(&text) {
+        if let Some(url) = self.host.typed_url(&text) {
             self.go_to(&url, cx);
         }
     }
@@ -472,7 +497,7 @@ impl CommandBar {
         // check.sh reads this line.
         eprintln!("browser: command bar go {url}");
         self.show_page(url, cx);
-        unsafe { platform::host_hide_overlay() };
+        self.host.hide();
     }
 
     /// ⌘↩: opens where ↩ would go in a tab behind the one shown, at the top of Today, and the bar
@@ -486,12 +511,12 @@ impl CommandBar {
         let url = match self.chosen() {
             Some(row) => Some(row.url.clone()),
             None if text.is_empty() => None,
-            None => typed_url(&text),
+            None => self.host.typed_url(&text),
         };
         if let Some(url) = url {
             // check.sh reads this line.
             eprintln!("browser: command bar behind {url}");
-            open_tab_behind(&url);
+            self.host.open_tab(&url, true);
         }
     }
 
@@ -499,7 +524,7 @@ impl CommandBar {
     fn go_dot_com(&mut self, _: &GoDotCom, window: &mut Window, cx: &mut Context<Self>) {
         let typed = self.typed(cx);
         let word = !typed.is_empty() && typed.chars().all(|c| c.is_alphanumeric() || c == '-');
-        match word.then(|| typed_url(&format!("www.{typed}.com"))).flatten() {
+        match word.then(|| self.host.typed_url(&format!("www.{typed}.com"))).flatten() {
             Some(url) => self.go_to(&url, cx),
             None => self.go(&Go, window, cx),
         }
@@ -508,7 +533,7 @@ impl CommandBar {
     /// ⇧⌘↩: searches for what was typed, even if it names a page, where ↩ goes (Dia).
     fn search(&mut self, _: &Search, _: &mut Window, cx: &mut Context<Self>) {
         let typed = self.typed(cx);
-        if let Some(url) = search_url(&typed).filter(|_| !typed.is_empty()) {
+        if let Some(url) = self.host.search_url(&typed).filter(|_| !typed.is_empty()) {
             self.go_to(&url, cx);
         }
     }
@@ -521,9 +546,7 @@ impl CommandBar {
         };
         // check.sh reads this line.
         eprintln!("browser: command bar removes {}", row.url);
-        if let Ok(url) = std::ffi::CString::new(row.url.as_str()) {
-            unsafe { bc::bc_window_remove_suggestion(WINDOW.get(), url.as_ptr()) };
-        }
+        self.host.remove_suggestion(&row.url);
     }
 
     /// ⌥↩: goes where ↩ would, in a new tab in a split view with the tab shown, or the tab the
@@ -542,9 +565,9 @@ impl CommandBar {
     /// Shows `url` where the bar shows the page chosen.
     fn show_page(&self, url: &str, cx: &mut App) {
         match self.target {
-            Target::NewTab => open_tab(url),
-            Target::Tab(tab) => navigate(tab, url),
-            Target::Beside(with) => open_split(url, with, cx),
+            Target::NewTab => self.host.open_tab(url, false),
+            Target::Tab(tab) => self.host.navigate(tab, url),
+            Target::Beside(with) => self.host.open_split(url, with, cx),
         }
     }
 
@@ -557,7 +580,7 @@ impl CommandBar {
         // check.sh reads these lines.
         if let Some(command) = row.command {
             eprintln!("browser: command bar runs {}", row.text);
-            unsafe { platform::host_hide_overlay() };
+            self.host.hide();
             shell::run_from_bar(command, cx);
             return;
         }
@@ -565,14 +588,14 @@ impl CommandBar {
             (0, _) => return self.go_to(&row.url, cx),
             (tab, Target::Beside(with)) => {
                 eprintln!("browser: command bar split with tab {tab}");
-                split_tab(tab, with, cx);
+                self.host.split(tab, with, cx);
             }
             (tab, _) => {
                 eprintln!("browser: command bar switch to tab {tab}");
-                unsafe { bc::bc_window_select(WINDOW.get(), tab) };
+                self.host.select(tab);
             }
         }
-        unsafe { platform::host_hide_overlay() };
+        self.host.hide();
     }
 
     /// Selects the next row, or the one before, wrapping at the ends as Chrome does.
@@ -598,7 +621,7 @@ impl CommandBar {
     }
 
     fn dismiss(&mut self, _: &Dismiss, _: &mut Window, _: &mut Context<Self>) {
-        unsafe { platform::host_dismiss_overlay() };
+        self.host.dismiss();
     }
 
     fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
@@ -660,7 +683,7 @@ impl Render for CommandBar {
         let (shape, radius) = match growing {
             Some((field, progress)) => {
                 window.request_animation_frame();
-                unsafe { platform::host_reshape_overlay() };
+                self.host.reshape();
                 let shape = Bounds::new(
                     field.origin * (1. - progress),
                     gpui::size(
@@ -672,7 +695,7 @@ impl Render for CommandBar {
             }
             None => {
                 if self.grow.take().is_some() {
-                    unsafe { platform::host_reshape_overlay() };
+                    self.host.reshape();
                 }
                 (whole, RADIUS)
             }
@@ -737,3 +760,6 @@ impl Render for CommandBar {
         )
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -10,6 +10,7 @@ use std::{
     time::Instant,
 };
 
+use browser::command_bar;
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
     Page, Shell, WindowButton,
@@ -22,7 +23,6 @@ use gpui::{
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-mod command_bar;
 mod drop_targets;
 mod find_bar;
 mod reveal;
@@ -269,23 +269,6 @@ fn create_space(name: &str) -> bc::bc_id {
     unsafe { bc::bc_space_create(name.as_ptr()) }
 }
 
-/// Loads `url` in `tab`.
-fn navigate(tab: u64, url: &str) {
-    if let Ok(url) = CString::new(url) {
-        unsafe { bc::bc_tab_navigate(tab, url.as_ptr()) };
-    }
-}
-
-/// The page the address bar goes to for `text` typed in it: the one it names, else a search.
-fn typed_url(text: &str) -> Option<String> {
-    url_for(text, bc::bc_typed_url)
-}
-
-/// A search for `text` with the default search engine, even if it names a page.
-fn search_url(text: &str) -> Option<String> {
-    url_for(text, bc::bc_search_url)
-}
-
 /// The URL the core's `get` copies for `text`.
 fn url_for(
     text: &str,
@@ -301,6 +284,82 @@ fn url_for(
     }
     url.truncate(length);
     (length > 0).then(|| String::from_utf8_lossy(&url).into_owned())
+}
+
+/// The command bar's requests, as calls to the core and to the host's overlay window.
+struct Bar;
+
+impl command_bar::Host for Bar {
+    fn suggest(&self, text: &str, complete: bool) {
+        if let Ok(text) = CString::new(text) {
+            unsafe { bc::bc_window_suggest(WINDOW.get(), text.as_ptr(), complete) };
+        }
+    }
+
+    fn remove_suggestion(&self, url: &str) {
+        if let Ok(url) = CString::new(url) {
+            unsafe { bc::bc_window_remove_suggestion(WINDOW.get(), url.as_ptr()) };
+        }
+    }
+
+    fn typed_url(&self, text: &str) -> Option<String> {
+        url_for(text, bc::bc_typed_url)
+    }
+
+    fn search_url(&self, text: &str) -> Option<String> {
+        url_for(text, bc::bc_search_url)
+    }
+
+    fn open_tab(&self, url: &str, behind: bool) {
+        match behind {
+            true => _ = open_tab_behind(url),
+            false => open_tab(url),
+        }
+    }
+
+    fn navigate(&self, tab: u64, url: &str) {
+        if let Ok(url) = CString::new(url) {
+            unsafe { bc::bc_tab_navigate(tab, url.as_ptr()) };
+        }
+    }
+
+    fn select(&self, tab: u64) {
+        unsafe { bc::bc_window_select(WINDOW.get(), tab) };
+    }
+
+    fn split(&self, tab: u64, with: u64, cx: &mut App) {
+        split_tab(tab, with, cx);
+    }
+
+    fn open_split(&self, url: &str, with: u64, cx: &mut App) {
+        open_split(url, with, cx);
+    }
+
+    fn show(&self, centered: bool, left: f32, top: f32, width: f32) {
+        let (left, top, width) = (f64::from(left), f64::from(top), f64::from(width));
+        unsafe { platform::host_show_overlay(centered, left, top, width) };
+    }
+
+    fn set_height(&self, height: f32) {
+        unsafe { platform::host_set_overlay_height(f64::from(height)) };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_overlay() };
+    }
+
+    fn dismiss(&self) {
+        unsafe { platform::host_dismiss_overlay() };
+    }
+
+    fn reshape(&self) {
+        unsafe { platform::host_reshape_overlay() };
+    }
+}
+
+/// The user left the command bar without choosing anything in it.
+extern "C" fn command_bar_dismissed() {
+    update_shell(|shell, cx| shell.command_bar_dismissed(cx));
 }
 
 /// The shell's requests, as calls to the core. The core reports back once each call has returned.
@@ -836,7 +895,11 @@ fn open_window(cx: &mut App) {
                 platform::host_show_window(ui_view);
                 platform::host_watch_accent_color(accent_color_changed);
             }
-            command_bar::open(cx);
+            if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
+                && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
+            {
+                unsafe { platform::host_add_overlay(view, command_bar_dismissed) };
+            }
             if let Ok(shell) = window.entity(cx) {
                 find_bar::open(shell.clone(), cx);
                 zoom_hud::open(shell.clone(), cx);
