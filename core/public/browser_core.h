@@ -88,6 +88,17 @@ typedef struct bc_suggestion {
   const char* completion;
 } bc_suggestion;
 
+// One of the archive's tabs: a Today tab that closed, as Arc's Library lists them.
+typedef struct bc_archived_tab {
+  // For bc_window_restore_archived.
+  bc_id id;
+  // The page it was at, and its title.
+  const char* url;
+  const char* title;
+  // When it closed, in milliseconds since the Unix epoch.
+  double archived;
+} bc_archived_tab;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -147,6 +158,12 @@ typedef struct bc_host {
   // The tab's page didn't keep a key, such as ⌘F on a page without a find of its own. Return true
   // if the app used it; otherwise the window's menus get it, as ⌘M does on the Mac.
   bool (*tab_key_unhandled)(void* context, bc_id tab, const bc_key* key);
+  // The archive changed, or what the last launch archived was read: |tabs| is all of it, newest
+  // first.
+  void (*archive_changed)(void* context, const bc_archived_tab* tabs, size_t count);
+  // The favicon bc_page_favicon asked for, for |url| as the app wrote it: a PNG |size| bytes long,
+  // 32 pixels square for 16 points at 2×, or null and 0 if the profile's history has none.
+  void (*page_favicon)(void* context, const char* url, const uint8_t* png, size_t size);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -242,10 +259,25 @@ BC_EXPORT size_t bc_window_clear(bc_id window);
 BC_EXPORT size_t bc_window_undo_clear(bc_id window);
 
 // Reopens the Today tab closed last, in any window, with its history: at its place in its Space's
-// Today tabs, else at the top of the Space the window shows. The window shows it, and its Space.
+// Today tabs, else at the top of the Space the window shows. The window shows it, and its Space,
+// and it leaves the archive.
 // Tabs that close with their window or as the browser quits come back at the next launch instead.
 // Returns the tab, or 0 if none is closed.
 BC_EXPORT bc_id bc_window_reopen_closed_tab(bc_id window);
+
+// Reopens the archived tab at the top of the Today tabs of the Space the window shows, unloaded,
+// and shows it: with its history if it closed since the browser started, else at its page. It
+// leaves the archive. Returns the tab, or 0 if the archive has no such tab. Then space_changed,
+// archive_changed and window_selected.
+BC_EXPORT bc_id bc_window_restore_archived(bc_id window, bc_id archived);
+
+// Empties the archive. Tabs closed since the browser started still reopen with
+// bc_window_reopen_closed_tab. Then archive_changed.
+BC_EXPORT void bc_archive_clear(void);
+
+// Asks for the favicon the profile's history has for the page at |url|, else for its host. Then
+// page_favicon.
+BC_EXPORT void bc_page_favicon(const char* url);
 
 // Lists suggestions for |text| typed in the window's command bar, as Chrome's address bar does:
 // pages from the profile's history and bookmarks, open tabs among them, and a search for |text|.
@@ -330,10 +362,10 @@ BC_EXPORT void bc_tab_close_below(bc_id tab);
 // with it.
 BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
 
-// Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed. The
-// window stays open without it. A pinned tab stays in its Space instead, and only its page goes: a
-// window showing it shows the Space's top Today tab, else the nearest pinned tab still loaded, else
-// no page. Then tab_state_changed, and window_selected.
+// Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
+// a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its
+// Space instead, and only its page goes: a window showing it shows the Space's top Today tab, else
+// the nearest pinned tab still loaded, else no page. Then tab_state_changed, and window_selected.
 BC_EXPORT void bc_tab_close(bc_id tab);
 
 #ifdef __cplusplus

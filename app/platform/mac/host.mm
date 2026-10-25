@@ -481,6 +481,23 @@ void host_copy(const char* text) {
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
 }
 
+void host_day_starts(double starts[4]) {
+  NSCalendar* calendar = NSCalendar.currentCalendar;
+  NSDate* now = NSDate.date;
+  NSDate* today = [calendar startOfDayForDate:now];
+  NSDate* week = today;
+  [calendar rangeOfUnit:NSCalendarUnitWeekOfYear startDate:&week interval:nil forDate:now];
+  NSDate* dates[] = {
+      today,
+      [calendar dateByAddingUnit:NSCalendarUnitDay value:-1 toDate:today options:0],
+      week,
+      [calendar dateByAddingUnit:NSCalendarUnitWeekOfYear value:-1 toDate:week options:0],
+  };
+  for (int i = 0; i < 4; i++) {
+    starts[i] = dates[i].timeIntervalSince1970 * 1000;
+  }
+}
+
 void host_press_window_button(int button) {
   // After the UI's update that asked, since closing or going full screen calls back into it.
   dispatch_async(dispatch_get_main_queue(), ^{

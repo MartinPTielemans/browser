@@ -128,6 +128,10 @@ void host_watch_control(void (*released)(void));
 // never touch the user's clipboard.
 void host_copy(const char* text);
 
+// The starts of today, yesterday, this week and last week in the user's calendar and time zone, in
+// milliseconds since the Unix epoch.
+void host_day_starts(double starts[4]);
+
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);

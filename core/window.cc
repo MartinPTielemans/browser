@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <optional>
 #include <set>
 #include <utility>
 #include <vector>
@@ -10,7 +11,9 @@
 #include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/archive.h"
 #include "browser_core/browser_window_stand_in.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
@@ -75,7 +78,7 @@ std::vector<ClosedTab>& ClosedTabs() {
   return *closed;
 }
 
-// Keeps |contents|, a tab closing, for ReopenClosedTab.
+// Keeps |contents|, a tab closing, for ReopenClosedTab, and archives it.
 void KeepClosed(content::WebContents* contents) {
   const bc_id id = Tab::IdOf(contents);
   Space* space = Space::Holding(id);
@@ -87,12 +90,25 @@ void KeepClosed(content::WebContents* contents) {
   if (saved.history.empty()) {
     return;
   }
+  Archive(id, saved.history[saved.current].virtual_url(), base::UTF16ToUTF8(contents->GetTitle()));
   const size_t index = std::ranges::find(space->today(), id) - space->today().begin();
   ClosedTabs().push_back(
       {.id = id, .space = space->id(), .index = index, .saved = std::move(saved)});
   if (ClosedTabs().size() > kMaxClosedTabs) {
     ClosedTabs().erase(ClosedTabs().begin());
   }
+}
+
+// The closed tab |id|, taken from those ReopenClosedTab brings back, and from the archive.
+std::optional<ClosedTab> TakeClosed(bc_id id) {
+  auto closed = std::ranges::find(ClosedTabs(), id, &ClosedTab::id);
+  if (closed == ClosedTabs().end()) {
+    return std::nullopt;
+  }
+  ClosedTab tab = std::move(*closed);
+  ClosedTabs().erase(closed);
+  Unarchive(id);
+  return tab;
 }
 
 }  // namespace
@@ -544,13 +560,8 @@ size_t Window::UndoClear() {
   // Top down, each at its place before the Clear, which puts back the order with the tab kept.
   for (const Cleared& cleared : std::exchange(cleared_, {})) {
     // Not one whose page kept it open, or one already reopened.
-    auto closed = std::ranges::find(ClosedTabs(), cleared.tab, &ClosedTab::id);
-    if (closed == ClosedTabs().end()) {
-      continue;
-    }
-    const ClosedTab tab = std::move(*closed);
-    ClosedTabs().erase(closed);
-    if (Reopen(tab.space, cleared.index, tab.saved)) {
+    std::optional<ClosedTab> tab = TakeClosed(cleared.tab);
+    if (tab && Reopen(tab->space, cleared.index, tab->saved)) {
       ++reopened;
     }
   }
@@ -561,9 +572,29 @@ bc_id Window::ReopenClosedTab() {
   if (ClosedTabs().empty()) {
     return 0;
   }
-  const ClosedTab closed = std::move(ClosedTabs().back());
-  ClosedTabs().pop_back();
+  const ClosedTab closed = *TakeClosed(ClosedTabs().back().id);
   const bc_id tab = Reopen(closed.space, closed.index, closed.saved);
+  Select(tab);
+  return tab;
+}
+
+bc_id Window::RestoreArchived(bc_id id) {
+  std::optional<ArchivedTab> archived = TakeArchived(id);
+  if (!archived) {
+    return 0;
+  }
+  // One closed since the browser started comes back with its history, else at its page.
+  std::optional<ClosedTab> closed = TakeClosed(archived->tab);
+  SavedTab saved;
+  if (closed) {
+    saved = std::move(closed->saved);
+  } else {
+    sessions::SerializedNavigationEntry& page = saved.history.emplace_back();
+    page.set_virtual_url(archived->url);
+    page.set_original_request_url(archived->url);
+    page.set_title(base::UTF8ToUTF16(archived->title));
+  }
+  const bc_id tab = Reopen(space_, 0, saved);
   Select(tab);
   return tab;
 }

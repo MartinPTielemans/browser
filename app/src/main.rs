@@ -10,7 +10,7 @@ use std::{
     time::Instant,
 };
 
-use browser::shell::{self, Browser, Command, MenuEntry, Page, Shell, WindowButton};
+use browser::shell::{self, Archived, Browser, Command, MenuEntry, Page, Shell, WindowButton};
 use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
@@ -58,6 +58,7 @@ mod platform {
         pub fn host_watch_accent_color(changed: extern "C" fn());
         pub fn host_watch_control(released: extern "C" fn());
         pub fn host_copy(text: *const c_char);
+        pub fn host_day_starts(starts: *mut f64);
         pub fn host_menu(
             items: *const host_menu_item,
             count: usize,
@@ -142,8 +143,8 @@ fn ns_view(window: &Window) -> *mut c_void {
 
 /// Tells the core where the page goes in a window whose content is `viewport`, with the card's left
 /// edge at `card_left` (`shell::page_frame`).
-fn set_page_frame(viewport: Size<Pixels>, card_left: f32) {
-    let frame = shell::page_frame(viewport, card_left);
+fn set_page_frame(viewport: Size<Pixels>, card_left: f32, push: f32) {
+    let frame = shell::page_frame(viewport, card_left, push);
     let frame = bc::bc_rect {
         x: f64::from(frame.origin.x),
         y: f64::from(frame.origin.y),
@@ -242,6 +243,26 @@ impl Browser for Engine {
 
     fn reopen_closed_tab(&self, _: &mut App) {
         unsafe { bc::bc_window_reopen_closed_tab(WINDOW.get()) };
+    }
+
+    fn restore_archived(&self, archived: u64, _: &mut App) {
+        unsafe { bc::bc_window_restore_archived(WINDOW.get(), archived) };
+    }
+
+    fn clear_archive(&self, _: &mut App) {
+        unsafe { bc::bc_archive_clear() };
+    }
+
+    fn page_favicon(&self, url: &str, _: &mut App) {
+        if let Ok(url) = CString::new(url) {
+            unsafe { bc::bc_page_favicon(url.as_ptr()) };
+        }
+    }
+
+    fn day_starts(&self) -> [f64; 4] {
+        let mut starts = [0.; 4];
+        unsafe { platform::host_day_starts(starts.as_mut_ptr()) };
+        starts
     }
 
     fn go_back(&self, tab: u64, _: &mut App) {
@@ -357,8 +378,8 @@ impl Browser for Engine {
         unsafe { platform::host_focus(self.view) };
     }
 
-    fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, _: &mut App) {
-        set_page_frame(viewport, card_left);
+    fn lay_out_page(&self, viewport: Size<Pixels>, card_left: f32, push: f32, _: &mut App) {
+        set_page_frame(viewport, card_left, push);
     }
 
     fn show_window_buttons(&self, shown: bool, _: &mut App) {
@@ -552,7 +573,7 @@ fn open_window(cx: &mut App) {
         let shell = cx.new(|cx| {
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, |shell: &mut Shell, window, _| {
-                set_page_frame(window.viewport_size(), shell.card_left())
+                set_page_frame(window.viewport_size(), shell.card_left(), shell.card_push())
             })
             .detach();
             Shell::new(Rc::new(Engine { view: ns_view(window) }), cx)
@@ -569,7 +590,7 @@ fn open_window(cx: &mut App) {
         Ok(window) => {
             window
                 .update(cx, |shell, window, _| {
-                    set_page_frame(window.viewport_size(), shell.card_left())
+                    set_page_frame(window.viewport_size(), shell.card_left(), shell.card_push())
                 })
                 .ok();
             unsafe {
@@ -635,7 +656,7 @@ fn menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 item("Open Command Bar", Command::EditUrl),
                 MenuItem::separator(),
-                item("Close Tab", Command::CloseTab),
+                item("Archive Tab", Command::CloseTab),
             ],
         ),
         menu(
@@ -693,10 +714,23 @@ fn menus() -> Vec<Menu> {
             ],
         ),
         menu(
-            "History",
-            vec![item("Go Back", Command::Back), item("Go Forward", Command::Forward)],
+            "Archive",
+            vec![
+                item("Go Back", Command::Back),
+                item("Go Forward", Command::Forward),
+                MenuItem::separator(),
+                item("View Archive", Command::ViewArchive),
+                item("Clear Archive", Command::ClearArchive),
+            ],
         ),
-        menu("Window", vec![MenuItem::action("Minimize Window", Minimize)]),
+        menu(
+            "Window",
+            vec![
+                MenuItem::action("Minimize Window", Minimize),
+                MenuItem::separator(),
+                item("View Library", Command::ViewLibrary),
+            ],
+        ),
     ]
 }
 
@@ -804,6 +838,39 @@ unsafe extern "C" fn tab_favicon_changed(
     update_shell(|shell, cx| shell.set_favicon(tab, favicon, cx));
 }
 
+unsafe extern "C" fn archive_changed(
+    _: *mut c_void,
+    tabs: *const bc::bc_archived_tab,
+    count: usize,
+) {
+    let tabs = match tabs.is_null() {
+        true => &[][..],
+        false => unsafe { std::slice::from_raw_parts(tabs, count) },
+    };
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into();
+    let archive = tabs
+        .iter()
+        .map(|tab| Archived {
+            id: tab.id,
+            url: text(tab.url),
+            title: text(tab.title),
+            archived: tab.archived,
+        })
+        .collect();
+    // check.sh waits for this line.
+    eprintln!("browser: archive {count} tabs");
+    update_shell(|shell, cx| shell.set_archive(archive, cx));
+}
+
+unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *const u8, size: usize) {
+    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+    let favicon = (!png.is_null()).then(|| {
+        let png = unsafe { std::slice::from_raw_parts(png, size) }.to_vec();
+        Arc::new(Image::from_bytes(ImageFormat::Png, png))
+    });
+    update_shell(|shell, cx| shell.set_page_favicon(url.into(), favicon, cx));
+}
+
 unsafe extern "C" fn tab_opened(
     _: *mut c_void,
     _: bc::bc_id,
@@ -878,14 +945,14 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
         if !shown {
             return;
         }
-        let card_left = shell
+        let (card_left, push) = shell
             .update(cx, |shell, cx| {
                 shell.set_page_fullscreen(fullscreen, cx);
-                shell.card_left()
+                (shell.card_left(), shell.card_push())
             })
-            .unwrap_or(0.);
+            .unwrap_or((0., 0.));
         cx.update_window(window, |_, window, _| {
-            set_page_frame(window.viewport_size(), card_left)
+            set_page_frame(window.viewport_size(), card_left, push)
         })
         .ok();
     });
@@ -933,6 +1000,8 @@ fn main() {
         tab_state_changed: Some(tab_state_changed),
         tab_title_changed: Some(tab_title_changed),
         tab_favicon_changed: Some(tab_favicon_changed),
+        archive_changed: Some(archive_changed),
+        page_favicon: Some(page_favicon),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         window_suggestions: Some(window_suggestions),
