@@ -195,6 +195,8 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Minimum / maximum | measure. Ardia uses 160 / 400. Dragging past a limit rubber-bands | Dia, P§4 |
 | Persistence | kept per window; double-click on the handle resets it | Dia, P§4 |
 
+- Ours (*interim* until Arc's are measured): 228 at first, 160 to 400. The handle is the 6 pt margin right of the rows, with the left-right resize cursor, or the left or right one at a limit. Past a limit the width rubber-bands on the Space pages' curve and, let go, settles at the limit on their spring, as does a double-click's reset to 228. The core saves the width with the Spaces. A header button shows while its plate ends at least 5 pt inside the sidebar, so reload goes under 227 and forward under 193.
+
 **Sections, top to bottom.** Header, URL field, favorites, then the Space's pinned tabs, the Clear divider, the Today tabs and "+ New Tab". The footer holds the Space switcher (Arc structure). Measure in Arc where the Space name sits and what the footer holds. The favorites stay put while the list scrolls. A favorites block taller than 40 % of the sidebar scrolls with the list instead (Ardia).
 
 **Favorites** (Arc's favorites are Dia's Top Apps dock, so these values are *interim*)

@@ -34,11 +34,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [ ] | Default width | MVP | measure (Dia 190) | Dia 1.50.1 bin |
-| [ ] | Width range | MVP | measure (Ardia 160–400); rubber-band; saved; double-click resets | Ardia, Dia P§4 |
+| [x] | Width range | MVP | 160–400 *interim* (Ardia); rubber-band; saved; double-click resets; Arc's: measure | Ardia, Dia P§4 |
 | [ ] | Header row centre | MVP | 23.75 below the window top | Arc (Ardia) P§4 |
 | [ ] | Header hover plates | MVP | 32 × 32, radius 6, top 8; only the plate clicks | Arc (Ardia) P§4 |
 | [ ] | Back / forward / reload positions | MVP | measure (Ardia 137.75 / 171.75 / 205.75 at 227.5) | Arc (Ardia) |
-| [ ] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
+| [x] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
 | [ ] | Disabled nav glyph | MVP | about half brightness | Dia 1.52 cap |
 | [ ] | URL field top | MVP | 46 below the window top | Arc (Ardia) P§4 |
 | [ ] | URL field size, radius, fill, font | MVP | measure | — |

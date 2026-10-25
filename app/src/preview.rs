@@ -232,6 +232,12 @@ impl Browser for Fake {
 
     fn hide_reveal(&self, _: &mut App) {}
 
+    fn saved_sidebar_width(&self) -> Option<f32> {
+        None
+    }
+
+    fn set_sidebar_width(&self, _: f32, _: &mut App) {}
+
     fn detent(&self, _: &mut App) {}
 
     // Menus and alerts are AppKit's, which the preview goes without.

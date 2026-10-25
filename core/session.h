@@ -44,6 +44,9 @@ void KeepSession();
 // Writes a save still waiting, as Chrome shuts down.
 void FlushSession();
 
+// The docked sidebar's width the last launch saved for its window, or 0.
+double SavedSidebarWidth();
+
 // Puts the Spaces the last launch saved in |window|, which shows the Space it showed, unless there
 // are Spaces already. Returns whether it did.
 bool RestoreSession(Window& window);
