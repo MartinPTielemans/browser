@@ -252,6 +252,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_set_pinned(tab, pinned) };
     }
 
+    fn set_favorite(&self, tab: u64, favorite: bool, _: &mut App) {
+        unsafe { bc::bc_tab_set_favorite(tab, favorite) };
+    }
+
     fn move_tab(&self, tab: u64, pinned: bool, index: usize, _: &mut App) {
         unsafe { bc::bc_tab_move(tab, pinned, index) };
     }
@@ -891,6 +895,14 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
     update_shell(|shell, cx| shell.set_spaces(spaces, cx));
 }
 
+unsafe extern "C" fn favorites_changed(_: *mut c_void) {
+    let count = unsafe { bc::bc_favorites(std::ptr::null_mut(), 0) };
+    let mut tabs = vec![0; count];
+    let count = unsafe { bc::bc_favorites(tabs.as_mut_ptr(), tabs.len()) };
+    tabs.truncate(count);
+    update_shell(|shell, cx| shell.set_favorites(tabs, cx));
+}
+
 unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
     let list = |copy: unsafe extern "C" fn(bc::bc_id, *mut bc::bc_id, usize) -> usize| {
         let count = unsafe { copy(space, std::ptr::null_mut(), 0) };
@@ -1180,6 +1192,7 @@ fn main() {
         window_closed: Some(window_closed),
         space_changed: Some(space_changed),
         spaces_changed: Some(spaces_changed),
+        favorites_changed: Some(favorites_changed),
         window_space_shown: Some(window_space_shown),
         window_selected: Some(window_selected),
         tab_opened: Some(tab_opened),

@@ -17,7 +17,7 @@ use gpui::{
     MenuItem, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, Pixels,
     Point, Rgba, ScrollDelta, ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase,
     Transformation, WeakEntity, Window, actions, canvas, div, img, linear_color_stop,
-    linear_gradient, percentage, point, prelude::*, px, rgb, rgba, size, svg,
+    hsla, linear_gradient, percentage, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::text_input::TextInput;
@@ -115,6 +115,13 @@ const URL_BUTTON_GLYPH: f32 = 14.;
 // Arc puts favorites between the URL field and the Space's name. This is their gap while there are
 // none, which Arc has no layout for.
 const LIST_TOP: f32 = URL_FIELD_TOP + URL_FIELD_HEIGHT + 8.;
+// The favorites' tiles, over the Space's name (docs/ux-spec.md › Favorites): their height, the gap
+// between them and under the last row, the narrowest a row's tiles get before it takes one fewer,
+// and their corners.
+const TILE_HEIGHT: f32 = 41.;
+const TILE_GAP: f32 = 6.;
+const TILE_MIN: f32 = 48.;
+const TILE_RADIUS: f32 = 10.;
 // The Space's name, over its tabs. Arc puts its icon at x 13, and Spaces have none yet.
 const NAME_HEIGHT: f32 = 44.;
 const NAME_X: f32 = 41.;
@@ -227,6 +234,13 @@ const CLEAR: u32 = 0xffffff73;
 const TOAST: u32 = 0xffffff1a;
 // A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 const SLEEPING_FAVICON: f32 = 0.5;
+// A favorite's tile: white 0.10 with a white 0.14 edge at rest (Dia), and the one shown white 0.20
+// with Dia's default selection ring, white 0.45, until tiles are themed by their icons. Under the
+// pointer it's white 0.15 (ours: Dia's isn't measured).
+const TILE: f32 = 0.1;
+const TILE_EDGE: u32 = 0xffff_ff24;
+const TILE_HOVERED: f32 = 0.15;
+const TILE_RING: u32 = 0xffff_ff73;
 // The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
 // forward with nowhere to go, over a hover plate of white 0.077.
 const NAV: u32 = 0xffffff99;
@@ -256,6 +270,9 @@ const WINDOW_BUTTONS: [(f32, u32); 3] = [(20., 0xe0604f), (43., 0xf3bf12), (66.,
 const WINDOW_BUTTON_Y: f32 = 24.;
 const WINDOW_BUTTON_SIZE: f32 = 14.;
 const WINDOW_BUTTON_GLYPH: u32 = 0x00000080;
+
+/// What an item of a tab's menu does once chosen.
+type MenuAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
 
 /// A browser command, from a key or the sidebar.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -655,6 +672,9 @@ pub trait Browser {
     fn move_to_space(&self, tab: u64, space: u64, cx: &mut App);
     /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
+    /// Makes `tab` the last favorite, out of its Space, or takes it out of the favorites to the top
+    /// of Today in the Space shown.
+    fn set_favorite(&self, tab: u64, favorite: bool, cx: &mut App);
     /// Moves `tab` to `index` in its Space's pinned tabs or Today, pinning or unpinning it, with
     /// the rest of its split view. `index` counts tabs, not rows, without the split's.
     fn move_tab(&self, tab: u64, pinned: bool, index: usize, cx: &mut App);
@@ -800,7 +820,8 @@ pub struct Page {
     /// The page isn't loaded, as in a tab put back and not yet shown, or a pinned tab closed. It
     /// loads once it's shown.
     pub unloaded: bool,
-    /// The tab is pinned, and its page isn't the one it was pinned at.
+    /// The tab is pinned or a favorite, and its page isn't the one it was pinned or made a favorite
+    /// at.
     pub away_from_pinned_url: bool,
 }
 
@@ -1010,7 +1031,9 @@ pub struct Shell {
     renaming: Option<Renaming>,
     /// The same for the renaming field.
     focus_renaming: bool,
-    /// The tabs of every Space.
+    /// The favorites, left to right, which every Space shows over its own tabs.
+    favorites: Vec<u64>,
+    /// The tabs of every Space, and the favorites.
     tabs: HashMap<u64, Tab>,
     selected: u64,
     /// Tabs of every Space, shown most recently first.
@@ -1116,6 +1139,7 @@ impl Shell {
             focus_form: false,
             renaming: None,
             focus_renaming: false,
+            favorites: Vec::new(),
             tabs: HashMap::new(),
             recent: Vec::new(),
             walking: false,
@@ -1179,6 +1203,11 @@ impl Shell {
     /// The split views of the Space shown, each its tabs left to right.
     pub fn splits(&self) -> Vec<Vec<u64>> {
         self.shown_space().map_or_else(Vec::new, |space| space.splits.clone())
+    }
+
+    /// The favorites, which every Space shows.
+    pub fn favorites(&self) -> &[u64] {
+        &self.favorites
     }
 
     /// The tabs of the rows of the Space shown, pinned and Today (`Space::rows`).
@@ -1676,12 +1705,28 @@ impl Shell {
         if has_tabs && self.form.as_ref().is_some_and(|form| form.space == space) {
             self.form = None;
         }
-        // What the shell knew of a closed tab goes with it.
-        let spaces = &self.spaces;
+        self.forget_closed();
+        cx.notify();
+    }
+
+    pub fn set_favorites(&mut self, favorites: Vec<u64>, cx: &mut Context<Self>) {
+        // check.sh reads these lines.
+        let ids: Vec<String> = favorites.iter().map(u64::to_string).collect();
+        eprintln!("browser: favorites {}", ids.join(" "));
+        self.favorites = favorites;
+        self.forget_closed();
+        cx.notify();
+    }
+
+    /// What the shell knew of a closed tab goes with it. The core reports a tab in its new place
+    /// before it leaves the old, so one moving between a Space and the favorites stays.
+    fn forget_closed(&mut self) {
+        let (spaces, favorites) = (&self.spaces, &self.favorites);
         let open = |tab: &u64| {
-            spaces
-                .iter()
-                .any(|space| space.pinned.contains(tab) || space.today.contains(tab))
+            favorites.contains(tab)
+                || spaces
+                    .iter()
+                    .any(|space| space.pinned.contains(tab) || space.today.contains(tab))
         };
         self.tabs.retain(|tab, _| open(tab));
         self.recent.retain(open);
@@ -1690,7 +1735,6 @@ impl Shell {
         {
             self.renaming = None;
         }
-        cx.notify();
     }
 
     fn log_tabs(&self) {
@@ -1704,10 +1748,11 @@ impl Shell {
         eprintln!("browser: splits {}", splits.join(" "));
     }
 
-    /// The Space's rows in the sidebar's order, pinned then Today, each by its first tab.
+    /// The sidebar's rows in its order, the favorites then the Space's pinned and Today rows, each
+    /// by its first tab.
     fn sidebar_rows(&self) -> Vec<u64> {
         let (pinned, today) = self.rows();
-        [pinned, today].concat()
+        [self.favorites.clone(), pinned, today].concat()
     }
 
     pub fn set_selected(&mut self, tab: u64, cx: &mut Context<Self>) {
@@ -2154,13 +2199,77 @@ impl Shell {
     /// The menu a right-click on a tab's row shows: Chrome's tab actions that Arc's sidebar has,
     /// with their shortcuts.
     fn tab_menu(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
-        type Action = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
+        let row = Row::Tab(self.row_of(tab));
+        let items = match self.favorites.contains(&tab) {
+            true => self.favorite_menu(tab),
+            false => self.space_tab_menu(tab),
+        };
+        let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
+        let shell = cx.weak_entity();
+        self.browser.menu(
+            entries,
+            position,
+            self.sidebar_hidden,
+            Box::new(move |chosen, cx| {
+                shell
+                    .update(cx, |shell, cx| {
+                        // The fill fades as the pointer leaving the row fades it.
+                        shell.menu_row = None;
+                        if shell.hovered != Some(row) {
+                            shell.unhovered.push((row, Instant::now()));
+                        }
+                        cx.notify();
+                        let item = chosen.and_then(|at| items.into_iter().nth(at));
+                        if let Some((_, name, action)) = item {
+                            eprintln!("browser: command {name} via tab menu");
+                            action(shell, cx)
+                        }
+                    })
+                    .ok();
+            }),
+            cx,
+        );
+        self.menu_row = Some(self.row_of(tab));
+        cx.notify();
+    }
+
+    /// A favorite's menu.
+    fn favorite_menu(&self, tab: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let page = self.page(tab);
+        vec![
+            (
+                MenuEntry::new("Back to Favorite URL", page.away_from_pinned_url)
+                    .shortcut(Command::BackToPinnedUrl),
+                "back-to-pinned-url",
+                Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
+            ),
+            (
+                MenuEntry::new("Duplicate Tab", true),
+                "duplicate-tab",
+                Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
+            ),
+            (
+                MenuEntry::new("Remove from Favorites", true),
+                "remove-from-favorites",
+                Box::new(move |shell, cx| shell.browser.set_favorite(tab, false, cx)),
+            ),
+            (MenuEntry::line(), "", Box::new(|_, _| {})),
+            // One closed already has nothing to close.
+            (
+                MenuEntry::new("Close Tab", !page.unloaded).shortcut(Command::CloseTab),
+                "close-tab",
+                Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
+            ),
+        ]
+    }
+
+    /// The menu of a tab in the Space.
+    fn space_tab_menu(&self, tab: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
         let pinned = self.pinned().contains(&tab);
         let page = self.page(tab);
         let panes = self.panes(tab);
         let last = panes[panes.len() - 1];
         let below = self.today().iter().skip_while(|&&id| id != last).count() > 1;
-        let row = Row::Tab(panes[0]);
         let others: Vec<(u64, SharedString)> = self
             .spaces
             .iter()
@@ -2168,14 +2277,21 @@ impl Shell {
             .map(|space| (space.id, space.name.clone()))
             .collect();
         let pin = MenuEntry::new(if pinned { "Unpin Tab" } else { "Pin Tab" }, true);
-        let mut items: Vec<(MenuEntry, &'static str, Action)> = vec![(
-            pin.shortcut(Command::TogglePin),
-            "toggle-pin",
-            Box::new(move |shell, cx| {
-                let pinned = shell.pinned().contains(&tab);
-                shell.browser.set_pinned(tab, !pinned, cx)
-            }),
-        )];
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
+            (
+                pin.shortcut(Command::TogglePin),
+                "toggle-pin",
+                Box::new(move |shell, cx| {
+                    let pinned = shell.pinned().contains(&tab);
+                    shell.browser.set_pinned(tab, !pinned, cx)
+                }),
+            ),
+            (
+                MenuEntry::new("Add to Favorites", true),
+                "add-to-favorites",
+                Box::new(move |shell, cx| shell.browser.set_favorite(tab, true, cx)),
+            ),
+        ];
         if pinned {
             items.push((
                 MenuEntry::new("Back to Pinned URL", page.away_from_pinned_url)
@@ -2230,33 +2346,7 @@ impl Shell {
                 Box::new(move |shell, cx| shell.browser.close_below(tab, cx)),
             ));
         }
-        let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
-        let shell = cx.weak_entity();
-        self.browser.menu(
-            entries,
-            position,
-            self.sidebar_hidden,
-            Box::new(move |chosen, cx| {
-                shell
-                    .update(cx, |shell, cx| {
-                        // The fill fades as the pointer leaving the row fades it.
-                        shell.menu_row = None;
-                        if shell.hovered != Some(row) {
-                            shell.unhovered.push((row, Instant::now()));
-                        }
-                        cx.notify();
-                        let item = chosen.and_then(|at| items.into_iter().nth(at));
-                        if let Some((_, name, action)) = item {
-                            eprintln!("browser: command {name} via tab menu");
-                            action(shell, cx)
-                        }
-                    })
-                    .ok();
-            }),
-            cx,
-        );
-        self.menu_row = Some(panes[0]);
-        cx.notify();
+        items
     }
 
     /// Shows the Space with its name in a field, all selected, to type a new one over.
@@ -2394,7 +2484,7 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let below_rows = at.x < px(self.card_left()) && at.y >= px(LIST_TOP);
+        let below_rows = at.x < px(self.card_left()) && at.y >= px(self.list_top());
         let sidebar = !self.page_fullscreen && self.library.is_none() && self.form().is_none();
         if sidebar && below_rows {
             self.run(Command::NewTab, "sidebar", cx);
@@ -3028,19 +3118,11 @@ impl Shell {
             Row::NewTab => (("new-tab", 0), Slot::NewTab),
             Row::Tab(tab) => (("tab", tab), Slot::Tab(tab)),
         };
-        // Full under the pointer or with its menu up, and fading once it's left. Full for a dragged
-        // row, which the pointer holds, and none for the others then.
+        // Full for a dragged row, which the pointer holds, and none for the others then.
         let dragging = self.dragging();
-        let menu = self.menu_row.is_some_and(|tab| row == Row::Tab(tab));
-        let hover = if let Some(dragged) = dragging {
-            (dragged == slot).then_some(1.)
-        } else if self.hovered == Some(row) || menu {
-            Some(1.)
-        } else {
-            self.unhovered.iter().find(|&&(old, _)| old == row).map(|(_, start)| {
-                let t = (start.elapsed().as_secs_f32() / ROW_FILL).min(1.);
-                1. - cubic_bezier(0., 0., 0.58, 1., t)
-            })
+        let hover = match dragging {
+            Some(dragged) => (dragged == slot).then_some(1.),
+            None => self.hover_fill(row),
         };
         // A new tab's plate fades in, and rows that come together fade in whole.
         let opened = self.opened.as_ref().filter(|opened| {
@@ -3080,6 +3162,111 @@ impl Shell {
                         plate.bg(self.window_fill().blend(rgba(fill).into()))
                     }),
             )
+    }
+
+    /// How full `row`'s hover fill is: full under the pointer or with its menu up, and fading once
+    /// it's left. None for none.
+    fn hover_fill(&self, row: Row) -> Option<f32> {
+        if self.hovered == Some(row) || self.menu_row.is_some_and(|tab| row == Row::Tab(tab)) {
+            return Some(1.);
+        }
+        self.unhovered.iter().find(|&&(old, _)| old == row).map(|(_, start)| {
+            let t = (start.elapsed().as_secs_f32() / ROW_FILL).min(1.);
+            1. - cubic_bezier(0., 0., 0.58, 1., t)
+        })
+    }
+
+    /// The favorites' tiles under the URL field, which stay put while the Spaces' pages move under
+    /// them. A row has as many as fit, each as wide as the others, and fewer tiles share it.
+    fn tiles(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        let (columns, _) = self.tile_grid();
+        if columns == 0 {
+            return None;
+        }
+        let gaps = (columns - 1) as f32 * TILE_GAP;
+        let width = (self.width() - 2. * PLATE_INSET - gaps) / columns as f32;
+        let tiles: Vec<_> = self
+            .favorites
+            .iter()
+            .enumerate()
+            .map(|(index, &tab)| {
+                let (column, row) = ((index % columns) as f32, (index / columns) as f32);
+                self.tile(tab, cx)
+                    .absolute()
+                    .left(px(PLATE_INSET + column * (width + TILE_GAP)))
+                    .top(px(row * (TILE_HEIGHT + TILE_GAP)))
+                    .w(px(width))
+            })
+            .collect();
+        Some(div().absolute().top(px(LIST_TOP)).left_0().w(px(self.width())).children(tiles))
+    }
+
+    /// How many columns and rows of tiles the favorites take at the sidebar's width.
+    fn tile_grid(&self) -> (usize, usize) {
+        let count = self.favorites.len();
+        if count == 0 {
+            return (0, 0);
+        }
+        let room = self.width() - 2. * PLATE_INSET + TILE_GAP;
+        let fit = (room / (TILE_MIN + TILE_GAP)).floor().max(1.) as usize;
+        let columns = fit.min(count);
+        (columns, count.div_ceil(columns))
+    }
+
+    /// Where the Space's pages start: under the favorites, else under the URL field.
+    fn list_top(&self) -> f32 {
+        LIST_TOP + self.tile_grid().1 as f32 * (TILE_HEIGHT + TILE_GAP)
+    }
+
+    /// A favorite's tile: its favicon on a plate, which the tab shown has filled and ringed. A
+    /// click shows it, a double-click takes it back to its URL (Dia), and a right-click shows its
+    /// menu.
+    fn tile(&self, tab: u64, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let selected = tab == self.selected && !self.new_tab;
+        let hover = self.hover_fill(Row::Tab(tab)).unwrap_or(0.);
+        let fill = hsla(0., 0., 1., TILE + (TILE_HOVERED - TILE) * hover);
+        let icon = div()
+            .size(px(FAVICON_SIZE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+            .child(favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone())));
+        div()
+            .id(("tile", tab))
+            .h(px(TILE_HEIGHT))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(TILE_RADIUS))
+            .border(px(HAIRLINE))
+            .border_color(rgba(if selected { TILE_RING } else { TILE_EDGE }))
+            .bg(if selected { Hsla::from(rgba(SELECTED)) } else { fill })
+            .block_mouse_except_scroll()
+            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
+                shell.hover(Row::Tab(tab), *hovered, cx)
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    // The first click showed it.
+                    if event.click_count == 2 {
+                        eprintln!("browser: command back-to-pinned-url via favorite");
+                        shell.browser.back_to_pinned_url(tab, cx);
+                    }
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    shell.tab_menu(tab, event.position, cx)
+                }),
+            )
+            .on_click(cx.listener(move |shell, _, _, cx| {
+                eprintln!("browser: command select via favorite");
+                shell.select(tab, cx)
+            }))
+            .child(icon)
     }
 
     /// A closed tab's row where it was, without the selected fill it may have had, fading as the
@@ -3737,7 +3924,10 @@ impl Shell {
             .children(self.nav_buttons(cx));
         let sidebar = match self.form() {
             Some(form) => sidebar.child(self.space_form(form, cx)),
-            None => sidebar.child(self.url_field(cx)).child(self.space_pages(cx)),
+            None => sidebar
+                .child(self.url_field(cx))
+                .children(self.tiles(cx))
+                .child(self.space_pages(cx)),
         };
         sidebar
             .children(self.toast())
@@ -3770,7 +3960,7 @@ impl Shell {
         }
         div()
             .absolute()
-            .top(px(LIST_TOP))
+            .top(px(self.list_top()))
             .left_0()
             .w(px(self.width()))
             .bottom(px(FOOTER_HEIGHT))
@@ -3903,7 +4093,7 @@ impl Shell {
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|shell, event: &MouseUpEvent, _, cx| {
-                    let below_rows = event.position.y >= px(REVEAL_INSET + LIST_TOP);
+                    let below_rows = event.position.y >= px(REVEAL_INSET + shell.list_top());
                     if event.click_count == 2 && below_rows && shell.form().is_none() {
                         shell.run(Command::NewTab, "sidebar", cx);
                     }

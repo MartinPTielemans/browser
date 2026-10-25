@@ -1,6 +1,7 @@
 #include "browser_core/session.h"
 
 #include <algorithm>
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -22,6 +23,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "browser_core/archive.h"
+#include "browser_core/favorites.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -49,9 +51,13 @@ struct SavedSpace {
   std::vector<SavedTab> today;
   // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
   int shown = -1;
+  // The favorite the window showed there instead, or -1.
+  int shown_favorite = -1;
 };
 
 struct Saved {
+  // Left to right.
+  std::vector<SavedTab> favorites;
   std::vector<SavedSpace> spaces;
   // The Space the window showed.
   int shown = 0;
@@ -99,6 +105,19 @@ Saved Collect() {
   const std::vector<Window*> windows = Window::All();
   const Window* window = windows.empty() ? nullptr : windows.front();
   saved.sidebar_width = window ? window->sidebar_width() : 0;
+  // Each favorite saved, by its place among them.
+  std::map<bc_id, int> favorites;
+  for (bc_id id : Favorites::All()) {
+    content::WebContents* contents = Tab::FromId(id);
+    SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
+    if (tab.history.empty()) {
+      continue;
+    }
+    tab.pinned_url = Favorites::Url(id);
+    tab.name = Tab::FromWebContents(contents)->name();
+    favorites[id] = saved.favorites.size();
+    saved.favorites.push_back(std::move(tab));
+  }
   for (Space* space : Space::All()) {
     if (window && space->id() == window->space()) {
       saved.shown = saved.spaces.size();
@@ -107,6 +126,9 @@ Saved Collect() {
     to.name = space->name();
     to.color = space->color();
     const bc_id shown = window ? window->SelectedIn(space->id()) : 0;
+    if (auto favorite = favorites.find(shown); favorite != favorites.end()) {
+      to.shown_favorite = favorite->second;
+    }
     int index = 0;
     for (auto [ids, tabs] : {std::pair(&space->pinned(), &to.pinned),
                              std::pair(&space->today(), &to.today)}) {
@@ -174,12 +196,16 @@ std::optional<std::string> ToJson(const Saved& saved) {
                                .Set("pinned", to_list(space.pinned))
                                .Set("today", to_list(space.today))
                                .Set("shown", space.shown);
+    if (space.shown_favorite >= 0) {
+      dict.Set("shown_favorite", space.shown_favorite);
+    }
     if (space.color) {
       dict.Set("color", static_cast<int>(*space.color));
     }
     spaces.Append(std::move(dict));
   }
   base::DictValue root;
+  root.Set("favorites", to_list(saved.favorites));
   root.Set("spaces", std::move(spaces));
   root.Set("shown", saved.shown);
   if (saved.sidebar_width > 0) {
@@ -245,6 +271,17 @@ std::optional<Saved> Read(const base::FilePath& path) {
     return std::nullopt;
   }
   Saved saved;
+  // Where each favorite saved went among those read, or -1.
+  std::vector<int> favorites;
+  if (const base::ListValue* list = root->FindList("favorites")) {
+    for (const base::Value& value : *list) {
+      std::optional<SavedTab> tab = ReadTab(value);
+      favorites.push_back(tab ? static_cast<int>(saved.favorites.size()) : -1);
+      if (tab) {
+        saved.favorites.push_back(std::move(*tab));
+      }
+    }
+  }
   for (const base::Value& value : *spaces) {
     const base::DictValue* space = value.GetIfDict();
     const std::string* name = space ? space->FindString("name") : nullptr;
@@ -258,6 +295,10 @@ std::optional<Saved> Read(const base::FilePath& path) {
       to.color = static_cast<uint32_t>(*color) & 0xffffff;
     }
     const int shown = space->FindInt("shown").value_or(-1);
+    const int shown_favorite = space->FindInt("shown_favorite").value_or(-1);
+    if (shown_favorite >= 0 && shown_favorite < static_cast<int>(favorites.size())) {
+      to.shown_favorite = favorites[shown_favorite];
+    }
     // Saved before Spaces had pinned tabs, it has none.
     const base::ListValue no_pinned;
     const base::ListValue* pinned = space->FindList("pinned");
@@ -417,6 +458,31 @@ bool RestoreSession(Window& window) {
   if (!saved || !profile || !Space::All().empty()) {
     return false;
   }
+  const auto restore_tab = [&](const SavedTab& saved_tab) -> bc_id {
+    content::WebContents* contents =
+        window.RestoreTab(profile, saved_tab.history, saved_tab.current);
+    if (!contents) {
+      return 0;
+    }
+    // Which makes its Tab.
+    const bc_id tab = Tab::IdOf(contents);
+    Tab::FromWebContents(contents)->set_name(saved_tab.name);
+    Tab::FromWebContents(contents)->Restored();
+    if (!saved_tab.last_seen.is_null()) {
+      Tab::FromWebContents(contents)->set_last_seen(saved_tab.last_seen);
+    }
+    return tab;
+  };
+  // First, as a Space may show one.
+  std::vector<bc_id> favorites;
+  for (const SavedTab& saved_tab : saved->favorites) {
+    const bc_id tab = favorites.emplace_back(restore_tab(saved_tab));
+    if (tab) {
+      Favorites::Add(tab, saved_tab.pinned_url.is_valid()
+                              ? saved_tab.pinned_url
+                              : saved_tab.history[saved_tab.current].virtual_url());
+    }
+  }
   bc_id shown = 0;
   for (size_t i = 0; i < saved->spaces.size(); ++i) {
     const SavedSpace& saved_space = saved->spaces[i];
@@ -425,19 +491,12 @@ bool RestoreSession(Window& window) {
     if (static_cast<int>(i) == saved->shown) {
       shown = space->id();
     }
+    if (saved_space.shown_favorite >= 0 && favorites[saved_space.shown_favorite]) {
+      window.SetSelectedIn(space->id(), favorites[saved_space.shown_favorite]);
+    }
     const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
-      content::WebContents* contents =
-          window.RestoreTab(profile, saved_tab.history, saved_tab.current);
-      if (!contents) {
-        return 0;
-      }
-      const bc_id tab = Tab::IdOf(contents);
-      Tab::FromWebContents(contents)->set_name(saved_tab.name);
-      Tab::FromWebContents(contents)->Restored();
-      if (!saved_tab.last_seen.is_null()) {
-        Tab::FromWebContents(contents)->set_last_seen(saved_tab.last_seen);
-      }
-      if (index == saved_space.shown) {
+      const bc_id tab = restore_tab(saved_tab);
+      if (tab && index == saved_space.shown) {
         window.SetSelectedIn(space->id(), tab);
       }
       return tab;

@@ -9,6 +9,7 @@
 #include "base/strings/escape.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/popular_sites.h"
 #include "browser_core/space.h"
@@ -45,17 +46,21 @@ GURL Stripped(const GURL& url, const TemplateURLService* engines) {
                                                /*keep_search_intent_params=*/true);
 }
 
-// A tab at |url|, stripped, other than |shown|, first in the Space |window| shows. 0 if none.
+// A tab at |url|, stripped, other than |shown|: a favorite first, which every Space shows, then
+// one in the Space |window| shows. 0 if none.
 bc_id TabAt(const GURL& url, const Window& window, bc_id shown, const TemplateURLService* engines) {
   std::vector<Space*> spaces = Space::All();
   std::ranges::stable_partition(spaces, [&](Space* space) { return space->id() == window.space(); });
+  std::vector<const std::vector<bc_id>*> lists = {&Favorites::All()};
   for (Space* space : spaces) {
-    for (const std::vector<bc_id>* tabs : {&space->pinned(), &space->today()}) {
-      for (bc_id tab : *tabs) {
-        content::WebContents* contents = Tab::FromId(tab);
-        if (tab != shown && contents && Stripped(Tab::PageUrl(contents), engines) == url) {
-          return tab;
-        }
+    lists.push_back(&space->pinned());
+    lists.push_back(&space->today());
+  }
+  for (const std::vector<bc_id>* tabs : lists) {
+    for (bc_id tab : *tabs) {
+      content::WebContents* contents = Tab::FromId(tab);
+      if (tab != shown && contents && Stripped(Tab::PageUrl(contents), engines) == url) {
+        return tab;
       }
     }
   }

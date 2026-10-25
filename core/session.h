@@ -22,7 +22,7 @@ struct SavedTab {
   // Up to Chrome's count of navigations each side of the current one, as its sessions keep.
   std::vector<sessions::SerializedNavigationEntry> history;
   int current = 0;
-  // A pinned tab's pinned URL.
+  // A pinned tab's pinned URL, or a favorite's URL.
   GURL pinned_url;
   // The name the user gave it, if any.
   std::string name;
@@ -36,8 +36,9 @@ struct SavedTab {
 SavedTab SaveTab(content::NavigationController& history);
 
 // The Spaces as the user left them: their names, their tabs with each tab's history, the tab each
-// showed and the Space the window showed. The core saves them a while after they change, in the
-// user data directory since Spaces aren't one profile's, and the next launch puts them back.
+// showed and the Space the window showed, and the favorites. The core saves them a while after
+// they change, in the user data directory since Spaces aren't one profile's, and the next launch
+// puts them back.
 
 // Reads what the last launch saved, then runs |loaded|.
 void LoadSession(base::OnceClosure loaded);
@@ -55,8 +56,8 @@ void FlushSession();
 // The docked sidebar's width the last launch saved for its window, or 0.
 double SavedSidebarWidth();
 
-// Puts the Spaces the last launch saved in |window|, which shows the Space it showed, unless there
-// are Spaces already. Returns whether it did.
+// Puts the favorites and Spaces the last launch saved in |window|, which shows the Space it
+// showed, unless there are Spaces already. Returns whether it did.
 bool RestoreSession(Window& window);
 
 }  // namespace browser_core

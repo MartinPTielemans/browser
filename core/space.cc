@@ -279,8 +279,9 @@ bc_id Space::NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> load
     return above != pinned_.rend() ? *above : 0;
   }
   auto it = std::ranges::find(today_, leaving);
+  // A favorite, which is in no Space.
   if (it == today_.end()) {
-    return 0;
+    return today_.empty() ? LastLoadedPinned(loaded) : today_.front();
   }
   const size_t index = it - today_.begin();
   if (bc_id child = NearestOpenedBy(leaving, index)) {
