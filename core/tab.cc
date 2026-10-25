@@ -208,9 +208,16 @@ void Tab::ReportTitle() {
 }
 
 void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) {
-  if (Host().tab_fullscreen_changed) {
-    Host().tab_fullscreen_changed(Host().context, id_, entered_fullscreen);
-  }
+  // Posted, as the state is: Chrome ends a page's full screen within the app's call that switches
+  // or closes its tab. By id, so the app hears it once the tab has gone too.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](bc_id id, bool fullscreen) {
+                       if (Host().tab_fullscreen_changed) {
+                         Host().tab_fullscreen_changed(Host().context, id, fullscreen);
+                       }
+                     },
+                     id_, entered_fullscreen));
 }
 
 void Tab::WebContentsDestroyed() {
