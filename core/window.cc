@@ -522,48 +522,39 @@ void Window::Select(bc_id tab) {
 
 size_t Window::Clear() {
   Space* space = Space::FromId(space_);
-  if (!space || space->today().empty()) {
+  if (!space) {
     return 0;
   }
-  const std::vector<bc_id> today = space->today();
-  const bool shown = std::ranges::contains(today, selected_);
-  cleared_ = {.tabs = today, .shown = shown ? selected_ : 0};
-  // Another tab first, as when a pinned tab unloads, so no Today tab shows or loads on the way out.
-  if (shown) {
-    if (bc_id next = space->LastLoadedPinned(&Tab::Loaded)) {
-      Select(next);
-    } else {
-      ShowNothing();
+  cleared_.clear();
+  const std::vector<bc_id>& today = space->today();
+  for (size_t index = 0; index < today.size(); ++index) {
+    if (today[index] != selected_) {
+      cleared_.push_back({today[index], index});
     }
   }
-  for (bc_id id : today) {
-    CloseTab(id);
+  // Bottom up, so ReopenClosedTab brings back the top one first, at its place.
+  for (auto cleared = cleared_.rbegin(); cleared != cleared_.rend(); ++cleared) {
+    CloseTab(cleared->tab);
   }
-  return today.size();
+  return cleared_.size();
 }
 
-void Window::UndoClear() {
-  const Cleared cleared = std::exchange(cleared_, {});
-  bc_id shown = 0;
-  // Bottom up, as each goes at the top.
-  for (auto id = cleared.tabs.rbegin(); id != cleared.tabs.rend(); ++id) {
+size_t Window::UndoClear() {
+  size_t reopened = 0;
+  // Top down, each at its place before the Clear, which puts back the order with the tab kept.
+  for (const Cleared& cleared : std::exchange(cleared_, {})) {
     // Not one whose page kept it open, or one already reopened.
-    auto closed = std::ranges::find(ClosedTabs(), *id, &ClosedTab::id);
+    auto closed = std::ranges::find(ClosedTabs(), cleared.tab, &ClosedTab::id);
     if (closed == ClosedTabs().end()) {
       continue;
     }
     const ClosedTab tab = std::move(*closed);
     ClosedTabs().erase(closed);
-    const bc_id reopened = Reopen(tab.space, /*index=*/0, tab.saved);
-    if (*id == cleared.shown) {
-      shown = reopened;
+    if (Reopen(tab.space, cleared.index, tab.saved)) {
+      ++reopened;
     }
   }
-  if (Space* space = Space::Holding(shown); space && space->id() == space_) {
-    Select(shown);
-  } else if (space) {
-    SetSelectedIn(space->id(), shown);
-  }
+  return reopened;
 }
 
 bc_id Window::ReopenClosedTab() {

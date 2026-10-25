@@ -65,7 +65,7 @@ bool AskApp(bool (*callback)(void*, bc_id, const bc_key*),
       modifiers |= flag;
     }
   }
-  const bc_key key = {name.c_str(), modifiers};
+  const bc_key key = {name.c_str(), modifiers, contents->IsFocusedElementEditable()};
   return callback(Host().context, Tab::IdOf(contents), &key);
 }
 

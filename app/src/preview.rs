@@ -141,15 +141,15 @@ impl Browser for Fake {
     // As the core does, without the undo.
     fn clear(&self, cx: &mut App) {
         self.later(cx, |shell, cx| {
-            let pinned = shell.pinned().to_vec();
-            if shell.today().contains(&shell.selected()) {
-                shell.set_selected(pinned.last().copied().unwrap_or(0), cx);
-            }
-            shell.set_tabs(shell.space(), pinned, Vec::new(), cx);
+            let selected = shell.selected();
+            let today = shell.today().iter().copied().filter(|&tab| tab == selected).collect();
+            shell.set_tabs(shell.space(), shell.pinned().to_vec(), today, cx);
         });
     }
 
-    fn undo_clear(&self, _: &mut App) {}
+    fn undo_clear(&self, _: &mut App) -> usize {
+        0
+    }
 
     fn reopen_closed_tab(&self, _: &mut App) {}
 

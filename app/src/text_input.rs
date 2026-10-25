@@ -34,6 +34,8 @@ actions!(
         Paste,
         Cut,
         Copy,
+        Undo,
+        Redo,
     ]
 );
 
@@ -56,6 +58,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("cmd-left", Home, context),
         KeyBinding::new("cmd-right", End, context),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, context),
+        // So the Edit menu shows them. The menu's Undo and Redo go to the first responder, which
+        // undoes for itself, as a page does.
+        KeyBinding::new("cmd-z", Undo, context),
+        KeyBinding::new("shift-cmd-z", Redo, context),
     ]);
 }
 
@@ -771,6 +777,9 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
+            // A field has no undo yet. Its ⌘Z stops here, so it doesn't undo a Clear.
+            .on_action(|_: &Undo, _, _| {})
+            .on_action(|_: &Redo, _, _| {})
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))

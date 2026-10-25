@@ -134,9 +134,7 @@ const CLEAR_ARROW: f32 = 8. * 24. / 14.;
 const CLEAR_ARROW_INSET: f32 = CLEAR_ARROW * 5. / 24.;
 const CLEAR_GAP: f32 = 3.;
 const CLEAR_HEIGHT: f32 = 20.;
-// How long the toast after Clear offers Undo, and the one after a copy shows (ours: Arc's aren't
-// measured).
-const TOAST_TIME: Duration = Duration::from_secs(6);
+// How long the toast after a copy shows (ours: Arc's isn't measured).
 const COPIED_TIME: Duration = Duration::from_secs(2);
 // The footer's Space switcher, between where Arc has its Home and + buttons.
 const FOOTER_HEIGHT: f32 = 50.;
@@ -261,8 +259,10 @@ pub enum Command {
     TogglePin,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
-    /// Closes the Today tabs of the Space shown.
+    /// Closes the Today tabs of the Space shown, but the one shown.
     Clear,
+    /// Brings back the tabs the last Clear closed.
+    UndoClear,
     /// Copies the selected tab's URL.
     CopyUrl,
     /// Copies a Markdown link to the selected tab: its title, then its URL.
@@ -304,6 +304,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-d", Command::TogglePin, false),
     ("cmd-enter", Command::BackToPinnedUrl, false),
     ("shift-cmd-k", Command::Clear, false),
+    ("cmd-z", Command::UndoClear, false),
     ("shift-cmd-c", Command::CopyUrl, false),
     ("alt-shift-cmd-c", Command::CopyMarkdownLink, false),
     ("cmd-f", Command::Find, false),
@@ -414,6 +415,7 @@ impl Command {
             Command::TogglePin => "toggle-pin",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::Clear => "clear",
+            Command::UndoClear => "undo-clear",
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
             Command::Find => "find",
@@ -534,10 +536,10 @@ pub trait Browser {
     fn move_tab(&self, tab: u64, pinned: bool, index: usize, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
-    /// Closes the Today tabs of the Space shown.
+    /// Closes the Today tabs of the Space shown, but the one shown.
     fn clear(&self, cx: &mut App);
-    /// Brings back the tabs the last clear closed.
-    fn undo_clear(&self, cx: &mut App);
+    /// Brings back the tabs the last clear closed, and returns how many.
+    fn undo_clear(&self, cx: &mut App) -> usize;
     /// Reopens the Today tab closed last, and shows it.
     fn reopen_closed_tab(&self, cx: &mut App);
     fn go_back(&self, tab: u64, cx: &mut App);
@@ -638,10 +640,9 @@ pub struct Page {
     pub away_from_pinned_url: bool,
 }
 
-/// The toast over the bottom of the list until it hides: what was just done, with Undo after Clear.
+/// The toast over the bottom of the list until it hides: what was just done.
 struct Toast {
     text: SharedString,
-    undo: bool,
     _hide: Task<()>,
 }
 
@@ -830,6 +831,8 @@ pub struct Shell {
     /// Tabs' new rows, which the rows sliding down to make room come out from beneath.
     opened: Option<Opened>,
     closing: Vec<Closing>,
+    /// The tabs Clear is closing, whose rows go in one frame.
+    clearing: Vec<u64>,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
@@ -900,6 +903,7 @@ impl Shell {
             slides: HashMap::new(),
             opened: None,
             closing: Vec::new(),
+            clearing: Vec::new(),
             drag: None,
             dragged: false,
             swipe: None,
@@ -1305,6 +1309,7 @@ impl Shell {
         self.slides.clear();
         self.opened = None;
         self.closing.clear();
+        self.clearing.clear();
         self.drag = None;
         self.log_tabs();
         if self.form().is_some() {
@@ -1329,10 +1334,18 @@ impl Shell {
         entry.pinned = pinned;
         entry.today = today;
         let has_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
+        // After a Clear, the rows left are in their places at once (Arc).
+        let cleared = space == self.space && {
+            let clearing = self.clearing.len();
+            self.clearing.retain(|tab| entry.today.contains(tab));
+            self.clearing.len() < clearing
+        };
         if space == self.space {
             self.log_tabs();
         }
-        if let Some(before) = before {
+        if cleared {
+            self.slides.clear();
+        } else if let Some(before) = before {
             self.move_rows(before);
         }
         // A dragged row lands, or goes back if the lists changed under it.
@@ -1474,6 +1487,10 @@ impl Shell {
             }
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::Clear => return self.clear(cx),
+            Command::UndoClear => {
+                self.browser.undo_clear(cx);
+                return;
+            }
             Command::CopyUrl => return self.copy_url(false, cx),
             Command::CopyMarkdownLink => return self.copy_url(true, cx),
             Command::ReopenClosedTab => return self.browser.reopen_closed_tab(cx),
@@ -1533,17 +1550,31 @@ impl Shell {
         self.select(order[next], cx);
     }
 
-    /// Clears the Space shown, with a toast that offers Undo for a while.
+    /// Clears the Space shown, but the tab shown. Its rows go in one frame, with no toast (Arc).
     fn clear(&mut self, cx: &mut Context<Self>) {
-        let cleared = self.today().len();
-        if cleared == 0 {
+        let selected = self.selected;
+        self.clearing = self.today().iter().copied().filter(|&tab| tab != selected).collect();
+        if self.clearing.is_empty() {
             return;
         }
         self.browser.clear(cx);
-        // check.sh reads these lines.
-        eprintln!("browser: toast cleared {cleared}");
-        let tabs = if cleared == 1 { "tab" } else { "tabs" };
-        self.show_toast(format!("Cleared {cleared} {tabs}").into(), true, TOAST_TIME, cx);
+        // check.sh reads this line.
+        eprintln!("browser: cleared {}", self.clearing.len());
+    }
+
+    /// Runs `command` for a key the page didn't keep, and returns whether it was used. With no
+    /// Clear to undo, ⌘Z goes back, for the Edit menu to give the page.
+    pub fn run_for_page(&mut self, command: Command, cx: &mut Context<Self>) -> bool {
+        if command != Command::UndoClear {
+            self.run(command, "page", cx);
+            return true;
+        }
+        let undone = self.browser.undo_clear(cx);
+        if undone > 0 {
+            // check.sh waits for this line.
+            eprintln!("browser: command undo-clear via page");
+        }
+        undone > 0
     }
 
     /// Copies the selected tab's URL, or a Markdown link to it, and says so in the toast.
@@ -1562,26 +1593,16 @@ impl Shell {
         self.browser.copy(&text, cx);
         // check.sh reads this line.
         eprintln!("browser: copied {text}");
-        self.show_toast(toast.into(), false, COPIED_TIME, cx);
+        self.show_toast(toast.into(), COPIED_TIME, cx);
     }
 
-    /// Shows `text` in the toast for `time`, with Undo if `undo`, in place of any toast showing.
-    fn show_toast(
-        &mut self,
-        text: SharedString,
-        undo: bool,
-        time: Duration,
-        cx: &mut Context<Self>,
-    ) {
+    /// Shows `text` in the toast for `time`, in place of any toast showing.
+    fn show_toast(&mut self, text: SharedString, time: Duration, cx: &mut Context<Self>) {
         let hide = cx.spawn(async move |shell, cx| {
             cx.background_executor().timer(time).await;
             shell.update(cx, |shell, cx| shell.hide_toast(cx)).ok();
         });
-        self.toast = Some(Toast {
-            text,
-            undo,
-            _hide: hide,
-        });
+        self.toast = Some(Toast { text, _hide: hide });
         cx.notify();
     }
 
@@ -2889,24 +2910,9 @@ impl Shell {
         divider_box(clear).top(px(self.slide(Slot::Divider)))
     }
 
-    /// The toast over the bottom of the list, with Undo after Clear.
-    fn toast(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+    /// The toast over the bottom of the list.
+    fn toast(&self) -> Option<impl IntoElement + use<>> {
         let toast = self.toast.as_ref()?;
-        let undo = toast.undo.then(|| {
-            div()
-                .id("undo")
-                .h_full()
-                .flex()
-                .items_center()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("Undo")
-                .on_click(cx.listener(|shell, _, _, cx| {
-                    // check.sh waits for this line.
-                    eprintln!("browser: command undo-clear via sidebar");
-                    shell.hide_toast(cx);
-                    shell.browser.undo_clear(cx);
-                }))
-        });
         Some(
             div()
                 .id("toast")
@@ -2917,15 +2923,13 @@ impl Shell {
                 .h(px(PLATE_HEIGHT))
                 .flex()
                 .items_center()
-                .justify_between()
                 .px(px(URL_FIELD_TEXT_X - PLATE_INSET))
                 .rounded(px(PLATE_RADIUS))
                 .block_mouse_except_scroll()
                 .bg(self.window_fill().blend(rgba(TOAST).into()))
                 .text_size(px(13.))
                 .text_color(rgba(TITLE))
-                .child(toast.text.clone())
-                .children(undo),
+                .child(toast.text.clone()),
         )
     }
 
@@ -3060,7 +3064,7 @@ impl Shell {
             None => sidebar.child(self.url_field(cx)).child(self.space_pages(cx)),
         };
         sidebar
-            .children(self.toast(cx))
+            .children(self.toast())
             .children(self.switcher(cx))
             .child(self.scroll_listener(cx))
     }

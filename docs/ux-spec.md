@@ -52,7 +52,7 @@ Material output measured over solid backdrops. Ports without AppKit materials ap
 - Ours (*interim*):
   - Dark only. The light layers come with the Appearance menu.
   - A colour under HSL saturation 0.1 counts as neutral.
-  - Where the window's look has to be opaque, it stands the material in with its output over grey 20 under the tint, #131313, and puts the gradient over that. That's the reveal's panel over the page, a dragged row, and the Clear toast over the rows.
+  - Where the window's look has to be opaque, it stands the material in with its output over grey 20 under the tint, #131313, and puts the gradient over that. That's the reveal's panel over the page, a dragged row, and the toast over the rows.
   - Over solid backdrops of black / grey 20 / grey 60 / white, our sidebar reads 11 / 19 / 35 / 51 before the gradient. That's the material at 18 / 32 / 58 / 85, against Dia's 24 / 32 / 45 / 104.
 
 ### Colour tokens (Dia asset catalogs, unchanged 1.49.1 → 1.50.1, D›Color tokens)
@@ -255,7 +255,7 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 - Clear shows only while the pointer is over the sidebar (Arc 1.170.0 cap). Ours: it shows and hides at once, keeping its place so the line doesn't move, since Arc's fade isn't recorded. The reveal's panel, which shows only under the pointer, always shows it.
 - The line is 1 pt at white ≈ 0.08. It runs from the favicons' left edge to 7.5 pt before the arrow. Its centre is 25 pt above the centre of the first Today row.
 - The down arrow is 7 × 8 and sits 3 pt before the label "Clear". The label is semibold, with a cap height 0.75 of the tab titles' (≈ 10 pt beside 13 pt titles), and it ends where the titles end.
-- The button's tooltip is "Clear unpinned tabs in this space". The menu item is Clear Unpinned Tabs (⇧⌘K). The command bar finds it by "close unpinned tabs", "clear tabs" and "clear today". A toast confirms the clear and offers Undo.
+- The button's tooltip is "Clear unpinned tabs in this space". The menu item is Clear Unpinned Tabs (⇧⌘K). The command bar finds it by "close unpinned tabs", "clear tabs" and "clear today".
 
 **Tab rows** (Dia 1.50.1 bin and cap, D›Sidebar rows. Arc's pitch is 36 against Dia's 37: measure.)
 
@@ -504,11 +504,11 @@ Dia's values (P§6, D›Dragging tabs and split targets) are the targets until A
 
 Arc's structure. Dia replaced it with Clean Up Tabs, recorded below for reference.
 
-- **Clear** (Arc (Ardia), D›Arc note: Clear). ⇧⌘K or the Clear button closes every Today tab of the Space, including grouped, split, selected and playing ones. Pinned tabs and favorites stay. A toast says how many were cleared and offers Undo, which brings them all back in place with the shown tab selected and the rest unloaded (Ardia's detail). With nothing loaded left, a New Tab opens, and Undo removes it if it is untouched (Ardia).
+- **Clear** (Arc 1.170.0 rec, 3 runs). ⇧⌘K or the Clear button closes every Today tab of the Space but the one shown, including grouped, split and playing ones. Pinned tabs and favorites stay. The rows go in one frame and the one left is in its place at once, with no toast. ⌘Z brings them back in place, fading in on Row motion, unloaded, and the tab shown stays. Ours: ⌘Z in a text field, in a page or ours, is the field's own, and Edit › Undo clicked in the menu goes only to the focused page or field.
 - **Arc's clear actions.** Arc's binary has three: clear all, clear unselected Today tabs, and tidy-and-clear. Tidy is AI and out of scope.
 - **Dia's Clean Up Tabs** (⌥⌘K) moves untouched tabs to "Recently Cleaned", with a daily automatic run. It is not ours.
 - **Closed tabs.** Closed tabs reopen with ⇧⌘T, newest first, with position, pin, group, custom name and icon, mute state and back/forward list (Dia, P§2).
-- Measure in Arc: the auto-archive intervals and default, what ⌘W does to a Today tab, the archive view and how it searches, restoring a tab from it, and the toast's look and timing.
+- Measure in Arc: the auto-archive intervals and default, what ⌘W does to a Today tab, the archive view and how it searches, restoring a tab from it, Clear with a pinned tab shown, and ⌘Z after Clear with a page's text field focused.
 
 ### Profiles
 
@@ -739,7 +739,7 @@ Arc shuts down on 2026-12-22. This is the capture plan, by feature. Where it say
 | Spaces | Screenshots: the switcher with 2, 5 and 10 Spaces, with icons and without; hovered and selected; the Space title row; create, rename, colour and icon flows; the profile picker for a Space; a Space whose profile differs. Answer: do favorites follow the Space or the profile? |
 | Command bar | Screenshots: ⌘T empty; typing "git" with an inline completion; 8 suggestions with one selected and another hovered; a Switch to Tab row; a command row; ⌘L on a page; the bar with the sidebar hidden. Answer: what ⌘↩ and ⌥↩ do |
 | Split view | Screenshots: 2, 3 and 4 panes, side by side and stacked; the divider or gap; the focused-pane indicator; the unfocused dim; the sidebar row of a split; drop zones while a tab is dragged over the page |
-| Archive | Screenshots: the archive view with archived tabs, search in it, the archive settings with every interval option, the toast after Clear and after an archive |
+| Archive | Screenshots: the archive view with archived tabs, search in it, the archive settings with every interval option, the toast after an archive |
 | Profiles | Screenshots: profile settings, creating a profile, an incognito window |
 | Extensions | Screenshots: where pinned extensions sit, an extension popup anchored, the install prompt for a throwaway Web Store extension, the remove confirmation, Arc's site-controls panel |
 | Passwords | Screenshots: the save prompt after a fake login on a local page, the autofill dropdown, the password settings |
@@ -766,7 +766,6 @@ Record at 120 fps on a ProMotion display, 60 fps at the least. Use each frame's 
 | Spaces | A slow two-finger swipe, a flick, an overscroll at the last Space; a click on the switcher; ⌃2 | tracking ratio, settle spring, rubber band, colour cross-fade duration |
 | Command bar | ⌘T open and Esc; ⌘L open from the sidebar field and Esc; typing the first character | open and close curves; time to the first suggestion |
 | Split view | Dragging a tab onto the page until the targets show; a drop on each side; dragging the divider; closing a pane | target slide-in and grow; pane slide-in; close |
-| Archive | Clear with 6 Today tabs, then Undo | rows leaving, toast in and out |
 | Downloads | Starting a download | indicator fly-in and its duration |
 | Find | ⌘F and Esc | bar in and out |
 | Peek | Opening, closing, expanding into a tab | each curve |
