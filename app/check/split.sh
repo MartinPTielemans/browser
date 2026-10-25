@@ -115,6 +115,8 @@ await '^browser: restored in ' || fail "the relaunch didn't restore the split"
 await '^browser: splits [0-9][0-9]*+[0-9][0-9]*$' || fail "the split didn't come back"
 a=$(splits | cut -d+ -f1)
 b=$(splits | cut -d+ -f2)
+# The tab above the split, whose ID the relaunch may have changed too.
+c=$(today | cut -d' ' -f1)
 await "^browser: selected $b\$" || fail "the relaunch didn't focus the pane focused last"
 await "^browser: panes $a $b\$" || fail "the relaunch didn't show both panes"
 await "^browser: loaded $a $site\$" || fail "the split's left page didn't load"
