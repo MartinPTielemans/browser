@@ -331,6 +331,9 @@ void host_add_find_bar(void* find_bar_view, double right, double top) {
   g_find_bar_right = right;
   g_find_bar_top = top;
   MakeOverlay(g_find_bar);
+  // The UI draws the bar's rounded shape, which a borderless window's shadow takes.
+  g_find_bar.styleMask = NSWindowStyleMaskBorderless;
+  g_find_bar.hasShadow = YES;
 }
 
 void host_show_find_bar(bool keyboard) {
@@ -353,6 +356,7 @@ void host_show_find_bar(bool keyboard) {
     }
     [g_find_bar_view.layer setNeedsDisplay];
     [g_find_bar_view.layer displayIfNeeded];
+    [g_find_bar invalidateShadow];
     PlaceFindBar();
     [g_window addChildWindow:g_find_bar ordered:NSWindowAbove];
     if (g_find_bar_keyboard) {

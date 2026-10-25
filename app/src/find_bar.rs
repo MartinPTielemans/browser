@@ -5,23 +5,50 @@
 
 use std::{cell::RefCell, collections::HashMap, ffi::CString};
 
-use browser::{shell, text_input::TextInput};
+use browser::{
+    shell::{self, Shell},
+    text_input::TextInput,
+};
 use gpui::{
-    App, Bounds, Context, Entity, Focusable, Global, KeyBinding, SharedString, TitlebarOptions,
-    Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*,
-    px, rgb, size,
+    App, Bounds, Context, Entity, Focusable, FontWeight, Global, KeyBinding, SharedString,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
+    WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{bc, platform};
 
 actions!(find_bar, [FindNext, FindPrevious, SelectAll, Close]);
 
+// Arc's bar (docs/ux-spec.md › Find in page): 300 × 32, radius 6, 10 in from the card's top right
+// corner, so twice the card's inset from the window's.
 const WIDTH: f32 = 300.;
-const HEIGHT: f32 = 44.;
-// From the top right corner of the window's content: inside the page's card, as far again from its
-// edges as the card is from the window's. Arc's isn't measured yet.
+const HEIGHT: f32 = 32.;
+const RADIUS: f32 = 6.;
 const RIGHT: f32 = shell::CARD_INSET * 2.;
 const TOP: f32 = shell::CARD_INSET * 2.;
+// Arc's buttons are 28 pt, 2 pt inside the bar, previous and next 26 apart, and a 4 pt divider
+// before close. The field starts 1 pt after the search glyph's square.
+const INSET: f32 = 2.;
+const BUTTON: f32 = 28.;
+const ARROW_OVERLAP: f32 = 2.;
+const DIVIDER_GAP: f32 = 4.;
+const FIELD_GAP: f32 = 1.;
+const COUNT_GAP: f32 = 2.5;
+// Ours: Arc's glyph sizes and colours aren't measured, so the header's.
+const GLYPH: f32 = 14.;
+const GLYPH_COLOR: u32 = 0xffffff99;
+const GLYPH_DISABLED: u32 = 0xffffff42;
+const HOVERED: u32 = 0xffffff14;
+const DIVIDER: u32 = 0xffffff26;
+const DIVIDER_HEIGHT: f32 = 16.;
+const TEXT: u32 = 0xffffff;
+const COUNT: u32 = 0xffffff99;
+// Arc's red for no match.
+const NOT_FOUND: u32 = 0xdb1929;
+// The command bar's.
+const PLACEHOLDER: u32 = 0xffff_ff87;
+const CARET: u32 = 0x4a77d4;
+const SELECTION: u32 = 0x787d_86b3;
 
 /// A tab's find in page, as the core reports it.
 #[derive(Clone, Default)]
@@ -41,6 +68,8 @@ thread_local! {
 
 pub struct FindBar {
     input: Entity<TextInput>,
+    /// For the window's colour, which the bar takes.
+    shell: Entity<Shell>,
     /// The tab the window shows, whose find this bar is.
     tab: u64,
     /// What the page was last asked to find, so a change that leaves the text as it was doesn't
@@ -54,7 +83,7 @@ impl Global for FindBarWindow {}
 
 /// Opens the find bar's window, hidden, over the browser window, ahead of time as the command bar
 /// does.
-pub fn open(cx: &mut App) {
+pub fn open(shell: Entity<Shell>, cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("enter", FindNext, Some("FindBar")),
         KeyBinding::new("shift-enter", FindPrevious, Some("FindBar")),
@@ -80,16 +109,24 @@ pub fn open(cx: &mut App) {
         is_movable: false,
         is_resizable: false,
         is_minimizable: false,
+        // The bar's rounded shape is drawn, and the shadow takes it.
+        window_background: WindowBackgroundAppearance::Transparent,
         ..Default::default()
     };
     let window = cx.open_window(options, |window, cx| {
-        let input = cx.new(|cx| TextInput::new("Find in page", cx));
+        let input = cx.new(|cx| {
+            TextInput::new("Find in page", cx)
+                .placeholder_color(rgba(PLACEHOLDER))
+                .caret_color(rgb(CARET))
+                .selection_color(rgba(SELECTION))
+        });
         window.focus(&input.focus_handle(cx), cx);
         cx.new(|cx| {
             cx.observe(&input, |bar: &mut FindBar, _, cx| bar.edited(cx))
                 .detach();
             FindBar {
                 input,
+                shell,
                 tab: 0,
                 searched: String::new(),
             }
@@ -265,25 +302,87 @@ impl FindBar {
         unsafe { platform::host_hide_find_bar() };
     }
 
-    /// "n of m" once the page has looked for the text.
-    fn count(&self) -> String {
+    /// What the page found for the text, once it has looked: which match of how many, or none.
+    fn found(&self) -> Option<(i32, i32)> {
         FINDS.with_borrow(|finds| match finds.get(&self.tab) {
             Some(find) if !find.text.is_empty() && find.matches >= 0 => {
-                format!("{} of {}", find.selected, find.matches)
+                Some((find.selected, find.matches))
             }
-            _ => String::new(),
+            _ => None,
         })
+    }
+
+    /// A 28 pt button with `icon`, which dims while it can't be used.
+    fn button(id: &'static str, icon: &'static str, enabled: bool) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(id)
+            .flex_none()
+            .size(px(BUTTON))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(RADIUS))
+            .when(enabled, |button| button.hover(|style| style.bg(rgba(HOVERED))))
+            .child(svg().path(icon).size(px(GLYPH)).text_color(rgba(if enabled {
+                GLYPH_COLOR
+            } else {
+                GLYPH_DISABLED
+            })))
     }
 }
 
 impl Render for FindBar {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let count = self.count();
+        let found = self.found();
+        // Arc's count, "1/12", and its previous and next, or "NOT FOUND" in their place.
+        let (status, matches) = match found {
+            Some((_, 0)) => ("NOT FOUND".to_string(), None),
+            Some((selected, matches)) => (format!("{selected}/{matches}"), Some(matches)),
+            None => (String::new(), None),
+        };
         // check.sh reads these lines.
         eprintln!(
-            "browser: find bar drew \"{}\" {count}",
+            "browser: find bar drew \"{}\" {status}",
             self.input.read(cx).text()
         );
+        let enabled = matches.is_some();
+        let not_found = found.is_some() && !enabled;
+        let previous = Self::button("previous", "icons/chevron-up.svg", enabled)
+            .when(enabled, |button| {
+                button.on_click(cx.listener(|bar, _, _, cx| bar.find_next(false, cx)))
+            });
+        let next = Self::button("next", "icons/chevron-down.svg", enabled)
+            .ml(px(-ARROW_OVERLAP))
+            .when(enabled, |button| {
+                button.on_click(cx.listener(|bar, _, _, cx| bar.find_next(true, cx)))
+            });
+        let status = div()
+            .flex_none()
+            .mr(px(COUNT_GAP))
+            .when(not_found, |status| {
+                status
+                    .text_size(px(11.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(NOT_FOUND))
+            })
+            .when(!not_found, |status| status.text_size(px(12.)).text_color(rgba(COUNT)))
+            .child(status);
+        let divider = div()
+            .flex_none()
+            .w(px(DIVIDER_GAP))
+            .h(px(DIVIDER_HEIGHT))
+            .flex()
+            .justify_center()
+            .child(div().w(px(1.)).h_full().bg(rgba(DIVIDER)));
+        let close = Self::button("close", "icons/x.svg", true)
+            .on_click(cx.listener(|bar, _, window, cx| bar.close(&Close, window, cx)));
+        let search = div()
+            .flex_none()
+            .size(px(BUTTON))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(svg().path("icons/search.svg").size(px(GLYPH)).text_color(rgba(GLYPH_COLOR)));
         // The browser's shortcuts work here too, below the bar's own keys.
         div().key_context(shell::KEY_CONTEXT).size_full().child(
             div()
@@ -295,15 +394,26 @@ impl Render for FindBar {
                 .size_full()
                 .flex()
                 .items_center()
-                .gap_3()
-                .px_4()
-                // Grey, not white: it stays over the page, and most pages are white.
-                .bg(rgb(0xececee))
-                .text_color(rgb(0x1d1d1f))
-                .text_size(px(14.))
-                .line_height(px(20.))
-                .child(div().flex_1().overflow_hidden().child(self.input.clone()))
-                .child(div().flex_none().text_color(rgb(0x86868b)).child(count)),
+                .px(px(INSET))
+                .rounded(px(RADIUS))
+                // The window's colour, as Arc's bar takes its Space's.
+                .bg(self.shell.read(cx).window_fill())
+                .text_color(rgb(TEXT))
+                .text_size(px(13.))
+                .line_height(px(18.))
+                .child(search)
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .ml(px(FIELD_GAP))
+                        .overflow_hidden()
+                        .child(self.input.clone()),
+                )
+                .child(status)
+                .when(!not_found, |bar| bar.child(previous).child(next))
+                .child(divider)
+                .child(close),
         )
     }
 }

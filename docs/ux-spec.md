@@ -557,7 +557,12 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
 - **Keys** (Dia, P§8). ⌘F, ⌘G, ⇧⌘G and ⇧↩ for previous. ⌘E (Use Selection for Find), ⌘J (Jump to Selection), ⌥⌘F (Find and Replace in the focused field).
 - **State.** Each tab keeps its own query and shows "n of m".
 - **Find bar.** It floats over the page, so it is a child window. With the page focused, ⌘F reaches us unless the page keeps it (as Google Docs does). Japanese IME works in the field. ⌘V right after ⌘F lands in the field.
-- Measure everything visual in Arc: position, size, radius, no-match state, and open and close timing.
+- **Arc's bar** (Arc 1.170.0 rec ×3, cap, ax, on iana.org).
+  - It's 300 × 32, 10 in from the card's top and right edges, radius ≈ 6, fill (19,29,50), with a soft shadow mostly below, ≈ 16 pt.
+  - From its left edge, all 28 pt squares 2 pt from the top: the search glyph at 2; the field at 31, 152.5 wide and 18 tall; the count ("1/12") at 185.5; previous and next at 212 and 238; a divider; close at 270.
+  - With no match, "NOT FOUND" in capitals and red (219,25,41) takes the place of the count and the arrows.
+  - It opens and closes in one frame, with no animation.
+- Ours: Arc's layout. The fill is the window's colour, as the toast's, since Arc's (19,29,50) looks like its Space's colour, and AppKit's window shadow stands in for Arc's. The glyphs are Lucide's search, chevrons and x at 14 pt, in the header's colours and hover plate; the count is 12 pt and NOT FOUND 11 pt semibold.
 
 ### DevTools
 

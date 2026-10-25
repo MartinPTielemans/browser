@@ -247,10 +247,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [ ] | Keys | MVP | ⌘F, ⌘G, ⇧⌘G, ⇧↩, ⌘E, ⌘J, ⌥⌘F | Dia, Chrome P§8 |
-| [x] | Per-tab query, "n of m" | MVP | yes | Dia P§8 |
+| [x] | Per-tab query and count | MVP | yes; Arc's "1/12" | Dia P§8, Arc 1.170.0 cap |
 | [x] | ⌘F with the page focused | MVP | ours unless the page keeps it | AGENTS.md |
 | [x] | IME in the field | MVP | Japanese works | AGENTS.md |
-| [ ] | Bar position, size, look, no-match state, motion | MVP | measure | — |
+| [x] | Bar position, size, contents, no-match state, motion | MVP | 300 × 32, 10 in from the card's top right, radius 6; search, field, count, previous, next, divider, close; NOT FOUND in red; one frame in and out | Arc 1.170.0 rec, cap |
+| [ ] | Bar colour, shadow, glyphs | MVP | Arc (19,29,50) and ≈16 pt shadow; ours the window's colour and AppKit's shadow; glyphs: measure | Arc 1.170.0 cap |
 
 ## DevTools
 

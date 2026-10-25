@@ -485,11 +485,14 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/arrow-down.svg", include_bytes!("../assets/icons/arrow-down.svg")),
     ("icons/arrow-left.svg", include_bytes!("../assets/icons/arrow-left.svg")),
     ("icons/arrow-right.svg", include_bytes!("../assets/icons/arrow-right.svg")),
+    ("icons/chevron-down.svg", include_bytes!("../assets/icons/chevron-down.svg")),
+    ("icons/chevron-up.svg", include_bytes!("../assets/icons/chevron-up.svg")),
     ("icons/globe.svg", include_bytes!("../assets/icons/globe.svg")),
     ("icons/link.svg", include_bytes!("../assets/icons/link.svg")),
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
     ("icons/panel-left.svg", include_bytes!("../assets/icons/panel-left.svg")),
     ("icons/rotate-cw.svg", include_bytes!("../assets/icons/rotate-cw.svg")),
+    ("icons/search.svg", include_bytes!("../assets/icons/search.svg")),
     ("icons/window-close.svg", include_bytes!("../assets/icons/window-close.svg")),
     ("icons/window-full-screen.svg", include_bytes!("../assets/icons/window-full-screen.svg")),
     ("icons/window-minimize.svg", include_bytes!("../assets/icons/window-minimize.svg")),
@@ -1156,8 +1159,9 @@ impl Shell {
         linear_gradient(180., stop(0.), stop(1.))
     }
 
-    /// The window's look, opaque, halfway down: what covers the rows it passes over.
-    fn window_fill(&self) -> Hsla {
+    /// The window's look, opaque, halfway down: what covers the rows it passes over, and the find
+    /// bar's colour.
+    pub fn window_fill(&self) -> Hsla {
         Hsla::from(rgb(MATERIAL_STAND_IN)).blend(self.gradient_color(0.5))
     }
 
