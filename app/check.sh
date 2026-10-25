@@ -69,6 +69,10 @@
 #      text found last; escape and the bar's close button close it, and so does another page.
 #      ⌘0 and ⌘- from the page and the View menu's Zoom In zoom the page, and the zoom HUD shows
 #      the percent under the find bar for a moment, and goes at once when another tab shows.
+#      ⌥⌘I from the page docks DevTools in the card, filling it, with the page on its left, through
+#      a resize, and ⌥⌘I again closes them and gives the page the keyboard. View › Developer's
+#      JavaScript Console opens them, a tab without them shows its page across the card, and View
+#      Source opens the page's source in a tab under it.
 #  10. ⌘D pins the tab shown, from the page and from the UI, at the bottom of the pinned tabs, and
 #      unpins it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, or the ✕ under the
 #      pointer, unloads a pinned tab and keeps its row, which has no ✕ then, and shows the top
@@ -1727,12 +1731,77 @@ send type example.org
 send key return
 expect_find "$first" "closed" "going to another page didn't close the find"
 expect '^browser: find bar hidden$' "going to another page didn't hide the find bar"
+expect '^browser: loaded [0-9]* https://example.org/$' "the first tab didn't load example.org"
+
+# DevTools dock in the card on the right. They fill the page's frame, and the page keeps the rest
+# of it, from the frame's left, through a resize. Each tab has its own. Sets $views to the frames
+# of the views shown, DevTools' first, once there are $1 of them. DevTools fill the frame at once,
+# and the page moves aside once they've loaded, as in Arc, so with two it waits for that too.
+await_views() {
+  for _ in $(seq 50); do
+    send layout
+    layout=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content')
+    views=$(echo "$layout" | grep -o 'WebContentsViewCocoa [0-9,]* [0-9x]*' | cut -d' ' -f2-)
+    [ "$(echo "$views" | wc -l)" -eq "$1" ] &&
+      [ "$1" -eq 1 -o "$(echo "$views" | sed -n 1p)" != "$(echo "$views" | sed -n 2p)" ] &&
+      return 0
+  done
+  fail "$2: the window shows $(echo "$views" | wc -l | tr -d ' ') page views, not $1"
+}
+# DevTools fill the card, which is 228 from the left and 10 from the other edges, and the page
+# keeps its left part.
+check_docked() {
+  content=$(echo "$layout" | sed 's/^browser: layout content \([0-9]*x[0-9]*\),.*/\1/')
+  width=${content%x*}
+  height=${content#*x}
+  devtools=$(echo "$views" | sed -n 1p)
+  docked=$(echo "$views" | sed -n 2p)
+  docked_width=$(echo "$docked" | sed 's/.* \([0-9]*\)x.*/\1/')
+  [ "$devtools" = "228,10 $((width - 238))x$((height - 20))" ] ||
+    fail "$1: DevTools are at $devtools in a $content window"
+  [ "$docked" = "228,10 ${docked_width}x$((height - 20))" ] &&
+    [ "$docked_width" -gt 0 ] && [ "$docked_width" -lt $((width - 238)) ] ||
+    fail "$1: the page is at $docked, beside DevTools at $devtools"
+}
+send click $page_point
+send key i cmd alt
+expect '^browser: command devtools via page$' "⌥⌘I with the page focused didn't reach the UI"
+await_views 2 "after ⌥⌘I"
+check_docked "after ⌥⌘I"
+../tools/window-screenshot.sh "$pid" "$out/devtools.png" || fail "no window to capture"
+send resize 1100 700
+await_views 2 "after a resize"
+check_docked "after a resize"
+# ⌥⌘I again closes them, and the page has the keyboard.
+send key i cmd alt
+expect '^browser: command devtools via page$' "⌥⌘I again didn't reach the UI"
+await_views 1 "after ⌥⌘I again"
+send state
+in_browser RenderWidgetHostViewCocoa "after ⌥⌘I closed DevTools"
+send menu "JavaScript Console"
+expect '^browser: command javascript-console via ui$' \
+  "the View menu's JavaScript Console didn't reach the UI"
+await_views 2 "after JavaScript Console"
+send key 1 cmd
+expect "^browser: selected $second" "⌘1 didn't show the second tab"
+await_views 1 "on a tab without DevTools"
+send key 2 cmd
+expect "^browser: selected $first" "⌘2 didn't show the first tab again"
+await_views 2 "back on the tab with DevTools"
+check_docked "back on the tab with DevTools"
+# View Source opens the page's source in a tab under it.
+send menu "View Source"
+expect '^browser: command view-source via ui$' "the View menu's View Source didn't reach the UI"
+expect '^browser: page [0-9]* .* view-source:https://example.org/$' \
+  "View Source didn't open the page's source"
+source=$(grep '^browser: page [0-9]* .* view-source:' "$log" | tail -1 | cut -d' ' -f3)
+expect "^browser: today $second $first $source\$" "the source's tab isn't under the page's"
 # ⌘Q is the driver's last command: the app doesn't report it done.
 echo "key q cmd" >&3
 exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png"
+echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, ⌥⌘I closes them and the page gets the keyboard back, and View Source opens a tab under the page. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png"
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 log="$out/pinned.log"

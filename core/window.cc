@@ -23,6 +23,8 @@
 #include "browser_core/space.h"
 #include "browser_core/suggest.h"
 #include "browser_core/tab.h"
+#include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
+#include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/tab_list/tab_removed_reason.h"
@@ -189,6 +191,21 @@ void Window::CloseAll() {
 bool Window::Showing(bc_id tab) {
   return std::ranges::any_of(Windows(),
                              [tab](const auto& entry) { return entry.second->selected_ == tab; });
+}
+
+// static
+bool Window::CanDockDevTools(BrowserWindowInterface* browser) {
+  return ForBrowser(browser);
+}
+
+// static
+void Window::UpdateDevTools(BrowserWindowInterface* browser, content::WebContents* inspected) {
+  Window* window = ForBrowser(browser);
+  if (window && window->shown_.get() == inspected) {
+    window->LayOutPage();
+    // DevTools closed with the keyboard leave it with the window, and the page takes it back.
+    window->FocusPageSoon();
+  }
 }
 
 // static
@@ -456,14 +473,38 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   TabStripModel* tabs =
       tabs::TabInterface::GetFromContents(contents)->GetBrowserWindowInterface()->GetTabStripModel();
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
-  // If the page it replaces had the keyboard, the window has it once that page leaves, and the
-  // new page takes it.
-  platform::ShowPage(widget_.get(), contents->GetNativeView(), frame, page_corner_radius_);
   if (shown_.get() != contents) {
     Seen(shown_.get());
   }
   shown_ = contents->GetWeakPtr();
+  page_frame_ = frame;
+  // If the page it replaces had the keyboard, the window has it once that page leaves, and the
+  // new page takes it.
+  LayOutPage();
   FocusPageSoon();
+}
+
+void Window::LayOutPage() {
+  content::WebContents* contents = shown_.get();
+  if (!contents) {
+    platform::ShowPage(widget_.get(), gfx::NativeView(), page_frame_, page_corner_radius_, nullptr);
+    return;
+  }
+  DevToolsContentsResizingStrategy strategy;
+  content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy);
+  if (!devtools) {
+    platform::ShowPage(widget_.get(), contents->GetNativeView(), page_frame_, page_corner_radius_,
+                       nullptr);
+    return;
+  }
+  // As Chrome's window does: DevTools fill the frame, and the page goes where they leave it.
+  platform::DockedDevTools docked = {devtools->GetNativeView(), gfx::Rect(),
+                                     strategy.hide_inspected_contents()};
+  gfx::Rect devtools_frame;
+  ApplyDevToolsContentsResizingStrategy(strategy, gfx::Rect(page_frame_.size()), &devtools_frame,
+                                        &docked.page_frame);
+  platform::ShowPage(widget_.get(), contents->GetNativeView(), page_frame_, page_corner_radius_,
+                     &docked);
 }
 
 void Window::ShowSpace(bc_id space) {
@@ -527,7 +568,7 @@ void Window::ShowNothing() {
   selected_ = 0;
   Seen(shown_.get());
   shown_ = nullptr;
-  platform::ShowPage(widget_.get(), gfx::NativeView(), page_frame_, page_corner_radius_);
+  LayOutPage();
   ReportSelected();
 }
 

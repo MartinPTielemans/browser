@@ -366,6 +366,19 @@ BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
 // its whole site, as Chrome does, and the profile keeps it. Returns the zoom in percent after.
 BC_EXPORT int bc_tab_zoom(bc_id tab, int step);
 
+// What bc_tab_devtools does: opens or closes the DevTools, opens or closes them at the console, or
+// opens them picking an element in the page.
+#define BC_DEVTOOLS_TOGGLE 0
+#define BC_DEVTOOLS_CONSOLE 1
+#define BC_DEVTOOLS_INSPECT 2
+
+// Opens Chrome's DevTools for the tab shown, docked in its window, as BC_DEVTOOLS_ |what| says.
+// They're the user's: agents get none (decision 8).
+BC_EXPORT void bc_tab_devtools(bc_id tab, int what);
+
+// Opens the source of the tab's page in a new tab under it, at its view-source: URL.
+BC_EXPORT void bc_tab_view_source(bc_id tab);
+
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
 // a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its
 // Space instead, and only its page goes: a window showing it shows the Space's top Today tab, else

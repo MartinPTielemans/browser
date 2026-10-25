@@ -35,7 +35,8 @@
 //   backdrop <grey>|off                   a window of the driver's in <grey> (0–255) behind the
 //                                         browser window and 100 points past its edges, for the
 //                                         window's material to blur something known
-//   menu <title>                          chooses the main menu's item titled <title>
+//   menu <title>                          chooses the main menu's item titled <title>, in a
+//                                         submenu too
 //   choose <title>                        chooses the item titled <title> in the menu a right
 //                                         click showed, or the button in the alert shown
 //   ime on|off                            the scripted input method, for keys to the UI or the
@@ -363,6 +364,21 @@ void Layout(NSWindow* window) {
   fprintf(stderr, "%s\n", line.UTF8String);
 }
 
+// Chooses the item titled |title| in |menu| or its submenus, such as View › Developer.
+bool ChooseMenuItem(NSMenu* menu, NSString* title) {
+  NSInteger index = [menu indexOfItemWithTitle:title];
+  if (index >= 0) {
+    [menu performActionForItemAtIndex:index];
+    return true;
+  }
+  for (NSMenuItem* item in menu.itemArray) {
+    if (item.submenu && ChooseMenuItem(item.submenu, title)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Calls |done| once the command's events are posted. Returns false, without calling it, for a
 // command it can't do.
 bool Run(const std::string& line, void (^done)(void)) {
@@ -564,9 +580,7 @@ bool Run(const std::string& line, void (^done)(void)) {
   if (action == "menu") {
     NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
     for (NSMenuItem* top in NSApp.mainMenu.itemArray) {
-      NSInteger index = [top.submenu indexOfItemWithTitle:title];
-      if (index >= 0) {
-        [top.submenu performActionForItemAtIndex:index];
+      if (top.submenu && ChooseMenuItem(top.submenu, title)) {
         done();
         return true;
       }

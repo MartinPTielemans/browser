@@ -33,6 +33,7 @@
 #include "ui/base/mojom/window_show_state.mojom.h"
 #include "ui/events/keycodes/dom/dom_key.h"
 #include "ui/events/keycodes/dom/keycode_converter.h"
+#include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/range/range.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
@@ -54,8 +55,15 @@ bool AskApp(bool (*callback)(void*, bc_id, const bc_key*),
   if (!contents) {
     return false;
   }
-  const std::string name = ui::KeycodeConverter::DomKeyToKeyString(ui::DomKey(event.dom_key));
+  std::string name = ui::KeycodeConverter::DomKeyToKeyString(ui::DomKey(event.dom_key));
   const int held = event.GetModifiers();
+  // With ⌥ held, a Mac's key is the character ⌥ types with it, such as ⌥I's "ˆ", which no shortcut
+  // names. A letter's or digit's shortcut is its key's, as Chrome's are.
+  const int code = event.windows_key_code;
+  if ((held & blink::WebInputEvent::kAltKey) &&
+      ((code >= ui::VKEY_A && code <= ui::VKEY_Z) || (code >= ui::VKEY_0 && code <= ui::VKEY_9))) {
+    name = std::string(1, static_cast<char>(code));
+  }
   uint32_t modifiers = 0;
   for (auto [web, flag] : {std::pair{blink::WebInputEvent::kShiftKey, BC_MODIFIER_SHIFT},
                            std::pair{blink::WebInputEvent::kControlKey, BC_MODIFIER_CONTROL},

@@ -295,6 +295,18 @@ impl Browser for Engine {
         zoom_hud::show(tab, percent, cx);
     }
 
+    fn view_source(&self, tab: u64, _: &mut App) {
+        if tab != 0 {
+            unsafe { bc::bc_tab_view_source(tab) };
+        }
+    }
+
+    fn devtools(&self, tab: u64, what: i32, _: &mut App) {
+        if tab != 0 {
+            unsafe { bc::bc_tab_devtools(tab, what) };
+        }
+    }
+
     fn show_space(&self, space: u64, _: &mut App) {
         unsafe { bc::bc_window_show_space(WINDOW.get(), space) };
     }
@@ -709,6 +721,16 @@ fn menus() -> Vec<Menu> {
                 item("Zoom to Actual Size", Command::ActualSize),
                 item("Zoom In", Command::ZoomIn),
                 item("Zoom Out", Command::ZoomOut),
+                MenuItem::separator(),
+                MenuItem::submenu(menu(
+                    "Developer",
+                    vec![
+                        item("View Source", Command::ViewSource),
+                        item("Developer Tools", Command::DevTools),
+                        item("Inspect Elements", Command::InspectElements),
+                        item("JavaScript Console", Command::JavaScriptConsole),
+                    ],
+                )),
             ],
         ),
         menu(

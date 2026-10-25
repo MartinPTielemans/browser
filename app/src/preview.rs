@@ -220,6 +220,11 @@ impl Browser for Fake {
 
     fn zoom(&self, _: u64, _: i32, _: &mut App) {}
 
+    // The made-up pages have no source and no DevTools.
+    fn view_source(&self, _: u64, _: &mut App) {}
+
+    fn devtools(&self, _: u64, _: i32, _: &mut App) {}
+
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,
