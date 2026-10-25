@@ -15,9 +15,12 @@
 #      tabs already at them, never the one shown, and well-known sites under them. ↑, ↓ and ⌃N
 #      choose a row, wrapping at the ends, and ↩ or a click on a tab's row shows that tab without
 #      opening one. Typing at the end completes the text to the first row's page, which ⌫ takes
-#      back, → keeps and ↩ goes to. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs, a tab a page
-#      opens goes under it and closing it goes back there, and ⌘W otherwise shows the tab below,
-#      or above at the bottom. Closing the last tab leaves the Space empty, where ⌘T still works.
+#      back, → keeps and ↩ goes to. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs. ⌃Tab, with the
+#      page or the UI focused, shows the tab shown before, and with ⌃ held goes on back through the
+#      tabs in the order they were shown, and ⌃⇧Tab the other way, until ⌃ goes up or a click. A
+#      tab a page opens goes under it and closing it goes back there, and ⌘W otherwise shows the
+#      tab below, or above at the bottom. Closing the last tab leaves the Space empty, where ⌘T
+#      still works.
 #      Reports how long switches take.
 #   4. The page view keeps its margins and GPUI's view fills the window through a resize and
 #      full screen, and the window's buttons stay in the header row. A page that goes full
@@ -520,8 +523,27 @@ switch "up alt cmd" "$b"
 switch "down alt cmd" "$a"
 # Next wraps around, as in Chrome.
 switch "down alt cmd" "$c"
+# ⌃Tab goes back through the tabs in the order they were shown, c, a and b by now, as far as ⌃
+# stays down. Then the tab it showed counts as shown last.
+send click $page_point
+switch "tab ctrl" "$a"
+expect '^browser: command recent-tab via page$' "⌃Tab with the page focused didn't reach the UI"
+switch "tab ctrl" "$b"
+send flags
+switch "tab ctrl" "$c"
+send flags
+switch "tab ctrl shift" "$a"
+send flags
+send click $sidebar_point
+switch "tab ctrl" "$c"
+expect '^browser: command recent-tab via ui$' "⌃Tab with the UI focused didn't reach the UI"
+send flags
+# A click ends the walk too.
+switch "tab ctrl" "$a"
 send click $(row 1)
 expect "^browser: selected $b in " "a click on the second row didn't show its tab"
+switch "tab ctrl shift" "$c"
+send flags
 send click 100 154
 expect '^browser: command new-tab via sidebar$' "a click on \"+ New Tab\" didn't run New Tab"
 expect '^browser: command bar shown$' "a click on \"+ New Tab\" didn't open the command bar"
@@ -582,7 +604,7 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
+echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
 echo "  Switch, key to the core's report: $app_ms. Windows: $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/empty.png"
 

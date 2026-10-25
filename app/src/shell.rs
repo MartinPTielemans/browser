@@ -243,6 +243,10 @@ pub enum Command {
     ReopenClosedTab,
     NextTab,
     PreviousTab,
+    /// The tab shown before this one, and on while ⌃ is held.
+    RecentTab,
+    /// The same walk, backwards.
+    RecentTabBack,
     /// The tab at this index in sidebar order.
     SelectTab(usize),
     SelectLastTab,
@@ -281,6 +285,8 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-q", Command::Quit, true),
     ("alt-cmd-down", Command::NextTab, true),
     ("alt-cmd-up", Command::PreviousTab, true),
+    ("ctrl-tab", Command::RecentTab, true),
+    ("ctrl-shift-tab", Command::RecentTabBack, true),
     ("alt-cmd-right", Command::NextSpace, true),
     ("alt-cmd-left", Command::PreviousSpace, true),
     ("cmd-l", Command::EditUrl, false),
@@ -388,6 +394,8 @@ impl Command {
             Command::ReopenClosedTab => "reopen-closed-tab",
             Command::NextTab => "next-tab",
             Command::PreviousTab => "previous-tab",
+            Command::RecentTab => "recent-tab",
+            Command::RecentTabBack => "recent-tab-back",
             Command::SelectTab(_) => "select-tab",
             Command::SelectLastTab => "select-last-tab",
             Command::TogglePin => "toggle-pin",
@@ -568,6 +576,8 @@ pub trait Browser {
     fn hide_reveal(&self, cx: &mut App);
     /// A detent on the trackpad, as a swipe's nearest Space changes.
     fn detent(&self, cx: &mut App);
+    /// Calls `Shell::control_released` once the user lets go of ⌃.
+    fn watch_control(&self, cx: &mut App);
     /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
     /// it changes.
     fn accent_color(&self) -> u32;
@@ -772,6 +782,10 @@ pub struct Shell {
     /// The tabs of every Space.
     tabs: HashMap<u64, Tab>,
     selected: u64,
+    /// Tabs of every Space, shown most recently first.
+    recent: Vec<u64>,
+    /// ⌃ is held after a ⌃Tab, and the tabs it shows don't count as shown until it goes up.
+    walking: bool,
     hovered: Option<Row>,
     /// The tab whose menu is up, whose row keeps its hover fill until the menu closes.
     menu_row: Option<u64>,
@@ -840,6 +854,8 @@ impl Shell {
             renaming: None,
             focus_renaming: false,
             tabs: HashMap::new(),
+            recent: Vec::new(),
+            walking: false,
             selected: 0,
             hovered: None,
             menu_row: None,
@@ -1290,11 +1306,13 @@ impl Shell {
         }
         // What the shell knew of a closed tab goes with it.
         let spaces = &self.spaces;
-        self.tabs.retain(|tab, _| {
+        let open = |tab: &u64| {
             spaces
                 .iter()
                 .any(|space| space.pinned.contains(tab) || space.today.contains(tab))
-        });
+        };
+        self.tabs.retain(|tab, _| open(tab));
+        self.recent.retain(open);
         cx.notify();
     }
 
@@ -1319,7 +1337,23 @@ impl Shell {
             _ => eprintln!("browser: selected {tab}"),
         }
         self.selected = tab;
+        if !self.walking {
+            self.shown(tab);
+        }
         cx.notify();
+    }
+
+    fn shown(&mut self, tab: u64) {
+        if tab != 0 {
+            self.recent.retain(|&other| other != tab);
+            self.recent.insert(0, tab);
+        }
+    }
+
+    /// ⌃ went up, which ends a ⌃Tab walk on the tab it shows.
+    pub fn control_released(&mut self, _: &mut Context<Self>) {
+        self.walking = false;
+        self.shown(self.selected);
     }
 
     pub fn set_title(&mut self, tab: u64, title: SharedString, cx: &mut Context<Self>) {
@@ -1418,6 +1452,8 @@ impl Shell {
             Command::Find => return self.browser.find(self.selected, cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),
             Command::FindPrevious => return self.browser.find_next(self.selected, false, cx),
+            Command::RecentTab => return self.walk(tabs, true, cx),
+            Command::RecentTabBack => return self.walk(tabs, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),
             Command::PreviousTab => position.map(|index| (index + count - 1) % count),
             Command::SelectTab(index) => (index < count).then_some(index),
@@ -1426,6 +1462,34 @@ impl Shell {
         if let Some(index) = target {
             self.select(tabs[index], cx);
         }
+    }
+
+    /// ⌃Tab, as in Arc: shows the Space's tab shown before this one at once, with no switcher.
+    /// While ⌃ is held, each ⌃Tab goes on to the one shown before that, and ⌃⇧Tab back.
+    fn walk(&mut self, tabs: Vec<u64>, forward: bool, cx: &mut Context<Self>) {
+        // Then the tabs not shown yet, in the sidebar's order.
+        let mut order: Vec<u64> =
+            self.recent.iter().copied().filter(|tab| tabs.contains(tab)).collect();
+        order.extend(tabs.into_iter().filter(|tab| !self.recent.contains(tab)));
+        let count = order.len();
+        let next = match order.iter().position(|&tab| tab == self.selected) {
+            Some(at) if forward => (at + 1) % count,
+            Some(at) => (at + count - 1) % count,
+            // With no tab shown, the tab shown last (Arc).
+            None if forward && count > 0 => 0,
+            None => match count.checked_sub(1) {
+                Some(last) => last,
+                None => return,
+            },
+        };
+        if order[next] == self.selected {
+            return;
+        }
+        if !self.walking {
+            self.walking = true;
+            self.browser.watch_control(cx);
+        }
+        self.select(order[next], cx);
     }
 
     /// Clears the Space shown, with a toast that offers Undo for a while.

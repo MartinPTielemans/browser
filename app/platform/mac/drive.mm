@@ -16,6 +16,8 @@
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "[", "]",
 //                                         return, escape, tab, space, backspace, up, down, left
 //                                         or right
+//   flags [cmd] [shift] [alt] [ctrl]      the modifiers held from now, as a modifier key going
+//                                         down or up; key holds them only for its own key
 //   type <text>                           lowercase letters, dots and spaces
 //   scroll <x> <y> <dy> <count>           <count> trackpad scroll events at (x, y), each moving
 //                                         the content up by <dy> points, at a trackpad's pace
@@ -592,9 +594,11 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   NSWindow* key_window = NSApp.keyWindow ?: window;
-  if (action == "key") {
+  if (action == "key" || action == "flags") {
     std::string key, modifier;
-    words >> key;
+    if (action == "key") {
+      words >> key;
+    }
     NSEventModifierFlags flags = 0;
     while (words >> modifier) {
       flags |= modifier == "cmd"     ? NSEventModifierFlagCommand
@@ -603,7 +607,20 @@ bool Run(const std::string& line, void (^done)(void)) {
                : modifier == "ctrl"  ? NSEventModifierFlagControl
                                      : 0;
     }
-    if (!Key(key_window, key, flags)) {
+    if (action == "flags") {
+      // As the left ⌃ key would report it.
+      [NSApp postEvent:[NSEvent keyEventWithType:NSEventTypeFlagsChanged
+                                        location:NSZeroPoint
+                                   modifierFlags:flags
+                                       timestamp:NSProcessInfo.processInfo.systemUptime
+                                    windowNumber:key_window.windowNumber
+                                         context:nil
+                                      characters:@""
+                     charactersIgnoringModifiers:@""
+                                       isARepeat:NO
+                                         keyCode:59]
+               atStart:NO];
+    } else if (!Key(key_window, key, flags)) {
       return false;
     }
     done();

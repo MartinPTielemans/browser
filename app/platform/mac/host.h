@@ -115,6 +115,11 @@ uint32_t host_accent_color(void);
 // Calls |changed| each time the user changes the system's accent colour.
 void host_watch_accent_color(void (*changed)(void));
 
+// Calls |released| once, after the event that shows ⌃ is no longer held: ⌃ going up, a key or a
+// button pressed without it, or the app going to the background. Watches the whole app, whichever
+// view has the keyboard.
+void host_watch_control(void (*released)(void));
+
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);

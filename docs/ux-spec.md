@@ -132,7 +132,7 @@ The command bar, menus, hover cards, Peek, find and every prompt over the page a
 | Switch Space 1–9 | measure | ⌃1–⌃9 (profiles) | ⌃1–⌃9 |
 | Next / previous tab | measure | ⇧⌘] / ⇧⌘[, ⌥⌘→ / ⌥⌘←, ⌥⌘↓ / ⌥⌘↑ | Dia's, *interim* |
 | Select tab 1–8 / last | measure | ⌘1–⌘8 / ⌘9 in sidebar order | Dia's |
-| Tab switcher (most recent first) | measure | ⌃Tab / ⌃⇧Tab | Dia's, *interim* |
+| Tab used last, then further back | ⌃Tab (rec) | ⌃Tab / ⌃⇧Tab (switcher) | ⌃Tab / ⌃⇧Tab, no switcher |
 | Search tabs | measure | ⇧⌘A | ⇧⌘A |
 | Split: add pane / focus next / previous | measure | ⌃⇧= / ⌃⇧] / ⌃⇧[ | Dia's, *interim* |
 | Find / next / previous | measure | ⌘F / ⌘G / ⇧⌘G | ⌘F / ⌘G / ⇧⌘G |
@@ -293,11 +293,11 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
   - Ours (*interim* until the Arc capture): the trigger is the card's left margin, x < 10. The panel's radius is the card's 6 and its border white 0.15, with no shadow. It draws its own traffic lights, since AppKit's stay in the browser window under it.
   - Ours: the panel never takes the keyboard, so renaming a Space or making one from it docks the sidebar first. The command bar opening, page full screen and the app going to the background send it away.
 
-**Tab switcher (⌃Tab)** (Dia 1.50.1 bin, P§2)
+**⌃Tab** (Arc 1.170.0 rec, sessions 10–12; Dia 1.50.1 bin, P§2)
 
-- Recent tabs, most recent first. The overlay appears after 140 ms (Ardia; source unclear), and the switch commits on ⌃ release.
-- → and ← move. Esc or a click outside cancels. Clicking a row switches to it, and the pointer highlights rows. Leaving the app switches. Other keys are swallowed while it's up.
-- Arc's switcher: measure.
+- Arc: ⌃Tab shows the tab used last at once, in one frame, with no switcher, whether ⌃ goes up at once or is held. With no tab shown, it shows the tab used last.
+- Dia: a switcher of recent tabs, most recent first, that appears after 140 ms (Ardia; source unclear) and switches when ⌃ goes up. → and ← move. Esc or a click outside cancels. Clicking a row switches to it, and the pointer highlights rows. Leaving the app switches. Other keys are swallowed while it's up.
+- Ours: Arc's, among the tabs of the Space shown. While ⌃ stays down, each ⌃Tab goes one tab further back in the order they were shown, and ⌃⇧Tab one forward, so holding ⌃ reaches past the last two. ⌃ going up, a key or a click without it, or the app going to the background ends the walk, and only the tab it ends on counts as shown. Tabs not shown since launch come last, in sidebar order. Arc's walk with ⌃ held isn't recorded.
 
 ### Spaces
 

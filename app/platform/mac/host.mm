@@ -90,6 +90,11 @@ void (*g_reveal_pointer)(double x);
 double g_reveal_width;
 id g_reveal_monitor;
 
+// While a host_watch_control is on, its monitor, its observer and the handler to call.
+id g_control_monitor;
+id g_control_observer;
+void (*g_control_released)(void);
+
 // The menu or alert showing, for host_choose.
 NSMenu* g_menu;
 NSAlert* g_alert;
@@ -404,6 +409,49 @@ void host_watch_accent_color(void (*changed)(void)) {
                                               usingBlock:^(NSNotification*) {
                                                 changed();
                                               }];
+}
+
+void ControlReleased() {
+  if (!g_control_monitor) {
+    return;
+  }
+  [NSEvent removeMonitor:g_control_monitor];
+  g_control_monitor = nil;
+  [NSNotificationCenter.defaultCenter removeObserver:g_control_observer];
+  g_control_observer = nil;
+  void (*released)(void) = g_control_released;
+  // After the event that showed it, so that a click or key goes where it was going first.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    released();
+  });
+}
+
+void host_watch_control(void (*released)(void)) {
+  g_control_released = released;
+  if (g_control_monitor) {
+    return;
+  }
+  NSEventMask mask = NSEventMaskFlagsChanged | NSEventMaskKeyDown | NSEventMaskLeftMouseDown |
+                     NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown;
+  g_control_monitor = [NSEvent
+      addLocalMonitorForEventsMatchingMask:mask
+                                   handler:^NSEvent*(NSEvent* event) {
+                                     bool key = event.type == NSEventTypeFlagsChanged ||
+                                                event.type == NSEventTypeKeyDown;
+                                     if (!key ||
+                                         !(event.modifierFlags & NSEventModifierFlagControl)) {
+                                       ControlReleased();
+                                     }
+                                     return event;
+                                   }];
+  // ⌃ can go up in another app, where the monitor doesn't see it.
+  g_control_observer = [NSNotificationCenter.defaultCenter
+      addObserverForName:NSApplicationDidResignActiveNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification*) {
+                ControlReleased();
+              }];
 }
 
 void host_press_window_button(int button) {

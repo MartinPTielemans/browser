@@ -84,7 +84,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Reveal panel | MVP | inset 5 left/top/bottom, docked width, 0.5 pt light border | Arc (Ardia) rec |
 | [x] | Reveal hold zone | MVP | 24 pt past the panel (Arc ≈ 21); trigger the full left edge | Arc (Ardia), Ardia |
 | [x] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
-| [ ] | Tab switcher ⌃Tab | MVP | most recent first; overlay after 140 ms; commits on ⌃ release | Dia 1.50.1 bin P§2 |
+| [x] | ⌃Tab | MVP | the tab used last, at once, no switcher; with ⌃ held, on back (ours) | Arc rec |
 | [ ] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
 | [ ] | Rename and emoji icon | MVP | double-click renames inline | Dia P§2 |
 | [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
