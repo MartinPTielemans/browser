@@ -120,7 +120,7 @@ typedef struct bc_host {
   void (*tab_loaded)(void* context, bc_id tab, const char* url);
   // The tab's URL, its history or whether it's loading changed. A burst of changes is one call.
   void (*tab_state_changed)(void* context, bc_id tab, const bc_tab_state* state);
-  // The tab's page has a new title.
+  // The tab has a new title: its page's, or the name bc_tab_rename gave it.
   void (*tab_title_changed)(void* context, bc_id tab, const char* title);
   // The tab's page has a new favicon: a PNG |size| bytes long, 32 pixels square for 16 points at
   // 2×, or null and 0 once a page that has none has loaded. While a page loads, the tab keeps the
@@ -352,6 +352,10 @@ BC_EXPORT void bc_tab_back_to_pinned_url(bc_id tab);
 // pinned tab, and shows it in its window, where its page loads. Returns its id, or 0. Then
 // space_changed and window_selected.
 BC_EXPORT bc_id bc_tab_duplicate(bc_id tab);
+
+// Names the tab, which shows |name| for its title from then on, kept across a quit, a reopen and a
+// duplicate; an empty name gives it back its page's title. Then tab_title_changed.
+BC_EXPORT void bc_tab_rename(bc_id tab, const char* name);
 
 // Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one
 // shows the tab first. Then tab_closed for each, and space_changed.

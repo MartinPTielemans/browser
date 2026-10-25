@@ -200,10 +200,20 @@ void Tab::TitleWasSet(content::NavigationEntry* entry) {
   ReportTitle();
 }
 
+void Tab::Rename(const std::string& name) {
+  name_ = name;
+  SessionChanged();
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Tab::ReportTitle, weak_factory_.GetWeakPtr()));
+}
+
+std::string Tab::Title() {
+  return name_.empty() ? base::UTF16ToUTF8(web_contents()->GetTitle()) : name_;
+}
+
 void Tab::ReportTitle() {
   if (Host().tab_title_changed) {
-    const std::string title = base::UTF16ToUTF8(web_contents()->GetTitle());
-    Host().tab_title_changed(Host().context, id_, title.c_str());
+    Host().tab_title_changed(Host().context, id_, Title().c_str());
   }
 }
 

@@ -60,9 +60,11 @@
 #   8. Launched again after ⌘Q, and again after its window's close button, the app brings back
 #      the Spaces: their names and colours, their tabs with each tab's history, the tab each showed
 #      and the Space it showed, and the sidebar's width. Only a tab shown loads; the others show
-#      their titles and favicons. A tab closed before the quit stays closed, in the archive, from
-#      which the Library reopens it at its page. A SIGTERM, which macOS sends at logout and
-#      restart, keeps a tab opened just before it. Reports how long putting them back takes.
+#      their titles and favicons. A tab named with a double-click on its row, where escape cancels,
+#      keeps its name over its page's title, and Rename Tab in its menu with no name gives the
+#      title back. A tab closed before the quit stays closed, in the archive, from which the
+#      Library reopens it at its page. A SIGTERM, which macOS sends at logout and restart, keeps
+#      a tab opened just before it. Reports how long putting them back takes.
 #      With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long
 #      goes in the archive, counting the time across a quit, and the tab shown stays.
 #   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n/m",
@@ -1332,14 +1334,14 @@ expect_tabs "$a" "$a" "after a wheel's tick showed the first Space"
 # A tab's menu moves it to another Space, and the window goes with the tab it shows.
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post rightclick $(row 0)
-expect '^browser: menu shown Pin Tab, Duplicate Tab, Move to Space › reading 日本語, Close Tab, Close Tabs Below (disabled)$' "the tab's menu didn't offer the other Space"
+expect '^browser: menu shown Pin Tab, Rename Tab, Duplicate Tab, Move to Space › reading 日本語, Close Tab, Close Tabs Below (disabled)$' "the tab's menu didn't offer the other Space"
 send choose reading 日本語
 expect '^browser: command move-to-space via tab menu$' "Move to Space didn't run"
 expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to Space didn't show the tab's new Space"
 expect_tabs "$a $b" "$a" "after Move to Space"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 post rightclick $(row 0)
-expect '^browser: menu shown Pin Tab, Duplicate Tab, Move to Space › Space 1, Close Tab, Close Tabs Below$' "the moved tab's menu didn't offer the first Space"
+expect '^browser: menu shown Pin Tab, Rename Tab, Duplicate Tab, Move to Space › Space 1, Close Tab, Close Tabs Below$' "the moved tab's menu didn't offer the first Space"
 send choose Space 1
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "moving the tab back didn't show the first Space"
 expect_tabs "$a" "$a" "after moving the tab back"
@@ -1494,6 +1496,21 @@ expect "^browser: space $first in " "⌃1 didn't show the first Space"
 expect_tabs "$c $a" "$c" "back in the first Space"
 send drag 226 400 298 400
 expect '^browser: sidebar width 300$' "dragging the sidebar's edge didn't make it 300 wide"
+# A double-click on a tab's row turns its title into a field, all selected. Escape leaves the
+# title, and return keeps the name typed, which the tab shows over its page's title.
+send doubleclick $(row 0)
+expect "^browser: rename tab $c\$" \
+  "a double-click on the tab's row didn't turn its title into a field"
+send type nope
+send key escape
+expect '^browser: rename cancelled$' "escape didn't cancel the tab's rename"
+none_since "^browser: title $c nope" || fail "escape renamed the tab"
+send doubleclick $(row 0)
+expect "^browser: rename tab $c\$" "a second double-click on the row didn't rename the tab"
+send type news
+../tools/window-screenshot.sh "$pid" "$out/rename-tab.png" || fail "no window to capture"
+send key return
+expect "^browser: title $c news\$" "return didn't name the tab"
 # ⌘Q is the driver's last command: the app doesn't report it done.
 echo "key q cmd" >&3
 exec 3>&-
@@ -1522,6 +1539,9 @@ c=$(today | cut -d' ' -f1)
 a=$(today | cut -d' ' -f2)
 await "^browser: selected $c\$" || fail "the first Space didn't show the tab it showed last"
 await "^browser: loaded $c https://example.net/\$" || fail "the tab shown didn't load"
+await "^browser: title $c news\$" || fail "the tab came back without its name"
+grep -q "^browser: title $c Example Domain\$" "$log" &&
+  fail "the tab's page's title took its name's place"
 await "^browser: page $a back 0 forward 1 loading 0 $site\$" ||
   fail "tab a didn't come back at its page with history: $(grep "^browser: page $a" "$log" | tail -1)"
 await "^browser: title $a ready\$" || fail "tab a didn't come back with its title"
@@ -1542,6 +1562,18 @@ if [ "$active" != 1 ]; then
   echo "skip: restored history. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
+# Rename Tab in its menu, with the name taken out, gives the tab back its page's title.
+post rightclick $(row 0)
+menu="Pin Tab, Rename Tab, Duplicate Tab, Move to Space › reading list, Close Tab, Close Tabs Below"
+expect "^browser: menu shown $menu\$" \
+  "a right-click on the renamed tab's row didn't offer Rename Tab"
+send choose Rename Tab
+expect "^browser: rename tab $c\$" "Rename Tab didn't turn the tab's title into a field"
+send key backspace
+send key return
+expect "^browser: title $c Example Domain\$" \
+  "taking the name out didn't give the tab back its page's title"
+send click $page_point
 # The tab closed before the quit reopens from the Library at the top of Today, at its page. ⌘W
 # archives it again.
 send key l cmd shift
@@ -1631,7 +1663,7 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed, in the archive, from which it reopens at its page. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, and a closed tab stays closed, in the archive, from which it reopens at its page. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
 
 # Find in page, and zoom. The test page has three apples and one 日本語, and puts its zoom in its
@@ -2281,7 +2313,7 @@ none_since "^browser: selected" || fail "Undo after ⇧⌘T showed another tab"
 d=$(today | cut -d' ' -f3)
 t=$(today | cut -d' ' -f1)
 post rightclick $(row 2)
-expect '^browser: menu shown Pin Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
+expect '^browser: menu shown Pin Tab, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
 ../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
 send choose Duplicate Tab
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
@@ -2291,7 +2323,7 @@ expect "^browser: selected $tab\$" "Duplicate Tab didn't show the copy"
 expect_page example.org 1 0 "the copy Duplicate Tab made"
 # Close Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
-expect '^browser: menu shown Pin Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
+expect '^browser: menu shown Pin Tab, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
 send choose Close Tabs Below
 expect '^browser: command close-tabs-below via tab menu$' "Close Tabs Below didn't run"
 expect_lists "$a" "$t" "after Close Tabs Below"
@@ -2305,7 +2337,7 @@ send key t cmd shift
 expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Close Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
 # A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
 post rightclick $(pinned_row 0)
-expect '^browser: menu shown Unpin Tab, Back to Pinned URL (disabled), Duplicate Tab, Move to Space (disabled), Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
+expect '^browser: menu shown Unpin Tab, Back to Pinned URL (disabled), Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
 send choose Unpin Tab
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""

@@ -513,8 +513,8 @@ pub fn bind_keys(cx: &mut App) {
     );
     cx.bind_keys([
         KeyBinding::new("enter", CreateSpace, Some("SpaceForm")),
-        KeyBinding::new("enter", KeepName, Some("SpaceName")),
-        KeyBinding::new("escape", CancelName, Some("SpaceName")),
+        KeyBinding::new("enter", KeepName, Some("Naming")),
+        KeyBinding::new("escape", CancelName, Some("Naming")),
     ]);
     cx.on_action(|run: &Run, cx| {
         if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
@@ -624,6 +624,9 @@ pub trait Browser {
     /// Makes an empty Space named `name` after the others, and returns it.
     fn create_space(&self, name: &str, cx: &mut App) -> u64;
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
+    /// Names a tab, which shows `name` for its title from then on, or gives it back its page's
+    /// title for an empty one.
+    fn rename_tab(&self, tab: u64, name: &str, cx: &mut App);
     /// Deletes a Space, closing its tabs.
     fn delete_space(&self, space: u64, cx: &mut App);
     /// Gives a Space a colour, 0xRRGGBB, or none, for the system's accent colour.
@@ -745,9 +748,16 @@ struct SpaceForm {
     name: Entity<TextInput>,
 }
 
-/// The field the Space's name turns into for renaming it.
+/// What the renaming field names.
+#[derive(Clone, Copy, PartialEq)]
+enum Naming {
+    Space(u64),
+    Tab(u64),
+}
+
+/// The field a Space's name or a tab's title turns into for renaming it.
 struct Renaming {
-    space: u64,
+    naming: Naming,
     name: Entity<TextInput>,
     /// Keeps the name once the field loses GPUI's focus, as Finder does.
     _blur: Option<Subscription>,
@@ -1381,8 +1391,8 @@ impl Shell {
         {
             self.form = None;
         }
-        if let Some(renaming) = &self.renaming
-            && !self.spaces.iter().any(|space| space.id == renaming.space)
+        if let Some(Naming::Space(space)) = self.renaming.as_ref().map(|renaming| renaming.naming)
+            && !self.spaces.iter().any(|each| each.id == space)
         {
             self.renaming = None;
         }
@@ -1483,6 +1493,11 @@ impl Shell {
         };
         self.tabs.retain(|tab, _| open(tab));
         self.recent.retain(open);
+        if let Some(Naming::Tab(tab)) = self.renaming.as_ref().map(|renaming| renaming.naming)
+            && !open(&tab)
+        {
+            self.renaming = None;
+        }
         cx.notify();
     }
 
@@ -1915,6 +1930,11 @@ impl Shell {
             ));
         }
         items.push((
+            MenuEntry::new("Rename Tab", true),
+            "rename-tab",
+            Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
+        ));
+        items.push((
             MenuEntry::new("Duplicate Tab", true),
             "duplicate-tab",
             Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
@@ -1996,7 +2016,7 @@ impl Shell {
                 .with_text(name)
         });
         self.renaming = Some(Renaming {
-            space,
+            naming: Naming::Space(space),
             name,
             _blur: None,
         });
@@ -2007,14 +2027,40 @@ impl Shell {
         cx.notify();
     }
 
-    /// Renames the Space to what the field holds, unless it's empty, and closes the field.
+    /// Shows the tab's title in a field, all selected, to type a name over.
+    fn rename_tab(&mut self, tab: u64, cx: &mut Context<Self>) {
+        eprintln!("browser: rename tab {tab}");
+        let title = self.title(tab);
+        let name = cx.new(|cx| {
+            TextInput::new("Tab name", cx)
+                .placeholder_color(rgba(FORM_PLACEHOLDER))
+                .with_text(title)
+        });
+        self.renaming = Some(Renaming {
+            naming: Naming::Tab(tab),
+            name,
+            _blur: None,
+        });
+        // As for a Space's name.
+        self.dock(cx);
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
+    /// Renames the Space or the tab to what the field holds, and closes the field. A Space keeps
+    /// its name rather than none, and a tab named nothing shows its page's title again.
     fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(renaming) = self.renaming.take() else {
             return;
         };
         let name = renaming.name.read(cx).text().trim().to_string();
-        if !name.is_empty() {
-            self.browser.rename_space(renaming.space, &name, cx);
+        match renaming.naming {
+            Naming::Space(space) if !name.is_empty() => self.browser.rename_space(space, &name, cx),
+            Naming::Space(_) => {}
+            // Left as it was, the title stays the page's, which changes with it.
+            Naming::Tab(tab) if *name == *self.title(tab) => {}
+            Naming::Tab(tab) => self.browser.rename_tab(tab, &name, cx),
         }
         window.focus(&self.focus_handle, cx);
         cx.notify();
@@ -2824,16 +2870,34 @@ impl Shell {
                 eprintln!("browser: command close-tab via sidebar");
                 shell.browser.close(tab, cx);
             }));
+        let renaming =
+            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Tab(tab));
         let label = div()
             .flex_1()
             .min_w_0()
             .h_full()
             .flex()
-            .items_center()
-            .when(!(hovered && closable), |label| label.pr(px(PLATE_INSET)))
-            .child(title)
-            .when(hovered && closable, |label| label.child(close))
-            .when(!hovered && loading, |label| label.child(loading_ring(tab)));
+            .items_center();
+        let label = match renaming {
+            Some(renaming) => label
+                .pr(px(PLATE_INSET))
+                .key_context("Naming")
+                .on_action(
+                    cx.listener(|shell, _: &KeepName, window, cx| shell.keep_name(window, cx)),
+                )
+                .on_action(
+                    cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
+                )
+                .text_size(px(14.))
+                .text_color(rgb(FORM_TEXT))
+                .child(renaming.name.clone()),
+            None => label
+                .when(!(hovered && closable), |label| label.pr(px(PLATE_INSET)))
+                .child(title)
+                .when(hovered && closable, |label| label.child(close))
+                .when(!hovered && loading, |label| label.child(loading_ring(tab))),
+        };
+        let renaming = renaming.is_some();
         let icon = match back {
             true => svg()
                 .path("icons/arrow-left.svg")
@@ -2865,10 +2929,15 @@ impl Shell {
                 }))
             })
             .child(icon);
-        self.row(Row::Tab(tab), icon, label, cx)
-            .on_mouse_down(
+        // The field takes the row's clicks while it's up.
+        self.row(Row::Tab(tab), icon, label, cx).when(!renaming, |row| {
+            row.on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |shell, event: &MouseDownEvent, _, _| {
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    // The first click selected the tab (Dia).
+                    if event.click_count == 2 {
+                        return shell.rename_tab(tab, cx);
+                    }
                     shell.press_row(tab, event.position)
                 }),
             )
@@ -2881,20 +2950,25 @@ impl Shell {
                 }),
             )
             .on_click(cx.listener(move |shell, _, _, cx| {
-                if shell.dragged || shell.dragging().is_some() {
+                let renaming = shell.renaming.as_ref().map(|renaming| renaming.naming);
+                if shell.dragged || shell.dragging().is_some() || renaming == Some(Naming::Tab(tab))
+                {
                     return;
                 }
                 eprintln!("browser: command select via sidebar");
                 shell.select(tab, cx)
             }))
+        })
     }
 
     fn name_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let space = self.space;
         let row = name_box().id("space-name").block_mouse_except_scroll();
-        if let Some(renaming) = self.renaming.as_ref().filter(|renaming| renaming.space == space) {
+        if let Some(renaming) =
+            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Space(space))
+        {
             return row
-                .key_context("SpaceName")
+                .key_context("Naming")
                 .on_action(
                     cx.listener(|shell, _: &KeepName, window, cx| shell.keep_name(window, cx)),
                 )

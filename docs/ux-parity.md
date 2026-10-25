@@ -90,8 +90,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Dock from the reveal | MVP | instant | Arc (Ardia) rec |
 | [x] | ⌃Tab | MVP | the tab used last, at once, no switcher; with ⌃ held, on back (ours) | Arc rec |
 | [ ] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
-| [ ] | Rename and emoji icon | MVP | double-click renames inline | Dia P§2 |
-| [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
+| [x] | Rename | MVP | double-click or Rename Tab renames inline; the name shows over the page's title and is kept across a quit; an empty one gives the title back | Dia P§2, ours |
+| [ ] | Emoji icon | MVP | a row's icon changed to an emoji | Dia P§2 |
+| [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Rename, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
 | [ ] | Folders | MVP | measure (Dia groups: chevron 8 after the name, ≈ 150 ms) | Dia rec |
 
 ## Spaces

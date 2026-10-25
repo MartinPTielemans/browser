@@ -1,6 +1,7 @@
 #ifndef BROWSER_CORE_SESSION_H_
 #define BROWSER_CORE_SESSION_H_
 
+#include <string>
 #include <vector>
 
 #include "base/functional/callback_forward.h"
@@ -23,6 +24,8 @@ struct SavedTab {
   int current = 0;
   // A pinned tab's pinned URL.
   GURL pinned_url;
+  // The name the user gave it, if any.
+  std::string name;
   // When a window last stopped showing a Today tab, if it was saved with one.
   base::Time last_seen;
 };
