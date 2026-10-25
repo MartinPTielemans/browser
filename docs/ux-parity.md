@@ -42,6 +42,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Sidebar button, back, forward, reload positions | MVP | plates at x 77 / 122 / 156 / 190 in a 228 sidebar; the same at other widths *interim*, Arc's: measure | Arc 1.170.0 ax |
 | [x] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
 | [x] | Disabled nav glyph | MVP | white 0.26 against 0.60; reload too with no page | Arc 1.170.0 cap |
+| [x] | Nav glyph size | MVP | sidebar 18.5 × 14.5, back and forward 14.5 × 12, reload 14 across; 1.75 pt strokes | Arc 1.170.0 cap |
 | [x] | URL field top | MVP | 46 below the window top | Arc 1.170.0 cap |
 | [x] | URL field size, radius, fill, font | MVP | 36 tall, 8 in, radius 12, white 0.10; text 13 pt, white 0.60 | Arc 1.170.0 cap |
 | [x] | URL text | MVP | host only, no `www.`; Arc has no Show Full URL | Arc 1.170.0 cap, Dia 1.50.1 bin |

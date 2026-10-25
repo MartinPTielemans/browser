@@ -114,7 +114,8 @@ const FORWARD_X: f32 = 156.;
 const RELOAD_X: f32 = 190.;
 const NAV_SIZE: f32 = 32.;
 const NAV_RADIUS: f32 = 6.;
-const NAV_GLYPH: f32 = 16.;
+// Header glyphs are drawn in points in a box this big, at Arc's sizes and centres.
+const NAV_GLYPH: f32 = 24.;
 // A header button shows while its plate ends this far inside the sidebar, so a narrow sidebar loses
 // reload, then forward, as Ardia's does.
 const NAV_END: f32 = 5.;
@@ -836,8 +837,11 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/keyboard.svg", include_bytes!("../assets/icons/keyboard.svg")),
     ("icons/link.svg", include_bytes!("../assets/icons/link.svg")),
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
-    ("icons/panel-left.svg", include_bytes!("../assets/icons/panel-left.svg")),
-    ("icons/rotate-cw.svg", include_bytes!("../assets/icons/rotate-cw.svg")),
+    ("icons/nav-back.svg", include_bytes!("../assets/icons/nav-back.svg")),
+    ("icons/nav-forward.svg", include_bytes!("../assets/icons/nav-forward.svg")),
+    ("icons/nav-reload.svg", include_bytes!("../assets/icons/nav-reload.svg")),
+    ("icons/nav-sidebar.svg", include_bytes!("../assets/icons/nav-sidebar.svg")),
+    ("icons/nav-stop.svg", include_bytes!("../assets/icons/nav-stop.svg")),
     ("icons/search.svg", include_bytes!("../assets/icons/search.svg")),
     ("icons/settings.svg", include_bytes!("../assets/icons/settings.svg")),
     ("icons/sliders-horizontal.svg", include_bytes!("../assets/icons/sliders-horizontal.svg")),
@@ -3920,13 +3924,13 @@ impl Shell {
     fn nav_buttons(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         let page = self.page(self.selected);
         let reload = match page.loading {
-            true => (RELOAD_X, "icons/x.svg", Command::Stop, true),
-            false => (RELOAD_X, "icons/rotate-cw.svg", Command::Reload, self.selected != 0),
+            true => (RELOAD_X, "icons/nav-stop.svg", Command::Stop, true),
+            false => (RELOAD_X, "icons/nav-reload.svg", Command::Reload, self.selected != 0),
         };
         let buttons = [
-            (SIDEBAR_BUTTON_X, "icons/panel-left.svg", Command::ToggleSidebar, true),
-            (BACK_X, "icons/arrow-left.svg", Command::Back, page.can_go_back),
-            (FORWARD_X, "icons/arrow-right.svg", Command::Forward, page.can_go_forward),
+            (SIDEBAR_BUTTON_X, "icons/nav-sidebar.svg", Command::ToggleSidebar, true),
+            (BACK_X, "icons/nav-back.svg", Command::Back, page.can_go_back),
+            (FORWARD_X, "icons/nav-forward.svg", Command::Forward, page.can_go_forward),
             reload,
         ];
         let width = self.width();
