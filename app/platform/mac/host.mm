@@ -92,6 +92,11 @@ double g_hud_right;
 double g_hud_top;
 unsigned g_hud_changes = 0;
 
+// The drop targets' window and view.
+NSWindow* g_drop_targets;
+NSView* g_drop_targets_view;
+bool g_drop_targets_shown = false;
+
 // How far the focused page's right edge is inside the card's, in a split view, which the find bar
 // and the HUD keep to.
 double g_page_right = 0;
@@ -507,6 +512,44 @@ void host_hide_hud(double seconds) {
         [g_hud orderOut:nil];
         fprintf(stderr, "browser: zoom hud hidden\n");
       }];
+}
+
+void host_add_drop_targets(void* view) {
+  g_drop_targets_view = (__bridge NSView*)view;
+  g_drop_targets = g_drop_targets_view.window;
+  MakeOverlay(g_drop_targets);
+  g_drop_targets.styleMask = NSWindowStyleMaskBorderless;
+  g_drop_targets.hasShadow = NO;
+  g_drop_targets.ignoresMouseEvents = YES;
+}
+
+void host_show_drop_targets(void) {
+  if (!g_drop_targets || !g_window || g_drop_targets_shown) {
+    return;
+  }
+  g_drop_targets_shown = true;
+  // After the UI's update that asked, since the window draws here: at the content's frame, before
+  // it shows, since it keeps the last frame it drew.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_drop_targets_shown || g_drop_targets.parentWindow) {
+      return;
+    }
+    [g_drop_targets setFrame:[g_window contentRectForFrameRect:g_window.frame] display:NO];
+    [g_drop_targets_view.layer setNeedsDisplay];
+    [g_drop_targets_view.layer displayIfNeeded];
+    [g_window addChildWindow:g_drop_targets ordered:NSWindowAbove];
+    fprintf(stderr, "browser: drop targets shown\n");
+  });
+}
+
+void host_hide_drop_targets(void) {
+  g_drop_targets_shown = false;
+  if (!g_drop_targets.parentWindow) {
+    return;
+  }
+  [g_window removeChildWindow:g_drop_targets];
+  [g_drop_targets orderOut:nil];
+  fprintf(stderr, "browser: drop targets hidden\n");
 }
 
 void host_show_window_buttons(bool shown) {

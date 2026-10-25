@@ -25,6 +25,7 @@ use gpui::{
 use crate::text_input::TextInput;
 
 mod library;
+mod split_targets;
 
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 use library::Section;
@@ -854,6 +855,12 @@ pub trait Browser {
     fn delete_folder(&self, folder: u64, cx: &mut App);
     /// Takes `tab` out of its split view.
     fn separate(&self, tab: u64, cx: &mut App);
+    /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
+    /// shows it there.
+    fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
+    /// Shows the window over the page that draws `Shell::drop_targets`, drawing it again, or
+    /// hides it.
+    fn show_drop_targets(&self, shown: bool, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     /// Closes the Today tabs of the Space shown, but the one shown.
@@ -1232,6 +1239,8 @@ struct Drag {
     divider: bool,
     /// Let go, until the browser reports the lists it made.
     dropped: bool,
+    /// Over the page, where it can join the page shown in a split view.
+    over_page: Option<split_targets::OverPage>,
 }
 
 /// Two fingers on the trackpad over the sidebar, which may page between Spaces.
@@ -1367,6 +1376,8 @@ pub struct Shell {
     adding_pane: Option<u64>,
     /// The colour last given for a split view's focused page.
     focus_color: Option<u32>,
+    /// The window over the page that draws the drop targets shows.
+    drop_targets_shown: bool,
     /// How far in from the page frame's right edge the focused page's ends, as last given.
     page_right: f32,
     /// Every Space's archived tabs, newest first, and the favicons asked for their URLs.
@@ -1449,6 +1460,7 @@ impl Shell {
             page_laid: None,
             adding_pane: None,
             focus_color: None,
+            drop_targets_shown: false,
             page_right: 0.,
             archive: Vec::new(),
             page_favicons: HashMap::new(),
@@ -3136,6 +3148,7 @@ impl Shell {
             room: HashMap::new(),
             divider: true,
             dropped: false,
+            over_page: None,
         });
     }
 
@@ -3153,6 +3166,12 @@ impl Shell {
         if !drag.moving && moved.x.abs().max(moved.y.abs()) < px(DRAG_START) {
             return;
         }
+        if self.drag_over_page(position, cx) {
+            return;
+        }
+        let Some(drag) = &self.drag else {
+            return;
+        };
         let (tab, to, grab, span) = (drag.tab, drag.to, drag.grab, drag.span);
         let pointer = in_sidebar(position, drag.origin);
         // Rows in, from where it was, by how far the pointer has gone right.
@@ -3243,6 +3262,9 @@ impl Shell {
     /// The pointer let go of a pressed row or tile. A dragged tab goes where it would, and the rows
     /// and tiles settle once the browser has moved it.
     fn drop_row(&mut self, cx: &mut Context<Self>) {
+        if self.drop_over_page(cx) {
+            return;
+        }
         let Some(drag) = self.drag.as_mut().filter(|drag| !drag.dropped) else {
             return;
         };
@@ -4669,6 +4691,11 @@ impl Render for Shell {
         if self.list_moving() {
             window.request_animation_frame();
         }
+        let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some());
+        if drop_targets || self.drop_targets_shown {
+            self.drop_targets_shown = drop_targets;
+            self.browser.show_drop_targets(drop_targets, cx);
+        }
         // The page is laid out at every step, as in Arc.
         self.viewport = window.viewport_size();
         self.lay_out_page(cx);
@@ -4893,8 +4920,8 @@ impl Shell {
         for tab in today {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }
-        // Over the rest, where the pointer has it, unless it's over the favorites.
-        let dragged = self.drag.as_ref().filter(|drag| drag.moving);
+        // Over the rest, where the pointer has it, unless it's over the favorites or the page.
+        let dragged = self.drag.as_ref().filter(|drag| drag.moving && drag.over_page.is_none());
         let dragged = dragged.filter(|drag| matches!(drag.to, Place::List(..))).map(|drag| {
             let row = self.tab_row(drag.tab, cx);
             div().absolute().top(px(self.drag_at(drag))).left_0().w(px(self.width())).child(row)

@@ -74,6 +74,16 @@ void host_show_hud(void);
 // Fades the HUD out over |seconds|.
 void host_hide_hud(double seconds);
 
+// Makes the window of |view| float over the browser window's content when shown, covering it, for
+// the split view's drop targets over the page. It starts hidden, and the mouse goes through it.
+void host_add_drop_targets(void* view);
+
+// Shows the drop targets' window as the UI draws it now, at the browser window's content.
+void host_show_drop_targets(void);
+
+// Hides the drop targets' window.
+void host_hide_drop_targets(void);
+
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 

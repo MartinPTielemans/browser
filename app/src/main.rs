@@ -23,6 +23,7 @@ use gpui::{
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 mod command_bar;
+mod drop_targets;
 mod find_bar;
 mod reveal;
 mod zoom_hud;
@@ -55,6 +56,9 @@ mod platform {
         pub fn host_set_page_right(right: f64);
         pub fn host_show_hud();
         pub fn host_hide_hud(seconds: f64);
+        pub fn host_add_drop_targets(view: *mut c_void);
+        pub fn host_show_drop_targets();
+        pub fn host_hide_drop_targets();
         pub fn host_focus(view: *mut c_void);
         pub fn host_show_window_buttons(shown: bool);
         pub fn host_press_window_button(button: i32);
@@ -178,7 +182,7 @@ fn split_tab(tab: u64, with: u64, cx: &mut App) {
     shell::pane_added(cx);
     let window = WINDOW.get();
     unsafe {
-        bc::bc_tab_split_with(tab, with);
+        bc::bc_tab_split_with(tab, with, false);
         bc::bc_window_select(window, tab);
     }
 }
@@ -284,6 +288,18 @@ impl Browser for Engine {
 
     fn separate(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_separate(tab) };
+    }
+
+    fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
+        unsafe {
+            bc::bc_tab_split_with(tab, with, left);
+            bc::bc_window_select(WINDOW.get(), tab);
+        }
+    }
+
+    fn show_drop_targets(&self, shown: bool, cx: &mut App) {
+        // After the shell's draw, which asks for it.
+        cx.defer(move |cx| drop_targets::show(shown, cx));
     }
 
     fn back_to_pinned_url(&self, tab: u64, _: &mut App) {
@@ -730,6 +746,7 @@ fn open_window(cx: &mut App) {
             if let Ok(shell) = window.entity(cx) {
                 find_bar::open(shell.clone(), cx);
                 zoom_hud::open(shell.clone(), cx);
+                drop_targets::open(shell.clone(), cx);
                 reveal::open(shell, cx);
             }
             // Once the page frame is set, so the tab shown loads at its size.

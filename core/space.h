@@ -100,11 +100,11 @@ class Space {
   // Deletes |folder|, leaving what was in it where it was, in the folder that held it.
   void DeleteFolder(bc_id folder);
 
-  // Puts |tab| in a split view with |with|, at its right end, making one if |with| is in none.
-  // |tab| leaves any split it was in, and goes after the split in its list, pinned at |url| if
-  // that's the pinned tabs and it wasn't pinned. False, doing nothing, if |with|'s split is full,
-  // or either tab isn't the Space's.
-  bool Split(bc_id tab, bc_id with, GURL url);
+  // Puts |tab| in a split view with |with|, at its left end if |left|, else its right end, making
+  // one if |with| is in none. |tab| leaves any split it was in, and goes before or after the split
+  // in its list, pinned at |url| if that's the pinned tabs and it wasn't pinned. False, doing
+  // nothing, if |with|'s split is full, or either tab isn't the Space's.
+  bool Split(bc_id tab, bc_id with, GURL url, bool left = false);
   // Takes |tab| out of its split, to just below the tabs left in it. The split goes once one is.
   void Separate(bc_id tab);
 

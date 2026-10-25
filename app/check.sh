@@ -115,7 +115,9 @@
 #      pane. Launched again, the app brings the split back with both pages. Separate Page from
 #      Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, and ⌘W
 #      closes the focused pane, leaving the page beside it alone. The ✕ on a split's row closes
-#      all its panes, and the window shows the tab above them.
+#      all its panes, and the window shows the tab above them. A row dragged onto the page brings
+#      a target to each of the card's sides, which go when it's back over the sidebar, and let go
+#      on the left one, the tab joins the page shown on its left.
 #  13. Add to Favorites in a Today tab's menu takes the tab out of Today into a tile above the
 #      Space's rows, without showing it. A click on the tile shows it, and ⌘1–⌘9 count favorites
 #      first. Away from its URL, a double-click on the tile goes back there. ⌘W unloads it and
@@ -2783,9 +2785,29 @@ expect '^browser: command close-tab via sidebar$' "a click on the split's ✕ di
 expect "^browser: tab $b closed\$" "the split's ✕ didn't close its left pane"
 expect "^browser: tab $e closed\$" "the split's ✕ didn't close its right pane"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "closing the split didn't show the tab above it"
+# A row dragged onto the page becomes a picture of a window, and a target slides in at each of the
+# card's sides. Back over the sidebar it's a row again, and let go over the left target it joins
+# the page shown on its left, focused.
+target="$((x + 140)) $((y + h / 2))"
+send press $(row 0)
+send dragto 110 $(row 0 | cut -d' ' -f2)
+send dragto $target
+expect "^browser: drop targets for $a\$" "a row dragged onto the page didn't bring the targets"
+expect '^browser: drop targets shown$' "the targets' window didn't show"
+expect '^browser: drop target left$' "the left target isn't under the tab"
+../tools/window-screenshot.sh "$pid" "$out/split-targets.png" || fail "no window to capture"
+send dragto 100 300
+expect '^browser: drop targets gone$' "the targets stayed with the tab back over the sidebar"
+expect '^browser: drop targets hidden$' "the targets' window stayed"
+send dragto $target
+expect '^browser: drop target left$' "the left target isn't under the tab again"
+send release $target
+expect "^browser: splits $c+$a\$" "the tab let go on the left target didn't join the page: \"$(splits)\""
+expect "^browser: selected $c\( in .*\)\{0,1\}\$" "the tab let go on a target isn't focused"
+expect "^browser: panes $c $a\$" "the window doesn't show the tab let go left of the page"
 exec 3>&-
 quit
-echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page does it too. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The split comes back after a quit with both pages. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, and the ✕ on a split's row closes all its panes. Windows: $out/split.png, $out/split-left.png"
+echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page does it too. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The split comes back after a quit with both pages. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, and the ✕ on a split's row closes all its panes. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Windows: $out/split.png, $out/split-left.png, $out/split-targets.png"
 
 # Favorites, from the served page with example.org above it.
 log="$out/favorites.log"
