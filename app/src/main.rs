@@ -371,6 +371,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_reload(tab, bypass_cache) };
     }
 
+    fn clear_site(&self, tab: u64, cookies: bool, _: &mut App) {
+        unsafe { bc::bc_tab_clear_site(tab, cookies) };
+    }
+
     fn stop(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_stop(tab) };
     }
@@ -840,6 +844,8 @@ fn menus() -> Vec<Menu> {
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
                 item("Force Refresh the Page", Command::ForceReload),
+                item("Clear Cookies and Refresh", Command::ClearCookiesAndRefresh),
+                item("Clear Cache and Refresh", Command::ClearCacheAndRefresh),
                 MenuItem::separator(),
                 item("Add Split View", Command::AddSplit),
                 item("Close this Split Pane", Command::CloseSplitPane),

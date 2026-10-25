@@ -325,6 +325,10 @@ pub enum Command {
     Reload,
     /// Reloads without the cache.
     ForceReload,
+    /// Deletes the page's site's cache, then reloads without the cache.
+    ClearCacheAndRefresh,
+    /// Deletes the page's site's cookies, then reloads.
+    ClearCookiesAndRefresh,
     Stop,
     /// Zooms the page's site to 100 %.
     ActualSize,
@@ -451,7 +455,9 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
 /// menus' (docs/ux-spec.md › Command bar › Rows).
 const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Clear Today", Command::Clear),
+    ("Clear Cache and Refresh", Command::ClearCacheAndRefresh),
     ("Clear Archive", Command::ClearArchive),
+    ("Clear Cookies and Refresh", Command::ClearCookiesAndRefresh),
     ("Collapse All Folders", Command::CollapseFolders),
     ("New Folder", Command::NewFolder),
     ("Pin/Unpin Tab", Command::TogglePin),
@@ -679,6 +685,8 @@ impl Command {
             Command::Forward => "forward",
             Command::Reload => "reload",
             Command::ForceReload => "force-reload",
+            Command::ClearCacheAndRefresh => "clear-cache-and-refresh",
+            Command::ClearCookiesAndRefresh => "clear-cookies-and-refresh",
             Command::Stop => "stop",
             Command::ActualSize => "actual-size",
             Command::ZoomIn => "zoom-in",
@@ -888,6 +896,9 @@ pub trait Browser {
     fn go_back(&self, tab: u64, cx: &mut App);
     fn go_forward(&self, tab: u64, cx: &mut App);
     fn reload(&self, tab: u64, bypass_cache: bool, cx: &mut App);
+    /// Deletes the cookies, or else the cache, the profile keeps for the site of the tab's page,
+    /// then reloads it.
+    fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
     fn stop(&self, tab: u64, cx: &mut App);
     /// Zooms the tab's page in (1), out (-1) or to 100 % (0), for its site.
     fn zoom(&self, tab: u64, step: i32, cx: &mut App);
@@ -2272,6 +2283,12 @@ impl Shell {
             Command::Forward => return self.browser.go_forward(self.selected, cx),
             Command::Reload => return self.browser.reload(self.selected, false, cx),
             Command::ForceReload => return self.browser.reload(self.selected, true, cx),
+            Command::ClearCacheAndRefresh => {
+                return self.browser.clear_site(self.selected, false, cx);
+            }
+            Command::ClearCookiesAndRefresh => {
+                return self.browser.clear_site(self.selected, true, cx);
+            }
             Command::Stop => return self.browser.stop(self.selected, cx),
             Command::ActualSize => return self.browser.zoom(self.selected, 0, cx),
             Command::ZoomIn => return self.browser.zoom(self.selected, 1, cx),
@@ -2849,6 +2866,10 @@ impl Shell {
             Command::Back => page.can_go_back,
             Command::Forward => page.can_go_forward,
             Command::Stop => page.loading,
+            // Only a web page has a site to clear.
+            Command::ClearCacheAndRefresh | Command::ClearCookiesAndRefresh => {
+                page.url.starts_with("http://") || page.url.starts_with("https://")
+            }
             Command::BackToPinnedUrl => page.away_from_pinned_url,
             Command::CloseSplitPane | Command::SeparatePane => self.panes(self.selected).len() > 1,
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {

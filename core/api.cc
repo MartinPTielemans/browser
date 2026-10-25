@@ -7,6 +7,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "browser_core/archive.h"
+#include "browser_core/clear_site.h"
 #include "browser_core/downloads.h"
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
@@ -407,6 +408,10 @@ void bc_tab_reload(bc_id id, bool bypass_cache) {
         bypass_cache ? content::ReloadType::BYPASSING_CACHE : content::ReloadType::NORMAL,
         /*check_for_repost=*/true);
   }
+}
+
+void bc_tab_clear_site(bc_id id, bool cookies) {
+  browser_core::ClearSiteAndReload(id, cookies);
 }
 
 void bc_tab_stop(bc_id id) {

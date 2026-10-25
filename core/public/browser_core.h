@@ -431,6 +431,11 @@ BC_EXPORT void bc_tab_reload(bc_id tab, bool bypass_cache);
 // Stops the tab loading.
 BC_EXPORT void bc_tab_stop(bc_id tab);
 
+// Deletes the profile's cookies for the site of the tab's page if |cookies|, else its cache for
+// the site, then loads the page again, bypassing the cache for the cache. A site is a registrable
+// domain, such as example.co.uk, or an IP address. Does nothing for a page that isn't http(s).
+BC_EXPORT void bc_tab_clear_site(bc_id tab, bool cookies);
+
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as
 // in Chrome, unless the user has changed the text since the bar opened. Highlights the matches

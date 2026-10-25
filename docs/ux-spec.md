@@ -165,6 +165,7 @@ Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the 
 - **Archive.** Go Back, Go Forward, View Archive and Clear Archive, as Arc's. Arc's View History (⌘Y) comes with history.
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu.
 - **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
+- **View.** Show/Hide Sidebar, then Stop Loading, Refresh the Page, Force Refresh the Page, Clear Cookies and Refresh and Clear Cache and Refresh, then the split view items, zoom and Developer, as Arc's. The two Clear items, also in the command bar, delete the profile's cookies or cache for the page's site, its registrable domain or IP address, then load the page again, the cache's bypassing the cache. Pages that aren't http(s) have no site, so the command bar leaves the items out and they do nothing (*interim*: what Arc clears beyond the site isn't measured).
 - **Window.** Minimize Window (⌘M), then View Library (⇧⌘L) and View Downloads (⇧⌘J). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above them, and Enter Full Screen to View.
 - **Page menu** (*interim* until Arc's is captured). A right-click on the page shows Chrome's context menu, as Arc's does, with Chrome's items working as in Chrome: a link opens in a tab under the page, Save As and Save Link As show the save panel, Print shows print preview and Inspect docks DevTools at the element. It leaves out the items for what the browser doesn't have yet, Open Link in New Window, in Split View and in Incognito Window, and those whose UI is a bubble on Chrome's toolbar or its side panel: Cast, Open in Reading Mode, Listen to This Page, QR Code and Translate. Each comes back with its feature.
 - **Tab dialogs**, such as print preview, Chrome's, as in Chrome's window: centred over the page, with their top at the page's, and gone while another tab shows.
@@ -464,11 +465,12 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
   - Ours (*interim*):
     - A command matches when its name starts with what's typed, then when a word of it does, then when what's typed has its letters in order from a word's start. It takes two letters or more.
     - A command whose name starts with what's typed, three letters or more, comes first, unless the core completes what's typed. The search row follows it. Otherwise the commands follow the core's first row. The other commands come next, at most four in all.
-    - The names are Arc's bar's where they're known (Clear Today, Collapse All Folders, Clear Archive), else its menus'.
+    - The names are Arc's bar's where they're known (Clear Today, Clear Cache and Refresh, Collapse All Folders, Clear Archive), else its menus'.
+    - Clear Cookies and Refresh is in the bar too, though Arc's "clear" doesn't list it. A name that starts with what's typed comes before one that only has its letters, so "clear" shows it instead of Collapse All Folders.
     - Only commands that would do something now are listed: Go Back with history behind, Close this Split Pane in a split, and so on.
     - The chip is the shortcut in 11 pt at the secondary colour on white 0.08, radius 4.
     - ↩ or a click runs the command. The bar closes first, as for a pick.
-    - Not yet: the field's icon, and Arc's commands we don't have, such as Clear Cache and Refresh.
+    - Not yet: the field's icon, and Arc's commands we don't have.
 - Well-known sites that what's typed could start, such as YouTube for "you", fill the rows the profile's own leave, under them and never as row 0, so a new profile's list isn't bare. The list is built in and ranked by popularity alone (ours).
 - Hovering highlights a row; Enter uses the keyboard selection (Chrome). Dia: measure.
 
