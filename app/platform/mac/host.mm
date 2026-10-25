@@ -454,6 +454,14 @@ void host_watch_control(void (*released)(void)) {
               }];
 }
 
+void host_copy(const char* text) {
+  static NSPasteboard* driven =
+      getenv("BROWSER_DRIVE") ? [NSPasteboard pasteboardWithUniqueName] : nil;
+  NSPasteboard* pasteboard = driven ?: NSPasteboard.generalPasteboard;
+  [pasteboard clearContents];
+  [pasteboard setString:@(text) forType:NSPasteboardTypeString];
+}
+
 void host_press_window_button(int button) {
   // After the UI's update that asked, since closing or going full screen calls back into it.
   dispatch_async(dispatch_get_main_queue(), ^{

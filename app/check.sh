@@ -70,12 +70,15 @@
 #      the UI, and a click on its favicon, go back there. Launched again, the app brings back the
 #      pinned tab pinned and away from its pinned URL, without loading it. Dragging a row moves its
 #      tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back.
-#  11. ⇧⌘K from the page and the UI, and Clear on the divider, close the Space's Today tabs and
-#      show the lowest pinned tab still loaded, with a toast that hides by itself. Its Undo brings
-#      the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the
-#      page and the UI reopens the tab closed last, where it was and with its history, and after a
-#      Clear, Undo brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's
-#      menu, whose Duplicate Tab, Close Tabs Below and Unpin Tab work.
+#  11. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, to a
+#      pasteboard of the run's own. The sidebar shows Clear and the URL field's button only while
+#      the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and
+#      Clear on the divider, close the Space's Today tabs and show the lowest pinned tab still
+#      loaded, with a toast that hides by itself. Its Undo brings the tabs back in place, showing
+#      the one shown and leaving the other unloaded. ⇧⌘T from the page and the UI reopens the tab
+#      closed last, where it was and with its history, and after a Clear, Undo brings back only the
+#      tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, whose Duplicate Tab, Close Tabs
+#      Below and Unpin Tab work.
 # Runs 2 to 11 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
@@ -1801,10 +1804,11 @@ if [ "$active" != 1 ]; then
   echo "skip: Clear. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
-# Clear on the divider, which sits under the one pinned tab, and the toast's Undo, over the bottom
-# of the list in the 800 pt tall window.
+# Clear on the divider, which sits under the one pinned tab, the toast's Undo, over the bottom of
+# the list in the 800 pt tall window, and the URL field's button.
 clear_point="200 185"
 undo_point="192 732"
+copy_point="202 64"
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -1814,7 +1818,34 @@ send key d cmd
 expect_lists "$a" "$c $b" "after pinning the served page's tab"
 switch "2 cmd" "$c"
 
+# ⇧⌘C and ⌥⇧⌘C copy the tab's URL and a Markdown link to it, from the page and the UI. A driven
+# run copies to a pasteboard of its own, never the clipboard.
+send key c cmd shift
+expect '^browser: command copy-url via page$' "⇧⌘C with the page focused didn't reach the UI"
+expect '^browser: copied https://example.org/$' "⇧⌘C didn't copy the tab's URL"
+send click $sidebar_point
+send key c cmd shift alt
+expect '^browser: command copy-markdown-link via ui$' "⌥⇧⌘C with the UI focused didn't run"
+expect '^browser: copied \[Example Domain](https://example.org/)$' \
+  "⌥⇧⌘C didn't copy a Markdown link to the tab"
+
+# Clear and the URL field's button show only while the pointer is over the sidebar. The button
+# copies the URL, and doesn't open the command bar as the rest of the field does.
+send move $sidebar_point
+expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over it"
+../tools/window-screenshot.sh "$pid" "$out/sidebar-hovered.png" || fail "no window to capture"
+send click $copy_point
+expect '^browser: command copy-url via sidebar$' \
+  "a click on the URL field's button didn't run Copy URL"
+expect '^browser: copied https://example.org/$' "the URL field's button didn't copy the tab's URL"
+none_since '^browser: command edit-url' ||
+  fail "a click on the URL field's button opened the command bar"
+send move $page_point
+expect '^browser: sidebar hovered 0$' "the sidebar didn't see the pointer leave"
+../tools/window-screenshot.sh "$pid" "$out/sidebar-away.png" || fail "no window to capture"
+
 # ⇧⌘K with the page focused closes the Today tabs and shows the pinned tab, without loading it.
+send click $page_point
 send key k cmd shift
 expect '^browser: command clear via page$' "⇧⌘K with the page focused didn't reach the UI"
 expect '^browser: toast cleared 2$' "Clear didn't show its toast for two tabs"
@@ -1838,7 +1869,9 @@ expect "^browser: page $b back 0 forward 0 loading 0 https://example.com/\$" "th
 expect "^browser: page $b unloaded 1\$" "the tab Undo didn't show came back loaded"
 none_since "^browser: loaded $b " || fail "the tab Undo didn't show loaded"
 
-# The divider's Clear, and the toast hides by itself.
+# The divider's Clear, under the pointer, and the toast hides by itself.
+send move $clear_point
+expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over Clear"
 send click $clear_point
 expect '^browser: command clear via sidebar$' "a click on Clear didn't run it"
 expect '^browser: toast cleared 2$' "Clear on the divider didn't show its toast"
@@ -1940,4 +1973,4 @@ expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to t
 exec 3>&-
 quit
 kill "$server"
-echo "ok: ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs and show the pinned tab still loaded, with a toast that hides by itself. Undo brings the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and Undo brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. Windows: $out/clear.png, $out/reopen.png, $out/tab-menu.png"
+echo "ok: ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs and show the pinned tab still loaded, with a toast that hides by itself. Undo brings the tabs back in place, showing the one shown and leaving the other unloaded. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and Undo brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. Windows: $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png"

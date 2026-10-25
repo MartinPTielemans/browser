@@ -55,6 +55,7 @@ mod platform {
         pub fn host_accent_color() -> u32;
         pub fn host_watch_accent_color(changed: extern "C" fn());
         pub fn host_watch_control(released: extern "C" fn());
+        pub fn host_copy(text: *const c_char);
         pub fn host_menu(
             items: *const host_menu_item,
             count: usize,
@@ -398,6 +399,11 @@ impl Browser for Engine {
 
     fn watch_control(&self, _: &mut App) {
         unsafe { platform::host_watch_control(control_released) };
+    }
+
+    fn copy(&self, text: &str, _: &mut App) {
+        let text = CString::new(text.replace('\0', "")).unwrap_or_default();
+        unsafe { platform::host_copy(text.as_ptr()) };
     }
 
     fn command_bar(

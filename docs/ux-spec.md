@@ -137,7 +137,7 @@ The command bar, menus, hover cards, Peek, find and every prompt over the page a
 | Split: add pane / focus next / previous | measure | ⌃⇧= / ⌃⇧] / ⌃⇧[ | Dia's, *interim* |
 | Find / next / previous | measure | ⌘F / ⌘G / ⇧⌘G | ⌘F / ⌘G / ⇧⌘G |
 | Use selection for find / jump to selection / find and replace | — | — (⌘E is Chat) / ⌘J / ⌥⌘F | ⌘E / ⌘J / ⌥⌘F |
-| Copy URL / as Markdown | measure | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C |
+| Copy URL / as Markdown / as Quote | ⇧⌘C / ⌥⇧⌘C / ⌃⇧⌘C (menus) | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C |
 | Downloads | measure | ⇧⌘J | ⇧⌘J |
 | DevTools / console / inspect / view source | — | ⌥⌘I or F12 / ⌥⌘J / ⌥⌘C / ⌥⌘U | same |
 | Back / forward | measure | ⌘[ / ⌘], ⌘← / ⌘→ | same |
@@ -189,9 +189,13 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | URL field top | 46 below the window top | Arc (Ardia), P§4 |
 | URL field height, radius, fill, font | measure | — |
 | URL field text | the host alone, `www.` dropped. View › Show Full URL (off by default) adds the path, query and fragment, with no trailing "/" | Dia 1.50.1 bin, D›URL bar |
-| Hovering the URL | the full URL, host bright and path dim | Dia 1.49 cap |
+| Hovering the URL | Arc: the field's buttons, not the full URL (Arc 1.170.0 cap). Dia: the full URL, host bright and path dim (Dia 1.49 cap). Ours: Arc's | Arc 1.170.0 cap |
+| Field buttons | Copy Current URL and Site Control Center, 30 × 30 at x 163 and 191 of 228, while the pointer is over the sidebar | Arc 1.170.0 cap |
 | Insecure page / zoom not 100 % | a lock-warning glyph / a magnifier (+ or −) that opens − / + / Reset | Dia and Chrome, P§8 |
 | Downloads button (reference) | Dia: centre (166, 26) at 190 pt, in the header. Arc: measure | Dia, D›Sidebar |
+
+- Ours (*interim* until Site Control Center is built): Copy URL takes Site Control Center's place, 3 pt inside the field's end rather than Arc's 1 pt past it, with Lucide's link glyph at 14 pt, the header's glyph colour and hover plate. The host truncates before it.
+- **Copy URL** (Arc 1.170.0 menus). ⇧⌘C copies the tab's URL, and ⌥⇧⌘C a Markdown link, `[title](url)`. Arc also has Copy URL as Quote (⌃⇧⌘C). Ours: the title's brackets are escaped, the URL is copied as it is (Dia strips trackers), and the toast says "Copied URL" or "Copied URL as Markdown" for 2 s, since Arc's feedback isn't recorded.
 
 **Width**
 
@@ -239,6 +243,7 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 
 - Today tabs are the Space's unpinned tabs. They are archived (see Archive).
 - The divider shows with the section while the Space has Today tabs. It has no hover state.
+- Clear shows only while the pointer is over the sidebar (Arc 1.170.0 cap). Ours: it shows and hides at once, keeping its place so the line doesn't move, since Arc's fade isn't recorded. The reveal's panel, which shows only under the pointer, always shows it.
 - The line is 1 pt at white ≈ 0.08. It runs from the favicons' left edge to 7.5 pt before the arrow. Its centre is 25 pt above the centre of the first Today row.
 - The down arrow is 7 × 8 and sits 3 pt before the label "Clear". The label is semibold, with a cap height 0.75 of the tab titles' (≈ 10 pt beside 13 pt titles), and it ends where the titles end.
 - The button's tooltip is "Clear unpinned tabs in this space". The menu item is Clear Unpinned Tabs (⇧⌘K). The command bar finds it by "close unpinned tabs", "clear tabs" and "clear today". A toast confirms the clear and offers Undo.
