@@ -1,14 +1,15 @@
 # The page view keeps its margins and GPUI's view fills the window through a resize and full screen,
 # and the window's buttons stay in the header row. A page that goes full screen takes the window
-# with it and escape brings both back, the command bar opens in full screen and keeps the keyboard
-# when a page commits under it, then gives the keyboard to the new page, and scrolling a long page
-# doesn't stutter. Dragging the window's background moves the window, and the buttons, URL field and
-# rows keep their presses. A double-click there zooms it, and one in the sidebar below the rows
-# opens a new tab. ⌘S, with the page or the UI focused, and the sidebar button hide the sidebar and
-# the window's buttons, and the card takes its place, through a resize; ⌘S brings them back. The
-# pointer kept at the window's edge brings the hidden sidebar out, and one passing it doesn't. The
-# sidebar's edge drags its width between 160 and 400, rubber-banding past them, and a double-click
-# on it puts the width back. A page that hasn't drawn yet shows the card's colour, not white.
+# with it, and escape or the page leaving brings both back. The command bar opens in full screen and
+# keeps the keyboard when a page commits under it, then gives the keyboard to the new page, and
+# scrolling a long page doesn't stutter. Dragging the window's background moves the window, and the
+# buttons, URL field and rows keep their presses. A double-click there zooms it, and one in the
+# sidebar below the rows opens a new tab. ⌘S, with the page or the UI focused, and the sidebar
+# button hide the sidebar and the window's buttons, and the card takes its place, through a resize;
+# ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out, and one
+# passing it doesn't. The sidebar's edge drags its width between 160 and 400, rubber-banding past
+# them, and a double-click on it puts the width back. A page that hasn't drawn yet shows the card's
+# colour, not white.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'
@@ -45,8 +46,13 @@ page=$(base64 << 'HTML' | tr -d '\n'
     const slow = intervals.filter(i => i > 1000 / 60).length;
     document.title = `frames ${intervals.length} fps ${fps} median ${at(0.5)} p99 ${at(0.99)} max ${at(1)} slow ${slow} scrolled ${Math.round(scrollY)}`;
   }
-  // An f takes the page full screen, as the full-screen button of a video does.
-  addEventListener("keydown", e => e.key == "f" && !e.metaKey && document.documentElement.requestFullscreen());
+  // An f takes the page full screen, as the full-screen button of a video does, and an x leaves it,
+  // as the same button does in full screen.
+  addEventListener("keydown", e => {
+    if (e.metaKey) return;
+    if (e.key == "f") document.documentElement.requestFullscreen();
+    if (e.key == "x" && document.fullscreenElement) document.exitFullscreen();
+  });
   // After an n, the page goes to another site when its window loses the keyboard, so a new page
   // commits while the command bar is open.
   let leave = false;
@@ -139,6 +145,13 @@ expect '^browser: page left full screen$' "escape didn't take the page out of fu
 expect '^browser: window left full screen$' "the window didn't leave full screen with the page"
 check_layout "after the page's full screen"
 check_buttons "after the page's full screen"
+# So does the page leaving full screen itself.
+send key f
+expect '^browser: window entered full screen$' "the page didn't take the window full screen again"
+send key x
+expect '^browser: page left full screen$' "exitFullscreen didn't take the page out of full screen"
+expect '^browser: window left full screen$' "the window stayed full screen after the page left it"
+check_layout "after the page left full screen itself"
 
 # Chromium makes its window key when a new page's view replaces the focused one.
 send key n
@@ -309,4 +322,4 @@ none_since '^browser: command new-tab' || fail "a double-click on the sidebar's 
 check_layout "after a double-click on the sidebar's edge"
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape or the page leaving brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png, $out/before-paint.png"
