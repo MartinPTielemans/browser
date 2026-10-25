@@ -181,7 +181,7 @@ expect "^browser: settled space $second\$" "the second Space's page didn't settl
 send swipe $swipe_point -10 0 10
 expect '^browser: swipe across$' "two fingers across the sidebar didn't page"
 none_since '^browser: new space ready$' || fail "a short pull past the last Space readied a Space"
-post swipe $swipe_point -30 0 10 1500
+post swipe $swipe_point -40 0 10 1500
 expect '^browser: new space ready$' "a long pull past the last Space didn't ready a Space"
 ../tools/window-screenshot.sh "$pid" "$out/new-space-pull.png" || fail "no window to capture"
 await "^browser: drive $step done" || fail "the driver didn't finish the swipe"

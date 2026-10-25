@@ -30,7 +30,6 @@ mod split_targets;
 
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 use library::{LIBRARY_WIDTH, Section, swiped_opacity};
-use new_space::NEW_SPACE_PULL;
 
 /// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
@@ -1291,8 +1290,10 @@ struct Swipe {
     samples: VecDeque<(Instant, f32)>,
     /// The Space nearest its place, for the detent as it changes.
     nearest: u64,
-    /// When they pulled the last Space far enough to ready a new Space, while they still do.
-    ready: Option<Instant>,
+    /// Whether they've pulled the last Space far enough to ready a new Space, and when that last
+    /// changed.
+    ready: bool,
+    turned: Option<Instant>,
 }
 
 /// A Space's page settling on its place, after a swipe or a switch.
@@ -1434,8 +1435,8 @@ pub struct Shell {
     library_motion: Option<(f32, f32, Instant)>,
     /// While the sidebar under the Library fades: its opacity when it started, and when.
     sidebar_fade: Option<(f32, Instant)>,
-    /// When a Space the fingers pulled for came, while its form comes in.
-    form_entered: Option<Instant>,
+    /// While the circle goes back after a pull made a Space.
+    circle_exit: Option<new_space::CircleExit>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -1514,7 +1515,7 @@ impl Shell {
             library_open: false,
             library_motion: None,
             sidebar_fade: None,
-            form_entered: None,
+            circle_exit: None,
             switching: None,
             background_pressed: false,
             accent_color,
@@ -1995,10 +1996,12 @@ impl Shell {
             self.swiped = true;
         }
         // A Space shown some other way slides in from its side, pushing the one before out. One a
-        // swipe settles on is moving already.
+        // swipe settles on is moving already, and one a pull made shows where it is.
+        let pulled = self.pulled_space_shown(space);
         let index = |id| self.spaces.iter().position(|other| other.id == id);
         let width = self.width();
         if !self.settle.as_ref().is_some_and(|settle| settle.space == space)
+            && !pulled
             && let (Some(from), Some(to)) = (index(before), index(space))
             && from != to
         {
@@ -3472,7 +3475,7 @@ impl Shell {
         let (space, x, beside) = match (swipe, &self.settle) {
             (Some(swipe), _) => (swipe.from, self.swiped_to(swipe), None),
             (None, Some(settle)) => (settle.space, settle.offset().unwrap_or(0.), settle.beside),
-            (None, None) => return vec![(self.space, 0.)],
+            (None, None) => return vec![(self.space, self.held_page().unwrap_or(0.))],
         };
         let beside = beside.or_else(|| {
             let index = self.spaces.iter().position(|other| other.id == space)?;
@@ -3491,7 +3494,7 @@ impl Shell {
     /// Where a swipe has taken the page of the Space it began at: with the fingers, but
     /// rubber-banding past the first and last Spaces, and past one Space either side. Past the
     /// first Space is the Library, its width away. A swipe in the Library goes back that far, to
-    /// the Space shown. Past the last, the band stops at the pull that makes a new Space.
+    /// the Space shown.
     fn swiped_to(&self, swipe: &Swipe) -> f32 {
         if swipe.library {
             return rubber_band(swipe.way, -LIBRARY_WIDTH, 0.);
@@ -3506,7 +3509,7 @@ impl Shell {
         if index + 1 < self.spaces.len() {
             return rubber_band(swipe.way, -width, high);
         }
-        rubber_band(swipe.way, 0., high).max(-NEW_SPACE_PULL)
+        rubber_band(swipe.way, 0., high)
     }
 
     /// Whether fingers going right from `space` bring out the Library: from the first Space, in the
@@ -3557,7 +3560,8 @@ impl Shell {
                     way: 0.,
                     samples: VecDeque::new(),
                     nearest: self.space,
-                    ready: None,
+                    ready: false,
+                    turned: None,
                 });
             }
             TouchPhase::Ended | TouchPhase::Cancelled => return self.release(cx),
@@ -3641,8 +3645,8 @@ impl Shell {
             self.move_library(open, out, velocity / LIBRARY_WIDTH, opacity, cx);
             return true;
         }
-        if swipe.ready.is_some() {
-            self.make_pulled_space(cx);
+        if swipe.ready {
+            self.make_pulled_space(x, cx);
             return true;
         }
         let toward = if velocity.abs() >= SWIPE_FLICK {
@@ -4716,7 +4720,6 @@ impl Shell {
             }))
             .absolute()
             .top_0()
-            .left(px(self.form_left()))
             .w(px(self.width()))
             .bottom_0()
             .child(title)
@@ -4962,10 +4965,10 @@ impl Shell {
                 .child(self.url_field(cx))
                 .children(self.tiles(cx))
                 .child(self.space_pages(cx))
-                .children(self.new_space_circle())
                 .children(self.dragged_tile(cx)),
         };
         sidebar
+            .children(self.new_space_circle())
             .children(self.toast())
             .child(self.library_button(cx))
             .children(self.switcher(cx))
