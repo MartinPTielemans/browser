@@ -5,9 +5,11 @@
 #   load keys tabs window popup history spaces restore find pinned clear split favorites
 # Every run but load needs Browser to be the active app, and window and find take it full screen
 # for a moment.
-# BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
+# It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
+# another; BROWSER_DISPLAY=main opens it on the main display.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
 set -e
+export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces restore find pinned clear split favorites"
 for run in "$@"; do
