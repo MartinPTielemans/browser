@@ -28,7 +28,7 @@ mod library;
 mod split_targets;
 
 pub use library::{Archived, Download, DownloadAction, DownloadState};
-use library::Section;
+use library::{LIBRARY_WIDTH, Section, swiped_opacity};
 
 /// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
@@ -89,6 +89,7 @@ const FOLD_DAMPING: f32 = 0.82;
 // pages follow at half the fingers' way and rubber-band past the ends. Let go, they settle
 // critically damped on the next Space if the last 100 ms moved them faster than a flick, else on
 // the nearest. A wheel pages once per burst of ticks, then rests. AppKit's line is about 10 pt.
+// Past the first Space is the Library, which the fingers bring out and put away the same way.
 const SWIPE_TRACKING: f32 = 0.5;
 const SWIPE_FLICK: f32 = 5.;
 const SWIPE_HISTORY: Duration = Duration::from_millis(100);
@@ -1258,6 +1259,8 @@ struct Drag {
 struct Swipe {
     /// The Space shown when they came down.
     from: u64,
+    /// Whether they came down in the Library, or as it moved, so they move it.
+    library: bool,
     /// Across the sidebar, to page, or along it, to scroll the list. None until they first move.
     across: Option<bool>,
     /// How far they've taken the page of the Space they began at, before the rubber band.
@@ -1402,8 +1405,11 @@ pub struct Shell {
     /// The Library, from when it opens until it has closed.
     library: Option<library::Library>,
     library_open: bool,
-    /// While the card moves for the Library: how far out it started (`library_out`), and when.
-    library_motion: Option<(f32, Instant)>,
+    /// While the card moves for the Library on its own: how far out it started (`library_out`),
+    /// how fast, and when.
+    library_motion: Option<(f32, f32, Instant)>,
+    /// While the sidebar under the Library fades: its opacity when it started, and when.
+    sidebar_fade: Option<(f32, Instant)>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -1481,6 +1487,7 @@ impl Shell {
             library: None,
             library_open: false,
             library_motion: None,
+            sidebar_fade: None,
             switching: None,
             background_pressed: false,
             accent_color,
@@ -3430,7 +3437,9 @@ impl Shell {
     /// The Spaces' pages the sidebar draws, and where from its left edge: the shown Space's, and
     /// while a swipe or a settle moves one, it and the page beside it.
     fn pages(&self) -> Vec<(u64, f32)> {
-        let swipe = self.swipe.as_ref().filter(|swipe| swipe.across == Some(true));
+        let swipe = self.swipe.as_ref().filter(|swipe| {
+            swipe.across == Some(true) && self.library_swiped(swipe).is_none()
+        });
         let (space, x, beside) = match (swipe, &self.settle) {
             (Some(swipe), _) => (swipe.from, self.swiped_to(swipe), None),
             (None, Some(settle)) => (settle.space, settle.offset().unwrap_or(0.), settle.beside),
@@ -3451,13 +3460,42 @@ impl Shell {
     }
 
     /// Where a swipe has taken the page of the Space it began at: with the fingers, but
-    /// rubber-banding past the first and last Spaces, and past one Space either side.
+    /// rubber-banding past the first and last Spaces, and past one Space either side. Past the
+    /// first Space is the Library, its width away. A swipe in the Library goes back that far, to
+    /// the Space shown.
     fn swiped_to(&self, swipe: &Swipe) -> f32 {
+        if swipe.library {
+            return rubber_band(swipe.way, -LIBRARY_WIDTH, 0.);
+        }
         let index = self.spaces.iter().position(|space| space.id == swipe.from).unwrap_or(0);
         let width = self.width();
-        let high = if index > 0 { width } else { 0. };
+        let high = match index {
+            0 if self.library_beside(swipe.from) => LIBRARY_WIDTH,
+            0 => 0.,
+            _ => width,
+        };
         let low = if index + 1 < self.spaces.len() { -width } else { 0. };
         rubber_band(swipe.way, low, high)
+    }
+
+    /// Whether fingers going right from `space` bring out the Library: from the first Space, in the
+    /// docked sidebar.
+    fn library_beside(&self, space: u64) -> bool {
+        let first = self.spaces.first().is_some_and(|first| first.id == space);
+        first && !self.sidebar_hidden && !self.page_fullscreen
+    }
+
+    /// How far out a swipe has taken the Library (`library_out`), while it moves the Library.
+    fn library_swiped(&self, swipe: &Swipe) -> Option<f32> {
+        if swipe.across != Some(true) {
+            return None;
+        }
+        let x = self.swiped_to(swipe);
+        match swipe.library {
+            true => Some((1. + x / LIBRARY_WIDTH).max(0.)),
+            false if x > 0. && self.library_beside(swipe.from) => Some(x / LIBRARY_WIDTH),
+            false => None,
+        }
     }
 
     /// The Space whose page is nearest its place while `from`'s is at `x`: it or a neighbour.
@@ -3483,6 +3521,7 @@ impl Shell {
                 self.swiped = false;
                 self.swipe = Some(Swipe {
                     from: self.space,
+                    library: self.library_open || self.library_motion.is_some(),
                     across: None,
                     way: 0.,
                     samples: VecDeque::new(),
@@ -3501,8 +3540,11 @@ impl Shell {
             swipe.across = Some(across);
             // check.sh waits for this line.
             eprintln!("browser: swipe {}", if across { "across" } else { "along" });
-            // Fingers catch a page that's still settling where it is.
-            if across
+            // Fingers catch a page, or the Library, that's still settling where it is.
+            if across && swipe.library {
+                swipe.way = (self.library_out() - 1.) * LIBRARY_WIDTH;
+                self.library_motion = None;
+            } else if across
                 && let Some(settle) = self.settle.take()
                 && let Some(x) = settle.offset()
             {
@@ -3511,13 +3553,25 @@ impl Shell {
         }
         let across = swipe.across == Some(true);
         if across {
+            let library_near = |shell: &Self, swipe: &Swipe| {
+                shell.library_swiped(swipe).map(|out| out > 0.5)
+            };
+            let was_near = library_near(self, &swipe);
             swipe.way += SWIPE_TRACKING * delta.x;
             let (now, x) = (Instant::now(), self.swiped_to(&swipe));
             swipe.samples.push_back((now, x));
             while swipe.samples.front().is_some_and(|&(at, _)| now - at > SWIPE_HISTORY) {
                 swipe.samples.pop_front();
             }
-            if let Some(nearest) = self.nearest(swipe.from, x)
+            let near = library_near(self, &swipe);
+            if near.is_some() {
+                if self.library.is_none() {
+                    self.show_section(self.section, cx);
+                }
+                if was_near.is_some() && was_near != near {
+                    self.browser.detent(cx);
+                }
+            } else if let Some(nearest) = self.nearest(swipe.from, x)
                 && nearest != swipe.nearest
             {
                 swipe.nearest = nearest;
@@ -3544,6 +3598,16 @@ impl Shell {
             }
             _ => 0.,
         };
+        if let Some(out) = self.library_swiped(&swipe) {
+            let open = if velocity.abs() >= SWIPE_FLICK { velocity > 0. } else { out > 0.5 };
+            if open != self.library_open {
+                // check.sh waits for this line.
+                eprintln!("browser: command view-library via swipe");
+            }
+            let opacity = swiped_opacity(out);
+            self.move_library(open, out, velocity / LIBRARY_WIDTH, opacity, cx);
+            return true;
+        }
         let toward = if velocity.abs() >= SWIPE_FLICK {
             velocity.signum() * self.width()
         } else {
@@ -3565,7 +3629,8 @@ impl Shell {
         true
     }
 
-    /// A wheel's ticks across the sidebar page once per burst, then rest.
+    /// A wheel's ticks across the sidebar page once per burst, then rest. Past the first Space they
+    /// open the Library, and back they close it.
     fn wheel(&mut self, lines: Point<f32>, cx: &mut Context<Self>) -> bool {
         if lines.x.abs() <= lines.y.abs() {
             return false;
@@ -3582,7 +3647,13 @@ impl Shell {
         if (sum * WHEEL_LINE).abs() > 1. {
             self.wheel = None;
             self.wheel_paged = Some(now);
-            if let Some(space) = self.nearest(self.space, sum.signum() * self.width())
+            let library = sum > 0. && (self.library_open || self.library_beside(self.space));
+            if library != self.library_open {
+                // check.sh waits for this line.
+                eprintln!("browser: command view-library via wheel");
+                self.set_library(library, cx);
+            } else if !self.library_open
+                && let Some(space) = self.nearest(self.space, sum.signum() * self.width())
                 && space != self.space
             {
                 // check.sh waits for this line.
@@ -3593,17 +3664,27 @@ impl Shell {
         true
     }
 
-    /// Fingers and wheels over the sidebar, heard ahead of the list, which would scroll with them.
-    fn scroll_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// Fingers and wheels over the sidebar or the Library, heard ahead of the list, which would
+    /// scroll with them. In the browser's window that's left of the card's edge, and in the
+    /// reveal's, its panel. The rest of a swipe comes here wherever the pointer goes, as the
+    /// sidebar or the Library may slide or fade from under it.
+    fn scroll_listener(&self, in_window: bool, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
                 window.on_mouse_event(move |event: &ScrollEvent, phase, _, cx| {
-                    if phase == DispatchPhase::Capture
-                        && bounds.contains(&event.position)
-                        && shell.update(cx, |shell, cx| shell.scroll(event, cx)).unwrap_or(false)
-                    {
+                    if phase != DispatchPhase::Capture {
+                        return;
+                    }
+                    let took = shell.update(cx, |shell, cx| {
+                        let over = match in_window {
+                            true => event.position.x < px(shell.card_left() + shell.card_push()),
+                            false => bounds.contains(&event.position),
+                        };
+                        (over || shell.swipe.is_some()) && shell.scroll(event, cx)
+                    });
+                    if took.unwrap_or(false) {
                         cx.stop_propagation();
                     }
                 });
@@ -4737,18 +4818,24 @@ impl Render for Shell {
             self.page_right = page_right;
             self.browser.set_page_right(page_right, cx);
         }
-        // The Library takes the sidebar's place at once, and the card uncovers it as it moves.
+        // The Library slides in from the left with the card's edge, over the sidebar fading.
         let library = self.library.is_some() && !self.page_fullscreen;
         let library = library.then(|| self.library_panel(cx));
         // The sidebar leaves with the card's edge, all of it by the time the edge stops.
         let width = self.width();
         let sidebar_left = (card_left - width) * width / (width - CARD_INSET);
+        let opacity = self.sidebar_opacity();
         let sidebar_shown = !self.page_fullscreen
-            && library.is_none()
+            && opacity > 0.
             && (!self.sidebar_hidden || self.sidebar_motion.is_some());
-        let sidebar = sidebar_shown
-            .then(|| self.sidebar(cx).left(px(sidebar_left)).child(self.hover_listener(cx)));
-        let docked = sidebar_shown && !self.sidebar_hidden && self.sidebar_motion.is_none();
+        let sidebar = sidebar_shown.then(|| {
+            let sidebar = self.sidebar(cx).left(px(sidebar_left)).opacity(opacity);
+            sidebar.child(self.hover_listener(cx))
+        });
+        let docked = sidebar_shown
+            && !self.sidebar_hidden
+            && self.sidebar_motion.is_none()
+            && self.library.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
         div()
             .key_context(KEY_CONTEXT)
@@ -4786,6 +4873,7 @@ impl Render for Shell {
             .children(library)
             .children(sidebar)
             .children(edge)
+            .child(self.scroll_listener(true, cx))
     }
 }
 
@@ -4842,7 +4930,6 @@ impl Shell {
             .children(self.toast())
             .child(self.library_button(cx))
             .children(self.switcher(cx))
-            .child(self.scroll_listener(cx))
             .child(self.press_listener())
     }
 
@@ -5028,7 +5115,8 @@ impl Shell {
                     .border_color(rgba(REVEAL_BORDER))
                     .bg(self.gradient(Some(rgb(MATERIAL_STAND_IN).into())))
                     .child(self.window_buttons(cx))
-                    .child(self.sidebar(cx).left_0()),
+                    .child(self.sidebar(cx).left_0())
+                    .child(self.scroll_listener(false, cx)),
             )
             .into_any_element()
     }
@@ -5155,6 +5243,31 @@ fn settle_progress(start: Instant) -> Option<f32> {
 /// How far the list's motion is `t` seconds in, or None once it's done.
 fn row_spring(t: f32) -> Option<f32> {
     spring(t, ROW_RESPONSE, ROW_DAMPING)
+}
+
+/// Where a spring going from `from` toward `to`, at `speed` a second as it starts, is `t` seconds
+/// in, and how fast it's going, or None once it's there.
+fn spring_to(
+    t: f32,
+    from: f32,
+    to: f32,
+    speed: f32,
+    response: f32,
+    damping: f32,
+) -> Option<(f32, f32)> {
+    let omega = std::f32::consts::TAU / response;
+    let decay = (-damping * omega * t).exp();
+    if decay < 0.001 {
+        return None;
+    }
+    let damped = omega * (1. - damping * damping).sqrt();
+    let (away, pull) = (from - to, damping * omega);
+    let swing = (speed + pull * away) / damped;
+    let (sin, cos) = (damped * t).sin_cos();
+    let at = to + decay * (away * cos + swing * sin);
+    let going =
+        decay * ((swing * damped - pull * away) * cos - (away * damped + pull * swing) * sin);
+    Some((at, going))
 }
 
 fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
