@@ -12,10 +12,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Blur behind the window | MVP | material 29 dark / 13 light, emphasized, following the active state | Dia 1.50.1 bin, D›Window translucency |
-| [ ] | Base tint | MVP | black 0.4 / white 0.8 | Dia 1.50.1 bin |
-| [ ] | Space gradient | MVP | colour → HSL L + 0.25, stops 0.36 (neutral 0.12), layer 0.5 / 0.75 | Dia 1.50.1 bin |
-| [ ] | Card fill | MVP | #121212 0.5 / white 0.7, no grain | Dia 1.50.1 bin |
+| [x] | Blur behind the window | MVP | material 29, emphasized, following the active state | Dia 1.50.1 bin, D›Window translucency |
+| [x] | Base tint | MVP | black 0.4 | Dia 1.50.1 bin |
+| [x] | Space gradient | MVP | colour → HSL L + 0.25, stops 0.36 (neutral 0.12), layer 0.5; system accent colour when the Space has none | Dia 1.50.1 bin |
+| [x] | Card fill | MVP | #121212 0.5, no grain | Dia 1.50.1 bin |
 | [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)` | Dia 1.50.1 cap |
 | [ ] | Inactive, Reduce Transparency, Increase Contrast | MVP | opaque wallpaper-tinted fill (AppKit) | Dia 1.50.1 cap |
 | [ ] | Card inset | MVP | 10 on every side, docked or hidden | Arc (Ardia) rec |
@@ -310,7 +310,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Themes: rendering | 4 | OKLab 45° mix to 75 %; third colour top → bottom; alpha 0.2 + 0.55 × intensity | Arc 1.167 P§21 |
 | [ ] | Themes: texture | 4 | noise × strength (0.8 / 0.15 / 0.6 / 0.4), quarter when inactive; our own textures | Arc 1.167 |
 | [ ] | Themes: editor | 4 | 1–3 handles, intensity, translucency, noise, appearance; live; layout: measure | Arc 1.167 P§21 |
-| [ ] | Appearance menu | 4 | Automatic / Light / Dark | Dia |
+| [ ] | Appearance menu | 4 | Automatic / Light / Dark; light window: material 13, tint white 0.8, gradient layer 0.75, card white 0.7 | Dia, Dia 1.50.1 bin |
 
 ## Later (picked by the owner, not on the roadmap)
 

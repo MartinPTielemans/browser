@@ -14,7 +14,7 @@ use browser::shell::{self, Browser, Command, MenuEntry, Page, Shell, WindowButto
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
     ImageFormat, Menu, MenuItem, Pixels, Point, SharedString, Size, WeakEntity, Window,
-    WindowOptions, actions, prelude::*,
+    WindowBackgroundAppearance, WindowOptions, actions, prelude::*,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -52,6 +52,8 @@ mod platform {
         pub fn host_show_reveal(width: f64);
         pub fn host_hide_reveal();
         pub fn host_detent();
+        pub fn host_accent_color() -> u32;
+        pub fn host_watch_accent_color(changed: extern "C" fn());
         pub fn host_menu(
             items: *const host_menu_item,
             count: usize,
@@ -381,6 +383,10 @@ impl Browser for Engine {
         unsafe { platform::host_detent() };
     }
 
+    fn accent_color(&self) -> u32 {
+        unsafe { platform::host_accent_color() }
+    }
+
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,
@@ -499,6 +505,10 @@ fn restore_spaces() {
     }
 }
 
+extern "C" fn accent_color_changed() {
+    update_shell(|shell, cx| shell.accent_color_changed(cx));
+}
+
 /// Opens the browser window, the shell inside it under the page, and its Spaces.
 fn open_window(cx: &mut App) {
     let ui_view = unsafe { platform::host_ui_view() };
@@ -506,7 +516,12 @@ fn open_window(cx: &mut App) {
         return;
     }
     gpui_macos::open_next_window_in(ui_view);
-    let window = cx.open_window(WindowOptions::default(), |window, cx| {
+    // Transparent, over the window's material.
+    let options = WindowOptions {
+        window_background: WindowBackgroundAppearance::Transparent,
+        ..Default::default()
+    };
+    let window = cx.open_window(options, |window, cx| {
         let shell = cx.new(|cx| {
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, |shell: &mut Shell, window, _| {
@@ -530,7 +545,10 @@ fn open_window(cx: &mut App) {
                     set_page_frame(window.viewport_size(), shell.card_left())
                 })
                 .ok();
-            unsafe { platform::host_show_window(ui_view) };
+            unsafe {
+                platform::host_show_window(ui_view);
+                platform::host_watch_accent_color(accent_color_changed);
+            }
             command_bar::open(cx);
             find_bar::open(cx);
             if let Ok(shell) = window.entity(cx) {

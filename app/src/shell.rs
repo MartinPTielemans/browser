@@ -15,8 +15,8 @@ use gpui::{
     DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding,
     MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
     ScrollDelta, ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase, Transformation,
-    WeakEntity, Window, actions, canvas, div, img, percentage, point, prelude::*, px, rgb, rgba,
-    size, svg,
+    WeakEntity, Window, actions, canvas, div, img, linear_color_stop, linear_gradient, percentage,
+    point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::text_input::TextInput;
@@ -152,10 +152,18 @@ const CREATE_BOTTOM: f32 = 96.;
 const CANCEL_BOTTOM: f32 = 66.5;
 const CANCEL_HEIGHT: f32 = 15.;
 
-// Arc's dark blue Space, sampled from a capture. It stands in for the window material.
-const WINDOW: u32 = 0x262337;
-// Dia's card, #121212 at 0.5, over the window: what shows before a page first paints.
-const CARD: u32 = 0x1c1a24;
+// The window's layers over its material (docs/ux-spec.md › Window material): a tint of black 0.4,
+// then the Space's gradient, its stops at 0.36 (0.12 for a neutral colour) in a layer at 0.5.
+const TINT: u32 = 0x0000_0066;
+const GRADIENT_ALPHA: f32 = 0.18;
+const NEUTRAL_GRADIENT_ALPHA: f32 = 0.06;
+// A colour under this HSL saturation is neutral (ours: Dia's line isn't measured).
+const NEUTRAL: f32 = 0.1;
+// What stands in for the material where the window's look has to be opaque, under rows it covers
+// or in the reveal's panel over the page: the material over grey 20, under the tint (ours).
+const MATERIAL_STAND_IN: u32 = 0x131313;
+// Dia's card, #121212 at 0.5: what shows before a page first paints.
+const CARD: u32 = 0x1212_1280;
 // Arc's tokens (docs/ux-spec.md › Colour tokens), P3 #FAFBFF taken as sRGB.
 const TITLE: u32 = 0xdedfff;
 const SELECTED: u32 = 0xfafbff33;
@@ -170,7 +178,7 @@ const DIVIDER: u32 = 0xffffff14;
 const CLEAR: u32 = 0xffffff73;
 // The toast: white 0.1 over the window, opaque over the rows it covers (ours: Arc's isn't
 // measured).
-const TOAST: u32 = 0x3c394b;
+const TOAST: u32 = 0xffffff1a;
 // A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 const SLEEPING_FAVICON: f32 = 0.5;
 // The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
@@ -518,6 +526,9 @@ pub trait Browser {
     fn hide_reveal(&self, cx: &mut App);
     /// A detent on the trackpad, as a swipe's nearest Space changes.
     fn detent(&self, cx: &mut App);
+    /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
+    /// it changes.
+    fn accent_color(&self) -> u32;
     /// Opens the command bar, for a new tab or on `editing`'s URL: out of the URL field at `field`
     /// in the window, or centred over it.
     fn command_bar(
@@ -763,6 +774,8 @@ pub struct Shell {
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
     background_pressed: bool,
+    /// The system's accent colour, as 0xRRGGBB.
+    accent_color: u32,
 }
 
 impl Shell {
@@ -772,6 +785,7 @@ impl Shell {
         let sidebar_width = browser
             .saved_sidebar_width()
             .map_or(SIDEBAR_WIDTH, |width| width.clamp(SIDEBAR_MIN, SIDEBAR_MAX));
+        let accent_color = browser.accent_color();
         Self {
             browser,
             focus_handle: cx.focus_handle(),
@@ -809,6 +823,7 @@ impl Shell {
             page_left: sidebar_width,
             switching: None,
             background_pressed: false,
+            accent_color,
         }
     }
 
@@ -1016,6 +1031,35 @@ impl Shell {
 
     fn reveal_out(&self) -> f32 {
         self.reveal_step().unwrap_or(if self.revealed { 1. } else { 0. })
+    }
+
+    /// The system's accent colour changed, which the window's gradient follows.
+    pub fn accent_color_changed(&mut self, cx: &mut Context<Self>) {
+        self.accent_color = self.browser.accent_color();
+        cx.notify();
+    }
+
+    /// The Space's gradient down the window, at `y` from its top (0) to its bottom (1): the
+    /// Space's colour, going to the same at HSL lightness + 0.25. Spaces have no colour yet, so
+    /// it's the system's accent colour, as in Dia when a Space has none.
+    fn gradient_color(&self, y: f32) -> Hsla {
+        let color = Hsla::from(rgb(self.accent_color));
+        let alpha = if color.s < NEUTRAL { NEUTRAL_GRADIENT_ALPHA } else { GRADIENT_ALPHA };
+        Hsla { l: (color.l + 0.25 * y).min(1.), ..color }.opacity(alpha)
+    }
+
+    /// The gradient as a background, over `base` where the window's look has to be opaque.
+    fn gradient(&self, base: Option<Hsla>) -> gpui::Background {
+        let stop = |y| {
+            let color = self.gradient_color(y);
+            linear_color_stop(base.map_or(color, |base| base.blend(color)), y)
+        };
+        linear_gradient(180., stop(0.), stop(1.))
+    }
+
+    /// The window's look, opaque, halfway down: what covers the rows it passes over.
+    fn window_fill(&self) -> Hsla {
+        Hsla::from(rgb(MATERIAL_STAND_IN)).blend(self.gradient_color(0.5))
     }
 
     /// The pointer is at `x` in the browser window: at its left edge it brings the hidden sidebar
@@ -2220,7 +2264,7 @@ impl Shell {
                     // A dragged row covers the rows it passes, in the colours it has in place.
                     .when(dragging == Some(slot), |plate| {
                         let fill = if selected { SELECTED } else { HOVERED };
-                        plate.bg(rgb(WINDOW).blend(rgba(fill)))
+                        plate.bg(self.window_fill().blend(rgba(fill).into()))
                     }),
             )
     }
@@ -2551,7 +2595,7 @@ impl Shell {
                 .px(px(URL_FIELD_TEXT_X - PLATE_INSET))
                 .rounded(px(PLATE_RADIUS))
                 .block_mouse_except_scroll()
-                .bg(rgb(TOAST))
+                .bg(self.window_fill().blend(rgba(TOAST).into()))
                 .text_size(px(13.))
                 .text_color(rgb(TITLE))
                 .child(format!("Cleared {cleared} {tabs}"))
@@ -2633,7 +2677,7 @@ impl Render for Shell {
             .size_full()
             .relative()
             .font_family(".SystemUIFont")
-            .bg(rgb(WINDOW))
+            .bg(rgba(TINT))
             // The rows, buttons and fields keep their presses. Everywhere else is the window's
             // background, which moves the window as a title bar does.
             .on_mouse_down(
@@ -2657,6 +2701,7 @@ impl Render for Shell {
                     }
                 }),
             )
+            .child(div().absolute().size_full().bg(self.gradient(None)))
             // The page view goes over the card, as a native view.
             .child(
                 div()
@@ -2666,7 +2711,7 @@ impl Render for Shell {
                     .right(px(card_inset))
                     .bottom(px(card_inset))
                     .rounded(px(CARD_RADIUS))
-                    .bg(rgb(CARD)),
+                    .bg(rgba(CARD)),
             )
             .children(sidebar)
             .children(edge)
@@ -2850,7 +2895,7 @@ impl Shell {
                     .rounded(px(CARD_RADIUS))
                     .border(px(0.5))
                     .border_color(rgba(REVEAL_BORDER))
-                    .bg(rgb(WINDOW))
+                    .bg(self.gradient(Some(rgb(MATERIAL_STAND_IN).into())))
                     .child(self.window_buttons(cx))
                     .child(self.sidebar(cx).left_0()),
             )

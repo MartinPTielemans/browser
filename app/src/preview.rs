@@ -245,6 +245,11 @@ impl Browser for Fake {
 
     fn detent(&self, _: &mut App) {}
 
+    // macOS's default blue.
+    fn accent_color(&self) -> u32 {
+        0x007aff
+    }
+
     // Menus and alerts are AppKit's, which the preview goes without.
     fn menu(
         &self,

@@ -30,6 +30,9 @@
 //                                         windows, and the centres of its close, minimize and
 //                                         zoom buttons
 //   state                                 nothing, for the done line's report
+//   backdrop <grey>|off                   a window of the driver's in <grey> (0–255) behind the
+//                                         browser window and 100 points past its edges, for the
+//                                         window's material to blur something known
 //   menu <title>                          chooses the main menu's item titled <title>
 //   choose <title>                        chooses the item titled <title> in the menu a right
 //                                         click showed, or the button in the alert shown
@@ -82,12 +85,17 @@ const std::map<std::string, std::string> kCharacters = {
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
 constexpr short kDoneSubtype = 0x5350;
 
-// The largest visible window: the browser window, not a child window such as a menu.
+// The window the backdrop command puts behind the browser window.
+NSWindow* g_backdrop;
+
+// The largest visible window: the browser window, not a child window such as a menu, nor the
+// backdrop.
 NSWindow* MainWindow() {
   NSWindow* main = nil;
   for (NSWindow* window in NSApp.windows) {
-    if (window.visible && (!main || NSWidth(window.frame) * NSHeight(window.frame) >
-                                        NSWidth(main.frame) * NSHeight(main.frame))) {
+    if (window.visible && window != g_backdrop &&
+        (!main || NSWidth(window.frame) * NSHeight(window.frame) >
+                      NSWidth(main.frame) * NSHeight(main.frame))) {
       main = window;
     }
   }
@@ -523,6 +531,31 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   if (action == "state") {
+    done();
+    return true;
+  }
+  if (action == "backdrop") {
+    std::string grey;
+    if (!(words >> grey)) {
+      return false;
+    }
+    if (grey == "off") {
+      [g_backdrop orderOut:nil];
+    } else {
+      if (!g_backdrop) {
+        g_backdrop = [[NSWindow alloc] initWithContentRect:window.frame
+                                                 styleMask:NSWindowStyleMaskBorderless
+                                                   backing:NSBackingStoreBuffered
+                                                     defer:NO];
+        g_backdrop.releasedWhenClosed = NO;
+        g_backdrop.hasShadow = NO;
+      }
+      const double level = std::stod(grey) / 255;
+      g_backdrop.backgroundColor = [NSColor colorWithSRGBRed:level green:level blue:level alpha:1];
+      // Past the edges by more than the material's blur, so it blurs nothing else.
+      [g_backdrop setFrame:NSInsetRect(window.frame, -100, -100) display:YES];
+      [g_backdrop orderWindow:NSWindowBelow relativeTo:window.windowNumber];
+    }
     done();
     return true;
   }
