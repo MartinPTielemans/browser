@@ -163,7 +163,12 @@ impl Browser for Fake {
 
     fn stop(&self, _: u64, _: &mut App) {}
 
-    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
+    fn command_bar(
+        &self,
+        editing: Option<(u64, SharedString)>,
+        _: Option<Bounds<Pixels>>,
+        cx: &mut App,
+    ) {
         // No command bar here: a new tab opens at once.
         if editing.is_some() {
             return;

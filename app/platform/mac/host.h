@@ -29,11 +29,16 @@ void host_show_window(void* ui_view);
 // to draw over the page. It starts hidden.
 void host_add_overlay(void* overlay_view);
 
-// Shows the overlay and gives it the keyboard.
-void host_show_overlay(void);
+// Shows the overlay and gives it the keyboard, |width| points wide: with its top left at |left|,
+// |top| in the browser window's content and ending at least 8 points inside it, or if |centered|,
+// centred a fifth of the way down.
+void host_show_overlay(bool centered, double left, double top, double width);
 
 // Makes the overlay |height| points tall, keeping its top edge, and draws it at that size.
 void host_set_overlay_height(double height);
+
+// Gives the overlay's shadow the shape the overlay draws now, after it changed.
+void host_reshape_overlay(void);
 
 // Hides the overlay. The browser window gets the keyboard back, with the focus where it was.
 void host_hide_overlay(void);

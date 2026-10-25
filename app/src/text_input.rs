@@ -64,6 +64,8 @@ pub struct TextInput {
     content: SharedString,
     placeholder: SharedString,
     placeholder_color: Hsla,
+    caret_color: Hsla,
+    selection_color: Hsla,
     selected_range: Range<usize>,
     selection_reversed: bool,
     marked_range: Option<Range<usize>>,
@@ -80,6 +82,8 @@ impl TextInput {
             content: "".into(),
             placeholder: placeholder.into(),
             placeholder_color: hsla(0., 0., 0., 0.2),
+            caret_color: gpui::blue(),
+            selection_color: rgba(0x3311ff30).into(),
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,
@@ -93,6 +97,16 @@ impl TextInput {
     /// The placeholder's colour, for a field on a dark background.
     pub fn placeholder_color(mut self, color: impl Into<Hsla>) -> Self {
         self.placeholder_color = color.into();
+        self
+    }
+
+    pub fn caret_color(mut self, color: impl Into<Hsla>) -> Self {
+        self.caret_color = color.into();
+        self
+    }
+
+    pub fn selection_color(mut self, color: impl Into<Hsla>) -> Self {
+        self.selection_color = color.into();
         self
     }
 
@@ -666,7 +680,7 @@ impl Element for TextElement {
                         point(bounds.left() + cursor_pos, bounds.top()),
                         size(px(2.), bounds.bottom() - bounds.top()),
                     ),
-                    gpui::blue(),
+                    input.caret_color,
                 )),
             )
         } else {
@@ -682,7 +696,7 @@ impl Element for TextElement {
                             bounds.bottom(),
                         ),
                     ),
-                    rgba(0x3311ff30),
+                    input.selection_color,
                 )),
                 None,
             )

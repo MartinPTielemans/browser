@@ -431,10 +431,10 @@ suggest_example() {
   rows=$(suggestions | wc -l | tr -d ' ')
   # The bar may have grown to as many rows before.
   for _ in $(seq 50); do
-    [ "$(bar_height)" = $((56 + 8 + 36 * rows)) ] && break
+    [ "$(bar_height)" = $((54 + 8 + 36 * rows)) ] && break
     sleep 0.1
   done
-  [ "$(bar_height)" = $((56 + 8 + 36 * rows)) ] || fail "the command bar is $(bar_height) tall, not fitting $rows rows"
+  [ "$(bar_height)" = $((54 + 8 + 36 * rows)) ] || fail "the command bar is $(bar_height) tall, not fitting $rows rows"
   none_since "https://$2/ tab " || fail "the command bar suggested $2's tab, which is shown"
 }
 suggest_example example.com example.org
@@ -453,9 +453,9 @@ expect "^browser: command bar switch to tab $b\$" "↩ on example.com's row didn
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" "↩ on example.com's row didn't show its tab"
 [ "$(today)" = "$c $b $a" ] || fail "switching to a tab changed Today to \"$(today)\""
 suggest_example example.org example.com
-# Rows are 36 tall, under the 56 of the input and an inset of 4.
+# Rows are 36 tall, under the 54 of the input and an inset of 4.
 row=$(suggestions | grep -n "^https://example.org/ tab $c\$" | cut -d: -f1)
-send clickkey 320 $((56 + 4 + 36 * (row - 1) + 18))
+send clickkey 320 $((54 + 4 + 36 * (row - 1) + 18))
 expect "^browser: command bar switch to tab $c\$" "a click on example.org's row didn't switch to its tab"
 expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on example.org's row didn't show its tab"
 [ "$(today)" = "$c $b $a" ] || fail "switching to a tab changed Today to \"$(today)\""
@@ -487,6 +487,18 @@ send key return
 expect '^browser: command bar go https://example.com/$' "↩ didn't go where the completion goes: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect "^browser: loaded $c https://example.com/\$" "↩ didn't load the completion's page in the tab"
 [ "$(today)" = "$c $b $a" ] || fail "going to a page in a tab changed Today to \"$(today)\""
+# A click on the URL field opens the bar on the tab's URL, out of the field: at its left edge and
+# with the input centred on it. ⌘T's is centred.
+send click 100 64
+expect '^browser: command edit-url via sidebar$' \
+  "a click on the URL field didn't open the command bar"
+expect '^browser: command bar shown$' "a click on the URL field didn't open the command bar"
+expect '^browser: command bar drew "https://example.com/"$' \
+  "the command bar from the URL field didn't show the tab's URL"
+at=$(grep '^browser: command bar at' "$log" | tail -1 | cut -d' ' -f5-)
+[ "$at" = "8 37 640 54" ] || fail "the command bar from the URL field opened at $at, not out of it"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
 
 # Well-known sites fill the rows under the profile's own, never first, so ↩ still searches.
 send key t cmd

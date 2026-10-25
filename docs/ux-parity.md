@@ -120,16 +120,16 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [ ] | Panel width | MVP | field + ≈ 41 left, ≈ 40 right; Arc: measure | Dia 1.52 rec |
-| [ ] | Text alignment | MVP | same x, baseline and 13 pt as the field; 48 in; glyph centred 30 in | Dia 1.52 rec |
-| [ ] | Open | MVP | grows from the field, exponential ease-out ≈ 130 ms; content doesn't move | Dia 1.52 rec |
+| [x] | Text alignment | MVP | same x, baseline and 13 pt as the field; 48 in; glyph centred 30 in | Dia 1.52 rec |
+| [x] | Open | MVP | grows from the field, exponential ease-out ≈ 130 ms; content doesn't move | Dia 1.52 rec |
 | [ ] | Close | MVP | measure | — |
-| [ ] | Fill / border / radius | MVP | #2D2D2D / #FEFFFF; 1 device px rgba(120,125,134,0.32); radius measure (≈ 16) | Dia 1.50.1 bin, 1.49 cap |
+| [x] | Fill / border / radius | MVP | #2D2D2D / #FEFFFF; 1 device px rgba(120,125,134,0.32); radius measure (≈ 16) | Dia 1.50.1 bin, 1.49 cap |
 | [ ] | Shadow | MVP | black 0.12, + black 0.08 r2 (0, 0.5), + black 0.04 r1 (0, 2) | Dia 1.50.1 bin |
-| [ ] | No scrim | MVP | page undimmed | Dia 1.49 cap |
+| [x] | No scrim | MVP | page undimmed | Dia 1.49 cap |
 | [ ] | Rows | MVP | input 54; suggestions 36; favicon 16; title ≈ 15 pt; " — url" 0.5 | Dia 1.49 cap |
-| [ ] | Selected row | MVP | ≈ #5E5A5D, radius 10, inset 4 | Dia 1.49 cap |
+| [x] | Selected row | MVP | ≈ #5E5A5D, radius 10, inset 4 | Dia 1.49 cap |
 | [ ] | Bottom row | MVP | 53 tall; Go ↩ pill ≈ 92 × 29 naming the engine; no AI chip or mic | Dia 1.49 cap, Ardia |
-| [ ] | Colours | MVP | placeholder white 0.53, secondary rgba(239,244,255,0.6), caret #4A77D4, selection rgba(120,125,134,0.7) | Dia asset catalogs |
+| [x] | Colours | MVP | placeholder white 0.53, secondary rgba(239,244,255,0.6), caret #4A77D4, selection rgba(120,125,134,0.7) | Dia asset catalogs |
 | [x] | Default match | MVP | inline match, else URL, else search; search row after the top hit | Chrome, Dia 1.49 |
 | [x] | Stable row 0 | MVP | local only; remote rows append | Chrome O |
 | [x] | Inline completion rules | MVP | one term, caret at end; never during IME, after delete, after paste, after whitespace | Chrome O |

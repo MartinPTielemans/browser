@@ -177,6 +177,11 @@ void host_add_overlay(void* overlay_view) {
   g_overlay_view = (__bridge NSView*)overlay_view;
   g_overlay = g_overlay_view.window;
   MakeOverlay(g_overlay);
+  // The UI draws the bar's shape, which grows out of the URL field. A titled window would draw its
+  // edge and shadow at the window's full size meanwhile; a borderless one's shadow takes the shape
+  // drawn.
+  g_overlay.styleMask = NSWindowStyleMaskBorderless;
+  g_overlay.hasShadow = YES;
   // The overlay closes when the user leaves it: a click outside it, another window taking the
   // keyboard, or switching apps.
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
@@ -207,7 +212,7 @@ void host_add_overlay(void* overlay_view) {
                   }];
 }
 
-void host_show_overlay(void) {
+void host_show_overlay(bool centered, double left, double top, double width) {
   if (!g_overlay || !g_window) {
     return;
   }
@@ -223,15 +228,27 @@ void host_show_overlay(void) {
     if (!g_overlay_shown) {
       return;
     }
+    NSRect content = [g_window contentRectForFrameRect:g_window.frame];
+    const double height = NSHeight(g_overlay.frame);
+    NSRect frame;
+    if (centered) {
+      // A fifth of the way down the browser window. Arc's placement isn't measured yet.
+      frame = NSMakeRect(NSMidX(content) - width / 2,
+                         NSMaxY(content) - NSHeight(content) / 5 - height, width, height);
+    } else {
+      frame = NSMakeRect(NSMinX(content) + left, NSMaxY(content) - top - height,
+                         fmin(width, NSWidth(content) - left - 8), height);
+    }
+    // At its new size before it draws, so it draws once.
+    [g_overlay setFrame:frame display:NO];
     [g_overlay_view.layer setNeedsDisplay];
     [g_overlay_view.layer displayIfNeeded];
-    // Centered, a fifth of the way down the browser window. Arc's placement isn't measured yet.
-    NSRect frame = g_window.frame;
-    NSSize size = g_overlay.frame.size;
-    [g_overlay setFrameOrigin:NSMakePoint(NSMidX(frame) - size.width / 2,
-                                          NSMaxY(frame) - NSHeight(frame) / 5 - size.height)];
     [g_window addChildWindow:g_overlay ordered:NSWindowAbove];
     [g_overlay makeKeyAndOrderFront:nil];
+    // check.sh reads these lines.
+    fprintf(stderr, "browser: command bar at %.0f %.0f %.0f %.0f\n",
+            NSMinX(frame) - NSMinX(content), NSMaxY(content) - NSMaxY(frame), NSWidth(frame),
+            NSHeight(frame));
     fprintf(stderr, "browser: command bar shown\n");
   });
 }
@@ -248,7 +265,15 @@ void host_set_overlay_height(double height) {
                 display:NO];
     [g_overlay_view.layer setNeedsDisplay];
     [g_overlay_view.layer displayIfNeeded];
+    [g_overlay invalidateShadow];
     fprintf(stderr, "browser: command bar height %.0f\n", height);
+  });
+}
+
+void host_reshape_overlay(void) {
+  // After the frame the UI is drawing, whose shape the shadow takes.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [g_overlay invalidateShadow];
   });
 }
 

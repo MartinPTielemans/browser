@@ -104,7 +104,7 @@ const ROW_PITCH: f32 = 41.;
 const ROW_HEIGHT: f32 = 40.;
 const PLATE_HEIGHT: f32 = 36.;
 const PLATE_INSET: f32 = 8.;
-const PLATE_RADIUS: f32 = 12.;
+pub const PLATE_RADIUS: f32 = 12.;
 const FAVICON_X: f32 = 17.;
 const FAVICON_SIZE: f32 = 18.;
 // The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot
@@ -518,8 +518,14 @@ pub trait Browser {
     fn hide_reveal(&self, cx: &mut App);
     /// A detent on the trackpad, as a swipe's nearest Space changes.
     fn detent(&self, cx: &mut App);
-    /// Opens the command bar, for a new tab or on `editing`'s URL.
-    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
+    /// Opens the command bar, for a new tab or on `editing`'s URL: out of the URL field at `field`
+    /// in the window, or centred over it.
+    fn command_bar(
+        &self,
+        editing: Option<(u64, SharedString)>,
+        field: Option<Bounds<Pixels>>,
+        cx: &mut App,
+    );
     /// Opens the tab's find bar with the keyboard.
     fn find(&self, tab: u64, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
@@ -1258,10 +1264,10 @@ impl Shell {
             self.set_revealed(false, cx);
         }
         let target = match command {
-            Command::NewTab => return self.browser.command_bar(None, cx),
+            Command::NewTab => return self.browser.command_bar(None, None, cx),
             Command::EditUrl => {
                 let editing = (self.selected != 0).then(|| (self.selected, self.url(self.selected)));
-                return self.browser.command_bar(editing, cx);
+                return self.browser.command_bar(editing, self.url_field_bounds(), cx);
             }
             Command::CloseTab => {
                 if self.selected != 0 {
@@ -2132,9 +2138,21 @@ impl Shell {
             .collect()
     }
 
-    fn url_field(&self) -> impl IntoElement + use<> {
+    /// The URL field's box in the window, while the docked sidebar shows it.
+    fn url_field_bounds(&self) -> Option<Bounds<Pixels>> {
+        let docked = !self.page_fullscreen && !self.sidebar_hidden && self.sidebar_motion.is_none();
+        (docked && self.form().is_none()).then(|| {
+            Bounds::new(
+                point(px(PLATE_INSET), px(URL_FIELD_TOP)),
+                size(px(self.width() - 2. * PLATE_INSET), px(URL_FIELD_HEIGHT)),
+            )
+        })
+    }
+
+    fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
         div()
+            .id("url-field")
             .absolute()
             .top(px(URL_FIELD_TOP))
             .left(px(PLATE_INSET))
@@ -2146,6 +2164,7 @@ impl Shell {
             .pr(px(URL_FIELD_TEXT_X - PLATE_INSET))
             .rounded(px(PLATE_RADIUS))
             .block_mouse_except_scroll()
+            .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::EditUrl, "sidebar", cx)))
             .bg(rgba(URL_FIELD))
             .text_size(px(13.))
             .text_color(rgba(SECONDARY))
@@ -2666,7 +2685,7 @@ impl Shell {
             .children(self.nav_buttons(cx));
         let sidebar = match self.form() {
             Some(form) => sidebar.child(self.space_form(form, cx)),
-            None => sidebar.child(self.url_field()).child(self.space_pages(cx)),
+            None => sidebar.child(self.url_field(cx)).child(self.space_pages(cx)),
         };
         sidebar
             .children(self.toast(cx))
