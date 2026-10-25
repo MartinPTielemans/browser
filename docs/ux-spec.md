@@ -213,9 +213,9 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 
 | Item | Value | Source |
 |---|---|---|
-| Row centre (traffic lights, sidebar button, back, forward, reload) | 23.75 below the window top | Arc (Ardia), P§4 |
-| Button hover plate | 32 × 32, radius 6, top edge 8 below the window top. Only the plate takes clicks; the rest of the row moves the window | Arc (Ardia), P§4 |
-| Back / forward / reload | right-aligned. Ardia's centres at 227.5 pt are 137.75 / 171.75 / 205.75, within 2 pt of Arc's. Measure Arc's exactly | Ardia, P§4 |
+| Row centre (traffic lights, sidebar button, back, forward, reload) | the traffic lights' 24 below the window top, the buttons' 23.5 (Ardia: 23.75) | Arc 1.170.0 ax |
+| Button hover plate | 32 × 32, top edge 7.5 below the window top (Arc 1.170.0 ax), radius 6 (Ardia). Only the plate takes clicks; the rest of the row moves the window | Arc 1.170.0 ax, Ardia, P§4 |
+| Sidebar button, back, forward, reload | plates at x 77, 122, 156 and 190 in a 228 sidebar: the sidebar button 3 past the zoom button and 13 before back, then a 34 pt pitch. Arc labels the sidebar button Hide sidebar while docked and Lock sidebar while out. Ardia has them right-aligned (centres 137.75 / 171.75 / 205.75 at 227.5); whether Arc's move with the width: measure | Arc 1.170.0 ax, Ardia |
 | Narrow sidebar | reload goes first, then forward; back and forward stay together | Ardia, from Arc users |
 | Forward when disabled | about half the brightness of the other glyphs | Dia 1.52 cap |
 | Nav glyph size | Dia 13 pt regular. Arc: measure | Dia 1.52 cap |
@@ -357,7 +357,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 - **Hiding and showing** (Arc layout, Arc 1.170.0 rec).
   - ⌘S or the sidebar button hides the docked sidebar (Sidebar hide). The sidebar and the card's left edge leave together, and the page is laid out at every step. Hidden, the card fills the window with no traffic lights, header or nav.
   - ⌘S shows it again (Sidebar show). The window's buttons come back once it's at rest, so they never sit over the moving card.
-  - The sidebar button sits a pitch before back, its plate at x 88 (*interim*: Arc's position isn't measured, and its glyph is ours). The View menu has Toggle Sidebar ⌘S.
+  - The sidebar button's plate is at x 77, as Arc's (its glyph is ours). The View menu has Toggle Sidebar ⌘S.
   - ⌘S isn't reserved: a page that keeps it, as an editor's save does, keeps it (Chrome's rule for Save Page).
 - **Sidebar reveal** (Arc (Ardia), Arc 1.170.0 rec).
   - The pointer kept at the window's left edge, at any height including the top-left corner, slides a floating panel over the page (Sidebar reveal in). The page doesn't move. A pointer passing the edge, on its way to another window or display, brings nothing out.

@@ -102,10 +102,10 @@ const WHEEL_LINE: f32 = 10.;
 const WHEEL_BURST: Duration = Duration::from_millis(49);
 const WHEEL_REST: Duration = Duration::from_millis(250);
 
-// The header's buttons: their plates' tops and left edges, from the window's. The sidebar button's
-// is a pitch before back's, as Arc's is.
+// The header's buttons: their plates' tops and left edges, from the window's, as Arc 1.170's
+// accessibility tree has them. The sidebar button is 3 pt past the traffic lights, 13 before back.
 const NAV_TOP: f32 = 7.5;
-const SIDEBAR_BUTTON_X: f32 = 88.;
+const SIDEBAR_BUTTON_X: f32 = 77.;
 const BACK_X: f32 = 122.;
 const FORWARD_X: f32 = 156.;
 const RELOAD_X: f32 = 190.;

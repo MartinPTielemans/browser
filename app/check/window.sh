@@ -143,7 +143,7 @@ drag() {
   fi
   moves=$count
 }
-drag 80 24 moves "the header"
+drag 115 24 moves "the header"
 drag 138 24 stays "the back button"
 drag 110 64 stays "the URL field"
 drag 110 112 stays "the Space's name"
@@ -155,9 +155,9 @@ drag $((width - 8)) 300 moves "the card's right margin"
 # unless it's set to something else.
 action=$(defaults read -g AppleActionOnDoubleClick 2>/dev/null || echo Maximize)
 if [ "$action" = Maximize ]; then
-  send doubleclick 80 24
+  send doubleclick 115 24
   expect '^browser: window zoomed 1$' "a double-click on the header didn't zoom the window"
-  send doubleclick 80 24
+  send doubleclick 115 24
   expect '^browser: window zoomed 0$' "a second double-click on the header didn't zoom it back"
   zoom="zooms it"
 else
@@ -194,7 +194,7 @@ send key s cmd
 toggle ui hidden "⌘S with the UI focused"
 send key s cmd
 toggle ui shown "⌘S again with the UI focused"
-send click 104 24
+send click 93 24
 toggle sidebar hidden "a click on the sidebar button"
 send key s cmd
 toggle ui shown "⌘S after the sidebar button"
@@ -246,7 +246,7 @@ expect '^browser: reveal hidden$' "the pointer past the sidebar out didn't send 
 check_reveal "after the sidebar went away"
 send move 3 300
 expect '^browser: reveal shown$' "the pointer at the edge didn't bring the sidebar back out"
-send click 104 24
+send click 93 24
 toggle sidebar shown "a click on the sidebar button of the sidebar out"
 check_reveal "with the sidebar docked from its sidebar button"
 send key s cmd
