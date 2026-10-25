@@ -303,6 +303,18 @@ void bc_tab_move(bc_id id, bool pinned, size_t index) {
   browser_core::Tab::FromWebContents(contents)->StateChanged();
 }
 
+bc_id bc_tab_duplicate(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  browser_core::Window* window =
+      tab ? browser_core::Window::ForBrowser(tab->GetBrowserWindowInterface()) : nullptr;
+  return window ? window->Duplicate(id) : 0;
+}
+
+void bc_tab_close_below(bc_id id) {
+  browser_core::Window::CloseBelow(id);
+}
+
 void bc_tab_close(bc_id id) {
   if (browser_core::Space* space = browser_core::Space::Holding(id); space && space->IsPinned(id)) {
     browser_core::Window::UnloadPinned(id);

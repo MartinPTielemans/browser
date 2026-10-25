@@ -230,6 +230,24 @@ void Window::CloseTab(bc_id tab) {
 }
 
 // static
+void Window::CloseBelow(bc_id tab) {
+  Space* space = Space::Holding(tab);
+  if (!space || space->IsPinned(tab)) {
+    return;
+  }
+  const std::vector<bc_id>& today = space->today();
+  const std::vector<bc_id> below(std::ranges::find(today, tab) + 1, today.end());
+  for (auto& [id, window] : Windows()) {
+    if (std::ranges::contains(below, window->selected_)) {
+      window->Select(tab);
+    }
+  }
+  for (auto id = below.rbegin(); id != below.rend(); ++id) {
+    CloseTab(*id);
+  }
+}
+
+// static
 bool Window::DeleteSpace(bc_id space) {
   std::vector<Space*> staying = Space::All();
   std::erase_if(staying, [](Space* each) { return DeletingSpaces().contains(each->id()); });
@@ -521,6 +539,28 @@ bc_id Window::ReopenClosedTab() {
   const bc_id tab = Reopen(closed.space, closed.index, closed.saved);
   Select(tab);
   return tab;
+}
+
+bc_id Window::Duplicate(bc_id tab) {
+  content::WebContents* contents = Tab::FromId(tab);
+  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  Space* space = Space::Holding(tab);
+  if (!in || !space || ForBrowser(in->GetBrowserWindowInterface()) != this) {
+    return 0;
+  }
+  TabStripModel* tabs = in->GetBrowserWindowInterface()->GetTabStripModel();
+  std::unique_ptr<content::WebContents> copy = contents->Clone();
+  content::WebContents* copied = copy.get();
+  {
+    base::AutoReset<bool> opening(&opening_tab_, true);
+    tabs->InsertWebContentsAt(tabs->count(), std::move(copy), AddTabTypes::ADD_NONE);
+  }
+  const bc_id id = Tab::IdOf(copied);
+  Tab::FromWebContents(copied)->Restored();
+  auto at = std::ranges::find(space->today(), tab);
+  space->AddAt(id, at == space->today().end() ? 0 : at - space->today().begin() + 1);
+  Select(id);
+  return id;
 }
 
 bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {

@@ -70,6 +70,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static bool DeleteSpace(bc_id space);
   // Closes |tab| as the user does: its page gets its unload handlers, which may keep it open.
   static void CloseTab(bc_id tab);
+  // Closes the Today tabs below |tab| as the user does, bottom up, so ⇧⌘T reopens each at its
+  // place. A window showing one shows |tab| first, so none shows or loads on the way out.
+  static void CloseBelow(bc_id tab);
 
   Window(const Window&) = delete;
   Window& operator=(const Window&) = delete;
@@ -107,6 +110,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // tabs, else at the top of the Space the window shows. Shows it, and its Space. Returns its id, or
   // 0 if there's none.
   bc_id ReopenClosedTab();
+  // Opens a copy of |tab|, one of this window's, with its history: under it in Today, or at the
+  // top of Today for a pinned tab, where a pinned tab's links open. Shows it, and its page loads.
+  // Returns its id, or 0.
+  bc_id Duplicate(bc_id tab);
 
   // Lists the command bar's suggestions for |text|, from |profile|. See bc_window_suggest.
   void Suggest(Profile* profile, const std::u16string& text, bool complete);

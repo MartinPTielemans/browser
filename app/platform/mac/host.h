@@ -53,8 +53,15 @@ void host_hide_find_bar(void);
 void host_focus(void* view);
 
 typedef struct {
+  // Null for a line between items.
   const char* title;
   bool enabled;
+  // The shortcut it shows: its key as AppKit's key equivalent, "" for none, and its modifiers.
+  const char* key;
+  bool command;
+  bool shift;
+  bool option;
+  bool control;
 } host_menu_item;
 
 // Shows a menu of the |count| |items| at |x|, |y|, in points from the top-left of the browser
