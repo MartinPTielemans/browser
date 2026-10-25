@@ -1,0 +1,290 @@
+//! The command bar's keys and completion, on a host that records what the bar asks of it, with the
+//! core's suggestions made up.
+
+use std::{cell::RefCell, ops::Range, rc::Rc};
+
+use gpui::{App, TestAppContext, VisualTestContext, WindowHandle};
+
+use super::*;
+use crate::text_input;
+
+/// A host that records what the bar asks of it, but its suggestions and its window's height and
+/// shape. A text with a dot names a page there; any other is searched for.
+#[derive(Default)]
+struct Recorder(RefCell<Vec<String>>);
+
+impl Recorder {
+    fn record(&self, call: String) {
+        self.0.borrow_mut().push(call);
+    }
+}
+
+fn search(text: &str) -> String {
+    format!("https://search.test/?q={text}")
+}
+
+impl Host for Recorder {
+    fn suggest(&self, _: &str, _: bool) {}
+
+    fn remove_suggestion(&self, url: &str) {
+        self.record(format!("remove {url}"));
+    }
+
+    fn typed_url(&self, text: &str) -> Option<String> {
+        Some(if text.contains('.') { format!("https://{text}/") } else { search(text) })
+    }
+
+    fn search_url(&self, text: &str) -> Option<String> {
+        Some(search(text))
+    }
+
+    fn open_tab(&self, url: &str, behind: bool) {
+        self.record(format!("open {url}{}", if behind { " behind" } else { "" }));
+    }
+
+    fn navigate(&self, tab: u64, url: &str) {
+        self.record(format!("navigate {tab} {url}"));
+    }
+
+    fn select(&self, tab: u64) {
+        self.record(format!("select {tab}"));
+    }
+
+    fn split(&self, tab: u64, with: u64, _: &mut App) {
+        self.record(format!("split {tab} with {with}"));
+    }
+
+    fn open_split(&self, url: &str, with: u64, _: &mut App) {
+        self.record(format!("open {url} beside {with}"));
+    }
+
+    fn show(&self, _: bool, _: f32, _: f32, _: f32) {}
+
+    fn set_height(&self, _: f32) {}
+
+    fn hide(&self) {
+        self.record("hide".into());
+    }
+
+    fn dismiss(&self) {
+        self.record("dismiss".into());
+    }
+
+    fn reshape(&self) {}
+}
+
+/// The bar, opened for a new tab.
+struct Bar {
+    cx: VisualTestContext,
+    window: WindowHandle<CommandBar>,
+    host: Rc<Recorder>,
+}
+
+impl Bar {
+    fn new(cx: &mut TestAppContext) -> Self {
+        let host = Rc::new(Recorder::default());
+        cx.update(text_input::bind_keys);
+        let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the bar");
+        cx.update(|cx| show(None, None, cx));
+        let cx = VisualTestContext::from_window(window.into(), cx);
+        cx.run_until_parked();
+        Bar { cx, window, host }
+    }
+
+    fn type_text(&mut self, text: &str) {
+        self.cx.simulate_input(text);
+        self.cx.run_until_parked();
+    }
+
+    fn keys(&mut self, keys: &str) {
+        self.cx.simulate_keystrokes(keys);
+        self.cx.run_until_parked();
+    }
+
+    /// The core's suggestions for `text`.
+    fn suggest(&mut self, text: &str, rows: Vec<Suggestion>) {
+        self.cx.cx.update(|cx| suggested(text.into(), rows, cx));
+        self.cx.run_until_parked();
+    }
+
+    /// What the input shows, and what's selected in it.
+    fn input(&mut self) -> (String, Range<usize>) {
+        self.window
+            .read_with(&self.cx.cx, |bar, cx| {
+                let input = bar.input.read(cx);
+                (input.text().to_string(), input.selection())
+            })
+            .unwrap()
+    }
+
+    /// What the bar asked of the host since the last time.
+    fn calls(&self) -> Vec<String> {
+        self.host.0.take()
+    }
+}
+
+/// A row for a page from the profile's history, which ⇧⌦ can take out.
+fn page(url: &str) -> Suggestion {
+    Suggestion {
+        url: url.into(),
+        text: url.to_string().into(),
+        detail: SharedString::default(),
+        tab: 0,
+        completion: String::new(),
+        removable: true,
+        command: None,
+        shortcut: None,
+    }
+}
+
+/// The first row for what's typed, as the core makes it: the page `completion` completes the text
+/// to.
+fn completing(url: &str, completion: &str) -> Suggestion {
+    Suggestion { completion: completion.into(), ..page(url) }
+}
+
+/// The search row for `text`.
+fn searching(text: &str) -> Suggestion {
+    Suggestion { removable: false, ..page(&search(text)) }
+}
+
+#[gpui::test]
+fn return_goes_where_the_completion_goes(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("example.c");
+    let rows = vec![completing("https://example.com/", "om"), searching("example.c")];
+    bar.suggest("example.c", rows);
+    assert_eq!(bar.input(), ("example.com".into(), 9..11));
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
+}
+
+#[gpui::test]
+fn backspace_takes_the_completion_back_until_the_next_key(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("example.c");
+    bar.suggest("example.c", vec![completing("https://example.com/", "om")]);
+    bar.keys("backspace");
+    assert_eq!(bar.input(), ("example.c".into(), 9..9));
+    // The core's rows for the same text, even ones that would complete it, as a late answer to
+    // the ask before ⌫ would.
+    bar.suggest("example.c", vec![completing("https://example.com/", "om")]);
+    assert_eq!(bar.input(), ("example.c".into(), 9..9));
+    // The next key typed at the end completes again.
+    bar.type_text("o");
+    bar.suggest("example.co", vec![completing("https://example.com/", "m")]);
+    assert_eq!(bar.input(), ("example.com".into(), 10..11));
+}
+
+#[gpui::test]
+fn right_keeps_the_completion_as_typed(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("example.c");
+    bar.suggest("example.c", vec![completing("https://example.com/", "om")]);
+    bar.keys("right");
+    assert_eq!(bar.input(), ("example.com".into(), 11..11));
+    // Before the rows for it come, ↩ goes where the text now names.
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://example.com/", "hide"]);
+}
+
+#[gpui::test]
+fn return_before_the_suggestions_goes_where_the_text_names(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("example.org");
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://example.org/", "hide"]);
+}
+
+#[gpui::test]
+fn older_suggestions_are_dropped(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.type_text("a");
+    bar.suggest("ex", vec![completing("https://example.com/", "ample.com")]);
+    assert_eq!(bar.input(), ("exa".into(), 3..3));
+    bar.keys("enter");
+    assert_eq!(bar.calls(), [format!("open {}", search("exa")), "hide".into()]);
+}
+
+#[gpui::test]
+fn arrows_wrap_at_the_ends(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    let rows = || vec![searching("ex"), page("https://a.test/"), page("https://b.test/")];
+    bar.suggest("ex", rows());
+    bar.keys("up enter");
+    assert_eq!(bar.calls(), ["open https://b.test/", "hide"]);
+
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.suggest("ex", rows());
+    bar.keys("down down ctrl-n enter");
+    assert_eq!(bar.calls(), [format!("open {}", search("ex")), "hide".into()]);
+}
+
+#[gpui::test]
+fn return_on_a_tab_switches_to_it(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), Suggestion { tab: 7, ..page("https://a.test/") }]);
+    bar.keys("down enter");
+    assert_eq!(bar.calls(), ["select 7", "hide"]);
+}
+
+#[gpui::test]
+fn cmd_return_opens_behind_and_keeps_the_bar_open(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("exa");
+    let rows = vec![
+        completing("https://example.com/", "mple.com"),
+        searching("exa"),
+        page("https://example.org/"),
+    ];
+    bar.suggest("exa", rows);
+    bar.keys("down down cmd-enter");
+    assert_eq!(bar.calls(), ["open https://example.org/ behind"]);
+    // Another, from the same rows.
+    bar.keys("up up cmd-enter");
+    assert_eq!(bar.calls(), ["open https://example.com/ behind"]);
+}
+
+#[gpui::test]
+fn shift_cmd_return_searches_for_what_was_typed(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("exa");
+    bar.suggest("exa", vec![completing("https://example.com/", "mple.com")]);
+    bar.keys("shift-cmd-enter");
+    assert_eq!(bar.calls(), [format!("open {}", search("exa")), "hide".into()]);
+}
+
+#[gpui::test]
+fn ctrl_return_puts_www_and_com_around_a_word(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("exa");
+    bar.suggest("exa", vec![completing("https://example.com/", "mple.com")]);
+    bar.keys("ctrl-enter");
+    assert_eq!(bar.calls(), ["open https://www.exa.com/", "hide"]);
+
+    // More than a word goes where ↩ goes.
+    let mut bar = Bar::new(cx);
+    bar.type_text("two words");
+    bar.keys("ctrl-enter");
+    assert_eq!(bar.calls(), [format!("open {}", search("two words")), "hide".into()]);
+}
+
+#[gpui::test]
+fn shift_delete_takes_a_page_out_of_history(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), page("https://a.test/"), page("https://b.test/")]);
+    // The search isn't from history.
+    bar.keys("shift-delete");
+    assert_eq!(bar.calls(), Vec::<String>::new());
+    bar.keys("down shift-delete");
+    assert_eq!(bar.calls(), ["remove https://a.test/"]);
+    // The core lists the rows again without it, and the row under it takes its place.
+    bar.suggest("ex", vec![searching("ex"), page("https://b.test/")]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://b.test/", "hide"]);
+}
