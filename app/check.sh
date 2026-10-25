@@ -27,7 +27,9 @@
 #      background moves the window, and the buttons, URL field and rows keep their presses. A
 #      double-click there zooms it, and one in the sidebar below the rows opens a new tab. ⌘S,
 #      with the page or the UI focused, and the sidebar button hide the sidebar and the window's
-#      buttons, and the card takes its place, through a resize; ⌘S brings them back.
+#      buttons, and the card takes its place, through a resize; ⌘S brings them back. The
+#      sidebar's edge drags its width between 160 and 400, rubber-banding past them, and a
+#      double-click on it puts the width back.
 #   5. A page's popup opens as a tab in the window, under the page.
 #   6. Back and forward go through the tab's history from keys, with the page or the UI focused,
 #      and from the header's buttons, which dim with nowhere to go. Reload loads the page again,
@@ -48,9 +50,10 @@
 #      in the Space shown, and the last Space can't be deleted.
 #   8. Launched again after ⌘Q, and again after its window's close button, the app brings back
 #      the Spaces: their names, their tabs with each tab's history, the tab each showed and the
-#      Space it showed. Only a tab shown loads; the others show their titles and favicons. A tab
-#      closed before the quit stays closed. A SIGTERM, which macOS sends at logout and restart,
-#      keeps a tab opened just before it. Reports how long putting them back takes.
+#      Space it showed, and the sidebar's width. Only a tab shown loads; the others show their
+#      titles and favicons. A tab closed before the quit stays closed. A SIGTERM, which macOS
+#      sends at logout and restart, keeps a tab opened just before it. Reports how long putting
+#      them back takes.
 #   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n of
 #      m", once Japanese input has committed, and return, shift-return, ⌘G and ⇧⌘G go through the
 #      matches, from the bar and from the page. A click on the page leaves the bar open, and the
@@ -635,7 +638,10 @@ check_layout() {
   ui=$(echo "$layout" | sed -n 's/.*GPUIView \([0-9,]* [0-9x]*\).*/\1/p')
   width=${content%x*}
   height=${content#*x}
-  expected="228,10 $((width - 238))x$((height - 20))"
+  # Past the sidebar, 228 wide unless $2 gives its width.
+  left=228
+  case "${2:-}" in [0-9]*) left=$2 ;; esac
+  expected="$left,10 $((width - left - 10))x$((height - 20))"
   # Rounded as the card's corners, square when it fills the window.
   expected_radius=6
   [ "${2:-}" = fills ] && expected="0,0 $content" && expected_radius=
@@ -829,9 +835,36 @@ expect '^browser: reveal shown$' "the pointer at the edge didn't bring the sideb
 send key s cmd
 toggle ui shown "⌘S with the sidebar out"
 check_reveal "with the sidebar docked by ⌘S"
+# The sidebar's edge, the 6 pt right of its rows, drags its width between 160 and 400. Past them it
+# rubber-bands, and let go it settles at the one it passed. A double-click on it puts back 228.
+send drag 225 400 325 400
+expect '^browser: sidebar width 328$' "dragging the sidebar's edge didn't widen the sidebar"
+check_layout "with the sidebar dragged wider" 328
+send press 325 400
+send dragto 700 400
+for _ in $(seq 20); do
+  send layout
+  band=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
+    sed -n 's/.*WebContentsViewCocoa \([0-9]*\),.*/\1/p')
+  [ "${band:-0}" -gt 400 ] && break
+done
+[ "${band:-0}" -gt 400 ] && [ "$band" -lt 460 ] ||
+  fail "dragged far past its widest, the sidebar is ${band:-not} wide, not a little past 400"
+../tools/window-screenshot.sh "$pid" "$out/sidebar-band.png" || fail "no window to capture"
+send release 700 400
+expect '^browser: sidebar width 400$' "let go past its widest, the sidebar didn't settle at 400"
+check_layout "with the sidebar at its widest" 400
+send drag 397 400 20 400
+expect '^browser: sidebar width 160$' "let go past its narrowest, the sidebar didn't settle at 160"
+check_layout "with the sidebar at its narrowest" 160
+../tools/window-screenshot.sh "$pid" "$out/sidebar-narrow.png" || fail "no window to capture"
+send doubleclick 157 400
+expect '^browser: sidebar width 228$' "a double-click on the sidebar's edge didn't put its width back"
+none_since '^browser: command new-tab' || fail "a double-click on the sidebar's edge opened a tab"
+check_layout "after a double-click on the sidebar's edge"
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer at the window's edge brings the hidden sidebar out over the page and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer at the window's edge brings the hidden sidebar out over the page and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png"
 
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.
@@ -1262,6 +1295,8 @@ expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in 
 send key 1 ctrl
 expect "^browser: space $first in " "⌃1 didn't show the first Space"
 expect_tabs "$c $a" "$c" "back in the first Space"
+send drag 226 400 298 400
+expect '^browser: sidebar width 300$' "dragging the sidebar's edge didn't make it 300 wide"
 # ⌘Q is the driver's last command: the app doesn't report it done.
 echo "key q cmd" >&3
 exec 3>&-
@@ -1298,6 +1333,7 @@ await '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' |
 e=$(grep -m1 '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' "$log" | cut -d' ' -f3)
 grep -q "^browser: loaded $e " "$log" && fail "the second Space's tab loaded without being shown"
 ../tools/window-screenshot.sh "$pid" "$out/restored.png" || fail "no window to capture"
+check_layout "after the relaunch, with the sidebar it had" 300
 send click $page_point
 if [ "$active" != 1 ]; then
   exec 3>&-
@@ -1348,7 +1384,7 @@ exited
 print(*[len(space["today"]) for space in json.load(open(sys.argv[1]))["spaces"]])' "$saved")" = "2 2" ] ||
   fail "the tab opened before the SIGTERM wasn't kept"
 restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restored.log" "$out/restored-again.log" | tr '\n' ' ')
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, tabs, history and the tab each showed, in the Space shown last; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed. A SIGTERM keeps a tab opened just before it."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, and a closed tab stays closed. A SIGTERM keeps a tab opened just before it."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
 
 # Find in page. The test page has three apples and one 日本語.

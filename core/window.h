@@ -99,6 +99,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id TabToShowIn(bc_id space) const;
   // Has ShowSpace show |tab| in |space|, as if the window showed it there last.
   void SetSelectedIn(bc_id space, bc_id tab);
+  // The docked sidebar's width the UI last gave the window, kept with the Spaces, or 0 for none. A
+  // window opens with the one the last launch saved.
+  double sidebar_width() const { return sidebar_width_; }
+  void SetSidebarWidth(double width);
   // Where the selected tab's page goes, in the window, and the radius of its corners.
   void SetPageFrame(const gfx::Rect& frame, double corner_radius);
   // Shows |tab|, if it's one of this window's, at the page frame, and its Space if the window shows
@@ -203,6 +207,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::map<bc_id, bc_id> selected_in_space_;
   gfx::Rect page_frame_;
   double page_corner_radius_ = 0;
+  double sidebar_width_;
   std::map<Profile*, Held> browsers_;
   Cleared cleared_;
   // Made when the command bar first asks for suggestions.

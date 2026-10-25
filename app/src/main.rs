@@ -367,6 +367,15 @@ impl Browser for Engine {
         unsafe { platform::host_hide_reveal() };
     }
 
+    fn saved_sidebar_width(&self) -> Option<f32> {
+        let width = unsafe { bc::bc_window_sidebar_width(WINDOW.get()) };
+        (width > 0.).then_some(width as f32)
+    }
+
+    fn set_sidebar_width(&self, width: f32, _: &mut App) {
+        unsafe { bc::bc_window_set_sidebar_width(WINDOW.get(), width.into()) };
+    }
+
     fn detent(&self, _: &mut App) {
         unsafe { platform::host_detent() };
     }

@@ -202,6 +202,11 @@ BC_EXPORT size_t bc_space_pinned(bc_id space, bc_id* tabs, size_t capacity);
 // Today tab, else its top pinned tab, else no page. Then window_space_shown and window_selected.
 BC_EXPORT void bc_window_show_space(bc_id window, bc_id space);
 
+// The width the app last gave the window's docked sidebar, or 0 for none. The core keeps it with
+// the Spaces, and a window opens with the one the last launch saved.
+BC_EXPORT double bc_window_sidebar_width(bc_id window);
+BC_EXPORT void bc_window_set_sidebar_width(bc_id window, double width);
+
 // The tab bc_window_show_space would show for |space|, or the tab shown for the Space shown. 0 for
 // none.
 BC_EXPORT bc_id bc_window_space_tab(bc_id window, bc_id space);

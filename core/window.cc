@@ -306,7 +306,8 @@ bool Window::DeleteSpace(bc_id space) {
   return true;
 }
 
-Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view) : id_(id) {
+Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view)
+    : id_(id), sidebar_width_(SavedSidebarWidth()) {
   delegate_ = std::make_unique<views::WidgetDelegate>();
   delegate_->SetCanFullscreen(true);
   delegate_->SetCanResize(true);
@@ -480,6 +481,11 @@ bc_id Window::SelectedIn(bc_id space) const {
 
 void Window::SetSelectedIn(bc_id space, bc_id tab) {
   selected_in_space_[space] = tab;
+}
+
+void Window::SetSidebarWidth(double width) {
+  sidebar_width_ = width;
+  SessionChanged();
 }
 
 void Window::ShowNothing() {

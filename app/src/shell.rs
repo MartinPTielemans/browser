@@ -11,17 +11,17 @@ use std::{
 };
 
 use gpui::{
-    Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, DispatchPhase,
-    Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding, MenuItem,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollDelta,
-    ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase, Transformation,
+    Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, Context, CursorStyle,
+    DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding,
+    MenuItem, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point,
+    ScrollDelta, ScrollEvent, SharedString, Size, Subscription, Task, TouchPhase, Transformation,
     WeakEntity, Window, actions, canvas, div, img, percentage, point, prelude::*, px, rgb, rgba,
     size, svg,
 };
 
 use crate::text_input::TextInput;
 
-/// The sidebar's width, where the card starts.
+/// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
 /// The card's inset from the window's top, right and bottom edges.
 pub const CARD_INSET: f32 = 10.;
@@ -34,6 +34,13 @@ pub const CARD_RADIUS: f32 = 6.;
 const SIDEBAR_HIDE: f32 = 0.1;
 const SIDEBAR_SHOW_RESPONSE: f32 = 0.215;
 const SIDEBAR_SHOW_DAMPING: f32 = 0.79;
+// The sidebar's edge drags its width between Ardia's limits (docs/ux-spec.md › Sidebar › Width),
+// rubber-banding past them as the Space pages do. Let go past one, it settles there as they settle,
+// and a double-click on the edge settles it back at the width it starts at. The edge is the margin
+// right of the rows.
+const SIDEBAR_MIN: f32 = 160.;
+const SIDEBAR_MAX: f32 = 400.;
+const SIDEBAR_EDGE: f32 = 6.;
 
 // The sidebar reveal (docs/ux-spec.md › Sidebar reveal): the hidden sidebar slides over the page as
 // a panel when the pointer reaches the window's left edge, on Arc's spring, and slides away on an
@@ -80,6 +87,9 @@ const RELOAD_X: f32 = 190.;
 const NAV_SIZE: f32 = 32.;
 const NAV_RADIUS: f32 = 6.;
 const NAV_GLYPH: f32 = 16.;
+// A header button shows while its plate ends this far inside the sidebar, so a narrow sidebar loses
+// reload, then forward, as Ardia's does.
+const NAV_END: f32 = 5.;
 
 const URL_FIELD_TOP: f32 = 46.;
 const URL_FIELD_HEIGHT: f32 = 36.;
@@ -105,7 +115,8 @@ const LOADING_SIZE: f32 = 12.;
 const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
 const CLOSE_SIZE: f32 = 26.;
-const CLOSE_X: f32 = 189.;
+// From its right edge to the plate's: Arc's 189 from the plate's left, at 228 wide.
+const CLOSE_RIGHT: f32 = 5.;
 // The Clear divider, under the pinned tabs. Its line's centre is 25 pt above the centre of the first
 // row under it, and it ends 7.5 pt before Clear's arrow.
 const DIVIDER_HEIGHT: f32 = 15.;
@@ -500,6 +511,10 @@ pub trait Browser {
     /// window's left edge and as tall as it. It calls `Shell::pointer_at` as the pointer moves
     /// anywhere in the browser's windows until it's hidden.
     fn show_reveal(&self, width: f32, cx: &mut App);
+    /// The docked sidebar's width the last launch kept, if it kept one.
+    fn saved_sidebar_width(&self) -> Option<f32>;
+    /// Keeps the docked sidebar's width for the next launch.
+    fn set_sidebar_width(&self, width: f32, cx: &mut App);
     fn hide_reveal(&self, cx: &mut App);
     /// A detent on the trackpad, as a swipe's nearest Space changes.
     fn detent(&self, cx: &mut App);
@@ -723,6 +738,13 @@ pub struct Shell {
     page_fullscreen: bool,
     /// Whether ⌘S has hidden the sidebar.
     sidebar_hidden: bool,
+    /// The docked sidebar's width, at rest.
+    sidebar_width: f32,
+    /// While the sidebar's edge is dragged: how far right of the edge the pointer pressed it, and
+    /// the width the pointer has it at, before the rubber band.
+    resize: Option<(f32, f32)>,
+    /// While the width settles on `sidebar_width`: the width it started from, and when.
+    width_motion: Option<(f32, Instant)>,
     /// While the sidebar moves: where the card's left edge started from, and when.
     sidebar_motion: Option<(f32, Instant)>,
     /// Whether the hidden sidebar is out over the page, or on its way.
@@ -741,6 +763,9 @@ impl Shell {
     /// Makes the shell, the one the browser's shortcuts act on.
     pub fn new(browser: Rc<dyn Browser>, cx: &mut Context<Self>) -> Self {
         cx.set_global(ShellHandle(cx.weak_entity()));
+        let sidebar_width = browser
+            .saved_sidebar_width()
+            .map_or(SIDEBAR_WIDTH, |width| width.clamp(SIDEBAR_MIN, SIDEBAR_MAX));
         Self {
             browser,
             focus_handle: cx.focus_handle(),
@@ -769,10 +794,13 @@ impl Shell {
             toast: None,
             page_fullscreen: false,
             sidebar_hidden: false,
+            sidebar_width,
+            resize: None,
+            width_motion: None,
             sidebar_motion: None,
             revealed: false,
             reveal_motion: None,
-            page_left: SIDEBAR_WIDTH,
+            page_left: sidebar_width,
             switching: None,
             background_pressed: false,
         }
@@ -802,7 +830,7 @@ impl Shell {
         if self.page_fullscreen {
             return 0.;
         }
-        let to = if self.sidebar_hidden { CARD_INSET } else { SIDEBAR_WIDTH };
+        let to = if self.sidebar_hidden { CARD_INSET } else { self.width() };
         let Some((from, start)) = self.sidebar_motion else {
             return to;
         };
@@ -810,6 +838,112 @@ impl Shell {
             Some(progress) => from + (to - from) * progress,
             None => to,
         }
+    }
+
+    /// The docked sidebar's width as drawn: with the pointer while its edge is dragged, then on its
+    /// way to where it rests.
+    fn width(&self) -> f32 {
+        if let Some((_, way)) = self.resize {
+            return rubber_band(way, SIDEBAR_MIN, SIDEBAR_MAX).round();
+        }
+        let Some((from, start)) = self.width_motion else {
+            return self.sidebar_width;
+        };
+        settle_progress(start)
+            .map_or(self.sidebar_width, |progress| from + (self.sidebar_width - from) * progress)
+    }
+
+    /// The docked sidebar's right edge, which drags its width and puts it back on a double-click.
+    fn sidebar_edge(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let width = self.width();
+        let cursor = match width {
+            width if width <= SIDEBAR_MIN => CursorStyle::ResizeRight,
+            width if width >= SIDEBAR_MAX => CursorStyle::ResizeLeft,
+            _ => CursorStyle::ResizeLeftRight,
+        };
+        let resizing = self.resize.is_some();
+        let shell = cx.weak_entity();
+        div()
+            .id("sidebar-edge")
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .left(px(width - SIDEBAR_EDGE))
+            .w(px(SIDEBAR_EDGE))
+            .cursor(cursor)
+            .block_mouse_except_scroll()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, event: &MouseDownEvent, _, cx| shell.press_edge(event, cx)),
+            )
+            // The pointer's moves and release anywhere in the window, while the edge is dragged.
+            .child(
+                canvas(
+                    |_, _, _| {},
+                    move |_, _, window, _| {
+                        if resizing {
+                            window.set_window_cursor_style(cursor);
+                        }
+                        let moved = shell.clone();
+                        window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Capture {
+                                let x = event.position.x.into();
+                                moved.update(cx, |shell, cx| shell.drag_edge(x, cx)).ok();
+                            }
+                        });
+                        window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                            if phase == DispatchPhase::Capture && event.button == MouseButton::Left
+                            {
+                                shell.update(cx, |shell, cx| shell.let_go_edge(cx)).ok();
+                            }
+                        });
+                    },
+                )
+                .absolute()
+                .size_0(),
+            )
+    }
+
+    fn press_edge(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
+        let width = self.width();
+        if event.click_count == 2 {
+            self.resize = None;
+            self.set_width(width, SIDEBAR_WIDTH, cx);
+            return;
+        }
+        self.width_motion = None;
+        self.resize = Some((f32::from(event.position.x) - width, width));
+        cx.notify();
+    }
+
+    fn drag_edge(&mut self, x: f32, cx: &mut Context<Self>) {
+        if let Some((grab, _)) = self.resize {
+            self.resize = Some((grab, x - grab));
+            cx.notify();
+        }
+    }
+
+    fn let_go_edge(&mut self, cx: &mut Context<Self>) {
+        if let Some((_, way)) = self.resize.take() {
+            let from = rubber_band(way, SIDEBAR_MIN, SIDEBAR_MAX).round();
+            self.set_width(from, way.clamp(SIDEBAR_MIN, SIDEBAR_MAX), cx);
+        }
+    }
+
+    /// Settles the docked sidebar at `to` wide from `from`, and keeps the width for the next
+    /// launch.
+    fn set_width(&mut self, from: f32, to: f32, cx: &mut Context<Self>) {
+        let to = to.round();
+        if to != self.sidebar_width {
+            self.sidebar_width = to;
+            self.browser.set_sidebar_width(to, cx);
+        }
+        self.width_motion = (from != to).then(|| (from, Instant::now()));
+        if self.width_motion.is_none() {
+            // check.sh waits for these lines.
+            eprintln!("browser: sidebar width {to}");
+        }
+        cx.notify();
     }
 
     /// How far the sidebar has moved since `start`, or None once it's there.
@@ -886,7 +1020,7 @@ impl Shell {
         }
         if x < CARD_INSET {
             self.set_revealed(true, cx);
-        } else if x > REVEAL_INSET + SIDEBAR_WIDTH + REVEAL_HOLD {
+        } else if x > REVEAL_INSET + self.width() + REVEAL_HOLD {
             self.set_revealed(false, cx);
         }
     }
@@ -899,7 +1033,7 @@ impl Shell {
         self.reveal_motion = Some((self.reveal_out(), Instant::now()));
         self.revealed = revealed;
         if revealed {
-            self.browser.show_reveal(REVEAL_INSET + SIDEBAR_WIDTH + REVEAL_OVERSHOOT, cx);
+            self.browser.show_reveal(REVEAL_INSET + self.width() + REVEAL_OVERSHOOT, cx);
         }
         cx.notify();
     }
@@ -977,6 +1111,7 @@ impl Shell {
         // A Space shown some other way slides in from its side, pushing the one before out. One a
         // swipe settles on is moving already.
         let index = |id| self.spaces.iter().position(|other| other.id == id);
+        let width = self.width();
         if !self.settle.as_ref().is_some_and(|settle| settle.space == space)
             && let (Some(from), Some(to)) = (index(before), index(space))
             && from != to
@@ -984,7 +1119,7 @@ impl Shell {
             self.settle = Some(Settle {
                 space,
                 beside: Some(before),
-                from: if to > from { SIDEBAR_WIDTH } else { -SIDEBAR_WIDTH },
+                from: if to > from { width } else { -width },
                 velocity: 0.,
                 start: Instant::now(),
             });
@@ -1728,7 +1863,7 @@ impl Shell {
         if x != 0.
             && let Some(beside) = beside
         {
-            pages.push((beside, x - x.signum() * SIDEBAR_WIDTH));
+            pages.push((beside, x - x.signum() * self.width()));
         }
         pages
     }
@@ -1737,20 +1872,16 @@ impl Shell {
     /// rubber-banding past the first and last Spaces, and past one Space either side.
     fn swiped_to(&self, swipe: &Swipe) -> f32 {
         let index = self.spaces.iter().position(|space| space.id == swipe.from).unwrap_or(0);
-        let high = if index > 0 { SIDEBAR_WIDTH } else { 0. };
-        let low = if index + 1 < self.spaces.len() { -SIDEBAR_WIDTH } else { 0. };
-        let band = |past: f32| 255. * (1. - 1. / (0.15 * past / 255. + 1.));
-        match swipe.way {
-            way if way > high => high + band(way - high),
-            way if way < low => low - band(low - way),
-            way => way,
-        }
+        let width = self.width();
+        let high = if index > 0 { width } else { 0. };
+        let low = if index + 1 < self.spaces.len() { -width } else { 0. };
+        rubber_band(swipe.way, low, high)
     }
 
     /// The Space whose page is nearest its place while `from`'s is at `x`: it or a neighbour.
     fn nearest(&self, from: u64, x: f32) -> Option<u64> {
         let index = self.spaces.iter().position(|space| space.id == from)? as f32;
-        let index = index - (x / SIDEBAR_WIDTH).round().clamp(-1., 1.);
+        let index = index - (x / self.width()).round().clamp(-1., 1.);
         let index = index.clamp(0., self.spaces.len().saturating_sub(1) as f32) as usize;
         self.spaces.get(index).map(|space| space.id)
     }
@@ -1832,7 +1963,7 @@ impl Shell {
             _ => 0.,
         };
         let toward = if velocity.abs() >= SWIPE_FLICK {
-            velocity.signum() * SIDEBAR_WIDTH
+            velocity.signum() * self.width()
         } else {
             x
         };
@@ -1840,7 +1971,7 @@ impl Shell {
             return true;
         };
         let index = |id| self.spaces.iter().position(|other| other.id == id).unwrap_or(0) as f32;
-        let from = x + (index(space) - index(swipe.from)) * SIDEBAR_WIDTH;
+        let from = x + (index(space) - index(swipe.from)) * self.width();
         let velocity = if velocity * from < 0. { velocity } else { 0. };
         self.settle = Some(Settle { space, beside: None, from, velocity, start: now });
         if space != self.space {
@@ -1869,7 +2000,7 @@ impl Shell {
         if (sum * WHEEL_LINE).abs() > 1. {
             self.wheel = None;
             self.wheel_paged = Some(now);
-            if let Some(space) = self.nearest(self.space, sum.signum() * SIDEBAR_WIDTH)
+            if let Some(space) = self.nearest(self.space, sum.signum() * self.width())
                 && space != self.space
             {
                 // check.sh waits for this line.
@@ -1977,38 +2108,28 @@ impl Shell {
             )
     }
 
-    /// The sidebar button, back, forward, and reload, which is stop while the page loads.
-    fn nav_buttons(&self, cx: &mut Context<Self>) -> [gpui::AnyElement; 4] {
+    /// The sidebar button, back, forward, and reload, which is stop while the page loads, as many
+    /// as fit.
+    fn nav_buttons(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         let page = self.page(self.selected);
-        let reload = if page.loading {
-            self.nav_button(RELOAD_X, "icons/x.svg", Command::Stop, true, cx)
-                .into_any_element()
-        } else {
-            let shown = self.selected != 0;
-            self.nav_button(RELOAD_X, "icons/rotate-cw.svg", Command::Reload, shown, cx)
-                .into_any_element()
+        let reload = match page.loading {
+            true => (RELOAD_X, "icons/x.svg", Command::Stop, true),
+            false => (RELOAD_X, "icons/rotate-cw.svg", Command::Reload, self.selected != 0),
         };
-        [
-            self.nav_button(
-                SIDEBAR_BUTTON_X,
-                "icons/panel-left.svg",
-                Command::ToggleSidebar,
-                true,
-                cx,
-            )
-            .into_any_element(),
-            self.nav_button(BACK_X, "icons/arrow-left.svg", Command::Back, page.can_go_back, cx)
-                .into_any_element(),
-            self.nav_button(
-                FORWARD_X,
-                "icons/arrow-right.svg",
-                Command::Forward,
-                page.can_go_forward,
-                cx,
-            )
-            .into_any_element(),
+        let buttons = [
+            (SIDEBAR_BUTTON_X, "icons/panel-left.svg", Command::ToggleSidebar, true),
+            (BACK_X, "icons/arrow-left.svg", Command::Back, page.can_go_back),
+            (FORWARD_X, "icons/arrow-right.svg", Command::Forward, page.can_go_forward),
             reload,
-        ]
+        ];
+        let width = self.width();
+        buttons
+            .into_iter()
+            .filter(|&(x, ..)| x + NAV_SIZE <= width - NAV_END)
+            .map(|(x, icon, command, enabled)| {
+                self.nav_button(x, icon, command, enabled, cx).into_any_element()
+            })
+            .collect()
     }
 
     fn url_field(&self) -> impl IntoElement + use<> {
@@ -2017,7 +2138,7 @@ impl Shell {
             .absolute()
             .top(px(URL_FIELD_TOP))
             .left(px(PLATE_INSET))
-            .w(px(SIDEBAR_WIDTH - 2. * PLATE_INSET))
+            .w(px(self.width() - 2. * PLATE_INSET))
             .h(px(URL_FIELD_HEIGHT))
             .flex()
             .items_center()
@@ -2092,7 +2213,7 @@ impl Shell {
             .absolute()
             .top(px(row.top))
             .left_0()
-            .w(px(SIDEBAR_WIDTH))
+            .w(px(self.width()))
             .h(px(ROW_HEIGHT))
             .px(px(PLATE_INSET))
             .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
@@ -2125,7 +2246,7 @@ impl Shell {
             .id(("close", tab))
             .flex_none()
             .ml(px(4.))
-            .mr(px(SIDEBAR_WIDTH - PLATE_INSET - CLOSE_X - CLOSE_SIZE))
+            .mr(px(CLOSE_RIGHT))
             .size(px(CLOSE_SIZE))
             .flex()
             .items_center()
@@ -2295,7 +2416,7 @@ impl Shell {
                 .id(id)
                 .absolute()
                 .left(px(FORM_INSET))
-                .w(px(SIDEBAR_WIDTH - 2. * FORM_INSET))
+                .w(px(self.width() - 2. * FORM_INSET))
                 .h(px(FORM_PLATE_HEIGHT))
                 .flex()
                 .items_center()
@@ -2363,7 +2484,7 @@ impl Shell {
             .absolute()
             .top_0()
             .left_0()
-            .w(px(SIDEBAR_WIDTH))
+            .w(px(self.width()))
             .bottom_0()
             .child(title)
             .child(field)
@@ -2402,7 +2523,7 @@ impl Shell {
                 .id("toast")
                 .absolute()
                 .left(px(PLATE_INSET))
-                .w(px(SIDEBAR_WIDTH - 2. * PLATE_INSET))
+                .w(px(self.width() - 2. * PLATE_INSET))
                 .bottom(px(FOOTER_HEIGHT))
                 .h(px(PLATE_HEIGHT))
                 .flex()
@@ -2447,6 +2568,15 @@ impl Render for Shell {
             renaming._blur =
                 Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
         }
+        if let Some((_, start)) = self.width_motion {
+            if settle_progress(start).is_some() {
+                window.request_animation_frame();
+            } else {
+                self.width_motion = None;
+                // check.sh waits for these lines.
+                eprintln!("browser: sidebar width {}", self.sidebar_width);
+            }
+        }
         if let Some((_, start)) = self.sidebar_motion {
             if self.sidebar_progress(start).is_some() {
                 window.request_animation_frame();
@@ -2471,11 +2601,13 @@ impl Render for Shell {
         }
         let card_inset = if self.page_fullscreen { 0. } else { CARD_INSET };
         // The sidebar leaves with the card's edge, all of it by the time the edge stops.
-        let sidebar_left =
-            (card_left - SIDEBAR_WIDTH) * SIDEBAR_WIDTH / (SIDEBAR_WIDTH - CARD_INSET);
+        let width = self.width();
+        let sidebar_left = (card_left - width) * width / (width - CARD_INSET);
         let sidebar_shown =
             !self.page_fullscreen && (!self.sidebar_hidden || self.sidebar_motion.is_some());
         let sidebar = sidebar_shown.then(|| self.sidebar(cx).left(px(sidebar_left)));
+        let docked = !self.page_fullscreen && !self.sidebar_hidden && self.sidebar_motion.is_none();
+        let edge = docked.then(|| self.sidebar_edge(cx));
         div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
@@ -2518,6 +2650,7 @@ impl Render for Shell {
                     .bg(rgb(CARD)),
             )
             .children(sidebar)
+            .children(edge)
     }
 }
 
@@ -2529,7 +2662,7 @@ impl Shell {
             .absolute()
             .top_0()
             .bottom_0()
-            .w(px(SIDEBAR_WIDTH))
+            .w(px(self.width()))
             .children(self.nav_buttons(cx));
         let sidebar = match self.form() {
             Some(form) => sidebar.child(self.space_form(form, cx)),
@@ -2544,6 +2677,7 @@ impl Shell {
     /// The Spaces' pages under the URL field, side by side while they move. Each keeps its own
     /// scroll.
     fn space_pages(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let width = self.width();
         let mut pages = Vec::new();
         for (space, x) in self.pages() {
             let page = match self.spaces.iter().find(|other| other.id == space) {
@@ -2558,7 +2692,7 @@ impl Shell {
                     .top_0()
                     .bottom_0()
                     .left(px(x))
-                    .w(px(SIDEBAR_WIDTH))
+                    .w(px(width))
                     .child(page),
             );
         }
@@ -2566,7 +2700,7 @@ impl Shell {
             .absolute()
             .top(px(LIST_TOP))
             .left_0()
-            .w(px(SIDEBAR_WIDTH))
+            .w(px(self.width()))
             .bottom(px(FOOTER_HEIGHT))
             .overflow_hidden()
             .children(pages)
@@ -2620,7 +2754,7 @@ impl Shell {
         // Over the rest, where the pointer has it.
         let dragged = self.drag.as_ref().filter(|drag| drag.moving).map(|drag| {
             let row = self.tab_row(drag.tab, cx);
-            div().absolute().top(px(drag.at)).left_0().w(px(SIDEBAR_WIDTH)).child(row)
+            div().absolute().top(px(drag.at)).left_0().w(px(self.width())).child(row)
         });
         let under = self
             .opened
@@ -2663,7 +2797,7 @@ impl Shell {
                 if self.revealed {
                     eprintln!("browser: reveal shown");
                     // Its window ends at its edge, so the page past it takes clicks again.
-                    self.browser.show_reveal(REVEAL_INSET + SIDEBAR_WIDTH, cx);
+                    self.browser.show_reveal(REVEAL_INSET + self.width(), cx);
                 } else {
                     eprintln!("browser: reveal hidden");
                     self.browser.hide_reveal(cx);
@@ -2673,7 +2807,7 @@ impl Shell {
         if self.list_moving() {
             window.request_animation_frame();
         }
-        let left = REVEAL_INSET - (REVEAL_INSET + SIDEBAR_WIDTH) * (1. - self.reveal_out());
+        let left = REVEAL_INSET - (REVEAL_INSET + self.width()) * (1. - self.reveal_out());
         div()
             .size_full()
             .font_family(".SystemUIFont")
@@ -2693,7 +2827,7 @@ impl Shell {
                     .left(px(left))
                     .top(px(REVEAL_INSET))
                     .bottom(px(REVEAL_INSET))
-                    .w(px(SIDEBAR_WIDTH))
+                    .w(px(self.width()))
                     .rounded(px(CARD_RADIUS))
                     .border(px(0.5))
                     .border_color(rgba(REVEAL_BORDER))
@@ -2777,6 +2911,24 @@ pub fn page_frame(viewport: Size<Pixels>, card_left: f32) -> Bounds<Pixels> {
 
 /// Where a spring from 0 to 1, at rest at 0, is `t` seconds in, by SwiftUI's response and damping
 /// fraction. None once it's within a thousandth of 1 for good.
+/// `way`, but past `low` or `high` only a little further, on the Space pages' rubber band.
+fn rubber_band(way: f32, low: f32, high: f32) -> f32 {
+    let band = |past: f32| 255. * (1. - 1. / (0.15 * past / 255. + 1.));
+    match way {
+        way if way > high => high + band(way - high),
+        way if way < low => low - band(low - way),
+        way => way,
+    }
+}
+
+/// How far something settling critically damped since `start`, as the Space pages do, has come
+/// from where it started, or None once it's there.
+fn settle_progress(start: Instant) -> Option<f32> {
+    let omega_t = std::f32::consts::TAU / SPACE_SETTLE * start.elapsed().as_secs_f32();
+    let left = (1. + omega_t) * (-omega_t).exp();
+    (left > 0.001).then_some(1. - left)
+}
+
 fn spring(t: f32, response: f32, damping: f32) -> Option<f32> {
     let omega = std::f32::consts::TAU / response;
     let decay = (-damping * omega * t).exp();

@@ -52,6 +52,8 @@ struct Saved {
   std::vector<SavedSpace> spaces;
   // The Space the window showed.
   int shown = 0;
+  // The window's docked sidebar's width, or 0 for none.
+  double sidebar_width = 0;
 };
 
 // A navigation's page state is left out past this, as in Chrome's sessions.
@@ -92,6 +94,7 @@ Saved Collect() {
   Saved saved;
   const std::vector<Window*> windows = Window::All();
   const Window* window = windows.empty() ? nullptr : windows.front();
+  saved.sidebar_width = window ? window->sidebar_width() : 0;
   for (Space* space : Space::All()) {
     if (window && space->id() == window->space()) {
       saved.shown = saved.spaces.size();
@@ -149,8 +152,13 @@ std::optional<std::string> ToJson(const Saved& saved) {
                       .Set("today", to_list(space.today))
                       .Set("shown", space.shown));
   }
-  return base::WriteJson(
-      base::DictValue().Set("spaces", std::move(spaces)).Set("shown", saved.shown));
+  base::DictValue root;
+  root.Set("spaces", std::move(spaces));
+  root.Set("shown", saved.shown);
+  if (saved.sidebar_width > 0) {
+    root.Set("sidebar_width", saved.sidebar_width);
+  }
+  return base::WriteJson(root);
 }
 
 std::optional<SavedTab> ReadTab(const base::Value& value) {
@@ -229,6 +237,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
   }
   saved.shown = std::clamp(root->FindInt("shown").value_or(0), 0,
                            static_cast<int>(saved.spaces.size()) - 1);
+  saved.sidebar_width = root->FindDouble("sidebar_width").value_or(0);
   return saved;
 }
 
@@ -270,6 +279,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
   }
 
   std::optional<Saved> TakeLoaded() { return std::exchange(loaded_, std::nullopt); }
+  const std::optional<Saved>& loaded() const { return loaded_; }
 
   // base::ImportantFileWriter::BackgroundDataSerializer:
   base::ImportantFileWriter::BackgroundDataProducerCallback
@@ -332,6 +342,10 @@ void FlushSession() {
   if (g_saver) {
     g_saver->Flush();
   }
+}
+
+double SavedSidebarWidth() {
+  return g_saver && g_saver->loaded() ? g_saver->loaded()->sidebar_width : 0;
 }
 
 bool RestoreSession(Window& window) {
