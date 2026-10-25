@@ -22,11 +22,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Card radius | MVP | 6, circular, on the card and the page in it | Arc cap |
 | [x] | Traffic lights | MVP | centres (20, 24), (43, 24), (66, 24) | Arc 1.170.0 ax |
 | [x] | Page before first paint | MVP | card colour over the tint, never white, in every page view a tab swaps in | Ardia P§7 |
-| [ ] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |
+| [x] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |
 | [ ] | Resize edge | MVP | outer ≈ 3 pt | Dia P§1 |
 | [ ] | New window / closed window | MVP | at its final frame with content / gone at once *interim*; Arc's ⌘N: measure | Dia P§1 |
 | [ ] | Close confirmations | MVP | "Close 3 tabs?" per Space with "Don't ask me again". Arc: measure | Dia P§1 |
-| [ ] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
+| [x] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
 | [ ] | Window full screen with the sidebar | MVP | measure | — |
 | [x] | Toast | MVP | at the window's top right, 46.5 tall, 4.5 and 4 in; medium text with a key's chip; grows from 0.7 on spring 0.32 s / ζ 0.52, fades in over 100 ms, leaves over 70 ms. Text size and fill *interim* | Arc 1.170 rec |
 | [ ] | Toast's other uses | MVP | Copy URL's note and a tab archived by ⌘W: Arc's words and timing, measure | Arc |
@@ -77,7 +77,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Close ✕ | MVP | on hover, the selected row's too; 26 × 26, 5 inside the plate's right edge | Arc 1.170.0 cap |
 | [x] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
 | [ ] | Sleeping tab | MVP | faded favicon (alpha: measure) | Dia |
-| [ ] | "+ New Tab" row | MVP | label white 0.55, plus 0.25, 3 under the last row, sticky at the bottom | Dia 1.50.1 bin |
+| [x] | "+ New Tab" row | MVP | the first row under the divider, where new tabs open below it (Arc); label white 0.55, plus 0.25; hover as rows | Arc, Dia 1.50.1 bin |
 | [x] | Scroll edge | MVP | 1 pt P3 white 0.09 at favorites + 4; fades 100 ms cubic-bezier(0.25, 0.46, 0.45, 0.94) *interim*, Arc's: measure | Dia 1.53.0 bin |
 | [x] | ⌘T's plate | MVP | "+ New Tab" has the selected plate while ⌘T's bar is open, in one frame | Arc 1.170.0 rec 120 fps |
 | [x] | Open tab motion | MVP | new row in place at once, its plate fading in; rows below slide; spring 0.13 s / ζ 0.9 | Arc 1.170.0 rec 120 fps |
@@ -164,7 +164,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Keys | MVP | ↩, ⌘↩ behind with the bar open, ⌥↩ beside, ⇧⌘↩, ⌃↩, ↑↓ and Tab ⇧Tab wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Arc 1.170.0 cap, Chrome, Dia O |
 | [ ] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows | Chrome |
 | [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms) | Ardia P§7 |
-| [ ] | Click outside | MVP | closes and still acts | AGENTS.md |
+| [x] | Click outside | MVP | closes and still acts | AGENTS.md |
 | [ ] | Switch to Tab rows | MVP | across windows, never the current tab | Dia, O |
 | [ ] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |
 | [x] | Commands | MVP | found by name, with their shortcuts; one whose name starts with what's typed comes first | Arc 1.170.0 cap |
