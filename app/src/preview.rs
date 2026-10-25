@@ -429,6 +429,8 @@ impl Browser for Fake {
 
     fn reload(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
+
     fn stop(&self, _: u64, _: &mut App) {}
 
     fn zoom(&self, _: u64, _: i32, _: &mut App) {}

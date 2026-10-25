@@ -95,8 +95,10 @@
 #      right under it goes in and dragged left comes out, a folder drags as a row, and a click
 #      closes and opens it. Launched again, the app brings it back closed, a double-click renames
 #      it, and Delete Folder in its menu leaves its tab where it was.
-#  11. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, to a
-#      pasteboard of the run's own. The sidebar shows Clear and the URL field's button only while
+#  11. View › Clear Cache and Refresh and the command bar's Clear Cookies and Refresh delete the
+#      cache and the cookies of the page's site, and load the page again. ⇧⌘C and ⌥⇧⌘C from the
+#      page and the UI copy the tab's URL and a Markdown link to it, to a pasteboard of the run's
+#      own. The sidebar shows Clear and the URL field's button only while
 #      the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and
 #      Clear on the divider, close the Space's Today tabs but the one shown, with no toast, and ⌘Z
 #      from the page and the UI brings them back in place, unloaded, unless the page's text field
@@ -1452,11 +1454,13 @@ echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-
 # one that doesn't shows its title and its favicon from the profile's history, which keeps none
 # for data: pages, so the first page is served. A tab the user closed stays closed. The page's text
 # field, along its bottom, puts what's in it in the title. "d" typed in the page downloads a file,
-# and "s" one that takes longer than the run to come, once a check, as later runs type in it too.
+# "s" one that takes longer than the run to come, and "k" opens the cookie page, once a check, as
+# later runs type in it too.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
 <a id=d download href="notes.txt"></a><a id=s download href="slow.bin"></a>
+<a id=k href="clear.html"></a>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
@@ -1469,13 +1473,37 @@ onkeydown = e => {
 };
 </script>' > "$out/site/index.html"
 printf 'notes\n' > "$out/site/notes.txt"
+# The cookie page's title shows the site's cookie and how many times the server has sent its
+# script, which the cache keeps for an hour. "c" in it sets a cookie.
+printf '%s' '<title>loading</title><script src="count.js"></script>
+<script>
+document.title = "cookie " + (document.cookie || "none") + " cache " + count;
+onkeydown = e => {
+  if (e.key == "c") {
+    document.cookie = "c=1";
+    document.title = "cookie set";
+  }
+};
+</script>' > "$out/site/clear.html"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
   base64 -D > "$out/site/icon.png"
 python3 -I -u -c '
 import functools, http.server, sys, time
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    sent = 0
+
     def do_GET(self):
+        if self.path == "/count.js":
+            Handler.sent += 1
+            body = b"var count = %d;" % Handler.sent
+            self.send_response(200)
+            self.send_header("Content-Type", "text/javascript")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path != "/slow.bin":
             return super().do_GET()
         self.send_response(200)
@@ -2316,19 +2344,23 @@ expect '^browser: command toggle-folder via sidebar$' "a click on the folder did
 expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't close it: $(outline)"
 send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
-# The command bar finds commands by their names' letters in order, and runs the first row's.
+# The command bar finds commands by their names' letters in order, those that start with what's
+# typed first, four at most, and one found by its letters alone after the search row. ↩ runs the
+# command selected.
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 send type clear
-expect '^browser: command bar commands "clear": Clear Today, Clear Archive, Collapse All Folders$' "the command bar didn't find Clear Today, Clear Archive and Collapse All Folders for \"clear\""
+expect '^browser: command bar commands "clear": Clear Today, Clear Cache and Refresh, Clear Archive, Clear Cookies and Refresh$' "the command bar didn't find the four commands that start with \"clear\": $(grep '^browser: command bar commands' "$log" | tail -1)"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar again"
-send type collapse
-expect '^browser: command bar commands "collapse": Collapse All Folders$' "the command bar didn't find Collapse All Folders"
+send type cllps
+expect '^browser: command bar commands "cllps": Collapse All Folders$' "the command bar didn't find Collapse All Folders for \"cllps\""
+send key down
+expect '^browser: command bar selected Collapse All Folders$' "↓ didn't select Collapse All Folders, under the search row"
 send key return
-expect '^browser: command bar runs Collapse All Folders$' "↩ didn't run Collapse All Folders, the first row"
+expect '^browser: command bar runs Collapse All Folders$' "↩ didn't run Collapse All Folders"
 expect '^browser: command collapse-folders via command bar$' "Collapse All Folders didn't run collapse-folders"
 expect "^browser: outline $f-\\[$c\\]\$" "Collapse All Folders didn't close the folder: $(outline)"
 expect '^browser: new tab plate 0$' "running a command left New Tab's plate"
@@ -2393,6 +2425,32 @@ if [ "$active" != 1 ]; then
   echo "skip: Clear. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
+# Clear Cache and Refresh, from the View menu, and Clear Cookies and Refresh, from the command bar,
+# delete the page's site's cache and cookies and load the page again.
+send key k
+expect "^browser: title $a cookie [^ ]* cache 1\$" "k in the served page didn't open the cookie page"
+send key c
+expect "^browser: title $a cookie set\$" "c in the cookie page didn't set a cookie"
+send key r cmd
+expect "^browser: title $a cookie c=1 cache 1\$" \
+  "⌘R lost the cookie or fetched the cached script again: $(grep '^browser: title' "$log" | tail -1)"
+send menu Clear Cache and Refresh
+expect '^browser: command clear-cache-and-refresh via ui$' "Clear Cache and Refresh didn't run"
+expect "^browser: title $a cookie c=1 cache 2\$" \
+  "Clear Cache and Refresh didn't fetch the script again, or lost the cookie: $(grep '^browser: title' "$log" | tail -1)"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type clear cookies
+expect '^browser: command bar commands "clear cookies": Clear Cookies and Refresh$' \
+  "the command bar didn't find Clear Cookies and Refresh"
+send key return
+expect '^browser: command clear-cookies-and-refresh via command bar$' \
+  "Clear Cookies and Refresh didn't run from the command bar"
+expect "^browser: title $a cookie none cache 2\$" \
+  "Clear Cookies and Refresh didn't delete the cookie, or fetched the script again: $(grep '^browser: title' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/clear-site.png" || fail "no window to capture"
+send key left cmd
+expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "⌘← didn't go back to the served page"
 # Clear on the divider, which sits under the one pinned tab, the URL field's button, and the
 # served page's text field, along the bottom of the 800 pt tall window.
 clear_point="200 185"
@@ -2633,7 +2691,7 @@ send key l cmd shift
 expect '^browser: library hidden$' "⇧⌘L didn't close the Library"
 exec 3>&-
 quit
-echo "ok: ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, and Clear Archive asks, then empties it. Windows: $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/library-empty.png"
+echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, and Clear Archive asks, then empties it. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/library-empty.png"
 
 # Split view, from the served page with example.org beside it.
 log="$out/split.log"
