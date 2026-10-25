@@ -46,12 +46,15 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | URL on hover | MVP | the field's buttons, not the full URL (Dia shows it) | Arc 1.170.0 cap |
 | [x] | URL field Copy URL button | MVP | 30 × 30, while the pointer is over the sidebar; Site Control Center: later | Arc 1.170.0 cap |
 | [ ] | Insecure indicator | MVP | Arc: none; Dia and Chrome: a lock-warning glyph | Dia, Chrome P§8, Arc 1.170.0 cap |
-| [ ] | Favorite tile | MVP | 41 tall, 6 apart, inset 6, radius 10 *interim* | Dia 1.50.1 bin + cap |
-| [ ] | Favorite columns | MVP | 3 at 190 *interim*; Arc's rule: measure | Dia P§2 |
-| [ ] | Favorite resting look | MVP | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
+| [x] | Favorite tile | MVP | 41 tall, 6 apart, inset 8, radius 10 *interim* | Dia 1.50.1 bin + cap; inset ours |
+| [x] | Favorite columns | MVP | as many as fit at ≥ 48, fewer share the row: 3 at 190, 4 at 228 *interim*; Arc's rule: measure | Dia P§2; rule ours |
+| [x] | Favorite resting look | MVP | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
 | [ ] | Favorite selection theming | MVP | colourful (≥ 0.055): blur 5 at 22 %, 3 pt ring; one colour: mean fill, white template, soft-light ring; near-white: black fill, white 0.30 ring | Dia 1.50.1 bin |
-| [ ] | Favorites fixed while the list scrolls | MVP | yes; scrolls with the list above 40 % of the sidebar | Dia, Ardia |
-| [ ] | Favorite double-click | MVP | back to the pinned URL | Dia P§2 |
+| [x] | Favorites fixed while the list scrolls | MVP | yes | Dia |
+| [ ] | Tall favorites block | MVP | scrolls with the list above 40 % of the sidebar | Ardia |
+| [x] | Favorite double-click | MVP | back to the favorite's URL | Dia P§2 |
+| [x] | Favorites in a tab's menu | MVP | Add to Favorites; the tile's menu: Back to Favorite URL, Duplicate Tab, Remove from Favorites, Close Tab *interim* | ours |
+| [x] | Favorite ⌘W | MVP | unloads, keeps the tile | as pinned tabs |
 | [x] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
 | [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |
@@ -102,7 +105,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Space model | MVP | name, colour, pinned, Today, profile; many Spaces per profile | decision 5 |
 | [ ] | Switching to another profile's Space | MVP | the window's profile switches with it | decision 5 |
 | [ ] | Moving a tab across profiles | MVP | reloads after a one-time warning | Dia P§1 |
-| [ ] | Favorites per Space or per profile | MVP | measure | — |
+| [x] | Favorites per Space or per profile | MVP | per profile; confirm in Arc | Arc |
 | [ ] | Switcher footer | MVP | 41 tall; library cell left; overflow 42 wide, 3 from right | Dia 1.50.1 bin |
 | [ ] | Switcher band | MVP | 28 tall, 31 in from each side, 12 pt per item, 7 before scrolling, edge scale 0.75–1 | Dia 1.50.1 bin |
 | [ ] | Switcher dot | MVP | 6 pt; alpha 0.85 / 0.4 / 0.2 | Dia 1.50.1 bin |

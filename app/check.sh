@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app twenty times and checks:
+# Runs the app twenty-two times and checks:
 #   1. The start page loads in the browser window, over the GPUI sidebar drawn in it, and
 #      quitting through AppKit closes the page and ends every Chromium process.
 #   2. Clicks move keyboard focus between the page and the UI, and typing goes where the focus
@@ -112,7 +112,13 @@
 #      Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, and ⌘W
 #      closes the focused pane, leaving the page beside it alone. The ✕ on a split's row closes
 #      all its panes, and the window shows the tab above them.
-# Runs 2 to 12 need Browser to be the active app, and runs 4 and 9 take it full screen for a
+#  13. Add to Favorites in a Today tab's menu takes the tab out of Today into a tile above the
+#      Space's rows, without showing it. A click on the tile shows it, and ⌘1–⌘9 count favorites
+#      first. Away from its URL, a double-click on the tile goes back there. ⌘W unloads it and
+#      keeps the tile, showing the top Today tab. The tile's menu duplicates it to the top of
+#      Today. Launched again, the app brings the favorite back, shown, and Remove from Favorites
+#      in its menu puts it at the top of Today.
+# Runs 2 to 13 need Browser to be the active app, and runs 4 and 9 take it full screen for a
 # moment.
 # BROWSER_DISPLAY=builtin opens it on the Mac's own screen.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
@@ -1352,14 +1358,14 @@ expect_tabs "$a" "$a" "after a wheel's tick showed the first Space"
 # A tab's menu moves it to another Space, and the window goes with the tab it shows.
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post rightclick $(row 0)
-expect '^browser: menu shown Pin Tab, Rename Tab, Duplicate Tab, Move to Space › reading 日本語, Close Tab, Close Tabs Below (disabled)$' "the tab's menu didn't offer the other Space"
+expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space › reading 日本語, Close Tab, Close Tabs Below (disabled)$' "the tab's menu didn't offer the other Space"
 send choose reading 日本語
 expect '^browser: command move-to-space via tab menu$' "Move to Space didn't run"
 expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to Space didn't show the tab's new Space"
 expect_tabs "$a $b" "$a" "after Move to Space"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 post rightclick $(row 0)
-expect '^browser: menu shown Pin Tab, Rename Tab, Duplicate Tab, Move to Space › Space 1, Close Tab, Close Tabs Below$' "the moved tab's menu didn't offer the first Space"
+expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space › Space 1, Close Tab, Close Tabs Below$' "the moved tab's menu didn't offer the first Space"
 send choose Space 1
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "moving the tab back didn't show the first Space"
 expect_tabs "$a" "$a" "after moving the tab back"
@@ -1646,7 +1652,7 @@ if [ "$active" != 1 ]; then
 fi
 # Rename Tab in its menu, with the name taken out, gives the tab back its page's title.
 post rightclick $(row 0)
-menu="Pin Tab, Rename Tab, Duplicate Tab, Move to Space › reading list, Close Tab, Close Tabs Below"
+menu="Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space › reading list, Close Tab, Close Tabs Below"
 expect "^browser: menu shown $menu\$" \
   "a right-click on the renamed tab's row didn't offer Rename Tab"
 send choose Rename Tab
@@ -2416,7 +2422,7 @@ none_since "^browser: selected" || fail "Undo after ⇧⌘T showed another tab"
 d=$(today | cut -d' ' -f3)
 t=$(today | cut -d' ' -f1)
 post rightclick $(row 2)
-expect '^browser: menu shown Pin Tab, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
+expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
 ../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
 send choose Duplicate Tab
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
@@ -2426,7 +2432,7 @@ expect "^browser: selected $tab\$" "Duplicate Tab didn't show the copy"
 expect_page example.org 1 0 "the copy Duplicate Tab made"
 # Close Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
-expect '^browser: menu shown Pin Tab, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
+expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
 send choose Close Tabs Below
 expect '^browser: command close-tabs-below via tab menu$' "Close Tabs Below didn't run"
 expect_lists "$a" "$t" "after Close Tabs Below"
@@ -2440,7 +2446,7 @@ send key t cmd shift
 expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Close Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
 # A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
 post rightclick $(pinned_row 0)
-expect '^browser: menu shown Unpin Tab, Back to Pinned URL (disabled), Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
+expect '^browser: menu shown Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
 send choose Unpin Tab
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""
@@ -2659,5 +2665,129 @@ expect "^browser: tab $e closed\$" "the split's ✕ didn't close its right pane"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "closing the split didn't show the tab above it"
 exec 3>&-
 quit
-kill "$server"
 echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page does it too. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The split comes back after a quit with both pages. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, and the ✕ on a split's row closes all its panes. Windows: $out/split.png, $out/split-left.png"
+
+# Favorites, from the served page with example.org above it.
+log="$out/favorites.log"
+step=0
+rm -f "$saved"
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the favorites test page didn't draw"
+a=$(today)
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: favorites. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# The favorites the app last showed, left to right.
+favorites() {
+  grep '^browser: favorites' "$log" | tail -1 | sed 's/^browser: favorites *//'
+}
+# One favorite is one tile across the sidebar, 41 tall and 90 below the window's top, under the URL
+# field, and its row of tiles takes the Space's rows 47 down.
+tile="114 110"
+tiled_row() {
+  echo "100 $(($(row "$1" | cut -d' ' -f2) + 47))"
+}
+open_from_bar example.org
+b=$tab
+expect_tabs "$b $a" "$b" "after opening a tab"
+# Add to Favorites in a Today tab's menu takes the tab out of Today into a tile, without showing it.
+post rightclick $(row 1)
+expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below (disabled)$' \
+  "a right-click on a Today row didn't offer Add to Favorites"
+send choose Add to Favorites
+expect '^browser: command add-to-favorites via tab menu$' "Add to Favorites didn't run"
+expect "^browser: favorites $a\$" \
+  "Add to Favorites didn't make the tab a favorite: \"$(favorites)\""
+expect "^browser: today $b\$" "the favorite is still in Today: Today is \"$(today)\""
+none_since '^browser: selected' || fail "Add to Favorites showed another tab"
+# A click on the tile shows the favorite, and ⌘1–⌘9 count favorites first.
+send click $tile
+expect '^browser: command select via favorite$' "a click on the tile didn't run"
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
+../tools/window-screenshot.sh "$pid" "$out/favorites.png" || fail "no window to capture"
+send click $(tiled_row 0)
+expect "^browser: selected $b\( in .*\)\{0,1\}\$" \
+  "a click on the Today row under the tile didn't show its tab"
+switch "1 cmd" "$a"
+# Away from its URL, a double-click on the tile goes back there.
+tab=$a
+go_from_bar example.com
+expect "^browser: page $a away 1\$" "the favorite at another page didn't read as away from its URL"
+send doubleclick $tile
+expect '^browser: command back-to-pinned-url via favorite$' \
+  "a double-click on the tile didn't run Back to Favorite URL"
+expect "^browser: loaded $a $site\$" "a double-click on the tile didn't load the favorite's URL"
+expect "^browser: page $a away 0\$" "the favorite still read as away at its URL"
+# ⌘W unloads a favorite and keeps its tile, showing the top Today tab, and ⌘1 loads it again.
+send click $page_point
+send key w cmd
+expect "^browser: selected $b\$" "⌘W on a favorite didn't show the top Today tab"
+expect "^browser: page $a unloaded 1\$" "⌘W on a favorite didn't unload it"
+none_since "^browser: tab $a closed\$" || fail "⌘W closed a favorite"
+[ "$(favorites)" = "$a" ] ||
+  fail "⌘W on a favorite took its tile: the favorites are \"$(favorites)\""
+../tools/window-screenshot.sh "$pid" "$out/favorite-unloaded.png" || fail "no window to capture"
+switch "1 cmd" "$a"
+expect "^browser: loaded $a $site\$" "the unloaded favorite didn't load once shown"
+# The tile's menu. Duplicate Tab opens a copy at the top of Today and shows it.
+post rightclick $tile
+expect '^browser: menu shown Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, Close Tab$' \
+  "a right-click on the tile didn't show the favorite's menu"
+send choose Duplicate Tab
+expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
+expect "^browser: today [0-9][0-9]* $b\$" \
+  "Duplicate Tab didn't open a copy at the top of Today: Today is \"$(today)\""
+c=$(today | cut -d' ' -f1)
+expect "^browser: selected $c\$" "Duplicate Tab didn't show the copy"
+expect "^browser: loaded $c $site\$" "the copy didn't load the favorite's page"
+# The quit leaves the favorite shown.
+send click $tile
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
+exec 3>&-
+quit
+
+# Launched again, the favorite comes back shown, and Remove from Favorites in its menu puts it at
+# the top of Today.
+log="$out/favorites-restored.log"
+step=0
+BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored in ' || fail "the relaunch didn't restore the favorites"
+await '^browser: favorites [0-9][0-9]*$' || fail "the favorite didn't come back"
+a=$(favorites)
+await '^browser: today [0-9][0-9]* [0-9][0-9]*$' || fail "the Today tabs didn't come back"
+left=$(today)
+await "^browser: selected $a\$" || fail "the relaunch didn't show the favorite shown last"
+await "^browser: loaded $a $site\$" || fail "the favorite didn't load"
+../tools/window-screenshot.sh "$pid" "$out/favorites-restored.png" || fail "no window to capture"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  kill "$server"
+  echo "skip: the restored favorite's menu. Browser wasn't the active app, so the page ignored"
+  echo "  the click."
+  exit 0
+fi
+post rightclick $tile
+expect '^browser: menu shown Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, Close Tab$' \
+  "a right-click on the restored tile didn't show the favorite's menu"
+send choose Remove from Favorites
+expect '^browser: command remove-from-favorites via tab menu$' "Remove from Favorites didn't run"
+expect '^browser: favorites $' "Remove from Favorites left the tile"
+expect "^browser: today $a $left\$" \
+  "Remove from Favorites didn't put the tab at the top of Today: Today is \"$(today)\""
+none_since '^browser: selected' || fail "Remove from Favorites showed another tab"
+exec 3>&-
+quit
+kill "$server"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Windows: $out/favorites.png, $out/favorite-unloaded.png, $out/favorites-restored.png"

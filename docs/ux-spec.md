@@ -229,15 +229,16 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 
 | Item | Value | Source |
 |---|---|---|
-| Tile height / gap / side inset | 41 / 6 / 6 | Dia 1.50.1 bin and cap (1.49: 40) |
-| First row top | 54 below the window top under Dia's header. Re-measure under Arc's URL field | Dia 1.50.1 |
-| Columns | 3 across at 190 pt (x 6, 67, 128). Arc's rule for columns at other widths: measure | Dia, P§2 |
+| Tile height / gap | 41 / 6 | Dia 1.50.1 bin and cap (1.49: 40) |
+| Side inset | 8, the rows' plates' and the URL field's. Dia's is 6 | ours |
+| First row top | 90 below the window top, 9 under the URL field. Dia's is 54 under its header, and Arc's favorites area starts at 82 (ax): re-measure with favorites in Arc | ours |
+| Columns | as many as fit at least 48 wide, all as wide; fewer favorites share the row, and the last row starts on the left. That gives Dia's 3 across at 190 pt (x 6, 67, 128) and 4 at 228. Arc's rule: measure | Dia, P§2; the rule ours |
 | Radius | 10 | Dia bin |
-| Resting | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
-| Favicon | centred. Size: measure | Dia cap |
+| Resting | fill white 0.10, 0.5 pt stroke white 0.14. Under the pointer white 0.15, fading out on the rows' hover curve (ours) | Dia 1.50.1 bin |
+| Favicon | centred, as a row's: 16 in an 18 box, at half opacity while unloaded. Size: measure | Dia cap |
 | Badge for a tile away from its URL | none | Dia 1.53.0 bin |
 | Hover | hover card with title and URL (see Motion) | Dia, D›Tab hover card motion |
-| Double-click | goes back to the pinned URL, like ⌘↩. A tile already there doesn't reload | Dia, P§2 |
+| Double-click | goes back to the favorite's URL, like ⌘↩. A tile already there doesn't reload | Dia, P§2 |
 
 The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the icon at no more than 32 px on its long side. Average its pixels with alpha ≥ 0.975, then take their mean RGB distance from that average:
 
@@ -245,6 +246,16 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 - **Distance < 0.055 (one colour).** The tile is filled with the mean colour, the icon is drawn as a white template, and the ring is white with soft-light compositing. A near-white icon (relative luminance > 0.88) gets a black fill and a white 0.30 ring instead.
 - **No usable icon.** Fill black (dark) or white (light), with the default selection ring.
 - A secondary selection (multi-select) gets the secondary fill and no ring. Emoji icons draw at 16 pt and are themed the same way.
+- Until tiles are themed, the tile shown is white 0.20 with the default ring, white 0.45, 0.5 pt (ours).
+
+What a favorite does (ours, *interim* until Arc's are captured):
+
+- A favorite is a tab of the profile's, in no Space, so every Space of the profile shows the same tiles (Arc's favorites follow the profile; confirm in the capture). With one profile for now, they're the browser's. The tiles stay put while the Spaces' pages swipe under them.
+- Add to Favorites in a tab's menu makes the tab the last favorite, at its pinned URL if it's pinned, else at its page, and takes it out of its split. Remove from Favorites in the tile's menu puts it at the top of Today in the Space shown.
+- A click shows it. ⌘1–⌘9, next and previous tab and ⌃Tab count the favorites first. A Space remembers the favorite it showed, across a quit too.
+- The tile's menu: Back to Favorite URL (⌘↩, away from it), Duplicate Tab (a copy at the top of Today, shown), Remove from Favorites, then Close Tab (⌘W). Closing unloads it and keeps the tile, as for a pinned tab, and shows the Space's top Today tab, else its lowest pinned tab still loaded. No Rename or Move to Space yet.
+- Links a favorite opens go at the top of Today in the Space shown.
+- Later: dragging a row into the tiles, out and between them; the hover card; theming.
 
 **Pinned tabs** (Arc: per Space. Dia 1.52 has the same section.)
 
@@ -301,7 +312,7 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 - **Dropping onto the tab list.** Files and http(s) links dropped on the list open as tabs at the drop gap (Dia). `javascript:`, `data:` and `file:` links from dragged text never open (Ardia).
 - **Opening rules.** Links opened behind line up after their opener in the order opened. A link opened in front goes right after its opener. Closing a page goes to a tab it opened, then a sibling, then the opener (Chrome). Tabs opened behind load only when first shown; until then the row shows the address and the site's icon (Dia). The list scrolls to show a tab opened behind (Dia).
 - **Other row actions** (Dia). Double-click a row to rename it inline. Change its icon to an emoji. ⌘-click and ⇧-click select several rows for bulk actions. The context menu shows shortcut hints. A haptic tick sounds while reordering, as a setting.
-  - Ours (*interim* until Arc's menu is captured): a row's right-click menu has Pin Tab or Unpin Tab (⌘D), Back to Pinned URL (⌘↩, a pinned tab away from its URL), Rename Tab, Duplicate Tab, Move to Space with the other Spaces in the switcher's order, then Close Tab (⌘W) and, for a Today tab, Close Tabs Below. The row keeps its hover fill while the menu is up, and a menu from the reveal's panel opens at the pointer there. Duplicate Tab copies the tab with its history under it, or at the top of Today for a pinned tab, and shows it. Rename Tab, or a double-click on the row, turns the title into a field with all of it selected, as for a Space's name: ↩ keeps what's typed, Esc cancels and a click elsewhere keeps it. The name shows in place of the page's title wherever the tab's title does, the archive too, and stays through a quit, ⇧⌘T and Duplicate Tab. Kept empty, the tab shows its page's title again, and left as it was, nothing changes. Close Tabs Below shows the right-clicked tab first if one below was shown, so none loads on the way out, and ⇧⌘T reopens them one at a time. Move to Space keeps a pinned tab pinned, at the bottom of the other Space's pinned tabs, and puts a Today tab at the top of its Today. A window showing the tab goes with it, as Chrome's active tab goes to the window it's dragged to, and the old Space shows next what it would once the tab closed.
+  - Ours (*interim* until Arc's menu is captured): a row's right-click menu has Pin Tab or Unpin Tab (⌘D), Add to Favorites, Back to Pinned URL (⌘↩, a pinned tab away from its URL), Rename Tab, Duplicate Tab, Move to Space with the other Spaces in the switcher's order, then Close Tab (⌘W) and, for a Today tab, Close Tabs Below. The row keeps its hover fill while the menu is up, and a menu from the reveal's panel opens at the pointer there. Duplicate Tab copies the tab with its history under it, or at the top of Today for a pinned tab, and shows it. Rename Tab, or a double-click on the row, turns the title into a field with all of it selected, as for a Space's name: ↩ keeps what's typed, Esc cancels and a click elsewhere keeps it. The name shows in place of the page's title wherever the tab's title does, the archive too, and stays through a quit, ⇧⌘T and Duplicate Tab. Kept empty, the tab shows its page's title again, and left as it was, nothing changes. Close Tabs Below shows the right-clicked tab first if one below was shown, so none loads on the way out, and ⇧⌘T reopens them one at a time. Move to Space keeps a pinned tab pinned, at the bottom of the other Space's pinned tabs, and puts a Today tab at the top of its Today. A window showing the tab goes with it, as Chrome's active tab goes to the window it's dragged to, and the old Space shows next what it would once the tab closed.
 - **Hiding and showing** (Arc layout, Arc 1.170.0 rec).
   - ⌘S or the sidebar button hides the docked sidebar (Sidebar hide). The sidebar and the card's left edge leave together, and the page is laid out at every step. Hidden, the card fills the window with no traffic lights, header or nav.
   - ⌘S shows it again (Sidebar show). The window's buttons come back once it's at rest, so they never sit over the moving card.
@@ -328,7 +339,7 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 - A Space has a name, a colour, its pinned tabs, its Today tabs and a profile.
 - Several Spaces can share a profile. Switching to a Space of another profile switches the window's cookies, logins and extensions with it.
 - Moving a tab to a Space of another profile reloads it in that profile, after a one-time warning that the tab loses its session (Dia warns when moving a tab to another profile, P§1).
-- Whether favorites belong to the Space or the profile: measure in Arc.
+- Favorites belong to the profile: every Space of a profile shows the same ones (Arc, to confirm in the capture).
 
 **Switcher** (Dia 1.50.1 bin, D›Profile paging. Dia's ARCUI and TabSidebar modules look inherited from Arc, so these values are probably Arc's too: confirm.)
 
@@ -726,7 +737,7 @@ These are kept so the numbers aren't lost. Add them to a phase before building t
 | Ardia or Dia | Ours |
 |---|---|
 | Spaces merged into profiles: colour, pinned tabs, the switcher dots, swipe paging and ⌃1–⌃9 all act on profiles. Several Ardia profiles can share one engine profile to fake Spaces (P§5, D›Profile paging) | Decision 5: all of these act on Spaces |
-| Pinned tabs and favorites belong to the profile (P§2) | Pinned tabs belong to the Space. Favorites: settled by the Arc capture |
+| Pinned tabs and favorites belong to the profile (P§2) | Pinned tabs belong to the Space, favorites to the profile |
 | Arc import turns Arc Spaces into profiles (P§20) | Spaces stay Spaces |
 | The default layout is Dia's (address bar on the card, optional top tab strip); Arc's sidebar address bar is a setting (P§4) | Arc's layout only (decision 6) |
 | Dia's and Chrome's keys win clashes, so Arc's ⌘D pin moves to ⌥⇧⌘D (P§4) | Arc's keys win, since Arc's users bring their hands with them: ⌘D pins, ⌘S hides the sidebar, not Chrome's Bookmark and Save Page (2026-10-25, to review) |

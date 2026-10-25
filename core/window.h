@@ -76,13 +76,16 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // From Chrome's page context menu, once filled in: takes out the items |browser|'s window can't
   // do, if it's one of the core's.
   static void TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& menu);
-  // As |tab| closes: takes it out of its Space, and has each window that showed it show the tab its
-  // Space picks next.
+  // As |tab| closes: takes it out of its Space or the favorites, and has each window that showed it
+  // show the tab its Space picks next, or for a favorite the Space the window shows.
   static void OnTabClosing(bc_id tab);
-  // Unloads |tab|, a pinned tab, which stays in its Space: each window that showed it shows the tab
-  // its Space picks next, else no page. It leaves its split view, unless |split| unloads the rest
-  // of the split with it.
-  static void UnloadPinned(bc_id tab, bool split);
+  // Unloads |tab|, a pinned tab or a favorite, which stays where it is: each window that showed it
+  // shows the tab its Space picks next, or for a favorite the Space the window shows, else no page.
+  // It leaves its split view, unless |split| unloads the rest of the split with it.
+  static void Unload(bc_id tab, bool split);
+  // Makes |tab| the last favorite, out of its Space, or takes it out of the favorites to the top of
+  // the Today tabs of the Space its window shows. See bc_tab_set_favorite.
+  static void SetFavorite(bc_id tab, bool favorite);
   // Has each window that shows |space| show the Space before it, else the one after it, and closes
   // its tabs. The Space goes with the last of them. False, doing nothing, if it's the last Space
   // not going.
@@ -114,7 +117,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void ShowSpace(bc_id space);
   // The tab the window shows in |space|, or showed there last. 0 if none.
   bc_id SelectedIn(bc_id space) const;
-  // The tab ShowSpace shows for |space|, or the tab shown for the Space shown. 0 for none.
+  // The tab ShowSpace shows for |space|, or the tab shown for the Space shown, which may be a
+  // favorite. 0 for none.
   bc_id TabToShowIn(bc_id space) const;
   // Has ShowSpace show |tab| in |space|, as if the window showed it there last.
   void SetSelectedIn(bc_id space, bc_id tab);
@@ -146,8 +150,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // the archive. Returns its id, or 0.
   bc_id RestoreArchived(bc_id id);
   // Opens a copy of |tab|, one of this window's, with its history: under it in Today, or at the
-  // top of Today for a pinned tab, where a pinned tab's links open. Shows it, and its page loads.
-  // Returns its id, or 0.
+  // top of Today for a pinned tab, where a pinned tab's links open, and in the Space the window
+  // shows for a favorite. Shows it, and its page loads. Returns its id, or 0.
   bc_id Duplicate(bc_id tab);
 
   // Lists the command bar's suggestions for |text|, from |profile|. See bc_window_suggest.

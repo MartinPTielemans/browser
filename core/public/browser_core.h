@@ -54,8 +54,8 @@ typedef struct bc_tab_state {
   // The tab has no page loaded, as a tab put back and not yet shown, or a pinned tab closed. It
   // loads once it's shown.
   bool unloaded;
-  // The tab is pinned, and its page isn't the one it was pinned at. bc_tab_back_to_pinned_url
-  // goes back there.
+  // The tab is pinned or a favorite, and its page isn't the one it was pinned or made a favorite
+  // at. bc_tab_back_to_pinned_url goes back there.
   bool away_from_pinned_url;
 } bc_tab_state;
 
@@ -175,6 +175,8 @@ typedef struct bc_host {
   void (*space_changed)(void* context, bc_id space);
   // A Space was made, renamed or deleted. Read them with bc_spaces.
   void (*spaces_changed)(void* context);
+  // A tab was made a favorite or taken out of them. Read them with bc_favorites.
+  void (*favorites_changed)(void* context);
   // The window shows another Space. Which of its tabs, if any, follows in window_selected.
   void (*window_space_shown)(void* context, bc_id window, bc_id space);
   // The window shows another tab, or none (0): the app asked, a page opened one in front, the tab
@@ -215,13 +217,13 @@ BC_EXPORT void bc_quit(void);
 // the Mac, which the window keeps. |ui_view| may be null. Returns 0 if Chromium is quitting.
 BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 
-// Puts back the Spaces as the user left them when the browser last quit or its window closed, in
-// the window, which shows the Space it showed. The core saves them as they change, in Chrome's user
-// data directory: their names, their pinned and Today tabs with each tab's history, and the tab
-// each showed. A tab loads once it's shown. Does nothing and returns false if nothing was saved or
-// there are Spaces already. Then spaces_changed, space_changed, each tab's tab_state_changed and
-// tab_title_changed, tab_favicon_changed once a tab's favicon is found, window_space_shown and
-// window_selected.
+// Puts back the favorites and the Spaces as the user left them when the browser last quit or its
+// window closed, in the window, which shows the Space it showed. The core saves them as they
+// change, in Chrome's user data directory: the favorites, the Spaces' names, their pinned and Today
+// tabs with each tab's history, and the tab each showed. A tab loads once it's shown. Does nothing
+// and returns false if nothing was saved or there are Spaces already. Then favorites_changed,
+// spaces_changed, space_changed, each tab's tab_state_changed and tab_title_changed,
+// tab_favicon_changed once a tab's favicon is found, window_space_shown and window_selected.
 BC_EXPORT bool bc_window_restore(bc_id window);
 
 // Closes the window: its pages get their unload handlers, then window_closed.
@@ -262,6 +264,10 @@ BC_EXPORT size_t bc_space_today(bc_id space, bc_id* tabs, size_t capacity);
 // Copies up to |capacity| of the Space's pinned tabs into |tabs|, top to bottom, and returns how
 // many it has. They sit above its Today tabs.
 BC_EXPORT size_t bc_space_pinned(bc_id space, bc_id* tabs, size_t capacity);
+
+// Copies up to |capacity| of the favorites into |tabs|, left to right, and returns how many there
+// are. They're tabs in no Space, which every Space shows above its own, as Arc shows a profile's.
+BC_EXPORT size_t bc_favorites(bc_id* tabs, size_t capacity);
 
 // Copies up to |capacity| of the tabs shown with |tab| into |tabs|, left to right, |tab| among
 // them, and returns how many there are: those of its split view, else |tab| alone. 0 for a tab in
@@ -420,18 +426,25 @@ BC_EXPORT void bc_tab_find_close(bc_id tab);
 // tab_state_changed.
 BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
 
+// Makes the tab the last favorite, at its pinned URL if it's pinned, else at the page it's at: it
+// leaves its Space and its split view. Or takes it out of the favorites, to the top of the Today
+// tabs of the Space its window shows. A window showing it keeps showing it. Then favorites_changed,
+// space_changed and tab_state_changed.
+BC_EXPORT void bc_tab_set_favorite(bc_id tab, bool favorite);
+
 // Moves the tab, with the rest of its split view, to |index| in its Space's pinned tabs or in its
 // Today tabs, counted without them, else to the bottom, and below a split |index| is inside. A
 // Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned tab moved to Today
 // is unpinned. Then space_changed and tab_state_changed.
 BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, size_t index);
 
-// Loads a pinned tab's pinned URL, unless it's there already. Then tab_state_changed.
+// Loads a pinned tab's pinned URL, or a favorite's URL, unless it's there already. Then
+// tab_state_changed.
 BC_EXPORT void bc_tab_back_to_pinned_url(bc_id tab);
 
 // Opens a copy of the tab, with its history, under it in Today, or at the top of Today for a
-// pinned tab, and shows it in its window, where its page loads. Returns its id, or 0. Then
-// space_changed and window_selected.
+// pinned tab, or of the Space its window shows for a favorite. Shows it in its window, where its
+// page loads. Returns its id, or 0. Then space_changed and window_selected.
 BC_EXPORT bc_id bc_tab_duplicate(bc_id tab);
 
 // Names the tab, which shows |name| for its title from then on, kept across a quit, a reopen and a
@@ -475,8 +488,9 @@ BC_EXPORT void bc_tab_save_page(bc_id tab);
 
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
 // a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its
-// Space instead, and only its page goes: a window showing it shows the Space's top Today tab, else
-// the nearest pinned tab still loaded, else no page. A tab in a split view leaves it, and a window
+// Space instead, and a favorite in the favorites, and only its page goes: a window showing it
+// shows the top Today tab of the Space it shows, else the nearest pinned tab still loaded, else no
+// page. A tab in a split view leaves it, and a window
 // showing it shows the tab beside it, unless |split| closes the rest of the split with it, as
 // the ✕ on its row does: a pinned split stays a split. Then tab_state_changed, and
 // window_selected.

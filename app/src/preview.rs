@@ -40,6 +40,14 @@ const TABS: [(&str, &str); 5] = [
     ("", "https://example.com/"),
 ];
 
+// The favorites, which every Space shows above its tabs.
+const FAVORITES: [(&str, &str); 4] = [
+    ("Gmail", "https://mail.google.com/"),
+    ("Calendar", "https://calendar.google.com/"),
+    ("GitHub", "https://github.com/"),
+    ("YouTube", "https://www.youtube.com/"),
+];
+
 // The archive: tabs closed hours and days ago, newest first.
 const ARCHIVE: [(&str, &str, f64); 6] = [
     ("Wikipedia", "https://www.wikipedia.org/", 0.05),
@@ -177,6 +185,29 @@ impl Browser for Fake {
             tabs[to].insert(at, tab);
             let [pinned, today] = tabs;
             shell.set_tabs(shell.space(), pinned, today, shell.splits(), cx);
+        });
+    }
+
+    fn set_favorite(&self, tab: u64, favorite: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let mut favorites = shell.favorites().to_vec();
+            let (mut pinned, mut today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let mut splits = shell.splits();
+            if favorite {
+                pinned.retain(|&id| id != tab);
+                today.retain(|&id| id != tab);
+                splits.iter_mut().for_each(|split| split.retain(|&id| id != tab));
+                splits.retain(|split| split.len() > 1);
+                favorites.push(tab);
+                // The core reports a tab in its new place before it leaves the old.
+                shell.set_favorites(favorites, cx);
+                shell.set_tabs(shell.space(), pinned, today, splits, cx);
+            } else {
+                favorites.retain(|&id| id != tab);
+                today.insert(0, tab);
+                shell.set_tabs(shell.space(), pinned, today, splits, cx);
+                shell.set_favorites(favorites, cx);
+            }
         });
     }
 
@@ -475,9 +506,11 @@ fn main() {
                         started: now() - days * DAY,
                     })
                     .collect();
+                let first_favorite = first_download + DOWNLOADS.len() as u64;
+                let favorites: Vec<u64> = (first_favorite..).take(FAVORITES.len()).collect();
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(first_download + DOWNLOADS.len() as u64),
+                    next_id: Cell::new(first_favorite + FAVORITES.len() as u64),
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
@@ -487,6 +520,12 @@ fn main() {
                 let mut shell = Shell::new(browser, cx);
                 shell.set_spaces(spaces, cx);
                 shell.set_space(first_space, cx);
+                // The shell forgets what it knows of a tab in no list, so the lists come first.
+                shell.set_favorites(favorites.clone(), cx);
+                for (&tab, (title, url)) in favorites.iter().zip(FAVORITES) {
+                    shell.set_title(tab, title.into(), cx);
+                    shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
+                }
                 for (index, (title, url)) in TABS.iter().enumerate() {
                     let tab = index as u64 + 1;
                     shell.set_title(tab, (*title).into(), cx);

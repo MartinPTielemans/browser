@@ -85,7 +85,8 @@ class Space {
   // a tab it opened, then another tab its opener opened, then its opener, then the tab below it,
   // then the one above, and after the last Today tab the lowest pinned tab still |loaded|. For a
   // pinned tab it's the top Today tab, else the nearest pinned tab still |loaded|, below it first.
-  // In a split it's the tab beside it, the one on its right first. 0 if there's none.
+  // In a split it's the tab beside it, the one on its right first. For a tab not in the Space, a
+  // favorite, it's the top Today tab, else the lowest pinned tab still |loaded|. 0 if there's none.
   bc_id NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> loaded) const;
 
  private:

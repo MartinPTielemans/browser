@@ -17,6 +17,7 @@
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/browser_window_stand_in.h"
+#include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/session.h"
@@ -205,9 +206,12 @@ bool Window::Showing(bc_id tab) {
 // static
 void Window::PanesChanged() {
   for (auto& [id, window] : Windows()) {
-    Space* space = Space::Holding(window->selected_);
-    if (space && space->Panes(window->selected_) != window->panes_) {
-      window->Select(window->selected_);
+    const bc_id selected = window->selected_;
+    // A favorite is in no split.
+    Space* space = Space::Holding(selected);
+    if (selected && (space ? space->Panes(selected) : std::vector<bc_id>{selected}) !=
+                        window->panes_) {
+      window->Select(selected);
     }
   }
 }
@@ -296,7 +300,7 @@ void Window::AdjustNavigate(NavigateParams& params) {
 // static
 void Window::OnTabClosing(bc_id tab) {
   Space* space = Space::Holding(tab);
-  if (!space) {
+  if (!space && !Favorites::Has(tab)) {
     return;
   }
   // One closing with its window, or as the browser quits, comes back at the next launch.
@@ -304,12 +308,17 @@ void Window::OnTabClosing(bc_id tab) {
       std::ranges::any_of(Windows(), [](const auto& entry) { return entry.second->closing_; })) {
     KeepSession();
   }
-  const bc_id next = space->NextAfterLeaving(tab, &Tab::Loaded);
-  space->Remove(tab);
+  const bc_id next = space ? space->NextAfterLeaving(tab, &Tab::Loaded) : 0;
+  if (space) {
+    space->Remove(tab);
+  } else {
+    Favorites::Remove(tab);
+  }
   for (auto& [id, window] : Windows()) {
     if (window->selected_ == tab) {
       window->selected_ = 0;
-      window->next_after_closing_ = next;
+      Space* shown = space ? nullptr : Space::FromId(window->space_);
+      window->next_after_closing_ = shown ? shown->NextAfterLeaving(tab, &Tab::Loaded) : next;
       // Posted: Chrome is part way through closing the tab, and its tab strip can't change yet.
       base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
           FROM_HERE,
@@ -322,34 +331,41 @@ void Window::OnTabClosing(bc_id tab) {
   // A window showing it beside the tab it shows shows the rest of the split.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&Window::PanesChanged));
-  if (space->pinned().empty() && space->today().empty() && DeletingSpaces().erase(space->id())) {
+  if (space && space->pinned().empty() && space->today().empty() &&
+      DeletingSpaces().erase(space->id())) {
     Space::Delete(space->id());
   }
 }
 
 // static
-void Window::UnloadPinned(bc_id tab, bool split) {
+void Window::Unload(bc_id tab, bool split) {
   Space* space = Space::Holding(tab);
-  if (!space || !space->IsPinned(tab) || !Tab::FromId(tab)) {
+  if ((space ? !space->IsPinned(tab) : !Favorites::Has(tab)) || !Tab::FromId(tab)) {
     return;
   }
-  const std::vector<bc_id> going = split ? space->Panes(tab) : std::vector<bc_id>{tab};
-  const bc_id next = space->NextAfterLeaving(tab, [&going](bc_id other) {
+  const std::vector<bc_id> going = space && split ? space->Panes(tab) : std::vector<bc_id>{tab};
+  const auto staying = [&going](bc_id other) {
     return !std::ranges::contains(going, other) && Tab::Loaded(other);
-  });
+  };
+  const bc_id next = space ? space->NextAfterLeaving(tab, staying) : 0;
   // Out of its split, so showing the rest of it doesn't load it again.
-  if (!split) {
+  if (space && !split) {
     space->Separate(tab);
   }
   // Another tab first, so the pages unload out of sight.
   for (auto& [id, window] : Windows()) {
     if (std::ranges::contains(going, window->selected_)) {
-      if (next) {
-        window->Select(next);
+      Space* shown = space ? nullptr : Space::FromId(window->space_);
+      if (const bc_id its_next = shown ? shown->NextAfterLeaving(tab, staying) : next) {
+        window->Select(its_next);
       } else {
         window->ShowNothing();
       }
     }
+    // Nor does showing another Space that showed it last.
+    std::erase_if(window->selected_in_space_, [&going](const auto& entry) {
+      return std::ranges::contains(going, entry.second);
+    });
   }
   PanesChanged();
   for (bc_id each : going) {
@@ -357,6 +373,38 @@ void Window::UnloadPinned(bc_id tab, bool split) {
       Tab::FromWebContents(contents)->Unload();
     }
   }
+}
+
+// static
+void Window::SetFavorite(bc_id tab, bool favorite) {
+  content::WebContents* contents = Tab::FromId(tab);
+  Space* space = Space::Holding(tab);
+  if (!contents || favorite == Favorites::Has(tab)) {
+    return;
+  }
+  // In one list before it leaves the other, so the UI never hears of it in neither and forgets its
+  // title.
+  if (favorite) {
+    if (!space) {
+      return;
+    }
+    Favorites::Add(tab, space->IsPinned(tab) ? space->PinnedUrl(tab) : Tab::PageUrl(contents));
+    space->Remove(tab);
+  } else {
+    tabs::TabInterface* in = tabs::TabInterface::MaybeGetFromContents(contents);
+    Window* window = in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
+    Space* shown = window ? Space::FromId(window->space_) : nullptr;
+    if (!shown) {
+      return;
+    }
+    shown->AddAt(tab, 0);
+    Favorites::Remove(tab);
+  }
+  // A window showing it beside the tab it shows shows the rest of the split.
+  PanesChanged();
+  Tab::FromWebContents(contents)->set_last_seen(base::Time::Now());
+  // Whether it's away from its URL.
+  Tab::FromWebContents(contents)->StateChanged();
 }
 
 // static
@@ -664,7 +712,8 @@ bc_id Window::TabToShowIn(bc_id space) const {
     return in ? selected_ : 0;
   }
   auto last = selected_in_space_.find(space);
-  if (last != selected_in_space_.end() && in->Has(last->second)) {
+  if (last != selected_in_space_.end() &&
+      (in->Has(last->second) || Favorites::Has(last->second))) {
     return last->second;
   }
   if (!in->today().empty()) {
@@ -807,7 +856,7 @@ bc_id Window::RestoreArchived(bc_id id) {
 bc_id Window::Duplicate(bc_id tab) {
   content::WebContents* contents = Tab::FromId(tab);
   tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  Space* space = Space::Holding(tab);
+  Space* space = Favorites::Has(tab) ? Space::FromId(space_) : Space::Holding(tab);
   if (!in || !space || ForBrowser(in->GetBrowserWindowInterface()) != this) {
     return 0;
   }

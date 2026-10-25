@@ -8,6 +8,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
@@ -140,14 +141,14 @@ void Tab::ReportState() {
   // shows only once it commits, so a page can't put another site's URL over its own.
   const std::string url = web_contents()->GetVisibleURL().spec();
   const Space* space = Space::Holding(id_);
+  const GURL pinned_url = space ? space->PinnedUrl(id_) : Favorites::Url(id_);
   const bc_tab_state state = {
       .url = url.c_str(),
       .can_go_back = history.CanGoBack(),
       .can_go_forward = history.CanGoForward(),
       .loading = web_contents()->ShouldShowLoadingUI(),
       .unloaded = history.NeedsReload(),
-      .away_from_pinned_url = space && space->IsPinned(id_) &&
-                              PageUrl(web_contents()) != space->PinnedUrl(id_),
+      .away_from_pinned_url = pinned_url.is_valid() && PageUrl(web_contents()) != pinned_url,
   };
   Host().tab_state_changed(Host().context, id_, &state);
   ReportFavicon(state.loading);

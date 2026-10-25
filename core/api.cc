@@ -9,6 +9,7 @@
 #include "browser_core/archive.h"
 #include "browser_core/downloads.h"
 #include "browser_core/favicon.h"
+#include "browser_core/favorites.h"
 #include "browser_core/find.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/public/browser_core.h"
@@ -173,6 +174,12 @@ size_t bc_space_pinned(bc_id id, bc_id* tabs, size_t capacity) {
   return pinned.size();
 }
 
+size_t bc_favorites(bc_id* tabs, size_t capacity) {
+  const std::vector<bc_id>& favorites = browser_core::Favorites::All();
+  std::copy_n(favorites.begin(), std::min(capacity, favorites.size()), tabs);
+  return favorites.size();
+}
+
 size_t bc_tab_split(bc_id id, bc_id* tabs, size_t capacity) {
   browser_core::Space* space = browser_core::Space::Holding(id);
   if (!space) {
@@ -319,10 +326,10 @@ void bc_tab_navigate(bc_id id, const char* url) {
 void bc_tab_back_to_pinned_url(bc_id id) {
   browser_core::Space* space = browser_core::Space::Holding(id);
   content::WebContents* contents = browser_core::Tab::FromId(id);
-  if (!space || !space->IsPinned(id) || !contents) {
+  const GURL url = space ? space->PinnedUrl(id) : browser_core::Favorites::Url(id);
+  if (!url.is_valid() || !contents) {
     return;
   }
-  const GURL url = space->PinnedUrl(id);
   // A tab already there doesn't load it again.
   if (browser_core::Tab::PageUrl(contents) != url) {
     LoadInTab(id, url, ui::PAGE_TRANSITION_AUTO_BOOKMARK);
@@ -393,6 +400,10 @@ void bc_tab_set_pinned(bc_id id, bool pinned) {
     space->Unpin(id);
   }
   SplitMoved(*space, id);
+}
+
+void bc_tab_set_favorite(bc_id id, bool favorite) {
+  browser_core::Window::SetFavorite(id, favorite);
 }
 
 void bc_tab_move(bc_id id, bool pinned, size_t index) {
@@ -501,8 +512,8 @@ void bc_tab_move_to_space(bc_id id, bc_id space) {
 
 void bc_tab_close(bc_id id, bool split) {
   browser_core::Space* space = browser_core::Space::Holding(id);
-  if (space && space->IsPinned(id)) {
-    browser_core::Window::UnloadPinned(id, split);
+  if ((space && space->IsPinned(id)) || browser_core::Favorites::Has(id)) {
+    browser_core::Window::Unload(id, split);
     return;
   }
   // Each closes at once unless its page keeps it, and the window shows what its Space picks after
