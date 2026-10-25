@@ -297,6 +297,14 @@ impl Shell {
         self.show_section(section, cx);
     }
 
+    /// Shows the Library's Downloads for Chrome, which asks after the user stopped a quit to let
+    /// downloads finish. Unlike ⇧⌘J, it leaves the Library open when Downloads are shown already.
+    pub fn show_downloads(&mut self, cx: &mut Context<Self>) {
+        if !self.library_open || self.section != Section::Downloads {
+            self.run(Command::ViewDownloads, "chrome", cx);
+        }
+    }
+
     /// Lists `section` in the Library, with an empty search field of its own.
     fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;

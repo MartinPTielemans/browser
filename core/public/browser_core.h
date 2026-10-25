@@ -199,6 +199,9 @@ typedef struct bc_host {
   // The icon bc_download_icon asked for: a PNG |size| bytes long, 32 pixels square for 16 points
   // at 2×, or null and 0 if the system has none.
   void (*download_icon)(void* context, bc_id download, const uint8_t* png, size_t size);
+  // Chrome asked to show |window|'s downloads, such as after the user stopped a quit to let them
+  // finish. In place of Chrome's downloads page, which the window never opens.
+  void (*window_show_downloads)(void* context, bc_id window);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

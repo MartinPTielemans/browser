@@ -572,7 +572,7 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
   - Still to come: Move to Trash, and dragging the file out to Finder, other apps, the page or the tab list.
 - **Footer button** (ours until measured). While a download runs, the footer's Library button shows a download glyph over a 16 × 2 bar of the running downloads' progress, and a click opens Downloads. A new download flies into it in Arc and Dia; Dia's "magnet" constants 0.1 s and 1.3 are not decoded, so record it in Arc.
 - The list is per profile and persists across launches in Chrome's history, up to the newest 500; private windows' downloads are never written.
-- Quitting with downloads in progress asks first. Until then, quitting cancels them.
+- **Quit guard** (Chrome's). Quitting with downloads running asks first, in Chrome's alert: "Download is in progress", with Continue Downloading or Quit. Continue Downloading keeps the browser running and shows the Library's Downloads, where Chrome would open its downloads page; Quit cancels them, and they come back cancelled. The alert names the product with Chromium's strings until branding lands. Arc's wording: measure.
 - Measure Arc's Downloads section, its button while downloading, and the fly-in.
 
 ### Find in page

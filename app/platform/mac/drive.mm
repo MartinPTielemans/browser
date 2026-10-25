@@ -39,7 +39,7 @@
 //                                         submenu too
 //   choose <title>                        chooses the item titled <title> in the menu a right
 //                                         click showed, the page's too, or the button in the
-//                                         alert shown
+//                                         alert shown, Chrome's too
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
@@ -48,9 +48,10 @@
 // as the sidebar reveal over its edge, scrolls to the browser window, and keys and clickkey to the
 // key window. It logs "browser: drive <n>: <command>" when command n arrives and "browser: drive
 // <n> done, key <window class>, focus <view class>, active <0|1>, marked <location,length|none>"
-// once AppKit has handled its events, and "browser: menu tracked <titles>" as a menu opens, such as
-// the page's. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
-// background process make it active.
+// once AppKit has handled its events, "browser: menu tracked <titles>" as a menu opens, such as
+// the page's, and "browser: modal shown <texts and buttons>" as an alert does. A page ignores
+// clicks while the app isn't the active app, and macOS doesn't let a background process make it
+// active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
@@ -397,6 +398,29 @@ bool ChooseTracked(NSString* title) {
   return true;
 }
 
+// The text fields' and buttons' views in |view|, in the order AppKit lays them out.
+void ModalTexts(NSView* view, NSMutableArray<NSView*>* texts) {
+  if ([view isKindOfClass:NSTextField.class] || [view isKindOfClass:NSButton.class]) {
+    [texts addObject:view];
+  }
+  for (NSView* subview in view.subviews) {
+    ModalTexts(subview, texts);
+  }
+}
+
+// Presses the button titled |title| in the window AppKit runs modally, such as Chrome's own alerts.
+bool ChooseModal(NSString* title) {
+  NSMutableArray<NSView*>* texts = [NSMutableArray array];
+  ModalTexts(NSApp.modalWindow.contentView, texts);
+  for (NSView* view in texts) {
+    if ([view isKindOfClass:NSButton.class] && [((NSButton*)view).title isEqual:title]) {
+      [(NSButton*)view performClick:nil];
+      return true;
+    }
+  }
+  return false;
+}
+
 // Calls |done| once the command's events are posted. Returns false, without calling it, for a
 // command it can't do.
 bool Run(const std::string& line, void (^done)(void)) {
@@ -607,7 +631,8 @@ bool Run(const std::string& line, void (^done)(void)) {
   }
   if (action == "choose") {
     std::string title = line.substr(std::min(line.size(), action.size() + 1));
-    if (!host_choose(title.c_str()) && !ChooseTracked(@(title.c_str()))) {
+    if (!host_choose(title.c_str()) && !ChooseTracked(@(title.c_str())) &&
+        !ChooseModal(@(title.c_str()))) {
       return false;
     }
     // Once the menu or alert has closed, which GCD's main queue waits for.
@@ -739,6 +764,31 @@ void drive_start(void) {
                 }
                 fprintf(stderr, "browser: menu tracked %s\n",
                         [titles componentsJoinedByString:@", "].UTF8String);
+              }];
+  // An alert AppKit runs modally, such as Chrome's own: its texts and buttons, for check.sh to
+  // wait for and read.
+  [NSNotificationCenter.defaultCenter
+      addObserverForName:NSWindowDidBecomeKeyNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification* notification) {
+                NSWindow* window = notification.object;
+                if (window != NSApp.modalWindow) {
+                  return;
+                }
+                NSMutableArray<NSView*>* views = [NSMutableArray array];
+                ModalTexts(window.contentView, views);
+                NSMutableArray<NSString*>* texts = [NSMutableArray array];
+                for (NSView* view in views) {
+                  NSString* text = [view isKindOfClass:NSButton.class]
+                                       ? ((NSButton*)view).title
+                                       : ((NSTextField*)view).stringValue;
+                  if (text.length && !view.hidden) {
+                    [texts addObject:text];
+                  }
+                }
+                fprintf(stderr, "browser: modal shown %s\n",
+                        [texts componentsJoinedByString:@", "].UTF8String);
               }];
   // So does a zoom, and the window is zoomed only at its last frame.
   __block BOOL zoomed = NO;
