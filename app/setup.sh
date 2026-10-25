@@ -1,6 +1,6 @@
 #!/bin/sh
 # Fetches the app's dependencies into .deps/ (gitignored): Zed at a pinned revision, with our
-# GPUI patch applied, and links our engine, Chromium.app with the core in its framework: the one
+# GPUI patches applied, and links our engine, Chromium.app with the core in its framework: the one
 # engine/build.sh built, or else the prebuilt one engine/fetch.sh downloads. `setup.sh dev` links
 # the dev build's, and `setup.sh prebuilt` the prebuilt one even beside a local build.
 set -e
@@ -12,13 +12,14 @@ if [ ! -d .deps/zed ]; then
   git clone --filter=blob:none --no-checkout https://github.com/zed-industries/zed .deps/zed
   git -C .deps/zed checkout -q "$ZED_REV"
 fi
-git -C .deps/zed checkout -q -- crates/gpui_macos
+git -C .deps/zed checkout -q -- crates/gpui crates/gpui_macos
 # A checkout made for an earlier pin moves to this one.
 if [ "$(git -C .deps/zed rev-parse HEAD)" != "$ZED_REV" ]; then
   git -C .deps/zed fetch -q origin "$ZED_REV"
   git -C .deps/zed checkout -q "$ZED_REV"
 fi
-git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch"
+# One patch a crate: gpui_macos's embeds GPUI in Chromium's window, gpui's scales what's painted.
+git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch" "$PWD/patches/gpui-scale.patch"
 
 engines=$(cd .. && pwd)/engine
 case ${1:-} in

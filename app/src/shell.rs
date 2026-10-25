@@ -26,10 +26,12 @@ use crate::text_input::TextInput;
 
 mod library;
 mod new_space;
+mod scaled;
 mod split_targets;
 
 pub use library::{Archived, Download, DownloadAction, DownloadState};
-use library::{LIBRARY_WIDTH, Section, swiped_opacity};
+use library::{LIBRARY_WIDTH, RECEDE_X, Section};
+use scaled::scaled;
 
 /// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
@@ -1391,6 +1393,8 @@ pub struct Shell {
     page_fullscreen: bool,
     /// Whether ⌘S has hidden the sidebar.
     sidebar_hidden: bool,
+    /// Whether the window's own buttons show (`window_buttons_shown`).
+    window_buttons: bool,
     /// The docked sidebar's width, at rest.
     sidebar_width: f32,
     /// While the sidebar's edge is dragged: how far right of the edge the pointer pressed it, and
@@ -1493,6 +1497,7 @@ impl Shell {
             sidebar_hovered: false,
             page_fullscreen: false,
             sidebar_hidden: false,
+            window_buttons: true,
             sidebar_width,
             resize: None,
             width_motion: None,
@@ -1767,11 +1772,17 @@ impl Shell {
         let from = self.card_left();
         self.sidebar_hidden = !self.sidebar_hidden;
         self.sidebar_motion = Some((from, Instant::now()));
-        // Arc hides the window's buttons with the sidebar.
-        if self.sidebar_hidden {
-            self.browser.show_window_buttons(false, cx);
-        }
         cx.notify();
+    }
+
+    /// Whether the window's own buttons show: over the docked sidebar at rest and over the open
+    /// Library, as in Arc. The sidebar hides them as it goes and they come back once it's in, and
+    /// while the Library moves the sidebar draws them, receding with it.
+    fn window_buttons_shown(&self) -> bool {
+        if self.library_moving() {
+            return false;
+        }
+        self.library_open || (!self.sidebar_hidden && self.sidebar_motion.is_none())
     }
 
     /// Docks the sidebar the reveal has out, in one frame (Arc), and returns whether it was out.
@@ -1782,7 +1793,6 @@ impl Shell {
         self.conceal_now(cx);
         self.sidebar_hidden = false;
         self.sidebar_motion = None;
-        self.browser.show_window_buttons(true, cx);
         // check.sh waits for this line.
         eprintln!("browser: sidebar shown");
         cx.notify();
@@ -3641,8 +3651,7 @@ impl Shell {
                 // check.sh waits for this line.
                 eprintln!("browser: command view-library via swipe");
             }
-            let opacity = swiped_opacity(out);
-            self.move_library(open, out, velocity / LIBRARY_WIDTH, opacity, cx);
+            self.move_library(open, out, velocity / LIBRARY_WIDTH, None, cx);
             return true;
         }
         if swipe.ready {
@@ -4824,9 +4833,6 @@ impl Render for Shell {
                 // check.sh waits for these lines.
                 let state = if self.sidebar_hidden { "hidden" } else { "shown" };
                 eprintln!("browser: sidebar {state}");
-                if !self.sidebar_hidden {
-                    self.browser.show_window_buttons(true, cx);
-                }
             }
         }
         self.step_library(window, cx);
@@ -4859,7 +4865,12 @@ impl Render for Shell {
             self.page_right = page_right;
             self.browser.set_page_right(page_right, cx);
         }
-        // The Library slides in from the left with the card's edge, over the sidebar fading.
+        let window_buttons = self.window_buttons_shown();
+        if window_buttons != self.window_buttons {
+            self.window_buttons = window_buttons;
+            self.browser.show_window_buttons(window_buttons, cx);
+        }
+        // The Library slides in from the left with the card's edge, over the sidebar receding.
         let library = self.library.is_some() && !self.page_fullscreen;
         let library = library.then(|| self.library_panel(cx));
         // The sidebar leaves with the card's edge, all of it by the time the edge stops.
@@ -4870,8 +4881,26 @@ impl Render for Shell {
             && opacity > 0.
             && (!self.sidebar_hidden || self.sidebar_motion.is_some());
         let sidebar = sidebar_shown.then(|| {
-            let sidebar = self.sidebar(cx).left(px(sidebar_left)).opacity(opacity);
-            sidebar.child(self.hover_listener(cx))
+            let scale = self.sidebar_scale();
+            let origin = point(px(width + RECEDE_X), self.viewport.height / 2.);
+            // The Library covers the sidebar up to its edge, which is `cover` before the scale.
+            let edge = self.library_edge() * LIBRARY_WIDTH;
+            let cover = f32::from(origin.x) + (edge - f32::from(origin.x)) / scale;
+            let sidebar = self.sidebar(cx).left(px(sidebar_left - cover));
+            let uncovered = div()
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(cover))
+                .right_0()
+                .overflow_hidden()
+                .child(sidebar.child(self.hover_listener(cx)));
+            // Its buttons recede with it, over the Library, as the window's do in Arc. Full screen
+            // has none.
+            let buttons = self.library_moving() && !window.is_fullscreen();
+            let buttons = buttons.then(|| self.window_buttons(cx));
+            let receding = div().absolute().size_full().opacity(opacity);
+            scaled(receding.child(uncovered).children(buttons), scale, origin)
         });
         let docked = sidebar_shown
             && !self.sidebar_hidden

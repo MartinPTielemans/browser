@@ -1,0 +1,166 @@
+diff --git a/crates/gpui/src/scene.rs b/crates/gpui/src/scene.rs
+index 6cb33874b2..0066ba74a2 100644
+--- a/crates/gpui/src/scene.rs
++++ b/crates/gpui/src/scene.rs
+@@ -50,6 +50,8 @@ pub struct Scene {
+     pub subpixel_sprites: Vec<SubpixelSprite>,
+     pub polychrome_sprites: Vec<PolychromeSprite>,
+     pub surfaces: Vec<PaintSurface>,
++    /// The factor and origin `Window::with_scale` scales what's inserted by.
++    pub(crate) scale: Option<(f32, Point<ScaledPixels>)>,
+ }
+ 
+ #[expect(missing_docs)]
+@@ -66,6 +68,7 @@ impl Scene {
+         self.subpixel_sprites.clear();
+         self.polychrome_sprites.clear();
+         self.surfaces.clear();
++        self.scale = None;
+     }
+ 
+     pub fn len(&self) -> usize {
+@@ -86,6 +89,9 @@ impl Scene {
+ 
+     pub fn insert_primitive(&mut self, primitive: impl Into<Primitive>) {
+         let mut primitive = primitive.into();
++        if let Some((factor, origin)) = self.scale {
++            primitive.scale_about(factor, origin);
++        }
+         let clipped_bounds = primitive
+             .bounds()
+             .intersect(&primitive.content_mask().bounds);
+@@ -139,6 +145,8 @@ impl Scene {
+     }
+ 
+     pub fn replay(&mut self, range: Range<usize>, prev_scene: &Scene) {
++        // What was recorded is scaled already.
++        let scale = self.scale.take();
+         for operation in &prev_scene.paint_operations[range] {
+             match operation {
+                 PaintOperation::Primitive(primitive) => self.insert_primitive(primitive.clone()),
+@@ -146,6 +154,7 @@ impl Scene {
+                 PaintOperation::EndLayer => self.pop_layer(),
+             }
+         }
++        self.scale = scale;
+     }
+ 
+     pub fn finish(&mut self) {
+@@ -257,6 +266,87 @@ impl Primitive {
+             Primitive::Surface(surface) => &surface.content_mask,
+         }
+     }
++
++    /// Scales the primitive by `factor` about `origin`, as a layer's transform would.
++    fn scale_about(&mut self, factor: f32, origin: Point<ScaledPixels>) {
++        let length = |length: &ScaledPixels| *length * factor;
++        let at = |p: Point<ScaledPixels>| {
++            point(
++                origin.x + (p.x - origin.x) * factor,
++                origin.y + (p.y - origin.y) * factor,
++            )
++        };
++        let bounds = |bounds: &mut Bounds<ScaledPixels>| {
++            *bounds = Bounds {
++                origin: at(bounds.origin),
++                size: bounds.size.map(|side| side * factor),
++            };
++        };
++        let mask = |mask: &mut ContentMask<ScaledPixels>| bounds(&mut mask.bounds);
++        // A sprite's own transformation applies to its scaled bounds, so it's conjugated.
++        let transformation = |transformation: &mut TransformationMatrix| {
++            if *transformation == TransformationMatrix::unit() {
++                return;
++            }
++            let scale = |factor: f32, origin: Point<ScaledPixels>| {
++                TransformationMatrix::unit()
++                    .translate(origin)
++                    .scale(Size::new(factor, factor))
++                    .translate(point(ScaledPixels(-origin.x.0), ScaledPixels(-origin.y.0)))
++            };
++            *transformation = scale(factor, origin)
++                .compose(*transformation)
++                .compose(scale(1. / factor, origin));
++        };
++        match self {
++            Primitive::Shadow(shadow) => {
++                shadow.blur_radius = length(&shadow.blur_radius);
++                bounds(&mut shadow.bounds);
++                shadow.corner_radii = shadow.corner_radii.map(length);
++                mask(&mut shadow.content_mask);
++                bounds(&mut shadow.element_bounds);
++                shadow.element_corner_radii = shadow.element_corner_radii.map(length);
++            }
++            Primitive::Quad(quad) => {
++                bounds(&mut quad.bounds);
++                mask(&mut quad.content_mask);
++                quad.corner_radii = quad.corner_radii.map(length);
++                quad.border_widths = quad.border_widths.map(length);
++            }
++            Primitive::Path(path) => {
++                bounds(&mut path.bounds);
++                mask(&mut path.content_mask);
++                for vertex in &mut path.vertices {
++                    vertex.xy_position = at(vertex.xy_position);
++                    mask(&mut vertex.content_mask);
++                }
++            }
++            Primitive::Underline(underline) => {
++                bounds(&mut underline.bounds);
++                mask(&mut underline.content_mask);
++                underline.thickness = length(&underline.thickness);
++            }
++            Primitive::MonochromeSprite(sprite) => {
++                bounds(&mut sprite.bounds);
++                mask(&mut sprite.content_mask);
++                transformation(&mut sprite.transformation);
++            }
++            Primitive::SubpixelSprite(sprite) => {
++                bounds(&mut sprite.bounds);
++                mask(&mut sprite.content_mask);
++                transformation(&mut sprite.transformation);
++            }
++            Primitive::PolychromeSprite(sprite) => {
++                bounds(&mut sprite.bounds);
++                mask(&mut sprite.content_mask);
++                sprite.corner_radii = sprite.corner_radii.map(length);
++            }
++            Primitive::Surface(surface) => {
++                bounds(&mut surface.bounds);
++                mask(&mut surface.content_mask);
++            }
++        }
++    }
+ }
+ 
+ #[cfg_attr(
+diff --git a/crates/gpui/src/window.rs b/crates/gpui/src/window.rs
+index c559412e56..432c5d9a2c 100644
+--- a/crates/gpui/src/window.rs
++++ b/crates/gpui/src/window.rs
+@@ -4227,6 +4227,25 @@ impl Window {
+         result
+     }
+ 
++    /// Scales what `f` paints by `factor` about `origin`, as a layer's transform would: sizes,
++    /// text and images with it. Layout and hit testing don't change, and the masks of elements
++    /// around `f` are scaled with what it paints. It doesn't nest. This method should only be
++    /// called as part of the paint phase of element drawing.
++    pub fn with_scale<R>(
++        &mut self,
++        factor: f32,
++        origin: Point<Pixels>,
++        f: impl FnOnce(&mut Self) -> R,
++    ) -> R {
++        self.invalidator.debug_assert_paint();
++        debug_assert!(self.next_frame.scene.scale.is_none(), "with_scale doesn't nest");
++        let origin = origin.scale(self.scale_factor());
++        self.next_frame.scene.scale = Some((factor, origin));
++        let result = f(self);
++        self.next_frame.scene.scale = None;
++        result
++    }
++
+     pub(crate) fn with_element_opacity<R>(
+         &mut self,
+         opacity: Option<f32>,

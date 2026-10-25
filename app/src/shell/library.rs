@@ -23,14 +23,25 @@ pub(super) const LIBRARY_WIDTH: f32 = 417.;
 /// width to the left, so they meet as they stop.
 const LIBRARY_RESPONSE: f32 = 0.245;
 const LIBRARY_DAMPING: f32 = 0.92;
-/// The sidebar under the Library fades out in 2 frames at 60 fps as it comes, and back in over
-/// 130 ms from 80 ms after it starts to go (Arc on video, 2 opens and 2 closes).
+/// Opened or closed by a click, the sidebar under the Library fades out in 2 frames at 60 fps as
+/// it comes, and back in over 130 ms from 80 ms after it starts to go (Arc on video, 2 opens and 2
+/// closes).
 const SIDEBAR_FADE_OUT: f32 = 0.033;
 const SIDEBAR_FADE_IN_DELAY: f32 = 0.08;
 const SIDEBAR_FADE_IN: f32 = 0.13;
-/// Ours: while fingers move the Library, the sidebar is gone once the Library is this far out,
-/// where an open is 2 frames in.
-const SIDEBAR_FADE_SPAN: f32 = 0.2;
+/// Moved by fingers, and on after they let go, the sidebar recedes as the card goes: it fades out
+/// by 0.66 of the way, and shrinks by 0.076 of its size over the way, about a point at the window's
+/// middle 128 right of its edge, so it goes down and right at the top and up and right at the
+/// bottom. The Library comes late, from 0.29 of the way, at 0.92 of its width over the way, so
+/// the sidebar is seen receding. That's Arc's at twice the card's speed. Ours is wider, with its
+/// column, so once the sidebar is gone it catches the card up as it stops. (Arc 1.170 at 2×, a
+/// slow swipe open and one closed, the same both ways, in its Spaces section, whose card goes 192
+/// to where the swipe opens it.)
+const RECEDE_SPAN: f32 = 0.66;
+const RECEDE_SCALE: f32 = 0.076;
+pub(super) const RECEDE_X: f32 = 128.;
+const LIBRARY_LAG: f32 = 0.29;
+const LIBRARY_LAG_SPEED: f32 = 0.92;
 
 /// The column of sections, and the line at its edge.
 const COLUMN_WIDTH: f32 = 112.;
@@ -285,16 +296,28 @@ impl Shell {
         }
     }
 
-    /// The sidebar's opacity under the Library: gone fast as the Library comes and back late as it
-    /// goes, and with the fingers while they move it.
+    /// Whether fingers have the Library, out of the sidebar's edge.
+    fn library_swiping(&self) -> bool {
+        self.swipe.as_ref().and_then(|swipe| self.library_swiped(swipe)).is_some()
+    }
+
+    /// Whether the Library is on its way open or closed, on its own or with the fingers.
+    pub(super) fn library_moving(&self) -> bool {
+        self.library_motion.is_some() || self.library_swiping()
+    }
+
+    /// The click's fade the sidebar is in, if it is: what it faded from, and when.
+    fn clicked_fade(&self) -> Option<(f32, Instant)> {
+        self.sidebar_fade.filter(|_| !self.library_swiping())
+    }
+
+    /// The sidebar's opacity under the Library: receding with the card, or, after a click, gone
+    /// fast as the Library comes and back late as it goes.
     pub(super) fn sidebar_opacity(&self) -> f32 {
-        if let Some(out) = self.swipe.as_ref().and_then(|swipe| self.library_swiped(swipe)) {
-            return swiped_opacity(out);
-        }
-        let shown = if self.library_open { 0. } else { 1. };
-        let Some((from, start)) = self.sidebar_fade else {
-            return shown;
+        let Some((from, start)) = self.clicked_fade() else {
+            return receded_opacity(self.library_out());
         };
+        let shown = if self.library_open { 0. } else { 1. };
         let t = start.elapsed().as_secs_f32();
         let done = match self.library_open {
             true => t / SIDEBAR_FADE_OUT,
@@ -303,35 +326,56 @@ impl Shell {
         if done >= 1. { shown } else { from + (shown - from) * done.max(0.) }
     }
 
-    /// Opens the Library, or closes it, from wherever the card is.
+    /// The sidebar's size under the Library, about `RECEDE_X` right of its edge: receding with the
+    /// card, or full while a click fades it.
+    pub(super) fn sidebar_scale(&self) -> f32 {
+        match self.clicked_fade() {
+            Some(_) => 1.,
+            None => 1. - RECEDE_SCALE * self.library_out(),
+        }
+    }
+
+    /// How far the Library's right edge has come to the card's: 0 at the window's edge and 1 there.
+    /// After a click it comes with the card; with the sidebar receding, late (`LIBRARY_LAG`).
+    pub(super) fn library_edge(&self) -> f32 {
+        let out = self.library_out();
+        if self.clicked_fade().is_some() {
+            return out;
+        }
+        let lagged = |out: f32| LIBRARY_LAG_SPEED * (out - LIBRARY_LAG);
+        let catch_up = (1. - lagged(RECEDE_SPAN)) / (1. - RECEDE_SPAN);
+        lagged(out).max(1. - catch_up * (1. - out)).max(0.)
+    }
+
+    /// Opens the Library, or closes it, from wherever the card is, the sidebar fading.
     pub(super) fn set_library(&mut self, open: bool, cx: &mut Context<Self>) {
         if open == self.library_open || (open && self.page_fullscreen) {
             return;
         }
         let speed = self.library_step().map_or(0., |(_, speed)| speed);
-        self.move_library(open, self.library_out(), speed, self.sidebar_opacity(), cx);
+        let opacity = Some(self.sidebar_opacity());
+        self.move_library(open, self.library_out(), speed, opacity, cx);
     }
 
     /// Sends the Library open or closed from `out` (`library_out`), going at `speed` a second, and
-    /// the sidebar under it fading from `opacity`.
+    /// the sidebar under it fading from `opacity`, or receding with the card without one.
     pub(super) fn move_library(
         &mut self,
         open: bool,
         out: f32,
         speed: f32,
-        opacity: f32,
+        opacity: Option<f32>,
         cx: &mut Context<Self>,
     ) {
         let now = Instant::now();
         self.library_motion = Some((out, speed, now));
-        self.sidebar_fade = Some((opacity, now));
+        self.sidebar_fade = opacity.map(|opacity| (opacity, now));
         self.library_open = open;
         if open {
             self.conceal_now(cx);
             if self.library.is_none() {
                 self.show_section(self.section, cx);
             }
-            self.browser.show_window_buttons(true, cx);
         }
         cx.notify();
     }
@@ -402,8 +446,7 @@ impl Shell {
         }
         if self.library_motion.is_none() {
             // Fingers that took the Library out a little, then paged instead, let it go.
-            let swiped = self.swipe.as_ref().and_then(|swipe| self.library_swiped(swipe));
-            if !self.library_open && swiped.is_none() {
+            if !self.library_open && !self.library_swiping() {
                 self.library = None;
             }
             return;
@@ -420,9 +463,6 @@ impl Shell {
         } else {
             eprintln!("browser: library hidden");
             self.library = None;
-            if self.sidebar_hidden {
-                self.browser.show_window_buttons(false, cx);
-            }
         }
     }
 
@@ -605,7 +645,7 @@ impl Shell {
         };
         div()
             .absolute()
-            .left(px((self.library_out() - 1.) * LIBRARY_WIDTH))
+            .left(px((self.library_edge() - 1.) * LIBRARY_WIDTH))
             .top_0()
             .bottom_0()
             .w(px(LIBRARY_WIDTH))
@@ -983,9 +1023,9 @@ impl Shell {
     }
 }
 
-/// The sidebar's opacity while fingers have the Library `out` (`library_out`).
-pub(super) fn swiped_opacity(out: f32) -> f32 {
-    (1. - out / SIDEBAR_FADE_SPAN).clamp(0., 1.)
+/// The sidebar's opacity as it recedes with the Library `out` (`library_out`).
+fn receded_opacity(out: f32) -> f32 {
+    (1. - out / RECEDE_SPAN).clamp(0., 1.)
 }
 
 /// A line of a row's text, cut short with an ellipsis.
