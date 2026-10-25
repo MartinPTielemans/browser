@@ -217,10 +217,10 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Button hover plate | 32 × 32, top edge 7.5 below the window top (Arc 1.170.0 ax), radius 6 (Ardia). Only the plate takes clicks; the rest of the row moves the window | Arc 1.170.0 ax, Ardia, P§4 |
 | Sidebar button, back, forward, reload | plates at x 77, 122, 156 and 190 in a 228 sidebar: the sidebar button 3 past the zoom button and 13 before back, then a 34 pt pitch. Arc labels the sidebar button Hide sidebar while docked and Lock sidebar while out. Ardia has them right-aligned (centres 137.75 / 171.75 / 205.75 at 227.5); whether Arc's move with the width: measure | Arc 1.170.0 ax, Ardia |
 | Narrow sidebar | reload goes first, then forward; back and forward stay together | Ardia, from Arc users |
-| Forward when disabled | about half the brightness of the other glyphs | Dia 1.52 cap |
+| Back, forward or reload when disabled | white 0.26, against the others' 0.60. Reload is disabled while no page is shown | Arc 1.170.0 cap |
 | Nav glyph size | Dia 13 pt regular. Arc: measure | Dia 1.52 cap |
-| URL field top | 46 below the window top | Arc (Ardia), P§4 |
-| URL field height, radius, fill, font | measure | — |
+| URL field top | 46 below the window top | Arc 1.170.0 cap, Arc (Ardia) P§4 |
+| URL field height, radius, fill, font | 36 tall, 8 in from the sidebar's sides, radius 12, white 0.10. The text is 13 pt system regular in white 0.60, its glyphs from x 21.5; ours draws the same glyphs at the same place | Arc 1.170.0 cap |
 | URL field text | the host alone, `www.` dropped: iana.org for https://www.iana.org/. Arc's View menu has no Show Full URL; Dia's (off by default) adds the path, query and fragment, with no trailing "/". Ours: Arc's | Arc 1.170.0 cap, Dia 1.50.1 bin, D›URL bar |
 | Hovering the URL | Arc: the field's buttons, not the full URL (Arc 1.170.0 cap). Dia: the full URL, host bright and path dim (Dia 1.49 cap). Ours: Arc's | Arc 1.170.0 cap |
 | Field buttons | Copy Current URL and Site Control Center, 30 × 30 at x 163 and 191 of 228, while the pointer is over the sidebar | Arc 1.170.0 cap |
