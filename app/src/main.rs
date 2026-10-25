@@ -22,6 +22,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 mod command_bar;
 mod find_bar;
 mod reveal;
+mod zoom_hud;
 
 /// The core's API, generated from core/public/browser_core.h.
 #[allow(non_camel_case_types, dead_code)]
@@ -47,6 +48,9 @@ mod platform {
         pub fn host_add_find_bar(find_bar_view: *mut c_void, right: f64, top: f64);
         pub fn host_show_find_bar(keyboard: bool);
         pub fn host_hide_find_bar();
+        pub fn host_add_hud(hud_view: *mut c_void, right: f64, top: f64);
+        pub fn host_show_hud();
+        pub fn host_hide_hud(seconds: f64);
         pub fn host_focus(view: *mut c_void);
         pub fn host_show_window_buttons(shown: bool);
         pub fn host_press_window_button(button: i32);
@@ -279,6 +283,16 @@ impl Browser for Engine {
 
     fn stop(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_stop(tab) };
+    }
+
+    fn zoom(&self, tab: u64, step: i32, cx: &mut App) {
+        if tab == 0 {
+            return;
+        }
+        let percent = unsafe { bc::bc_tab_zoom(tab, step) };
+        // check.sh reads this line.
+        eprintln!("browser: zoom {tab} {percent}%");
+        zoom_hud::show(tab, percent, cx);
     }
 
     fn show_space(&self, space: u64, _: &mut App) {
@@ -600,6 +614,7 @@ fn open_window(cx: &mut App) {
             command_bar::open(cx);
             if let Ok(shell) = window.entity(cx) {
                 find_bar::open(shell.clone(), cx);
+                zoom_hud::open(shell.clone(), cx);
                 reveal::open(shell, cx);
             }
             // Once the page frame is set, so the tab shown loads at its size.
@@ -690,6 +705,10 @@ fn menus() -> Vec<Menu> {
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
                 item("Force Refresh the Page", Command::ForceReload),
+                MenuItem::separator(),
+                item("Zoom to Actual Size", Command::ActualSize),
+                item("Zoom In", Command::ZoomIn),
+                item("Zoom Out", Command::ZoomOut),
             ],
         ),
         menu(
@@ -788,6 +807,7 @@ unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc:
         update_shell(|shell, cx| {
             shell.set_selected(tab, cx);
             find_bar::tab_shown(tab, cx);
+            zoom_hud::tab_shown(tab, cx);
         });
     }
 }

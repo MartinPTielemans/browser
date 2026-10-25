@@ -21,9 +21,12 @@
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "components/tabs/public/tab_interface.h"
+#include "components/zoom/page_zoom.h"
+#include "components/zoom/zoom_controller.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/page_zoom.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -350,6 +353,16 @@ void bc_tab_move(bc_id id, bool pinned, size_t index) {
   tab->set_last_seen(base::Time::Now());
   // Whether it's away from its pinned URL.
   tab->StateChanged();
+}
+
+int bc_tab_zoom(bc_id id, int step) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  zoom::ZoomController* zoom = contents ? zoom::ZoomController::FromWebContents(contents) : nullptr;
+  if (!zoom) {
+    return 100;
+  }
+  zoom::PageZoom::Zoom(contents, static_cast<content::PageZoom>(std::clamp(step, -1, 1)));
+  return zoom->GetZoomPercent();
 }
 
 bc_id bc_tab_duplicate(bc_id id) {

@@ -164,7 +164,7 @@ Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the 
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu.
 - **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
 - **Window.** Minimize Window (⌘M), then View Library (⇧⌘L). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above them, and Enter Full Screen to View.
-- **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Archive Tab (⌘W), Refresh the Page, Force Refresh the Page, Go Back, Go Forward.
+- **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Archive Tab (⌘W), Refresh the Page, Force Refresh the Page, Go Back, Go Forward, Zoom to Actual Size, Zoom In, Zoom Out.
 
 ## Phase 3 features
 
@@ -203,7 +203,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | URL field text | the host alone, `www.` dropped. View › Show Full URL (off by default) adds the path, query and fragment, with no trailing "/" | Dia 1.50.1 bin, D›URL bar |
 | Hovering the URL | Arc: the field's buttons, not the full URL (Arc 1.170.0 cap). Dia: the full URL, host bright and path dim (Dia 1.49 cap). Ours: Arc's | Arc 1.170.0 cap |
 | Field buttons | Copy Current URL and Site Control Center, 30 × 30 at x 163 and 191 of 228, while the pointer is over the sidebar | Arc 1.170.0 cap |
-| Insecure page / zoom not 100 % | a lock-warning glyph / a magnifier (+ or −) that opens − / + / Reset | Dia and Chrome, P§8 |
+| Insecure page / zoom not 100 % | a lock-warning glyph / a magnifier (+ or −) that opens − / + / Reset. Arc: no warning glyph, and nothing for zoom but the HUD (› Zoom) | Dia and Chrome, P§8; Arc 1.170.0 cap |
 | Downloads button (reference) | Dia: centre (166, 26) at 190 pt, in the header. Arc: measure | Dia, D›Sidebar |
 
 - Ours (*interim* until Site Control Center is built): Copy URL takes Site Control Center's place, 3 pt inside the field's end rather than Arc's 1 pt past it, with Lucide's link glyph at 14 pt, the header's glyph colour and hover plate. The host truncates before it.
@@ -581,6 +581,12 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
   - With no match, "NOT FOUND" in capitals and red (219,25,41) takes the place of the count and the arrows.
   - It opens and closes in one frame, with no animation.
 - Ours: Arc's layout. The fill is the window's colour, as the toast's, since Arc's (19,29,50) looks like its Space's colour, and AppKit's window shadow stands in for Arc's. The glyphs are Lucide's search, chevrons and x at 14 pt, in the header's colours and hover plate; the count is 12 pt and NOT FOUND 11 pt semibold.
+
+### Zoom
+
+- **Keys.** ⌘0, ⌘+ and ⌘- in the View menu, as Arc's Zoom to Actual Size, Zoom In and Zoom Out, and ⌘= as Chrome's hidden second ⌘+. Chrome's levels, for the page's whole site, which the profile keeps.
+- **Arc's HUD** (Arc 1.170.0 cap). A zoom shows its percent ("125%", "100%") in a child window over the card: the text's right edge 20 pt in from the card's, its middle 29.5 below the card's top. The URL field shows nothing.
+- Ours: the percent in 14 pt medium on a pill of the window's colour, 32 tall, radius 6, with AppKit's shadow, its right edge 10 in from the card's as the find bar's, and 8 pt under the find bar while that's open. The mouse goes through it. It stays 1.5 s after the last zoom, then fades out over 0.15 s, and goes at once when another tab shows. Arc's pill, timing and fade aren't recorded.
 
 ### DevTools
 

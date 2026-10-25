@@ -83,6 +83,15 @@ double g_find_bar_top;
 // when the command bar closes, which isn't the user choosing it.
 bool g_find_bar_keyboard = false;
 
+// The zoom HUD's window and view, its distance from the top right of the browser window's content,
+// and a count of its shows and hides, so one posted before another doesn't undo it.
+NSWindow* g_hud;
+NSView* g_hud_view;
+bool g_hud_shown = false;
+double g_hud_right;
+double g_hud_top;
+unsigned g_hud_changes = 0;
+
 // The sidebar reveal's window and view, the shell's handler for the pointer, the window's width,
 // and while it shows, the monitor that hands the handler the pointer.
 NSWindow* g_reveal;
@@ -133,6 +142,16 @@ void PlaceFindBar() {
   NSSize size = g_find_bar.frame.size;
   [g_find_bar setFrameOrigin:NSMakePoint(NSMaxX(content) - g_find_bar_right - size.width,
                                          NSMaxY(content) - g_find_bar_top - size.height)];
+}
+
+// 8 points below the find bar while it shows, where the HUD would cover it.
+void PlaceHud() {
+  NSRect content = [g_window contentRectForFrameRect:g_window.frame];
+  NSSize size = g_hud.frame.size;
+  const double top =
+      g_find_bar_shown ? g_find_bar_top + g_find_bar.frame.size.height + 8 : g_hud_top;
+  [g_hud setFrameOrigin:NSMakePoint(NSMaxX(content) - g_hud_right - size.width,
+                                    NSMaxY(content) - top - size.height)];
 }
 
 // At the browser window's left edge and as tall as its content, so a point is at the same place in
@@ -207,6 +226,9 @@ void host_show_window(void* ui_view) {
                                               usingBlock:^(NSNotification*) {
                                                 if (g_find_bar_shown) {
                                                   PlaceFindBar();
+                                                }
+                                                if (g_hud_shown) {
+                                                  PlaceHud();
                                                 }
                                               }];
 }
@@ -380,6 +402,9 @@ void host_show_find_bar(bool keyboard) {
     } else if (g_overlay_shown) {
       [g_overlay orderWindow:NSWindowAbove relativeTo:g_find_bar.windowNumber];
     }
+    if (g_hud_shown) {
+      PlaceHud();
+    }
     fprintf(stderr, "browser: find bar shown\n");
   });
 }
@@ -396,7 +421,77 @@ void host_hide_find_bar(void) {
   if (had_keyboard) {
     [g_window makeKeyWindow];
   }
+  if (g_hud_shown) {
+    PlaceHud();
+  }
   fprintf(stderr, "browser: find bar hidden\n");
+}
+
+void host_add_hud(void* hud_view, double right, double top) {
+  g_hud_view = (__bridge NSView*)hud_view;
+  g_hud = g_hud_view.window;
+  g_hud_right = right;
+  g_hud_top = top;
+  MakeOverlay(g_hud);
+  g_hud.styleMask = NSWindowStyleMaskBorderless;
+  g_hud.hasShadow = YES;
+  g_hud.ignoresMouseEvents = YES;
+}
+
+void host_show_hud(void) {
+  if (!g_hud || !g_window) {
+    return;
+  }
+  g_hud_shown = true;
+  const unsigned change = ++g_hud_changes;
+  // As the find bar does, once it has drawn what it shows now, which may be narrower than before.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (change != g_hud_changes) {
+      return;
+    }
+    [g_hud_view.layer setNeedsDisplay];
+    [g_hud_view.layer displayIfNeeded];
+    [g_hud invalidateShadow];
+    PlaceHud();
+    // Stops a fade.
+    [NSAnimationContext
+        runAnimationGroup:^(NSAnimationContext* context) {
+          context.duration = 0;
+          g_hud.animator.alphaValue = 1;
+        }
+        completionHandler:nil];
+    if (!g_hud.parentWindow) {
+      [g_window addChildWindow:g_hud ordered:NSWindowAbove];
+    }
+    if (g_find_bar_shown) {
+      [g_hud orderWindow:NSWindowAbove relativeTo:g_find_bar.windowNumber];
+    }
+    if (g_overlay_shown) {
+      [g_overlay orderWindow:NSWindowAbove relativeTo:g_hud.windowNumber];
+    }
+    fprintf(stderr, "browser: zoom hud shown\n");
+  });
+}
+
+void host_hide_hud(double seconds) {
+  if (!g_hud_shown) {
+    return;
+  }
+  g_hud_shown = false;
+  const unsigned change = ++g_hud_changes;
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = seconds;
+        g_hud.animator.alphaValue = 0;
+      }
+      completionHandler:^{
+        if (change != g_hud_changes) {
+          return;
+        }
+        [g_window removeChildWindow:g_hud];
+        [g_hud orderOut:nil];
+        fprintf(stderr, "browser: zoom hud hidden\n");
+      }];
 }
 
 void host_show_window_buttons(bool shown) {

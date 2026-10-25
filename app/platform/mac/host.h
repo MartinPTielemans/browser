@@ -59,6 +59,17 @@ void host_show_find_bar(bool keyboard);
 // Hides the find bar. If it had the keyboard, the browser window gets it back.
 void host_hide_find_bar(void);
 
+// Makes the window of |hud_view| float over the browser window when shown, |right| and |top| points
+// from the top right corner of the window's content, for the zoom HUD. It starts hidden, and the
+// mouse goes through it.
+void host_add_hud(void* hud_view, double right, double top);
+
+// Shows the HUD as the UI draws it now, again for a change, until host_hide_hud.
+void host_show_hud(void);
+
+// Fades the HUD out over |seconds|.
+void host_hide_hud(double seconds);
+
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 
