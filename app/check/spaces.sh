@@ -5,14 +5,14 @@
 # another Space, which shows the tab it showed last. Two fingers across the sidebar page to the
 # Space a flick or the pages' place points at, never past the last, fingers along it don't, and a
 # wheel's tick across pages once. A tab's menu moves the tab to another Space, which the window
-# shows with it. Return with no name does nothing, New Space shows a form already open, and Cancel
-# deletes its Space and goes back. A right-click on the Space's name or a dot shows Rename Space,
-# its colours and Delete Space. Rename, and a double-click on the name, turn it into a field, where
-# return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog
-# that a click around cancels and return confirms, and the Space goes once the dialog has, which a
-# toast says. ⌘Z brings it back where it was, with its name and tabs. Its tabs close with it and
-# reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last Space can't be
-# deleted.
+# shows with it. Return with no name does nothing, New Space from the footer's + shows a form
+# already open, and Cancel deletes its Space and goes back. A right-click on the Space's name or a
+# dot shows Rename Space, its colours and Delete Space. Rename, and a double-click on the name, turn
+# it into a field, where return keeps the name and escape cancels. Delete asks first for a Space
+# with tabs, in a dialog that a click around cancels and return confirms, and the Space goes once
+# the dialog has, which a toast says. ⌘Z brings it back where it was, with its name and tabs. Its
+# tabs close with it and reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last
+# Space can't be deleted.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last.
 page='data:text/html,<title>loading</title>
@@ -196,7 +196,12 @@ expect "^browser: space $third in " "the window didn't show the third Space"
 send key return
 none_since '^browser: create space' || fail "return with no name named the Space"
 show_space "key 1 ctrl" select-space ui "$first" "$a"
-send menu New Space…
+# The footer's + offers New Space… and New Folder…, 8 in from the sidebar's edge.
+post click 204 $((${content#*x} - 25))
+expect '^browser: menu shown New Space…, New Folder…$' \
+  "the footer's + didn't offer New Space… and New Folder…"
+send choose New Space…
+expect '^browser: command new-space via footer$' "New Space… in the +'s menu didn't run"
 expect "^browser: space $third in " "New Space didn't show the form already open"
 # Clicks wait for the Space's page to slide into place.
 expect "^browser: settled space $third\$" "the form's page didn't settle"

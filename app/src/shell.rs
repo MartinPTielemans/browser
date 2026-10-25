@@ -185,10 +185,11 @@ const CLEAR_HEIGHT: f32 = 20.;
 // (Arc).
 const COPIED_TIME: Duration = Duration::from_secs(2);
 const DELETED_TIME: Duration = Duration::from_secs(5);
-// The footer's Space switcher, between where Arc has its Home and + buttons.
+// The footer: the Space switcher between the Library button and the +, which is 8 in from the
+// sidebar's right edge (Arc 1.170.0 ax). The switcher keeps 42 from each side, Arc's at 228.
 const FOOTER_HEIGHT: f32 = 50.;
-const SWITCHER_LEFT: f32 = 42.;
-const SWITCHER_RIGHT: f32 = 186.;
+const SWITCHER_INSET: f32 = 42.;
+const PLUS_INSET: f32 = 8.;
 const SPACE_PITCH: f32 = 34.;
 const SPACE_HEIGHT: f32 = 34.;
 const SPACE_DOT: f32 = 8.;
@@ -839,6 +840,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/loading.svg", include_bytes!("../assets/icons/loading.svg")),
     ("icons/nav-back.svg", include_bytes!("../assets/icons/nav-back.svg")),
     ("icons/nav-forward.svg", include_bytes!("../assets/icons/nav-forward.svg")),
+    ("icons/nav-plus.svg", include_bytes!("../assets/icons/nav-plus.svg")),
     ("icons/nav-reload.svg", include_bytes!("../assets/icons/nav-reload.svg")),
     ("icons/nav-sidebar.svg", include_bytes!("../assets/icons/nav-sidebar.svg")),
     ("icons/nav-stop.svg", include_bytes!("../assets/icons/nav-stop.svg")),
@@ -4694,7 +4696,7 @@ impl Shell {
         if self.spaces.len() < 2 {
             return None;
         }
-        let span = SWITCHER_RIGHT - SWITCHER_LEFT;
+        let span = self.width() - 2. * SWITCHER_INSET;
         let pitch = SPACE_PITCH.min(span / self.spaces.len() as f32);
         let dots = self.spaces.iter().map(|space| {
             let (id, shown) = (space.id, space.id == self.space);
@@ -4730,7 +4732,7 @@ impl Shell {
         Some(
             div()
                 .absolute()
-                .left(px(SWITCHER_LEFT))
+                .left(px(SWITCHER_INSET))
                 .w(px(span))
                 .bottom(px((FOOTER_HEIGHT - SPACE_HEIGHT) / 2.))
                 .h(px(SPACE_HEIGHT))
@@ -4738,6 +4740,48 @@ impl Shell {
                 .justify_center()
                 .children(dots),
         )
+    }
+
+    /// The footer's + at its right (Arc), whose menu makes a Space or a folder.
+    fn plus_button(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        div()
+            .id("plus")
+            .absolute()
+            .right(px(PLUS_INSET))
+            .bottom(px((FOOTER_HEIGHT - NAV_SIZE) / 2.))
+            .size(px(NAV_SIZE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(NAV_RADIUS))
+            .block_mouse_except_scroll()
+            .hover(|style| style.bg(rgba(NAV_HOVERED)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, event: &MouseDownEvent, _, cx| {
+                    shell.plus_menu(event.position, cx)
+                }),
+            )
+            .child(svg().path("icons/nav-plus.svg").size(px(NAV_GLYPH)).text_color(rgba(NAV)))
+    }
+
+    /// The + button's menu, by Arc's menus' names for what it makes (ours: Arc's + menu isn't
+    /// recorded).
+    fn plus_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let items = [("New Space…", Command::NewSpace), ("New Folder…", Command::NewFolder)];
+        let entries = items.iter().map(|&(title, _)| MenuEntry::new(title, true)).collect();
+        let shell = cx.weak_entity();
+        self.browser.menu(
+            entries,
+            position,
+            self.sidebar_hidden,
+            Box::new(move |chosen, cx| {
+                if let Some(&(_, command)) = chosen.and_then(|at| items.get(at)) {
+                    shell.update(cx, |shell, cx| shell.run(command, "footer", cx)).ok();
+                }
+            }),
+            cx,
+        );
     }
 
     /// The Create a Space form, in place of the URL field and the Space's tabs, and as it leaves,
@@ -5101,6 +5145,7 @@ impl Shell {
         sidebar
             .children(self.new_space_circle())
             .child(self.library_button(cx))
+            .child(self.plus_button(cx))
             .children(self.switcher(cx))
             .child(self.press_listener())
     }

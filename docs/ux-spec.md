@@ -382,15 +382,15 @@ What a favorite does (ours, *interim* until Arc's are captured):
 - Moving a tab to a Space of another profile reloads it in that profile, after a one-time warning that the tab loses its session (Dia warns when moving a tab to another profile, P§1).
 - Favorites belong to the profile: every Space of a profile shows the same ones (Arc, to confirm in the capture).
 
-**Switcher** (Dia 1.50.1 bin, D›Profile paging. Dia's ARCUI and TabSidebar modules look inherited from Arc, so these values are probably Arc's too: confirm.)
+**Footer and switcher** (Arc 1.170.0 cap and ax)
 
 | Item | Value |
 |---|---|
-| Footer | 41 tall. Library cell at the left; overflow button 42 wide, 3 from the right |
-| Switcher band | 28 tall, centred in the footer above its bottom 3 pt, 31 in from each side when those buttons show |
-| Items | 12 pt per item, centred. At most 7 (84 pt) before it scrolls, with edge items scaled 0.75–1 |
-| Dot | 6 × edge scale, round. Label colour at 0.85 selected, 0.4 hovered, 0.2 otherwise |
-| Click | focuses that Space |
+| Footer | 50 tall. Home, our Library button, 32 × 32 at 8 in on the left. A + 32 × 32 at 8 in on the right, its glyph a 14 pt cross in white 0.60. Ours: the +'s menu has New Space… and New Folder…, Arc's menus' names, as Arc's + menu isn't recorded |
+| Switcher | between them, 42 to 186 in a 228 sidebar (ours: 42 in from each side at any width). One item per Space, 36 × 34 at a 34 pt pitch, centred; none with one Space |
+| Dot | 8 pt, white 0.50 for the Space shown and 0.19 for the others |
+| Click | shows that Space |
+| More Spaces than fit | Arc's strip scrolls: measure. Ours narrows the pitch. Dia: 12 pt per item, at most 7 before it scrolls, edge items scaled 0.75–1 (Dia 1.50.1 bin, D›Profile paging) |
 
 Arc shows Space icons in place of dots when a Space has one: measure both looks.
 
@@ -910,7 +910,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 **The takes**
 
 1. **Sidebar motion.** Record each sidebar motion above. Screenshot the sidebar at its narrowest and widest, and a row held pressed.
-2. **Spaces.** Make a second Space in another colour. Record ⌃1 and ⌃2 and clicks on the switcher, both ways; that Space deleted, then ⌘Z; a Space renamed, then its colour, icon and profile picked. Screenshot the switcher with 2 and 5 Spaces, with an icon and without. Answer: do the favorites follow the Space or the profile?
+2. **Spaces.** Make a second Space in another colour. Record ⌃1 and ⌃2 and clicks on the switcher, both ways; that Space deleted, then ⌘Z; a Space renamed, then its colour, icon and profile picked. Screenshot the switcher with 2 and 5 Spaces (5 don't fit at Arc's pitch), with an icon and without, and the menu the footer's + opens. Answer: do the favorites follow the Space or the profile?
 3. **Command bar.** Record the two command bar motions above. Screenshot the command list with nothing typed and with a few letters, and ⌘T over a page. Answer: does the row under the pointer light up while the keyboard selection is on another, and what opens Search Tabs?
 4. **Split view.** Record each split motion above. Screenshot 3 and 4 panes, side by side and stacked, and an unfocused pane. Answer: how many panes at most?
 5. **Library.** Record the archive's Filter, a row's hover and its menu. Screenshot each.
