@@ -1364,9 +1364,29 @@ send wheel $swipe_point 1
 expect '^browser: command select-space via wheel$' "a wheel's tick across the sidebar didn't page"
 expect "^browser: space $first in " "a wheel's tick across the sidebar didn't show the first Space"
 expect_tabs "$a" "$a" "after a wheel's tick showed the first Space"
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+# Past the first Space is the Library. Held partway it shows beside the page, and let go short of
+# halfway it goes back. A flick brings it out and one the other way puts it back, and so do a
+# wheel's ticks.
+post swipe $swipe_point 30 0 10 1500
+expect '^browser: library section ' "two fingers past the first Space didn't bring the Library out"
+../tools/window-screenshot.sh "$pid" "$out/library-swipe.png" || fail "no window to capture"
+await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
+expect '^browser: library hidden$' "a swipe let go short of halfway didn't put the Library back"
+none_since '^browser: command view-library' ||
+  fail "a swipe let go short of halfway opened the Library"
+# $1 is how the driver moves, $2 its source and $3 whether the Library shows after it.
+library_to() {
+  send $1
+  expect "^browser: command view-library via $2\$" "a $1 didn't reach the Library"
+  expect "^browser: library $3\$" "a $1 didn't leave the Library $3"
+}
+library_to "swipe $swipe_point 12 0 10" swipe shown
+library_to "swipe $swipe_point -12 0 10" swipe hidden
+library_to "wheel $swipe_point 1" wheel shown
+library_to "wheel $swipe_point -1" wheel hidden
 
 # A tab's menu moves it to another Space, and the window goes with the tab it shows.
-expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post rightclick $(row 0)
 expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space › reading 日本語, Close Tab, Close Tabs Below (disabled)$' "the tab's menu didn't offer the other Space"
 send choose reading 日本語
@@ -1446,7 +1466,7 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; a tab's menu moves it to another Space, which shows with it; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/space-menu.png, $out/space-delete.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back; a tab's menu moves it to another Space, which shows with it; Cancel deletes a new Space and goes back. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, closes them, and ⇧⌘T reopens them in the Space shown; the last Space can't go. Windows: $out/swipe.png, $out/library-swipe.png, $out/space-menu.png, $out/space-delete.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each

@@ -1,7 +1,7 @@
-//! The Library, which takes the sidebar's place and pushes the card right without resizing it
-//! (Arc): a column of its sections, Downloads and Archived Tabs so far, and beside it the section's
-//! list, newest first under day headings, with a search field over it (docs/ux-spec.md › Archive
-//! and Downloads).
+//! The Library, which slides in from the left over the sidebar and pushes the card right without
+//! resizing it (Arc): a column of its sections, Downloads and Archived Tabs so far, and beside it
+//! the section's list, newest first under day headings, with a search field over it
+//! (docs/ux-spec.md › Archive and Downloads).
 
 use std::{sync::Arc, time::Instant};
 
@@ -13,15 +13,24 @@ use gpui::{
 
 use super::{
     Command, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE,
-    PRESSED, SECONDARY, Shell, UNSELECTED_TITLE, favicon, host, spring,
+    PRESSED, SECONDARY, Shell, UNSELECTED_TITLE, favicon, host, spring_to,
 };
 use crate::text_input::TextInput;
 
 /// Where the card's left edge goes while the Library is open: the Library's right edge.
-const LIBRARY_WIDTH: f32 = 417.;
-/// The push, on Arc's measured spring (1 run, rms 1.0 pt).
+pub(super) const LIBRARY_WIDTH: f32 = 417.;
+/// The push, on Arc's measured spring (1 run, rms 1.0 pt). The Library comes with it from its own
+/// width to the left, so they meet as they stop.
 const LIBRARY_RESPONSE: f32 = 0.245;
 const LIBRARY_DAMPING: f32 = 0.92;
+/// The sidebar under the Library fades out in 2 frames at 60 fps as it comes, and back in over
+/// 130 ms from 80 ms after it starts to go (Arc on video, 2 opens and 2 closes).
+const SIDEBAR_FADE_OUT: f32 = 0.033;
+const SIDEBAR_FADE_IN_DELAY: f32 = 0.08;
+const SIDEBAR_FADE_IN: f32 = 0.13;
+/// Ours: while fingers move the Library, the sidebar is gone once the Library is this far out,
+/// where an open is 2 frames in.
+const SIDEBAR_FADE_SPAN: f32 = 0.2;
 
 /// The column of sections, and the line at its edge.
 const COLUMN_WIDTH: f32 = 112.;
@@ -255,17 +264,43 @@ impl Shell {
         (LIBRARY_WIDTH - self.card_left()) * self.library_out()
     }
 
-    /// How far the card has gone to the Library's edge: 0 not at all and 1 there. None once it's
-    /// at rest.
-    fn library_step(&self) -> Option<f32> {
-        let (from, start) = self.library_motion?;
+    /// How far the card has gone to the Library's edge, 0 not at all and 1 there, and how fast,
+    /// while it moves on its own. None once it's at rest.
+    fn library_step(&self) -> Option<(f32, f32)> {
+        let (from, speed, start) = self.library_motion?;
         let to = if self.library_open { 1. } else { 0. };
-        spring(start.elapsed().as_secs_f32(), LIBRARY_RESPONSE, LIBRARY_DAMPING)
-            .map(|eased| from + (to - from) * eased)
+        let t = start.elapsed().as_secs_f32();
+        spring_to(t, from, to, speed, LIBRARY_RESPONSE, LIBRARY_DAMPING)
     }
 
-    fn library_out(&self) -> f32 {
-        self.library_step().unwrap_or(if self.library_open { 1. } else { 0. })
+    /// How far the card has gone to the Library's edge: 0 not at all and 1 there. Fingers that
+    /// move the Library hold it where they have it.
+    pub(super) fn library_out(&self) -> f32 {
+        if let Some(out) = self.swipe.as_ref().and_then(|swipe| self.library_swiped(swipe)) {
+            return out;
+        }
+        match self.library_step() {
+            Some((out, _)) => out,
+            None => f32::from(u8::from(self.library_open)),
+        }
+    }
+
+    /// The sidebar's opacity under the Library: gone fast as the Library comes and back late as it
+    /// goes, and with the fingers while they move it.
+    pub(super) fn sidebar_opacity(&self) -> f32 {
+        if let Some(out) = self.swipe.as_ref().and_then(|swipe| self.library_swiped(swipe)) {
+            return swiped_opacity(out);
+        }
+        let shown = if self.library_open { 0. } else { 1. };
+        let Some((from, start)) = self.sidebar_fade else {
+            return shown;
+        };
+        let t = start.elapsed().as_secs_f32();
+        let done = match self.library_open {
+            true => t / SIDEBAR_FADE_OUT,
+            false => (t - SIDEBAR_FADE_IN_DELAY) / SIDEBAR_FADE_IN,
+        };
+        if done >= 1. { shown } else { from + (shown - from) * done.max(0.) }
     }
 
     /// Opens the Library, or closes it, from wherever the card is.
@@ -273,7 +308,23 @@ impl Shell {
         if open == self.library_open || (open && self.page_fullscreen) {
             return;
         }
-        self.library_motion = Some((self.library_out(), Instant::now()));
+        let speed = self.library_step().map_or(0., |(_, speed)| speed);
+        self.move_library(open, self.library_out(), speed, self.sidebar_opacity(), cx);
+    }
+
+    /// Sends the Library open or closed from `out` (`library_out`), going at `speed` a second, and
+    /// the sidebar under it fading from `opacity`.
+    pub(super) fn move_library(
+        &mut self,
+        open: bool,
+        out: f32,
+        speed: f32,
+        opacity: f32,
+        cx: &mut Context<Self>,
+    ) {
+        let now = Instant::now();
+        self.library_motion = Some((out, speed, now));
+        self.sidebar_fade = Some((opacity, now));
         self.library_open = open;
         if open {
             self.conceal_now(cx);
@@ -306,7 +357,7 @@ impl Shell {
     }
 
     /// Lists `section` in the Library, with an empty search field of its own.
-    fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
+    pub(super) fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
         self.section = section;
         let placeholder = match section {
             Section::Downloads => "Search Downloads…",
@@ -336,6 +387,7 @@ impl Shell {
         self.library = None;
         self.library_open = false;
         self.library_motion = None;
+        self.sidebar_fade = None;
     }
 
     /// Steps the Library's motion for a frame, and once it's done, says so and lets the closed
@@ -349,6 +401,11 @@ impl Shell {
             window.focus(&self.focus_handle, cx);
         }
         if self.library_motion.is_none() {
+            // Fingers that took the Library out a little, then paged instead, let it go.
+            let swiped = self.swipe.as_ref().and_then(|swipe| self.library_swiped(swipe));
+            if !self.library_open && swiped.is_none() {
+                self.library = None;
+            }
             return;
         }
         if self.library_step().is_some() {
@@ -356,6 +413,7 @@ impl Shell {
             return;
         }
         self.library_motion = None;
+        self.sidebar_fade = None;
         // check.sh waits for these lines.
         if self.library_open {
             eprintln!("browser: library shown");
@@ -547,7 +605,7 @@ impl Shell {
         };
         div()
             .absolute()
-            .left_0()
+            .left(px((self.library_out() - 1.) * LIBRARY_WIDTH))
             .top_0()
             .bottom_0()
             .w(px(LIBRARY_WIDTH))
@@ -923,6 +981,11 @@ impl Shell {
                 )
             })
     }
+}
+
+/// The sidebar's opacity while fingers have the Library `out` (`library_out`).
+pub(super) fn swiped_opacity(out: f32) -> f32 {
+    (1. - out / SIDEBAR_FADE_SPAN).clamp(0., 1.)
 }
 
 /// A line of a row's text, cut short with an ellipsis.

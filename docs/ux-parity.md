@@ -118,6 +118,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Space icons in the switcher | MVP | measure | — |
 | [x] | Swipe tracking | MVP | −0.5 × horizontal delta; ignores the system swipe setting | Dia 1.50.1 bin |
 | [x] | Rubber band | MVP | `255·(1 − 1/(0.15·x/255 + 1))` | Dia 1.50.1 bin |
+| [x] | Past the first Space, the Library | MVP | fingers move its open, opening past halfway or on a flick; a wheel's tick opens it; back from it the same way. Arc's finger tracking: measure | Arc release notes, Arc 1.x video |
 | [x] | Release | MVP | ≥ 5 pt/s goes on; ±1 Space; 100 ms velocity history | Dia 1.50.1 bin |
 | [x] | Settle | MVP | critically damped 0.25 s, carrying the velocity; detent haptic | Dia 1.50.1 bin |
 | [x] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
@@ -210,7 +211,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Auto-archive | MVP | a Today tab unseen for 12 hours goes in the archive, counted across a quit | Arc 1.170.0 settings |
 | [ ] | Auto-archive's other intervals | MVP | the setting; measure its options | Arc 1.170.0 settings |
 | [x] | ⌘W on a Today tab | MVP | Archive Tab: the tab goes in the archive | Arc 1.170.0 menus |
-| [x] | Library | MVP | takes the sidebar's place, pushes the card to 417 at its width on spring 0.245 s / ζ 0.92; column of sections, back button; ⇧⌘L, View Library, footer button | Arc 1.170.0 cap, ax, rec |
+| [x] | Library | MVP | slides in from its width to the left as it pushes the card to 417 at its width, on spring 0.245 s / ζ 0.92; the sidebar fades out in 33 ms, and back in over 130 ms from 80 ms; column of sections, back button; ⇧⌘L, View Library, footer button | Arc 1.170.0 cap, ax, rec; Arc 1.x video |
 | [x] | Archived Tabs | MVP | search on the buttons' row, day headings, rows 56 apart with favicon, title and host; a click reopens the tab | Arc 1.170.0 cap, ax |
 | [x] | Clear Archive | MVP | Archive menu; asks first | Arc 1.170.0 menus |
 | [ ] | Library's other sections | MVP | Downloads done; Media, Easels & Notes, Spaces as each feature lands | Arc 1.170.0 cap |
