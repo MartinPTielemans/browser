@@ -478,9 +478,11 @@ bool RestoreSession(Window& window) {
   for (const SavedTab& saved_tab : saved->favorites) {
     const bc_id tab = favorites.emplace_back(restore_tab(saved_tab));
     if (tab) {
-      Favorites::Add(tab, saved_tab.pinned_url.is_valid()
-                              ? saved_tab.pinned_url
-                              : saved_tab.history[saved_tab.current].virtual_url());
+      Favorites::Add(tab,
+                     saved_tab.pinned_url.is_valid()
+                         ? saved_tab.pinned_url
+                         : saved_tab.history[saved_tab.current].virtual_url(),
+                     Favorites::All().size());
     }
   }
   bc_id shown = 0;
@@ -508,9 +510,10 @@ bool RestoreSession(Window& window) {
       const SavedTab& saved_tab = saved_space.pinned[j];
       if (bc_id tab = pinned_ids[j] = restore(saved_tab, j)) {
         // Saved before pinned tabs kept their pinned URL, it's pinned where it is.
-        space->AddPinned(tab, saved_tab.pinned_url.is_valid()
-                                  ? saved_tab.pinned_url
-                                  : saved_tab.history[saved_tab.current].virtual_url());
+        space->AddPinned(tab, space->pinned().size(),
+                         saved_tab.pinned_url.is_valid()
+                             ? saved_tab.pinned_url
+                             : saved_tab.history[saved_tab.current].virtual_url());
       }
     }
     // Bottom up, as each goes at the top.

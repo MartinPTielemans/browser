@@ -83,9 +83,12 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // shows the tab its Space picks next, or for a favorite the Space the window shows, else no page.
   // It leaves its split view, unless |split| unloads the rest of the split with it.
   static void Unload(bc_id tab, bool split);
-  // Makes |tab| the last favorite, out of its Space, or takes it out of the favorites to the top of
-  // the Today tabs of the Space its window shows. See bc_tab_set_favorite.
-  static void SetFavorite(bc_id tab, bool favorite);
+  // Makes |tab| the favorite at |index|, out of its Space, or moves it there among the favorites.
+  // See bc_tab_move_to_favorites.
+  static void MoveToFavorites(bc_id tab, size_t index);
+  // Takes the favorite |tab| to |index| in the pinned tabs or the Today tabs of the Space its
+  // window shows. See bc_tab_move.
+  static void Unfavorite(bc_id tab, bool pinned, size_t index);
   // Has each window that shows |space| show the Space before it, else the one after it, and closes
   // its tabs. The Space goes with the last of them. False, doing nothing, if it's the last Space
   // not going.

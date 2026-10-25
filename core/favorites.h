@@ -21,8 +21,10 @@ class Favorites {
   // Empty if |tab| isn't a favorite.
   static GURL Url(bc_id tab);
 
-  // Makes |tab|, a tab in no Space, the last favorite, at |url|.
-  static void Add(bc_id tab, GURL url);
+  // Makes |tab|, a tab in no Space, the favorite at |index|, else the last, at |url|.
+  static void Add(bc_id tab, GURL url, size_t index);
+  // Moves the favorite |tab| to |index| of the favorites without it, else to the end.
+  static void Move(bc_id tab, size_t index);
   static void Remove(bc_id tab);
 };
 

@@ -141,8 +141,8 @@ void Space::AddAt(bc_id tab, size_t index) {
   ReportChanged();
 }
 
-void Space::AddPinned(bc_id tab, GURL url) {
-  pinned_.push_back(tab);
+void Space::AddPinned(bc_id tab, size_t index, GURL url) {
+  pinned_.insert(pinned_.begin() + OutsideSplits(pinned_, index), tab);
   pinned_urls_[tab] = std::move(url);
   ReportChanged();
 }

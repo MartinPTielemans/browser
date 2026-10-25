@@ -426,16 +426,18 @@ BC_EXPORT void bc_tab_find_close(bc_id tab);
 // tab_state_changed.
 BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
 
-// Makes the tab the last favorite, at its pinned URL if it's pinned, else at the page it's at: it
-// leaves its Space and its split view. Or takes it out of the favorites, to the top of the Today
-// tabs of the Space its window shows. A window showing it keeps showing it. Then favorites_changed,
-// space_changed and tab_state_changed.
-BC_EXPORT void bc_tab_set_favorite(bc_id tab, bool favorite);
+// Makes the tab the favorite at |index|, counted without it, else the last. A tab of a Space leaves
+// it and its split view, and its favorite's URL is its pinned URL if it's pinned, else the page
+// it's at. A window showing it keeps showing it. Then favorites_changed, and space_changed and
+// tab_state_changed for a tab of a Space.
+BC_EXPORT void bc_tab_move_to_favorites(bc_id tab, size_t index);
 
 // Moves the tab, with the rest of its split view, to |index| in its Space's pinned tabs or in its
 // Today tabs, counted without them, else to the bottom, and below a split |index| is inside. A
 // Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned tab moved to Today
-// is unpinned. Then space_changed and tab_state_changed.
+// is unpinned. A favorite leaves the favorites for the Space its window shows, pinned at its
+// favorite's URL in the pinned tabs, and a window showing it keeps showing it. Then space_changed
+// and tab_state_changed, and favorites_changed for a favorite.
 BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, size_t index);
 
 // Loads a pinned tab's pinned URL, or a favorite's URL, unless it's there already. Then

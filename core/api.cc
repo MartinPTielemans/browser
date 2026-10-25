@@ -402,11 +402,15 @@ void bc_tab_set_pinned(bc_id id, bool pinned) {
   SplitMoved(*space, id);
 }
 
-void bc_tab_set_favorite(bc_id id, bool favorite) {
-  browser_core::Window::SetFavorite(id, favorite);
+void bc_tab_move_to_favorites(bc_id id, size_t index) {
+  browser_core::Window::MoveToFavorites(id, index);
 }
 
 void bc_tab_move(bc_id id, bool pinned, size_t index) {
+  if (browser_core::Favorites::Has(id)) {
+    browser_core::Window::Unfavorite(id, pinned, index);
+    return;
+  }
   browser_core::Space* space = browser_core::Space::Holding(id);
   content::WebContents* contents = browser_core::Tab::FromId(id);
   if (!space || !contents) {

@@ -188,25 +188,22 @@ impl Browser for Fake {
         });
     }
 
-    fn set_favorite(&self, tab: u64, favorite: bool, cx: &mut App) {
+    fn move_to_favorites(&self, tab: u64, index: usize, cx: &mut App) {
         self.later(cx, move |shell, cx| {
             let mut favorites = shell.favorites().to_vec();
-            let (mut pinned, mut today) = (shell.pinned().to_vec(), shell.today().to_vec());
-            let mut splits = shell.splits();
-            if favorite {
+            let favorite = favorites.contains(&tab);
+            favorites.retain(|&id| id != tab);
+            favorites.insert(index.min(favorites.len()), tab);
+            // The core reports a tab in its new place before it leaves the old.
+            shell.set_favorites(favorites, cx);
+            if !favorite {
+                let (mut pinned, mut today) = (shell.pinned().to_vec(), shell.today().to_vec());
+                let mut splits = shell.splits();
                 pinned.retain(|&id| id != tab);
                 today.retain(|&id| id != tab);
                 splits.iter_mut().for_each(|split| split.retain(|&id| id != tab));
                 splits.retain(|split| split.len() > 1);
-                favorites.push(tab);
-                // The core reports a tab in its new place before it leaves the old.
-                shell.set_favorites(favorites, cx);
                 shell.set_tabs(shell.space(), pinned, today, splits, cx);
-            } else {
-                favorites.retain(|&id| id != tab);
-                today.insert(0, tab);
-                shell.set_tabs(shell.space(), pinned, today, splits, cx);
-                shell.set_favorites(favorites, cx);
             }
         });
     }
@@ -221,6 +218,10 @@ impl Browser for Fake {
             to.insert(index.min(to.len()), tab);
             let [pinned, today] = tabs;
             shell.set_tabs(shell.space(), pinned, today, shell.splits(), cx);
+            if shell.favorites().contains(&tab) {
+                let favorites = shell.favorites().iter().copied().filter(|&id| id != tab);
+                shell.set_favorites(favorites.collect(), cx);
+            }
         });
     }
 
