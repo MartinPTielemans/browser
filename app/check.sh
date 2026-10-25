@@ -9,7 +9,7 @@
 #      keyboard back when it closes, and loads what's typed in it, over https for a host typed
 #      without one, or searches DuckDuckGo for words. Japanese input composes and commits in the
 #      page and in the command bar, where return and escape go to the input method while it
-#      composes.
+#      composes. The Edit menu's Undo, Redo and Select All reach the focused page.
 #   3. A tab opened from the command bar goes at the top of the Space's Today tabs and shows. The
 #      command bar suggests pages from history as it's typed in, growing to fit them, with the
 #      tabs already at them, never the one shown, and well-known sites under them. ↑, ↓ and ⌃N
@@ -294,6 +294,14 @@ send key return
 send ime off
 send type x
 expect '^browser: title [0-9]* value abcd日本語x$' "return in the page did more than commit: $(grep '^browser: title' "$log" | tail -1)"
+# The Edit menu's Undo, Redo and Select All reach the focused page, which does them itself.
+send key z cmd
+expect '^browser: title [0-9]* value abcd日本語$' "⌘Z in the page's text field didn't undo"
+send key z cmd shift
+expect '^browser: title [0-9]* value abcd日本語x$' "⇧⌘Z in the page's text field didn't redo"
+send key a cmd
+send type y
+expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 
 # Nothing logged since the last command was sent matches $1.
 none_since() {
@@ -350,7 +358,7 @@ echo "key q cmd" >&3
 exec 3>&-
 await '^browser: command quit via page$' || fail "⌘Q with the page focused didn't reach the UI"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q quits, the command bar takes the keyboard and gives it back, goes to a host over https and searches for words, Japanese input composes in both. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q quits, the command bar takes the keyboard and gives it back, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new
 # tab does. The app asks Chrome to trace its tab switches, timed as Chrome times its own: from the

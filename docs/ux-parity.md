@@ -298,6 +298,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Every command rebindable | MVP | Settings › Keyboard Shortcuts | Dia P§22 |
 | [ ] | Full table in the spec | MVP | ux-spec.md › Keyboard | Dia, Chrome |
 | [ ] | Arc's keys not yet recorded | MVP | measure | — |
+| [x] | Menu bar | MVP | Arc's menus in Arc's order, with the commands the browser has | Arc 1.170.0 menus |
+| [x] | Edit menu in pages | MVP | Undo, Redo, Cut, Copy, Paste, Select All reach the focused page or field | Arc 1.170.0 menus |
+| [x] | Hide, Hide Others, Minimize | MVP | ⌘H, ⌥⌘H, ⌘M | Arc 1.170.0 menus |
+| [ ] | Arc's other menu items | MVP | windows, Save Page As, Print, Zoom, Developer, Space 1–9, Archive, Extensions, Help, as each feature lands | Arc 1.170.0 menus |
 
 ## Phase 4
 

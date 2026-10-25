@@ -26,7 +26,7 @@ index 8732badd32..ef553825c0 100644
  trait BoolExt {
      fn to_objc(self) -> Bool;
 diff --git a/crates/gpui_macos/src/platform.rs b/crates/gpui_macos/src/platform.rs
-index 4b48188131..80e2a78e85 100644
+index 4b48188131..6272159a60 100644
 --- a/crates/gpui_macos/src/platform.rs
 +++ b/crates/gpui_macos/src/platform.rs
 @@ -60,6 +60,12 @@ const MAC_PLATFORM_IVAR: &CStr = c"platform";
@@ -69,6 +69,21 @@ index 4b48188131..80e2a78e85 100644
              activation_policy: ActivationPolicy::Regular,
              application_created: false,
              text_system,
+@@ -370,10 +387,10 @@ impl MacPlatform {
+                         Some(gpui::OsAction::Copy) => sel!(copy:),
+                         Some(gpui::OsAction::Paste) => sel!(paste:),
+                         Some(gpui::OsAction::SelectAll) => sel!(selectAll:),
+-                        // "undo:" and "redo:" are always disabled in our case, as
+-                        // we don't have a NSTextView/NSTextField to enable them on.
+-                        Some(gpui::OsAction::Undo) => sel!(handleGPUIMenuItem:),
+-                        Some(gpui::OsAction::Redo) => sel!(handleGPUIMenuItem:),
++                        // Embedded, the first responder may be the host's text view, such as a
++                        // web page's, which undoes and redoes itself.
++                        Some(gpui::OsAction::Undo) => sel!(undo:),
++                        Some(gpui::OsAction::Redo) => sel!(redo:),
+                         None => sel!(handleGPUIMenuItem:),
+                     };
+ 
 @@ -427,6 +444,11 @@ impl MacPlatform {
                          item.setState(NSControlStateValueOn);
                      }
