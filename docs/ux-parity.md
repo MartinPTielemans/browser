@@ -197,7 +197,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Library | MVP | takes the sidebar's place, pushes the card to 417 at its width on spring 0.245 s / ζ 0.92; column of sections, back button; ⇧⌘L, View Library, footer button | Arc 1.170.0 cap, ax, rec |
 | [x] | Archived Tabs | MVP | search on the buttons' row, day headings, rows 56 apart with favicon, title and host; a click reopens the tab | Arc 1.170.0 cap, ax |
 | [x] | Clear Archive | MVP | Archive menu; asks first | Arc 1.170.0 menus |
-| [ ] | Library's other sections | MVP | Media, Downloads, Easels & Notes, Spaces, as each feature lands | Arc 1.170.0 cap |
+| [ ] | Library's other sections | MVP | Downloads done; Media, Easels & Notes, Spaces as each feature lands | Arc 1.170.0 cap |
 | [ ] | Archive filter, row hover and menu | MVP | measure | — |
 
 ## Profiles
@@ -242,12 +242,13 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Button | MVP | shown while the profile has downloads; no show/hide animation; place in Arc's layout: measure | Dia 1.50.1 bin |
+| [x] | Library section, ⇧⌘J, View Downloads | MVP | above Archived Tabs; rows as the archive's, with the system's icon, status and bar | Arc 1.170.0 menus, cap |
+| [x] | Row actions | MVP | progress, pause/resume, cancel, open, Show in Finder, Open When Done, keep or delete a held file, Remove from List, Clear List | Dia P§14 |
+| [ ] | Move to Trash, drag out | MVP | to Finder, other apps, the page, the tab list | Dia P§14 |
+| [ ] | Footer button while downloading | MVP | ours: glyph over a 16 × 2 bar; Arc's look: measure | — |
 | [ ] | Fly-in | MVP | measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
-| [ ] | Panel ⇧⌘J | MVP | progress, pause/resume, cancel, open, Show in Finder, Open When Done, Trash, drag out, clear | Dia P§14 |
-| [ ] | Per profile, persisted; private never written | MVP | yes | Dia P§14 |
-| [ ] | Quit guard | MVP | asks while downloads run | Dia P§1 |
-| [ ] | Panel look and motion | MVP | measure | — |
+| [x] | Per profile, persisted | MVP | Chrome's history; private never written once private windows land | Dia P§14 |
+| [ ] | Quit guard | MVP | asks while downloads run; quitting cancels them for now | Dia P§1 |
 
 ## Find in page
 

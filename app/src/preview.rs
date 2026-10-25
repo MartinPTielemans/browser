@@ -8,7 +8,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use browser::shell::{self, Archived, Browser, Command, MenuEntry, Page, Shell, WindowButton};
+use browser::shell::{
+    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, MenuEntry, Page,
+    Shell, WindowButton,
+};
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -48,6 +51,20 @@ const ARCHIVE: [(&str, &str, f64); 6] = [
 ];
 const DAY: f64 = 86_400_000.;
 
+// The downloads: one running, one paused, one held, and finished ones, newest first, with their
+// bytes so far and in all, and how many days ago they started.
+const DOWNLOADS: [(&str, &str, i64, i64, DownloadState, bool, f64); 6] = [
+    ("zed-0.170.dmg", "https://zed.dev/", 48_200_000, 121_500_000, RUNNING, false, 0.),
+    ("rust-book.pdf", "https://doc.rust-lang.org/", 3_100_000, 7_800_000, PAUSED, false, 0.01),
+    ("installer.command", "http://example.com/", 2_000, 4_000, RUNNING, true, 0.02),
+    ("report.csv", "https://data.example.org/", 18_400, 18_400, DONE, false, 0.3),
+    ("photo.jpg", "https://commons.wikimedia.org/", 2_480_000, 2_480_000, DONE, false, 1.2),
+    ("old-notes.txt", "https://example.net/", 0, 0, DownloadState::Cancelled, false, 9.),
+];
+const RUNNING: DownloadState = DownloadState::Running;
+const PAUSED: DownloadState = DownloadState::Paused;
+const DONE: DownloadState = DownloadState::Done;
+
 fn now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |now| now.as_millis() as f64)
 }
@@ -57,6 +74,7 @@ struct Fake {
     next_id: Cell<u64>,
     spaces: RefCell<Vec<(u64, SharedString, Option<u32>)>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
+    downloads: RefCell<Vec<Download>>,
 }
 
 impl Fake {
@@ -73,6 +91,11 @@ impl Fake {
             })
             .collect();
         self.later(cx, move |shell, cx| shell.set_archive(archive, cx));
+    }
+
+    fn report_downloads(&self, cx: &mut App) {
+        let downloads = self.downloads.borrow().clone();
+        self.later(cx, move |shell, cx| shell.set_downloads(downloads, cx));
     }
 
     fn report_spaces(&self, cx: &mut App) {
@@ -195,6 +218,38 @@ impl Browser for Fake {
         self.archive.borrow_mut().clear();
         self.report_archive(cx);
     }
+
+    // Opening and showing a file do nothing here.
+    fn act_on_download(&self, download: u64, action: DownloadAction, cx: &mut App) {
+        let mut downloads = self.downloads.borrow_mut();
+        let Some(index) = downloads.iter().position(|each| each.id == download) else {
+            return;
+        };
+        let download = &mut downloads[index];
+        match action {
+            DownloadAction::Open if download.state != DownloadState::Done => {
+                download.open_when_done = !download.open_when_done
+            }
+            DownloadAction::Pause => download.state = DownloadState::Paused,
+            DownloadAction::Resume => download.state = DownloadState::Running,
+            DownloadAction::Cancel => download.state = DownloadState::Cancelled,
+            DownloadAction::Keep => download.held = false,
+            DownloadAction::Remove => _ = downloads.remove(index),
+            DownloadAction::Open | DownloadAction::Show => {}
+        }
+        drop(downloads);
+        self.report_downloads(cx);
+    }
+
+    fn clear_downloads(&self, cx: &mut App) {
+        self.downloads.borrow_mut().retain(|each| {
+            matches!(each.state, DownloadState::Running | DownloadState::Paused)
+        });
+        self.report_downloads(cx);
+    }
+
+    // The made-up files have the file glyph.
+    fn download_icon(&self, _: u64, _: &mut App) {}
 
     // The made-up pages have the globe.
     fn page_favicon(&self, _: &str, _: &mut App) {}
@@ -396,13 +451,30 @@ fn main() {
                     .zip(ARCHIVE)
                     .map(|(id, (title, url, days))| (id, title, url, now() - days * DAY))
                     .collect();
+                let first_download = first_archived + ARCHIVE.len() as u64;
+                let downloads = (first_download..)
+                    .zip(DOWNLOADS)
+                    .map(|(id, (name, url, received, total, state, held, days))| Download {
+                        id,
+                        name: name.into(),
+                        url: url.into(),
+                        received,
+                        total,
+                        state,
+                        open_when_done: false,
+                        held,
+                        started: now() - days * DAY,
+                    })
+                    .collect();
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(first_archived + ARCHIVE.len() as u64),
+                    next_id: Cell::new(first_download + DOWNLOADS.len() as u64),
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
+                    downloads: RefCell::new(downloads),
                 });
                 browser.report_archive(cx);
+                browser.report_downloads(cx);
                 let mut shell = Shell::new(browser, cx);
                 shell.set_spaces(spaces, cx);
                 shell.set_space(first_space, cx);
@@ -431,11 +503,13 @@ fn main() {
             shell
         });
         match window {
-            // PREVIEW_LIBRARY=1 opens the Library.
+            // PREVIEW_LIBRARY=1 opens the Library, and PREVIEW_LIBRARY=downloads opens it there.
             Ok(window) if std::env::var_os("PREVIEW_LIBRARY").is_some() => {
-                window
-                    .update(cx, |shell, _, cx| shell.run(Command::ViewLibrary, "preview", cx))
-                    .ok();
+                let command = match std::env::var("PREVIEW_LIBRARY").as_deref() {
+                    Ok("downloads") => Command::ViewDownloads,
+                    _ => Command::ViewLibrary,
+                };
+                window.update(cx, |shell, _, cx| shell.run(command, "preview", cx)).ok();
             }
             Ok(_) => {}
             Err(error) => {

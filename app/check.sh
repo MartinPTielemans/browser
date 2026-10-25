@@ -63,8 +63,10 @@
 #      their titles and favicons. A tab named with a double-click on its row, where escape cancels,
 #      keeps its name over its page's title, and Rename Tab in its menu with no name gives the
 #      title back. A tab closed before the quit stays closed, in the archive, from which the
-#      Library reopens it at its page. A SIGTERM, which macOS sends at logout and restart, keeps
-#      a tab opened just before it. Reports how long putting them back takes.
+#      Library reopens it at its page. A page's download goes in the check's folder, ⇧⌘J opens the
+#      Library on Downloads, which lists it after the relaunch too, and Remove from List in its
+#      menu takes it off the list and keeps its file. A SIGTERM, which macOS sends at logout and
+#      restart, keeps a tab opened just before it. Reports how long putting them back takes.
 #      With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long
 #      goes in the archive, counting the time across a quit, and the tab shown stays.
 #   9. ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n/m",
@@ -117,16 +119,21 @@ mkdir -p "$out"
 # The Spaces the app saves for its next launch. Each run starts without them, but the relaunches.
 saved="$HOME/Library/Caches/browser-app/Spaces.json"
 # DevTools open where the profile last had them, so an undocked try would leave them in a window.
-# Run 9 docks them, so they start on the right.
+# Run 9 docks them, so they start on the right. Run 8's download goes in the check's own folder,
+# never the user's Downloads.
 prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
-[ ! -f "$prefs" ] || python3 -I -c '
-import json, sys
-with open(sys.argv[1]) as f:
-    prefs = json.load(f)
+mkdir -p "$(dirname "$prefs")" "$out/downloads"
+python3 -I -c '
+import json, os, sys
+prefs = {}
+if os.path.exists(sys.argv[1]):
+    with open(sys.argv[1]) as f:
+        prefs = json.load(f)
 prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState"] = "\"right\""
+prefs.setdefault("download", {}).update(default_directory=sys.argv[2], prompt_for_download=False)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
-' "$prefs"
+' "$prefs" "$PWD/$out/downloads"
 # A Space's colours in its menu, for a Space without one.
 colors="Color › System Accent (checked), Color › Gray, Color › Red, Color › Orange, \
 Color › Yellow, Color › Green, Color › Blue, Color › Pink, Color › Purple"
@@ -1419,14 +1426,18 @@ echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-
 # tab's history, the tab each showed and the Space the window showed. Only a tab shown loads, and
 # one that doesn't shows its title and its favicon from the profile's history, which keeps none
 # for data: pages, so the first page is served. A tab the user closed stays closed. The page's text
-# field, along its bottom, puts what's in it in the title.
+# field, along its bottom, puts what's in it in the title, and "d" typed in the page downloads a
+# file.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
+<a id=save download href="notes.txt"></a>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
+onkeydown = e => { if (e.key == "d" && e.target == document.body) save.click(); };
 </script>' > "$out/site/index.html"
+printf 'notes\n' > "$out/site/notes.txt"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
   base64 -D > "$out/site/icon.png"
 python3 -I -u -m http.server 0 --bind 127.0.0.1 --directory "$out/site" > "$out/site.log" 2>&1 &
@@ -1458,6 +1469,18 @@ if [ "$active" != 1 ]; then
   echo "skip: restoring Spaces. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
+# The page's download goes in the check's folder, and ⇧⌘J from the page opens the Library on
+# Downloads, which lists it.
+send type d
+expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't finish"
+[ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
+send key j cmd shift
+expect '^browser: command view-downloads via page$' "⇧⌘J with the page focused didn't reach the UI"
+expect '^browser: library section downloads$' "⇧⌘J didn't open the Library on Downloads"
+expect '^browser: library shown$' "⇧⌘J didn't open the Library"
+../tools/window-screenshot.sh "$pid" "$out/downloads.png" || fail "no window to capture"
+send key j cmd shift
+expect '^browser: library hidden$' "⇧⌘J again didn't close the Library"
 # Tab a goes to two pages and back to the first, so it has pages to go forward to.
 go_from_bar example.com
 expect_page example.com 1 0 "after loading a page"
@@ -1553,6 +1576,9 @@ e=$(grep -m1 '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.c
 grep -q "^browser: loaded $e " "$log" && fail "the second Space's tab loaded without being shown"
 ../tools/window-screenshot.sh "$pid" "$out/restored.png" || fail "no window to capture"
 await '^browser: archive 1 tabs$' || fail "the relaunch didn't bring back the archived tab"
+await '^browser: download [0-9]* done notes.txt$' || fail "the relaunch didn't list the download"
+# Newest first, so the first is this run's.
+d=$(grep -m1 '^browser: download [0-9]* done notes.txt$' "$log" | cut -d' ' -f3)
 check_layout "after the relaunch, with the sidebar it had" 300
 send click $page_point
 if [ "$active" != 1 ]; then
@@ -1591,6 +1617,20 @@ expect '^browser: library hidden$' "reopening a tab didn't close the Library"
 send click $page_point
 send key w cmd
 expect_tabs "$c $a" "$c" "after closing the tab from the archive"
+# Remove from List in the download's menu takes it off the list and keeps its file.
+send key j cmd shift
+expect '^browser: library section downloads$' "⇧⌘J didn't open the Library on Downloads"
+expect '^browser: library shown$' "⇧⌘J didn't open the Library after the relaunch"
+listed=$(grep '^browser: downloads ' "$log" | tail -1 | cut -d' ' -f3)
+post rightclick 300 111
+expect '^browser: menu shown Open, Show in Finder, Remove from List, Clear List$' \
+  "a right-click on the download's row didn't show its menu"
+send choose Remove from List
+expect "^browser: download $d Remove via download menu\$" "Remove from List didn't reach it"
+expect "^browser: downloads $((listed - 1))\$" "Remove from List didn't take the download off"
+[ -f "$out/downloads/notes.txt" ] || fail "Remove from List deleted the download's file"
+send key j cmd shift
+expect '^browser: library hidden$' "⇧⌘J didn't close the Library"
 switch "2 cmd" "$a"
 expect "^browser: loaded $a $site\$" "tab a didn't load once shown"
 tab=$a
@@ -1663,7 +1703,7 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, and a closed tab stays closed, in the archive, from which it reopens at its page. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's download is listed in the Library's Downloads, which ⇧⌘J opens, after the relaunch too, and Remove from List takes it off and keeps its file. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
 
 # Find in page, and zoom. The test page has three apples and one 日本語, and puts its zoom in its
