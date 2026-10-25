@@ -30,6 +30,8 @@ struct SavedTab {
   base::Time last_seen;
   // Whether it's in a split view with the tab saved above it.
   bool split = false;
+  // How many folders it's in, among the pinned tabs.
+  int depth = 0;
 };
 
 // |history|, with the page it's loading if it has no page yet.

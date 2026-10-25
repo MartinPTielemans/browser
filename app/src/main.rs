@@ -11,8 +11,8 @@ use std::{
 };
 
 use browser::shell::{
-    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, MenuEntry, Page,
-    Shell, WindowButton,
+    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
+    Page, Shell, WindowButton,
 };
 use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
@@ -256,8 +256,30 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_move_to_favorites(tab, index) };
     }
 
-    fn move_tab(&self, tab: u64, pinned: bool, index: usize, _: &mut App) {
-        unsafe { bc::bc_tab_move(tab, pinned, index) };
+    fn move_tab(&self, tab: u64, pinned: bool, folder: u64, index: usize, _: &mut App) {
+        unsafe { bc::bc_tab_move(tab, pinned, folder, index) };
+    }
+
+    fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
+        let name = CString::new(name).unwrap_or_default();
+        unsafe { bc::bc_folder_create(space, name.as_ptr(), folder, index) }
+    }
+
+    fn rename_folder(&self, folder: u64, name: &str, _: &mut App) {
+        let name = CString::new(name).unwrap_or_default();
+        unsafe { bc::bc_folder_rename(folder, name.as_ptr()) };
+    }
+
+    fn set_folder_open(&self, folder: u64, open: bool, _: &mut App) {
+        unsafe { bc::bc_folder_set_open(folder, open) };
+    }
+
+    fn move_folder(&self, folder: u64, to: u64, index: usize, _: &mut App) {
+        unsafe { bc::bc_folder_move(folder, to, index) };
+    }
+
+    fn delete_folder(&self, folder: u64, _: &mut App) {
+        unsafe { bc::bc_folder_delete(folder) };
     }
 
     fn separate(&self, tab: u64, _: &mut App) {
@@ -835,6 +857,7 @@ fn menus() -> Vec<Menu> {
             vec![
                 item("New Tab…", Command::NewTab),
                 item("Pin/Unpin Tab", Command::TogglePin),
+                item("New Folder…", Command::NewFolder),
                 MenuItem::separator(),
                 item("Next Tab", Command::NextTab),
                 item("Previous Tab", Command::PreviousTab),
@@ -874,6 +897,18 @@ unsafe extern "C" fn stopping(_: *mut c_void) {
     eprintln!("browser: stopping");
 }
 
+/// A Space's or a folder's name, which `copy` copies as bc_space_name does.
+fn name(
+    copy: unsafe extern "C" fn(bc::bc_id, *mut c_char, usize) -> usize,
+    id: u64,
+) -> SharedString {
+    let length = unsafe { copy(id, std::ptr::null_mut(), 0) };
+    let mut name = vec![0u8; length + 1];
+    unsafe { copy(id, name.as_mut_ptr().cast(), name.len()) };
+    name.truncate(length);
+    String::from_utf8_lossy(&name).into_owned().into()
+}
+
 unsafe extern "C" fn spaces_changed(_: *mut c_void) {
     let count = unsafe { bc::bc_spaces(std::ptr::null_mut(), 0) };
     let mut ids = vec![0; count];
@@ -882,14 +917,9 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
     let spaces = ids
         .into_iter()
         .map(|space| {
-            let length = unsafe { bc::bc_space_name(space, std::ptr::null_mut(), 0) };
-            let mut name = vec![0u8; length + 1];
-            unsafe { bc::bc_space_name(space, name.as_mut_ptr().cast(), name.len()) };
-            name.truncate(length);
             let mut color = 0;
             let has_color = unsafe { bc::bc_space_color(space, &mut color) };
-            let name = String::from_utf8_lossy(&name).into_owned().into();
-            (space, name, has_color.then_some(color))
+            (space, name(bc::bc_space_name, space), has_color.then_some(color))
         })
         .collect();
     update_shell(|shell, cx| shell.set_spaces(spaces, cx));
@@ -921,7 +951,18 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
             splits.push(split[..count.min(split.len())].to_vec());
         }
     }
-    update_shell(|shell, cx| shell.set_tabs(space, pinned, today, splits, cx));
+    let mut folders = Folders::default();
+    for &row in &pinned {
+        let mut open = false;
+        if unsafe { bc::bc_folder(row, &mut open) } {
+            folders.folders.insert(row, (name(bc::bc_folder_name, row), open));
+        }
+        match unsafe { bc::bc_folder_of(row) } {
+            0 => {}
+            folder => _ = folders.parents.insert(row, folder),
+        }
+    }
+    update_shell(|shell, cx| shell.set_tabs(space, pinned, today, splits, folders, cx));
 }
 
 unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space: bc::bc_id) {

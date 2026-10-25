@@ -18,6 +18,9 @@ namespace browser_core {
 //
 // Tabs in a split view show side by side, and sit together in their list, left to right, as one
 // row. Each of the Space's calls that moves a tab moves its split with it.
+//
+// Folders hold pinned tabs and other folders. Each sits in the pinned list followed by what's in
+// it, and moves with it.
 class Space {
  public:
   // The most tabs a split shows.
@@ -31,6 +34,8 @@ class Space {
   static std::vector<Space*> All();
   // The Space holding |tab|, pinned or in Today, if any.
   static Space* Holding(bc_id tab);
+  // The Space holding |folder|, if any.
+  static Space* HoldingFolder(bc_id folder);
 
   Space(const Space&) = delete;
   Space& operator=(const Space&) = delete;
@@ -39,7 +44,10 @@ class Space {
   const std::string& name() const { return name_; }
   // 0xRRGGBB in sRGB, if it has one.
   std::optional<uint32_t> color() const { return color_; }
-  const std::vector<bc_id>& pinned() const { return pinned_; }
+  // The pinned tabs and folders, top to bottom, each folder followed by what's in it.
+  const std::vector<bc_id>& pinned_rows() const { return pinned_; }
+  // The pinned tabs alone.
+  std::vector<bc_id> pinned() const;
   const std::vector<bc_id>& today() const { return today_; }
   bool Has(bc_id tab) const;
   bool IsPinned(bc_id tab) const;
@@ -48,6 +56,12 @@ class Space {
   // The tabs shown with |tab|, left to right, |tab| among them: its split's, else |tab| alone.
   // Empty if the Space hasn't |tab|.
   std::vector<bc_id> Panes(bc_id tab) const;
+  bool IsFolder(bc_id id) const { return folders_.contains(id); }
+  // The folder holding the pinned tab or folder |id|, else 0.
+  bc_id FolderOf(bc_id id) const;
+  // A folder's name, and whether it shows what's in it.
+  std::string FolderName(bc_id folder) const;
+  bool IsOpen(bc_id folder) const;
 
   void SetName(std::string name);
   void SetColor(std::optional<uint32_t> color);
@@ -58,19 +72,33 @@ class Space {
   void Add(bc_id tab, bc_id opener, bool foreground);
   // Puts |tab| at |index| in Today, else at the bottom, and below a split |index| is inside.
   void AddAt(bc_id tab, size_t index);
-  // Puts |tab| at |index| in the pinned tabs, else at the bottom, and below a split |index| is
-  // inside, pinned at |url|.
-  void AddPinned(bc_id tab, size_t index, GURL url);
+  // Puts |tab| at |index| in |folder|, else in the pinned tabs, counted as Move counts, else at
+  // the bottom, and below a split |index| is inside, pinned at |url|.
+  void AddPinned(bc_id tab, bc_id folder, size_t index, GURL url);
   // Pins |tab|, a Today tab, at the bottom of the pinned tabs, each of its split at its |url_of|.
   void Pin(bc_id tab, base::FunctionRef<GURL(bc_id)> url_of);
   // Unpins |tab| to the top of Today.
   void Unpin(bc_id tab);
-  // Moves |tab| to |index| in the pinned tabs or in Today, without it, else to the bottom. A Today
-  // tab moved to the pinned tabs is pinned at its |url_of|, and a pinned tab moved to Today is
-  // unpinned.
-  void Move(bc_id tab, bool pinned, size_t index, base::FunctionRef<GURL(bc_id)> url_of);
+  // Moves |tab| to |index| in Today, without it, or in the pinned tabs, inside |folder| if it isn't
+  // 0, else to the bottom. In the pinned tabs or a folder, |index| counts the tabs and folders
+  // directly in it. A Today tab moved to the pinned tabs is pinned at its |url_of|, and a pinned
+  // tab moved to Today is unpinned. |tab| may be a folder, which moves with what's in it, but not
+  // into itself.
+  void Move(bc_id tab,
+            bool pinned,
+            bc_id folder,
+            size_t index,
+            base::FunctionRef<GURL(bc_id)> url_of);
   // Takes |tab| out of the Space, and out of its split.
   void Remove(bc_id tab);
+
+  // Makes an open folder named |name| at |index| in |folder|, else in the pinned tabs, counted as
+  // Move counts. Returns it.
+  bc_id AddFolder(std::string name, bc_id folder, size_t index);
+  void RenameFolder(bc_id folder, std::string name);
+  void SetOpen(bc_id folder, bool open);
+  // Deletes |folder|, leaving what was in it where it was, in the folder that held it.
+  void DeleteFolder(bc_id folder);
 
   // Puts |tab| in a split view with |with|, at its right end, making one if |with| is in none.
   // |tab| leaves any split it was in, and goes after the split in its list, pinned at |url| if
@@ -105,13 +133,27 @@ class Space {
   size_t OutsideSplits(const std::vector<bc_id>& tabs, size_t index) const;
   // Takes |tab| out of its split, leaving it where it is in its list.
   void LeaveSplit(bc_id tab);
+  // Whether |id| is |folder| or inside it.
+  bool Within(bc_id id, bc_id folder) const;
+  // Past the end of the rows of |folder|, else of the pinned list, in |pinned_|.
+  size_t EndOf(bc_id folder) const;
+  // Where in |pinned_| what goes at |index| in |folder| goes, counted as Move counts.
+  size_t PinnedAt(bc_id folder, size_t index) const;
   void ReportChanged();
 
   const bc_id id_;
   std::string name_;
   std::optional<uint32_t> color_;
+  // Pinned tabs and folders.
   std::vector<bc_id> pinned_;
   std::map<bc_id, GURL> pinned_urls_;
+  struct Folder {
+    std::string name;
+    bool open = true;
+  };
+  std::map<bc_id, Folder> folders_;
+  // Each pinned tab or folder inside a folder, to the folder.
+  std::map<bc_id, bc_id> folder_of_;
   std::vector<bc_id> today_;
   // Each tab a page opened, to the tab it came from.
   std::map<bc_id, bc_id> openers_;

@@ -43,11 +43,21 @@ namespace browser_core {
 
 namespace {
 
+struct SavedFolder {
+  std::string name;
+  bool open = true;
+  // How many folders it's in.
+  int depth = 0;
+  // The pinned tab saved under it, counted among them.
+  size_t at = 0;
+};
+
 struct SavedSpace {
   std::string name;
   std::optional<uint32_t> color;
   // Each top to bottom.
   std::vector<SavedTab> pinned;
+  std::vector<SavedFolder> folders;
   std::vector<SavedTab> today;
   // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
   int shown = -1;
@@ -68,6 +78,15 @@ struct Saved {
 
 // A navigation's page state is left out past this, as in Chrome's sessions.
 constexpr int kMaxNavigationSize = 63 * 1024;
+
+// How many folders |id| is in.
+int DepthOf(const Space& space, bc_id id) {
+  int depth = 0;
+  for (bc_id folder = space.FolderOf(id); folder; folder = space.FolderOf(folder)) {
+    ++depth;
+  }
+  return depth;
+}
 
 }  // namespace
 
@@ -130,10 +149,17 @@ Saved Collect() {
       to.shown_favorite = favorite->second;
     }
     int index = 0;
-    for (auto [ids, tabs] : {std::pair(&space->pinned(), &to.pinned),
+    for (auto [ids, tabs] : {std::pair(&space->pinned_rows(), &to.pinned),
                              std::pair(&space->today(), &to.today)}) {
       bc_id above = 0;
       for (bc_id id : *ids) {
+        if (space->IsFolder(id)) {
+          to.folders.push_back({.name = space->FolderName(id),
+                                .open = space->IsOpen(id),
+                                .depth = DepthOf(*space, id),
+                                .at = to.pinned.size()});
+          continue;
+        }
         content::WebContents* contents = Tab::FromId(id);
         SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
         if (tab.history.empty()) {
@@ -146,6 +172,7 @@ Saved Collect() {
         above = id;
         tab.pinned_url = space->PinnedUrl(id);
         tab.name = Tab::FromWebContents(contents)->name();
+        tab.depth = DepthOf(*space, id);
         if (tabs == &to.today) {
           tab.last_seen = Window::Showing(id) ? base::Time::Now()
                                               : Tab::FromWebContents(contents)->last_seen();
@@ -185,15 +212,26 @@ std::optional<std::string> ToJson(const Saved& saved) {
       if (tab.split) {
         dict.Set("split", true);
       }
+      if (tab.depth) {
+        dict.Set("depth", tab.depth);
+      }
       list.Append(std::move(dict));
     }
     return list;
   };
   base::ListValue spaces;
   for (const SavedSpace& space : saved.spaces) {
+    // Each folder in the pinned list, above what's in it.
+    base::ListValue pinned = to_list(space.pinned);
+    for (auto folder = space.folders.rbegin(); folder != space.folders.rend(); ++folder) {
+      pinned.Insert(pinned.begin() + folder->at, base::Value(base::DictValue()
+                                                                 .Set("folder", folder->name)
+                                                                 .Set("open", folder->open)
+                                                                 .Set("depth", folder->depth)));
+    }
     base::DictValue dict = base::DictValue()
                                .Set("name", space.name)
-                               .Set("pinned", to_list(space.pinned))
+                               .Set("pinned", std::move(pinned))
                                .Set("today", to_list(space.today))
                                .Set("shown", space.shown);
     if (space.shown_favorite >= 0) {
@@ -256,6 +294,7 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
     tab.name = *name;
   }
   tab.split = dict->FindBool("split").value_or(false);
+  tab.depth = std::max(dict->FindInt("depth").value_or(0), 0);
   return tab;
 }
 
@@ -307,6 +346,15 @@ std::optional<Saved> Read(const base::FilePath& path) {
     for (auto [list, tabs] : {std::pair(pinned ? pinned : &no_pinned, &to.pinned),
                               std::pair(today, &to.today)}) {
       for (const base::Value& value : *list) {
+        const base::DictValue* dict = value.GetIfDict();
+        const std::string* folder = dict ? dict->FindString("folder") : nullptr;
+        if (folder && tabs == &to.pinned) {
+          to.folders.push_back({.name = *folder,
+                                .open = dict->FindBool("open").value_or(true),
+                                .depth = std::max(dict->FindInt("depth").value_or(0), 0),
+                                .at = to.pinned.size()});
+          continue;
+        }
         std::optional<SavedTab> tab = ReadTab(value);
         if (index++ == shown && tab) {
           to.shown = kept;
@@ -506,16 +554,35 @@ bool RestoreSession(Window& window) {
     const int pinned = static_cast<int>(saved_space.pinned.size());
     std::vector<bc_id> pinned_ids(saved_space.pinned.size());
     std::vector<bc_id> today_ids(saved_space.today.size());
+    // The folders holding the row being put back, outermost first.
+    std::vector<bc_id> holders;
+    const auto holder = [&](int depth) {
+      holders.resize(std::min(static_cast<size_t>(depth), holders.size()));
+      return holders.empty() ? 0 : holders.back();
+    };
+    size_t folders = 0;
+    const auto restore_folders = [&](size_t above) {
+      for (; folders < saved_space.folders.size() && saved_space.folders[folders].at <= above;
+           ++folders) {
+        const SavedFolder& saved_folder = saved_space.folders[folders];
+        const bc_id folder = space->AddFolder(saved_folder.name, holder(saved_folder.depth),
+                                              space->pinned_rows().size());
+        space->SetOpen(folder, saved_folder.open);
+        holders.push_back(folder);
+      }
+    };
     for (int j = 0; j < pinned; ++j) {
+      restore_folders(j);
       const SavedTab& saved_tab = saved_space.pinned[j];
       if (bc_id tab = pinned_ids[j] = restore(saved_tab, j)) {
         // Saved before pinned tabs kept their pinned URL, it's pinned where it is.
-        space->AddPinned(tab, space->pinned().size(),
+        space->AddPinned(tab, holder(saved_tab.depth), space->pinned_rows().size(),
                          saved_tab.pinned_url.is_valid()
                              ? saved_tab.pinned_url
                              : saved_tab.history[saved_tab.current].virtual_url());
       }
     }
+    restore_folders(saved_space.pinned.size());
     // Bottom up, as each goes at the top.
     for (size_t j = saved_space.today.size(); j-- > 0;) {
       if (bc_id tab = today_ids[j] = restore(saved_space.today[j], pinned + static_cast<int>(j))) {
