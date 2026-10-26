@@ -641,7 +641,6 @@ impl Settings {
                 shortcut: None,
                 parent: None,
                 checked: Some(index) == chosen,
-                swatch: None,
             })
             .collect();
         self.choosing = Some(Popup::ArchiveAfter);

@@ -227,19 +227,15 @@ impl Shell {
         cx.notify();
     }
 
-    /// The gradient down the window, at `y` from its top (0) to its bottom (1): the Space's
-    /// colour, going to the same at HSL lightness + 0.25. While the sidebar pages between two
-    /// Spaces, it cross-fades from one's to the other's as the pages move.
-    fn gradient_color(&self, y: f32) -> Hsla {
-        let color_of = |space| self.space_color_at(space, y);
+    /// The Space the window's colour is of, and while the sidebar pages between two, the one
+    /// beside and how far the colour has gone to it, 0 to 1: a switch next door changes the
+    /// colour ahead of the slide, anything else with the pages.
+    pub(super) fn colored_pages(&self) -> (u64, Option<(u64, f32)>) {
         let pages = self.pages();
         let (space, x) = pages[0];
-        let from = color_of(space);
         let Some(&(beside, _)) = pages.get(1) else {
-            return from.into();
+            return (space, None);
         };
-        let to = color_of(beside);
-        // A switch next door changes the colour ahead of the slide; anything else with the pages.
         let settle = self.settle.as_ref().filter(|settle| {
             self.swipe.is_none() && settle.space == space && settle.beside == Some(beside)
         });
@@ -247,16 +243,35 @@ impl Shell {
             Some(left) => left,
             None => (x.abs() / self.width()).min(1.),
         };
+        (space, Some((beside, t)))
+    }
+
+    /// The gradient down the window, at `y` from its top (0) to its bottom (1), where the sidebar
+    /// is: the Space's colour, going to the same at HSL lightness + 0.25, or its theme's colours.
+    /// While the sidebar pages between two Spaces, it cross-fades from one's to the other's as the
+    /// pages move.
+    fn gradient_color(&self, y: f32) -> Hsla {
+        let x = self.sidebar_x();
+        let (space, beside) = self.colored_pages();
+        let from = self.space_color_at(space, x, y);
+        let Some((beside, t)) = beside else {
+            return from.into();
+        };
+        let to = self.space_color_at(beside, x, y);
         let mix = |from: f32, to: f32| from + (to - from) * t;
         let (r, g, b) = (mix(from.r, to.r), mix(from.g, to.g), mix(from.b, to.b));
         Rgba { r, g, b, a: mix(from.a, to.a) }.into()
     }
 
-    /// `space`'s colour `y` of the way down the window, as the gradient has it.
-    fn space_color_at(&self, space: u64, y: f32) -> Rgba {
+    /// `space`'s colour `x` of the way across the window and `y` of the way down, as the gradient
+    /// has it.
+    fn space_color_at(&self, space: u64, x: f32, y: f32) -> Rgba {
         // A Space without a colour has the system's accent colour, as in Dia.
         if self.private {
             return Rgba { r: 0., g: 0., b: 0., a: PRIVATE_SHADE };
+        }
+        if let Some(theme) = self.theme_of(space) {
+            return self.theme_color_at(&theme, x, y);
         }
         let space = self.spaces.iter().find(|each| each.id == space);
         let color = space.and_then(|space| space.color).unwrap_or(self.accent_color);
@@ -268,7 +283,8 @@ impl Shell {
     /// `space`'s gradient from top to bottom, for what is as tall as the window, such as its card
     /// in the Library.
     pub(super) fn space_gradient(&self, space: u64) -> gpui::Background {
-        let stop = |y| linear_color_stop(Hsla::from(self.space_color_at(space, y)), y);
+        // Across the window's middle, for a theme of more than one colour.
+        let stop = |y| linear_color_stop(Hsla::from(self.space_color_at(space, 0.5, y)), y);
         linear_gradient(180., stop(0.), stop(1.))
     }
 

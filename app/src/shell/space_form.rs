@@ -16,7 +16,7 @@ use super::{
     FORM_PLATE_HEIGHT, FORM_PROFILE_TOP, FORM_RADIUS, FORM_SINK, FORM_TEXT, FORM_TEXT_X,
     FORM_THEME_TOP, FORM_TITLE_HEIGHT, FORM_TITLE_TOP, HOVERED, SECONDARY, Shell, SpaceForm,
 };
-use crate::text_input::TextInput;
+use crate::{text_input::TextInput, theme_picker};
 
 impl Shell {
     /// Makes a Space and shows it with the form for naming it, or shows the form already open.
@@ -230,7 +230,7 @@ impl Shell {
         let theme_row = row("space-theme", FORM_THEME_TOP, "icons/paintbrush.svg", "Choose a Theme")
             .when(left.is_none(), |row| {
                 row.hover(|style| style.bg(rgba(HOVERED)))
-                    .on_mouse_down(MouseButton::Left, menu(Self::form_theme_menu))
+                    .on_mouse_down(MouseButton::Left, menu(Self::form_theme_picker))
             });
         let create = plate("create-space")
             .bottom(px(CREATE_BOTTOM))
@@ -297,11 +297,17 @@ impl Shell {
         }
     }
 
-    /// The form's Choose a Theme row's menu: the Space menu's colours, until Space themes come
-    /// (Arc's picker isn't recorded).
-    fn form_theme_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+    /// The form's Choose a Theme row's picker, pointing at the row's right end, as Arc's does. A
+    /// press on the row while it shows closes it, as a click outside it does, without opening it
+    /// again.
+    fn form_theme_picker(&mut self, _: Point<Pixels>, cx: &mut Context<Self>) {
+        if theme_picker::is_open(cx) {
+            return;
+        }
         if let Some(space) = self.form().map(|form| form.space) {
-            self.show_menu(self.color_items(space), position, None, cx);
+            let right = self.width() - FORM_INSET;
+            let anchor = point(right, FORM_THEME_TOP + FORM_PLATE_HEIGHT / 2.);
+            self.show_theme_picker(space, anchor, cx);
         }
     }
 }

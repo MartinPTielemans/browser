@@ -1,5 +1,5 @@
 //! Naming a Space, a tab or a folder in a field in place of its name, a new folder as
-//! it's made; and opening the picker for a Space's or a tab's icon.
+//! it's made; and opening the pickers for a Space's or a tab's icon and a Space's theme.
 
 use std::{
     rc::Rc,
@@ -11,14 +11,15 @@ use gpui::{Context, SharedString, Window, div, point, prelude::*, px, rgb, rgba}
 use super::{
     undo::{Prop, Value},
     CancelName, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_PLACEHOLDER, FORM_TEXT, KeepName,
-    NEW_FOLDER, Naming, PLATE_INSET, Renaming, SPACE_ICON_SLOT, SPACE_ICON_X, Shell, ShellHandle,
+    NEW_FOLDER, Naming, PLATE_INSET, Pending, Renaming, SPACE_ICON_SLOT, SPACE_ICON_X, Shell,
+    ShellHandle,
 };
 use crate::{
     icon_picker::{self, Picked, Subject},
     text_input::TextInput,
 };
 
-/// How long the icon picker waits for the name row it hangs under to stop moving.
+/// How long a picker waits for the name row it points at to stop moving.
 const PICKER_WAIT: Duration = Duration::from_secs(2);
 
 impl Shell {
@@ -85,7 +86,7 @@ impl Shell {
         if !self.dock(cx) && self.sidebar_hidden {
             self.toggle_sidebar(cx);
         }
-        self.picker_pending = Some((Subject::Tab(tab), Instant::now()));
+        self.picker_pending = Some((Pending::Icon(Subject::Tab(tab)), Instant::now()));
         self.tab_row_drawn.set(None);
         self.name_row_before = None;
         cx.notify();
@@ -93,6 +94,16 @@ impl Shell {
 
     /// Shows the Space, and the icon picker under its name once the name row has stopped moving.
     pub(super) fn change_space_icon(&mut self, space: u64, cx: &mut Context<Self>) {
+        self.open_picker(space, Pending::Icon(Subject::Space(space)), cx);
+    }
+
+    /// Shows the Space, and the theme picker beside its name row once the row has stopped
+    /// moving: Arc's Edit Theme Color…, whose picker opened from there isn't recorded.
+    pub(super) fn edit_space_theme(&mut self, space: u64, cx: &mut Context<Self>) {
+        self.open_picker(space, Pending::Theme(space), cx);
+    }
+
+    fn open_picker(&mut self, space: u64, picker: Pending, cx: &mut Context<Self>) {
         if !self.spaces.iter().any(|each| each.id == space) {
             return;
         }
@@ -106,28 +117,26 @@ impl Shell {
         if !self.dock(cx) && self.sidebar_hidden {
             self.toggle_sidebar(cx);
         }
-        self.picker_pending = Some((Subject::Space(space), Instant::now()));
+        self.picker_pending = Some((picker, Instant::now()));
         self.name_row_drawn.set(None);
         self.name_row_before = None;
         cx.notify();
     }
 
-    /// Opens the icon picker asked for once the row it hangs under has drawn where it drew the
-    /// frame before, and the Library has gone, as the sidebar, the Library or a Space's slide may
-    /// be moving it. A Space's points at where its icon goes in the name row, a tab's at its
-    /// favicon. It gives up if the row doesn't settle in two seconds, such as in a full-screen
-    /// page, which has no sidebar.
-    pub(super) fn open_icon_picker_when_settled(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some((subject, asked)) = self.picker_pending else {
+    /// Opens the picker asked for once the row it points at has drawn where it drew the frame
+    /// before, and the Library has gone, as the sidebar, the Library or a Space's slide may be
+    /// moving it. A Space's icon picker points at where its icon goes in the name row, a tab's at
+    /// its favicon, and the theme picker at the name row's end. It gives up if the row doesn't
+    /// settle in two seconds, such as in a full-screen page, which has no sidebar.
+    pub(super) fn open_picker_when_settled(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((picker, asked)) = self.picker_pending else {
             return;
         };
-        let (drawn, here) = match subject {
-            Subject::Space(space) => (self.name_row_drawn.get(), space == self.space),
-            Subject::Tab(_) => (self.tab_row_drawn.get(), true),
+        let (drawn, here) = match picker {
+            Pending::Icon(Subject::Space(space)) | Pending::Theme(space) => {
+                (self.name_row_drawn.get(), space == self.space)
+            }
+            Pending::Icon(Subject::Tab(_)) => (self.tab_row_drawn.get(), true),
         };
         // Not before the Library has gone and the sidebar has come in, as a frame of either can
         // leave the row where it was.
@@ -150,6 +159,13 @@ impl Shell {
         }
         let Some(row) = drawn else {
             return;
+        };
+        let subject = match picker {
+            Pending::Icon(subject) => subject,
+            Pending::Theme(space) => {
+                let anchor = point(f32::from(row.right()), f32::from(row.center().y));
+                return self.show_theme_picker(space, anchor, cx);
+            }
         };
         let shell = cx.weak_entity();
         let (icon, anchor, picked) = match subject {
