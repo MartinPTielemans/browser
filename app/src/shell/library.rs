@@ -1661,6 +1661,7 @@ mod tests {
             id: 1,
             name: "Space 1".into(),
             color: None,
+            theme: None,
             icon: Default::default(),
             profile: 0,
             agent: Default::default(),
