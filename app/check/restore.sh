@@ -20,9 +20,10 @@
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
 # tab's history, the tab each showed and the Space the window showed. Back and Forward on a tab put
-# back go through its saved history. Only a tab shown loads, and one that doesn't shows its title
-# and its favicon from the profile's history, which keeps none for data: pages, so the first page
-# is served. A tab the user closed stays closed.
+# back go through its saved history, and a window that quit full screen comes back so. Only a tab
+# shown loads, and one that doesn't shows its title and its favicon from the profile's history,
+# which keeps none for data: pages, so the first page is served. A tab the user closed stays
+# closed.
 serve
 log="$out/restore.log"
 step=0
@@ -166,6 +167,9 @@ expect '^browser: command view-downloads via chrome$' \
 expect '^browser: library section downloads$' \
   "Continue Downloading didn't show the Library's Downloads"
 ../tools/window-screenshot.sh "$pid" "$out/quit-downloads.png" || fail "no window to capture"
+# The window quits full screen, and the relaunch brings it back so.
+send fullscreen
+expect '^browser: window entered full screen$' "the window didn't go full screen before the quit"
 post key q cmd
 expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitting"
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
@@ -184,6 +188,12 @@ BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Spaces"
+# The window that quit full screen comes back so, and leaves it for the rest of the run, whose
+# points are the window's.
+await '^browser: window entered full screen$' || fail "the window that quit full screen didn't come back full screen"
+../tools/window-screenshot.sh "$pid" "$out/restored-fullscreen.png" || fail "no window to capture"
+send fullscreen
+expect '^browser: window left full screen$' "the restored window didn't leave full screen"
 await '^browser: spaces [0-9]* [0-9]*$' || fail "the relaunch didn't bring back two Spaces"
 first=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f3)
 second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
@@ -386,6 +396,8 @@ await '^browser: today [0-9]*$' || fail "the second Space didn't come back with 
 await "^browser: loaded $(today) https://example.com/\$" || fail "the second Space's tab didn't load"
 await '^browser: page [0-9]* back 1 forward 1 loading 0 https://example.com/$' ||
   fail "tab a didn't keep the page it went forward to"
+# The window was left full screen before the close, so it doesn't come back so.
+grep -q '^browser: window entered full screen$' "$log" && fail "the window came back full screen after it quit windowed"
 # Tab a is unloaded in the middle of its history, with Back and Forward on. Shown, and with its
 # page perhaps still loading, ⌘← goes back to the page before and ⌘→ forward over the pages after.
 a=$(grep -m1 '^browser: page [0-9]* back 1 forward 1 loading 0 https://example.com/$' "$log" | cut -d' ' -f3)
@@ -455,6 +467,6 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png,"
 echo "  $out/recent-downloads.png"
