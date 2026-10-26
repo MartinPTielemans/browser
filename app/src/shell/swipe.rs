@@ -72,6 +72,14 @@ impl Shell {
         self.library_width() * library_band(way) / push
     }
 
+    /// Shows the first Space as fingers or a wheel leave the Library, which sits left of it, though
+    /// it was opened from another (Arc 1.170 rec, three Spaces).
+    fn show_first_space(&mut self, cx: &mut Context<Self>) {
+        if let Some(first) = self.spaces.first() {
+            self.show_space(first.id, cx);
+        }
+    }
+
     /// Whether fingers going right from `space` bring out the Library: from the first Space, in the
     /// docked sidebar, of a regular window.
     fn library_beside(&self, space: u64) -> bool {
@@ -216,6 +224,9 @@ impl Shell {
                 // check.sh waits for this line.
                 log!("browser: command view-library via swipe");
             }
+            if !open {
+                self.show_first_space(cx);
+            }
             self.move_library(open, out, velocity / self.library_width(), None, cx);
             return true;
         }
@@ -265,6 +276,9 @@ impl Shell {
             if library != self.library_open {
                 // check.sh waits for this line.
                 log!("browser: command view-library via wheel");
+                if !library {
+                    self.show_first_space(cx);
+                }
                 self.set_library(library, cx);
             } else if !self.library_open
                 && let Some(space) = self.nearest(self.space, sum.signum() * self.width())
@@ -396,8 +410,12 @@ fn heading(x: f32, velocity: f32, width: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
+    use gpui::{ScrollDelta, ScrollEvent, TestAppContext, TouchPhase, point, px};
+
     use super::{heading, nearest};
-    use crate::shell::{Folders, Space};
+    use crate::shell::{Folders, Shell, Space, recorder::Recorder};
 
     fn spaces(ids: &[u64]) -> Vec<Space> {
         let space = |&id| Space {
@@ -441,5 +459,35 @@ mod tests {
         assert_eq!(lands(2, -120., 0.), Some(3));
         assert_eq!(lands(3, -20., -300.), Some(4));
         assert_eq!(lands(1, 120., 0.), Some(1));
+    }
+
+    /// Fingers taking the Library back land on the first Space, which it sits left of, though it
+    /// was opened from the second.
+    #[gpui::test]
+    fn a_swipe_back_from_the_library_lands_on_the_first_space(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
+        shell.update(cx, |shell, cx| {
+            let space = |id: u64| (id, format!("Space {id}").into(), None, 1, "".into(), "".into());
+            shell.set_spaces(vec![space(1), space(2), space(3)], cx);
+            shell.set_space(2, cx);
+            shell.set_library(true, cx);
+            // At rest, open.
+            shell.library_motion = None;
+        });
+        cx.run_until_parked();
+        let fingers = |touch_phase, x| ScrollEvent {
+            delta: ScrollDelta::Pixels(point(px(x), px(0.))),
+            touch_phase,
+            ..Default::default()
+        };
+        shell.update_in(cx, |shell, window, cx| {
+            use TouchPhase::{Ended, Moved, Started};
+            for (phase, x) in [(Started, 0.), (Moved, -800.), (Ended, 0.)] {
+                shell.scroll(&fingers(phase, x), window, cx);
+            }
+            assert!(!shell.library_open, "the swipe left the Library open");
+        });
+        assert_eq!(*host.shown.borrow(), [1]);
     }
 }
