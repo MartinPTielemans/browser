@@ -114,7 +114,13 @@ timing=$(grep -m1 '^browser: title [0-9]* frames' "$log" | sed 's/^browser: titl
 echo "$timing" | grep -q ' scrolled 3000$' || fail "the page didn't scroll by exactly 3000 points: $timing"
 frames=$(echo "$timing" | sed 's/^frames \([0-9]*\) .*/\1/')
 slow=$(echo "$timing" | sed 's/.* slow \([0-9]*\) .*/\1/')
-[ $((slow * 100)) -le "$frames" ] || fail "more than 1% of frames took longer than 1/60 s: $timing"
+# A VM's display runs at 60 Hz and its frames come when the host gives it time, so only a Mac's own
+# screen can judge the scroll, and a VM reports it.
+if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
+  timing="$timing, in a VM, not judged"
+elif [ $((slow * 100)) -gt "$frames" ]; then
+  fail "more than 1% of frames took longer than 1/60 s: $timing"
+fi
 
 send resize 1000 700
 check_layout "after a resize"
