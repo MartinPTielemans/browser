@@ -1456,7 +1456,8 @@ void host_add_tooltip(void* tooltip_view, void (*away)(void)) {
                   usingBlock:left_window];
 }
 
-// The window's alpha, which AppKit animates, so the fade wakes nothing of ours but its end.
+// The window's alpha, which AppKit animates, so the fade wakes nothing of ours but its end. With
+// no seconds it's set in the group, which also ends a fade still running.
 void FadeTooltip(double alpha, double seconds, void (^done)(void)) {
   [NSAnimationContext
       runAnimationGroup:^(NSAnimationContext* context) {
@@ -1490,7 +1491,7 @@ void host_show_tooltip(void* ui_view, double left, double top, double fade) {
     PlaceTooltip();
     [g_tooltip_view.layer setNeedsDisplay];
     [g_tooltip_view.layer displayIfNeeded];
-    // Still fading out over this window, it fades back in from where it is.
+    // Still fading out over this window, it goes back to full, as Arc's shows in one frame.
     if (g_tooltip.parentWindow != browser->window) {
       [g_tooltip.parentWindow removeChildWindow:g_tooltip];
       g_tooltip.alphaValue = 0;

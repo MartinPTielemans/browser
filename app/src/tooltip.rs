@@ -12,48 +12,57 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, Context, FontWeight, Global, Pixels, SharedString, Size, Task, TextRun,
+    App, Bounds, Context, Div, FontWeight, Global, Pixels, SharedString, Size, Task, TextRun,
     TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
-    WindowOptions, WindowTextSystem, div, font, point, prelude::*, px, rgb, size,
+    WindowOptions, WindowTextSystem, div, font, point, prelude::*, px, rgb, rgba, size,
 };
 
-// Ours: Arc's delay and placement under a tile aren't measured, so they're the system's tooltip,
-// which shows after half a second, hung under what it names.
+// Arc's delay was seen once at 0.73 s from the hover plate, and again at 1.03 s with the pointer
+// still moving, so it's ours (*interim*); its placement under a tile isn't measured either.
 /// How long the pointer rests on a tile, row or button before its tooltip shows.
-pub const DELAY: Duration = Duration::from_millis(500);
+pub const DELAY: Duration = Duration::from_millis(730);
 /// How soon after a tooltip went the next shows at once, as the pointer crosses the gap between
-/// two tiles.
-pub const GRACE: Duration = DELAY;
-/// How long it takes to fade in and out. Arc's fades out; how fast isn't recorded (ours).
-pub const FADE: Duration = Duration::from_millis(150);
+/// two tiles (ours: the system's half second).
+pub const GRACE: Duration = Duration::from_millis(500);
+/// It shows in a frame and fades out over 0.27 s, ease-out (Arc).
+pub const FADE_IN: Duration = Duration::ZERO;
+pub const FADE_OUT: Duration = Duration::from_millis(270);
 /// How far below the tile or row it names the tooltip's top is, or above it if it doesn't fit
 /// below. The gap between two tiles, so it reads as the tile's own and the tile's edge shows.
 pub const GAP: f32 = 6.;
 /// How far right of a footer button's plate the tooltip beside it starts (Arc).
 pub const BESIDE: f32 = 3.5;
-// Arc's, from the Library button's: a capsule 5 taller than its chips each way, its 12 pt text 10
-// in and its last chip 10 from its end, 161 wide for View Library ⇧⌘L.
-const HEIGHT: f32 = 28.;
+// Arc's, from the Library button's: a capsule 27 tall and 161.5 wide for View Library ⇧⌘L, its
+// 12 pt semibold text 11 in and its last chip 10 from its end.
+const HEIGHT: f32 = 27.;
 /// Its window, wide enough for a long name, which truncates past it.
 pub const WINDOW_WIDTH: f32 = 320.;
 pub const WINDOW_HEIGHT: f32 = HEIGHT;
-const TEXT_X: f32 = 10.;
+/// Round at half its height, but the corner toward what it names, which is nearly square.
+const RADIUS: f32 = HEIGHT / 2.;
+const NEAR_RADIUS: f32 = 2.;
+/// The 0.5 pt rim, white at about 0.12.
+const RIM: f32 = 0.5;
+const RIM_COLOR: u32 = 0xffffff1f;
+const TEXT_X: f32 = 11.;
 const END: f32 = 10.;
 const TEXT_SIZE: f32 = 12.;
-/// A key's chip: 18 square, wider for a key named in words, 8 after the text and 4 apart (Arc).
-const CHIP: f32 = 18.;
-const CHIP_RADIUS: f32 = 4.;
+/// A key's chip: 18.5 wide, wider for a key named in words, 8 after the text and 22 apart. Its
+/// body is 16.25 tall, centred on the capsule, with a 2 pt lip showing under it (Arc).
+const CHIP: f32 = 18.5;
+const CHIP_BODY: f32 = 16.25;
+const CHIP_LIP: f32 = 2.;
+const CHIP_RADIUS: f32 = 3.5;
 const CHIP_PADDING: f32 = 3.;
 const CHIP_AFTER_TEXT: f32 = 8.;
-const CHIP_GAP: f32 = 4.;
+const CHIP_GAP: f32 = 3.5;
 const CHIP_TEXT_SIZE: f32 = 10.;
-// Arc's capture was mid-fade at about 0.23 over the sidebar, as the + under its end shows. Taken
-// back to full, its plate is Arc's blue at a third of its brightness, its chips and text the blue
-// at a sixth and an eighth over white, and the chips' glyphs the blue itself, #1F2AFF, as the
-// Library's + is.
-const FILL: u32 = 0x0a0d53;
-const TEXT: u32 = 0xe4e7ff;
-const CHIP_FILL: u32 = 0xdbdeff;
+// Arc's, measured at full opacity: the plate is #090C4B, the text #E2E5FF, the chips #D2D3FC over
+// a lip of #8486E3, and their glyphs the blue itself, #1F2AFF, as the Library's + is.
+const FILL: u32 = 0x090c4b;
+const TEXT: u32 = 0xe2e5ff;
+const CHIP_FILL: u32 = 0xd2d3fc;
+const CHIP_LIP_FILL: u32 = 0x8486e3;
 const CHIP_TEXT: u32 = 0x1f2aff;
 
 /// What the tooltip asks of its window.
@@ -139,13 +148,34 @@ pub fn place(anchor: Anchor, (width, height): (f32, f32)) -> (f32, f32) {
         Align::Beside => anchor.x + BESIDE,
     };
     let left = left.min(anchor.window.0 - width).max(0.);
-    let below = anchor.bottom + GAP;
     let top = match anchor.align {
         Align::Beside => (anchor.top + anchor.bottom - height) / 2.,
-        _ if below + height <= anchor.window.1 => below,
-        _ => anchor.top - GAP - height,
+        _ if above(anchor, height) => anchor.top - GAP - height,
+        _ => anchor.bottom + GAP,
     };
     (left, top.min(anchor.window.1 - height).max(0.))
+}
+
+/// Whether a tooltip `height` tall goes above what it hangs from, for want of room below.
+fn above(anchor: Anchor, height: f32) -> bool {
+    anchor.align != Align::Beside && anchor.bottom + GAP + height > anchor.window.1
+}
+
+/// Which corner of a tooltip is nearly square. Arc's is the top left, toward the button the
+/// tooltip is beside and the pointer on it. Ours, *interim* as only that one is recorded: it's
+/// the left one toward what the tooltip hangs from, so the bottom left over a tile that has it
+/// above.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Near {
+    TopLeft,
+    BottomLeft,
+}
+
+fn near(anchor: Anchor, height: f32) -> Near {
+    match above(anchor, height) {
+        true => Near::BottomLeft,
+        false => Near::TopLeft,
+    }
 }
 
 /// Where a tooltip's text and chips go, from its left, and how wide it is.
@@ -200,7 +230,7 @@ fn text_width(
 /// How `tip` lays out: its text, then a chip for each key, as wide as its glyph and its padding
 /// but no less than square.
 fn measure(tip: &Tip, system: &WindowTextSystem) -> Layout {
-    let text = text_width(&tip.text, TEXT_SIZE, FontWeight::NORMAL, system);
+    let text = text_width(&tip.text, TEXT_SIZE, FontWeight::SEMIBOLD, system);
     let chips: Vec<f32> = (tip.keys.iter())
         .map(|key| {
             let glyph = text_width(key, CHIP_TEXT_SIZE, FontWeight::SEMIBOLD, system);
@@ -223,7 +253,7 @@ pub struct Tooltip {
     /// What shows.
     shown: Option<Tip>,
     /// What the window draws, which stays as it fades out after the tooltip went.
-    drawn: Option<(Tip, Layout)>,
+    drawn: Option<(Tip, Layout, Near)>,
     /// The one-shot timer a tooltip waits on. Dropping it cancels it.
     wait: Option<Task<()>>,
     /// When a tooltip last went.
@@ -322,7 +352,7 @@ impl Tooltip {
             log!("browser: tooltip shown {}", label(&tip));
         }
         self.shown = Some(tip.clone());
-        self.drawn = Some((tip, layout));
+        self.drawn = Some((tip, layout, near(anchor, HEIGHT)));
         self.host.show(left, top);
         cx.notify();
     }
@@ -350,7 +380,7 @@ fn label(tip: &Tip) -> String {
 impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         let root = div().size_full().font_family(".SystemUIFont");
-        let Some((tip, layout)) = self.drawn.clone() else {
+        let Some((tip, layout, near)) = self.drawn.clone() else {
             return root;
         };
         let text = div()
@@ -360,36 +390,49 @@ impl Render for Tooltip {
             .flex()
             .items_center()
             .text_size(px(TEXT_SIZE))
+            .font_weight(FontWeight::SEMIBOLD)
             .text_color(rgb(TEXT))
             // Untruncated, it's as wide as it shaped, and a box that wide could round under it.
             .when(layout.truncated, |text| text.w(px(layout.text)).truncate())
             .child(tip.text);
-        let chips = tip.keys.into_iter().zip(layout.chips).map(|(key, (left, width))| {
-            div()
-                .absolute()
-                .left(px(left))
-                .top(px((HEIGHT - CHIP) / 2.))
-                .w(px(width))
-                .h(px(CHIP))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(CHIP_RADIUS))
-                .bg(rgb(CHIP_FILL))
+        let chip_top = (HEIGHT - CHIP_BODY) / 2.;
+        let chips = tip.keys.into_iter().zip(layout.chips).flat_map(|(key, (left, width))| {
+            let chip = |top: f32, fill: u32| {
+                div()
+                    .absolute()
+                    .left(px(left))
+                    .top(px(top))
+                    .w(px(width))
+                    .h(px(CHIP_BODY))
+                    .rounded(px(CHIP_RADIUS))
+                    .bg(rgb(fill))
+            };
+            // The lip is the chip's shape again, lower, under it.
+            let body = (chip(chip_top, CHIP_FILL).flex().items_center().justify_center())
                 .text_size(px(CHIP_TEXT_SIZE))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(rgb(CHIP_TEXT))
-                .child(key)
+                .child(key);
+            [chip(chip_top + CHIP_LIP, CHIP_LIP_FILL), body]
         });
+        // Round at half the height but for the corner toward what it names.
+        let shape = |shape: Div| {
+            let shape = shape.rounded(px(RADIUS));
+            match near {
+                Near::TopLeft => shape.rounded_tl(px(NEAR_RADIUS)),
+                Near::BottomLeft => shape.rounded_bl(px(NEAR_RADIUS)),
+            }
+        };
+        // The rim is its own layer, so the border doesn't shift what the fill's box holds.
+        let rim = shape(div().absolute().size_full())
+            .border(px(RIM))
+            .border_color(rgba(RIM_COLOR));
         root.child(
-            div()
-                .relative()
-                .w(px(layout.width))
-                .h(px(HEIGHT))
-                .rounded(px(HEIGHT / 2.))
+            shape(div().relative().w(px(layout.width)).h(px(HEIGHT)))
                 .bg(rgb(FILL))
                 .child(text)
-                .children(chips),
+                .children(chips)
+                .child(rim),
         )
     }
 }
