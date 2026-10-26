@@ -6,13 +6,13 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 
 ## Everything has a place, and motion shows where
 
-- **Seen.** The Library sits left of the first Space, and New Space past the last: two fingers past either end reach them, and one swipe from the second Space carries on through the first into the Library (Spaces › Switching). The Library pushes the page aside instead of covering it, as one sheet beside it as wide as what it holds, and the sidebar under it shrinks toward the page as it goes (Motion › Library push, Library recede). The Space delete dialog drops 32 pt into place and leaves back up the same way. The Space form sinks as it leaves (Spaces › Creating). Back, forward and reload stay where they are while they can't act, dimmed to white 0.26 (Sidebar › Header and URL field). A click on the URL field opens the command bar over the field, its input lying where the field was; ⌘L opens the same bar centred, where ⌘T's is (Command bar › Opening).
+- **Seen.** The Library sits left of the first Space, and New Space past the last: two fingers past either end reach them, and one swipe from the second Space carries on through the first into the Library (Spaces › Switching). The Library pushes the page aside instead of covering it, as one sheet beside it as wide as what it holds, and the sidebar under it shrinks toward the page as it goes (Motion › Library push, Library recede). The Space delete dialog drops 32 pt into place and leaves back up the same way. The Space form sinks as it leaves (Spaces › Creating). Back, forward and reload stay where they are while they can't act, dimmed to white 0.26 (Sidebar › Header and URL field). A click on the URL field opens the command bar over the field, its input lying where the field was; ⌘L opens the same bar centred, where ⌘T's is (Command bar › Opening). The theme picker hangs beside the form, its arrow at the Choose a Theme row; it grows out of the arrow and shrinks back into it (Themes).
 - **Reading.** If you see where a thing came from, you know where to find it again. A place you remember replaces a menu you'd have to read. A click has a place, the thing clicked; a key has none, so what it opens goes where the keyboard's surfaces always are.
 - **Applies.** A new surface gets a place before it gets an animation. It comes in from that place and leaves the way it came. Only menus and popups at the pointer appear from nowhere. A surface a click opens sits on what was clicked; the same surface from a key opens where ⌘T's does.
 
 ## Under the fingers, physics; otherwise, a fixed time
 
-- **Seen.** When the fingers lift, the Space pages settle on a spring that starts at the fingers' speed, ω ≈ 33 (Motion › Space settle). The sidebar reveal springs about 4 pt past its rest. A key or a click moves things on fixed curves instead: ⌘S hides the sidebar in 110 ms, and the delete dialog moves 0.275 s, ease-in-out.
+- **Seen.** When the fingers lift, the Space pages settle on a spring that starts at the fingers' speed, ω ≈ 33 (Motion › Space settle). While a theme picker handle, its wave or its dial is dragged, the window takes the colours every frame, with no lag behind the pointer (Themes). The sidebar reveal springs about 4 pt past its rest. A key or a click moves things on fixed curves instead: ⌘S hides the sidebar in 110 ms, and the delete dialog moves 0.275 s, ease-in-out.
 - **Reading.** A dragged thing has to keep the speed the hand gave it, or it stops feeling held. A key press gives no speed to keep, so a fixed curve is the predictable choice.
 - **Applies.** Whatever a gesture moves hands its speed to a spring when the gesture ends. Whatever a key or a click starts runs on a short fixed curve.
 
@@ -81,6 +81,7 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 Recordings could settle these. Until then, the calls listed in each PR stand.
 
 - Whether Arc's dialog and form colours follow the Space's theme or are fixed.
+- Where Arc's theme picker opens from Edit Theme Color… in the Space's menu. Ours points at the Space's name row, the place the menu came from.
 - Whether a click outside the dialog cancels it.
 - What Arc does under Reduce Motion.
 - Whether Arc's glyphs other than reload and stop change as those do, and how − turns back into ✕.

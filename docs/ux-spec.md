@@ -452,7 +452,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
   - On the Create a Space form, fingers going back page to the Space it was made from, as to the Space before, whichever Space that is. The form goes as a page does, without the URL field and the favorites, which show with that Space once it's in. Let go on a flick back or past halfway, it's Cancel: the form's page goes out as that Space settles, and the new Space is deleted once it's out, so the window's colour crosses from its own. Let go short, the form settles back. Going on, the form rubber-bands and readies no new Space. A wheel's tick back is Cancel, with its slide. Arc's swipe off its form isn't recorded.
 - The window's colour changes across the whole window at once, with no sweep (Arc 1.170 rec at 2×). During a swipe it's as much of each Space's colour as its page shows (Ardia). A switch to the Space next door changes it exponentially, τ ≈ 30 ms, well ahead of the slide; a longer jump changes it with the slide, as Arc's fits. Motion › Space colour.
   - Ours (*interim*): the gradient is as much of each Space's colour as its page shows, during a swipe and while a switch's pages slide.
-- Measure in Arc: the Space title and colour flows, the icon picker's Emoji tab, hover and motion, the ••• button at the end of the Space's name row (not built), the menus the form's Profile and Choose a Theme rows open, and how a Space shows its profile.
+- Measure in Arc: the Space title flow, the icon picker's Emoji tab, hover and motion, the ••• button at the end of the Space's name row (not built), the menus the form's Profile and Choose a Theme rows open, and how a Space shows its profile.
 
 **Creating** (Arc 1.170 rec at 2×, one Space named and made)
 
@@ -491,11 +491,10 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 - The Spaces menu lists the Space after its emoji. A glyph isn't shown there, as GPUI's menu items take no image.
 - The core keeps an emoji, or `glyph:` and the glyph's name. The names are ours, so a glyph can be redrawn without changing what Spaces keep, and a name the build doesn't know draws the dot. The icon is kept with the Space in the core, saved in the Spaces file, and back after a relaunch and after ⌘Z on a deleted Space. Agents read it with the Space's name; they have no tool to set it yet.
 
-**Colour.** The Space colour drives the window gradient (Shared rules) and the accent. Dia's hue families are neutral, red, orange, yellow, green, blue, pink and purple. Only pink is measured: tint #B25B6B (P3), New Tab band #B5556B. Arc's presets and editor are under Themes.
+**Colour.** The Space colour drives the window gradient (Shared rules) and the accent. Dia's hue families are neutral, red, orange, yellow, green, blue, pink and purple. Only pink is measured: tint #B25B6B (P3), New Tab band #B5556B. A Space's colours come from Arc's theme picker (Themes), from the Create a Space form's Choose a Theme row and the Space menu's Edit Theme Color….
 
-- Ours (*interim* until Arc's colour flow is captured): the Space's menu has Color, between Rename Space and Delete Space. Its submenu has System Accent, for no colour, then Dia's families as Gray, Red, Orange, Yellow, Green, Blue, Pink and Purple. Each has a round swatch, and the Space's own is checked.
-  - Pink is Dia's, #BF556A in sRGB. The others share its HSL saturation 0.45 and lightness 0.54, at hues 4°, 26°, 46°, 145°, 214° and 268°; Gray has no saturation.
-  - A new Space has no colour. The core keeps the colour with the Space's name.
+- The core keeps the theme with the Space, and its main colour as the Space's colour, saved in the Spaces file and back after a relaunch and after ⌘Z on a deleted Space. A new Space has no colour, and the gradient uses the system accent's. Agents have no tool to set a theme yet.
+- Ours (*interim*): Edit Theme Color… comes after Change Icon… (and Remove Icon), where Arc has it after Rename Space, and the picker it opens points at the right end of the Space's name row, as Arc's menu isn't recorded opening it. A Space coloured before themes opens the picker at its colour's hue and lightness. Once a Space has a colour, nothing in the picker takes it away: the system accent isn't offered again.
 
 **Agent Space** (ours: decision 8 and the `prototypes/arcish` reference). The kind exists in the Phase 3 data model; its UI comes in Phase 4. Neither Arc nor Dia has a reference, so the layout values are ours to set.
 
@@ -700,7 +699,7 @@ Arc's structure. Dia replaced it with Clean Up Tabs, recorded below for referenc
 
 A profile is cookies, history, logins, passwords, autofill and extensions (decision 5). The user switches Spaces, and the profile comes with the Space.
 
-- The form's rows (Arc 1.170.0 cap and ax): 200 × 36 plates like the field's, 42 and 86 under its top. Each has a glyph of white 0.5 centred 30 in and a white semibold 13 label at 46.5. Profile's shows the Space's profile in a pill 22 tall, white 0.1, 10 after the label, its name bold 11, 8 in, then a chevron, 10 from the pill's end; Arc's (i) after it isn't ours. Arc's glyphs are its own; ours are Lucide's user and paintbrush. *Interim*: a press on Profile shows a menu of the profiles and New Profile, with the Space's checked and on the pill's name, as a pop-up button's menu is; one on Choose a Theme shows the Space menu's colours, as Arc's theme picker isn't recorded.
+- The form's rows (Arc 1.170.0 cap and ax): 200 × 36 plates like the field's, 42 and 86 under its top. Each has a glyph of white 0.5 centred 30 in and a white semibold 13 label at 46.5. Profile's shows the Space's profile in a pill 22 tall, white 0.1, 10 after the label, its name bold 11, 8 in, then a chevron, 10 from the pill's end; Arc's (i) after it isn't ours. Arc's glyphs are its own; ours are Lucide's user and paintbrush. *Interim*: a press on Profile shows a menu of the profiles and New Profile, with the Space's checked and on the pill's name, as a pop-up button's menu is; a press on Choose a Theme opens the theme picker beside the form, its arrow at the row (Themes).
 - Create, rename and delete a profile, and pick it for a Space. Arc's UI for both: measure. *Interim*, ours: Settings › Profiles (Settings), the New Space form's Profile row, and the Space menu's Profile submenu with the profiles, the Space's checked; New Profile, named as Chrome numbers them; and Delete for each profile no Space or favorite is in, which asks first, as nothing brings it back. Only an empty Space changes profile, as its tabs' pages live in their own. A new Space is in the profile of the Space it's made from. The profile the browser started with comes first and can't be deleted; Chrome's own name for it names the browser, so it's "Default". The Library's Downloads list every profile's.
 - **Incognito** (Chrome and Dia). ⇧⌘N opens a private window of the current Space's profile, dark by default. Private windows of one profile share one session; other profiles' don't. The session ends with the profile's last private window. Its downloads and history are never written to disk. *Interim*, ours, as neither Arc's nor Dia's private window is recorded: it opens with no page, as ⌘N's window does, and shows one Space of its own, named Incognito (and the profile, with more than one), with Today tabs only. No other window shows it, nothing saves it, and its tabs close with it. Black 0.35 takes the gradient's place, with no Space colour. It has no favorites, pinned tabs, folders, Space switcher or menu, Library, ⇧⌘T or extensions in the menu bar, and a page never moves between it and a regular window. Closing the last regular window quits, closing the private ones too. Agents never reach it.
 - **Dia's profile indicator**, kept for reference only (Dia 1.50.1 bin, D›Profile paging). It sits in the header beside the traffic lights: the name in 13 pt semibold with 9 pt padding, 34 tall, and a hover/press fill at radius 10. Its colour is the Space colour mixed 0.6 toward white (dark) or 0.4 toward black (light). It shows the whole name, a truncated name if at least 52 pt fit, or else a person glyph (14 pt) in a 32 pt button. Its tooltip is "Switch between profiles". It appears only with 2 or more profiles. Measure whether and where Arc shows a Space's profile.
@@ -833,16 +832,34 @@ Arc's keys are recorded: ⌥⌘N, and ⌘O to open the page in the main window. 
 
 ### Themes
 
-Arc's theme, read by Ardia from Arc 1.167's shader and the code that feeds it (P§21, `profileTheme.ts`). The theme is per Space.
+Arc's theme, read by Ardia from Arc 1.167's shader and the code that feeds it (P§21, `profileTheme.ts`), and Arc 1.170's picker, measured from the owner's recording (Arc 1.170 rec at 2×, 15.5–31.2 s). The theme is per Space.
 
-- **Editor.** A colour pad (hue around the circle, saturation outward) with 1–3 handles; Intensity; translucency from opaque to pass-through blur; Noise with a choice of 4 textures; Light / Dark / Match System. The window repaints live while the user drags.
+- **The picker** (Arc 1.170 rec). A card 357 × 509 at radius 20 with the icon picker's fill and edge, beside the sidebar, its arrow pointing left at the form's Choose a Theme row, the card centred on the arrow. It grows out of the arrow over ≈ 310 ms with a small overshoot, and a click outside shrinks it toward the arrow and fades it in ≈ 110 ms. From the top:
+  - **Field.** A 340 pt square 8 inside the card, radius 12, white 0.03 with a 1 pt rim of white 0.2 and 1 pt dots of white 0.25 on a 4.3 pitch. It's an HSL disc about its middle: hue is the angle clockwise from the right, saturation 1, lightness the distance over half its width, so black in the middle and white at the edge. Empty, it says "Tap to pick a color for this space", 13 semibold white, and a click puts the first colour there.
+  - **Handles.** The main colour is a 44 pt disc of its colour with a 3 pt white ring, the others 26. Pressed, a handle grows to 48 / 28 in ≈ 60 ms and back on release. Dragging the main one moves them all. With two colours the second is the first's opposite, hue + 180° at the same distance; with three they're + 150° and + 210°, and the second glides from + 180° over ≈ 200 ms.
+  - **Appearance.** Three buttons over the field's top, 40.4 apart, 49 down: automatic, light and dark, as sparkles, sun and moon with stars (ours are Lucide's), 16 pt at white 0.65, the chosen one on a 31.5 pt plate at radius 6, white 0.08.
+  - **− and +** under the field, 40 apart, 12 pt glyphs at white 0.35, brighter while pressed: one colour fewer or more, from one to three.
+  - **Swatches.** Nine 24 pt discs on a 29.5 pitch, each with a 1.5 pt ring at 0.88 of its fill: cream, pink, purple, red, orange, yellow, green, blue and slate (sRGB F0EAE5, E59EBA, 9E749B, E1676F, EF8C63, F2D46C, 73E49B, 7EB6D5, 656786).
+  - **Intensity**, a wave slider: a 224 × 16 track of white 0.1 with a sine of 7 periods over it, 4 pt, white 0.55 left of the knob and 0.25 right, its amplitude 15 × intensity. The knob is a white capsule 23 × 55.5, its middle travelling 201 pt. A theme starts at 0.81. Left, it washes the window's colours out.
+  - **Grain**, a dial: 24 dots of 4 pt on a 32 pt circle, those swept bright, the rest dim, round a disc of radius 20 with a white 0.3 rim and a darker fill. The knob, a 7 × 15 white capsule on the dots, starts at the top with no grain and turns clockwise, and the noise shows over the window and in the disc.
+  - With no colour yet, the slider and the dial are dimmer and have no knobs.
+  - The window takes every change as it's made, each frame of a drag.
 - **Rendering.**
   - Colours 1 and 2 mix in OKLab along a 45° diagonal, with colour 2 reached at 75 % of the way. A third colour fades in from the top to the bottom.
   - The layer's alpha is 0.2 + 0.55 × intensity. It sits over a white (light) or black (dark) underlay, over the blur behind the window.
   - The texture is multiplied in at noise × its strength: Arc's four textures have strengths 0.8, 0.15, 0.6 and 0.4. Inactive windows show the texture at a quarter strength, and the blur goes opaque.
+  - In Arc 1.170 the automatic appearance turned the window light, one flat fill, for a light colour (230, 255, 35).
   - Our textures and their names are our own.
+- Ours (*interim*, `app/src/theme_picker.rs`, `app/src/shell/themes.rs`), where the recording doesn't show Arc's:
+  - The window is dark whatever the appearance: the appearance is kept, not drawn, until the app has a light look.
+  - One colour keeps the Space gradient, the colour to HSL lightness + 0.25 down the window, at its alpha at 0.81, so a theme of one colour at the start looks as the colour did before themes. Intensity scales that alpha as 0.2 + 0.55 × intensity does Arc's. Two or three colours lie over the window as Arc's rule has them, at the same alpha.
+  - Grain is one tile of our own noise at one device pixel a pixel, at 0.075 of the dial's turn, over the window and in the dial's disc. Arc's four textures aren't offered.
+  - A swatch puts the main colour at its hue and lightness in the field, at saturation 1, keeping the count, intensity, grain and appearance. Arc's < and >, which page the swatches, aren't drawn.
+  - − is dimmed at one colour and + at three. Dragging another colour than the main one turns the set round. Handles stay in the field. A click on the field with a colour does nothing. An appearance chosen before the first colour is kept for it. Escape closes the picker.
+  - Between Spaces of more than one colour the window cross-fades the two layers as the pages slide. What covers the window takes its colour at the sidebar's middle.
+  - The card keeps 8 from the window's top and bottom, its arrow moving along its side.
 - **Appearance.** View › Appearance › Automatic, Light, Dark (Dia).
-- Measure Arc's editor UI and preset swatches.
+- Measure Arc's swatch clicks, its < and >, −, an appearance button, a secondary handle dragged alone, the picker from the Space's menu, and the keyboard in the picker.
 
 ### Agents UI
 
