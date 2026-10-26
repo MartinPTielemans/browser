@@ -270,6 +270,20 @@ typedef struct bc_site_controls {
   bool certificate;
 } bc_site_controls;
 
+// An extension's side panel as a window shows it, beside the page of the tab it shows.
+typedef struct bc_side_panel {
+  // The extension's id and name.
+  const char* extension;
+  const char* name;
+  // The extension's icon, a PNG at twice its 16-point size, or null.
+  const uint8_t* icon;
+  size_t icon_size;
+  // The title of the panel's page.
+  const char* title;
+  // The width the user last gave extensions' side panels in the profile, or 0 for none yet.
+  double width;
+} bc_side_panel;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -423,6 +437,10 @@ typedef struct bc_host {
   void (*window_extension_question)(void* context,
                                     bc_id window,
                                     const bc_extension_question* question);
+  // The side panel the window shows changed: an extension opened or closed it, its page's title
+  // or the extension's icon changed, or the window shows a tab with another panel or none. |panel|
+  // is null for none. Once the tab shown changes, if it's different for it.
+  void (*window_side_panel)(void* context, bc_id window, const bc_side_panel* panel);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1050,6 +1068,32 @@ BC_EXPORT void bc_window_show_space_empty(bc_id window, bc_id space);
 // tabs never move to a regular window, nor regular tabs to it. Closing it closes its tabs. Returns
 // 0 if |profile| isn't loaded or Chromium is quitting. The user's alone: agents get none.
 BC_EXPORT bc_id bc_window_open_private(bc_rect bounds, void* ui_view, bc_id profile);
+
+// Extensions' side panels. Each profile's tabs have their own, as each Chrome window does: one for
+// every tab, or one for a tab that its extension gave it, which shows only while that tab does. An
+// extension opens its panel with sidePanel.open() or from its action, and the user does with
+// bc_window_toggle_side_panel. The user's: agents get none, as its page isn't a web page, and a
+// private window has none.
+
+// Where the window shows the side panel's page, in the window, its bottom corners as round as the
+// page's. The page keeps its distance from the window's edges as the window resizes, as the tab's
+// does. An empty frame, as for a page in full screen, hides it.
+BC_EXPORT void bc_window_set_side_panel_frame(bc_id window, bc_rect frame);
+
+// Closes the side panel the window shows, as its ✕ in Chrome does. Then window_side_panel.
+BC_EXPORT void bc_window_close_side_panel(bc_id window);
+
+// Whether the extension has a side panel for the tab the window shows, as Chrome's extension menu
+// asks before it offers Open Side Panel.
+BC_EXPORT bool bc_window_has_side_panel(bc_id window, const char* id);
+
+// Opens the extension's side panel for the tab the window shows, or closes it if it shows, as
+// Chrome's extension menu does. Then window_side_panel.
+BC_EXPORT void bc_window_toggle_side_panel(bc_id window, const char* id);
+
+// Saves the width the user gave the side panel, in the profile of the tab the window shows, for
+// window_side_panel to give from now on.
+BC_EXPORT void bc_window_set_side_panel_width(bc_id window, double width);
 
 #ifdef __cplusplus
 }

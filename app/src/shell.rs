@@ -51,6 +51,7 @@ mod recent_downloads;
 mod recorder;
 mod rows;
 pub(crate) mod scaled;
+mod side_panel;
 mod sidebar;
 mod space_form;
 mod split_targets;
@@ -73,6 +74,7 @@ pub use extensions::{
 pub use keys::{Holder, Refused, UserKeys, change_keys, rebindable, recorded, reserved, user_keys};
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menus::{MenuEntry, new_profile_name};
+pub use side_panel::SidePanel;
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
 pub use picture::is_picture;
@@ -1036,6 +1038,14 @@ pub struct Shell {
     menu_spaces: Vec<SharedString>,
     /// The pinned actions the window shows, for its tab shown.
     extension_actions: Vec<ExtensionAction>,
+    /// The extension's side panel shown right of the page, the width the user gave it, and where
+    /// its page was last laid out.
+    side_panel: Option<SidePanel>,
+    side_panel_width: f32,
+    side_panel_laid: Option<Option<Bounds<Pixels>>>,
+    /// While the panel's edge is dragged: how far right of the panel's left edge the pointer
+    /// pressed it.
+    side_panel_resize: Option<f32>,
     /// The Library's section shown last, which it opens on.
     section: Section,
     /// The Library, from when it opens until it has closed.
@@ -1178,6 +1188,10 @@ impl Shell {
             menu_extensions: Vec::new(),
             menu_spaces: Vec::new(),
             extension_actions: Vec::new(),
+            side_panel: None,
+            side_panel_width: 0.,
+            side_panel_laid: None,
+            side_panel_resize: None,
             section: Section::Archive,
             library: None,
             library_open: false,
@@ -1347,11 +1361,11 @@ impl Shell {
     }
 
     /// Where the page goes in a window whose content is `viewport`, and the radius of its corners.
-    /// While a pane is being added beside the tab shown, the pages shown make room for it.
+    /// While a pane is being added beside the tab shown, the pages shown make room for it, and
+    /// they make room for a side panel.
     pub fn page_frame(&self, viewport: Size<Pixels>) -> (Bounds<Pixels>, f32) {
-        let card_left = self.card_left();
-        let frame = page_frame(viewport, card_left, self.card_push());
-        let radius = if card_left == 0. { 0. } else { CARD_RADIUS };
+        let (frame, _) = self.card_frames(viewport);
+        let radius = if self.card_left() == 0. { 0. } else { CARD_RADIUS };
         match self.adding_pane {
             Some(with) => {
                 let count = self.panes(with).len();
@@ -1381,6 +1395,7 @@ impl Shell {
             self.page_laid = Some(frame);
             self.browser.lay_out_page(frame.0, frame.1, cx);
         }
+        self.lay_out_side_panel(cx);
     }
 
     pub fn selected(&self) -> u64 {
@@ -2398,6 +2413,7 @@ impl Render for Shell {
             .children(self.cards())
             .children(self.picture_element(cx))
             .children(self.pane_gaps(cx))
+            .children(self.side_panel(cx))
             .children(under)
             .children(sidebar)
             .children(over)
@@ -2433,7 +2449,7 @@ impl Shell {
             .collect();
         if let Some(with) = self.adding_pane {
             let count = self.panes(with).len() + 1;
-            let full = page_frame(self.viewport, self.card_left(), self.card_push());
+            let (full, _) = self.card_frames(self.viewport);
             cards.push(card(pane_frames(full, count, self.stacked(with), &[])[count - 1]));
         }
         cards

@@ -4,6 +4,7 @@
 #import <QuartzCore/QuartzCore.h>
 
 #include "base/apple/foundation_util.h"
+#include "base/functional/callback.h"
 #import "components/remote_cocoa/app_shim/bridged_content_view.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/widget/widget.h"
@@ -48,12 +49,14 @@
 @end
 
 // Holds the app's UI view and, over it, the pages shown, left to right, with the focused one's ring
-// in a split view. Flipped, so frames run from the top-left as the core's do.
+// in a split view, and an extension's side panel. Flipped, so frames run from the top-left as the
+// core's do.
 @interface BrowserCoreWindowView : NSView
 @property(strong, nonatomic) NSView* uiView;
 @property(copy, nonatomic) NSArray<BrowserCorePane*>* panes;
 @property(nonatomic) NSUInteger focused;
 @property(strong, nonatomic) BrowserCoreFocusRing* ring;
+@property(strong, nonatomic) BrowserCorePane* sidePanel;
 - (void)layOutPage;
 @end
 
@@ -62,6 +65,7 @@
 @synthesize panes = _panes;
 @synthesize focused = _focused;
 @synthesize ring = _ring;
+@synthesize sidePanel = _sidePanel;
 
 - (BOOL)isFlipped {
   return YES;
@@ -100,6 +104,9 @@
   }
   if (self.ring.superview == self && self.focused < self.panes.count) {
     self.ring.frame = [self frameOf:self.panes[self.focused]];
+  }
+  if (self.sidePanel.page.superview == self) {
+    self.sidePanel.page.frame = [self frameOf:self.sidePanel];
   }
 }
 @end
@@ -188,7 +195,8 @@ void ShowPages(views::Widget* widget,
                base::span<const Pane> panes,
                double corner_radius,
                size_t focused,
-               uint32_t ring_color) {
+               uint32_t ring_color,
+               std::optional<SidePanelPage> side_panel) {
   BrowserCoreWindowView* view = WindowView(widget);
   const bool had_page = view.panes.count > 0;
   NSMutableSet<NSView*>* staying = [NSMutableSet set];
@@ -198,12 +206,21 @@ void ShowPages(views::Widget* widget,
       [staying addObject:pane.devtools->view.GetNativeNSView()];
     }
   }
+  NSView* panel_view = side_panel ? side_panel->page.GetNativeNSView() : nil;
+  if (panel_view) {
+    [staying addObject:panel_view];
+  }
   for (NSView* subview in [view.subviews copy]) {
     if (subview != view.uiView && subview != view.ring && ![staying containsObject:subview]) {
       [subview removeFromSuperview];
     }
   }
   NSRect bounds = view.bounds;
+  auto insets = [&](const gfx::Rect& frame) {
+    NSRect rect = frame.ToCGRect();
+    return NSEdgeInsetsMake(NSMinY(rect), NSMinX(rect), NSHeight(bounds) - NSMaxY(rect),
+                            NSWidth(bounds) - NSMaxX(rect));
+  };
   NSMutableArray<BrowserCorePane*>* shown = [NSMutableArray array];
   for (const Pane& pane : panes) {
     NSView* page_view = pane.page.GetNativeNSView();
@@ -238,10 +255,23 @@ void ShowPages(views::Widget* widget,
               relativeTo:devtools_view];
       }
     }
-    NSRect rect = pane.frame.ToCGRect();
-    record.insets = NSEdgeInsetsMake(NSMinY(rect), NSMinX(rect), NSHeight(bounds) - NSMaxY(rect),
-                                     NSWidth(bounds) - NSMaxX(rect));
+    record.insets = insets(pane.frame);
     [shown addObject:record];
+  }
+  if (panel_view) {
+    BrowserCorePane* record = [[BrowserCorePane alloc] init];
+    record.page = panel_view;
+    record.insets = insets(side_panel->frame);
+    Unhide(panel_view);
+    RoundCorners(panel_view, corner_radius,
+                 panel_view.isFlipped ? kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner
+                                      : kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner);
+    if (panel_view.superview != view) {
+      [view addSubview:panel_view];
+    }
+    view.sidePanel = record;
+  } else {
+    view.sidePanel = nil;
   }
   view.panes = shown;
   view.focused = focused;
@@ -288,7 +318,17 @@ bool KeyboardForPage(views::Widget* widget) {
       return false;
     }
   }
-  return true;
+  return !view.sidePanel || ![focused isDescendantOf:view.sidePanel.page];
+}
+
+void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
+  NSWindow* window = widget->GetNativeWindow().GetNativeNSWindow();
+  NSResponder* had = window.firstResponder;
+  std::move(change).Run();
+  NSView* had_view = base::apple::ObjCCast<NSView>(had);
+  if (window.firstResponder != had && (had == window || had_view.window == window)) {
+    [window makeFirstResponder:had];
+  }
 }
 
 }  // namespace browser_core::platform

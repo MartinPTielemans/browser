@@ -28,6 +28,7 @@ class BrowserWindowInterface;
 
 namespace browser_core {
 
+class SidePanel;
 class Window;
 
 // Chrome's code reaches the location bar through the window without checking for one. This one
@@ -359,6 +360,8 @@ class BrowserWindowStandIn : public BrowserWindow,
   base::WeakPtr<Window> window_;
   raw_ptr<BrowserWindowInterface> browser_ = nullptr;
   std::unique_ptr<NoLocationBar> location_bar_;
+  // Made with the Browser, in place of the one Chrome's window makes.
+  std::unique_ptr<SidePanel> side_panel_;
   NoAutofillBubbles autofill_bubbles_;
   views::UnhandledKeyboardEventHandler unhandled_keyboard_event_handler_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> widget_observation_{this};

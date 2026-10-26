@@ -45,6 +45,7 @@ class WidgetDelegate;
 
 namespace browser_core {
 
+class SidePanel;
 class Suggestions;
 class WindowActions;
 
@@ -180,6 +181,19 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Runs extension |id|'s keyboard command |name| on the tab the window shows. See
   // bc_window_run_extension_command.
   bool RunExtensionCommand(const std::string& id, const std::string& name);
+  // The side panel of the Browser of the tab shown: where its page goes, closing it, whether
+  // extension |id| has one for the tab shown, opening or closing its, and saving the width the user
+  // gave it. See bc_window_set_side_panel_frame and those after it.
+  void SetSidePanelFrame(const gfx::Rect& frame);
+  void CloseSidePanel();
+  bool HasSidePanel(const std::string& id);
+  void ToggleSidePanel(const std::string& id);
+  void SetSidePanelWidth(int width);
+  // From |browser|'s side panel, which opened, closed or changed pages: shows it as it is now if
+  // the window shows a tab of |browser|.
+  void SidePanelChanged(BrowserWindowInterface* browser);
+  // Tells the app soon of the side panel shown, if it differs from what it last told.
+  void ReportSidePanelSoon();
   // Opens a copy of |tab|, one of this window's, with its history: under it in Today, or at the
   // top of Today for a pinned tab, where a pinned tab's links open, and in the Space the window
   // shows for a favorite. Shows it, and its page loads. Returns its id, or 0.
@@ -280,8 +294,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Shows no page, as for a Space without tabs.
   void ShowNothing();
   // Puts the pages shown, and their docked DevTools if they have them, at the page frame, side by
-  // side.
+  // side, and the side panel of their Browser at its frame.
   void LayOutPage();
+  // The side panel of the Browser of the tab shown, or null.
+  SidePanel* ShownSidePanel() const;
+  void ReportSidePanel();
   void ReportSelected();
 
   // Gives the page shown the keyboard if the window is key and its keyboard is the page's.
@@ -331,6 +348,19 @@ class Window : public web_modal::WebContentsModalDialogHost,
   views::ViewTracker popup_anchor_;
   // The extension actions it shows, made with its first tab.
   std::unique_ptr<WindowActions> actions_;
+  // What the app last heard of the side panel shown.
+  struct ToldSidePanel {
+    std::string extension;
+    std::string title;
+    std::vector<uint8_t> icon;
+    int width;
+    friend bool operator==(const ToldSidePanel&, const ToldSidePanel&) = default;
+  };
+  gfx::Rect side_panel_frame_;
+  // The side panel's page as last laid out, to tell the app when another shows.
+  base::WeakPtr<content::WebContents> side_panel_laid_out_;
+  std::optional<ToldSidePanel> side_panel_told_;
+  bool side_panel_report_posted_ = false;
   base::WeakPtrFactory<Window> weak_factory_{this};
 };
 

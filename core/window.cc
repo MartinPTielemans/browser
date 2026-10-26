@@ -26,12 +26,15 @@
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
+#include "browser_core/side_panel.h"
 #include "browser_core/space.h"
 #include "browser_core/suggest.h"
 #include "browser_core/tab.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/extensions/api/side_panel/side_panel_service.h"
+#include "chrome/browser/extensions/extension_action_runner.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -40,6 +43,7 @@
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/create_browser_window.h"
 #include "chrome/browser/ui/browser_window/public/desktop_browser_window_capabilities.h"
+#include "chrome/browser/ui/extensions/extension_side_panel_utils.h"
 #include "chrome/browser/ui/interaction/browser_elements.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
@@ -49,14 +53,22 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/interaction/browser_elements_views_impl.h"
 #include "chrome/common/webui_url_constants.h"
+#include "components/sessions/content/session_tab_helper.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "components/sessions/core/serialized_user_agent_override.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
+#include "extensions/browser/extension_registry.h"
+#include "extensions/common/extension.h"
+#include "extensions/common/mojom/api_permission_id.mojom-shared.h"
+#include "extensions/common/permissions/permissions_data.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
+#include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "ui/menus/simple_menu_model.h"
 #include "ui/views/view.h"
 #include "ui/views/view_tracker.h"
@@ -936,7 +948,18 @@ void Window::LayOutPage() {
       pane.devtools = docked;
     }
   }
-  platform::ShowPages(widget_.get(), panes, page_corner_radius_, focused, focus_color_);
+  SidePanel* side_panel = ShownSidePanel();
+  content::WebContents* panel_page = side_panel ? side_panel->contents() : nullptr;
+  std::optional<platform::SidePanelPage> panel;
+  // A page full screen takes the window from the side panel too.
+  if (panel_page && !side_panel_frame_.IsEmpty() && !(shown_ && shown_->IsFullscreen())) {
+    panel = platform::SidePanelPage{panel_page->GetNativeView(), side_panel_frame_};
+  }
+  platform::ShowPages(widget_.get(), panes, page_corner_radius_, focused, focus_color_, panel);
+  if (panel_page != side_panel_laid_out_.get()) {
+    side_panel_laid_out_ = panel_page ? panel_page->GetWeakPtr() : nullptr;
+    ReportSidePanelSoon();
+  }
   const gfx::Rect focused_frame = panes.empty() ? page_frame_ : panes[focused].frame;
   if (focused_frame != focused_frame_) {
     focused_frame_ = focused_frame;
@@ -1327,7 +1350,142 @@ bool Window::RunExtension(const std::string& id, const gfx::Rect& anchor) {
         widget_->GetContentsView()->AddChildView(std::make_unique<views::View>()));
   }
   popup_anchor_.view()->SetBoundsRect(anchor);
+  // An action that opens the extension's side panel opens it here, as Chrome's toolbar does with
+  // what Chrome's runner answers: not granting the tab, as the panel outlives it.
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(contents->GetBrowserContext())
+          ->enabled_extensions()
+          .GetByID(id);
+  extensions::ExtensionActionRunner* runner =
+      extensions::ExtensionActionRunner::GetForWebContents(contents);
+  extensions::SidePanelService* service =
+      extensions::SidePanelService::Get(contents->GetBrowserContext());
+  if (!off_the_record_ && extension && runner && service && !runner->GetBlockedActions(id) &&
+      service->HasSidePanelActionForTab(*extension,
+                                        sessions::SessionTabHelper::IdForTab(contents).id())) {
+    extensions::side_panel_util::ToggleExtensionSidePanel(browser, id);
+    return true;
+  }
   return browser_core::RunExtension(id_, browser, contents, id, popup_anchor_.view());
+}
+
+void Window::SetSidePanelFrame(const gfx::Rect& frame) {
+  if (frame != side_panel_frame_) {
+    side_panel_frame_ = frame;
+    LayOutPage();
+  }
+}
+
+void Window::CloseSidePanel() {
+  if (SidePanel* side_panel = ShownSidePanel()) {
+    side_panel->Close();
+  }
+}
+
+bool Window::HasSidePanel(const std::string& id) {
+  content::WebContents* contents = Tab::FromId(selected_);
+  // A private window has none.
+  if (!contents || off_the_record_) {
+    return false;
+  }
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(contents->GetBrowserContext())
+          ->enabled_extensions()
+          .GetByID(id);
+  extensions::SidePanelService* service =
+      extensions::SidePanelService::Get(contents->GetBrowserContext());
+  // As Chrome's extension menu asks before it offers the item.
+  return extension && service &&
+         extension->permissions_data()->HasAPIPermission(
+             extensions::mojom::APIPermissionID::kSidePanel) &&
+         service->HasSidePanelContextMenuActionForTab(
+             *extension, sessions::SessionTabHelper::IdForTab(contents).id());
+}
+
+void Window::ToggleSidePanel(const std::string& id) {
+  content::WebContents* contents = Tab::FromId(selected_);
+  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  if (tab && HasSidePanel(id)) {
+    extensions::side_panel_util::ToggleExtensionSidePanel(tab->GetBrowserWindowInterface(), id);
+  }
+}
+
+void Window::SetSidePanelWidth(int width) {
+  if (SidePanel* side_panel = ShownSidePanel()) {
+    side_panel->SaveWidth(width);
+  }
+}
+
+void Window::SidePanelChanged(BrowserWindowInterface* browser) {
+  SidePanel* side_panel = ShownSidePanel();
+  if (side_panel && side_panel->browser() == browser) {
+    LayOutPage();
+    // A panel closed with the keyboard leaves it with the window, and the page takes it back.
+    FocusPageSoon();
+  }
+  ReportSidePanelSoon();
+}
+
+SidePanel* Window::ShownSidePanel() const {
+  // A private window shows none, whatever an extension allowed in it asks.
+  tabs::TabInterface* tab = shown_ && !off_the_record_
+                                ? tabs::TabInterface::MaybeGetFromContents(shown_.get())
+                                : nullptr;
+  BrowserWindowInterface* browser = tab ? tab->GetBrowserWindowInterface() : nullptr;
+  return browser && ForBrowser(browser) == this ? SidePanel::From(browser) : nullptr;
+}
+
+void Window::ReportSidePanelSoon() {
+  if (side_panel_report_posted_) {
+    return;
+  }
+  side_panel_report_posted_ = true;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Window::ReportSidePanel, weak_factory_.GetWeakPtr()));
+}
+
+void Window::ReportSidePanel() {
+  side_panel_report_posted_ = false;
+  if (!Host().window_side_panel) {
+    return;
+  }
+  SidePanel* side_panel = ShownSidePanel();
+  content::WebContents* page = side_panel ? side_panel->contents() : nullptr;
+  std::optional<ToldSidePanel> told;
+  if (page) {
+    std::vector<uint8_t> icon;
+    if (const gfx::Image image = side_panel->icon(); !image.IsEmpty()) {
+      icon = gfx::PNGCodec::EncodeBGRASkBitmap(
+                 image.AsImageSkia().GetRepresentation(2).GetBitmap(),
+                 /*discard_transparency=*/false)
+                 .value_or(std::vector<uint8_t>());
+    }
+    told = ToldSidePanel{.extension = side_panel->extension_id(),
+                         .title = base::UTF16ToUTF8(page->GetTitle()),
+                         .icon = std::move(icon),
+                         .width = side_panel->SavedWidth()};
+  }
+  if (told == side_panel_told_) {
+    return;
+  }
+  side_panel_told_ = std::move(told);
+  if (!side_panel_told_) {
+    Host().window_side_panel(Host().context, id_, nullptr);
+    return;
+  }
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(page->GetBrowserContext())
+          ->enabled_extensions()
+          .GetByID(side_panel_told_->extension);
+  const std::string name = extension ? extension->name() : std::string();
+  const bc_side_panel shown = {
+      .extension = side_panel_told_->extension.c_str(),
+      .name = name.c_str(),
+      .icon = side_panel_told_->icon.empty() ? nullptr : side_panel_told_->icon.data(),
+      .icon_size = side_panel_told_->icon.size(),
+      .title = side_panel_told_->title.c_str(),
+      .width = static_cast<double>(side_panel_told_->width)};
+  Host().window_side_panel(Host().context, id_, &shown);
 }
 
 bool Window::RunExtensionCommand(const std::string& id, const std::string& name) {

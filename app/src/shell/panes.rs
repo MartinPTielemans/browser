@@ -136,7 +136,7 @@ impl Shell {
         }
         self.adding_pane = Some(with);
         self.lay_out_page(cx);
-        let card = page_frame(self.viewport, self.card_left(), self.card_push());
+        let (card, _) = self.card_frames(self.viewport);
         let pane = pane_frames(card, count + 1, self.stacked(with), &[])[count];
         self.browser.split_bar(with, pane, card, cx);
         cx.notify();

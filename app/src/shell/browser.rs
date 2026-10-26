@@ -147,6 +147,17 @@ pub trait Browser {
     fn manage_extensions(&self, id: Option<&str>, cx: &mut App);
     /// Opens the Web Store in a new tab, and shows it.
     fn add_extension(&self, cx: &mut App);
+    /// Lays the side panel's page out at `frame` in the window, under its card's header, or hides
+    /// it for an empty frame.
+    fn lay_out_side_panel(&self, frame: Bounds<Pixels>, cx: &mut App);
+    /// Closes the side panel shown.
+    fn close_side_panel(&self, cx: &mut App);
+    /// Whether extension `id` has a side panel for the tab shown.
+    fn has_side_panel(&self, id: &str) -> bool;
+    /// Opens extension `id`'s side panel for the tab shown, or closes it if it shows.
+    fn toggle_side_panel(&self, id: &str, cx: &mut App);
+    /// Keeps the side panel's width in the profile of the tab shown.
+    fn set_side_panel_width(&self, width: f32, cx: &mut App);
     /// Opens Chrome's history page in a new tab, and shows it.
     fn view_history(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task

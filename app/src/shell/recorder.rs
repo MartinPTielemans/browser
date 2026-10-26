@@ -202,6 +202,18 @@ impl Browser for Recorder {
 
     fn add_extension(&self, _: &mut App) {}
 
+    fn lay_out_side_panel(&self, _: Bounds<Pixels>, _: &mut App) {}
+
+    fn close_side_panel(&self, _: &mut App) {}
+
+    fn has_side_panel(&self, _: &str) -> bool {
+        false
+    }
+
+    fn toggle_side_panel(&self, _: &str, _: &mut App) {}
+
+    fn set_side_panel_width(&self, _: f32, _: &mut App) {}
+
     fn view_history(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
