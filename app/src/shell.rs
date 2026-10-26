@@ -129,10 +129,11 @@ const REVEAL_OUT_DAMPING: f32 = 0.76;
 const REVEAL_OVERSHOOT: f32 = 8.;
 
 // Rows make room and close it, a closed tab's row fades and new rows fade in on one spring, Arc's
-// (docs/ux-spec.md › Motion: Row motion). A row's hover fill fades out on Row fill change.
+// (docs/ux-spec.md › Motion: Row motion). A row's hover fill comes and goes in one frame, and only
+// the selected row's eases back as the pointer leaves, as Arc's do (Motion: Row hover).
 const ROW_RESPONSE: f32 = 0.13;
 const ROW_DAMPING: f32 = 0.9;
-const ROW_FILL: f32 = 0.3;
+const SELECTED_UNHOVER: f32 = 0.17;
 // A pressed row comes away once the pointer has moved this far (ours), and the tiles make room for
 // a dragged tab critically damped, as Arc's do (docs/ux-spec.md › Motion: Favorites room).
 const DRAG_START: f32 = 4.;
@@ -361,6 +362,8 @@ const CARD: u32 = 0x1212_1280;
 const TITLE: u32 = 0xffffffff;
 const UNSELECTED_TITLE: u32 = 0xffffffc7;
 const SELECTED: u32 = 0xffff_ff33;
+// The selected row under the pointer: Arc's (113–116) over the dark Space's (37, 35, 53).
+const SELECTED_HOVERED: u32 = 0xffff_ff5c;
 const HOVERED: u32 = 0xffff_ff1f;
 const PRESSED: u32 = 0xffff_ff11;
 const SECONDARY: u32 = 0xffffff99;
@@ -1943,7 +1946,8 @@ impl Shell {
         }
     }
 
-    /// The pointer entered `row` or left it. A row fills at once, and fades when it's left.
+    /// The pointer entered `row` or left it. A row fills at once and empties at once, but the
+    /// selected row's fill eases back from its hover.
     fn hover(&mut self, row: Row, hovered: bool, cx: &mut Context<Self>) {
         let left = if hovered {
             self.unhovered.retain(|&(old, _)| old != row);
@@ -1955,9 +1959,16 @@ impl Shell {
         };
         if let Some(left) = left {
             self.unhovered.retain(|&(old, _)| old != left);
-            self.unhovered.push((left, Instant::now()));
+            self.unhover(left);
         }
         cx.notify();
+    }
+
+    /// Eases the selected row back from its hover fill once the pointer or its menu has left it.
+    fn unhover(&mut self, row: Row) {
+        if row == self.selected_row() {
+            self.unhovered.push((row, Instant::now()));
+        }
     }
 
     /// The pointer's moves anywhere in the window, for whether it's over the sidebar, whose rows
@@ -2018,7 +2029,7 @@ impl Shell {
         self.list_slide
             .take_if(|(_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_none());
         self.closing.retain(|row| row_spring(row.start.elapsed().as_secs_f32()).is_some());
-        self.unhovered.retain(|(_, start)| start.elapsed().as_secs_f32() < ROW_FILL);
+        self.unhovered.retain(|(_, start)| start.elapsed().as_secs_f32() < SELECTED_UNHOVER);
         if self.slides.is_empty() {
             self.opened.take_if(|opened| opened.done().is_none());
         }
@@ -2452,7 +2463,7 @@ impl Shell {
                     .map(|&pane| self.segment(pane, width, pane == tab, pane == selected));
                 return row.child(
                     split_plate(segments)
-                        .when(panes.contains(&selected), |plate| selected_plate(plate, 1.)),
+                        .when(panes.contains(&selected), |plate| selected_plate(plate, 1., 0.)),
                 );
             }
             let icon = div()
@@ -2460,7 +2471,7 @@ impl Shell {
                 .child(self.tab_icon(tab));
             row.child(
                 plate(icon, title(self.title(tab), tab == selected).pr(px(TITLE_END_INSET)))
-                    .when(tab == selected, |plate| selected_plate(plate, 1.)),
+                    .when(tab == selected, |plate| selected_plate(plate, 1., 0.)),
             )
         };
         let (plus, new_tab) = new_tab_label();
@@ -2961,8 +2972,9 @@ fn split_plate(segments: impl IntoIterator<Item = impl IntoElement>) -> gpui::Di
 }
 
 /// The selected tab's plate, at `opacity` while it fades in.
-fn selected_plate(plate: gpui::Div, opacity: f32) -> gpui::Div {
-    plate.bg(Hsla::from(rgba(SELECTED)).opacity(opacity))
+fn selected_plate(plate: gpui::Div, opacity: f32, hover: f32) -> gpui::Div {
+    let (rest, under) = (Hsla::from(rgba(SELECTED)), Hsla::from(rgba(SELECTED_HOVERED)));
+    plate.bg(Hsla { a: (rest.a + (under.a - rest.a) * hover) * opacity, ..rest })
 }
 
 /// A tab row's title, cut off at the row's trailing edge.

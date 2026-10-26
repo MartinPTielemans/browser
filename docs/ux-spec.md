@@ -86,7 +86,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Name | Value | Used for | Source |
 |---|---|---|---|
 | Row motion | spring 0.13 s / ζ 0.9 (CSS ease ≈ 115–120 ms): within 0.75 pt of rest 83–92 ms in | rows making or closing room; a closed row fading, its opacity the slide's remaining fraction; a new tab's plate fading in; rows Undo brings back fading in | Arc 1.170.0 rec 120 fps: ⌘T then a pick, ⌘W, Undo after Clear |
-| Row fill change | ease-out, 300 ms | tab row background changes. Ours: the hover fill fading once the pointer leaves a row; it fills at once, and selection moves at once (Tab rows › Behavior) | Dia 1.50.1 bin |
+| Row hover | one frame in and out. Only the selected row eases back from its hover fill to its selected fill, over about 170 ms (ours: ease-out, `cubic-bezier(0, 0, 0.58, 1)`) | a row's hover fill under the pointer, and a tile's (ours); selection moves at once (Tab rows › Behavior) | Arc 1.170 rec at 2×: one frame both ways from row to row; the selected row 115 → 80 over 145.27–145.45 s |
 | Favorites room | critically damped, ω ≈ 25 rad/s: 38 % in 50 ms, 73 % in 100 ms, settled in about 240 ms | the tiles making room for a dragged tab, and the list's top with them; ours: a dragged tab turning between its row and its tile | Arc 1.170 rec at 2×, 2 runs (ω 24–27) |
 | Hover card in | opacity cubic-bezier(0.25, 0.46, 0.45, 0.94) 100 ms; scale 0.92 → 1 spring 0.25 s / ζ 0.75 | tab and favorite hover card | Dia bin, D›Tab hover card motion |
 | Hover card out | opacity same curve 100 ms; scale → 0.92 spring 0.2 s / ζ 0.6 | same | same |
@@ -260,7 +260,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | First row top | 90 below the window top, 9 under the URL field. Dia's is 54 under its header, and Arc's favorites area starts at 82 (ax): re-measure with favorites in Arc | ours |
 | Columns | as many as fit at least 48 wide, all as wide; fewer favorites share the row, and the last row starts on the left. That gives Dia's 3 across at 190 pt (x 6, 67, 128) and 4 at 228. Arc's rule: measure | Dia, P§2; the rule ours |
 | Radius | 10 | Dia bin |
-| Resting | fill white 0.10, 0.5 pt stroke white 0.14. Under the pointer white 0.15, fading out on the rows' hover curve (ours) | Dia 1.50.1 bin |
+| Resting | fill white 0.10, 0.5 pt stroke white 0.14. Under the pointer white 0.15, coming and going in one frame as a row's does (ours) | Dia 1.50.1 bin |
 | Favicon | centred, as a row's: 16 in an 18 box, at half opacity while unloaded. Size: measure | Dia cap |
 | Badge for a tile away from its URL | none | Dia 1.53.0 bin |
 | Hover | hover card with title and URL (see Motion) | Dia, D›Tab hover card motion |
@@ -346,7 +346,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 | Plate | 36 tall, centred in the row, from x 8 to the width − 8 (from 24 in a folder), radius ≈ 12 |
 | Favicon | 18 × 18 at x 17, vertically centred |
 | Title | at x 43, 14 pt, ending 17 from the sidebar's edge (x 211 at 228) and cut with an ellipsis (Arc 1.170.0 ax and cap). Dia fades it out at the trailing edge instead |
-| Selected | white 0.20 (Arc's p3 (0.98, 0.984, 1)), with no line or shadow in dark mode. Light mode: white 0.85 with a black 0.2 shadow (tokens). White title (Dia) |
+| Selected | white 0.20 (Arc's p3 (0.98, 0.984, 1)), and white 0.36 under the pointer (Arc 1.170 rec: (113–116) over the dark Space's (37, 35, 53)), with no line or shadow in dark mode. Light mode: white 0.85 with a black 0.2 shadow (tokens). White title (Dia) |
 | Hover | white 0.12, and a close button 26 × 26, 5 inside the plate's right edge, that the title truncates before. The selected row shows it too |
 | Pressed | white 0.065 |
 | Audio | a speaker after the favicon while the page plays sound and for 2 s after (Chrome), crossed out while the tab is muted. A click on it mutes or unmutes the tab, as Mute/Unmute Tab in the command bar does. Arc mutes the tab (Arc 1.170.0 bin: `setWebContentsMuted`, `isTabMuted`); Dia mutes the site in the profile (P§2). Ours: Lucide's volume-2 and volume-x at 16 pt, white 0.6, in an 18 pt square with the ✕'s hover fill, 4 before the title; the crossed-out speaker stays while the tab is muted, playing or not, so a muted tab always shows it; ⇧⌘T and Duplicate Tab keep a tab muted and a quit doesn't. Arc's look and place: measure |
@@ -929,7 +929,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 | Sidebar | The reveal at the window's left edge | Motion › Sidebar reveal in, out | done |
 | Sidebar | A new tab's row, a closed tab's row, rows Undo brings back | Motion › Row motion | done |
 | Sidebar | Clear; ⌘T's plate; ⌃Tab | one frame | done |
-| Sidebar | A row's hover fill coming and going | — (ours: Dia's Row fill change) | 1 |
+| Sidebar | A row's hover fill coming and going | Motion › Row hover | done |
 | Sidebar | A dragged row's neighbours making way, and its drop settling | Tab rows › Reorder, Motion › Row motion | done |
 | Sidebar | A row dragged into favorites and back out, the row and the tile turning into each other | Motion › Favorites room; the turn: — | done, but the turn |
 | Sidebar | A row dragged into a folder and out | — | 1 |
