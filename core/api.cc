@@ -419,6 +419,11 @@ void bc_window_set_page_color(bc_id window_id, uint32_t color) {
   }
 }
 
+size_t bc_window_set_page_moving(bc_id window_id, bool moving) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window ? window->SetPageMoving(moving) : 0;
+}
+
 void bc_window_select(bc_id window_id, bc_id tab) {
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
     window->Select(tab);

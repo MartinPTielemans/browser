@@ -11,6 +11,10 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_ui_types.h"
 
+namespace content {
+class RenderWidgetHostView;
+}
+
 namespace views {
 class NativeWidget;
 class Widget;
@@ -54,6 +58,10 @@ void ShowPages(views::Widget* widget,
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
 // the window opens or the page view that had it left the window. Not in DevTools.
 bool KeyboardForPage(views::Widget* widget);
+
+// Whether |view|, a page's, stretches the frame it last drew to fill it as it resizes, until the
+// page draws at its new size, rather than show that frame at its old size in the top-left corner.
+void StretchOnResize(content::RenderWidgetHostView* view, bool stretch);
 
 }  // namespace browser_core::platform
 
