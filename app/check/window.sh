@@ -295,15 +295,19 @@ toggle ui shown "⌘S after a resize"
 # pointer well past it sends it away. A click on its sidebar button, or ⌘S, docks the sidebar.
 # check_reveal <what> [shown]: the reveal's window covers the left edge, or there's none.
 check_reveal() {
-  send layout
-  child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
-    cut -d' ' -f4-)
-  height=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
-    sed 's/^browser: layout content [0-9]*x\([0-9]*\),.*/\1/')
-  expected=
-  [ "${2:-}" = shown ] && expected="0,0 233x$height"
-  [ "$child" = "$expected" ] ||
-    fail "$1: the reveal's window is at ${child:-none}, not ${expected:-none}"
+  # The UI logs its rest before the host takes its window in from the spring's overshoot, a turn
+  # of the run loop later, so a layout or two may still see the wider window.
+  for _ in $(seq 10); do
+    send layout
+    child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
+      cut -d' ' -f4-)
+    height=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+      sed 's/^browser: layout content [0-9]*x\([0-9]*\),.*/\1/')
+    expected=
+    [ "${2:-}" = shown ] && expected="0,0 233x$height"
+    [ "$child" = "$expected" ] && return
+  done
+  fail "$1: the reveal's window is at ${child:-none}, not ${expected:-none}"
 }
 send key s cmd
 toggle ui hidden "⌘S before the reveal"
