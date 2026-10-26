@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use browser::{command_bar, dialog, toast};
+use browser::{command_bar, dialog, log, toast};
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
     Page, Shell, WindowButton,
@@ -569,7 +569,7 @@ impl Browser for Engine {
         }
         let percent = unsafe { bc::bc_tab_zoom(tab, step) };
         // check.sh reads this line.
-        eprintln!("browser: zoom {tab} {percent}%");
+        log!("browser: zoom {tab} {percent}%");
         zoom_hud::show(tab, percent, cx);
     }
 
@@ -767,7 +767,7 @@ impl Browser for Engine {
                 0 => {}
                 1 => {
                     // check.sh waits for this line.
-                    eprintln!("browser: warn before quitting off");
+                    log!("browser: warn before quitting off");
                     unsafe { bc::bc_set_warn_before_quitting(false) };
                 }
                 _ => return,
@@ -881,7 +881,7 @@ fn restore_spaces() {
     let restored = unsafe { bc::bc_window_restore(window) };
     if restored {
         // check.sh reads this line.
-        eprintln!(
+        log!(
             "browser: restored in {:.1} ms",
             start.elapsed().as_secs_f64() * 1000.
         );
@@ -972,7 +972,7 @@ fn open_window(cx: &mut App) {
             restore_spaces();
         }
         Err(error) => {
-            eprintln!("couldn't open the window: {error}");
+            log!("couldn't open the window: {error}");
             unsafe { bc::bc_quit() };
         }
     }
@@ -1129,12 +1129,12 @@ fn menus() -> Vec<Menu> {
 
 // There's one window, so closing it quits, as its close button does in Chrome's last window.
 unsafe extern "C" fn window_closed(_: *mut c_void, _: bc::bc_id) {
-    eprintln!("browser: window closed");
+    log!("browser: window closed");
     unsafe { bc::bc_quit() };
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
-    eprintln!("browser: stopping");
+    log!("browser: stopping");
 }
 
 /// A Space's or a folder's name, which `copy` copies as bc_space_name does.
@@ -1224,7 +1224,7 @@ unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc:
 // check.sh reads these lines. Test pages report what reached them through their title.
 unsafe extern "C" fn tab_loaded(_: *mut c_void, tab: bc::bc_id, url: *const c_char) {
     let url = unsafe { CStr::from_ptr(url) }.to_string_lossy();
-    eprintln!("browser: loaded {tab} {url}");
+    log!("browser: loaded {tab} {url}");
 }
 
 unsafe extern "C" fn tab_state_changed(
@@ -1251,7 +1251,7 @@ unsafe extern "C" fn tab_state_changed(
 
 unsafe extern "C" fn tab_title_changed(_: *mut c_void, tab: bc::bc_id, title: *const c_char) {
     let title = unsafe { CStr::from_ptr(title) }.to_string_lossy().into_owned();
-    eprintln!("browser: title {tab} {title}");
+    log!("browser: title {tab} {title}");
     update_shell(|shell, cx| shell.set_title(tab, title.into(), cx));
 }
 
@@ -1265,7 +1265,7 @@ unsafe extern "C" fn tab_favicon_changed(
         let png = unsafe { std::slice::from_raw_parts(png, size) }.to_vec();
         Arc::new(Image::from_bytes(ImageFormat::Png, png))
     });
-    eprintln!("browser: favicon {tab} {size} bytes");
+    log!("browser: favicon {tab} {size} bytes");
     update_shell(|shell, cx| shell.set_favicon(tab, favicon, cx));
 }
 
@@ -1289,7 +1289,7 @@ unsafe extern "C" fn archive_changed(
         })
         .collect();
     // check.sh waits for this line.
-    eprintln!("browser: archive {count} tabs");
+    log!("browser: archive {count} tabs");
     update_shell(|shell, cx| shell.set_archive(archive, cx));
 }
 
@@ -1362,13 +1362,13 @@ unsafe extern "C" fn tab_opened(
     foreground: bool,
 ) {
     let side = if foreground { "foreground" } else { "background" };
-    eprintln!("browser: tab {tab} opened by {opener} in the {side}");
+    log!("browser: tab {tab} opened by {opener} in the {side}");
 }
 
 // Called while Chromium closes the tab, which can be inside a GPUI update that asked for it, so
 // the shell hears of it from space_changed instead.
 unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
-    eprintln!("browser: tab {tab} closed");
+    log!("browser: tab {tab} closed");
     find_bar::forget(tab);
 }
 
@@ -1441,7 +1441,7 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
         })
         .ok();
     });
-    eprintln!(
+    log!(
         "browser: page {} full screen",
         if fullscreen { "entered" } else { "left" }
     );

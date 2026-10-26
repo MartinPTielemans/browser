@@ -3,6 +3,7 @@
 //! the host shows over the browser window, as its child, and the mouse goes through it, so the
 //! drag goes on in the browser window.
 
+use browser::log;
 use browser::shell::Shell;
 use gpui::{
     App, Bounds, Context, Entity, Global, TitlebarOptions, Window, WindowBackgroundAppearance,
@@ -50,7 +51,7 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
                 cx.set_global(DropTargetsWindow(window));
             }
         }
-        Err(error) => eprintln!("couldn't open the drop targets' window: {error}"),
+        Err(error) => log!("couldn't open the drop targets' window: {error}"),
     }
 }
 

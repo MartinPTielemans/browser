@@ -182,7 +182,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<Dialog>> {
             Some(window)
         }
         Err(error) => {
-            eprintln!("couldn't open the dialog's window: {error}");
+            log!("couldn't open the dialog's window: {error}");
             None
         }
     }
@@ -213,7 +213,7 @@ pub fn ask(
                 return;
             }
             // check.sh reads this line.
-            eprintln!("browser: dialog shown {message}");
+            log!("browser: dialog shown {message}");
             dialog.asked = Some(Asked {
                 message: message.into(),
                 detail: detail.into(),
@@ -243,14 +243,14 @@ impl Dialog {
         asked.answered = Some((Instant::now(), asked.pose()));
         let confirmed = asked.confirmed.take().filter(|_| confirm);
         // check.sh reads this line.
-        eprintln!("browser: dialog {}", if confirm { "confirmed" } else { "cancelled" });
+        log!("browser: dialog {}", if confirm { "confirmed" } else { "cancelled" });
         asked._leave = Some(cx.spawn(async move |dialog, cx| {
             cx.background_executor().timer(Duration::from_secs_f32(MOVE)).await;
             let hidden = dialog.update(cx, |dialog, cx| {
                 dialog.asked = None;
                 dialog.host.hide();
                 // check.sh reads this line.
-                eprintln!("browser: dialog hidden");
+                log!("browser: dialog hidden");
                 cx.notify();
             });
             if let (Ok(()), Some(confirmed)) = (hidden, confirmed) {
@@ -315,7 +315,7 @@ impl Render for Dialog {
         } else if !asked.settled {
             asked.settled = true;
             // check.sh reads this line.
-            eprintln!("browser: dialog settled");
+            log!("browser: dialog settled");
         }
         let cancel = button(
             "dialog-cancel",

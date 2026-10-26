@@ -1838,7 +1838,7 @@ impl Shell {
         self.width_motion = (from != to).then(|| (from, Instant::now()));
         if self.width_motion.is_none() {
             // check.sh waits for these lines.
-            eprintln!("browser: sidebar width {to}");
+            log!("browser: sidebar width {to}");
         }
         cx.notify();
     }
@@ -1888,7 +1888,7 @@ impl Shell {
         self.sidebar_hidden = false;
         self.sidebar_motion = None;
         // check.sh waits for this line.
-        eprintln!("browser: sidebar shown");
+        log!("browser: sidebar shown");
         cx.notify();
         true
     }
@@ -2027,15 +2027,15 @@ impl Shell {
     ) {
         // check.sh reads these lines.
         let ids: Vec<String> = spaces.iter().map(|(id, ..)| id.to_string()).collect();
-        eprintln!("browser: spaces {}", ids.join(" "));
+        log!("browser: spaces {}", ids.join(" "));
         let mut old = std::mem::take(&mut self.spaces);
         self.spaces = spaces
             .into_iter()
             .map(|(id, name, color)| {
                 let Some(space) = old.iter_mut().find(|space| space.id == id) else {
-                    eprintln!("browser: added space {id} {name}");
+                    log!("browser: added space {id} {name}");
                     if let Some(color) = color {
-                        eprintln!("browser: colored space {id} {color:06x}");
+                        log!("browser: colored space {id} {color:06x}");
                     }
                     return Space {
                         id,
@@ -2049,11 +2049,11 @@ impl Shell {
                     };
                 };
                 if space.name != name {
-                    eprintln!("browser: renamed space {id} {name}");
+                    log!("browser: renamed space {id} {name}");
                 }
                 if space.color != color {
                     let color = color.map_or("none".to_string(), |color| format!("{color:06x}"));
-                    eprintln!("browser: colored space {id} {color}");
+                    log!("browser: colored space {id} {color}");
                 }
                 Space {
                     id,
@@ -2086,12 +2086,12 @@ impl Shell {
         match self.switching {
             Some((asked, start)) if asked == space => {
                 self.switching = None;
-                eprintln!(
+                log!(
                     "browser: space {space} in {:.1} ms",
                     start.elapsed().as_secs_f64() * 1000.
                 );
             }
-            _ => eprintln!("browser: space {space}"),
+            _ => log!("browser: space {space}"),
         }
         let before = std::mem::replace(&mut self.space, space);
         // A swipe that began in another Space is over, and its momentum with it.
@@ -2150,7 +2150,7 @@ impl Shell {
         for (folder, (name, _)) in &folders.folders {
             if entry.folders.folders.get(folder).is_some_and(|(was, _)| was != name) {
                 // check.sh waits for this line.
-                eprintln!("browser: renamed folder {folder} {name}");
+                log!("browser: renamed folder {folder} {name}");
             }
         }
         entry.folders = folders;
@@ -2192,7 +2192,7 @@ impl Shell {
     pub fn set_favorites(&mut self, favorites: Vec<u64>, cx: &mut Context<Self>) {
         // check.sh reads these lines.
         let ids: Vec<String> = favorites.iter().map(u64::to_string).collect();
-        eprintln!("browser: favorites {}", ids.join(" "));
+        log!("browser: favorites {}", ids.join(" "));
         let tiles = self.drawn();
         self.favorites = favorites;
         self.end_drag(true);
@@ -2230,12 +2230,12 @@ impl Shell {
     fn log_tabs(&mut self) {
         // check.sh reads these lines, the pinned one first.
         let ids = |tabs: &[u64]| tabs.iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
-        eprintln!("browser: pinned {}", ids(self.pinned()));
-        eprintln!("browser: today {}", ids(self.today()));
+        log!("browser: pinned {}", ids(self.pinned()));
+        log!("browser: today {}", ids(self.today()));
         let splits = self.shown_space().map_or_else(Vec::new, |space| {
             space.splits.iter().map(|split| ids(split).replace(' ', "+")).collect()
         });
-        eprintln!("browser: splits {}", splits.join(" "));
+        log!("browser: splits {}", splits.join(" "));
         self.outline_changed = true;
     }
 
@@ -2252,11 +2252,11 @@ impl Shell {
 
     pub fn set_selected(&mut self, tab: u64, cx: &mut Context<Self>) {
         match self.switching.take() {
-            Some((asked, start)) if asked == tab => eprintln!(
+            Some((asked, start)) if asked == tab => log!(
                 "browser: selected {tab} in {:.1} ms",
                 start.elapsed().as_secs_f64() * 1000.
             ),
-            _ => eprintln!("browser: selected {tab}"),
+            _ => log!("browser: selected {tab}"),
         }
         self.selected = tab;
         self.show_in_space(tab);
@@ -2265,7 +2265,7 @@ impl Shell {
         }
         // check.sh reads this line.
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
-        eprintln!("browser: panes {panes}");
+        log!("browser: panes {panes}");
         self.set_new_tab(false, cx);
         self.adding_pane = None;
         cx.notify();
@@ -2285,7 +2285,7 @@ impl Shell {
         if self.new_tab != new_tab {
             self.new_tab = new_tab;
             // check.sh reads this line.
-            eprintln!("browser: new tab plate {}", new_tab as u8);
+            log!("browser: new tab plate {}", new_tab as u8);
             cx.notify();
         }
     }
@@ -2340,7 +2340,7 @@ impl Shell {
     pub fn set_page(&mut self, tab: u64, page: Page, cx: &mut Context<Self>) {
         // check.sh reads these lines.
         let flag = |on| if on { 1 } else { 0 };
-        eprintln!(
+        log!(
             "browser: page {tab} back {} forward {} loading {} {}",
             flag(page.can_go_back),
             flag(page.can_go_forward),
@@ -2349,14 +2349,14 @@ impl Shell {
         );
         let entry = self.tabs.entry(tab).or_default();
         if page.unloaded != entry.page.unloaded {
-            eprintln!("browser: page {tab} unloaded {}", flag(page.unloaded));
+            log!("browser: page {tab} unloaded {}", flag(page.unloaded));
         }
         if page.away_from_pinned_url != entry.page.away_from_pinned_url {
-            eprintln!("browser: page {tab} away {}", flag(page.away_from_pinned_url));
+            log!("browser: page {tab} away {}", flag(page.away_from_pinned_url));
         }
         if (page.audible, page.muted) != (entry.page.audible, entry.page.muted) {
             let (audible, muted) = (flag(page.audible), flag(page.muted));
-            eprintln!("browser: page {tab} audible {audible} muted {muted}");
+            log!("browser: page {tab} audible {audible} muted {muted}");
         }
         entry.page = page;
         cx.notify();
@@ -2375,7 +2375,7 @@ impl Shell {
     /// ("ui"), the browser handing it back ("page"), or the sidebar.
     pub fn run(&mut self, command: Command, from: &str, cx: &mut Context<Self>) {
         // check.sh waits for these lines.
-        eprintln!("browser: command {} via {from}", command.name());
+        log!("browser: command {} via {from}", command.name());
         let rows = self.sidebar_rows();
         let position = rows.iter().position(|&row| row == self.row_of(self.selected));
         let count = rows.len();
@@ -2582,7 +2582,7 @@ impl Shell {
         self.browser.clear(cx);
         self.undo = Some(Undo::Clear);
         // check.sh reads this line.
-        eprintln!("browser: cleared {}", self.clearing.len());
+        log!("browser: cleared {}", self.clearing.len());
     }
 
     /// Undoes the last Clear or Space deleted, once, and returns whether it did.
@@ -2604,7 +2604,7 @@ impl Shell {
         let undone = self.undo(cx);
         if undone {
             // check.sh waits for this line.
-            eprintln!("browser: command undo via page");
+            log!("browser: command undo via page");
         }
         undone
     }
@@ -2630,7 +2630,7 @@ impl Shell {
     fn copy(&mut self, text: &str, toast: &str, cx: &mut Context<Self>) {
         self.browser.copy(text, cx);
         // check.sh reads this line.
-        eprintln!("browser: copied {text}");
+        log!("browser: copied {text}");
         self.browser.toast(toast, None, COPIED_TIME, cx);
     }
 
@@ -2683,7 +2683,7 @@ impl Shell {
             return;
         }
         // check.sh waits for these lines.
-        eprintln!("browser: create space {} {name}", form.space);
+        log!("browser: create space {} {name}", form.space);
         self.browser.rename_space(form.space, &name, cx);
         self.leaving_form = self.form.take().map(|form| (form, Instant::now()));
         window.focus(&self.focus_handle, cx);
@@ -2695,7 +2695,7 @@ impl Shell {
         let Some(form) = self.form.take_if(|form| form.space == self.space) else {
             return;
         };
-        eprintln!("browser: cancel space {}", form.space);
+        log!("browser: cancel space {}", form.space);
         self.show_space(form.from, cx);
         self.browser.delete_space(form.space, cx);
         window.focus(&self.focus_handle, cx);
@@ -2777,7 +2777,7 @@ impl Shell {
                         cx.notify();
                         let item = chosen.and_then(|at| items.into_iter().nth(at));
                         if let Some((_, name, action)) = item {
-                            eprintln!("browser: command {name} via tab menu");
+                            log!("browser: command {name} via tab menu");
                             action(shell, cx)
                         }
                     })
@@ -2935,7 +2935,7 @@ impl Shell {
         if self.form.as_ref().is_some_and(|form| form.space == space) {
             return;
         }
-        eprintln!("browser: rename space {space}");
+        log!("browser: rename space {space}");
         let name = cx.new(|cx| {
             TextInput::new("Space name", cx)
                 .placeholder_color(rgba(FORM_PLACEHOLDER))
@@ -2955,7 +2955,7 @@ impl Shell {
 
     /// Shows the tab's title in a field, all selected, to type a name over.
     fn rename_tab(&mut self, tab: u64, cx: &mut Context<Self>) {
-        eprintln!("browser: rename tab {tab}");
+        log!("browser: rename tab {tab}");
         let title = self.title(tab);
         let name = cx.new(|cx| {
             TextInput::new("Tab name", cx)
@@ -3075,7 +3075,7 @@ impl Shell {
             return;
         }
         let open = self.shown_space().is_some_and(|space| space.is_open(folder));
-        eprintln!("browser: command toggle-folder via sidebar");
+        log!("browser: command toggle-folder via sidebar");
         self.folding = true;
         self.browser.set_folder_open(folder, !open, cx);
     }
@@ -3105,7 +3105,7 @@ impl Shell {
 
     fn cancel_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.renaming.take().is_some() {
-            eprintln!("browser: rename cancelled");
+            log!("browser: rename cancelled");
             window.focus(&self.focus_handle, cx);
             cx.notify();
         }
@@ -3489,7 +3489,7 @@ impl Shell {
             match to {
                 Place::Favorite(index) => {
                     // check.sh waits for this line.
-                    eprintln!("browser: dragged {tab} to favorites {index}");
+                    log!("browser: dragged {tab} to favorites {index}");
                     self.browser.move_to_favorites(tab, index, cx);
                 }
                 Place::List(true, gap) => {
@@ -3498,8 +3498,8 @@ impl Shell {
                     let (folder, index) = self.pinned_place(&rows, gap, drag_depth, tab);
                     // check.sh waits for these lines.
                     match folder {
-                        0 => eprintln!("browser: dragged {tab} to pinned {gap}"),
-                        _ => eprintln!("browser: dragged {tab} to folder {folder} {index}"),
+                        0 => log!("browser: dragged {tab} to pinned {gap}"),
+                        _ => log!("browser: dragged {tab} to folder {folder} {index}"),
                     }
                     match self.is_folder(tab) {
                         true => self.browser.move_folder(tab, folder, index, cx),
@@ -3508,7 +3508,7 @@ impl Shell {
                 }
                 Place::List(false, index) => {
                     // check.sh waits for this line.
-                    eprintln!("browser: dragged {tab} to today {index}");
+                    log!("browser: dragged {tab} to today {index}");
                     // The browser counts tabs, and the rows above may be split views.
                     let (_, rows) = self.rows();
                     let rows = rows.into_iter().filter(|&row| row != tab).take(index);
@@ -3723,7 +3723,7 @@ impl Shell {
             let across = delta.x.abs() > delta.y.abs();
             swipe.across = Some(across);
             // check.sh waits for this line.
-            eprintln!("browser: swipe {}", if across { "across" } else { "along" });
+            log!("browser: swipe {}", if across { "across" } else { "along" });
             // Fingers catch a page, or the Library, that's still settling where it is.
             if across && swipe.library {
                 swipe.way = (self.library_out() - 1.) * LIBRARY_WIDTH;
@@ -3787,7 +3787,7 @@ impl Shell {
             let open = if velocity.abs() >= SWIPE_FLICK { velocity > 0. } else { out > 0.5 };
             if open != self.library_open {
                 // check.sh waits for this line.
-                eprintln!("browser: command view-library via swipe");
+                log!("browser: command view-library via swipe");
             }
             self.move_library(open, out, velocity / LIBRARY_WIDTH, None, cx);
             return true;
@@ -3810,7 +3810,7 @@ impl Shell {
         self.settle = Some(Settle { space, beside: None, from, velocity, start: now });
         if space != self.space {
             // check.sh waits for this line.
-            eprintln!("browser: command select-space via swipe");
+            log!("browser: command select-space via swipe");
             self.show_space(space, cx);
         }
         cx.notify();
@@ -3838,14 +3838,14 @@ impl Shell {
             let library = sum > 0. && (self.library_open || self.library_beside(self.space));
             if library != self.library_open {
                 // check.sh waits for this line.
-                eprintln!("browser: command view-library via wheel");
+                log!("browser: command view-library via wheel");
                 self.set_library(library, cx);
             } else if !self.library_open
                 && let Some(space) = self.nearest(self.space, sum.signum() * self.width())
                 && space != self.space
             {
                 // check.sh waits for this line.
-                eprintln!("browser: command select-space via wheel");
+                log!("browser: command select-space via wheel");
                 self.show_space(space, cx);
             }
         }
@@ -3956,7 +3956,7 @@ impl Shell {
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
         if sliding && self.slides.is_empty() {
             // check.sh waits for this line before it presses a row that moved.
-            eprintln!("browser: rows settled");
+            log!("browser: rows settled");
         }
         self.tile_slides
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
@@ -3969,7 +3969,7 @@ impl Shell {
         }
         if let Some(settle) = self.settle.take_if(|settle| settle.offset().is_none()) {
             // check.sh reads these lines.
-            eprintln!("browser: settled space {}", settle.space);
+            log!("browser: settled space {}", settle.space);
         }
         !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
             || !self.tile_slides.is_empty()
@@ -4108,7 +4108,7 @@ impl Shell {
         if hovered != self.sidebar_hovered {
             self.sidebar_hovered = hovered;
             // check.sh reads this line.
-            eprintln!("browser: sidebar hovered {}", hovered as u8);
+            log!("browser: sidebar hovered {}", hovered as u8);
             cx.notify();
         }
     }
@@ -4203,7 +4203,7 @@ impl Shell {
             } else {
                 self.scroll_edge_fade = None;
                 // check.sh waits for these lines.
-                eprintln!("browser: scroll edge {}", if scrolled { "shown" } else { "hidden" });
+                log!("browser: scroll edge {}", if scrolled { "shown" } else { "hidden" });
             }
         }
     }
@@ -4404,7 +4404,7 @@ impl Shell {
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
                     // The first click showed it.
                     if event.click_count == 2 {
-                        eprintln!("browser: command back-to-pinned-url via favorite");
+                        log!("browser: command back-to-pinned-url via favorite");
                         return shell.browser.back_to_pinned_url(tab, cx);
                     }
                     shell.press_tile(tab, event.position)
@@ -4423,7 +4423,7 @@ impl Shell {
                 if shell.dragged || shell.dragging().is_some() {
                     return;
                 }
-                eprintln!("browser: command select via favorite");
+                log!("browser: command select via favorite");
                 shell.select(tab, cx)
             }))
             .child(icon)
@@ -4520,7 +4520,7 @@ impl Shell {
             .child("×")
             .on_click(cx.listener(move |shell, _, _, cx| {
                 cx.stop_propagation();
-                eprintln!("browser: command close-tab via sidebar");
+                log!("browser: command close-tab via sidebar");
                 shell.browser.close(tabs[0], true, cx);
             }))
     }
@@ -4550,7 +4550,7 @@ impl Shell {
                 })
                 .on_click(cx.listener(move |shell, _, _, cx| {
                     cx.stop_propagation();
-                    eprintln!("browser: command toggle-mute via sidebar");
+                    log!("browser: command toggle-mute via sidebar");
                     shell.toggle_mute(tab, cx);
                 }))
         })
@@ -4589,7 +4589,7 @@ impl Shell {
         if self.dragged || self.dragging().is_some() || renaming == Some(Naming::Tab(tab)) {
             return;
         }
-        eprintln!("browser: command select via sidebar");
+        log!("browser: command select via sidebar");
         self.select(tab, cx)
     }
 
@@ -4770,7 +4770,7 @@ impl Shell {
             // The row's click selects the tab after this one.
             .when(away, |icon| {
                 icon.on_click(cx.listener(move |shell, _, _, cx| {
-                    eprintln!("browser: command back-to-pinned-url via sidebar");
+                    log!("browser: command back-to-pinned-url via sidebar");
                     shell.browser.back_to_pinned_url(tab, cx);
                 }))
             })
@@ -4853,7 +4853,7 @@ impl Shell {
                 .justify_center()
                 .block_mouse_except_scroll()
                 .on_click(cx.listener(move |shell, _, _, cx| {
-                    eprintln!("browser: command select-space via sidebar");
+                    log!("browser: command select-space via sidebar");
                     shell.show_space(id, cx)
                 }))
                 .on_mouse_down(
@@ -5062,7 +5062,7 @@ impl Render for Shell {
         // to what's drawn.
         if std::mem::take(&mut self.outline_changed) {
             let outline = self.shown_space().map(|space| space.outline(0)).unwrap_or_default();
-            eprintln!("browser: outline {outline}");
+            log!("browser: outline {outline}");
         }
         if std::mem::take(&mut self.focus_form)
             && let Some(form) = self.form()
@@ -5083,7 +5083,7 @@ impl Render for Shell {
             window.focus(&field, cx);
             // check.sh waits for this line, which says the field has the keyboard.
             if let Naming::Folder(folder) = renaming.naming {
-                eprintln!("browser: rename folder {folder}");
+                log!("browser: rename folder {folder}");
             }
             renaming._blur =
                 Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
@@ -5094,7 +5094,7 @@ impl Render for Shell {
             } else {
                 self.width_motion = None;
                 // check.sh waits for these lines.
-                eprintln!("browser: sidebar width {}", self.sidebar_width);
+                log!("browser: sidebar width {}", self.sidebar_width);
             }
         }
         if let Some((_, start)) = self.sidebar_motion {
@@ -5104,7 +5104,7 @@ impl Render for Shell {
                 self.sidebar_motion = None;
                 // check.sh waits for these lines.
                 let state = if self.sidebar_hidden { "hidden" } else { "shown" };
-                eprintln!("browser: sidebar {state}");
+                log!("browser: sidebar {state}");
             }
         }
         self.step_library(window, cx);
@@ -5115,7 +5115,7 @@ impl Render for Shell {
             } else {
                 self.leaving_form = None;
                 // check.sh waits for this line.
-                eprintln!("browser: space form gone");
+                log!("browser: space form gone");
             }
         }
         if self.list_moving() {
@@ -5213,7 +5213,7 @@ impl Render for Shell {
                 if shell.background_pressed && event.dragging() {
                     shell.background_pressed = false;
                     // check.sh reads this line.
-                    eprintln!("browser: window move");
+                    log!("browser: window move");
                     window.start_window_move();
                 }
                 shell.pointer_at(event.position.x.into(), cx);
@@ -5445,11 +5445,11 @@ impl Shell {
                 self.reveal_motion = None;
                 // check.sh waits for these lines.
                 if self.revealed {
-                    eprintln!("browser: reveal shown");
+                    log!("browser: reveal shown");
                     // Its window ends at its edge, so the page past it takes clicks again.
                     self.browser.show_reveal(REVEAL_INSET + self.width(), cx);
                 } else {
-                    eprintln!("browser: reveal hidden");
+                    log!("browser: reveal hidden");
                     self.browser.hide_reveal(cx);
                 }
             }
@@ -5515,7 +5515,7 @@ impl Shell {
                     .block_mouse_except_scroll()
                     .on_click(cx.listener(move |shell, _, _, cx| {
                         // check.sh waits for this line.
-                        eprintln!("browser: window button {button:?}");
+                        log!("browser: window button {button:?}");
                         shell.browser.press_window_button(button, cx);
                     }))
                     .child(

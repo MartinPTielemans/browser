@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use browser::log;
 use browser::shell::{self, Shell};
 use gpui::{
     App, Bounds, Context, Entity, FontWeight, Global, Task, TitlebarOptions, Window,
@@ -78,7 +79,7 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
                 cx.set_global(ZoomHudWindow(window));
             }
         }
-        Err(error) => eprintln!("couldn't open the zoom HUD: {error}"),
+        Err(error) => log!("couldn't open the zoom HUD: {error}"),
     }
 }
 

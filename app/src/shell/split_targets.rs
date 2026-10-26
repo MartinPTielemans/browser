@@ -112,7 +112,7 @@ impl Shell {
             if let Some(drag) = self.drag.as_mut().filter(|drag| drag.over_page.is_some()) {
                 drag.over_page = None;
                 // check.sh reads this line.
-                eprintln!("browser: drop targets gone");
+                log!("browser: drop targets gone");
                 cx.notify();
             }
             return false;
@@ -123,7 +123,7 @@ impl Shell {
         };
         drag.moving = true;
         let over = drag.over_page.get_or_insert_with(|| {
-            eprintln!("browser: drop targets for {with}");
+            log!("browser: drop targets for {with}");
             OverPage {
                 with,
                 since: now,
@@ -151,7 +151,7 @@ impl Shell {
                 Some(false) => "right",
                 None => "none",
             };
-            eprintln!("browser: drop target {side}");
+            log!("browser: drop target {side}");
         }
         cx.notify();
         true

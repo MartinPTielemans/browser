@@ -5,6 +5,7 @@
 
 use std::time::Instant;
 
+use browser::log;
 use browser::shell::{self, Command, MenuEntry};
 use gpui::{
     AnyElement, App, Bounds, Context, FocusHandle, FontWeight, Global, MouseButton, Rgba,
@@ -281,13 +282,13 @@ fn open(cx: &mut App) {
                 cx.set_global(SettingsWindow(window));
             }
         }
-        Err(error) => eprintln!("couldn't open the Settings window: {error}"),
+        Err(error) => log!("couldn't open the Settings window: {error}"),
     }
 }
 
 fn hide(_: &mut App) {
     // check.sh waits for this line.
-    eprintln!("browser: settings hidden");
+    log!("browser: settings hidden");
     unsafe { platform::host_hide_settings() };
 }
 
@@ -297,7 +298,7 @@ impl Settings {
             return;
         }
         // check.sh waits for this line.
-        eprintln!("browser: settings tab {}", tab.name());
+        log!("browser: settings tab {}", tab.name());
         self.tab = tab;
         window.set_window_title(tab.name());
         cx.notify();
@@ -407,7 +408,7 @@ impl Settings {
             .id(name)
             .on_click(cx.listener(move |settings, _, _, cx| {
                 // check.sh waits for this line.
-                eprintln!("browser: {name} {}", if on { "off" } else { "on" });
+                log!("browser: {name} {}", if on { "off" } else { "on" });
                 set(!on);
                 settings.switched = Some((name, Instant::now()));
                 cx.notify();
@@ -437,7 +438,7 @@ impl Settings {
             let picked = show_menu(&items, popup_text(), platform::IN_SETTINGS, chosen);
             if let Some((title, seconds)) = picked.map(|index| ARCHIVE_AFTER[index]) {
                 // check.sh waits for this line.
-                eprintln!("browser: archive tabs after {title}");
+                log!("browser: archive tabs after {title}");
                 unsafe { bc::bc_set_archive_after(seconds) };
             }
             settings
@@ -520,7 +521,7 @@ fn set_haptics(haptics: bool) {
 /// Opens Chromium's settings in a new tab, for what this window doesn't offer yet, and goes to it.
 fn more_settings(cx: &mut App) {
     // check.sh waits for this line.
-    eprintln!("browser: more settings");
+    log!("browser: more settings");
     crate::open_tab("chrome://settings");
     hide(cx);
 }
