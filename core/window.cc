@@ -1160,6 +1160,13 @@ void Window::ReportSelected() {
                        if (window && Host().window_selected) {
                          Host().window_selected(Host().context, window->id(), tab);
                        }
+                       // After the app has heard of the switch, which it times.
+                       if (window) {
+                         if (!window->actions_) {
+                           window->actions_ = std::make_unique<WindowActions>(window->id());
+                         }
+                         window->actions_->Show(Tab::FromId(tab));
+                       }
                      },
                      weak_factory_.GetWeakPtr(), selected_));
 }

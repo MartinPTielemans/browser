@@ -43,7 +43,8 @@
 //                                         browser window and 100 points past its edges, for the
 //                                         window's material to blur something known
 //   menu <title>                          chooses the main menu's item titled <title>, in a
-//                                         submenu too
+//                                         submenu too, or in the submenu <title> names first
+//                                         as "Submenu › Item"
 //   choose <title>                        chooses the item titled <title> in the menu a right
 //                                         click showed, the page's too, or the button in the
 //                                         alert shown, Chrome's too
@@ -434,8 +435,24 @@ void Layout(NSWindow* window) {
   fprintf(stderr, "%s\n", line.UTF8String);
 }
 
-// Chooses the item titled |title| in |menu| or its submenus, such as View › Developer.
+// Chooses the item titled |title| in |menu| or its submenus, such as View › Developer, or with
+// "Submenu › Item", the item in the submenu so titled, where the same title is elsewhere too.
 bool ChooseMenuItem(NSMenu* menu, NSString* title) {
+  NSRange split = [title rangeOfString:@" › "];
+  if (split.location != NSNotFound) {
+    NSString* parent = [title substringToIndex:split.location];
+    NSString* item_title = [title substringFromIndex:NSMaxRange(split)];
+    for (NSMenuItem* item in menu.itemArray) {
+      if (!item.submenu) {
+        continue;
+      }
+      if ([item.title isEqualToString:parent] ? ChooseMenuItem(item.submenu, item_title)
+                                               : ChooseMenuItem(item.submenu, title)) {
+        return true;
+      }
+    }
+    return false;
+  }
   NSInteger index = [menu indexOfItemWithTitle:title];
   if (index >= 0) {
     [menu performActionForItemAtIndex:index];

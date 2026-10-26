@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,7 @@
 #include "components/sessions/content/session_tab_helper.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_action.h"
+#include "extensions/browser/extension_action_icon_factory.h"
 #include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_host_observer.h"
@@ -30,6 +32,9 @@
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/browser/ui_util.h"
 #include "extensions/common/extension.h"
+#include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/image/image_skia_rep.h"
 #include "ui/views/bubble/bubble_anchor.h"
 #include "ui/views/bubble/bubble_border.h"
 
@@ -38,10 +43,12 @@ namespace browser_core {
 namespace {
 
 // Tells the app of one profile's extensions, once after each call that changed them.
-class ProfileExtensions : public extensions::ExtensionRegistryObserver {
+class ProfileExtensions : public extensions::ExtensionRegistryObserver,
+                          public ToolbarActionsModel::Observer {
  public:
   explicit ProfileExtensions(Profile* profile) : profile_(profile) {
     observation_.Observe(extensions::ExtensionRegistry::Get(profile));
+    pinned_observation_.Observe(ToolbarActionsModel::Get(profile));
     Changed();
   }
 
@@ -78,6 +85,14 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver {
   // The profile is going, and its extensions with it.
   void OnShutdown(extensions::ExtensionRegistry* registry) override { observation_.Reset(); }
 
+  // ToolbarActionsModel::Observer, for which are pinned:
+  void OnToolbarActionAdded(const ToolbarActionsModel::ActionId& id) override {}
+  void OnToolbarActionRemoved(const ToolbarActionsModel::ActionId& id) override {}
+  void OnToolbarActionUpdated(const ToolbarActionsModel::ActionId& id) override {}
+  void OnToolbarModelInitialized() override { Changed(); }
+  void OnToolbarPinnedActionsChanged() override { Changed(); }
+  void OnToolbarActionsModelShutdown() override { pinned_observation_.Reset(); }
+
   void Report() {
     report_posted_ = false;
     if (!Host().extensions_changed || !observation_.IsObserving()) {
@@ -94,12 +109,14 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver {
     std::ranges::sort(listed, {}, [](const scoped_refptr<const extensions::Extension>& extension) {
       return extension->name();
     });
+    ToolbarActionsModel* model = pinned_observation_.GetSource();
     std::vector<bc_extension> extensions;
     extensions.reserve(listed.size());
     for (const scoped_refptr<const extensions::Extension>& extension : listed) {
       extensions.push_back({.id = extension->id().c_str(),
                             .name = extension->name().c_str(),
-                            .enabled = registry->enabled_extensions().Contains(extension->id())});
+                            .enabled = registry->enabled_extensions().Contains(extension->id()),
+                            .pinned = model && model->IsActionPinned(extension->id())});
     }
     Host().extensions_changed(Host().context, ProfileId(DirOf(profile_)), extensions.data(),
                               extensions.size());
@@ -108,6 +125,8 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver {
   raw_ptr<Profile> profile_;
   base::ScopedObservation<extensions::ExtensionRegistry, extensions::ExtensionRegistryObserver>
       observation_{this};
+  base::ScopedObservation<ToolbarActionsModel, ToolbarActionsModel::Observer> pinned_observation_{
+      this};
   bool report_posted_ = false;
   base::WeakPtrFactory<ProfileExtensions> weak_factory_{this};
 };
@@ -162,6 +181,142 @@ Popup& ThePopup() {
 
 }  // namespace
 
+// One action's icon, which tells the window's actions once it has loaded.
+class WindowActions::Icon : public extensions::ExtensionActionIconFactory::Observer {
+ public:
+  Icon(const extensions::Extension* extension,
+       extensions::ExtensionAction* action,
+       WindowActions* actions)
+      : factory_(extension, action, this), actions_(actions) {}
+
+  gfx::Image Get(int tab) { return factory_.GetIcon(tab); }
+
+ private:
+  // extensions::ExtensionActionIconFactory::Observer:
+  void OnIconUpdated() override { actions_->Changed(); }
+
+  extensions::ExtensionActionIconFactory factory_;
+  raw_ptr<WindowActions> actions_;
+};
+
+WindowActions::WindowActions(bc_id window) : window_(window) {}
+
+WindowActions::~WindowActions() = default;
+
+void WindowActions::Show(content::WebContents* contents) {
+  contents_ = contents ? contents->GetWeakPtr() : nullptr;
+  Profile* profile =
+      contents ? Profile::FromBrowserContext(contents->GetBrowserContext()) : nullptr;
+  if (profile != profile_) {
+    observation_.Reset();
+    icons_.clear();
+    profile_ = profile;
+    if (profile) {
+      observation_.Observe(ToolbarActionsModel::Get(profile));
+    }
+  }
+  Changed();
+}
+
+void WindowActions::OnToolbarActionAdded(const ToolbarActionsModel::ActionId& id) {
+  Changed();
+}
+void WindowActions::OnToolbarActionRemoved(const ToolbarActionsModel::ActionId& id) {
+  icons_.erase(id);
+  Changed();
+}
+void WindowActions::OnToolbarActionUpdated(const ToolbarActionsModel::ActionId& id) {
+  Changed();
+}
+void WindowActions::OnToolbarModelInitialized() {
+  Changed();
+}
+void WindowActions::OnToolbarPinnedActionsChanged() {
+  Changed();
+}
+// The profile is going.
+void WindowActions::OnToolbarActionsModelShutdown() {
+  observation_.Reset();
+  icons_.clear();
+  profile_ = nullptr;
+  contents_ = nullptr;
+  Changed();
+}
+
+void WindowActions::Changed() {
+  if (report_posted_) {
+    return;
+  }
+  report_posted_ = true;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&WindowActions::Report, weak_factory_.GetWeakPtr()));
+}
+
+void WindowActions::Report() {
+  report_posted_ = false;
+  if (!Host().window_extension_actions) {
+    return;
+  }
+  std::vector<Told> shown;
+  ToolbarActionsModel* model = observation_.GetSource();
+  if (contents_ && model && profile_) {
+    const int tab = sessions::SessionTabHelper::IdForTab(contents_.get()).id();
+    extensions::ExtensionRegistry* registry = extensions::ExtensionRegistry::Get(profile_);
+    for (const ToolbarActionsModel::ActionId& id : model->pinned_action_ids()) {
+      const extensions::Extension* extension = registry->enabled_extensions().GetByID(id);
+      extensions::ExtensionAction* action =
+          extension ? extensions::ExtensionActionManager::Get(profile_)->GetExtensionAction(
+                          *extension)
+                    : nullptr;
+      if (!action) {
+        continue;
+      }
+      std::unique_ptr<Icon>& icon = icons_[id];
+      if (!icon) {
+        icon = std::make_unique<Icon>(extension, action, this);
+      }
+      const std::string title = action->GetTitle(tab);
+      shown.push_back({.id = id,
+                       .title = title.empty() ? extension->name() : title,
+                       .icon = icon->Get(tab),
+                       .badge = action->GetDisplayBadgeText(tab),
+                       .badge_color = action->HasBadgeBackgroundColor(tab)
+                                          ? action->GetBadgeBackgroundColor(tab)
+                                          : 0,
+                       .enabled = action->GetIsVisible(tab)});
+    }
+  }
+  auto same = [](const Told& a, const Told& b) {
+    return a.id == b.id && a.title == b.title && a.badge == b.badge &&
+           a.badge_color == b.badge_color && a.enabled == b.enabled &&
+           a.icon.IsEmpty() == b.icon.IsEmpty() &&
+           (a.icon.IsEmpty() || a.icon.AsImageSkia().BackedBySameObjectAs(b.icon.AsImageSkia()));
+  };
+  if (std::ranges::equal(shown, told_, same)) {
+    return;
+  }
+  told_ = std::move(shown);
+  std::vector<std::vector<uint8_t>> pngs;
+  std::vector<bc_extension_action> actions;
+  pngs.reserve(told_.size());
+  for (const Told& told : told_) {
+    std::optional<std::vector<uint8_t>> png;
+    if (!told.icon.IsEmpty()) {
+      png = gfx::PNGCodec::EncodeBGRASkBitmap(
+          told.icon.AsImageSkia().GetRepresentation(2).GetBitmap(), /*discard_transparency=*/false);
+    }
+    pngs.push_back(png.value_or(std::vector<uint8_t>()));
+    actions.push_back({.id = told.id.c_str(),
+                       .title = told.title.c_str(),
+                       .icon = pngs.back().empty() ? nullptr : pngs.back().data(),
+                       .icon_size = pngs.back().size(),
+                       .badge = told.badge.c_str(),
+                       .badge_color = told.badge_color,
+                       .enabled = told.enabled});
+  }
+  Host().window_extension_actions(Host().context, window_, actions.data(), actions.size());
+}
+
 void ObserveExtensions(Profile* profile) {
   std::unique_ptr<ProfileExtensions>& observed = Observed()[DirOf(profile)];
   observed = std::make_unique<ProfileExtensions>(profile);
@@ -170,6 +325,13 @@ void ObserveExtensions(Profile* profile) {
 void ReportExtensions() {
   for (auto& [dir, observed] : Observed()) {
     observed->Changed();
+  }
+}
+
+void SetExtensionPinned(Profile* profile, const std::string& id, bool pinned) {
+  ToolbarActionsModel* model = ToolbarActionsModel::Get(profile);
+  if (model && model->HasAction(id) && model->IsActionPinned(id) != pinned) {
+    model->SetActionVisibility(id, pinned);
   }
 }
 

@@ -434,6 +434,15 @@ void bc_extensions_report() {
   browser_core::ReportExtensions();
 }
 
+void bc_extension_set_pinned(bc_id profile_id, const char* id, bool pinned) {
+  const std::string dir = browser_core::ProfileDir(profile_id);
+  // ProfileFor gives the first profile for one that isn't loaded.
+  Profile* profile = dir.empty() ? nullptr : browser_core::ProfileFor(dir);
+  if (profile && browser_core::DirOf(profile) == dir && id) {
+    browser_core::SetExtensionPinned(profile, id, pinned);
+  }
+}
+
 bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window && id && window->RunExtension(id, ToRect(anchor));

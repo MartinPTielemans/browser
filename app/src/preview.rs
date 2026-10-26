@@ -474,7 +474,9 @@ impl Browser for Fake {
         false
     }
 
-    fn manage_extensions(&self, _: &mut App) {}
+    fn set_extension_pinned(&self, _: u64, _: &str, _: bool, _: &mut App) {}
+
+    fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
         false
