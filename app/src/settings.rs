@@ -641,7 +641,6 @@ impl Settings {
                 shortcut: None,
                 parent: None,
                 checked: Some(index) == chosen,
-                swatch: None,
             })
             .collect();
         self.choosing = Some(Popup::ArchiveAfter);
@@ -678,7 +677,6 @@ impl Settings {
                 shortcut: None,
                 parent: None,
                 checked: scope == chosen,
-                swatch: None,
             })
             .collect();
         let over = shell::FavoritesScope::ALL.iter().position(|&scope| scope == chosen);

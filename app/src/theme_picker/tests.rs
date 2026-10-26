@@ -219,7 +219,7 @@ fn escape_closes_it_and_a_click_outside_leaves_it_closed(cx: &mut TestAppContext
 fn the_card_centres_on_its_arrow_inside_the_window() {
     // Room above and below: centred, the tip at the card's middle.
     let (left, top, arrow_y) = placed(point(250., 400.), 1000.);
-    assert!((left - (250. - TIP_SHORT)).abs() < 0.01);
+    assert!((left - (250. + GAP - TIP_SHORT)).abs() < 0.01);
     assert_eq!((top, arrow_y), (400. - HEIGHT / 2., HEIGHT / 2.));
     // Near the top, the card stays in and the arrow moves up it, clear of the corner.
     let (_, top, arrow_y) = placed(point(250., 60.), 1000.);

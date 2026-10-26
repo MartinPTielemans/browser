@@ -16,7 +16,7 @@ use super::{
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     LOADING_TURN, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
-    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
+    Pending, ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
@@ -643,7 +643,7 @@ impl Shell {
             })
             .child(icon);
         // Where the row is, for the icon picker to hang under while it waits for the row to settle.
-        let bounds = (self.picker_pending.map(|(subject, _)| subject) == Some(Subject::Tab(tab)))
+        let bounds = (self.picker_pending.map(|(picker, _)| picker) == Some(Pending::Icon(Subject::Tab(tab))))
             .then(|| {
                 let drawn = self.tab_row_drawn.clone();
                 canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
@@ -1052,9 +1052,9 @@ mod tests {
         shell.update(cx, |shell, cx| shell.change_icon(3, cx));
         cx.run_until_parked();
         let (pending, row) = shell.read_with(cx, |shell, _| {
-            (shell.picker_pending.map(|(subject, _)| subject), shell.tab_row_drawn.get())
+            (shell.picker_pending.map(|(picker, _)| picker), shell.tab_row_drawn.get())
         });
-        assert_eq!(pending, Some(Subject::Tab(3)));
+        assert_eq!(pending, Some(Pending::Icon(Subject::Tab(3))));
         let row = row.expect("the tab's row didn't say where it is");
         // The other row is a row's pitch off.
         shell.update(cx, |shell, cx| shell.change_icon(2, cx));
