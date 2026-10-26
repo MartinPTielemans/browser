@@ -330,16 +330,32 @@ void Tab::DidGetUserInteraction(const blink::WebInputEvent& event) {
 }
 
 void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) {
+  // Once each way: a page leaving full screen itself is reported as Chrome ends its full screen
+  // and again as the page's request returns.
+  if (entered_fullscreen == fullscreen_) {
+    return;
+  }
+  fullscreen_ = entered_fullscreen;
+  // At once, as only the page's request takes it full screen: Chrome has asked the window to go
+  // with it, in a task it posted, and the app lays the page out at the window's new size only if
+  // it hears first.
+  if (entered_fullscreen) {
+    if (Host().tab_fullscreen_changed) {
+      Host().tab_fullscreen_changed(Host().context, id_, true);
+    }
+    return;
+  }
   // Posted, as the state is: Chrome ends a page's full screen within the app's call that switches
-  // or closes its tab. By id, so the app hears it once the tab has gone too.
+  // or closes its tab. By id, so the app hears it once the tab has gone too. Still before the
+  // window leaves full screen, which Chrome posts after.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(
-                     [](bc_id id, bool fullscreen) {
+                     [](bc_id id) {
                        if (Host().tab_fullscreen_changed) {
-                         Host().tab_fullscreen_changed(Host().context, id, fullscreen);
+                         Host().tab_fullscreen_changed(Host().context, id, false);
                        }
                      },
-                     id_, entered_fullscreen));
+                     id_));
 }
 
 void Tab::DidUpdateAudioMutingState(bool muted) {

@@ -135,6 +135,8 @@ class Tab : public content::WebContentsObserver,
   std::optional<SkColor> page_color_;
   bool state_report_posted_ = false;
   int input_modifiers_ = 0;
+  // Whether the app was last told the page is full screen.
+  bool fullscreen_ = false;
   // The favicon the app was last told of.
   gfx::Image favicon_;
   base::ScopedObservation<favicon::FaviconDriver, favicon::FaviconDriverObserver>
