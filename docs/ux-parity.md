@@ -66,7 +66,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Pinned tab away from its URL | MVP | the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL"; a click or ⌘↩ goes back *interim*; Arc's look: measure | Dia 1.53.0 bin |
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25. Not started: multi-window step 4 | Dia cap, Ardia |
 | [x] | Clear divider line | MVP | one device pixel, white 0.15, 18 in from each side; ends 9 before Clear while it shows; centre 25 above the first row's centre | Arc 1.170.0 cap and tokens, Arc (Ardia) |
-| [x] | Clear label and arrow | MVP | the word, semibold ≈ 10 pt, 29.5 × 15, ends with the titles, 9 after the line; an arrow 8 tall, 3 before it, while the tab shown is all of Today, and Clear then closes it too; ours: on Glyph change, with a hover plate | Arc 1.170.0 cap and ax, Arc in use |
+| [x] | Clear label and arrow | MVP | the word, semibold ≈ 10 pt, 29.5 × 15, ends with the titles, 9 after the line; an arrow 8 tall, 3 before it, while the tab shown is all of Today, and Clear then closes it too; white 0.32, 0.81 under the pointer, no plate; ours: the arrow on Glyph change | Arc 1.170.0 cap and ax, Arc in use |
 | [x] | Clear on hover | MVP | shows only while the pointer is over the sidebar | Arc 1.170.0 cap |
 | [x] | Sidebar hover fades | MVP | Clear and the URL field's buttons coming and going with the pointer. Ours: 150 ms ease-out fade. Arc's: measure | Arc |
 | [x] | Row pitch / height | MVP | 41 / 40 | Arc 1.170.0 ax |

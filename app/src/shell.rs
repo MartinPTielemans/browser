@@ -256,9 +256,8 @@ const CLEAR_ARROW_INSET: f32 = CLEAR_ARROW * 5. / 24.;
 const CLEAR_GAP: f32 = 3.;
 const CLEAR_ARROW_ROOM: f32 = CLEAR_ARROW - 2. * CLEAR_ARROW_INSET + CLEAR_GAP;
 const CLEAR_HEIGHT: f32 = 20.;
-// Clear's plate under the pointer hangs 5 pt past the word each way, as the header's past its
-// glyphs (ours: Arc's isn't measured).
-const CLEAR_PLATE_OUT: f32 = 5.;
+// Clear takes clicks 5 pt past the word each way, as the header's buttons past their glyphs.
+const CLEAR_HIT_OUT: f32 = 5.;
 // How long the toast after a copy shows (ours: Arc's isn't measured), and after a Space is deleted
 // (Arc).
 const COPIED_TIME: Duration = Duration::from_secs(2);
@@ -343,11 +342,14 @@ const CLOSE_HOVERED: u32 = 0xffffff1f;
 const URL_FIELD: u32 = 0xffffff1a;
 const NEW_TAB: u32 = 0xffffff8c;
 const NEW_TAB_PLUS: u32 = 0xffffff40;
-// The Clear divider's line, white 0.15 (Arc), and its button (ours: Arc's colour isn't measured).
+// The Clear divider's line, white 0.15 (Arc).
 const DIVIDER: u32 = 0xffffff26;
 // The edge under the favorites while the list is scrolled: Dia's separator, white 0.09.
 const SCROLL_EDGE: u32 = 0xffffff17;
-const CLEAR: u32 = 0xffffff73;
+// Clear, white 0.32, and white 0.81 under the pointer: Arc lights the word and its arrow, with no
+// plate (Arc in use, the owner's captures, 2026-10-26).
+const CLEAR: u32 = 0xffffff52;
+const CLEAR_HOVERED: u32 = 0xffffffcf;
 // A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 const SLEEPING_FAVICON: f32 = 0.5;
 // A favorite's tile: white 0.10 with a white 0.14 edge at rest (Dia), and under the pointer white
@@ -909,6 +911,8 @@ pub struct Shell {
     /// The Space shown at the last draw, and whether its Clear had the arrow, while it had a
     /// Clear divider.
     drawn_arrow: Option<(u64, bool)>,
+    /// Whether the pointer is over the divider's Clear, which then draws brighter.
+    clear_hovered: bool,
     /// The glyphs changing into others.
     swaps: Swaps,
     /// The window's content size at the last draw, and the frame and corner radius the page was
@@ -1051,6 +1055,7 @@ impl Shell {
             url_copied: None,
             drawn_copied: "shows link",
             drawn_arrow: None,
+            clear_hovered: false,
             swaps: Swaps::default(),
             viewport: Size::default(),
             scale: 1.,
@@ -2691,21 +2696,20 @@ fn divider_box(line: Pixels, clear: Option<impl IntoElement>) -> gpui::Div {
 
 /// The divider's Clear: the word, after `arrow` while it would close the last Today tabs (Arc).
 /// The word stays at the titles' end, and the arrow's room opens `room` of the way before it, which
-/// moves the line's end, so nothing jumps as the arrow comes and goes. It hangs out by its plate's
-/// margin, which takes its clicks, and the word keeps its place.
-fn clear_label(arrow: AnyElement, room: f32) -> gpui::Div {
+/// moves the line's end, so nothing jumps as the arrow comes and goes. It hangs out by a margin
+/// that takes its clicks, and the word keeps its place.
+fn clear_label(arrow: AnyElement, room: f32, color: u32) -> gpui::Div {
     div()
         .flex_none()
-        .ml(px(DIVIDER_GAP - CLEAR_PLATE_OUT))
-        .mr(px(-CLEAR_PLATE_OUT))
-        .px(px(CLEAR_PLATE_OUT))
+        .ml(px(DIVIDER_GAP - CLEAR_HIT_OUT))
+        .mr(px(-CLEAR_HIT_OUT))
+        .px(px(CLEAR_HIT_OUT))
         .h_full()
         .flex()
         .items_center()
-        .rounded(px(NAV_RADIUS))
         .text_size(px(10.))
         .font_weight(FontWeight::SEMIBOLD)
-        .text_color(rgba(CLEAR))
+        .text_color(rgba(color))
         .child(
             div().relative().flex_none().h_full().w(px(room * CLEAR_ARROW_ROOM)).child(
                 div()
@@ -2723,9 +2727,9 @@ fn clear_label(arrow: AnyElement, room: f32) -> gpui::Div {
 fn still_clear(arrow: bool) -> gpui::Div {
     let glyph = match arrow {
         true => svg().path(ARROW_DOWN).size(px(CLEAR_ARROW)).text_color(rgba(CLEAR)),
-        false => return clear_label(div().into_any_element(), 0.),
+        false => return clear_label(div().into_any_element(), 0., CLEAR),
     };
-    clear_label(glyph.into_any_element(), 1.)
+    clear_label(glyph.into_any_element(), 1., CLEAR)
 }
 
 /// "+ New Tab": its plus and its label.

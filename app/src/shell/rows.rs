@@ -12,9 +12,9 @@ use gpui::{
 };
 
 use super::{
-    CLEAR, CLEAR_ARROW, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, CancelName, Closing, Command,
-    DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_TEXT, HOVERED,
-    KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_HOVERED, NAV_RADIUS, Naming,
+    CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, CancelName, Closing,
+    Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_TEXT,
+    HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_RADIUS, Naming,
     PLATE_HEIGHT, PLATE_INSET, PRESSED, ROW_FILL, ROW_HEIGHT, Row, SECONDARY, SEGMENT_END,
     SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN,
     SPEAKER_GAP, SPEAKER_SIZE, Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier,
@@ -569,15 +569,19 @@ impl Shell {
             let what = Swapped::Clear(self.space);
             let room = self.swaps.toward(what, ARROW_DOWN);
             let room = room.unwrap_or(if arrow == NONE { 0. } else { 1. });
-            let glyph = self.swaps.glyph(what, arrow, CLEAR_ARROW, rgba(CLEAR).into());
             // Fading out, it takes no click and doesn't light up.
-            let clear = clear_label(glyph, room).id("clear").opacity(self.tools_opacity());
+            let color = if live && self.clear_hovered { CLEAR_HOVERED } else { CLEAR };
+            let glyph = self.swaps.glyph(what, arrow, CLEAR_ARROW, rgba(color).into());
+            let clear = clear_label(glyph, room, color).id("clear").opacity(self.tools_opacity());
             clear.when(live, |clear| {
                 clear
                     .block_mouse_except_scroll()
-                    .hover(|style| style.bg(rgba(NAV_HOVERED)))
-                    // check.sh waits for this line.
-                    .on_hover(|hovered, _, _| log!("browser: clear hovered {}", *hovered as u8))
+                    .on_hover(cx.listener(|shell, hovered: &bool, _, cx| {
+                        shell.clear_hovered = *hovered;
+                        // check.sh waits for this line.
+                        log!("browser: clear hovered {}", *hovered as u8);
+                        cx.notify();
+                    }))
                     .on_click(
                         cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)),
                     )
