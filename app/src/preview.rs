@@ -807,6 +807,13 @@ impl Browser for Fake {
     fn quit(&self, cx: &mut App) {
         cx.quit();
     }
+
+    // The preview has one window.
+    fn new_window(&self, _: &mut App) {}
+
+    fn close_window(&self, cx: &mut App) {
+        cx.quit();
+    }
 }
 
 /// The command bar's requests, for the preview: it goes nowhere, but a search goes to a search.

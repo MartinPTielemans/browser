@@ -8,23 +8,24 @@ use std::ffi::c_void;
 use browser::log;
 use browser::shell::Shell;
 use gpui::{
-    App, Bounds, Context, Entity, Global, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, point, prelude::*, px, size,
+    App, Bounds, Context, Global, TitlebarOptions, WeakEntity, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowHandle, WindowKind, WindowOptions, div, point, prelude::*, px, size,
 };
 
 use crate::platform;
 
 pub struct DropTargets {
-    shell: Entity<Shell>,
+    /// The shell of the browser window it shows over, which draws the targets.
+    shell: WeakEntity<Shell>,
 }
 
 struct DropTargetsWindow(WindowHandle<DropTargets>);
 
 impl Global for DropTargetsWindow {}
 
-/// Opens the targets' window, hidden, over the browser window, ahead of time as the HUD does. The
+/// Opens the targets' window, hidden, for every browser window, ahead of time as the HUD does. The
 /// host makes it as big as the browser window's content as it shows it.
-pub fn open(shell: Entity<Shell>, cx: &mut App) {
+pub fn open(cx: &mut App) {
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
@@ -45,7 +46,9 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
         window_background: WindowBackgroundAppearance::Transparent,
         ..Default::default()
     };
-    let window = cx.open_window(options, |_, cx| cx.new(|_| DropTargets { shell }));
+    let window = cx.open_window(options, |_, cx| {
+        cx.new(|_| DropTargets { shell: WeakEntity::new_invalid() })
+    });
     match window {
         Ok(window) => {
             if let Ok(view) = window.update(cx, |_, window, _| crate::ns_view(window)) {
@@ -64,7 +67,12 @@ pub fn show(shown: bool, ui_view: *mut c_void, cx: &mut App) {
         return;
     };
     if shown {
-        window.update(cx, |_, _, cx| cx.notify()).ok();
+        window
+            .update(cx, |targets, _, cx| {
+                targets.shell = crate::shell_with_view(ui_view);
+                cx.notify();
+            })
+            .ok();
         unsafe { platform::host_show_drop_targets(ui_view) };
     } else {
         unsafe { platform::host_hide_drop_targets() };
@@ -73,6 +81,9 @@ pub fn show(shown: bool, ui_view: *mut c_void, cx: &mut App) {
 
 impl Render for DropTargets {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.shell.read(cx).drop_targets(window)
+        match self.shell.upgrade() {
+            Some(shell) => shell.read(cx).drop_targets(window),
+            None => div().into_any_element(),
+        }
     }
 }

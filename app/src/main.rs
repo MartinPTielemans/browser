@@ -44,6 +44,16 @@ mod platform {
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
         pub fn host_ui_view() -> *mut c_void;
         pub fn host_show_window(ui_view: *mut c_void);
+        pub fn host_cascaded(
+            ui_view: *mut c_void,
+            x: *mut f64,
+            y: *mut f64,
+            width: *mut f64,
+            height: *mut f64,
+        );
+        pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
+        pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
+        pub fn host_forget_window(ui_view: *mut c_void);
         pub fn host_add_overlay(
             overlay_view: *mut c_void,
             radius: f64,
@@ -217,6 +227,8 @@ struct BrowserWindow {
     ui_view: *mut c_void,
     shell: WeakEntity<Shell>,
     handle: AnyWindowHandle,
+    /// Its own overlays' windows, such as the find bar's, which close with it.
+    children: Vec<AnyWindowHandle>,
 }
 
 thread_local! {
@@ -224,12 +236,12 @@ thread_local! {
     static CX: RefCell<Option<AsyncApp>> = const { RefCell::new(None) };
     // GPUI starts inside Chromium's run loop, from a callback, and lives as long as the process.
     static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
-    // In the order they opened. There's one so far.
+    // The most recently key first, as the core keeps its windows.
     static WINDOWS: RefCell<Vec<BrowserWindow>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The core's id and the UI's view of the window that the overlays every window shares show over,
-/// such as the command bar: the first, as there's one so far. 0 and null before it opens.
+/// such as the command bar: the browser window last key. 0 and null before one opens.
 fn front() -> (bc::bc_id, *mut c_void) {
     WINDOWS.with_borrow(|windows| {
         windows.first().map_or((0, std::ptr::null_mut()), |window| (window.id, window.ui_view))
@@ -241,6 +253,32 @@ fn window_with_view(ui_view: *mut c_void) -> bc::bc_id {
     WINDOWS.with_borrow(|windows| {
         windows.iter().find(|window| window.ui_view == ui_view).map_or(0, |window| window.id)
     })
+}
+
+/// The shell drawn in `ui_view`, for an overlay to read the look of the window it shows over.
+pub(crate) fn shell_with_view(ui_view: *mut c_void) -> WeakEntity<Shell> {
+    WINDOWS.with_borrow(|windows| {
+        windows
+            .iter()
+            .find(|window| window.ui_view == ui_view)
+            .map_or_else(WeakEntity::new_invalid, |window| window.shell.clone())
+    })
+}
+
+/// A browser window became key: it goes first, so the shared overlays and the menu bar follow it.
+extern "C" fn key_window_changed(ui_view: *mut c_void) {
+    let moved = WINDOWS.with_borrow_mut(|windows| {
+        let index = windows.iter().position(|window| window.ui_view == ui_view)?;
+        (index > 0).then(|| {
+            let window = windows.remove(index);
+            windows.insert(0, window.clone());
+            window.id
+        })
+    });
+    if let Some(id) = moved {
+        log!("browser: key window {id}");
+        update_window(id, |shell, cx| shell.became_key(cx));
+    }
 }
 
 /// Changes every window's shell, from a core callback about what they all show, such as the
@@ -271,14 +309,20 @@ fn update_window<R>(
     cx.update(|cx| shell.update(cx, change).ok())
 }
 
-/// The window showing `tab`'s page, else the first, such as for a key from a page no shell has
-/// heard is shown yet.
+/// The window showing `tab`'s page, as the core says, else the one whose shell thinks it does,
+/// else the one last key, such as for a key from a page no shell has heard is shown yet.
 fn tab_window(tab: u64, cx: &App) -> Option<BrowserWindow> {
+    let core = unsafe { bc::bc_tab_window(tab) };
     WINDOWS.with_borrow(|windows| {
         let shows = |window: &&BrowserWindow| {
             window.shell.upgrade().is_some_and(|shell| shell.read(cx).shows(tab))
         };
-        windows.iter().find(shows).or(windows.first()).cloned()
+        windows
+            .iter()
+            .find(|window| window.id == core)
+            .or_else(|| windows.iter().find(shows))
+            .or(windows.first())
+            .cloned()
     })
 }
 
@@ -879,7 +923,10 @@ impl Browser for Engine {
     }
 
     fn set_menus(&self, spaces: &[SharedString], extensions: &[Extension], cx: &mut App) {
-        cx.set_menus(menus(spaces, extensions));
+        // The menu bar is the key window's, which lists its own Space's extensions.
+        if front().0 == self.window {
+            cx.set_menus(menus(spaces, extensions));
+        }
     }
 
     fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, _: &mut App) -> bool {
@@ -1127,6 +1174,29 @@ impl Browser for Engine {
         settings::show_shortcuts(cx);
     }
 
+    fn new_window(&self, cx: &mut App) {
+        let id = self.window;
+        // Outside the shell's update, as the new window's shell reads this one's.
+        cx.defer(move |cx| {
+            let from = WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.id == id).cloned());
+            if from.is_some() {
+                open_window(from, cx);
+            }
+        });
+    }
+
+    fn close_window(&self, cx: &mut App) {
+        let id = self.window;
+        // Outside the shell's update: the core closes the NSWindow at once, and GPUI's handler for
+        // that needs the App.
+        cx.spawn(async move |_| {
+            if WINDOWS.with_borrow(|windows| windows.iter().any(|w| w.id == id)) {
+                unsafe { bc::bc_window_close(id) };
+            }
+        })
+        .detach();
+    }
+
     /// Asks first, as Arc does, unless the user said not to. Only the user's Quit asks: a quit from
     /// the Dock or at logout doesn't come here.
     fn quit(&self, cx: &mut App) {
@@ -1237,12 +1307,17 @@ unsafe extern "C" fn tab_key_unhandled(
     run_page_shortcut(tab, key, false)
 }
 
-/// Opens a browser window centered on the main display, with `ui_view` filling it under the page,
-/// and returns its id.
-fn open_browser_window(ui_view: *mut c_void) -> Option<bc::bc_id> {
-    let (width, height) = WINDOW_SIZE;
+/// Opens a browser window centered on the main display, or cascaded from the one of `after` and as
+/// big, with `ui_view` filling it under the page, and returns its id.
+fn open_browser_window(ui_view: *mut c_void, after: Option<*mut c_void>) -> Option<bc::bc_id> {
+    let (mut width, mut height) = WINDOW_SIZE;
     let (mut x, mut y) = (0., 0.);
-    unsafe { platform::host_centered(width, height, &mut x, &mut y) };
+    match after {
+        Some(after) => unsafe {
+            platform::host_cascaded(after, &mut x, &mut y, &mut width, &mut height)
+        },
+        None => unsafe { platform::host_centered(width, height, &mut x, &mut y) },
+    }
     let bounds = bc::bc_rect {
         x,
         y,
@@ -1316,12 +1391,20 @@ extern "C" fn dragged(
     answer.unwrap_or(false)
 }
 
-/// Opens the browser window, the shell inside it under the page, and its Spaces.
-fn open_window(cx: &mut App) {
+/// Opens a browser window and the shell inside it under the page. The first opens the overlays
+/// every window shares and the Spaces as the user left them. Another, from `from`, starts with its
+/// shell's state and shows its Space with no page, as ⌘N's window does.
+fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
     let ui_view = unsafe { platform::host_ui_view() };
-    let Some(id) = open_browser_window(ui_view) else {
+    let Some(id) = open_browser_window(ui_view, from.as_ref().map(|from| from.ui_view)) else {
         return;
     };
+    let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
+    if let Some(from) = &from {
+        // The shell reads its sidebar's width from the core as it's made.
+        let width = unsafe { bc::bc_window_sidebar_width(from.id) };
+        unsafe { bc::bc_window_set_sidebar_width(id, width) };
+    }
     gpui_macos::open_next_window_in(ui_view);
     // Transparent, over the window's material.
     let options = WindowOptions {
@@ -1337,74 +1420,115 @@ fn open_window(cx: &mut App) {
                 }
             })
             .detach();
-            let engine = Engine { window: id, ui_view, view: ns_view(window) };
-            Shell::new(Rc::new(engine), cx)
+            let engine = Rc::new(Engine { window: id, ui_view, view: ns_view(window) });
+            match &from_shell {
+                Some(from) => Shell::seeded_from(from, engine, cx),
+                None => Shell::new(engine, cx),
+            }
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
+        // In front, as it's about to be key.
         WINDOWS.with_borrow_mut(|windows| {
-            windows.push(BrowserWindow {
-                id,
-                ui_view,
-                shell: shell.downgrade(),
-                handle: Window::window_handle(window),
-            })
+            windows.insert(
+                0,
+                BrowserWindow {
+                    id,
+                    ui_view,
+                    shell: shell.downgrade(),
+                    handle: Window::window_handle(window),
+                    children: Vec::new(),
+                },
+            )
         });
-        // The core read the extensions before there was a shell to take them.
-        unsafe { bc::bc_extensions_report() };
+        if from_shell.is_none() {
+            // The core read the extensions before there was a shell to take them.
+            unsafe { bc::bc_extensions_report() };
+        }
         shell
     });
-    match window {
-        Ok(window) => {
-            window
-                .update(cx, |shell, window, _| {
-                    set_page_frame(id, shell.page_frame(window.viewport_size()))
-                })
-                .ok();
-            unsafe {
-                platform::host_show_window(ui_view);
-                platform::host_watch_accent_color(accent_color_changed);
-                platform::host_take_drops(dragged);
-            }
-            if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
-                && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
-            {
-                let radius = command_bar::RADIUS.into();
-                unsafe { platform::host_add_overlay(view, radius, command_bar_dismissed) };
-            }
-            if let Some(dialog) = dialog::open(Rc::new(DialogHost), cx)
-                && let Ok(view) = dialog.update(cx, |_, window, _| ns_view(window))
-            {
-                unsafe { platform::host_add_dialog(view) };
-            }
-            if let Ok(shell) = window.entity(cx) {
-                let fill = shell.clone();
-                if let Some(toast) = toast::open(
-                    Rc::new(ToastHost),
-                    move |cx| fill.read(cx).window_fill(),
-                    cx,
-                ) && let Ok(view) = toast.update(cx, |_, window, _| ns_view(window))
-                {
-                    unsafe { platform::host_add_toast(view) };
-                }
-                if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
-                    && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
-                {
-                    unsafe { platform::host_add_tooltip(view, tooltip_away) };
-                }
-                find_bar::open(id, ui_view, cx);
-                zoom_hud::open(shell.clone(), cx);
-                drop_targets::open(shell.clone(), cx);
-                reveal::open(shell, ui_view, cx);
-            }
-            // Once the page frame is set, so the tab shown loads at its size.
-            restore_spaces(id);
-        }
+    let window = match window {
+        Ok(window) => window,
         Err(error) => {
             log!("couldn't open the window: {error}");
-            unsafe { bc::bc_quit() };
+            if from.is_none() {
+                unsafe { bc::bc_quit() };
+            } else {
+                unsafe { bc::bc_window_close(id) };
+            }
+            return;
         }
+    };
+    window
+        .update(cx, |shell, window, _| {
+            set_page_frame(id, shell.page_frame(window.viewport_size()))
+        })
+        .ok();
+    if let Some(from) = &from {
+        let space = unsafe { bc::bc_window_space(from.id) };
+        unsafe { bc::bc_window_show_space_empty(id, space) };
+        // Its Space drawn before it's on screen, rather than once the core's report comes.
+        window.update(cx, |shell, _, cx| shell.set_space(space, cx)).ok();
     }
+    unsafe { platform::host_show_window(ui_view) };
+    let Ok(shell) = window.entity(cx) else {
+        return;
+    };
+    let children: Vec<AnyWindowHandle> =
+        [find_bar::open(id, ui_view, cx), reveal::open(shell, ui_view, cx)]
+            .into_iter()
+            .flatten()
+            .collect();
+    WINDOWS.with_borrow_mut(|windows| {
+        if let Some(window) = windows.iter_mut().find(|window| window.id == id) {
+            window.children = children;
+        }
+    });
+    // check.sh reads this line.
+    log!("browser: window opened {id}");
+    if from.is_some() {
+        // With no page, the keyboard is the UI's, as in a Space without tabs.
+        if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
+            unsafe { platform::host_focus(view) };
+        }
+        return;
+    }
+    unsafe {
+        platform::host_watch_accent_color(accent_color_changed);
+        platform::host_take_drops(dragged);
+        platform::host_watch_key_window(key_window_changed);
+    }
+    if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
+        && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
+    {
+        let radius = command_bar::RADIUS.into();
+        unsafe { platform::host_add_overlay(view, radius, command_bar_dismissed) };
+    }
+    if let Some(dialog) = dialog::open(Rc::new(DialogHost), cx)
+        && let Ok(view) = dialog.update(cx, |_, window, _| ns_view(window))
+    {
+        unsafe { platform::host_add_dialog(view) };
+    }
+    // The window the toast shows over gives its colour.
+    let fill = |cx: &App| {
+        let shell = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.shell.clone()));
+        shell.and_then(|shell| shell.upgrade()).map(|shell| shell.read(cx).window_fill())
+    };
+    if let Some(toast) =
+        toast::open(Rc::new(ToastHost), move |cx| fill(cx).unwrap_or_default(), cx)
+        && let Ok(view) = toast.update(cx, |_, window, _| ns_view(window))
+    {
+        unsafe { platform::host_add_toast(view) };
+    }
+    if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
+        && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
+    {
+        unsafe { platform::host_add_tooltip(view, tooltip_away) };
+    }
+    zoom_hud::open(cx);
+    drop_targets::open(cx);
+    // Once the page frame is set, so the tab shown loads at its size.
+    restore_spaces(id);
 }
 
 unsafe extern "C" fn started(_: *mut c_void) {
@@ -1426,7 +1550,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
         cx.set_menus(menus(&[], &[]));
-        open_window(cx);
+        open_window(None, cx);
     });
     APP.set(Some(app));
 }
@@ -1457,10 +1581,12 @@ fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
             "File",
             vec![
                 item("New Tab…", Command::NewTab),
+                item("New Window", Command::NewWindow),
                 item("Restore Last Closed Tab", Command::ReopenClosedTab),
                 MenuItem::separator(),
                 item("Open Command Bar", Command::EditUrl),
                 MenuItem::separator(),
+                item("Close Window", Command::CloseWindow),
                 item("Archive Tab", Command::CloseTab),
                 MenuItem::separator(),
                 item("Save Page As", Command::SavePage),
@@ -1595,10 +1721,29 @@ fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
     ]
 }
 
-// There's one window, so closing it quits, as its close button does in Chrome's last window.
-unsafe extern "C" fn window_closed(_: *mut c_void, _: bc::bc_id) {
-    log!("browser: window closed");
-    unsafe { bc::bc_quit() };
+// Closing the last window quits, as its close button does in Chrome's last window.
+unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
+    let (window, left) = WINDOWS.with_borrow_mut(|windows| {
+        let index = windows.iter().position(|window| window.id == id);
+        (index.map(|index| windows.remove(index)), windows.len())
+    });
+    if let Some(window) = window {
+        unsafe { platform::host_forget_window(window.ui_view) };
+        update_app(|cx| {
+            find_bar::window_closed(id, cx);
+            for child in window.children {
+                child.update(cx, |_, window, _| window.remove_window()).ok();
+            }
+            // The shared overlays and the menu bar follow the window now in front.
+            if let Some(front) = WINDOWS.with_borrow(|windows| windows.first().cloned()) {
+                front.shell.update(cx, |shell, cx| shell.became_key(cx)).ok();
+            }
+        });
+    }
+    log!("browser: window closed {id}");
+    if left == 0 {
+        unsafe { bc::bc_quit() };
+    }
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
@@ -1646,6 +1791,7 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_profiles(profiles.clone(), cx);
         shell.set_spaces(spaces.clone(), cx);
     });
+    title_windows();
     update_app(settings::refresh);
 }
 
@@ -1702,11 +1848,26 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
     });
 }
 
+/// Titles each window with its Space's name, which AppKit lists in the Window menu. The window
+/// doesn't draw its title.
+fn title_windows() {
+    let windows: Vec<_> =
+        WINDOWS.with_borrow(|windows| windows.iter().map(|w| (w.id, w.ui_view)).collect());
+    for (id, ui_view) in windows {
+        let space = unsafe { bc::bc_window_space(id) };
+        let title = CString::new(name(bc::bc_space_name, space).as_ref()).unwrap_or_default();
+        unsafe { platform::host_set_window_title(ui_view, title.as_ptr()) };
+    }
+}
+
 unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space: bc::bc_id) {
     update_window(window, |shell, cx| shell.set_space(space, cx));
+    title_windows();
 }
 
 unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
+    // check.sh reads this line, as a tab's page moves between windows.
+    log!("browser: window {window} shows {tab}");
     update_window(window, |shell, cx| {
         shell.set_selected(tab, cx);
         find_bar::tab_shown(window, tab, cx);
@@ -2010,7 +2171,7 @@ unsafe extern "C" fn window_suggestions(
     suggestions: *const bc::bc_suggestion,
     count: usize,
 ) {
-    // The command bar shows over the first window.
+    // The command bar shows over the window last key.
     if window != front().0 {
         return;
     }

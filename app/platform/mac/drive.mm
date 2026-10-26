@@ -64,7 +64,8 @@
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
 //   window <n>                            drives the n-th browser window opened, from 1, from
-//                                         now, logging "browser: drive window <n>"
+//                                         now, bringing it to the front with the keyboard as a
+//                                         click on it does, logging "browser: drive window <n>"
 //
 // Clicks, drags and moves go to the app's window on top at that point of the browser window
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
@@ -630,6 +631,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     g_driven = number - 1;
     fprintf(stderr, "browser: drive window %zu\n", number);
+    [(__bridge NSWindow*)host_browser_window(g_driven) makeKeyAndOrderFront:nil];
     done();
     return true;
   }

@@ -17,6 +17,10 @@ use super::{
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Command {
     NewTab,
+    /// Opens another window on the same Spaces.
+    NewWindow,
+    /// Closes the window, its tabs going to the window in front of the others.
+    CloseWindow,
     EditUrl,
     CloseTab,
     /// Reopens the Today tab closed last.
@@ -132,6 +136,8 @@ pub enum Command {
 pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-t", Command::NewTab, true),
     ("cmd-w", Command::CloseTab, true),
+    ("cmd-n", Command::NewWindow, true),
+    ("shift-cmd-w", Command::CloseWindow, true),
     ("shift-cmd-t", Command::ReopenClosedTab, true),
     ("cmd-q", Command::Quit, true),
     ("cmd-,", Command::Settings, false),
@@ -222,6 +228,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Back to Pinned URL", Command::BackToPinnedUrl),
     ("Mute/Unmute Tab", Command::ToggleMute),
     ("Archive Tab", Command::CloseTab),
+    ("New Window", Command::NewWindow),
+    ("Close Window", Command::CloseWindow),
     ("Restore Last Closed Tab", Command::ReopenClosedTab),
     ("Copy URL", Command::CopyUrl),
     ("Copy URL as Markdown", Command::CopyMarkdownLink),
@@ -405,6 +413,8 @@ impl Command {
     pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
+            Command::NewWindow => "new-window",
+            Command::CloseWindow => "close-window",
             Command::EditUrl => "edit-url",
             Command::CloseTab => "close-tab",
             Command::ReopenClosedTab => "reopen-closed-tab",
@@ -574,6 +584,14 @@ impl Shell {
                 // Chrome, and leaves the tab alone.
                 if !self.browser.close_other_window(cx) && self.selected != 0 {
                     self.browser.close(self.selected, false, cx);
+                }
+                return;
+            }
+            Command::NewWindow => return self.browser.new_window(cx),
+            Command::CloseWindow => {
+                // As ⌘W does, from a window of Chrome's it closes that one.
+                if !self.browser.close_other_window(cx) {
+                    self.browser.close_window(cx);
                 }
                 return;
             }
@@ -885,6 +903,8 @@ impl Shell {
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
             Command::NewFolder
             | Command::ReopenClosedTab
+            | Command::NewWindow
+            | Command::CloseWindow
             | Command::ToggleSidebar
             | Command::NewSpace
             | Command::RenameSpace
@@ -947,5 +967,13 @@ mod tests {
         let keys = UserKeys::default();
         assert_eq!(keys.command_for("cmd-y", false), Some(Command::ViewHistory));
         assert_eq!(keys.command_for("cmd-y", true), None);
+    }
+
+    /// ⌘N and ⇧⌘W reach the browser before the page, as Chrome's do, so a page can't keep them.
+    #[test]
+    fn window_keys_are_reserved() {
+        let keys = UserKeys::default();
+        assert_eq!(keys.command_for("cmd-n", true), Some(Command::NewWindow));
+        assert_eq!(keys.command_for("shift-cmd-w", true), Some(Command::CloseWindow));
     }
 }

@@ -252,6 +252,10 @@ pub trait Browser {
     /// Scrolls the tab's page to put its selection in the middle.
     fn jump_to_selection(&self, tab: u64, cx: &mut App);
     fn quit(&self, cx: &mut App);
+    /// Opens another window on the same Spaces, after this one's draw.
+    fn new_window(&self, cx: &mut App);
+    /// Closes this window. Its tabs go to the window that was in front before it, live.
+    fn close_window(&self, cx: &mut App);
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

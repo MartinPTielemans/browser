@@ -338,7 +338,7 @@ expect "^browser: loaded $e https://example.com/\$" "the second Space's tab didn
 # The window's close button, which ends the app too: the driver doesn't report it done.
 echo "click 20 24" >&3
 exec 3>&-
-await '^browser: window closed$' || fail "a click on the close button didn't close the window"
+await '^browser: window closed ' || fail "a click on the close button didn't close the window"
 exited
 
 # Closing the window kept them too, and the second Space shows.

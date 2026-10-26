@@ -24,8 +24,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Page before first paint | MVP | card colour over the tint, never white, in every page view a tab swaps in | Ardia P§7 |
 | [x] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |
 | [ ] | Resize edge | MVP | outer ≈ 3 pt. Partly: the window is a standard resizable one, so the edge is AppKit's; it isn't measured against 3 pt and no check drags it | Dia P§1 |
-| [ ] | New window / closed window | MVP | at its final frame with content / gone at once *interim*; Arc's ⌘N: measure. In progress: ⌘N and ⇧⌘W, multi-window step 2 | Dia P§1 |
-| [ ] | Close confirmations | MVP | "Close 3 tabs?" per Space with "Don't ask me again". Arc: measure. In progress: the multi-window plan asks nothing, since a closed window's tabs stay in their Spaces, *interim* until Arc's is recorded | Dia P§1 |
+| [x] | New window / closed window | MVP | at its final frame with content / gone at once; ⌘N cascaded from the key window, its size and Space, no page *interim*; Arc's ⌘N: measure | Dia P§1 |
+| [x] | Close confirmations | MVP | none: a closed window's tabs go to the window in front before it, live, so nothing is lost *interim*; Dia asks "Close 3 tabs?". Arc: measure | Dia P§1 |
 | [x] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
 | [ ] | Window full screen with the sidebar | MVP | built (the sidebar stays docked, the window's buttons come down with it, the command bar opens; window check); Arc's: measure | — |
 | [x] | Toast | MVP | at the window's top right, 46.5 tall, 4.5 and 4 in; medium text with a key's chip; grows from 0.7 on spring 0.32 s / ζ 0.52, fades in over 100 ms, leaves over 70 ms. Text size and fill *interim* | Arc 1.170 rec |
@@ -364,7 +364,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Page context menu | MVP | Chrome's, without what the window can't do yet *interim*; its tab dialogs, such as print preview, centred over the page at its top | Chrome |
 | [ ] | Arc's page menu items | MVP | built: Chrome's menu without what the window can't do *interim*; Arc's items: measure | Arc |
 | [x] | Space list, Rename Space, View History, Services, Essential Keyboard Shortcuts | MVP | Spaces by name with ⌃1–⌃9; ⌘Y opens Chrome's history page; Help opens Settings › Shortcuts | Arc 1.170.0 menus |
-| [ ] | Arc's other menu items | MVP | windows, Developer › Network Inspector and Toggle Developer Mode, Edit Theme…, Change Profile, Manage Spaces…, Help's service items, as each feature lands. Partly: the menus Arc has for built features are done; windows wait on the multi-window lane | Arc 1.170.0 menus |
+| [ ] | Arc's other menu items | MVP | the window items past New Window and Close Window, Developer › Network Inspector and Toggle Developer Mode, Edit Theme…, Change Profile, Manage Spaces…, Help's service items, as each feature lands. Partly: the menus Arc has for built features are done | Arc 1.170.0 menus |
 
 ## Phase 4
 

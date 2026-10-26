@@ -269,14 +269,19 @@ Browser* BrowserOf(NSWindow* window) {
   return nullptr;
 }
 
-// The browser window in front, else the first.
+// The browser window in front, else the first still open.
 Browser* FrontBrowser() {
   for (NSWindow* window in NSApp.orderedWindows) {
     if (Browser* browser = BrowserOf(window)) {
       return browser;
     }
   }
-  return g_browsers.empty() ? nullptr : g_browsers.front().get();
+  for (auto& browser : g_browsers) {
+    if (browser->window) {
+      return browser.get();
+    }
+  }
+  return nullptr;
 }
 
 // The command bar's window and view, and the browser it shows over.
@@ -385,6 +390,8 @@ void MakeOverlay(NSWindow* window) {
     [window standardWindowButton:button].hidden = YES;
   }
   window.level = NSNormalWindowLevel;
+  // The Window menu lists the browser windows only.
+  window.excludedFromWindowsMenu = YES;
   // AppKit would otherwise hide the panel when the app deactivates and show it again on return.
   ((NSPanel*)window).hidesOnDeactivate = NO;
   // GPUI's class for its panels, which are all overlays here.
@@ -562,6 +569,87 @@ void host_show_window(void* ui_view) {
                                                   PlaceToast();
                                                 }
                                               }];
+}
+
+void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {
+  Browser* browser = BrowserWithView(ui_view);
+  NSWindow* window = browser ? browser->window : nil;
+  if (!window) {
+    return;
+  }
+  NSScreen* main = NSScreen.screens.firstObject;
+  NSRect frame = window.frame;
+  NSRect visible = (window.screen ?: WindowScreen()).visibleFrame;
+  // Where AppKit puts the next window, so both title bars show. The zero point leaves this one be.
+  NSPoint top_left = [window cascadeTopLeftFromPoint:NSZeroPoint];
+  if (top_left.x + NSWidth(frame) > NSMaxX(visible)) {
+    top_left.x = NSMinX(visible);
+  }
+  if (top_left.y - NSHeight(frame) < NSMinY(visible)) {
+    top_left.y = NSMaxY(visible);
+  }
+  *x = top_left.x;
+  *y = NSHeight(main.frame) - top_left.y;
+  *width = NSWidth(frame);
+  *height = NSHeight(frame);
+}
+
+void host_set_window_title(void* ui_view, const char* title) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (browser && browser->window) {
+    browser->window.title = @(title);
+  }
+}
+
+void host_watch_key_window(void (*changed)(void* ui_view)) {
+  [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification
+                                                  object:nil
+                                                   queue:nil
+                                              usingBlock:^(NSNotification* notification) {
+                                                if (Browser* browser =
+                                                        BrowserOf(notification.object)) {
+                                                  changed((__bridge void*)browser->ui_view);
+                                                }
+                                              }];
+}
+
+void host_forget_window(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
+  }
+  if (g_overlay_shown && g_overlay_over == browser) {
+    host_dismiss_overlay();
+  }
+  if (g_dialog_shown && g_dialog_over == browser) {
+    host_hide_dialog();
+  }
+  if (g_toast_shown && g_toast_over == browser) {
+    host_hide_toast();
+  }
+  if (g_tooltip_shown && g_tooltip_over == browser) {
+    host_hide_tooltip();
+  }
+  if (g_hud_shown && g_hud_over == browser) {
+    host_hide_hud(0);
+  }
+  if (g_drop_targets_shown && g_drop_targets_over == browser) {
+    host_hide_drop_targets();
+  }
+  if (browser->reveal_monitor) {
+    [NSEvent removeMonitor:browser->reveal_monitor];
+    browser->reveal_monitor = nil;
+  }
+  // The entry stays, as the observers made for it hold it and the driver counts windows by it,
+  // but nothing finds it by its window or view again, and they go. The app closes the find bar's
+  // and the reveal's windows.
+  browser->find_bar_shown = false;
+  browser->window = nil;
+  browser->ui_view = nil;
+  browser->find_bar = nil;
+  browser->find_bar_view = nil;
+  browser->reveal = nil;
+  browser->reveal_view = nil;
 }
 
 void host_add_overlay(void* overlay_view, double radius, void (*dismissed)(void)) {
