@@ -331,6 +331,18 @@ void Window::PanesChanged() {
 }
 
 // static
+void Window::PageViewChanged(bc_id tab) {
+  for (auto& [id, window] : Windows()) {
+    if (!window->let_go_ && std::ranges::contains(window->panes_, tab)) {
+      window->LayOutPage();
+      if (window->selected_ == tab) {
+        window->FocusPageSoon();
+      }
+    }
+  }
+}
+
+// static
 void Window::OnPageClicked(bc_id tab) {
   for (auto& [id, window] : Windows()) {
     if (window->selected_ != tab && std::ranges::contains(window->panes_, tab)) {
@@ -878,8 +890,11 @@ void Window::LayOutPage() {
     }
     const int from = edge(i);
     const int to = edge(i + 1) - kSplitGap;
+    Tab* tab = Tab::FromWebContents(contents);
+    // The app's own view of the page, while it has one, as one Chromium can't play.
+    const gfx::NativeView native_view = tab ? tab->native_view() : gfx::NativeView();
     platform::Pane& pane = panes.emplace_back(
-        contents->GetNativeView(),
+        native_view ? native_view : contents->GetNativeView(),
         stacked_ ? gfx::Rect(page_frame_.x(), from, page_frame_.width(), to - from)
                  : gfx::Rect(from, page_frame_.y(), to - from, page_frame_.height()));
     DevToolsContentsResizingStrategy strategy;
@@ -1525,7 +1540,12 @@ void Window::FocusPageSoon() {
 
 void Window::FocusPage() {
   if (shown_ && widget_->IsActive() && platform::KeyboardForPage(widget_.get())) {
-    shown_->Focus();
+    const Tab* tab = Tab::FromWebContents(shown_.get());
+    if (tab && tab->native_view()) {
+      platform::FocusNativePage(widget_.get(), tab->native_view());
+    } else {
+      shown_->Focus();
+    }
   }
 }
 

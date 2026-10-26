@@ -71,6 +71,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static Window* Showing(bc_id tab);
   // Has each window whose shown tab's split changed show it as it is now.
   static void PanesChanged();
+  // Has each window showing |tab| show the view its page is in now: the app's own or Chromium's.
+  static void PageViewChanged(bc_id tab);
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.
   static void OnPageClicked(bc_id tab);

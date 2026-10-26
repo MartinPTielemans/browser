@@ -19,6 +19,7 @@
 #include "base/json/json_writer.h"
 #include "base/path_service.h"
 #include "base/pickle.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/sequenced_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
@@ -39,6 +40,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/base/page_transition_types.h"
 #include "url/gurl.h"
 
 namespace browser_core {
@@ -74,6 +76,18 @@ int DepthOf(const Space& space, bc_id id) {
 SavedTab SaveTab(content::WebContents& contents) {
   content::NavigationController& history = contents.GetController();
   SavedTab tab;
+  // A page the app shows itself keeps where it is, which loads once shown after a relaunch, where
+  // the app takes it again.
+  if (Tab* native = Tab::FromWebContents(&contents); native && native->native()) {
+    sessions::SerializedNavigationEntry& entry = tab.history.emplace_back();
+    const GURL url = Tab::PageUrl(&contents);
+    entry.set_virtual_url(url);
+    entry.set_original_request_url(url);
+    entry.set_title(base::UTF8ToUTF16(native->PageTitle()));
+    entry.set_transition_type(ui::PAGE_TRANSITION_AUTO_TOPLEVEL);
+    entry.set_timestamp(base::Time::Now());
+    return tab;
+  }
   const int current = history.GetCurrentEntryIndex();
   const int pending = history.GetPendingEntryIndex();
   const int end =

@@ -55,6 +55,14 @@ void ShowPages(views::Widget* widget,
 // the window opens or the page view that had it left the window. Not in DevTools.
 bool KeyboardForPage(views::Widget* widget);
 
+// The app's own view of a page (bc_tab_set_native_page), as the app gave it: an NSView on the Mac.
+gfx::NativeView NativeViewOf(void* view);
+
+// Gives the keyboard to |view|, the app's own view of a page shown in |widget|'s window: to the
+// first of it and the views in it that takes the keyboard, as the app's view may hold the one that
+// does.
+void FocusNativePage(views::Widget* widget, gfx::NativeView view);
+
 }  // namespace browser_core::platform
 
 #endif  // BROWSER_CORE_PLATFORM_WINDOW_VIEWS_H_

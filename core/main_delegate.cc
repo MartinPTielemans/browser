@@ -10,6 +10,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
+#include "browser_core/native_page.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
@@ -23,6 +24,7 @@
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
+#include "content/public/browser/navigation_throttle_registry.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 
@@ -85,6 +87,11 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
         ChromeContentBrowserClient::CreateBrowserMainParts(is_integration_test);
     static_cast<ChromeBrowserMainParts*>(parts.get())->AddParts(std::make_unique<ExtraParts>());
     return parts;
+  }
+
+  void CreateThrottlesForNavigation(content::NavigationThrottleRegistry& registry) override {
+    ChromeContentBrowserClient::CreateThrottlesForNavigation(registry);
+    AddNativePageThrottle(registry);
   }
 };
 

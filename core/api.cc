@@ -18,6 +18,7 @@
 #include "browser_core/find.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/search.h"
@@ -28,6 +29,7 @@
 #include "browser_core/window.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
@@ -164,7 +166,9 @@ size_t bc_space_agent_name(bc_id id, char* name, size_t capacity) {
 }
 
 bool bc_agent_may_act(const char* agent, bc_id tab) {
-  return agent && *agent && browser_core::Space::AgentMayAct(agent, tab);
+  content::WebContents* contents = browser_core::Tab::FromId(tab);
+  return agent && *agent && browser_core::Space::AgentMayAct(agent, tab) && contents &&
+         !browser_core::Tab::FromWebContents(contents)->native();
 }
 
 bc_id bc_space_profile(bc_id id) {
@@ -193,6 +197,10 @@ size_t bc_profiles(bc_id* profiles, size_t capacity) {
 
 size_t bc_profile_name(bc_id profile, char* name, size_t capacity) {
   return CopyString(browser_core::ProfileName(profile), name, capacity);
+}
+
+size_t bc_profile_dir(bc_id profile, char* dir, size_t capacity) {
+  return CopyString(browser_core::ProfileDir(profile), dir, capacity);
 }
 
 bool bc_profile_rename(bc_id profile, const char* name) {
@@ -617,6 +625,25 @@ void bc_tab_show(bc_id id, bc_rect frame) {
   if (window) {
     window->Show(contents, ToRect(frame));
   }
+}
+
+void bc_tab_set_native_page(bc_id id, void* view) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::Tab::FromWebContents(contents)->SetNativePage(
+        view ? browser_core::platform::NativeViewOf(view) : gfx::NativeView());
+  }
+}
+
+void bc_tab_set_native_page_state(bc_id id, const bc_native_page_state* state) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (contents && state) {
+    browser_core::Tab::FromWebContents(contents)->SetNativePageState(*state);
+  }
+}
+
+bool bc_tab_private(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  return contents && Profile::FromBrowserContext(contents->GetBrowserContext())->IsOffTheRecord();
 }
 
 void bc_tab_navigate(bc_id id, const char* url) {

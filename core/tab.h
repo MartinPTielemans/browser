@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
@@ -18,6 +19,7 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/native_ui_types.h"
 #include "url/gurl.h"
 
 namespace browser_core {
@@ -33,7 +35,8 @@ class Tab : public content::WebContentsObserver,
   // Whether |id| has its page, which it hasn't once it's unloaded, or put back or opened behind and
   // not yet shown.
   static bool Loaded(bc_id id);
-  // The URL of the page |contents| is at, loaded or not, else of the one it's loading.
+  // The URL of the page |contents| is at, loaded or not, else of the one it's loading, or the one
+  // the app's own view of it is at.
   static GURL PageUrl(content::WebContents* contents);
 
   Tab(const Tab&) = delete;
@@ -68,6 +71,8 @@ class Tab : public content::WebContentsObserver,
   void set_name(const std::string& name) { name_ = name; }
   // Its name, else its page's title.
   std::string Title();
+  // Its page's title, Chromium's or the one the app's own view of it shows.
+  std::string PageTitle();
   // The emoji the user gave the tab to show in place of its page's favicon, or empty.
   const std::string& icon() const { return icon_; }
   // Gives the tab |icon|, and tells the app with its state. Empty gives it back its favicon.
@@ -77,6 +82,14 @@ class Tab : public content::WebContentsObserver,
 
   // Mutes or unmutes the tab, as Chrome's speaker button does.
   void SetMuted(bool muted);
+
+  // Whether the app shows the tab's page itself (bc_tab_set_native_page), unloaded or not.
+  bool native() const { return native_.has_value(); }
+  // The app's view of the page, null while it's unloaded.
+  gfx::NativeView native_view() const { return native_ ? native_->view : gfx::NativeView(); }
+  // Shows |view| in place of the tab's page, or with none gives the tab back to Chromium.
+  void SetNativePage(gfx::NativeView view);
+  void SetNativePageState(const bc_native_page_state& state);
 
   // The colour the tab's page shows until it draws its first frame, opaque. Each page view the tab
   // swaps in takes it too, which Chrome's views do on their own only off the Mac.
@@ -129,6 +142,20 @@ class Tab : public content::WebContentsObserver,
   void ReportTitle();
   void LoadWaiting();
 
+  // What the app's own view of the page shows.
+  struct NativePage {
+    gfx::NativeView view;
+    GURL url;
+    std::string title;
+    bool can_go_back = false;
+    bool can_go_forward = false;
+    bool loading = false;
+    bool audible = false;
+    std::vector<uint8_t> favicon;
+    // The favicon changed since the app was last told.
+    bool favicon_changed = false;
+  };
+
   const bc_id id_;
   std::string name_;
   std::string icon_;
@@ -144,6 +171,7 @@ class Tab : public content::WebContentsObserver,
       favicon_observation_{this};
   base::CallbackListSubscription audible_subscription_;
   std::unique_ptr<content::NavigationController::LoadURLParams> waiting_;
+  std::optional<NativePage> native_;
   base::CancelableTaskTracker favicon_tracker_;
   base::WeakPtrFactory<Tab> weak_factory_{this};
 
