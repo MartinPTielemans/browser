@@ -295,7 +295,7 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn tooltip(&self, _: Option<(SharedString, crate::tooltip::Anchor)>, _: &mut App) {}
+    fn tooltip(&self, _: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, _: &mut App) {}
 
     fn accent_color(&self) -> u32 {
         Default::default()

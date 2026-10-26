@@ -233,9 +233,9 @@ pub trait Browser {
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
     /// words after it if there's a key.
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);
-    /// Shows `text` in a tooltip after its delay, hung from `anchor` in the window, or at
-    /// once if one shows; `None` ends it. The app does the same on the window losing the keyboard.
-    fn tooltip(&self, tip: Option<(SharedString, crate::tooltip::Anchor)>, cx: &mut App);
+    /// Shows `tip` in a tooltip after its delay, hung from `anchor` in the window, or at once if
+    /// one shows; `None` ends it. The app does the same on the window losing the keyboard.
+    fn tooltip(&self, tip: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, cx: &mut App);
     /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
     /// it changes.
     fn accent_color(&self) -> u32;

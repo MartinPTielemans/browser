@@ -4,17 +4,28 @@
 use std::time::Instant;
 
 use gpui::{
-    Bounds, Context, Hsla, MouseButton, Pixels, Window, div, hsla, point, prelude::*, px, rgba,
-    size, svg,
+    Bounds, Context, Div, Hsla, MouseButton, Pixels, Stateful, Window, canvas, div, hsla, point,
+    prelude::*, px, rgba, size, svg,
 };
 
 use super::{
     BACK_X, Command, FORWARD_X, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS,
     NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY, SIDEBAR_BUTTON_X, Shell,
     Swapped, TILE_HOVERED, TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE,
-    URL_FIELD, URL_FIELD_HEIGHT, URL_FIELD_TEXT_X, URL_FIELD_TOP, fade_at, host,
+    URL_FIELD, URL_FIELD_HEIGHT, URL_FIELD_TEXT_X, URL_FIELD_TOP, commands::BAR_COMMANDS, fade_at,
+    host,
     swap::{CHECK, LINK},
+    user_keys,
 };
+use crate::tooltip::{Anchor, Tip};
+
+/// Where a sidebar button's tooltip hangs: under it, as a tile's does, or right of it, as Arc's
+/// does beside the footer's Library button.
+#[derive(Clone, Copy)]
+pub(super) enum TipSide {
+    Under,
+    Beside,
+}
 
 /// Arc's field buttons: Site Control Center 1 pt past the field's end and Copy URL 28 before it,
 /// their plates overlapping by 2 (x 191 and 163 of 228). Pinned extensions' buttons keep the
@@ -41,7 +52,7 @@ impl Shell {
             true => self.swaps.glyph(Swapped::Reload(self.selected), icon, NAV_GLYPH, color),
             false => svg().path(icon).size(px(NAV_GLYPH)).text_color(color).into_any_element(),
         };
-        div()
+        let button = div()
             .id(command.name())
             .absolute()
             .left(px(x))
@@ -51,7 +62,9 @@ impl Shell {
             .items_center()
             .justify_center()
             .rounded(px(NAV_RADIUS))
-            .block_mouse_except_scroll()
+            .block_mouse_except_scroll();
+        // A dimmed one names itself too, as the system's tooltips do.
+        self.with_tooltip(button, command, TipSide::Under, cx)
             .when(enabled, |button| {
                 button
                     .hover(|style| style.bg(rgba(NAV_HOVERED)))
@@ -60,6 +73,73 @@ impl Shell {
                     }))
             })
             .child(glyph)
+    }
+
+    /// Gives `button`, a sidebar button's plate that runs `command`, a tooltip with the command's
+    /// name and the keys of the shortcut the menus show for it, as Arc's Library button has, hung
+    /// `side` of the plate. A press ends it.
+    pub(super) fn with_tooltip(
+        &self,
+        button: Stateful<Div>,
+        command: Command,
+        side: TipSide,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let frames = self.button_frames.clone();
+        // GPUI gives a hover handler no bounds, so the plate keeps the frame it's drawn in.
+        let frame = canvas(
+            move |bounds, _, _| {
+                frames.borrow_mut().insert(command.name(), bounds);
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
+        button
+            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
+                shell.hover_button(command, side, *hovered, cx)
+            }))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)),
+            )
+            .child(frame)
+    }
+
+    /// The pointer has come onto or left the button that runs `command`.
+    pub(super) fn hover_button(
+        &self,
+        command: Command,
+        side: TipSide,
+        hovered: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let busy = self.dragging().is_some() || self.menu_row.is_some();
+        let frame = self.button_frames.borrow().get(command.name()).copied();
+        let tip = (hovered && !busy)
+            .then(|| self.button_name(command))
+            .flatten()
+            .zip(frame)
+            .map(|(name, frame)| {
+                let keys = user_keys(cx).chips(command).into_iter().map(Into::into).collect();
+                let anchor = match side {
+                    TipSide::Under => Anchor::centred(frame, self.viewport),
+                    TipSide::Beside => Anchor::beside(frame, self.viewport),
+                };
+                (Tip { text: name.into(), keys }, anchor)
+            });
+        self.browser.tooltip(tip, cx);
+    }
+
+    /// What a sidebar button's tooltip calls `command`: the menus' name, which the command bar
+    /// finds it by, as Arc's Library button says "View Library". The sidebar button's is what
+    /// Arc labels it, what a click does now.
+    fn button_name(&self, command: Command) -> Option<&'static str> {
+        match command {
+            Command::ToggleSidebar if self.sidebar_hidden => Some("Lock Sidebar"),
+            Command::ToggleSidebar => Some("Hide Sidebar"),
+            _ => (BAR_COMMANDS.iter()).find(|&&(_, each)| each == command).map(|&(name, _)| name),
+        }
     }
 
     /// The sidebar button, back, forward, and reload, which is stop while the page loads, as many
@@ -156,7 +236,8 @@ impl Shell {
         let tools = self.tools_shown() && !url.is_empty();
         let end = self.site_controls_end();
         let copy = tools.then(|| {
-            self.field_tool("copy-url", end + TOOL_PITCH)
+            let button = self.field_tool("copy-url", end + TOOL_PITCH);
+            self.with_tooltip(button, Command::CopyUrl, TipSide::Under, cx)
                 // Fading out, it takes no click.
                 .when(live, |button| {
                     button

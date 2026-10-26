@@ -1,4 +1,5 @@
-//! When the tooltip shows and goes, on a host that records what it asks of its window.
+//! When the tooltip shows and goes, on a host that records what it asks of its window, and where
+//! it and its chips go.
 
 use std::cell::RefCell;
 
@@ -25,14 +26,22 @@ fn open_tooltip(cx: &mut TestAppContext) -> Rc<Recorder> {
     host
 }
 
+fn tip(text: &str) -> Tip {
+    Tip::named(text.to_string().into())
+}
+
 fn hover_on(cx: &mut TestAppContext, text: &str, anchor: Anchor) {
-    cx.update(|cx| hover(text.to_string().into(), anchor, cx));
+    cx.update(|cx| hover(tip(text), anchor, cx));
     cx.run_until_parked();
 }
 
-fn width(cx: &mut TestAppContext, text: &str) -> f32 {
+fn measured(cx: &mut TestAppContext, tip: &Tip) -> Layout {
     let system = cx.update(|cx| WindowTextSystem::new(cx.text_system().clone()));
-    width_of(&text.to_string().into(), &system)
+    measure(tip, &system)
+}
+
+fn width(cx: &mut TestAppContext, text: &str) -> f32 {
+    measured(cx, &tip(text)).width
 }
 
 /// Where a tooltip saying `text` goes for `anchor`, as the host is told.
@@ -157,9 +166,9 @@ fn a_tooltip_is_centred_under_its_tile() {
 
 #[test]
 fn a_folders_tooltip_has_its_text_over_the_title() {
-    // The title starts 35 in from the plate's left, and the text 7.5 in from the tooltip's.
+    // The title starts 35 in from the plate's left, and the text 10 in from the tooltip's.
     let (left, top) = place(folder_row(), SIZE);
-    assert_eq!(left + PADDING + BORDER, 8. + 35.);
+    assert_eq!(left + TEXT_X, 8. + 35.);
     assert_eq!(top, 336. + GAP);
 }
 
@@ -178,13 +187,13 @@ fn a_tooltip_stays_inside_the_window_across() {
 
 #[test]
 fn a_tooltip_goes_above_when_there_is_no_room_below() {
-    // 41 tall at the window's bottom: 700 - 22 would be the lowest top.
+    // 41 tall at the window's bottom: 700 - 28 would be the lowest top.
     let bottom = Anchor::centred(frame(8., 650., 80., 41.), window());
     let (_, top) = place(bottom, SIZE);
     assert_eq!(top, 650. - GAP - HEIGHT);
     // It fits below with exactly no room to spare.
-    let snug = Anchor::centred(frame(8., 600., 80., 41.), window());
-    assert_eq!(place(snug, SIZE).1, 641. + GAP);
+    let snug = Anchor::centred(frame(8., 700. - 41. - GAP - HEIGHT, 80., 41.), window());
+    assert_eq!(place(snug, SIZE).1, 700. - HEIGHT);
     // It never goes past the window's top.
     let short = Anchor::centred(frame(8., 10., 80., 41.), size(px(1000.), px(60.)));
     assert_eq!(place(short, SIZE).1, 0.);
@@ -201,4 +210,98 @@ fn a_frame_gives_the_anchor_its_middle_and_edges() {
 fn a_long_name_is_as_wide_as_its_window(cx: &mut TestAppContext) {
     assert_eq!(width(cx, &"x".repeat(400)), WINDOW_WIDTH);
     assert!(width(cx, "Docs") < 100.);
+}
+
+/// The header's back button, and the footer's Library button in a 700 tall window.
+fn back_button() -> Bounds<Pixels> {
+    frame(122., 7.5, 32., 32.)
+}
+
+fn library_button() -> Bounds<Pixels> {
+    frame(8., 700. - 41., 32., 32.)
+}
+
+#[test]
+fn a_footer_buttons_tooltip_is_beside_it_and_centred_on_it() {
+    // Arc's: 3.5 past the plate's right edge, its middle at the plate's.
+    let (left, top) = place(Anchor::beside(library_button(), window()), SIZE);
+    assert_eq!(left, 8. + 32. + BESIDE);
+    assert_eq!(top + HEIGHT / 2., 700. - 41. + 16.);
+}
+
+#[test]
+fn a_tooltip_beside_stays_inside_the_window() {
+    // A button whose middle is nearer the window's bottom than half the tooltip's height.
+    let low = Anchor::beside(frame(8., 690., 32., 10.), window());
+    assert_eq!(place(low, SIZE).1, 700. - HEIGHT);
+    // One at the right edge: the tooltip ends at the window's edge.
+    let right = Anchor::beside(frame(950., 300., 32., 32.), window());
+    assert_eq!(place(right, SIZE).0, 900.);
+}
+
+#[test]
+fn a_header_buttons_tooltip_is_centred_under_it() {
+    let (left, top) = place(Anchor::centred(back_button(), window()), SIZE);
+    assert_eq!(left + 50., 122. + 16.);
+    assert_eq!(top, 7.5 + 32. + GAP);
+}
+
+#[test]
+fn a_name_alone_has_its_text_10_in_from_each_end() {
+    let layout = layout(60., &[]);
+    let alone = Layout { width: 10. + 60. + 10., text: 60., truncated: false, chips: vec![] };
+    assert_eq!(layout, alone);
+}
+
+#[test]
+fn chips_follow_the_text_on_arcs_pitch() {
+    // View Library ⇧⌘L: 8 after the text, 18 square 4 apart, and 10 after the last.
+    let layout = layout(70., &[CHIP, CHIP, CHIP]);
+    let first = 10. + 70. + 8.;
+    assert_eq!(layout.chips, [(first, 18.), (first + 22., 18.), (first + 44., 18.)]);
+    assert_eq!(layout.width, first + 44. + 18. + 10.);
+    assert!(!layout.truncated);
+}
+
+#[test]
+fn a_wider_chip_moves_the_next() {
+    // A key named in words, as Space is, between two glyphs.
+    let layout = layout(50., &[CHIP, 40., CHIP]);
+    let first = 10. + 50. + 8.;
+    assert_eq!(layout.chips, [(first, 18.), (first + 22., 40.), (first + 22. + 44., 18.)]);
+    assert_eq!(layout.width, first + 22. + 44. + 18. + 10.);
+}
+
+#[test]
+fn a_long_name_truncates_and_its_keys_stay_whole() {
+    let layout = layout(1000., &[CHIP, CHIP]);
+    assert_eq!(layout.width, WINDOW_WIDTH);
+    assert!(layout.truncated);
+    // The chips end 10 from the window's end, and the text stops 8 before them.
+    let &(last, width) = layout.chips.last().unwrap();
+    assert_eq!(last + width + 10., WINDOW_WIDTH);
+    assert_eq!(10. + layout.text + 8., layout.chips[0].0);
+}
+
+#[gpui::test]
+fn a_keys_chip_is_square_unless_its_name_is_wider(cx: &mut TestAppContext) {
+    let keys = |keys: &[&str]| Tip {
+        text: "View Library".into(),
+        keys: keys.iter().map(|key| key.to_string().into()).collect(),
+    };
+    let glyphs = measured(cx, &keys(&["⇧", "⌘", "L"]));
+    assert!(glyphs.chips.iter().all(|&(_, width)| width == CHIP));
+    let words = measured(cx, &keys(&["⌘", "Space"]));
+    assert_eq!(words.chips[0].1, CHIP);
+    assert!(words.chips[1].1 > CHIP);
+    // The same text with keys is wider by its chips, 8 before them and none of its end changes.
+    let name = measured(cx, &tip("View Library"));
+    assert_eq!(glyphs.width, name.width + 8. + 3. * CHIP + 2. * 4.);
+}
+
+#[test]
+fn the_log_names_the_keys_as_a_menu_does() {
+    let tip = Tip { text: "View Library".into(), keys: vec!["⇧".into(), "⌘".into(), "L".into()] };
+    assert_eq!(label(&tip), "View Library ⇧⌘L");
+    assert_eq!(label(&Tip::named("Docs".into())), "Docs");
 }

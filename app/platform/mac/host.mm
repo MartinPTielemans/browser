@@ -349,13 +349,15 @@ NSWindow* g_toast;
 NSView* g_toast_view;
 bool g_toast_shown = false;
 
-// The tooltip's window and view, the browser it shows over, and where its top left goes there.
+// The tooltip's window and view, the browser it shows over, where its top left goes there, and a
+// count of its shows and hides, so a fade's end doesn't hide one shown since.
 Browser* g_tooltip_over;
 NSWindow* g_tooltip;
 NSView* g_tooltip_view;
 bool g_tooltip_shown = false;
 double g_tooltip_left = 0;
 double g_tooltip_top = 0;
+unsigned g_tooltip_changes = 0;
 void (*g_tooltip_away)(void);
 
 // The zoom HUD's window and view, the browser it shows over, its distance from the top right of
@@ -762,8 +764,8 @@ void host_forget_window(void* ui_view) {
   if (g_toast_shown && g_toast_over == browser) {
     host_hide_toast();
   }
-  if (g_tooltip_shown && g_tooltip_over == browser) {
-    host_hide_tooltip();
+  if (g_tooltip_over == browser) {
+    host_hide_tooltip(0);
   }
   if (g_hud_shown && g_hud_over == browser) {
     host_hide_hud(0);
@@ -1454,43 +1456,76 @@ void host_add_tooltip(void* tooltip_view, void (*away)(void)) {
                   usingBlock:left_window];
 }
 
-void host_show_tooltip(void* ui_view, double left, double top) {
+// The window's alpha, which AppKit animates, so the fade wakes nothing of ours but its end.
+void FadeTooltip(double alpha, double seconds, void (^done)(void)) {
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = seconds;
+        context.timingFunction =
+            [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+        g_tooltip.animator.alphaValue = alpha;
+      }
+      completionHandler:done];
+}
+
+void host_show_tooltip(void* ui_view, double left, double top, double fade) {
   Browser* browser = BrowserWithView(ui_view);
   if (!g_tooltip || !browser || !browser->window) {
     return;
   }
   if (g_tooltip_shown && g_tooltip_over != browser) {
-    host_hide_tooltip();
+    host_hide_tooltip(0);
   }
   g_tooltip_left = left;
   g_tooltip_top = top;
-  bool shown = g_tooltip_shown;
   g_tooltip_shown = true;
   g_tooltip_over = browser;
+  const unsigned change = ++g_tooltip_changes;
   // After the UI's update that asked, since the window draws here, before it shows or moves, since
   // it keeps the last frame it drew, the last name.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_tooltip_shown || g_tooltip_over != browser) {
+    if (change != g_tooltip_changes) {
       return;
     }
     PlaceTooltip();
     [g_tooltip_view.layer setNeedsDisplay];
     [g_tooltip_view.layer displayIfNeeded];
-    if (shown) {
-      return;
+    // Still fading out over this window, it fades back in from where it is.
+    if (g_tooltip.parentWindow != browser->window) {
+      [g_tooltip.parentWindow removeChildWindow:g_tooltip];
+      g_tooltip.alphaValue = 0;
+      [browser->window addChildWindow:g_tooltip ordered:NSWindowAbove];
+      RaiseOverlays(browser, g_tooltip);
     }
-    [browser->window addChildWindow:g_tooltip ordered:NSWindowAbove];
-    RaiseOverlays(browser, g_tooltip);
+    FadeTooltip(1, fade, ^{
+      if (change == g_tooltip_changes) {
+        // check.sh waits for this line, so a capture after it shows the tooltip whole.
+        fprintf(stderr, "browser: tooltip window shown\n");
+      }
+    });
   });
 }
 
-void host_hide_tooltip(void) {
-  if (!g_tooltip_shown) {
+void host_hide_tooltip(double fade) {
+  // At once, it also ends a fade out.
+  if (!g_tooltip_shown && fade > 0) {
     return;
   }
   g_tooltip_shown = false;
-  [g_tooltip_over->window removeChildWindow:g_tooltip];
-  [g_tooltip orderOut:nil];
+  const unsigned change = ++g_tooltip_changes;
+  void (^gone)(void) = ^{
+    if (change != g_tooltip_changes) {
+      return;
+    }
+    [g_tooltip.parentWindow removeChildWindow:g_tooltip];
+    [g_tooltip orderOut:nil];
+  };
+  // At once as its window closes, which a fade's end would come after.
+  if (fade == 0) {
+    gone();
+    return;
+  }
+  FadeTooltip(0, fade, gone);
 }
 
 void host_show_window_buttons(void* ui_view, bool shown) {

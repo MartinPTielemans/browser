@@ -15,7 +15,7 @@ use super::{
     Download, DownloadState, FOOTER_HEIGHT, NAV_SIZE, SECONDARY, Shell,
 };
 
-/// Ours: the rows wait the tooltip's delay, so a pointer passing the button leaves them, and fade.
+/// Ours: the rows wait half a second, so a pointer passing the button leaves them, and fade.
 const RECENT_WAIT: Duration = Duration::from_millis(500);
 const RECENT_FADE: f32 = 0.15;
 /// Arc's: four rows 56 apart, a 40 pt column at 8 for an image's preview 40 wide or the file's
@@ -578,7 +578,10 @@ mod tests {
         ];
         assert_eq!(rows(&shell, cx), (shown.clone(), false));
         let asked = ["file preview 5", "file preview 4", "file preview 3", "file preview 2"];
-        assert_eq!(host.take(), asked);
+        // The button's tooltip is asked for too, which this test isn't about.
+        let calls = host.take();
+        let previews: Vec<_> = calls.iter().filter(|c| !c.starts_with("tooltip")).collect();
+        assert_eq!(previews, asked);
 
         // Up across the gap onto the newest row, at the bottom, and the oldest, at the top.
         move_to(cx, 24., height - 45.);

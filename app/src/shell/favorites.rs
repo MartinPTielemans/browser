@@ -7,7 +7,7 @@ use gpui::{
     Context, Hsla, MouseButton, MouseDownEvent, canvas, div, hsla, img, prelude::*, px, rgba,
 };
 
-use crate::tooltip::{self, Anchor};
+use crate::tooltip::{self, Anchor, Tip};
 
 use super::{
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
@@ -309,7 +309,7 @@ impl Shell {
         let busy = self.dragging().is_some() || self.menu_row.is_some();
         let frame = self.tip_frames.borrow().get(&tab).copied();
         let tip = (hovered && !busy)
-            .then(|| tooltip::text_for(&name))
+            .then(|| tooltip::text_for(&name).map(Tip::named))
             .flatten()
             .zip(frame)
             .map(|(text, frame)| match title {

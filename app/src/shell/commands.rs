@@ -362,11 +362,17 @@ fn match_score(name: &str, typed: &str) -> Option<u8> {
 
 /// How a menu shows `keystroke`, as SHORTCUTS writes it: ⇧⌘K for shift-cmd-k.
 pub fn keystroke_label(keystroke: &str) -> String {
+    keystroke_keys(keystroke).concat()
+}
+
+/// The keys of `keystroke` as a menu shows them, one by one, for a chip each: ⇧, ⌘ and K for
+/// shift-cmd-k.
+pub fn keystroke_keys(keystroke: &str) -> Vec<String> {
     let mut rest = keystroke;
-    let mut label = String::new();
+    let mut keys = Vec::new();
     for (modifier, glyph) in [("ctrl-", "⌃"), ("alt-", "⌥"), ("shift-", "⇧"), ("cmd-", "⌘")] {
         if let Some(after) = rest.strip_prefix(modifier) {
-            label.push_str(glyph);
+            keys.push(glyph.to_string());
             rest = after;
         }
     }
@@ -387,7 +393,8 @@ pub fn keystroke_label(keystroke: &str) -> String {
         "end" => "↘".to_string(),
         key => key.to_uppercase(),
     };
-    label + &key
+    keys.push(key);
+    keys
 }
 
 /// Copies `text`, a sum's result chosen in the command bar, once the bar has gone, and says so in
