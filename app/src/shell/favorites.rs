@@ -3,12 +3,15 @@
 
 use std::{collections::HashMap, rc::Rc, time::Instant};
 
-use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, hsla, img, prelude::*, px, rgba};
+use gpui::{
+    Context, Hsla, MouseButton, MouseDownEvent, canvas, div, hsla, img, prelude::*, px, rgba,
+};
 
-use crate::tooltip;
+use crate::tooltip::{self, Anchor};
 
 use super::{
-    Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOOTER_HEIGHT, HAIRLINE, HOVERED, LIST_TOP,
+    Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
+    HOVERED, LIST_TOP,
     PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE,
     TILE_EDGE, TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
     TILE_UNTHEMED, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
@@ -289,23 +292,45 @@ impl Shell {
     }
 
     /// The tooltip over a favorite's tile, which has only an icon, or a folder's row: its name,
-    /// after a moment, below the pointer at `at`. The pointer leaving, or a drag or a menu, ends
-    /// it; other rows have none (the hover card is Dia's).
-    pub(super) fn hover_tooltip(
-        &self,
-        row: Row,
-        hovered: bool,
-        at: gpui::Point<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        let name = match row {
-            Row::Tab(tab) if self.is_folder(tab) => self.folder_name(tab),
-            Row::Tab(tab) if self.favorites.contains(&tab) => self.title(tab),
-            _ => return,
+    /// after a moment, hung from the tile or row, wherever the pointer is on it. The pointer
+    /// leaving, or a drag or a menu, ends it; other rows have none (the hover card is Dia's).
+    pub(super) fn hover_tooltip(&self, row: Row, hovered: bool, cx: &mut Context<Self>) {
+        let Row::Tab(tab) = row else {
+            return;
+        };
+        // A tile's hangs from its middle, a folder's from its title.
+        let (name, title) = if self.is_folder(tab) {
+            (self.folder_name(tab), Some(FOLDER_TITLE_X))
+        } else if self.favorites.contains(&tab) {
+            (self.title(tab), None)
+        } else {
+            return;
         };
         let busy = self.dragging().is_some() || self.menu_row.is_some();
-        let tip = (hovered && !busy).then(|| tooltip::text_for(&name)).flatten();
-        self.browser.tooltip(tip.map(|text| (text, (at.x.into(), at.y.into()))), cx);
+        let frame = self.tip_frames.borrow().get(&tab).copied();
+        let tip = (hovered && !busy)
+            .then(|| tooltip::text_for(&name))
+            .flatten()
+            .zip(frame)
+            .map(|(text, frame)| match title {
+                Some(title) => (text, Anchor::titled(frame, title, self.viewport)),
+                None => (text, Anchor::centred(frame, self.viewport)),
+            });
+        self.browser.tooltip(tip, cx);
+    }
+
+    /// Keeps the frame `tab`'s tile or row is drawn in, `outset` past its inside, for its tooltip
+    /// to hang from, since GPUI gives a hover handler no bounds.
+    pub(super) fn framed(&self, tab: u64, outset: f32) -> impl IntoElement + use<> {
+        let frames = self.tip_frames.clone();
+        canvas(
+            move |bounds, _, _| {
+                frames.borrow_mut().insert(tab, bounds);
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .inset(px(-outset))
     }
 
     /// A favorite's tile: its favicon on a plate, which the tab shown has filled and ringed by its
@@ -350,9 +375,9 @@ impl Shell {
             .border_color(if selected { ring } else { rgba(TILE_EDGE).into() })
             .bg(fill)
             .block_mouse_except_scroll()
-            .on_hover(cx.listener(move |shell, hovered: &bool, window, cx| {
+            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(Row::Tab(tab), *hovered, cx);
-                shell.hover_tooltip(Row::Tab(tab), *hovered, window.mouse_position(), cx)
+                shell.hover_tooltip(Row::Tab(tab), *hovered, cx)
             }))
             .on_mouse_down(
                 MouseButton::Left,
@@ -384,6 +409,7 @@ impl Shell {
             }))
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
+            .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
     }
 }
 

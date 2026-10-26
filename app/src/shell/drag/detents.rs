@@ -164,7 +164,7 @@ impl Browser for Host {
     fn watch_control(&self, _: &mut App) {}
     fn copy(&self, _: &str, _: &mut App) {}
     fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {}
-    fn tooltip(&self, _: Option<(SharedString, (f32, f32))>, _: &mut App) {}
+    fn tooltip(&self, _: Option<(SharedString, crate::tooltip::Anchor)>, _: &mut App) {}
     fn accent_color(&self) -> u32 {
         0
     }

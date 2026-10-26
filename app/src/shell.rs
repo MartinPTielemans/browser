@@ -228,6 +228,8 @@ const LOADING_ROW_MIN: f32 = 48.;
 // One clockwise turn (docs/ux-spec.md › Motion).
 const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
+/// Where a row's title starts, in from its plate's left.
+const FOLDER_TITLE_X: f32 = FAVICON_X - PLATE_INSET + FAVICON_SIZE + TITLE_GAP;
 // The speaker before a title, while its tab plays sound or is muted, and its pressable square.
 const SPEAKER_DRAWN: f32 = 16.;
 const SPEAKER_SIZE: f32 = 18.;
@@ -839,6 +841,9 @@ pub struct Shell {
     /// for where the pointer is in them.
     list_scroll: ScrollHandle,
     sidebar_origin: Rc<Cell<Point<Pixels>>>,
+    /// The frames the favorites' tiles and the folders' plates were last drawn in, in the window,
+    /// for their tooltips to hang from.
+    tip_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
     /// Whether the list is past its top, and the edge under the favorites' fade since it last
     /// went past or back, from how far in it was then.
     scrolled: bool,
@@ -1022,6 +1027,7 @@ impl Shell {
             list_slide: None,
             list_scroll: ScrollHandle::new(),
             sidebar_origin: Rc::default(),
+            tip_frames: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
             tools_on: false,

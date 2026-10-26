@@ -1137,9 +1137,9 @@ impl Browser for Engine {
         toast::show(text, key, time, cx);
     }
 
-    fn tooltip(&self, tip: Option<(SharedString, (f32, f32))>, cx: &mut App) {
+    fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, cx: &mut App) {
         match tip {
-            Some((text, at)) => tooltip::hover(text, at, cx),
+            Some((text, anchor)) => tooltip::hover(text, anchor, cx),
             None => tooltip::dismiss(cx),
         }
     }

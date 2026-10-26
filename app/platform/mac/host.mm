@@ -417,13 +417,13 @@ void PlaceToast() {
   [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - size.width, NSMaxY(frame) - size.height)];
 }
 
-// Where the UI asked, kept inside the browser window's width.
+// Where the UI asked, which it has kept inside the browser window: its window is wider than the
+// tooltip it holds, so clamping the window here would move the tooltip off the tile it names.
 void PlaceTooltip() {
   NSWindow* window = g_tooltip_over->window;
   NSRect content = [window contentRectForFrameRect:window.frame];
   NSSize size = g_tooltip.frame.size;
-  double left = fmin(g_tooltip_left, NSWidth(content) - size.width);
-  [g_tooltip setFrameOrigin:NSMakePoint(NSMinX(content) + fmax(left, 0),
+  [g_tooltip setFrameOrigin:NSMakePoint(NSMinX(content) + g_tooltip_left,
                                         NSMaxY(content) - g_tooltip_top - size.height)];
 }
 
