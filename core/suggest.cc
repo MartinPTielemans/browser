@@ -135,8 +135,9 @@ void Suggestions::Report() {
   }
   const TemplateURLService* engines = TemplateURLServiceFactory::GetForProfile(profile_);
   struct Row {
-    std::string url, text, detail, completion, keyword, site;
+    std::string url, text, detail, completion;
     bc_id tab = 0;
+    std::string keyword, site;
     bool typed_search = false;
     bool removable = false;
   };

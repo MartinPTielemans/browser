@@ -350,8 +350,8 @@ std::optional<Saved> Read(const base::FilePath& path) {
     int kept = 0;
     for (auto [list, tabs] : {std::pair(pinned ? pinned : &no_pinned, &to.pinned),
                               std::pair(today, &to.today)}) {
-      for (const base::Value& value : *list) {
-        const base::DictValue* dict = value.GetIfDict();
+      for (const base::Value& row : *list) {
+        const base::DictValue* dict = row.GetIfDict();
         const std::string* folder = dict ? dict->FindString("folder") : nullptr;
         if (folder && tabs == &to.pinned) {
           to.folders.push_back({.name = *folder,
@@ -360,7 +360,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
                                 .at = to.pinned.size()});
           continue;
         }
-        std::optional<SavedTab> tab = ReadTab(value);
+        std::optional<SavedTab> tab = ReadTab(row);
         if (index++ == shown && tab) {
           to.shown = kept;
         }
