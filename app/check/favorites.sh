@@ -94,6 +94,9 @@ expect "^browser: today [0-9][0-9]* $b\$" \
 c=$(today | cut -d' ' -f1)
 expect "^browser: selected $c\$" "Duplicate Tab didn't show the copy"
 expect "^browser: loaded $c $site\$" "the copy didn't load the favorite's page"
+# The row under the copy slides down to make room, and until it's there the list is only as long as
+# where the row is drawn, too short to scroll in the window below.
+expect '^browser: rows settled$' "the row under the copy didn't settle"
 # Past its top in a window too short for its rows, the list shows a line across the sidebar 4 under
 # the tile, and back at the top it hides it.
 send layout
