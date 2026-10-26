@@ -3,13 +3,15 @@
 
 use std::time::Instant;
 
-use gpui::{Bounds, Context, Hsla, Pixels, Window, div, point, prelude::*, px, rgba, size, svg};
+use gpui::{
+    Bounds, Context, Hsla, Pixels, Window, div, hsla, point, prelude::*, px, rgba, size, svg,
+};
 
 use super::{
     BACK_X, Command, FORWARD_X, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS,
     NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY, SIDEBAR_BUTTON_X, Shell,
-    TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD, URL_FIELD_HEIGHT,
-    Swapped, URL_FIELD_TEXT_X, URL_FIELD_TOP, fade_at, host,
+    Swapped, TILE_HOVERED, TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE,
+    URL_FIELD, URL_FIELD_HEIGHT, URL_FIELD_TEXT_X, URL_FIELD_TOP, fade_at, host,
     swap::{CHECK, LINK},
 };
 
@@ -139,6 +141,8 @@ impl Shell {
             .block_mouse_except_scroll()
             .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::EditUrl, "sidebar", cx)))
             .bg(rgba(URL_FIELD))
+            // It brightens under the pointer as a tile does, from the same white 0.10 (ours).
+            .hover(|style| style.bg(hsla(0., 0., 1., TILE_HOVERED)))
             .text_size(px(13.))
             .text_color(rgba(SECONDARY))
             .child(div().truncate().child(

@@ -39,6 +39,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Width range | MVP | 160–400 *interim* (Ardia); rubber-band; saved; double-click resets; Arc's: measure | Ardia, Dia P§4 |
 | [x] | Header row centre | MVP | traffic lights 24 below the window top, button plates 23.5 | Arc 1.170.0 ax |
 | [x] | Header hover plates | MVP | 32 × 32, top 7.5, radius 6; only the plate clicks | Arc 1.170.0 ax, Ardia P§4 |
+| [ ] | Every button under the pointer | MVP | glyph buttons the header's plate, rows the row fill, the URL field white 0.15, text buttons brighter, filled buttons 0.9 darker; Create Space and Settings' AppKit controls don't change; Arc's: measure | ours, the owner 2026-10-26 |
 | [x] | Sidebar button, back, forward, reload positions | MVP | plates at x 77 / 122 / 156 / 190 in a 228 sidebar; the same at other widths *interim*, Arc's: measure | Arc 1.170.0 ax |
 | [x] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
 | [x] | Disabled nav glyph | MVP | white 0.26 against 0.60; reload too with no page | Arc 1.170.0 cap |

@@ -14,7 +14,7 @@ use super::{
     FORM_LABEL_X, FORM_LEAVE, FORM_LEAVE_FIELD, FORM_LEAVE_ROWS, FORM_LEAVE_TITLE, FORM_PILL,
     FORM_PILL_HEIGHT, FORM_PILL_LEFT, FORM_PILL_RIGHT, FORM_PILL_X, FORM_PLACEHOLDER, FORM_PLATE,
     FORM_PLATE_HEIGHT, FORM_PROFILE_TOP, FORM_RADIUS, FORM_SINK, FORM_TEXT, FORM_TEXT_X,
-    FORM_THEME_TOP, FORM_TITLE_HEIGHT, FORM_TITLE_TOP, SECONDARY, Shell, SpaceForm,
+    FORM_THEME_TOP, FORM_TITLE_HEIGHT, FORM_TITLE_TOP, HOVERED, SECONDARY, Shell, SpaceForm,
 };
 use crate::text_input::TextInput;
 
@@ -201,14 +201,17 @@ impl Shell {
         let menu = |show: fn(&mut Self, Point<Pixels>, &mut Context<Self>)| {
             cx.listener(move |shell, event: &MouseDownEvent, _, cx| show(shell, event.position, cx))
         };
+        // Under the pointer a row takes the list's hover fill, while a press still shows its menu.
         let profile_row = row("space-profile", FORM_PROFILE_TOP, "icons/user.svg", "Profile")
             .child(pill)
             .when(left.is_none(), |row| {
-                row.on_mouse_down(MouseButton::Left, menu(Self::form_profile_menu))
+                row.hover(|style| style.bg(rgba(HOVERED)))
+                    .on_mouse_down(MouseButton::Left, menu(Self::form_profile_menu))
             });
         let theme_row = row("space-theme", FORM_THEME_TOP, "icons/paintbrush.svg", "Choose a Theme")
             .when(left.is_none(), |row| {
-                row.on_mouse_down(MouseButton::Left, menu(Self::form_theme_menu))
+                row.hover(|style| style.bg(rgba(HOVERED)))
+                    .on_mouse_down(MouseButton::Left, menu(Self::form_theme_menu))
             });
         let create = plate("create-space")
             .bottom(px(CREATE_BOTTOM))
@@ -238,6 +241,9 @@ impl Shell {
                     .text_size(px(12.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgba(SECONDARY))
+                    // It brightens to the form's text under the pointer (ours: Arc's isn't
+                    // recorded). Create Space doesn't change, as Arc's doesn't.
+                    .hover(|style| style.text_color(rgb(FORM_TEXT)))
                     .child("Cancel")
                     .on_click(cx.listener(|shell, _, window, cx| shell.cancel_space(window, cx))),
             );
