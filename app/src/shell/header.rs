@@ -128,7 +128,7 @@ impl Shell {
                 };
                 (Tip { text: name.into(), keys }, anchor)
             });
-        self.browser.tooltip(tip, cx);
+        self.hover_tip(tip, cx);
     }
 
     /// What a sidebar button's tooltip calls `command`: the menus' name, which the command bar
