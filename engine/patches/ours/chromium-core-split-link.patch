@@ -1,0 +1,25 @@
+In the core's windows, "Open Link in Split View" in a page's context menu opens the link as a
+navigation the core makes its own split view from, since those windows don't use Chrome's split
+tabs (//browser_core/hooks.h).
+
+--- a/chrome/browser/renderer_context_menu/render_view_context_menu.cc
++++ b/chrome/browser/renderer_context_menu/render_view_context_menu.cc
+@@ -5938,6 +5938,18 @@
+   BrowserWindowInterface* const browser = GetBrowser();
+   CHECK(browser);
+   CHECK(browser->GetType() == BrowserWindowInterface::TYPE_NORMAL);
++
++  // browser_core: the core's windows don't use Chrome's split tabs. It makes its own split view
++  // from a navigation opening in one (//browser_core/hooks.h).
++  if (g_browser_core_supplies_windows) {
++    source_web_contents_->OpenURL(
++        GetOpenURLParamsWithExtraHeaders(
++            params_.link_url, params_.frame_url, params_.frame_origin,
++            WindowOpenDisposition::NEW_SPLIT_VIEW, ui::PAGE_TRANSITION_LINK,
++            /*extra_headers=*/std::string(), /*started_from_context_menu=*/true),
++        base::BindOnce(&AttachContextMenuOpenLinkNavigationHandleUserData));
++    return;
++  }
+ 
+   TabStripModel* const tab_strip_model = browser->GetTabStripModel();
+   tabs::TabInterface* const source_tab =

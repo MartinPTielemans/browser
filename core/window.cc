@@ -274,11 +274,10 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
   // Items for what the browser doesn't have yet, and items whose UI is in Chrome's own window, a
   // toolbar bubble or the side panel, which the core's windows don't have.
   static constexpr int kTrimmed[] = {
-      IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,     IDC_CONTENT_CONTEXT_OPENLINKSPLITVIEW,
-      IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD,  IDC_ROUTE_MEDIA,
-      IDC_CONTENT_CONTEXT_OPEN_IN_READING_MODE,  IDC_CONTENT_CONTEXT_LISTEN_TO_THIS_PAGE,
-      IDC_CONTENT_CONTEXT_GENERATE_QR_CODE,      IDC_CONTENT_CONTEXT_TRANSLATE,
-      IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE,
+      IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,    IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD,
+      IDC_ROUTE_MEDIA,                          IDC_CONTENT_CONTEXT_OPEN_IN_READING_MODE,
+      IDC_CONTENT_CONTEXT_LISTEN_TO_THIS_PAGE,  IDC_CONTENT_CONTEXT_GENERATE_QR_CODE,
+      IDC_CONTENT_CONTEXT_TRANSLATE,            IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE,
   };
   for (int id : kTrimmed) {
     if (std::optional<size_t> index = menu.GetIndexOfCommandId(id)) {
