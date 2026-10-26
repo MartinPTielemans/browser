@@ -834,6 +834,11 @@ pub struct Shell {
     /// The hover changed since the sidebar was last drawn.
     hover_changed: bool,
     page_fullscreen: bool,
+    /// Whether the window went full screen for the page, so it comes back with it.
+    window_for_page: bool,
+    /// While the window goes full screen with the page, or back: its content size before. The page
+    /// stays where it is until the window's resize lays it out, once, at its new size.
+    page_held: Option<Size<Pixels>>,
     /// Whether ⌘S has hidden the sidebar.
     sidebar_hidden: bool,
     /// Whether the window's own buttons show (`window_buttons_shown`).
@@ -984,6 +989,8 @@ impl Shell {
             sidebar_hovered: false,
             hover_changed: false,
             page_fullscreen: false,
+            window_for_page: false,
+            page_held: None,
             sidebar_hidden: false,
             window_buttons: true,
             sidebar_width,
@@ -1161,9 +1168,21 @@ impl Shell {
         }
     }
 
-    /// Lays the page out at `page_frame`, unless it's there already.
+    /// Where the page goes as the window's content takes `viewport`, unless it's held where it is
+    /// while the window goes full screen with the page, or back.
+    pub fn window_page_frame(&mut self, viewport: Size<Pixels>) -> Option<(Bounds<Pixels>, f32)> {
+        if self.page_held == Some(viewport) {
+            return None;
+        }
+        self.page_held = None;
+        Some(self.page_frame(viewport))
+    }
+
+    /// Lays the page out at `page_frame`, unless it's there already or held.
     fn lay_out_page(&mut self, cx: &mut Context<Self>) {
-        let frame = self.page_frame(self.viewport);
+        let Some(frame) = self.window_page_frame(self.viewport) else {
+            return;
+        };
         if self.page_laid != Some(frame) {
             self.page_laid = Some(frame);
             self.browser.lay_out_page(frame.0, frame.1, cx);
@@ -1613,7 +1632,20 @@ impl Shell {
         cx.notify();
     }
 
-    pub fn set_page_fullscreen(&mut self, fullscreen: bool, cx: &mut Context<Self>) {
+    /// Shows the page full screen, or back. The window goes full screen with it unless it already
+    /// was, and comes back with it only if it went for the page.
+    pub fn set_page_fullscreen(
+        &mut self,
+        fullscreen: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let window_resizes = match fullscreen {
+            true => !window.is_fullscreen(),
+            false => self.window_for_page && window.is_fullscreen(),
+        };
+        self.window_for_page = fullscreen && window_resizes;
+        self.page_held = window_resizes.then(|| window.viewport_size());
         self.page_fullscreen = fullscreen;
         if fullscreen {
             self.conceal_now(cx);

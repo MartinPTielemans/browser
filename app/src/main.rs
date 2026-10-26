@@ -1332,7 +1332,9 @@ fn open_window(cx: &mut App) {
         let shell = cx.new(|cx| {
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, move |shell: &mut Shell, window, _| {
-                set_page_frame(id, shell.page_frame(window.viewport_size()))
+                if let Some(frame) = shell.window_page_frame(window.viewport_size()) {
+                    set_page_frame(id, frame);
+                }
             })
             .detach();
             let engine = Engine { window: id, ui_view, view: ns_view(window) };
@@ -2049,12 +2051,15 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
         if fullscreen && !shown {
             return;
         }
-        shell.update(cx, |shell, cx| shell.set_page_fullscreen(fullscreen, cx)).ok();
+        // Told before AppKit resizes a window going full screen with the page, or back, so the
+        // resize lays the page out once, at its new size. Otherwise it's laid out now.
         cx.update_window(handle, |_, window, cx| {
-            let viewport = window.viewport_size();
-            if let Ok(frame) = shell.read_with(cx, |shell, _| shell.page_frame(viewport)) {
-                set_page_frame(id, frame);
-            }
+            shell.update(cx, |shell, cx| {
+                shell.set_page_fullscreen(fullscreen, window, cx);
+                if let Some(frame) = shell.window_page_frame(window.viewport_size()) {
+                    set_page_frame(id, frame);
+                }
+            })
         })
         .ok();
     });

@@ -1,6 +1,7 @@
 # The page view keeps its margins and GPUI's view fills the window through a resize and full screen,
 # and the window's buttons stay in the header row. A page that goes full screen takes the window
-# with it, and escape or the page leaving brings both back. The command bar opens in full screen and
+# with it, and escape or the page leaving brings both back, the page resized once each way, straight
+# to its new size, and its leaving reported once. The command bar opens in full screen and
 # keeps the keyboard when a page commits under it, then gives the keyboard to the new page, and
 # scrolling a long page doesn't stutter. Dragging the window's background moves the window, and the
 # buttons, URL field and rows keep their presses. A double-click there zooms it, and one in the
@@ -53,6 +54,11 @@ page=$(base64 << 'HTML' | tr -d '\n'
     if (e.key == "f") document.documentElement.requestFullscreen();
     if (e.key == "x" && document.fullscreenElement) document.exitFullscreen();
   });
+  // Each resize counts in the title, with the size it left the page at.
+  let resizes = 0;
+  addEventListener("resize", () => {
+    document.title = `resized ${++resizes} times, to ${innerWidth}x${innerHeight}`;
+  });
   // After an n, the page goes to another site when its window loses the keyboard, so a new page
   // commits while the command bar is open.
   let leave = false;
@@ -83,6 +89,19 @@ check_buttons() {
   expected="20.0,24.0 43.0,24.0 66.0,24.0"
   [ "${2:-}" = hidden ] && expected="hidden hidden hidden"
   [ "$buttons" = "$expected" ] || fail "$1: the window's buttons are at $buttons, not $expected"
+}
+# The page's resizes so far, from its title.
+page_resizes() {
+  count=$(grep '^browser: title [0-9]* resized ' "$log" | tail -1 | cut -d' ' -f5)
+  echo "${count:-0}"
+}
+# The page was resized once since it had been $resizes times, straight to $2 (WxH). Called once the
+# window's transition has ended, so it waits only for the title the page's last resize gave it.
+resized_once() {
+  line="resized $((resizes + 1)) times, to $2"
+  await "^browser: title [0-9]* $line\$" || true
+  last=$(grep '^browser: title [0-9]* resized ' "$log" | tail -1 | cut -d' ' -f4-)
+  [ "$last" = "$line" ] || fail "$1: after $resizes resizes the page was $last, not once to $2"
 }
 check_layout "at launch"
 check_buttons "at launch"
@@ -140,24 +159,38 @@ expect '^browser: window left full screen$' "the window didn't leave full screen
 check_layout "after full screen"
 check_buttons "after full screen"
 
-# A page that goes full screen takes the window with it, and escape brings both back.
+# A page that goes full screen takes the window with it, and escape brings both back. The app
+# knows before the window resizes, so the page is laid out once each way, at the window's new size,
+# and the transition shows no frame of the other layout.
+resizes=$(page_resizes)
 send key f
 expect '^browser: page entered full screen$' "the page didn't go full screen"
 expect '^browser: window entered full screen$' "the window didn't go full screen with the page"
 check_layout "with the page full screen" fills
+resized_once "going full screen" "$content"
 ../tools/window-screenshot.sh "$pid" "$out/page-fullscreen.png" || fail "no window to capture"
+resizes=$(page_resizes)
 send key escape
 expect '^browser: page left full screen$' "escape didn't take the page out of full screen"
 expect '^browser: window left full screen$' "the window didn't leave full screen with the page"
 check_layout "after the page's full screen"
 check_buttons "after the page's full screen"
-# So does the page leaving full screen itself.
+resized_once "leaving full screen by escape" "${view#* }"
+# So does the page leaving full screen itself, which Chrome tells of twice and the app hears once.
+resizes=$(page_resizes)
 send key f
+expect '^browser: page entered full screen$' "the page didn't go full screen again"
 expect '^browser: window entered full screen$' "the page didn't take the window full screen again"
+check_layout "with the page full screen again" fills
+resized_once "going full screen again" "$content"
+resizes=$(page_resizes)
 send key x
 expect '^browser: page left full screen$' "exitFullscreen didn't take the page out of full screen"
 expect '^browser: window left full screen$' "the window stayed full screen after the page left it"
+left=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: page left full screen$')
+[ "$left" = 1 ] || fail "the page leaving full screen itself was reported $left times"
 check_layout "after the page left full screen itself"
+resized_once "the page leaving full screen itself" "${view#* }"
 
 # Chromium makes its window key when a new page's view replaces the focused one.
 send key n
@@ -328,4 +361,4 @@ none_since '^browser: command new-tab' || fail "a double-click on the sidebar's 
 check_layout "after a double-click on the sidebar's edge"
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape or the page leaving brings both back, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png, $out/before-paint.png"
