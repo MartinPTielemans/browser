@@ -327,6 +327,16 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Task Manager | MVP | Chrome's, from Help › Troubleshooting › Open Task Manager as Arc's; ⌘W closes it | Arc 1.170.0 menus, Chrome |
 | [ ] | No agent DevTools or debugging port | MVP | none. Holds today, since nothing opens a debugging port and there is no MCP server; ticks with its allowlist test | decision 8 |
 
+## Capture
+
+| Done | Item | Phase | Target | Source |
+|---|---|---|---|---|
+| [ ] | Capture mode | MVP | ⇧⌘2 from the page and the UI, File and the command bar; grey page (luma × 0.749), 4 pt ring (21,28,47) at radius 6, camera pointer; pill 356 × 67 at radius 18, 35.5 up, 14 pt semibold (71,28,157); built, check `capture` not run yet; glow *interim* | Arc 1.170 cap |
+| [ ] | Element under the pointer, click, drag | MVP | the core's hit test, no page JavaScript; click takes the box, drag the rectangle; Esc, ⇧⌘2, a click outside or a resize leaves | Arc 1.170 cap, ours |
+| [ ] | Menu | MVP | 273 wide, radius 7, (18,15,44), at the ring's top left + 10; field, 40 pt rows; Copy, Save…, Send via iMessage…, Retake; Save to Library, Edit and New Easel with their features | Arc 1.170 cap |
+| [ ] | Toast after Copy | MVP | "Screenshot Copied to Clipboard" with Save and Share; time and hover *interim* | Arc 1.170 cap |
+| [ ] | Full page | MVP | the whole page past its view, copied; "Capture in Progress" *interim* | ours |
+
 ## Import
 
 | Done | Item | Phase | Target | Source |

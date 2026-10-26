@@ -636,6 +636,8 @@ impl Browser for Fake {
     ) {
     }
 
+    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: &mut App) {}
+
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}

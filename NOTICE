@@ -10,15 +10,16 @@ engine/patches/ours/chromium-core-embedded-view.patch.
 
 Lucide (https://github.com/lucide-icons/lucide), ISC License, some icons MIT License
 Used in app/assets/icons/: activity, app-window, archive, arrow-down, arrow-down-to-line,
-arrow-left, arrow-left-right, arrow-right, arrow-up, bell, bluetooth, brush-cleaning, cable, check,
-chevron-down, chevron-up, chevrons-up-down, clipboard, clock, code, command, cookie,
+arrow-left, arrow-left-right, arrow-right, arrow-up, bell, bluetooth, brush-cleaning, cable,
+camera, check, chevron-down, chevron-up, chevrons-up-down, clipboard, clock, code, command, cookie,
 corner-down-left, credit-card, database, download, ellipsis, external-link, file, fold-vertical,
 folder, folder-open, folder-plus, gamepad-2, glasses, globe, hand, image, keyboard, library, link,
 map-pin, maximize, megaphone, mic, mouse-pointer-2, network, nfc, paintbrush, panel-left, pencil,
 piano, picture-in-picture-2, pin, plus, printer, puzzle, rotate-ccw-clock, rotate-cw, save, search,
 settings, share, sliders-horizontal, speaker, square-mouse-pointer, terminal, text-search, trash,
 type, undo-2, usb, user, vibrate, video, volume-2, volume-x, x, zap, zoom-in and zoom-out,
-and rotate-cw and x scaled as nav-reload and nav-stop, at commit
+and rotate-cw and x scaled as nav-reload and nav-stop; and camera's path, drawn as Capture's
+pointer, in app/platform/mac/host.mm; at commit
 7faf87628a1ad6175975bc595344337ce14a7db4.
 
   ISC License
@@ -73,8 +74,9 @@ heart-fill, leaf-fill, lightbulb-fill, lightning-fill, map-trifold-fill, moon-fi
 palette-fill, paw-print-fill, pizza-fill, planet-fill, receipt-fill, shapes-fill, skull-fill,
 square-fill, squares-four-fill, stack-fill, star-fill, sun-fill, terminal-window-fill,
 thumbs-up-fill, train-simple-fill, tray-fill, triangle-fill, users-fill, video-camera-fill and
-wrench-fill, and in app/assets/icons/: lock-simple-fill and lock-simple-open-fill, at commit
-2b75f3ad12b420c9504ef05df8d2564a28f8500e.
+wrench-fill; in app/assets/icons/: lock-simple-fill and lock-simple-open-fill; and in
+app/assets/icons/capture/: arrow-counter-clockwise-bold, chat-circle-fill and tray-arrow-down-fill;
+at commit 2b75f3ad12b420c9504ef05df8d2564a28f8500e.
 
   MIT License
 

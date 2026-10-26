@@ -364,6 +364,18 @@ typedef struct bc_host {
   // changes, until bc_site_controls_close: a permission changed or was used, the tab went to
   // another page, or a video started or stopped.
   void (*tab_site_controls)(void* context, bc_id tab, const bc_site_controls* controls);
+  // The box of the element at (|x|, |y|) bc_tab_element_at asked for, its border's in points from
+  // the top-left of the page's view, or a box 0 wide if there's none or the page went.
+  void (*tab_element_box)(void* context, bc_id tab, double x, double y, bc_rect box);
+  // The picture bc_tab_capture asked for as |request|: a PNG |size| bytes long, |width| by
+  // |height| pixels, or null and 0 if the page couldn't give one.
+  void (*tab_captured)(void* context,
+                       bc_id tab,
+                       uint64_t request,
+                       const uint8_t* png,
+                       size_t size,
+                       int width,
+                       int height);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -798,6 +810,24 @@ BC_EXPORT void bc_tab_find(bc_id tab, const char* text, bool forward);
 // Closes the tab's find bar. The highlights go, and the selected match stays selected. Then
 // tab_find_changed.
 BC_EXPORT void bc_tab_find_close(bc_id tab);
+
+// Asks for the box of the element at (|x|, |y|), in points from the top-left of the tab's page
+// view, as DevTools' element picker hit tests, without running the page's JavaScript. One question
+// is in the page at a time, and a newer one replaces any still waiting, so a moving pointer asks
+// only for where it is now. Then tab_element_box. The user's: agents get none, as Capture is.
+BC_EXPORT void bc_tab_element_at(bc_id tab, double x, double y);
+
+// Captures the tab's page as a PNG: |rect|, in points from the top-left of the page's view, or the
+// whole view if |rect| is empty, as the compositor last drew it; or with |full_page| the whole
+// page, beyond the view, as DevTools' full-size screenshot does, which lays the page out at its
+// full height while it draws. In pixels at the display's scale. Then tab_captured with |request|.
+// The user's: agents get none, as a picture shows what a page holds, and agents read pages through
+// their own tool, by its rules.
+BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_rect rect);
+
+// Ends what bc_tab_element_at and bc_tab_capture began: drops their questions and lets go of the
+// page's DevTools, so a page that isn't being captured pays nothing.
+BC_EXPORT void bc_tab_capture_end(bc_id tab);
 
 // Answers to the question tab_permission_asked put: the site may, now and whenever it asks again;
 // it may not, now or again; or not now, and it may ask again.

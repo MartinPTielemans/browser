@@ -10,7 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use browser::{command_bar, dialog, icon_picker, log, site_controls, toast, tooltip, zoom_hud};
+use browser::{
+    capture, command_bar, dialog, icon_picker, log, site_controls, toast, tooltip, zoom_hud,
+};
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, Split,
@@ -21,6 +23,7 @@ use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
     ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, SystemMenuType,
     WeakEntity, Window, WindowBackgroundAppearance, WindowOptions, actions, point, prelude::*, px,
+    size,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -186,7 +189,30 @@ mod platform {
         pub fn host_site_controls_drew(scale: f64, opacity: f64, x: f64, y: f64);
         pub fn host_release_site_controls();
         pub fn host_hide_site_controls();
+        pub fn host_add_capture(view: *mut c_void, dismissed: extern "C" fn());
+        pub fn host_show_capture(
+            ui_view: *mut c_void,
+            left: f64,
+            top: f64,
+            width: f64,
+            height: f64,
+        );
+        pub fn host_capture_camera(camera: bool);
+        pub fn host_hide_capture();
+        pub fn host_copy_png(png: *const u8, size: usize);
+        pub fn host_save_png(ui_view: *mut c_void, png: *const u8, size: usize);
+        pub fn host_share_png(
+            png: *const u8,
+            size: usize,
+            view: *mut c_void,
+            x: f64,
+            y: f64,
+            width: f64,
+            height: f64,
+            messages: bool,
+        );
         pub fn host_add_toast(toast_view: *mut c_void);
+        pub fn host_toast_takes_clicks(takes: bool);
         pub fn host_show_toast(ui_view: *mut c_void);
         pub fn host_hide_toast();
         pub fn host_add_tooltip(tooltip_view: *mut c_void, away: extern "C" fn());
@@ -392,6 +418,15 @@ fn update_tab_window<R>(
 fn update_app(change: impl FnOnce(&mut App)) {
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         cx.update(change);
+    }
+}
+
+/// Changes the app once the update under way, if any, is over, for a core callback that can come
+/// from inside the call that asked for it.
+fn update_app_later(change: impl FnOnce(&mut App) + 'static) {
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let executor = cx.foreground_executor().clone();
+        executor.spawn(async move { cx.update(change) }).detach();
     }
 }
 
@@ -694,7 +729,10 @@ extern "C" fn site_controls_dismissed() {
 }
 
 /// The toast's requests, to the host's toast window.
-struct ToastHost;
+struct ToastHost {
+    /// The toast's view, for the share menu its Share button shows, once its window is open.
+    view: Cell<*mut c_void>,
+}
 
 impl toast::Host for ToastHost {
     fn show(&self) {
@@ -704,6 +742,113 @@ impl toast::Host for ToastHost {
     fn hide(&self) {
         unsafe { platform::host_hide_toast() };
     }
+
+    fn take_clicks(&self, takes: bool) {
+        unsafe { platform::host_toast_takes_clicks(takes) };
+    }
+}
+
+/// Capture's requests, as calls to the core, to the host's window for capture mode and to the
+/// system, over the window in front (`front`).
+struct CaptureHost {
+    /// The toast's view, which its Share button's menu shows from.
+    toast: Rc<ToastHost>,
+}
+
+impl capture::Host for CaptureHost {
+    fn show(&self, frame: Bounds<Pixels>) {
+        let (left, top) = (f64::from(frame.origin.x), f64::from(frame.origin.y));
+        let (width, height) = (f64::from(frame.size.width), f64::from(frame.size.height));
+        unsafe { platform::host_show_capture(front().1, left, top, width, height) };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_capture() };
+    }
+
+    fn camera(&self, camera: bool) {
+        unsafe { platform::host_capture_camera(camera) };
+    }
+
+    fn element_at(&self, tab: u64, at: Point<Pixels>) {
+        unsafe { bc::bc_tab_element_at(tab, f64::from(at.x), f64::from(at.y)) };
+    }
+
+    fn capture(&self, tab: u64, request: u64, full_page: bool, rect: Option<Bounds<Pixels>>) {
+        let rect = rect.map_or(bc::bc_rect { x: 0., y: 0., width: 0., height: 0. }, |rect| {
+            bc::bc_rect {
+                x: f64::from(rect.origin.x),
+                y: f64::from(rect.origin.y),
+                width: f64::from(rect.size.width),
+                height: f64::from(rect.size.height),
+            }
+        });
+        unsafe { bc::bc_tab_capture(tab, request, full_page, rect) };
+    }
+
+    fn end(&self, tab: u64) {
+        unsafe { bc::bc_tab_capture_end(tab) };
+    }
+
+    fn copy(&self, png: &[u8]) {
+        unsafe { platform::host_copy_png(png.as_ptr(), png.len()) };
+    }
+
+    fn save(&self, png: &[u8]) {
+        unsafe { platform::host_save_png(front().1, png.as_ptr(), png.len()) };
+    }
+
+    fn share(&self, png: &[u8], share: capture::Share) {
+        let (view, at, messages) = match share {
+            capture::Share::Menu(at) => (front().1, at, false),
+            capture::Share::Toast(at) => {
+                (self.toast.view.get(), Bounds::new(at, size(px(1.), px(1.))), false)
+            }
+            capture::Share::Messages => (std::ptr::null_mut(), Bounds::default(), true),
+        };
+        let (x, y) = (f64::from(at.origin.x), f64::from(at.origin.y));
+        let (width, height) = (f64::from(at.size.width), f64::from(at.size.height));
+        unsafe {
+            platform::host_share_png(png.as_ptr(), png.len(), view, x, y, width, height, messages)
+        };
+    }
+}
+
+/// The user left capture mode: a click outside it, another window or another app.
+extern "C" fn capture_dismissed() {
+    update_app(capture::dismissed);
+}
+
+unsafe extern "C" fn tab_element_box(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    x: f64,
+    y: f64,
+    box_: bc::bc_rect,
+) {
+    let at = point(px(x as f32), px(y as f32));
+    let found = (box_.width > 0. && box_.height > 0.).then(|| {
+        Bounds::new(
+            point(px(box_.x as f32), px(box_.y as f32)),
+            size(px(box_.width as f32), px(box_.height as f32)),
+        )
+    });
+    update_app_later(move |cx| capture::element_box(tab, at, found, cx));
+}
+
+unsafe extern "C" fn tab_captured(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    request: u64,
+    png: *const u8,
+    size: usize,
+    width: i32,
+    height: i32,
+) {
+    // check.sh reads this line.
+    log!("browser: tab {tab} captured {request}: {width}x{height}, {size} bytes");
+    let png = (!png.is_null()).then(|| unsafe { std::slice::from_raw_parts(png, size) }.to_vec());
+    update_app_later(move |cx| capture::captured(tab, request, png, cx));
 }
 
 /// The zoom HUD's requests, to the host's HUD window, over the browser window it names.
@@ -1401,6 +1546,20 @@ impl Browser for Engine {
         site_controls::show(tab, place, window, extensions, cx);
     }
 
+    fn capture(
+        &self,
+        tab: u64,
+        frame: Bounds<Pixels>,
+        radius: f32,
+        full_page: bool,
+        cx: &mut App,
+    ) {
+        match full_page {
+            true => capture::full_page(tab, cx),
+            false => capture::start(tab, frame, radius, cx),
+        }
+    }
+
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
         find_bar::find_next(self.window, tab, forward, cx);
     }
@@ -1845,11 +2004,18 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
         let shell = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.shell.clone()));
         shell.and_then(|shell| shell.upgrade()).map(|shell| shell.read(cx).window_fill())
     };
+    let toast_host = Rc::new(ToastHost { view: Cell::new(std::ptr::null_mut()) });
     if let Some(toast) =
-        toast::open(Rc::new(ToastHost), move |cx| fill(cx).unwrap_or_default(), cx)
+        toast::open(toast_host.clone(), move |cx| fill(cx).unwrap_or_default(), cx)
         && let Ok(view) = toast.update(cx, |_, window, _| ns_view(window))
     {
+        toast_host.view.set(view);
         unsafe { platform::host_add_toast(view) };
+    }
+    if let Some(capture) = capture::open(Rc::new(CaptureHost { toast: toast_host }), cx)
+        && let Ok(view) = capture.update(cx, |_, window, _| ns_view(window))
+    {
+        unsafe { platform::host_add_capture(view, capture_dismissed) };
     }
     let host = Rc::new(SiteControlsHost { view: Cell::new(std::ptr::null_mut()) });
     if let Some(panel) = site_controls::open(host.clone(), cx)
@@ -1934,6 +2100,8 @@ fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
                 item("Close Window", Command::CloseWindow),
                 item("Archive Tab", Command::CloseTab),
                 MenuItem::separator(),
+                item("Capture…", Command::CapturePortion),
+                item("Capture Full Page", Command::CaptureFullPage),
                 item("Save Page As", Command::SavePage),
                 item("Print", Command::Print),
             ],
@@ -2481,7 +2649,14 @@ unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
     find_bar::forget(tab);
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         let executor = cx.foreground_executor().clone();
-        executor.spawn(async move { cx.update(|cx| site_controls::tab_closed(tab, cx)) }).detach();
+        executor
+            .spawn(async move {
+                cx.update(|cx| {
+                    site_controls::tab_closed(tab, cx);
+                    capture::tab_closed(tab, cx);
+                })
+            })
+            .detach();
     }
 }
 
@@ -2712,6 +2887,8 @@ fn main() {
         tab_find_changed: Some(tab_find_changed),
         tab_permission_asked: Some(tab_permission_asked),
         tab_site_controls: Some(tab_site_controls),
+        tab_element_box: Some(tab_element_box),
+        tab_captured: Some(tab_captured),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),

@@ -193,6 +193,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::ZoomOut => "icons/zoom-out.svg",
         Command::FlipSplit => "icons/arrow-left-right.svg",
         Command::ToggleSidebar => "icons/panel-left.svg",
+        Command::CapturePortion | Command::CaptureFullPage => "icons/camera.svg",
         Command::SavePage => "icons/save.svg",
         Command::Print => "icons/printer.svg",
         Command::ViewSource => "icons/code.svg",

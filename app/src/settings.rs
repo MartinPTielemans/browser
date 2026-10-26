@@ -186,6 +186,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Zoom In", Keys::Of(Command::ZoomIn)),
             ("Zoom Out", Keys::Of(Command::ZoomOut)),
             ("Actual Size", Keys::Of(Command::ActualSize)),
+            ("Capture", Keys::Of(Command::CapturePortion)),
             ("Save Page As", Keys::Of(Command::SavePage)),
             ("Print", Keys::Of(Command::Print)),
             ("Clear Cache and Refresh", Keys::Of(Command::ClearCacheAndRefresh)),
