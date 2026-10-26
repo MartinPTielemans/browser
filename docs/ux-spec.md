@@ -178,7 +178,7 @@ Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the 
 - **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Window and Help, as Arc's App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help. Extensions comes with its feature.
 - **File.** New Tab…, Restore Last Closed Tab, Open Command Bar, Archive Tab (⌘W), then Save Page As (⇧⌘S) and Print (⌘P), as Arc's. Save Page As shows Chrome's save panel and Print its print preview, over the page. Arc's window, profile, Note, Easel, Share and Capture items come with their features.
 - **Archive.** Go Back, Go Forward, View Archive and Clear Archive, as Arc's. Arc's View History (⌘Y) comes with history.
-- **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu.
+- **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu: Find…, Find Next, Find Previous and Jump to Selection.
 - **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
 - **View.** Show/Hide Sidebar, then Stop Loading, Refresh the Page, Force Refresh the Page, Clear Cookies and Refresh and Clear Cache and Refresh, then the split view items, zoom and Developer, as Arc's. The two Clear items, also in the command bar, delete the profile's cookies or cache for the page's site, its registrable domain or IP address, then load the page again, the cache's bypassing the cache. Pages that aren't http(s) have no site, so the command bar leaves the items out and they do nothing (*interim*: what Arc clears beyond the site isn't measured).
 - **Window.** Minimize Window (⌘M), then View Library (⇧⌘L) and View Downloads (⇧⌘J). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above them, and Enter Full Screen to View.
@@ -692,7 +692,7 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
 
 ### Find in page
 
-- **Keys** (Dia, P§8). ⌘F, ⌘G, ⇧⌘G and ⇧↩ for previous. ⌘E (Use Selection for Find), ⌘J (Jump to Selection), ⌥⌘F (Find and Replace in the focused field).
+- **Keys** (Arc 1.170.0 menus, Dia P§8). ⌘F, ⌘G, ⇧⌘G and ⇧↩ in the bar for previous. ⌘J, Jump to Selection, scrolls the page to put its selection in the middle, such as the match a find left selected. Arc has no Use Selection for Find (⌘E), so neither do we. Its Find and Replace (⌥⌘F) acts only in AppKit's text views, which neither a page nor our fields are, so we leave it out.
 - **State.** Each tab keeps its own query and shows "n of m".
 - **Find bar.** It floats over the page, so it is a child window. With the page focused, ⌘F reaches us unless the page keeps it (as Google Docs does). Japanese IME works in the field. ⌘V right after ⌘F lands in the field.
 - **Arc's bar** (Arc 1.170.0 rec ×3, cap, ax, on iana.org).

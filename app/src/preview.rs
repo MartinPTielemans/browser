@@ -485,6 +485,8 @@ impl Browser for Fake {
 
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
+    fn jump_to_selection(&self, _: u64, _: &mut App) {}
+
     // The preview has no Settings window.
     fn settings(&self, _: &mut App) {}
 

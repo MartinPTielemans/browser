@@ -522,6 +522,10 @@ BC_EXPORT void bc_tab_find(bc_id tab, const char* text, bool forward);
 // tab_find_changed.
 BC_EXPORT void bc_tab_find_close(bc_id tab);
 
+// Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
+// Edit › Find › Jump to Selection does. Does nothing if it has neither.
+BC_EXPORT void bc_tab_jump_to_selection(bc_id tab);
+
 // Pins the tab in its Space at the page it's at, at the bottom of the pinned tabs, or unpins it to
 // the top of the Today tabs, with the rest of its split view. Then space_changed and
 // tab_state_changed.

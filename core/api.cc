@@ -544,6 +544,12 @@ void bc_tab_find_close(bc_id id) {
   }
 }
 
+void bc_tab_jump_to_selection(bc_id id) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    contents->CenterSelection();
+  }
+}
+
 void bc_tab_set_pinned(bc_id id, bool pinned) {
   browser_core::Space* space = browser_core::Space::Holding(id);
   content::WebContents* contents = browser_core::Tab::FromId(id);

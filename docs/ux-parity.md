@@ -300,7 +300,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Keys | MVP | ⌘F, ⌘G, ⇧⌘G, ⇧↩, ⌘E, ⌘J, ⌥⌘F | Dia, Chrome P§8 |
+| [x] | Keys | MVP | ⌘F, ⌘G, ⇧⌘G, ⇧↩, ⌘J; no ⌘E, as in Arc; ⌥⌘F left out, AppKit's text views only | Arc 1.170.0 menus, Dia P§8 |
 | [x] | Per-tab query and count | MVP | yes; Arc's "1/12" | Dia P§8, Arc 1.170.0 cap |
 | [x] | ⌘F with the page focused | MVP | ours unless the page keeps it | AGENTS.md |
 | [x] | IME in the field | MVP | Japanese works | AGENTS.md |

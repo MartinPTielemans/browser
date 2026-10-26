@@ -161,6 +161,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Find", Keys::Of(Command::Find)),
             ("Find Next", Keys::Of(Command::FindNext)),
             ("Find Previous", Keys::Of(Command::FindPrevious)),
+            ("Jump to Selection", Keys::Of(Command::JumpToSelection)),
             ("Zoom In", Keys::Of(Command::ZoomIn)),
             ("Zoom Out", Keys::Of(Command::ZoomOut)),
             ("Actual Size", Keys::Of(Command::ActualSize)),
