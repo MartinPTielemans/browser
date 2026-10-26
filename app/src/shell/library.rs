@@ -47,12 +47,11 @@ const RECEDE_SCALE: f32 = 0.076;
 pub(super) const RECEDE_X: f32 = 128.;
 const LIBRARY_LAG: f32 = 0.29;
 const LIBRARY_LAG_SPEED: f32 = 0.92;
-/// Fingers going on past where the Library opens leave it there, its column at the window's edge,
-/// and take only the card on, 0.1 of their way at first and never 40 (ours, as Arc's isn't
-/// recorded): two thirds of the Space pages' rubber band at first and a third of it far out, for
-/// an end that's felt.
-const LIBRARY_BAND: f32 = 40.;
-const LIBRARY_BAND_STIFFNESS: f32 = 0.1;
+/// Fingers going on past where the Library opens take it on with the card, a quarter of their way
+/// at first and never 80 (ours, as Arc's isn't recorded): about as far as the Space pages' rubber
+/// band on a short pull, so it gives, and half as far on a long one, so it pulls back.
+const LIBRARY_BAND: f32 = 80.;
+const LIBRARY_BAND_STIFFNESS: f32 = 0.25;
 /// How near where it opens the Library counts as there, for the window's buttons, so the settle
 /// back from past it doesn't hide them as it dips under.
 const LIBRARY_END_SLACK: f32 = 0.01;
@@ -426,13 +425,21 @@ impl Shell {
     }
 
     /// How far the Library's right edge has come to the card's: 0 at the window's edge and 1 there,
-    /// where it stays as the card goes on past. After a click it comes with the card; with the
-    /// sidebar receding, late (`LIBRARY_LAG`).
+    /// where it stops, to go on past only with the card (`library_past`). After a click it comes
+    /// with the card; with the sidebar receding, late (`LIBRARY_LAG`).
     pub(super) fn library_edge(&self) -> f32 {
         let out = self.library_out();
         match self.clicked_fade() {
             Some(_) => out.min(1.),
             None => receding_edge(out),
+        }
+    }
+
+    /// How far, in points, fingers past where the Library opens have taken it on with the card.
+    fn library_past(&self) -> f32 {
+        match self.clicked_fade() {
+            Some(_) => 0.,
+            None => (self.library_width() - self.card_left()) * (self.library_out() - 1.).max(0.),
         }
     }
 
@@ -451,7 +458,7 @@ impl Shell {
     }
 
     /// Whether fingers, or the settle after them, have the Library where it opens or past, where
-    /// it stays with the window's own buttons on its column.
+    /// it gives, with the window's own buttons on its column.
     pub(super) fn library_at_end(&self) -> bool {
         self.clicked_fade().is_none() && self.library_out() >= 1. - LIBRARY_END_SLACK
     }
@@ -722,10 +729,13 @@ impl Shell {
             .child(self.section_button(Section::Downloads, color, cx))
             .child(self.section_button(Section::Spaces, color, cx))
             .child(self.section_button(Section::Archive, color, cx));
+        // Taken on past where it opens, the column's fill reaches back to the window's edge, so
+        // the window's own background never shows left of it.
+        let past = self.library_past();
         let back = div()
             .id("library-back")
             .absolute()
-            .left(px(LIBRARY_BACK_INSET))
+            .left(px(LIBRARY_BACK_INSET + past))
             .bottom(px(LIBRARY_BACK_INSET))
             .size(px(NAV_SIZE))
             .flex()
@@ -740,14 +750,14 @@ impl Shell {
             .child(svg().path("icons/arrow-left.svg").size(px(16.)).text_color(rgba(NAV)));
         let column = div()
             .absolute()
-            .left_0()
+            .left(px(-past))
             .top_0()
             .bottom_0()
-            .w(px(COLUMN_WIDTH))
+            .w(px(COLUMN_WIDTH + past))
             .bg(rgba(COLUMN))
             .flex()
             .items_center()
-            .pl(px(SECTION_X))
+            .pl(px(SECTION_X + past))
             .child(sections)
             .child(back);
         let edge = div()
@@ -818,7 +828,7 @@ impl Shell {
         let width = self.library_width();
         let panel = div()
             .absolute()
-            .left(px((self.library_edge() - 1.) * width))
+            .left(px((self.library_edge() - 1.) * width + past))
             .top_0()
             .bottom_0()
             .w(px(width))
@@ -1457,10 +1467,10 @@ mod tests {
         assert_eq!(card.card_lines(), [Line::Folder(10, 0), Line::Tab(3, 1)]);
     }
 
-    /// Fingers past where the Library opens leave its column at the window's edge, whatever their
-    /// way, and it comes from the window's edge as they bring it out.
+    /// The Library's edge comes from the window's edge as fingers bring it out, and stops where it
+    /// opens whatever their way: past that, it goes on only as the card does.
     #[test]
-    fn the_library_stops_where_it_opens() {
+    fn the_library_edge_stops_where_it_opens() {
         for out in [1., 1.01, 1.2, 3.] {
             assert_eq!(receding_edge(out), 1., "the Library's edge went on at {out}");
         }
@@ -1468,18 +1478,16 @@ mod tests {
         assert!(receding_edge(0.5) > 0. && receding_edge(0.5) < 1.);
     }
 
-    /// Past its end, the card meets much more resistance than the Space pages past theirs, and
-    /// never goes as far as the band's limit.
+    /// Past its end, the Library gives about as far as the Space pages do past theirs on a short
+    /// pull, so it's felt, and pulls back harder on a long one, never as far as the band's limit.
     #[test]
-    fn the_library_bands_harder_than_the_pages() {
+    fn past_its_end_the_library_gives_and_pulls_back() {
         for way in [20., 100., 300., 600., 2000.] {
-            let card = library_band(way);
-            let page = rubber_band(way, 0., 0.);
-            let most = if way < 600. { 0.7 } else { 0.4 };
-            assert!(card > 0. && card < most * page, "{card} past the Library, {page} past a page");
-            assert!(card < LIBRARY_BAND);
+            let (library, page) = (library_band(way), rubber_band(way, 0., 0.));
+            let gives = if way <= 300. { library > 0.9 * page } else { library < 0.8 * page };
+            assert!(gives, "{library} past the Library, {page} past a page");
         }
-        assert!(library_band(600.) < library_band(2000.));
+        assert!(library_band(600.) < library_band(2000.) && library_band(2000.) < LIBRARY_BAND);
     }
 
     /// Fingers bringing the Library out fade it in over the sidebar as the sidebar fades out, so
