@@ -60,8 +60,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Favorite double-click | MVP | back to the favorite's URL | Dia P§2 |
 | [x] | Favorites in a tab's menu | MVP | Add to Favorites; the tile's menu: Back to Favorite URL, Duplicate Tab, Remove from Favorites, Close Tab *interim* | ours |
 | [x] | Favorite ⌘W | MVP | unloads, keeps the tile | as pinned tabs |
-| [x] | Drag into, out of and between favorites | MVP | a row over the tiles is a tile at the place nearest its centre, a tile below them a row; tiles make room on the reorder spring *interim* | Arc |
-| [x] | Row ↔ tile morph while dragging | MVP | plate's size, corners and fill to the tile's on the reorder spring, title out over the first half, favicon to the middle, around the pointer; reverses mid-turn *interim*, Arc's: measure | Arc |
+| [x] | Drag into, out of and between favorites | MVP | a row over the tiles is a tile at the place nearest its centre, a tile below them a row; tiles make room critically damped, ω ≈ 25, settled in ≈ 240 ms | Arc 1.170 rec |
+| [x] | Row ↔ tile morph while dragging | MVP | plate's size, corners and fill to the tile's on the tiles' spring, title out over the first half, favicon to the middle, around the pointer; reverses mid-turn *interim*, Arc's: measure | Arc |
 | [x] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
 | [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [x] | Pinned tab away from its URL | MVP | the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL"; a click or ⌘↩ goes back *interim*; Arc's look: measure | Dia 1.53.0 bin |
@@ -108,7 +108,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Rename, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
 | [x] | Folders | MVP | in the pinned tabs, indented 16 a level: New Folder…, a click opens and closes, a double-click or the menu renames, Delete Folder keeps the tabs, a drag right or left takes a row in or out, kept over a quit; motion and icon *interim* | Arc ax, cap, menus |
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
-| [ ] | Folder motion and drag | MVP | built: a click opens and closes on Group expand, a dragged row goes in or out with the pointer's travel *interim*; Arc's open and close by a click, and how a dragged row goes into a folder: measure | — |
+| [ ] | Folder motion and drag | MVP | a click opens it on a 200 ms ease-out and closes it critically damped at ω ≈ 25, neither overshooting (Arc 1.170 rec); a dragged row goes in or out with the pointer's travel *interim*; how Arc's dragged row goes into a folder: measure | Arc 1.170 rec |
 | [x] | Folder tooltip | MVP | the name after a moment; ours 0.73 s *interim* | Arc cap |
 | [x] | Favorite tooltip | MVP | the name after 0.73 s *interim*, at once from tile to tile, in one frame and out over 0.27 s as Arc's; Arc's move to the next tile: measure | Arc cap |
 | [ ] | Button tooltip | MVP | Arc's: View Library and ⇧ ⌘ L on chips, 3.5 right of the Library button; a capsule 27 tall in #090C4B with a 0.5 pt rim, 12 pt semibold text 11 in, chips 18.5 with a 2 pt lip on a 22 pitch, in one frame and out over 0.27 s. Built, to check against a capture: the header's buttons and Copy URL with the menus' keys, under them, and the square corner's side there *interim*; Arc's other buttons: measure | Arc in use, cap 2× |

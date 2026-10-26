@@ -133,16 +133,17 @@ const REVEAL_OVERSHOOT: f32 = 8.;
 const ROW_RESPONSE: f32 = 0.13;
 const ROW_DAMPING: f32 = 0.9;
 const ROW_FILL: f32 = 0.3;
-// A pressed row comes away once the pointer has moved this far (ours), and the rows around a
-// dragged one make way critically damped (docs/ux-spec.md › Motion: Reorder).
+// A pressed row comes away once the pointer has moved this far (ours), and the tiles make room for
+// a dragged tab critically damped, as Arc's do (docs/ux-spec.md › Motion: Favorites room).
 const DRAG_START: f32 = 4.;
-const REORDER_OMEGA: f32 = 90.;
+const ROOM_OMEGA: f32 = 25.;
 // A dragged row turning into a tile has faded its title by this far through the turn (ours).
 const TURN_TITLE_FADE: f32 = 0.5;
-// The rows under a folder make room as it opens and close up as it closes on Dia's group spring
-// (docs/ux-spec.md › Motion: Group expand).
-const FOLD_RESPONSE: f32 = 0.3;
-const FOLD_DAMPING: f32 = 0.82;
+// The rows under a folder make room as it opens on an ease-out curve, and close up as it closes
+// critically damped, neither overshooting, as Arc's (docs/ux-spec.md › Motion: Folder open and
+// Folder close).
+const FOLD_OPEN: f32 = 0.2;
+const FOLD_CLOSE_OMEGA: f32 = 25.;
 // The edge under the favorites fades in once the list scrolls past its top and out back there, on
 // Dia's Scroll edge curve (docs/ux-spec.md › Motion).
 const SCROLL_EDGE_FADE: f32 = 0.1;
@@ -654,10 +655,11 @@ struct Closing {
 enum Curve {
     /// Making room for a tab's row or closing it (Row motion).
     Slide,
-    /// Making way for a dragged row (Reorder).
-    Reorder,
-    /// Making room as a folder opens, or closing it up as it closes (Group expand).
-    Fold,
+    /// The tiles making room for a dragged tab, and the tab turning between its row and its tile
+    /// (Favorites room).
+    Room,
+    /// Making room as a folder opens, or closing it up as it closes (Folder open, Folder close).
+    Fold { open: bool },
 }
 
 impl Curve {
@@ -665,11 +667,11 @@ impl Curve {
     fn at(self, t: f32) -> Option<f32> {
         match self {
             Curve::Slide => row_spring(t),
-            Curve::Reorder => {
-                let left = (1. + REORDER_OMEGA * t) * (-REORDER_OMEGA * t).exp();
-                (left > 0.01).then_some(1. - left)
+            Curve::Room => critically_damped(t, ROOM_OMEGA),
+            Curve::Fold { open: true } => {
+                (t < FOLD_OPEN).then(|| cubic_bezier(0., 0., 0.58, 1., t / FOLD_OPEN))
             }
-            Curve::Fold => spring(t, FOLD_RESPONSE, FOLD_DAMPING),
+            Curve::Fold { open: false } => critically_damped(t, FOLD_CLOSE_OMEGA),
         }
     }
 }
@@ -721,7 +723,7 @@ struct Drag {
 }
 
 /// How far a dragged tab has turned from its row into its tile as it crossed into or out of the
-/// favorites, on the Reorder spring the tiles make room on (ours, docs/ux-spec.md › Favorites).
+/// favorites, on the spring the tiles make room on (ours, docs/ux-spec.md › Favorites).
 #[derive(Clone, Copy)]
 struct Shape {
     /// Where it turned from, whether it's turning into a tile, and since when, until it has.
@@ -739,7 +741,7 @@ impl Shape {
     fn at(&self, now: Instant) -> f32 {
         let to = if self.tile { 1. } else { 0. };
         let done = self.start.and_then(|start| {
-            Curve::Reorder.at(now.duration_since(start).as_secs_f32())
+            Curve::Room.at(now.duration_since(start).as_secs_f32())
         });
         done.map_or(to, |done| self.from + (to - self.from) * done)
     }
@@ -755,7 +757,7 @@ impl Shape {
     /// Whether it's still turning at `now`.
     fn turning(&self, now: Instant) -> bool {
         self.start.is_some_and(|start| {
-            Curve::Reorder.at(now.duration_since(start).as_secs_f32()).is_some()
+            Curve::Room.at(now.duration_since(start).as_secs_f32()).is_some()
         })
     }
 }
@@ -852,8 +854,8 @@ pub struct Shell {
     unhovered: Vec<(Row, Instant)>,
     /// Rows on their way to their place: how far from it each started, and when.
     slides: HashMap<Slot, (f32, Instant, Curve)>,
-    /// The user opened or closed a folder, whose rows move once the browser reports it.
-    folding: bool,
+    /// The user opened a folder, or closed one, whose rows move once the browser reports it.
+    folding: Option<bool>,
     /// The same for tiles, by their left, top and width, and for the list's top as the favorites
     /// take a row more or fewer.
     tile_slides: HashMap<u64, ([f32; 3], Instant, Curve)>,
@@ -1059,7 +1061,7 @@ impl Shell {
             menu_row: None,
             unhovered: Vec::new(),
             slides: HashMap::new(),
-            folding: false,
+            folding: None,
             tile_slides: HashMap::new(),
             list_slide: None,
             list_scroll: ScrollHandle::new(),
@@ -1573,7 +1575,7 @@ impl Shell {
                 before.entry(Slot::Tab(drag.tab)).or_insert(drag.top);
             }
             // A folder the user opened or closed moves the rows under it on its own spring.
-            let curve = if std::mem::take(&mut self.folding) { Curve::Fold } else { Curve::Slide };
+            let curve = self.folding.take().map_or(Curve::Slide, |open| Curve::Fold { open });
             self.move_rows(before, curve);
         }
         if space == self.space {
@@ -2722,9 +2724,7 @@ fn band(past: f32, limit: f32, stiffness: f32) -> f32 {
 /// How far something settling critically damped since `start`, as the Space pages do, has come
 /// from where it started, or None once it's there.
 fn settle_progress(start: Instant) -> Option<f32> {
-    let omega_t = std::f32::consts::TAU / SPACE_SETTLE * start.elapsed().as_secs_f32();
-    let left = (1. + omega_t) * (-omega_t).exp();
-    (left > 0.001).then_some(1. - left)
+    critically_damped(start.elapsed().as_secs_f32(), std::f32::consts::TAU / SPACE_SETTLE)
 }
 
 /// How far the list's motion is `t` seconds in, or None once it's done.
@@ -2755,6 +2755,13 @@ fn spring_to(
     let going =
         decay * ((swing * damped - pull * away) * cos - (away * damped + pull * swing) * sin);
     Some((at, going))
+}
+
+/// How far a critically damped spring from 0 to 1, at rest at 0, has come `t` seconds in, at
+/// `omega` rad/s, or None once it's within a thousandth of 1.
+fn critically_damped(t: f32, omega: f32) -> Option<f32> {
+    let left = (1. + omega * t) * (-omega * t).exp();
+    (left > 0.001).then_some(1. - left)
 }
 
 /// Where a spring from 0 to 1, at rest at 0, is `t` seconds in, by SwiftUI's response and damping
@@ -3059,7 +3066,7 @@ mod tests {
 
     use gpui::{Image, ImageFormat};
 
-    use super::{Folders, Page, Shape, Space, Tab, fade_at, file_name, tab_drawn};
+    use super::{Curve, Folders, Page, Shape, Space, Tab, fade_at, file_name, tab_drawn};
 
     /// A fade reversed partway starts from the opacity it had, so nothing jumps, and ends at the
     /// other end.
@@ -3143,18 +3150,18 @@ mod tests {
         assert!(!tab_drawn(5, 3, &[], None, false));
     }
 
-    /// A row turning into a tile is partway there 20 ms in, and turned for good once the spring
+    /// A row turning into a tile is partway there 60 ms in, and turned for good once the spring
     /// has settled.
     #[test]
     fn a_dragged_row_turns_into_a_tile() {
         let start = Instant::now();
         let mut shape = Shape::new(false);
         shape.turn(true, start);
-        let partway = shape.at(start + Duration::from_millis(20));
-        assert!(partway > 0.3 && partway < 0.8, "20 ms in it's {partway} of the way");
-        assert!(shape.turning(start + Duration::from_millis(20)));
-        assert!(!shape.turning(start + Duration::from_millis(100)));
-        assert_eq!(shape.at(start + Duration::from_millis(100)), 1.);
+        let partway = shape.at(start + Duration::from_millis(60));
+        assert!(partway > 0.3 && partway < 0.8, "60 ms in it's {partway} of the way");
+        assert!(shape.turning(start + Duration::from_millis(60)));
+        assert!(!shape.turning(start + Duration::from_millis(400)));
+        assert_eq!(shape.at(start + Duration::from_millis(400)), 1.);
     }
 
     /// Crossing back mid-turn turns it back from where it was, with no jump, to a whole row.
@@ -3169,11 +3176,42 @@ mod tests {
         assert_eq!(shape.at(back), there);
         let later = shape.at(back + Duration::from_millis(5));
         assert!(later < there && later > 0., "5 ms after turning back it's at {later}");
-        assert_eq!(shape.at(back + Duration::from_millis(100)), 0.);
+        assert_eq!(shape.at(back + Duration::from_millis(400)), 0.);
         // Crossing again the way it's going changes nothing.
         let at = back + Duration::from_millis(20);
         let going = shape.at(at);
         shape.turn(false, back + Duration::from_millis(10));
         assert_eq!(shape.at(at), going);
+    }
+
+    /// How far `curve` is `ms` in, 1 once it's done.
+    fn along(curve: Curve, ms: f32) -> f32 {
+        curve.at(ms / 1000.).unwrap_or(1.)
+    }
+
+    /// The folder's and the favorites' curves pass within 0.05 of Arc's, frame by frame, never
+    /// overshoot, and are done, or within a hundredth, soon after Arc's are.
+    #[test]
+    fn folders_and_favorites_move_as_arcs_do() {
+        // Arc 1.170 rec, the share of the way at each ms (docs/ux-spec.md › Motion).
+        let open = [(50., 0.38), (100., 0.69), (150., 0.91), (192., 0.996)];
+        let close = [(69., 0.5), (128., 0.835), (187., 0.968), (228., 0.998)];
+        let room = [(17., 0.095), (50., 0.38), (75., 0.57), (100., 0.73), (142., 0.88)];
+        let curves = [
+            (Curve::Fold { open: true }, &open[..]),
+            (Curve::Fold { open: false }, &close[..]),
+            (Curve::Room, &room[..]),
+        ];
+        for (curve, arcs) in curves {
+            for &(ms, arc) in arcs {
+                let ours = along(curve, ms);
+                assert!((ours - arc).abs() < 0.05, "{ms} ms in it's {ours}, Arc's {arc}");
+            }
+            let steps: Vec<f32> = (0..=500).map(|ms| along(curve, ms as f32)).collect();
+            assert!(steps.windows(2).all(|pair| pair[0] <= pair[1] && pair[1] <= 1.));
+        }
+        assert_eq!(along(Curve::Fold { open: true }, 200.), 1.);
+        assert!(1. - along(Curve::Fold { open: false }, 280.) < 0.01);
+        assert!(1. - along(Curve::Room, 280.) < 0.01);
     }
 }

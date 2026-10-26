@@ -345,7 +345,7 @@ impl Shell {
             if let Some(drag) = &mut self.drag {
                 drag.to = place;
             }
-            self.move_tiles(tiles, Curve::Reorder);
+            self.move_tiles(tiles, Curve::Room);
         }
         cx.notify();
     }

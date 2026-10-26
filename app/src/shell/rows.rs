@@ -34,7 +34,7 @@ impl Shell {
         let folders = space.folders.folders.keys().copied();
         let open: Vec<u64> = folders.filter(|&folder| space.is_open(folder)).collect();
         // The core reports each, and the first report has them all closed.
-        self.folding = !open.is_empty();
+        self.folding = (!open.is_empty()).then_some(false);
         for folder in open {
             self.browser.set_folder_open(folder, false, cx);
         }
@@ -48,7 +48,7 @@ impl Shell {
         }
         let open = self.shown_space().is_some_and(|space| space.is_open(folder));
         log!("browser: command toggle-folder via sidebar");
-        self.folding = true;
+        self.folding = Some(!open);
         self.browser.set_folder_open(folder, !open, cx);
     }
 
