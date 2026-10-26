@@ -127,7 +127,8 @@ void host_hide_toast(void);
 void host_add_tooltip(void* tooltip_view, void (*away)(void));
 
 // Shows the tooltip's window as the UI draws it now, or moves it, with its top left at
-// (|left|, |top|) points in the content of |ui_view|'s window, kept inside the window.
+// (|left|, |top|) points in the content of |ui_view|'s window. The UI has placed it inside the
+// window, so the host doesn't clamp it.
 void host_show_tooltip(void* ui_view, double left, double top);
 
 // Hides the tooltip's window.

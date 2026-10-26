@@ -91,9 +91,9 @@ impl Shell {
             // A dragged row is drawn over the list, from `list`.
             .top(px(if dragging == Some(slot) { 0. } else { self.slide(slot) }))
             .block_mouse_except_scroll()
-            .on_hover(cx.listener(move |shell, hovered: &bool, window, cx| {
+            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover(row, *hovered, cx);
-                shell.hover_tooltip(row, *hovered, window.mouse_position(), cx)
+                shell.hover_tooltip(row, *hovered, cx)
             }))
             .child(
                 content
@@ -189,7 +189,8 @@ impl Shell {
             FAVICON_DRAWN,
             rgba(SECONDARY).into(),
         );
-        self.row(Row::Tab(folder), plate(icon, label), cx).when(!renaming, |row| {
+        let plate = plate(icon, label).child(self.framed(folder, 0.));
+        self.row(Row::Tab(folder), plate, cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
