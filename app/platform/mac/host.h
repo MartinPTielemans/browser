@@ -23,9 +23,15 @@ void host_centered(double width, double height, double* x, double* y);
 // functions below that take a |ui_view| act on the browser window it's in.
 void* host_ui_view(void);
 
-// Shows the window holding |ui_view| in front, with its title bar over the UI, and makes the
-// app the active one.
-void host_show_window(void* ui_view);
+// Shows the window holding |ui_view|, with its title bar over the UI: in front, and makes the
+// app the active one, or with |behind| just behind the window of |behind|, and the browser window
+// in front keeps the keyboard, as for a window put back at launch.
+void host_show_window(void* ui_view, void* behind);
+
+// Moves and shrinks a frame the last launch saved, in host_centered's terms, onto the visible part
+// of the screen it's most on, or of the Mac's own with BROWSER_DISPLAY=builtin. One on no such
+// screen is centred on it.
+void host_clamped(double* x, double* y, double* width, double* height);
 
 // Where the next browser window goes after the one of |ui_view|, in host_centered's terms: as
 // big, down and to the right as AppKit cascades windows, kept on its screen.

@@ -46,8 +46,10 @@
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
 //   layout                                logs the frames of the window's views and child
-//                                         windows, and the centres of its close, minimize and
-//                                         zoom buttons
+//                                         windows, the centres of its close, minimize and
+//                                         zoom buttons, and its frame on the screen, as
+//                                         "browser: layout frame <x>,<y> <width>x<height>" in
+//                                         points from the main display's top-left corner
 //   state                                 nothing, for the done line's report
 //   title                                 logs the key window's title, as "browser: key window
 //                                         titled <title>", such as a window of Chrome's
@@ -548,6 +550,11 @@ void Layout(NSWindow* window) {
                        NSMinX(frame) - NSMinX(bounds), NSMaxY(bounds) - NSMaxY(frame),
                        NSWidth(frame), NSHeight(frame)];
   }
+  // As the core saves it, for a check that windows come back where they were.
+  NSRect frame = window.frame;
+  [line appendFormat:@"\nbrowser: layout frame %.0f,%.0f %.0fx%.0f", NSMinX(frame),
+                     NSHeight(NSScreen.screens.firstObject.frame) - NSMaxY(frame),
+                     NSWidth(frame), NSHeight(frame)];
   fprintf(stderr, "%s\n", line.UTF8String);
 }
 

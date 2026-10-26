@@ -488,6 +488,38 @@ void host_centered(double width, double height, double* x, double* y) {
   *y = NSHeight(main.frame) - NSMidY(visible) - height / 2;
 }
 
+void host_clamped(double* x, double* y, double* width, double* height) {
+  NSScreen* main = NSScreen.screens.firstObject;
+  // AppKit's y runs up from the bottom of the main display.
+  NSRect frame = NSMakeRect(*x, NSHeight(main.frame) - *y - *height, *width, *height);
+  NSScreen* screen = WindowScreen();
+  if (strcmp(getenv("BROWSER_DISPLAY") ?: "", "builtin") != 0) {
+    double most = 0;
+    for (NSScreen* each in NSScreen.screens) {
+      NSRect on = NSIntersectionRect(frame, each.visibleFrame);
+      if (NSWidth(on) * NSHeight(on) > most) {
+        most = NSWidth(on) * NSHeight(on);
+        screen = each;
+      }
+    }
+  }
+  NSRect visible = screen.visibleFrame;
+  frame.size.width = fmin(NSWidth(frame), NSWidth(visible));
+  frame.size.height = fmin(NSHeight(frame), NSHeight(visible));
+  if (NSIntersectsRect(frame, visible)) {
+    frame.origin.x = fmin(fmax(NSMinX(frame), NSMinX(visible)), NSMaxX(visible) - NSWidth(frame));
+    frame.origin.y =
+        fmin(fmax(NSMinY(frame), NSMinY(visible)), NSMaxY(visible) - NSHeight(frame));
+  } else {
+    frame.origin.x = NSMidX(visible) - NSWidth(frame) / 2;
+    frame.origin.y = NSMidY(visible) - NSHeight(frame) / 2;
+  }
+  *x = NSMinX(frame);
+  *y = NSHeight(main.frame) - NSMaxY(frame);
+  *width = NSWidth(frame);
+  *height = NSHeight(frame);
+}
+
 void* host_ui_view(void) {
   auto browser = std::make_unique<Browser>();
   browser->ui_view = [[HostUIView alloc] initWithFrame:NSZeroRect];
@@ -496,7 +528,7 @@ void* host_ui_view(void) {
   return (__bridge void*)g_browsers.back()->ui_view;
 }
 
-void host_show_window(void* ui_view) {
+void host_show_window(void* ui_view, void* behind) {
   Browser* browser = BrowserWithView(ui_view);
   if (!browser) {
     return;
@@ -517,8 +549,20 @@ void host_show_window(void* ui_view) {
   material.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
   // Under the UI's view, since the core keeps only the UI's and the page's views in its own.
   [view addSubview:material positioned:NSWindowBelow relativeTo:nil];
-  [window makeKeyAndOrderFront:nil];
-  [NSApp activateIgnoringOtherApps:YES];
+  Browser* front = behind ? BrowserWithView(behind) : nullptr;
+  if (front && front->window) {
+    [window orderWindow:NSWindowBelow relativeTo:front->window.windowNumber];
+    // The core made it key as it opened it.
+    for (NSWindow* each in NSApp.orderedWindows) {
+      if (BrowserOf(each)) {
+        [each makeKeyWindow];
+        break;
+      }
+    }
+  } else {
+    [window makeKeyAndOrderFront:nil];
+    [NSApp activateIgnoringOtherApps:YES];
+  }
 
   // A click outside the command bar closes it first, so the click lands the way it would with
   // the bar closed. Otherwise it only makes the browser window key again: the page doesn't take

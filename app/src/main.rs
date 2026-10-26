@@ -43,7 +43,8 @@ mod platform {
         pub fn drive_start();
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
         pub fn host_ui_view() -> *mut c_void;
-        pub fn host_show_window(ui_view: *mut c_void);
+        pub fn host_show_window(ui_view: *mut c_void, behind: *mut c_void);
+        pub fn host_clamped(x: *mut f64, y: *mut f64, width: *mut f64, height: *mut f64);
         pub fn host_cascaded(
             ui_view: *mut c_void,
             x: *mut f64,
@@ -1180,7 +1181,7 @@ impl Browser for Engine {
         cx.defer(move |cx| {
             let from = WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.id == id).cloned());
             if from.is_some() {
-                open_window(from, cx);
+                open_window(from, None, cx);
             }
         });
     }
@@ -1307,16 +1308,46 @@ unsafe extern "C" fn tab_key_unhandled(
     run_page_shortcut(tab, key, false)
 }
 
-/// Opens a browser window centered on the main display, or cascaded from the one of `after` and as
-/// big, with `ui_view` filling it under the page, and returns its id.
-fn open_browser_window(ui_view: *mut c_void, after: Option<*mut c_void>) -> Option<bc::bc_id> {
+/// A window the last launch saved: its place among them, the most recently active first, its
+/// frame and its docked sidebar's width, or 0 for none.
+#[derive(Clone, Copy)]
+struct SavedWindow {
+    index: usize,
+    frame: bc::bc_rect,
+    sidebar_width: f64,
+}
+
+/// The windows the last launch saved, which the core puts back. None if it saved none.
+fn saved_windows() -> Vec<SavedWindow> {
+    let count = unsafe { bc::bc_saved_windows(std::ptr::null_mut(), std::ptr::null_mut(), 0) };
+    let mut frames = vec![bc::bc_rect { x: 0., y: 0., width: 0., height: 0. }; count];
+    let mut widths = vec![0.; count];
+    unsafe { bc::bc_saved_windows(frames.as_mut_ptr(), widths.as_mut_ptr(), count) };
+    let windows = frames.into_iter().zip(widths).enumerate();
+    windows
+        .map(|(index, (frame, sidebar_width))| SavedWindow { index, frame, sidebar_width })
+        .collect()
+}
+
+/// Opens a browser window at the `saved` frame, kept on a screen, else cascaded from the one of
+/// `after` and as big, else centered on the main display, with `ui_view` filling it under the page,
+/// and returns its id.
+fn open_browser_window(
+    ui_view: *mut c_void,
+    after: Option<*mut c_void>,
+    saved: Option<bc::bc_rect>,
+) -> Option<bc::bc_id> {
     let (mut width, mut height) = WINDOW_SIZE;
     let (mut x, mut y) = (0., 0.);
-    match after {
-        Some(after) => unsafe {
+    match (saved, after) {
+        (Some(saved), _) if saved.width > 0. && saved.height > 0. => unsafe {
+            (x, y, width, height) = (saved.x, saved.y, saved.width, saved.height);
+            platform::host_clamped(&mut x, &mut y, &mut width, &mut height)
+        },
+        (_, Some(after)) => unsafe {
             platform::host_cascaded(after, &mut x, &mut y, &mut width, &mut height)
         },
-        None => unsafe { platform::host_centered(width, height, &mut x, &mut y) },
+        _ => unsafe { platform::host_centered(width, height, &mut x, &mut y) },
     }
     let bounds = bc::bc_rect {
         x,
@@ -1329,10 +1360,10 @@ fn open_browser_window(ui_view: *mut c_void, after: Option<*mut c_void>) -> Opti
 }
 
 /// Shows the Spaces as the user left them in `window`, else a first Space with the first tab. A
-/// page given in BROWSER_URL opens on top either way.
-fn restore_spaces(window: bc::bc_id) {
+/// page given in BROWSER_URL opens on top either way. Returns whether they were restored.
+fn restore_spaces(window: bc::bc_id) -> bool {
     let start = Instant::now();
-    let restored = unsafe { bc::bc_window_restore(window) };
+    let restored = unsafe { bc::bc_window_restore(window, 0) };
     if restored {
         // check.sh reads this line.
         log!(
@@ -1347,6 +1378,42 @@ fn restore_spaces(window: bc::bc_id) {
         Err(_) if !restored => open_tab(window, START_URL),
         Err(_) => {}
     }
+    restored
+}
+
+/// Runs `then`, outside any update, once `window` has drawn a frame on screen. GPUI draws a window
+/// only once AppKit reports it visible, some frames after it's put there.
+fn after_first_frame(window: &Window, then: impl FnOnce(&mut App) + 'static) {
+    window.on_next_frame(move |window, _| {
+        if window.is_visible() {
+            // This frame draws once the callbacks have run, and the next one comes after.
+            window.on_next_frame(move |_, cx| cx.defer(then));
+        } else {
+            after_first_frame(window, then);
+        }
+    });
+}
+
+/// Opens the windows after the first that the last launch saved, behind it, each with its Space
+/// and its tabs, once the first has drawn its first frame, so they don't keep it off the screen.
+fn open_saved_windows(first: bc::bc_id, window: &Window) {
+    let saved = saved_windows();
+    if saved.len() < 2 {
+        // check.sh reads this line.
+        log!("browser: restored windows 1");
+        return;
+    }
+    after_first_frame(window, move |cx| {
+        let from = WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.id == first).cloned());
+        let Some(from) = from else {
+            return;
+        };
+        for saved in &saved[1..] {
+            open_window(Some(from.clone()), Some(*saved), cx);
+        }
+        // check.sh reads this line.
+        log!("browser: restored windows {}", WINDOWS.with_borrow(Vec::len));
+    });
 }
 
 extern "C" fn accent_color_changed() {
@@ -1391,16 +1458,22 @@ extern "C" fn dragged(
     answer.unwrap_or(false)
 }
 
-/// Opens a browser window and the shell inside it under the page. The first opens the overlays
-/// every window shares and the Spaces as the user left them. Another, from `from`, starts with its
-/// shell's state and shows its Space with no page, as ⌘N's window does.
-fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
+/// Opens a browser window and the shell inside it under the page, at the frame of the window the
+/// last launch `saved`, if it's given. The first opens the overlays every window shares and the
+/// Spaces as the user left them, then the other windows saved. Another, from `from`, starts with
+/// its shell's state and shows its Space with no page, as ⌘N's window does, or as the window
+/// `saved` was, behind the ones before it.
+fn open_window(from: Option<BrowserWindow>, saved: Option<SavedWindow>, cx: &mut App) {
     let ui_view = unsafe { platform::host_ui_view() };
-    let Some(id) = open_browser_window(ui_view, from.as_ref().map(|from| from.ui_view)) else {
+    let after = from.as_ref().map(|from| from.ui_view);
+    let Some(id) = open_browser_window(ui_view, after, saved.map(|saved| saved.frame)) else {
         return;
     };
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
-    if let Some(from) = &from {
+    if let Some(saved) = saved {
+        // The shell reads its sidebar's width from the core as it's made.
+        unsafe { bc::bc_window_set_sidebar_width(id, saved.sidebar_width) };
+    } else if let Some(from) = &from {
         // The shell reads its sidebar's width from the core as it's made.
         let width = unsafe { bc::bc_window_sidebar_width(from.id) };
         unsafe { bc::bc_window_set_sidebar_width(id, width) };
@@ -1428,10 +1501,12 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
-        // In front, as it's about to be key.
+        // In front, as it's about to be key. One put back at launch goes at its place behind the
+        // first, which stays key.
+        let place = saved.map_or(0, |saved| saved.index);
         WINDOWS.with_borrow_mut(|windows| {
             windows.insert(
-                0,
+                place.min(windows.len()),
                 BrowserWindow {
                     id,
                     ui_view,
@@ -1465,12 +1540,27 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
         })
         .ok();
     if let Some(from) = &from {
-        let space = unsafe { bc::bc_window_space(from.id) };
-        unsafe { bc::bc_window_show_space_empty(id, space) };
+        let space = match saved {
+            Some(saved) => unsafe {
+                bc::bc_window_restore(id, saved.index);
+                bc::bc_window_space(id)
+            },
+            None => unsafe {
+                let space = bc::bc_window_space(from.id);
+                bc::bc_window_show_space_empty(id, space);
+                space
+            },
+        };
         // Its Space drawn before it's on screen, rather than once the core's report comes.
         window.update(cx, |shell, _, cx| shell.set_space(space, cx)).ok();
     }
-    unsafe { platform::host_show_window(ui_view) };
+    // Behind the window before it in the list, as one put back at launch is.
+    let behind = WINDOWS.with_borrow(|windows| {
+        let at = windows.iter().position(|window| window.id == id)?;
+        let before = at.checked_sub(1)?;
+        Some(windows[before].ui_view)
+    });
+    unsafe { platform::host_show_window(ui_view, behind.unwrap_or(std::ptr::null_mut())) };
     let Ok(shell) = window.entity(cx) else {
         return;
     };
@@ -1488,7 +1578,9 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
     log!("browser: window opened {id}");
     if from.is_some() {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
-        if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
+        if unsafe { bc::bc_window_selected(id) } == 0
+            && let Ok(view) = window.update(cx, |_, window, _| ns_view(window))
+        {
             unsafe { platform::host_focus(view) };
         }
         return;
@@ -1528,7 +1620,9 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
     zoom_hud::open(cx);
     drop_targets::open(cx);
     // Once the page frame is set, so the tab shown loads at its size.
-    restore_spaces(id);
+    if restore_spaces(id) {
+        window.update(cx, |_, window, _| open_saved_windows(id, window)).ok();
+    }
 }
 
 unsafe extern "C" fn started(_: *mut c_void) {
@@ -1550,7 +1644,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
         cx.set_menus(menus(&[], &[]));
-        open_window(None, cx);
+        open_window(None, saved_windows().first().copied(), cx);
     });
     APP.set(Some(app));
 }

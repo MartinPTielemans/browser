@@ -322,7 +322,11 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 // and returns false if nothing was saved or there are Spaces already. Then favorites_changed,
 // spaces_changed, space_changed, each tab's tab_state_changed and tab_title_changed,
 // tab_favicon_changed once a tab's favicon is found, window_space_shown and window_selected.
-BC_EXPORT bool bc_window_restore(bc_id window);
+// That's |index| 0. A later |index| gives the window the Space that the |index|-th window of
+// bc_saved_windows showed, and the tab it showed in each Space, passing over tabs another window
+// shows; it returns false if index 0 put nothing back or there's no such window. The user's: agents
+// get none.
+BC_EXPORT bool bc_window_restore(bc_id window, size_t index);
 
 // Closes the window. With other windows open, its tabs go, their pages live, to the one active
 // before it, which shows its tab live again if it showed one this window took. Else its pages get
@@ -820,6 +824,13 @@ BC_EXPORT bc_id bc_window_selected(bc_id window);
 BC_EXPORT bc_id bc_tab_window(bc_id tab);
 // Shows |space| with no page, as a window ⌘N opens does. The user's: agents get none.
 BC_EXPORT void bc_window_show_space_empty(bc_id window, bc_id space);
+// The windows the last launch saved, as many as bc_window_restore puts back, the most recently
+// active first: copies up to |capacity| of their frames, as they were out of full screen, into
+// |bounds|, and their docked sidebars' widths (0 for none) into |sidebar_widths|. Either may be
+// null. Returns how many there are: 0 if nothing was saved, or the Spaces were saved by a build
+// without windows, which bc_window_restore puts back as one. The core saves each window's frame,
+// its Space, its sidebar's width and the tab it showed in each Space; the rest is shared.
+BC_EXPORT size_t bc_saved_windows(bc_rect* bounds, double* sidebar_widths, size_t capacity);
 
 #ifdef __cplusplus
 }

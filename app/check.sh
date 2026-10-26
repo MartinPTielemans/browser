@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the app and checks what it does, in sixteen runs that launch it twenty-seven times. Each
+# Runs the app and checks what it does, in sixteen runs that launch it thirty times. Each
 # run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in that
 # order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces profiles restore find pinned clear split favorites

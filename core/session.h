@@ -1,15 +1,18 @@
 #ifndef BROWSER_CORE_SESSION_H_
 #define BROWSER_CORE_SESSION_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "base/functional/callback_forward.h"
 #include "base/time/time.h"
 #include "browser_core/public/browser_core.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 class Profile;
@@ -81,12 +84,34 @@ struct SavedSpace {
 };
 
 // |space|, where a window shows |shown|, without its shown favorite. Puts the Today tabs it saved
-// in |today| if it isn't null.
-SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today = nullptr);
+// in |today| and every tab it saved, by its place among them, in |tabs|, if they aren't null.
+SavedSpace SaveSpace(const Space& space,
+                     bc_id shown,
+                     std::vector<bc_id>* today = nullptr,
+                     std::vector<bc_id>* tabs = nullptr);
 
 // Makes |saved| a Space, its tabs unloaded in |window| and |profile|, with the id |id|, a deleted
-// Space's, if it isn't 0. The window shows its shown tab there. Returns it.
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved, bc_id id = 0);
+// Space's, if it isn't 0. The window shows its shown tab there. Puts each tab's id in |ids|, by its
+// place among the pinned then Today tabs saved, or 0 for one it couldn't make, if |ids| isn't
+// null. Returns it.
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved,
+                    bc_id id = 0,
+                    std::vector<bc_id>* ids = nullptr);
+
+// A window, as the session file keeps it. What it shows is its own; the Spaces are shared.
+struct SavedWindow {
+  // On the screen, as it was out of full screen.
+  gfx::Rect bounds;
+  // The Space it showed, by its place among the Spaces.
+  int shown = 0;
+  // Its docked sidebar's width, or 0 for none.
+  double sidebar_width = 0;
+  // For each Space, the tab it showed there as SavedSpace::shown counts it, and the favorite it
+  // showed there instead, each -1 for none.
+  std::vector<std::pair<int, int>> tabs;
+};
 
 // The Spaces as the user left them: their names, their tabs with each tab's history, the tab each
 // showed and the Space the window showed, and the favorites. The core saves them a while after
@@ -109,6 +134,10 @@ void FlushSession();
 // The docked sidebar's width the last launch saved for its window, or 0.
 double SavedSidebarWidth();
 
+// The windows the last launch saved, the most recently active first. None if nothing was saved, or
+// if a build without windows saved the Spaces, which come back in one window.
+const std::vector<SavedWindow>& SavedWindows();
+
 // What the user chose in the app's Settings. The core keeps it with the Spaces, and reads it back
 // with them, before the app opens its window.
 struct Settings {
@@ -126,8 +155,9 @@ struct Settings {
 Settings& UserSettings();
 
 // Puts the favorites and Spaces the last launch saved in |window|, which shows the Space it
-// showed, unless there are Spaces already. Returns whether it did.
-bool RestoreSession(Window& window);
+// showed, unless there are Spaces already. Returns whether it did. That's |index| 0: a later one
+// gives |window| what the |index|-th of SavedWindows showed, once index 0 has put the Spaces back.
+bool RestoreSession(Window& window, size_t index);
 
 }  // namespace browser_core
 

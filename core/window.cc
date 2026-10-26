@@ -927,6 +927,16 @@ bc_id Window::SelectedIn(bc_id space) const {
   return it == selected_in_space_.end() ? 0 : it->second;
 }
 
+gfx::Rect Window::Frame() const {
+  return widget_->GetRestoredBounds();
+}
+
+void Window::SetActivationPlace(size_t place) {
+  std::erase(Order(), id_);
+  Order().insert(Order().begin() + std::min(place, Order().size()), id_);
+  SessionChanged();
+}
+
 void Window::SetSelectedIn(bc_id space, bc_id tab) {
   selected_in_space_[space] = tab;
 }
@@ -1377,6 +1387,10 @@ void Window::Destroy() {
   std::unique_ptr<Window> self = std::move(it->second);
   Windows().erase(it);
   widget_->CloseNow();
+  // Kept without it, as it closed while others stay. The last keeps its place.
+  if (!Windows().empty()) {
+    SessionChanged();
+  }
   if (Host().window_closed) {
     Host().window_closed(Host().context, id_);
   }
@@ -1445,6 +1459,11 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
       SessionChanged();
     }
   }
+}
+
+void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) {
+  // The session keeps each window's frame.
+  SessionChanged();
 }
 
 void Window::FocusPageSoon() {

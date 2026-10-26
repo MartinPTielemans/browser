@@ -24,7 +24,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Page before first paint | MVP | card colour over the tint, never white, in every page view a tab swaps in | Ardia P§7 |
 | [x] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |
 | [ ] | Resize edge | MVP | outer ≈ 3 pt. Partly: the window is a standard resizable one, so the edge is AppKit's; it isn't measured against 3 pt and no check drags it | Dia P§1 |
-| [x] | New window / closed window | MVP | at its final frame with content / gone at once; ⌘N cascaded from the key window, its size and Space, no page *interim*; Arc's ⌘N: measure | Dia P§1 |
+| [x] | New window / closed window | MVP | at its final frame with content / gone at once; ⌘N cascaded from the key window, its size and Space, no page *interim*; a launch brings back every window at its frame, Space, sidebar width and tabs, the others after the first's first frame *interim*; Arc's ⌘N and launch: measure | Dia P§1 |
 | [x] | Close confirmations | MVP | none: a closed window's tabs go to the window in front before it, live, so nothing is lost *interim*; Dia asks "Close 3 tabs?". Arc: measure | Dia P§1 |
 | [x] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
 | [ ] | Window full screen with the sidebar | MVP | built (the sidebar stays docked, the window's buttons come down with it, the command bar opens; window check); Arc's: measure | — |
