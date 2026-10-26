@@ -11,6 +11,7 @@ use gpui::{
 use super::{
     SCROLL_EDGE, SCROLL_EDGE_FADE, SWIPE_FLICK, SWIPE_HISTORY, SWIPE_TRACKING,
     Settle, Shell, Swipe, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at, rubber_band,
+    library::library_band,
 };
 
 impl Shell {
@@ -42,15 +43,23 @@ impl Shell {
     /// Where a swipe has taken the page of the Space it began at: with the fingers, but
     /// rubber-banding past the first and last Spaces, and past one Space either side. Past the
     /// first Space is the Library, its width away. A swipe in the Library goes back that far, to
-    /// the Space shown.
+    /// the Space shown, and past where it opens takes the card on, on the Library's stiffer band.
     pub(super) fn swiped_to(&self, swipe: &Swipe) -> f32 {
+        if swipe.library && swipe.way > 0. {
+            return self.past_library(swipe.way);
+        }
         if swipe.library {
             return rubber_band(swipe.way, -self.library_width(), 0.);
         }
         let index = self.spaces.iter().position(|space| space.id == swipe.from).unwrap_or(0);
         let width = self.width();
+        let library = index == 0 && self.library_beside(swipe.from);
+        // From the first Space, fingers that brought the Library out and go on meet its band too.
+        if library && swipe.way > self.library_width() {
+            return self.library_width() + self.past_library(swipe.way - self.library_width());
+        }
         let high = match index {
-            0 if self.library_beside(swipe.from) => self.library_width(),
+            0 if library => self.library_width(),
             0 => 0.,
             _ => width,
         };
@@ -58,6 +67,13 @@ impl Shell {
             return rubber_band(swipe.way, -width, high);
         }
         rubber_band(swipe.way, 0., high)
+    }
+
+    /// Where fingers `way` past where the Library opens take the page: the card goes on by the
+    /// Library's band, and the page's way is the card's over its push.
+    fn past_library(&self, way: f32) -> f32 {
+        let push = (self.library_width() - self.card_left()).max(1.);
+        self.library_width() * library_band(way) / push
     }
 
     /// Whether fingers going right from `space` bring out the Library: from the first Space, in the
@@ -140,8 +156,16 @@ impl Shell {
             let library_near = |shell: &Self, swipe: &Swipe| {
                 shell.library_swiped(swipe).map(|out| out > 0.5)
             };
+            let past_end = |shell: &Self, swipe: &Swipe| {
+                shell.library_swiped(swipe).is_some_and(|out| out > 1.)
+            };
             let was_near = library_near(self, &swipe);
+            let was_past = past_end(self, &swipe);
             swipe.way += SWIPE_TRACKING * delta.x;
+            if !was_past && past_end(self, &swipe) {
+                // check.sh waits for this line.
+                log!("browser: library past its end");
+            }
             let (now, x) = (Instant::now(), self.swiped_to(&swipe));
             swipe.samples.push_back((now, x));
             while swipe.samples.front().is_some_and(|&(at, _)| now - at > SWIPE_HISTORY) {

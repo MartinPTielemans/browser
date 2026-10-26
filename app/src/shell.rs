@@ -2336,12 +2336,17 @@ fn card(bounds: Bounds<Pixels>) -> gpui::Div {
 
 /// `way`, but past `low` or `high` only a little further, on the Space pages' rubber band.
 fn rubber_band(way: f32, low: f32, high: f32) -> f32 {
-    let band = |past: f32| 255. * (1. - 1. / (0.15 * past / 255. + 1.));
     match way {
-        way if way > high => high + band(way - high),
-        way if way < low => low - band(low - way),
+        way if way > high => high + band(way - high, 255., 0.15),
+        way if way < low => low - band(low - way, 255., 0.15),
         way => way,
     }
+}
+
+/// How far something goes for `past` beyond its end: `stiffness` of the way at first, and never
+/// as far as `limit`.
+fn band(past: f32, limit: f32, stiffness: f32) -> f32 {
+    limit * (1. - 1. / (stiffness * past / limit + 1.))
 }
 
 /// How far something settling critically damped since `start`, as the Space pages do, has come

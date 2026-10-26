@@ -45,6 +45,15 @@ const RECEDE_SCALE: f32 = 0.076;
 pub(super) const RECEDE_X: f32 = 128.;
 const LIBRARY_LAG: f32 = 0.29;
 const LIBRARY_LAG_SPEED: f32 = 0.92;
+/// Fingers going on past where the Library opens leave it there, its column at the window's edge,
+/// and take only the card on, 0.1 of their way at first and never 40 (ours, as Arc's isn't
+/// recorded): two thirds of the Space pages' rubber band at first and a third of it far out, for
+/// an end that's felt.
+const LIBRARY_BAND: f32 = 40.;
+const LIBRARY_BAND_STIFFNESS: f32 = 0.1;
+/// How near where it opens the Library counts as there, for the window's buttons, so the settle
+/// back from past it doesn't hide them as it dips under.
+const LIBRARY_END_SLACK: f32 = 0.01;
 
 /// The column of sections, and the line at its edge.
 const COLUMN_WIDTH: f32 = 112.;
@@ -414,16 +423,21 @@ impl Shell {
         }
     }
 
-    /// How far the Library's right edge has come to the card's: 0 at the window's edge and 1 there.
-    /// After a click it comes with the card; with the sidebar receding, late (`LIBRARY_LAG`).
+    /// How far the Library's right edge has come to the card's: 0 at the window's edge and 1 there,
+    /// where it stays as the card goes on past. After a click it comes with the card; with the
+    /// sidebar receding, late (`LIBRARY_LAG`).
     pub(super) fn library_edge(&self) -> f32 {
         let out = self.library_out();
-        if self.clicked_fade().is_some() {
-            return out;
+        match self.clicked_fade() {
+            Some(_) => out.min(1.),
+            None => receding_edge(out),
         }
-        let lagged = |out: f32| LIBRARY_LAG_SPEED * (out - LIBRARY_LAG);
-        let catch_up = (1. - lagged(RECEDE_SPAN)) / (1. - RECEDE_SPAN);
-        lagged(out).max(1. - catch_up * (1. - out)).max(0.)
+    }
+
+    /// Whether fingers, or the settle after them, have the Library where it opens or past, where
+    /// it stays with the window's own buttons on its column.
+    pub(super) fn library_at_end(&self) -> bool {
+        self.clicked_fade().is_none() && self.library_out() >= 1. - LIBRARY_END_SLACK
     }
 
     /// Opens the Library, or closes it, from wherever the card is, the sidebar fading.
@@ -1318,6 +1332,18 @@ fn receded_opacity(out: f32) -> f32 {
     (1. - out / RECEDE_SPAN).clamp(0., 1.)
 }
 
+/// How far the Library's edge has come (`library_edge`) as the sidebar recedes with it `out`.
+fn receding_edge(out: f32) -> f32 {
+    let lagged = |out: f32| LIBRARY_LAG_SPEED * (out - LIBRARY_LAG);
+    let catch_up = (1. - lagged(RECEDE_SPAN)) / (1. - RECEDE_SPAN);
+    lagged(out).max(1. - catch_up * (1. - out)).clamp(0., 1.)
+}
+
+/// How far the card goes, in points, for fingers' `way` past where the Library opens.
+pub(super) fn library_band(way: f32) -> f32 {
+    super::band(way, LIBRARY_BAND, LIBRARY_BAND_STIFFNESS)
+}
+
 /// A line of a row's text, cut short with an ellipsis.
 fn text_line(text: SharedString, size: f32, height: f32, color: u32) -> gpui::Div {
     div()
@@ -1350,8 +1376,8 @@ fn of(received: i64, total: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Line, Space};
-    use crate::shell::{Folders, Split};
+    use super::{LIBRARY_BAND, Line, Space, library_band, receding_edge};
+    use crate::shell::{Folders, Split, rubber_band};
 
     fn space(pinned: &[u64], today: &[u64], folders: Folders, splits: Vec<Split>) -> Space {
         Space {
@@ -1404,5 +1430,30 @@ mod tests {
         assert_eq!(card.card_lines(), [Line::Folder(10, 0)]);
         card.shown = 3;
         assert_eq!(card.card_lines(), [Line::Folder(10, 0), Line::Tab(3, 1)]);
+    }
+
+    /// Fingers past where the Library opens leave its column at the window's edge, whatever their
+    /// way, and it comes from the window's edge as they bring it out.
+    #[test]
+    fn the_library_stops_where_it_opens() {
+        for out in [1., 1.01, 1.2, 3.] {
+            assert_eq!(receding_edge(out), 1., "the Library's edge went on at {out}");
+        }
+        assert_eq!(receding_edge(0.), 0.);
+        assert!(receding_edge(0.5) > 0. && receding_edge(0.5) < 1.);
+    }
+
+    /// Past its end, the card meets much more resistance than the Space pages past theirs, and
+    /// never goes as far as the band's limit.
+    #[test]
+    fn the_library_bands_harder_than_the_pages() {
+        for way in [20., 100., 300., 600., 2000.] {
+            let card = library_band(way);
+            let page = rubber_band(way, 0., 0.);
+            let most = if way < 600. { 0.7 } else { 0.4 };
+            assert!(card > 0. && card < most * page, "{card} past the Library, {page} past a page");
+            assert!(card < LIBRARY_BAND);
+        }
+        assert!(library_band(600.) < library_band(2000.));
     }
 }

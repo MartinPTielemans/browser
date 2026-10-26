@@ -151,9 +151,9 @@ impl Shell {
 
     /// Whether the window's own buttons show: over the docked sidebar at rest and over the open
     /// Library, as in Arc. The sidebar hides them as it goes and they come back once it's in, and
-    /// while the Library moves the sidebar draws them, receding with it.
+    /// while the Library moves short of where it opens the sidebar draws them, receding with it.
     pub(super) fn window_buttons_shown(&self) -> bool {
-        if self.library_moving() {
+        if self.library_moving() && !self.library_at_end() {
             return false;
         }
         self.library_open || (!self.sidebar_hidden && self.sidebar_motion.is_none())
