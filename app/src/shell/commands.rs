@@ -539,8 +539,7 @@ impl Shell {
         let target = match command {
             Command::NewTab => {
                 self.set_new_tab(true, cx);
-                let (card, _) = self.page_frame(self.viewport);
-                return self.browser.new_tab_bar(card, cx);
+                return self.browser.command_bar(None, None, cx);
             }
             Command::EditUrl => {
                 self.set_new_tab(false, cx);

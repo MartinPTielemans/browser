@@ -193,9 +193,6 @@ uint32_t host_accent_color(void);
 // Calls |changed| each time the user changes the system's accent colour.
 void host_watch_accent_color(void (*changed)(void));
 
-// Whether the user turned on Reduce Motion in the system's accessibility settings.
-bool host_reduce_motion(void);
-
 // Calls |released| once, after the event that shows ⌃ is no longer held: ⌃ going up, a key or a
 // button pressed without it, or the app going to the background. Watches the whole app, whichever
 // view has the keyboard.

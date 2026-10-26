@@ -50,11 +50,10 @@ impl Shell {
     /// The sidebar button, back, forward, and reload, which is stop while the page loads, as many
     /// as fit.
     pub(super) fn nav_buttons(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
-        let tab = self.page_shown();
-        let page = self.page(tab);
+        let page = self.page(self.selected);
         let reload = match page.loading {
             true => (RELOAD_X, "icons/nav-stop.svg", Command::Stop, true),
-            false => (RELOAD_X, "icons/nav-reload.svg", Command::Reload, tab != 0),
+            false => (RELOAD_X, "icons/nav-reload.svg", Command::Reload, self.selected != 0),
         };
         let buttons = [
             (SIDEBAR_BUTTON_X, "icons/nav-sidebar.svg", Command::ToggleSidebar, true),
@@ -83,13 +82,8 @@ impl Shell {
         })
     }
 
-    /// The tab whose page the card shows: the selected one, or none on the New Tab page.
-    fn page_shown(&self) -> u64 {
-        if self.new_tab { 0 } else { self.selected }
-    }
-
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let url = self.url(self.page_shown());
+        let url = self.url(self.selected);
         // The pinned extensions' actions, at the field's end, and Copy URL before them, where the
         // host stops short of them.
         let actions = self.action_buttons(cx);

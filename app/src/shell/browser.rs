@@ -220,8 +220,6 @@ pub trait Browser {
     /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
     /// it changes.
     fn accent_color(&self) -> u32;
-    /// The user asked the system for less motion, so the New Tab page has no intro.
-    fn reduce_motion(&self) -> bool;
     /// Opens the command bar, for a new tab or on `editing`'s URL: out of the URL field at `field`
     /// in the window, or centred over it.
     fn command_bar(
@@ -230,11 +228,6 @@ pub trait Browser {
         field: Option<Bounds<Pixels>>,
         cx: &mut App,
     );
-    /// Opens the command bar for a new tab as the New Tab page's box, in the card at `card`.
-    fn new_tab_bar(&self, card: Bounds<Pixels>, cx: &mut App);
-    /// Takes the page shown out of the card while the New Tab page is in its place, or puts it
-    /// back.
-    fn hide_page(&self, hidden: bool, cx: &mut App);
     /// Opens the command bar over `pane`, a new pane in the card at `card`, for a page to show
     /// there in a split view with `with`.
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App);

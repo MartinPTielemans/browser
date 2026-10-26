@@ -156,7 +156,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | No scrim | MVP | page undimmed | Dia 1.49 cap |
 | [ ] | Rows | MVP | input 54; suggestions 36; favicon 16; title ≈ 15 pt; " — url" 0.5 | Dia 1.49 cap |
 | [x] | Selected row | MVP | ≈ #5E5A5D, radius 10, inset 4 | Dia 1.49 cap |
-| [ ] | Bottom row | MVP | 53 tall; Go ↩ pill ≈ 92 × 29 naming the engine; no AI chip or mic; the New Tab box's is built | Dia 1.49 cap, Ardia |
+| [ ] | Bottom row | MVP | 53 tall; Go ↩ pill ≈ 92 × 29 naming the engine; no AI chip or mic | Dia 1.49 cap, Ardia |
 | [x] | Colours | MVP | placeholder white 0.53, secondary rgba(239,244,255,0.6), caret #4A77D4, selection rgba(120,125,134,0.7) | Dia asset catalogs |
 | [x] | Default match | MVP | inline match, else URL, else search; search row after the top hit | Chrome, Dia 1.49 |
 | [x] | Stable row 0 | MVP | local only; remote rows append | Chrome O |
@@ -179,20 +179,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 ## New tab
 
-| Done | Item | Phase | Target | Source |
-|---|---|---|---|---|
-| [x] | Drawn by the UI, no renderer until navigation | MVP | yes: the command bar's box in the card, the page shown hidden; no New Tab tab *interim* | decision 4 |
-| [x] | Box width | MVP | 652 (708–1700), 774 above, min(w − 20, 616) below | Dia bin |
-| [x] | Box position | MVP | x max(mid − w/2, 14) + 1; top max(h/2 − 158, 100) + 38 + 1 | Dia bin + cap |
-| [x] | Box size and look | MVP | 112 tall, radius 20 continuous, panel fill, border and shadow; suggestions grow it down | Dia 1.50.1 |
-| [x] | Box contents | MVP | magnifier 30.5 from top, ≈ 30 in; bottom row 30.5 from bottom; Go pill inert while empty, naming the engine for a search | Dia 1.50.1 cap, Ardia |
-| [x] | Mark slot | MVP | 84 view, 76 mark, centre 48.6 above the box; our mark or none: none | Dia 1.50.1 |
-| [x] | Intro band | MVP | Space colour, blur 24, peak 0.10–0.20 s, plateau to 1.2 s, gone 3.25 s; ours: soft edges for the blur | Dia 1.50.1 cap |
-| [x] | Intro halo | MVP | bottom 225 ms → top 376 ms → gone 529 ms; line × 0.4, glow × 0.1 / 0.12; ours: the sweep fitted to the capture, the glow in steps | Dia 1.50.1 bin |
-| [x] | Reduce Motion | MVP | no intro | Dia |
-| [x] | Idle New Tab does no work | MVP | no display link after the intro | principle 1 |
-| [x] | Abandoned New Tabs close | MVP | on app resign or screen lock: ours closes the page on app resign, with no tab to close | Dia |
-| [ ] | Query restored on Back | MVP | yes; none while there's no New Tab tab to go back to | Dia |
+Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the page: see Command bar.
 
 ## Split view
 
@@ -205,7 +192,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Keys | MVP | ⌃+ add, ⌃⇧- close pane; ⌃⇧] / ⌃⇧[ focus *interim* | Arc menus, Dia |
 | [x] | Add Split View | MVP | in one frame: page narrows, empty pane, command bar over it 77 in from the card's edge | Arc 1.170.0 rec |
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |
-| [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View *interim*, until the New Tab page; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
+| [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View, as Dia's New Tab page in the pane isn't ours; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
 | [x] | Kept across a quit | MVP | yes | ours |
 | [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |

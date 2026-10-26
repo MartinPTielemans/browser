@@ -4,9 +4,7 @@
 # don't ask again quits and turns the warning off. The command bar opens over the page with the
 # keyboard, never showing the last query, gives the keyboard back when it closes, and loads what's
 # typed in it, over https for a host typed without one, or searches DuckDuckGo for words. While ⌘T's
-# is open, "New Tab" has the selected plate and the card shows the New Tab page in place of the
-# page, with the bar as its box where Dia's is, and a click there leaves it for the page, which
-# comes back without the keyboard. Japanese input composes and commits in the page and in
+# is open, "New Tab" has the selected plate. Japanese input composes and commits in the page and in
 # the command bar, where return and escape go to the input method while it composes. The Edit menu's
 # Undo, Redo and Select All reach the focused page.
 
@@ -54,19 +52,7 @@ for shortcut in "t new-tab" "l edit-url"; do
   # ⌘T's bar gives "New Tab" the selected plate, and the tab gets it back when the bar closes.
   if [ "$shortcut" = "t new-tab" ]; then
     expect '^browser: new tab plate 1$' "⌘T didn't give New Tab the selected plate"
-    send layout
-    layout=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -A9 -m1 '^browser: layout')
-    echo "$layout" | grep -q WebContentsViewCocoa && fail "the page stayed over the New Tab page"
-    # In the 1280 × 800 window, docs/ux-spec.md › New tab's sums put the box 424, 281 in.
-    echo "$layout" | grep -q '^browser: layout child 424,281 652x112$' ||
-      fail "the New Tab box isn't where Dia's is: $(echo "$layout" | grep child)"
     ../tools/window-screenshot.sh "$pid" "$out/new-tab-plate.png" || fail "no window to capture"
-    # Words are a search, and the box's Go pill names the engine.
-    send type arc browser
-    expect '^browser: command bar drew "arc browser"$' "the New Tab box didn't take the words"
-    ../tools/window-screenshot.sh "$pid" "$out/new-tab-search.png" || fail "no window to capture"
-    # Its intro runs once, then stops asking for frames.
-    await '^browser: new tab intro done$' || fail "the New Tab page's intro didn't end"
   fi
   # A shortcut the page doesn't keep comes back after the page has had it, so after the
   # driver's done.
@@ -77,8 +63,6 @@ for shortcut in "t new-tab" "l edit-url"; do
   expect '^browser: command bar hidden$' "escape didn't close the command bar"
   if [ "$shortcut" = "t new-tab" ]; then
     expect '^browser: new tab plate 0$' "escape didn't give the tab back its plate"
-    # The page is back with the keyboard.
-    send state
   fi
   in_browser RenderWidgetHostViewCocoa "after the command bar closed"
 done
@@ -94,14 +78,10 @@ expect '^browser: command find via ui$' "⌘F with the UI focused didn't reach t
 send key t cmd
 expect '^browser: command new-tab via ui$' "⌘T with the UI focused didn't reach the UI"
 expect '^browser: command bar shown$' "⌘T with the UI focused didn't open the command bar"
-# The click lands on the New Tab page, which goes, and the page comes back without the keyboard.
 send click $page_point
-expect '^browser: command bar hidden$' "a click on the New Tab page didn't close the command bar"
-expect '^browser: new tab plate 0$' "a click on the New Tab page didn't give the tab back its plate"
-send state
-in_browser AccessKitSubclassOfGPUIView "after a click on the New Tab page closed the command bar"
-send click $page_point
-in_browser RenderWidgetHostViewCocoa "after a click on the page that came back"
+expect '^browser: command bar hidden$' "a click on the page didn't close the command bar"
+expect '^browser: new tab plate 0$' "a click on the page didn't give the tab back its plate"
+in_browser RenderWidgetHostViewCocoa "after a click on the page closed the command bar"
 send type d
 # Input reaches the page in order, so by now it has seen the x and the shortcuts, if they got there.
 expect '^browser: title [0-9]* value abcd$' "the page got keys meant for the UI: $(grep '^browser: title' "$log" | tail -1)"
