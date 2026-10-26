@@ -1,0 +1,77 @@
+#!/bin/sh
+# Records one process's main window for a few seconds, with the windows it opens over it while
+# recording (menus, the command bar), as on screen, but nothing from other apps. For PRs whose
+# change moves: a screen recording would include whatever else is open on the owner's Mac.
+# Prints "recording" once frames are being written, so a caller can start the motion then.
+# Usage: tools/window-record.sh <pid> <seconds> <output.mp4>
+set -e
+[ $# -eq 3 ] || { echo "usage: $0 <pid> <seconds> <output.mp4>" >&2; exit 2; }
+PID="$1" SECONDS_LONG="$2" OUT="$3" swift - <<'SWIFT'
+import Foundation
+import ScreenCaptureKit
+
+let environment = ProcessInfo.processInfo.environment
+let pid = Int32(environment["PID"]!)!
+let seconds = Double(environment["SECONDS_LONG"]!)!
+let out = URL(fileURLWithPath: environment["OUT"]!)
+
+func fail(_ message: String) -> Never {
+  FileHandle.standardError.write(Data((message + "\n").utf8))
+  exit(1)
+}
+
+final class Finished: NSObject, SCRecordingOutputDelegate {
+  var done: CheckedContinuation<Void, Never>?
+  func recordingOutputDidFinishRecording(_ recordingOutput: SCRecordingOutput) {
+    done?.resume()
+  }
+  func recordingOutput(_ recordingOutput: SCRecordingOutput, didFailWithError error: Error) {
+    fail("recording failed: \(error)")
+  }
+}
+
+let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+let windows = content.windows.filter { $0.owningApplication?.processID == pid }
+// The largest normal window; a process can also own invisible helper windows.
+guard let main = windows.filter({ $0.windowLayer == 0 })
+  .max(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height })
+else { fail("process \(pid) has no window on screen") }
+guard let app = main.owningApplication else { fail("no app owns the window") }
+guard let display = content.displays.first(where: { $0.frame.intersects(main.frame) })
+else { fail("no display shows the window") }
+
+// The app's windows, so ones it opens while recording are in it too.
+let filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
+let config = SCStreamConfiguration()
+config.sourceRect = main.frame.offsetBy(dx: -display.frame.minX, dy: -display.frame.minY)
+config.width = Int(main.frame.width * CGFloat(filter.pointPixelScale))
+config.height = Int(main.frame.height * CGFloat(filter.pointPixelScale))
+config.minimumFrameInterval = CMTime(value: 1, timescale: 60)
+config.showsCursor = false
+
+let recording = SCRecordingOutputConfiguration()
+recording.outputURL = out
+recording.outputFileType = .mp4
+recording.videoCodecType = .h264
+let finished = Finished()
+let output = SCRecordingOutput(configuration: recording, delegate: finished)
+let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+try? FileManager.default.removeItem(at: out)
+try stream.addRecordingOutput(output)
+// The handler forms, since Swift can pick a startCapture() that returns before capture starts.
+try await withCheckedThrowingContinuation { (started: CheckedContinuation<Void, Error>) in
+  stream.startCapture { error in
+    if let error { started.resume(throwing: error) } else { started.resume() }
+  }
+}
+print("recording")
+fflush(stdout)
+try await Task.sleep(for: .seconds(seconds))
+// The file is complete only once the recording output says so, after the stream stops.
+await withCheckedContinuation { continuation in
+  finished.done = continuation
+  stream.stopCapture { error in
+    if let error { fail("stopping failed: \(error)") }
+  }
+}
+SWIFT
