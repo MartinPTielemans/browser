@@ -425,6 +425,12 @@ pub fn run_from_bar(command: Command, cx: &mut App) {
 }
 
 impl Command {
+    /// Whether it opens the command bar or the find bar with the keyboard, which the keys typed
+    /// right after its shortcut belong in (docs/ux-spec.md › Command bar › Keys).
+    pub fn opens_field(self) -> bool {
+        matches!(self, Command::NewTab | Command::EditUrl | Command::Find | Command::AddSplit)
+    }
+
     /// The command's name in the log and in the user's saved keys.
     pub fn name(self) -> &'static str {
         match self {

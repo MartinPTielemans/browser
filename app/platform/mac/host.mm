@@ -684,6 +684,101 @@ void PlaceReveal(Browser* browser) {
                     display:NO];
 }
 
+// Keys typed right after a shortcut that opens the command bar or the find bar belong in its field
+// (Ardia P§7), but the bar takes the keyboard only once it has drawn, a main-queue turn later, and
+// a shortcut the page gets first, such as ⌘L, comes back after the keys behind it went to the page.
+// So from the shortcut until the bar has the keyboard, keys are held and then given to it in order,
+// a composition whole. A hold lasts kHoldKeys at most, which is the page keeping the shortcut.
+NSMutableArray<NSEvent*>* g_held_keys;
+bool g_holding_keys = false;
+// The bar the keys wait for, or nil for whichever opens.
+NSWindow* g_keys_for;
+// Where the last hold's keys went, and when: keys typed before then that were still queued go there
+// too.
+NSWindow* g_keys_to;
+NSTimeInterval g_keys_released;
+// Counts holds, so a hold's time running out doesn't end a later one.
+unsigned g_hold = 0;
+constexpr double kHoldKeys = 0.4;
+
+// |event| as typed in |window|, so it goes there whether AppKit hands a key to the key window or to
+// the window the event names.
+NSEvent* Retarget(NSEvent* event, NSWindow* window) {
+  if (!window || event.windowNumber == window.windowNumber) {
+    return event;
+  }
+  const bool flags = event.type == NSEventTypeFlagsChanged;
+  return [NSEvent keyEventWithType:event.type
+                          location:NSZeroPoint
+                     modifierFlags:event.modifierFlags
+                         timestamp:event.timestamp
+                      windowNumber:window.windowNumber
+                           context:nil
+                        characters:flags ? @"" : event.characters
+       charactersIgnoringModifiers:flags ? @"" : event.charactersIgnoringModifiers
+                         isARepeat:flags ? NO : event.ARepeat
+                           keyCode:event.keyCode];
+}
+
+// Gives the keys held, and those typed until now, to the key window, now that |from| has the
+// keyboard or won't take it, unless they wait for another bar. The held ones are posted, since a
+// GPUI window drops a key that comes while it's handling another event, such as the shortcut.
+void ReleaseKeys(NSWindow* from) {
+  if (from && g_keys_for && from != g_keys_for) {
+    return;
+  }
+  NSWindow* to = NSApp.keyWindow;
+  g_keys_to = to;
+  g_keys_released = NSProcessInfo.processInfo.systemUptime;
+  if (!g_holding_keys) {
+    return;
+  }
+  g_holding_keys = false;
+  g_keys_for = nil;
+  ++g_hold;
+  if (g_held_keys.count) {
+    // check.sh reads this line.
+    fprintf(stderr, "browser: held %lu key events for %s\n", (unsigned long)g_held_keys.count,
+            to ? NSStringFromClass(to.class).UTF8String : "none");
+  }
+  // At the queue's start, last first, so they come in the order typed and before any typed since.
+  for (NSEvent* event in g_held_keys.reverseObjectEnumerator) {
+    [NSApp postEvent:Retarget(event, to) atStart:YES];
+  }
+  [g_held_keys removeAllObjects];
+}
+
+// Holds the keys typed from now until |window|, or if nil whichever bar opens, has the keyboard.
+void HoldKeys(NSWindow* window) {
+  if (!g_held_keys) {
+    g_held_keys = [NSMutableArray array];
+    constexpr NSEventMask kKeys =
+        NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged;
+    [NSEvent addLocalMonitorForEventsMatchingMask:kKeys
+                                          handler:^NSEvent*(NSEvent* event) {
+                                            if (g_holding_keys) {
+                                              [g_held_keys addObject:event];
+                                              return nil;
+                                            }
+                                            if (g_keys_to &&
+                                                event.timestamp <= g_keys_released) {
+                                              return Retarget(event, g_keys_to);
+                                            }
+                                            g_keys_to = nil;
+                                            return event;
+                                          }];
+  }
+  g_holding_keys = true;
+  g_keys_for = window;
+  const unsigned hold = ++g_hold;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kHoldKeys * NSEC_PER_SEC)),
+                 dispatch_get_main_queue(), ^{
+                   if (g_hold == hold) {
+                     ReleaseKeys(nil);
+                   }
+                 });
+}
+
 }  // namespace
 
 void host_centered(double width, double height, double* x, double* y) {
@@ -1025,6 +1120,7 @@ void host_show_overlay(int index,
     // Such as ⌘L while the command bar is open over the URL field: it moves without going.
     if (!moved) {
       [overlay->window makeKeyAndOrderFront:nil];
+      ReleaseKeys(overlay->window);
       return;
     }
   } else {
@@ -1037,11 +1133,15 @@ void host_show_overlay(int index,
     host_hide_overlay(index);
     overlay->shown = true;
     overlay->over = browser;
+    HoldKeys(overlay->window);
   }
   // The window still holds what it drew when it last closed, such as the previous query. It goes
   // on screen once the UI has drawn it as it is now, which can't happen while the UI is still
   // handling the shortcut that opened it.
   dispatch_async(dispatch_get_main_queue(), ^{
+    if (!overlay->shown) {
+      ReleaseKeys(overlay->window);
+    }
     if (!overlay->shown || overlay->over != browser) {
       return;
     }
@@ -1071,6 +1171,7 @@ void host_show_overlay(int index,
       GrowOverlay(*overlay);
     }
     [overlay->window makeKeyAndOrderFront:nil];
+    ReleaseKeys(overlay->window);
     // check.sh reads these lines.
     fprintf(stderr, "browser: %s at %g %g %g %g\n", overlay->name,
             NSMinX(frame) - NSMinX(content), NSMaxY(content) - NSMaxY(frame), NSWidth(frame),
@@ -1130,6 +1231,10 @@ void host_dismiss_overlay(int index) {
   }
 }
 
+void host_hold_keys(void) {
+  HoldKeys(nil);
+}
+
 void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top) {
   Browser* browser = BrowserWithView(ui_view);
   if (!browser) {
@@ -1156,13 +1261,20 @@ void host_show_find_bar(void* ui_view, bool keyboard) {
     // Once it's on screen. Until then, it takes the keyboard as it goes on.
     if (keyboard && find_bar.visible) {
       [find_bar makeKeyAndOrderFront:nil];
+      ReleaseKeys(find_bar);
+    } else if (keyboard) {
+      HoldKeys(find_bar);
     }
     return;
   }
   browser->find_bar_shown = true;
+  if (keyboard) {
+    HoldKeys(find_bar);
+  }
   // As the command bar does: it goes on screen once it has drawn what it shows now.
   dispatch_async(dispatch_get_main_queue(), ^{
     if (!browser->find_bar_shown) {
+      ReleaseKeys(find_bar);
       return;
     }
     [browser->find_bar_view.layer setNeedsDisplay];
@@ -1173,6 +1285,7 @@ void host_show_find_bar(void* ui_view, bool keyboard) {
     if (browser->find_bar_keyboard) {
       // From the command bar too, which closes.
       [find_bar makeKeyAndOrderFront:nil];
+      ReleaseKeys(find_bar);
     } else {
       RaiseOverlays(browser, find_bar);
     }

@@ -167,6 +167,13 @@ impl UserKeys {
         self.command_with(keystroke).filter(|&command| self::reserved(command) == reserved)
     }
 
+    /// Whether `keystroke` is a shortcut the page gets first, and may keep, that opens a field over
+    /// it, such as ⌘L, so the keys typed right after it wait for that field. A reserved one's bar
+    /// holds them itself, since it opens before the page could see them.
+    pub fn holds_keys(&self, keystroke: &str) -> bool {
+        self.command_for(keystroke, false).is_some_and(Command::opens_field)
+    }
+
     fn command_with(&self, keystroke: &str) -> Option<Command> {
         let user = self.set.iter().find(|(_, keys)| keys.iter().any(|key| key == keystroke));
         user.map(|&(command, _)| command).or_else(|| {
@@ -442,6 +449,17 @@ mod tests {
         assert_eq!(user.chips(Command::ViewLibrary), ["⌃", "⌥", "Space"]);
         user.set(Command::ViewLibrary, vec![]).unwrap();
         assert!(user.chips(Command::ViewLibrary).is_empty());
+    }
+
+    /// Keys typed right after ⌘L or ⌘F with the page focused wait for the field it opens, on the
+    /// user's keys too, and keys after the other shortcuts don't.
+    #[test]
+    fn keys_after_a_shortcut_that_opens_a_field_wait_for_it() {
+        let mut user = UserKeys::default();
+        assert!(user.holds_keys("cmd-l") && user.holds_keys("cmd-f") && user.holds_keys("ctrl-+"));
+        assert!(!user.holds_keys("cmd-t") && !user.holds_keys("cmd-r") && !user.holds_keys("a"));
+        user.set(Command::Find, keys(&["cmd-k"])).unwrap();
+        assert!(user.holds_keys("cmd-k") && !user.holds_keys("cmd-f"));
     }
 
     /// A reserved command stays reserved on its new key, which the page then never sees, and the

@@ -79,6 +79,7 @@ mod platform {
         pub fn host_set_overlay_height(overlay: c_int, height: f64);
         pub fn host_hide_overlay(overlay: c_int);
         pub fn host_dismiss_overlay(overlay: c_int);
+        pub fn host_hold_keys();
         pub fn host_add_find_bar(
             ui_view: *mut c_void,
             find_bar_view: *mut c_void,
@@ -1557,11 +1558,24 @@ unsafe extern "C" fn tab_key_before_page(
     key: *const bc::bc_key,
 ) -> bool {
     // As in Chrome, the reserved shortcuts come first, then the extensions' keys.
-    run_page_shortcut(tab, key, true) || {
-        let keystroke = keystroke(unsafe { &*key });
-        update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
-            .unwrap_or(false)
+    if run_page_shortcut(tab, key, true) {
+        return true;
     }
+    let keystroke = keystroke(unsafe { &*key });
+    if update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    // The keys typed after ⌘L would reach the page before it hands ⌘L back to open the bar.
+    let cx = CX.with_borrow(Clone::clone);
+    let holds = cx.and_then(|cx| {
+        cx.try_read_global(|keys: &shell::UserKeys, _| keys.holds_keys(&keystroke))
+    });
+    if holds == Some(true) {
+        unsafe { platform::host_hold_keys() };
+    }
+    false
 }
 
 unsafe extern "C" fn tab_key_unhandled(

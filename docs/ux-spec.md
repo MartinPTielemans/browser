@@ -618,7 +618,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 | Esc | leave site search; otherwise close the panel, drop the typed text and give the page its focus back | Ardia |
 | ⇧⌦ | take the selected row's page out of the history; the row under it takes its place | Chrome |
 
-- ⌘V, ⌘C, ⌘X or ⌘A pressed right after ⌘T, ⌘L or ⌘F waits up to 400 ms for the new field and lands there, never in the old page (Ardia, from a user report).
+- What's typed or pasted right after ⌘T, ⌘L or ⌘F, ⌘V, ⌘C, ⌘X or ⌘A too, waits up to 400 ms for the new field and lands there in order, never in the old page (Ardia, from a user report). Ours: a composition goes whole to the one field. A page that keeps the shortcut, as Google Docs keeps ⌘F, gets the keys when the 400 ms are up.
 - A click anywhere outside the panel, or another window or app taking focus, closes it like Esc; the click still does its own thing.
 - **URLs** (Chrome's `AutocompleteInput::Parse`). A dotted host without a scheme goes to https, falling back to http. Single labels, localhost, IP addresses and `.local` hosts go to http.
 - A right-click in a text field shows Cut, Copy, Paste and Select All. In the command bar's field it adds Paste and Go and Paste and Search, which go where ↩ and ⇧⌘↩ would for the copied text, a line break in it read as a space. Nothing reads the clipboard until one is chosen, so they're there whatever it holds, and macOS never sees an app read it unasked.
