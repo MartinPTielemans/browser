@@ -12,8 +12,8 @@ use std::{
 
 use browser::{command_bar, dialog, log, toast};
 use browser::shell::{
-    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
-    Page, Shell, Split, WindowButton,
+    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension, Folders,
+    MenuEntry, Page, Shell, Split, WindowButton,
 };
 use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
@@ -221,13 +221,16 @@ fn show_menu(
 
 /// Tells the core where the page goes and the radius of its corners (`Shell::page_frame`).
 fn set_page_frame((frame, radius): (Bounds<Pixels>, f32)) {
-    let frame = bc::bc_rect {
-        x: f64::from(frame.origin.x),
-        y: f64::from(frame.origin.y),
-        width: f64::from(frame.size.width),
-        height: f64::from(frame.size.height),
-    };
-    unsafe { bc::bc_window_set_page_frame(WINDOW.get(), frame, f64::from(radius)) };
+    unsafe { bc::bc_window_set_page_frame(WINDOW.get(), rect(frame), f64::from(radius)) };
+}
+
+fn rect(bounds: Bounds<Pixels>) -> bc::bc_rect {
+    bc::bc_rect {
+        x: f64::from(bounds.origin.x),
+        y: f64::from(bounds.origin.y),
+        width: f64::from(bounds.size.width),
+        height: f64::from(bounds.size.height),
+    }
 }
 
 /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it.
@@ -628,6 +631,21 @@ impl Browser for Engine {
         unsafe { bc::bc_window_task_manager(WINDOW.get()) };
     }
 
+    fn set_extensions_menu(&self, extensions: &[Extension], cx: &mut App) {
+        cx.set_menus(menus(extensions));
+    }
+
+    fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, _: &mut App) -> bool {
+        let Ok(id) = CString::new(id) else {
+            return false;
+        };
+        unsafe { bc::bc_window_run_extension(WINDOW.get(), id.as_ptr(), rect(anchor)) }
+    }
+
+    fn manage_extensions(&self, _: &mut App) {
+        open_tab("chrome://extensions");
+    }
+
     fn close_other_window(&self, _: &mut App) -> bool {
         unsafe { platform::host_close_other_window() }
     }
@@ -989,6 +1007,8 @@ fn open_window(cx: &mut App) {
             shell.downgrade(),
             Window::window_handle(window),
         )));
+        // The core read the extensions before there was a shell to take them.
+        unsafe { bc::bc_extensions_report() };
         shell
     });
     match window {
@@ -1050,16 +1070,16 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
-        cx.set_menus(menus());
+        cx.set_menus(menus(&[]));
         open_window(cx);
     });
     APP.set(Some(app));
 }
 
-/// The menu bar: Arc's menus, with the commands the browser has (docs/ux-spec.md › Menus). The
-/// Edit menu's standard items go to the first responder, so a focused page cuts, copies, pastes,
-/// selects and undoes for itself.
-fn menus() -> Vec<Menu> {
+/// The menu bar: Arc's menus, with the commands the browser has and the shown Space's profile's
+/// `extensions` (docs/ux-spec.md › Menus). The Edit menu's standard items go to the first
+/// responder, so a focused page cuts, copies, pastes, selects and undoes for itself.
+fn menus(extensions: &[Extension]) -> Vec<Menu> {
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
     vec![
@@ -1174,6 +1194,13 @@ fn menus() -> Vec<Menu> {
                 item("View Archive", Command::ViewArchive),
                 item("Clear Archive", Command::ClearArchive),
             ],
+        ),
+        menu(
+            "Extensions",
+            (extensions.iter().map(shell::extension_menu_item))
+                .chain((!extensions.is_empty()).then(MenuItem::separator))
+                .chain([item("Manage Extensions…", Command::ManageExtensions)])
+                .collect(),
         ),
         menu(
             "Window",
@@ -1430,6 +1457,43 @@ unsafe extern "C" fn download_icon(
     update_shell(|shell, cx| shell.set_download_icon(download, icon, cx));
 }
 
+unsafe extern "C" fn extensions_changed(
+    _: *mut c_void,
+    profile: bc::bc_id,
+    extensions: *const bc::bc_extension,
+    count: usize,
+) {
+    let extensions = match extensions.is_null() {
+        true => &[][..],
+        false => unsafe { std::slice::from_raw_parts(extensions, count) },
+    };
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into();
+    let extensions = extensions
+        .iter()
+        .map(|extension| Extension {
+            id: text(extension.id),
+            name: text(extension.name),
+            enabled: extension.enabled,
+        })
+        .collect();
+    update_shell(|shell, cx| shell.set_extensions(profile, extensions, cx));
+}
+
+unsafe extern "C" fn window_extension_popup(
+    _: *mut c_void,
+    window: bc::bc_id,
+    extension: *const c_char,
+) {
+    let extension = unsafe { CStr::from_ptr(extension) }.to_string_lossy();
+    if window == WINDOW.get() {
+        // check.sh waits for these lines.
+        match extension.is_empty() {
+            true => log!("browser: extension popup none"),
+            false => log!("browser: extension popup {extension}"),
+        }
+    }
+}
+
 unsafe extern "C" fn window_show_downloads(_: *mut c_void, window: bc::bc_id) {
     if window == WINDOW.get() {
         update_shell(|shell, cx| shell.show_downloads(cx));
@@ -1584,6 +1648,8 @@ fn main() {
         downloads_changed: Some(downloads_changed),
         download_icon: Some(download_icon),
         window_show_downloads: Some(window_show_downloads),
+        extensions_changed: Some(extensions_changed),
+        window_extension_popup: Some(window_extension_popup),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         window_suggestions: Some(window_suggestions),

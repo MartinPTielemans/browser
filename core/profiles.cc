@@ -15,6 +15,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/downloads.h"
+#include "browser_core/extensions.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/search.h"
@@ -138,6 +139,7 @@ void UseProfile(Profile* profile) {
   kept = std::make_unique<ScopedProfileKeepAlive>(profile, ProfileKeepAliveOrigin::kAppWindow);
   SetUpSearch(profile);
   ObserveDownloads(profile);
+  ObserveExtensions(profile);
 }
 
 void ReleaseProfiles() {

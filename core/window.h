@@ -18,6 +18,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "components/web_modal/web_contents_modal_dialog_host.h"
 #include "ui/gfx/geometry/rect.h"
+#include "ui/views/view_tracker.h"
 #include "ui/views/widget/widget_observer.h"
 
 class BrowserWindowInterface;
@@ -161,6 +162,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // shows it: with its history if it closed since the browser started, else at its page. It leaves
   // the archive. Returns its id, or 0.
   bc_id RestoreArchived(bc_id id);
+  // Runs extension |id|'s action on the tab the window shows, its popup hanging from |anchor|. See
+  // bc_window_run_extension.
+  bool RunExtension(const std::string& id, const gfx::Rect& anchor);
   // Opens a copy of |tab|, one of this window's, with its history: under it in Today, or at the
   // top of Today for a pinned tab, where a pinned tab's links open, and in the Space the window
   // shows for a favorite. Shows it, and its page loads. Returns its id, or 0.
@@ -284,6 +288,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The tab whose page the navigation being made opens a tab beside, until that tab is inserted.
   bc_id split_with_ = 0;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;
+  // Where the app last asked an extension's popup to hang from.
+  views::ViewTracker popup_anchor_;
   base::WeakPtrFactory<Window> weak_factory_{this};
 };
 

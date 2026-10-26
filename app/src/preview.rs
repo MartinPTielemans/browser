@@ -10,8 +10,8 @@ use std::{
 
 use browser::log;
 use browser::shell::{
-    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
-    Page, Shell, Split, WindowButton,
+    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension, Folders,
+    MenuEntry, Page, Shell, Split, WindowButton,
 };
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, TitlebarOptions,
@@ -466,6 +466,15 @@ impl Browser for Fake {
     fn devtools(&self, _: u64, _: i32, _: &mut App) {}
 
     fn task_manager(&self, _: &mut App) {}
+
+    // The preview has no menu bar and no extensions.
+    fn set_extensions_menu(&self, _: &[Extension], _: &mut App) {}
+
+    fn run_extension(&self, _: &str, _: Bounds<Pixels>, _: &mut App) -> bool {
+        false
+    }
+
+    fn manage_extensions(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
         false

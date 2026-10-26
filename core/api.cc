@@ -12,6 +12,7 @@
 #include "browser_core/auto_archive.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/downloads.h"
+#include "browser_core/extensions.h"
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
@@ -427,6 +428,15 @@ bc_id bc_window_reopen_closed_tab(bc_id window_id) {
 bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window ? window->RestoreArchived(archived) : 0;
+}
+
+void bc_extensions_report() {
+  browser_core::ReportExtensions();
+}
+
+bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window && id && window->RunExtension(id, ToRect(anchor));
 }
 
 void bc_archive_clear(void) {
