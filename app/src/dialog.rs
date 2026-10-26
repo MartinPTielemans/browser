@@ -46,6 +46,9 @@ const LABEL_X: f32 = 12.;
 const CHIP_END: f32 = 12.;
 const CHIP_GAP: f32 = 8.;
 const CANCEL_FILL: u32 = 0x2f305f;
+/// Ours: under the pointer it darkens to 0.9 of its fill, as the action does (Arc's isn't
+/// recorded).
+const CANCEL_HOVERED: u32 = 0x2a2b56;
 const CANCEL_BORDER: u32 = 0x6462a9;
 const CANCEL_TEXT: u32 = 0xffff_ffe6;
 /// The action, which darkens under the pointer and sits on a ledge of its own colour at 0.2.
@@ -334,6 +337,7 @@ impl Render for Dialog {
             .border_1()
             .border_color(rgb(CANCEL_BORDER))
             .bg(rgb(CANCEL_FILL))
+            .hover(|style| style.bg(rgb(CANCEL_HOVERED)))
             .text_color(rgba(CANCEL_TEXT))
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(false, cx)));
         let action = button(

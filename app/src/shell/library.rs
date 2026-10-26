@@ -106,6 +106,9 @@ const CARD_SHADOW_BLUR: f32 = 16.;
 const PLUS_GAP: f32 = 33.;
 const PLUS_SIZE: f32 = 30.;
 const PLUS_FILL: u32 = 0x1f2aff;
+/// Ours: under the pointer the + darkens to 0.9 of its fill, as the dialog's action does, and a
+/// card lightens by the sections' hover plate (Arc's aren't recorded).
+const PLUS_HOVERED: u32 = 0x1c26e6;
 const PLUS_GLYPH: f32 = 14.;
 /// The room after the +, to the Library's edge.
 const PLUS_AFTER: f32 = 37.;
@@ -942,6 +945,7 @@ impl Shell {
             .justify_center()
             .rounded_full()
             .bg(rgb(PLUS_FILL))
+            .hover(|style| style.bg(rgb(PLUS_HOVERED)))
             .block_mouse_except_scroll()
             .on_click(cx.listener(|shell, _, _, cx| {
                 shell.run(Command::NewSpace, "library", cx);
@@ -1041,6 +1045,15 @@ impl Shell {
             .shadow(vec![shadow])
             .block_mouse_except_scroll()
             .on_click(cx.listener(move |shell, _, _, cx| shell.pick_space(id, cx)))
+            .group("space-card")
+            // Over the gradient and under the rows.
+            .child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .rounded(px(CARD_RADIUS))
+                    .group_hover("space-card", |style| style.bg(rgba(SECTION_HOVERED))),
+            )
             .child(
                 name_box()
                     .mt(px(CARD_NAME_TOP))
