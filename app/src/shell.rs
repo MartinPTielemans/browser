@@ -2442,6 +2442,7 @@ impl Shell {
         }
         self.selected = tab;
         self.show_in_space(tab);
+        self.scroll_to_row(tab);
         if !self.walking {
             self.shown(tab);
         }
@@ -3438,6 +3439,9 @@ impl Shell {
             let tabs: Vec<u64> = opened.into_iter().map(|(_, tab)| tab).collect();
             // Rows a folder shows as it opens come whole, as several new tabs do.
             let whole = tabs.len() > 1 || tabs.iter().any(|&tab| self.depth(tab) > 0);
+            if !whole {
+                self.scroll_to_row(tabs[0]);
+            }
             self.opened = Some(Opened { tabs, whole, start: now });
         }
         for (&slot, &top) in &before {
@@ -3477,6 +3481,30 @@ impl Shell {
     fn drag_at(&self, drag: &Drag) -> f32 {
         let (first, last) = drag.span;
         (self.list_y(drag.pointer.y) - drag.grab.0).clamp(first, last)
+    }
+
+    /// Scrolls the list the least that shows `tab`'s row whole, if it has one: for a new tab's row,
+    /// as Dia's does for a tab opened behind, and for the tab shown, as Chrome's tab strip does.
+    fn scroll_to_row(&self, tab: u64) {
+        let Some(&top) = self.layout().get(&Slot::Tab(self.row_of(tab))) else {
+            return;
+        };
+        let height = f32::from(self.list_scroll.bounds().size.height);
+        let offset = self.list_scroll.offset();
+        let scrolled = -f32::from(offset.y);
+        let to = if top < scrolled {
+            top
+        } else if top + ROW_PITCH > scrolled + height {
+            top + ROW_PITCH - height
+        } else {
+            return;
+        };
+        // Not before the list's first layout.
+        if height > 0. {
+            // check.sh reads this line.
+            log!("browser: list scrolled to {to} for {tab}");
+            self.list_scroll.set_offset(point(offset.x, px(-to)));
+        }
     }
 
     /// Where `y`, down from the sidebar's top, is in the list, scrolled as it is.
