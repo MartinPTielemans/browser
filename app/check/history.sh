@@ -1,10 +1,14 @@
 # Back and forward go through the tab's history from keys, with the page or the UI focused, and from
 # the header's buttons, which dim with nowhere to go. Reload loads the page again, and while a page
 # loads, reload is stop, which ⌘., escape and the button do. A tab's row shows its page's favicon,
-# and keeps it until the next page has loaded without one.
+# and keeps it until the next page has loaded without one. A host typed in the command bar goes over
+# https first, then http, and a local one over http.
 
 # Back, forward, reload and stop. stuck.test leads to a server that takes connections and never
-# answers, so its page keeps loading until it's stopped.
+# answers, so its page keeps loading until it's stopped, and $plain to the check's own, which has no
+# https. The profile remembers a host that fell back to http, so each run names a new one.
+serve
+plain="plain-$(date +%s).example.com"
 python3 -I -c '
 import socket, time
 server = socket.socket()
@@ -26,7 +30,8 @@ log="$out/history.log"
 step=0
 rm -f "$saved"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" \
-  --host-resolver-rules="MAP stuck.test 127.0.0.1:$(cat "$out/port")" < "$out/drive" > "$log" 2>&1 &
+  --host-resolver-rules="MAP stuck.test 127.0.0.1:$(cat "$out/port"), \
+MAP $plain 127.0.0.1:$port" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -97,7 +102,23 @@ EOF
   expect "^browser: command stop via $from\$" "$what while loading didn't run stop"
   expect_page example.org 1 0 "after $what stopped the load"
 done
+
+# A host typed without a scheme goes over https first, and over http once https fails; a local one
+# goes over http at once. The check's server answers a TLS handshake as a bad request.
+tls() {
+  grep -a -c 'code 400, message Bad request' "$out/site.log" || true
+}
+before=$(tls)
+go_from_bar "$plain"
+expect "^browser: page $tab back 1 forward 0 loading 0 http://$plain/\$" \
+  "$plain didn't come over http: $(grep "^browser: page $tab" "$log" | tail -1)"
+[ "$(tls)" -gt "$before" ] || fail "$plain came over http without trying https first"
+before=$(tls)
+go_from_bar "127.0.0.1:$port"
+expect "^browser: page $tab back 1 forward 0 loading 0 http://127.0.0.1:$port/\$" \
+  "127.0.0.1:$port didn't come over http: $(grep "^browser: page $tab" "$log" | tail -1)"
+[ "$(tls)" = "$before" ] || fail "127.0.0.1:$port was tried over https"
 exec 3>&-
 quit
 kill "$stuck"
-echo "ok: ⌘← ⌘→ and the header's buttons go back and forward, with the page or the UI focused; reload and force reload load the page again; ⌘., escape and the stop button stop a load; the row keeps a page's favicon until the next page has loaded without one. Windows: $out/history.png, $out/loading.png"
+echo "ok: ⌘← ⌘→ and the header's buttons go back and forward, with the page or the UI focused; reload and force reload load the page again; ⌘., escape and the stop button stop a load; the row keeps a page's favicon until the next page has loaded without one; a host typed in the command bar goes over https first and falls back to http, and a local one goes over http at once. Windows: $out/history.png, $out/loading.png"
