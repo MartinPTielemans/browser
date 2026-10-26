@@ -868,6 +868,9 @@ pub struct Shell {
     /// The profile's downloads, newest first, and the file icons asked for them.
     downloads: Vec<Download>,
     download_icons: HashMap<u64, Option<Arc<Image>>>,
+    /// The download whose row the left button last pressed, where, and whether the press became
+    /// the system's drag of its file.
+    download_press: Option<(u64, Point<Pixels>, bool)>,
     /// Every download a report has listed, whether one has come, and the new download's icon on its
     /// way to the Library button.
     downloads_seen: HashSet<u64>,
@@ -990,6 +993,7 @@ impl Shell {
             page_favicons: HashMap::new(),
             downloads: Vec::new(),
             download_icons: HashMap::new(),
+            download_press: None,
             downloads_seen: HashSet::new(),
             downloads_read: false,
             flight: None,

@@ -158,6 +158,7 @@ mod tests {
             id,
             name: "file.zip".into(),
             url: "https://example.com/file.zip".into(),
+            path: "/Users/someone/Downloads/file.zip".into(),
             received: 0,
             total: 0,
             state,

@@ -1,14 +1,15 @@
 # The check's web server, which serve in lib.sh starts for the runs that load its pages. Its
 # page's text field, along its bottom, puts what's in it in the title, and an unseen link in its
-# top-left 40 points goes to a text file. "d" typed in the page downloads a file, "s" one that
-# takes longer than the run to come, and "k" opens the cookie page, once a check, as later runs
-# type in it too. "a" asks to manage windows on all the displays, a permission with no question
-# from macOS, and puts the answer in the title. Keys with ⌘, ⌃ or ⌥ are the browser's. /wait is a
-# page that never comes.
+# top-left 40 points goes to a text file. "d" typed in the page downloads a file, "q" the same
+# file as another, "s" one that takes longer than the run to come, and "k" opens the cookie page,
+# once a check, as later runs type in it too. "a" asks to manage windows on all the displays, a
+# permission with no question from macOS, and puts the answer in the title. Keys with ⌘, ⌃ or ⌥
+# are the browser's. /wait is a page that never comes.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
 <a id=d download href="notes.txt"></a><a id=s download href="slow.bin"></a>
+<a id=q download="trash.txt" href="notes.txt"></a>
 <a id=k href="clear.html"></a>
 <a href="notes.txt" style="position:fixed;left:0;top:0;width:40px;height:40px"></a>
 <script>

@@ -90,6 +90,12 @@ pub trait Browser {
     /// Looks up the icon the system shows for the download's file, and calls
     /// `Shell::set_download_icon`.
     fn download_icon(&self, download: u64, cx: &mut App);
+    /// Moves the file at `path` to the system's Trash, and says whether it's gone, as it is if it
+    /// was gone already.
+    fn trash(&self, path: &str, cx: &mut App) -> bool;
+    /// Starts the system's drag of the file at `path` from the pointer the left button holds, and
+    /// calls `Shell::file_drag_ended` once it's let go. False if it didn't start.
+    fn drag_file(&self, path: &str, cx: &mut App) -> bool;
     /// Looks up the favicon the browser has for `url`, and calls `Shell::set_page_favicon`.
     fn page_favicon(&self, url: &str, cx: &mut App);
     /// The starts of today, yesterday, this week and last week in the user's calendar, in
