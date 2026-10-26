@@ -15,7 +15,7 @@ use super::{
     CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, CancelName, Closing,
     Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_TEXT,
     HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_RADIUS, Naming,
-    PLATE_HEIGHT, PLATE_INSET, PRESSED, ROW_FILL, ROW_HEIGHT, Row, SECONDARY, SEGMENT_END,
+    PLATE_HEIGHT, PLATE_INSET, PRESSED, ROW_HEIGHT, Row, SELECTED_UNHOVER, SECONDARY, SEGMENT_END,
     SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN,
     SPEAKER_GAP, SPEAKER_SIZE, Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier,
     divider_box, favicon, folder_icon, name_box, new_tab_label, plate, row_box, row_spring,
@@ -100,7 +100,7 @@ impl Shell {
             }))
             .child(
                 content
-                    .when(selected, |plate| selected_plate(plate, plate_in))
+                    .when(selected, |plate| selected_plate(plate, plate_in, hover.unwrap_or(0.)))
                     .id("plate")
                     .when_some(hover.filter(|_| !selected), |plate, hover| {
                         plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
@@ -120,14 +120,16 @@ impl Shell {
             )
     }
 
-    /// How full `row`'s hover fill is: full under the pointer or with its menu up, and fading once
-    /// it's left. None for none.
+    /// How full `row`'s hover fill is: full under the pointer or with its menu up, and for the
+    /// selected row, easing back once it's left. None for none.
     pub(super) fn hover_fill(&self, row: Row) -> Option<f32> {
         if self.hovered == Some(row) || self.menu_row.is_some_and(|tab| row == Row::Tab(tab)) {
             return Some(1.);
         }
-        self.unhovered.iter().find(|&&(old, _)| old == row).map(|(_, start)| {
-            let t = (start.elapsed().as_secs_f32() / ROW_FILL).min(1.);
+        let selected = row == self.selected_row();
+        let left = self.unhovered.iter().find(|&&(old, _)| old == row).filter(|_| selected);
+        left.map(|(_, start)| {
+            let t = (start.elapsed().as_secs_f32() / SELECTED_UNHOVER).min(1.);
             1. - cubic_bezier(0., 0., 0.58, 1., t)
         })
     }
@@ -754,7 +756,10 @@ mod tests {
     use gpui::{Entity, TestAppContext, VisualTestContext};
 
     use super::{
-        super::{Folders, Shell, Swapped, commands::bind_keys, recorder::Recorder},
+        super::{
+            Folders, Row, SELECTED_UNHOVER, Shell, Swapped, commands::bind_keys,
+            drag::detents::shell_with, recorder::Recorder,
+        },
         LOADING_GAP, LOADING_TURN, Rings,
     };
 
@@ -775,6 +780,33 @@ mod tests {
         rings.since.set(Some(Instant::now() - LOADING_TURN / 2));
         rings.still.set(true);
         assert_eq!(rings.turn(), 0.);
+    }
+
+    /// A row's hover fill comes and goes at once, and only the selected row's eases back, from
+    /// full to none over SELECTED_UNHOVER, as Arc's does.
+    #[gpui::test]
+    fn only_the_selected_rows_hover_eases_away(cx: &mut TestAppContext) {
+        let (shell, _) = shell_with(cx, &[], &[1, 2], Folders::default());
+        let fill = |shell: &Entity<Shell>, cx: &mut TestAppContext, tab| {
+            shell.update(cx, |shell, _| shell.hover_fill(Row::Tab(tab)))
+        };
+        shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+        shell.update(cx, |shell, cx| shell.hover(Row::Tab(2), true, cx));
+        assert_eq!(fill(&shell, cx, 2), Some(1.));
+        shell.update(cx, |shell, cx| shell.hover(Row::Tab(2), false, cx));
+        assert_eq!(fill(&shell, cx, 2), None);
+
+        shell.update(cx, |shell, cx| shell.hover(Row::Tab(1), true, cx));
+        assert_eq!(fill(&shell, cx, 1), Some(1.));
+        shell.update(cx, |shell, cx| shell.hover(Row::Tab(1), false, cx));
+        let easing = fill(&shell, cx, 1).unwrap_or(0.);
+        assert!(easing > 0.9, "just left, the selected row's fill is {easing}");
+        shell.update(cx, |shell, _| {
+            for (_, start) in &mut shell.unhovered {
+                *start -= Duration::from_secs_f32(SELECTED_UNHOVER);
+            }
+        });
+        assert_eq!(fill(&shell, cx, 1), Some(0.));
     }
 
     /// The window, showing a Space whose Today tabs the core reports as `today`, with `shown`.

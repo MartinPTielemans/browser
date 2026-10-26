@@ -1,8 +1,6 @@
 //! The sidebar's menus, a Space's, a tab's, a favorite's, a folder's and the plus
 //! button's, and what their items do.
 
-use std::time::Instant;
-
 use gpui::{Context, Pixels, Point, SharedString};
 
 use super::{Command, Row, SPACE_COLORS, Shell, UserKeys, user_keys};
@@ -272,10 +270,10 @@ impl Shell {
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| {
-                        // The fill fades as the pointer leaving the row fades it.
+                        // The fill goes as the pointer leaving the row takes it.
                         shell.menu_row = None;
                         if shell.hovered != Some(row) {
-                            shell.unhovered.push((row, Instant::now()));
+                            shell.unhover(row);
                         }
                         cx.notify();
                         let item = chosen.and_then(|at| items.into_iter().nth(at));
