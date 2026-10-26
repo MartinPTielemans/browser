@@ -1174,6 +1174,7 @@ impl Shell {
             }
             _ => log!("browser: space {space}"),
         }
+        self.browser.tooltip(None, cx);
         let before = std::mem::replace(&mut self.space, space);
         // A swipe that began in another Space is over, and its momentum with it.
         if self.swipe.as_ref().is_some_and(|swipe| swipe.from != space) {
@@ -1888,6 +1889,7 @@ impl Render for Shell {
                 }
                 shell.pointer_at(event.position.x.into(), cx);
             }))
+            .on_scroll(cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|shell, event: &MouseUpEvent, window, cx| {

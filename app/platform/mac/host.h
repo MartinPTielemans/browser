@@ -106,6 +106,19 @@ void host_show_toast(void);
 // Hides the toast's window.
 void host_hide_toast(void);
 
+// Makes the window of |tooltip_view| the tooltip's, which floats over the browser window as its
+// child when shown, and lets the mouse through and never takes the keyboard. It starts hidden.
+// |away| is called when the browser window stops being key or the app stops being active, which
+// hide it.
+void host_add_tooltip(void* tooltip_view, void (*away)(void));
+
+// Shows the tooltip's window as the UI draws it now, or moves it, with its top left at
+// (|left|, |top|) points in the browser window's content, kept inside the window.
+void host_show_tooltip(double left, double top);
+
+// Hides the tooltip's window.
+void host_hide_tooltip(void);
+
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 

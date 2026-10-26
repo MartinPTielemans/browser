@@ -5,6 +5,8 @@ use std::{collections::HashMap, rc::Rc, time::Instant};
 
 use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, hsla, img, prelude::*, px, rgba};
 
+use crate::tooltip;
+
 use super::{
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FOOTER_HEIGHT, HAIRLINE, LIST_TOP, PLATE_INSET, Place, Row,
     SELECTED, SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE, TILE_EDGE, TILE_GAP,
@@ -205,6 +207,26 @@ impl Shell {
         }
     }
 
+    /// The tooltip over a favorite's tile, which has only an icon, or a folder's row: its name,
+    /// after a moment, below the pointer at `at`. The pointer leaving, or a drag or a menu, ends
+    /// it; other rows have none (the hover card is Dia's).
+    pub(super) fn hover_tooltip(
+        &self,
+        row: Row,
+        hovered: bool,
+        at: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let name = match row {
+            Row::Tab(tab) if self.is_folder(tab) => self.folder_name(tab),
+            Row::Tab(tab) if self.favorites.contains(&tab) => self.title(tab),
+            _ => return,
+        };
+        let busy = self.dragging().is_some() || self.menu_row.is_some();
+        let tip = (hovered && !busy).then(|| tooltip::text_for(&name)).flatten();
+        self.browser.tooltip(tip.map(|text| (text, (at.x.into(), at.y.into()))), cx);
+    }
+
     /// A favorite's tile: its favicon on a plate, which the tab shown has filled and ringed by its
     /// icon (tile_theme.rs). A click shows it, a double-click takes it back to its URL (Dia), and a
     /// right-click shows its menu.
@@ -255,12 +277,14 @@ impl Shell {
             .border_color(if selected { ring } else { rgba(TILE_EDGE).into() })
             .bg(fill)
             .block_mouse_except_scroll()
-            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
-                shell.hover(Row::Tab(tab), *hovered, cx)
+            .on_hover(cx.listener(move |shell, hovered: &bool, window, cx| {
+                shell.hover(Row::Tab(tab), *hovered, cx);
+                shell.hover_tooltip(Row::Tab(tab), *hovered, window.mouse_position(), cx)
             }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    shell.browser.tooltip(None, cx);
                     // The first click showed it.
                     if event.click_count == 2 {
                         log!("browser: command back-to-pinned-url via favorite");

@@ -17,3 +17,4 @@ pub mod dialog;
 pub mod shell;
 pub mod text_input;
 pub mod toast;
+pub mod tooltip;
