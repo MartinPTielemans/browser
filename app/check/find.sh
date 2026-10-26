@@ -124,8 +124,9 @@ send resize 1000 700
 check_find_bar "after a resize"
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen"
-check_find_bar "in full screen"
+# Captured first, so a bar out of place shows where it went.
 ../tools/window-screenshot.sh "$pid" "$out/find-fullscreen.png" || fail "no window to capture"
+check_find_bar "in full screen"
 send fullscreen
 expect '^browser: window left full screen$' "the window didn't leave full screen"
 

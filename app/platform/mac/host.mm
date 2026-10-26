@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import <QuartzCore/QuartzCore.h>
+#import <objc/runtime.h>
 
 #include <algorithm>
 #include <initializer_list>
@@ -153,6 +154,12 @@ NSScreen* WindowScreen() {
   return main;
 }
 
+// AppKit keeps a titled window's top below the menu bar, which full screen on a screen without a
+// notch puts over the browser window's top. An overlay goes where the host puts it, over that.
+NSRect Unconstrained(id, SEL, NSRect frame, NSScreen*) {
+  return frame;
+}
+
 // GPUI gives a window a title bar. Keeping it (transparent) keeps the system's rounded corners;
 // only its buttons go. A child window stays above its parent, so it doesn't need GPUI's floating
 // level, which would also put it above other apps' windows.
@@ -164,6 +171,10 @@ void MakeOverlay(NSWindow* window) {
   window.level = NSNormalWindowLevel;
   // AppKit would otherwise hide the panel when the app deactivates and show it again on return.
   ((NSPanel*)window).hidesOnDeactivate = NO;
+  // GPUI's class for its panels, which are all overlays here.
+  SEL constrain = @selector(constrainFrameRect:toScreen:);
+  class_addMethod(object_getClass(window), constrain, (IMP)Unconstrained,
+                  method_getTypeEncoding(class_getInstanceMethod(NSWindow.class, constrain)));
 }
 
 void PlaceFindBar() {
