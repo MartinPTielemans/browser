@@ -68,7 +68,7 @@ const SECTION_GAP: f32 = 20.;
 /// The plate under the selected section and the search field.
 const LIBRARY_PLATE: u32 = 0xffffff17;
 /// The back button, at the column's bottom.
-const LIBRARY_BACK_INSET: f32 = 8.;
+pub(super) const LIBRARY_BACK_INSET: f32 = 8.;
 
 /// The Spaces section (Arc 1.170 cap, one Space): the Library is 480 wide, and a card per Space
 /// starts 28 after the column, 240 wide and as tall as the window less 48 above and below, with
@@ -307,6 +307,7 @@ impl Shell {
             log!("browser: downloads {}", downloads.len());
         }
         self.download_icons.retain(|id, _| downloads.iter().any(|each| each.id == *id));
+        self.fly_new_download(&downloads, cx);
         self.downloads = downloads;
         if self.section == Section::Downloads {
             self.filter(true, cx);
