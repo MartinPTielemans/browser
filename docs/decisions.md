@@ -4,7 +4,7 @@ Each entry gives what was decided, why, and what would make us revisit it. Newes
 
 ## 1. Engine: Chromium
 
-Chromium, not WebKit, Gecko, Servo or Ladybird.
+Chromium, not WebKit, Gecko, Servo or Ladybird. The one exception is protected video on the Mac, which plays in a WebKit tab (decision 9).
 
 - The product has to run on Mac, Windows and Linux. WebKit is only first-class on macOS.
 - Chrome extensions and site compatibility are requirements.
@@ -86,3 +86,16 @@ Consequences now:
 - The core exposes one API that both the UI and agents use. Agents are not a bolt-on.
 - "Agent Space" is a kind of Space in the data model from the start.
 - The main risk is prompt injection from page content. Permissions and confirmations limit the damage but don't solve it, so confirmation UI and the activity log ship together with the MCP server, never after it.
+
+## 9. Protected video: a WebKit tab on the Mac
+
+Streaming sites whose video needs a key system (Netflix, Disney+, Max, Prime Video, Hulu, Apple TV, Spotify, Viaplay, TV 2 Play, DRTV) open in a WebKit tab: a WKWebView where the tab's Chromium page would be, with Safari's user agent. WebKit carries Apple's FairPlay.
+
+- Widevine in a Chromium fork plays only once Google signs the build for VMP, which it gives few browsers. Without it, these sites refuse or drop to SD.
+- WebKit ships with macOS and plays FairPlay in any app. A bare WKWebView played EZDRM's FairPlay test stream at 720p, through Apple's older WebKit key API, which its TS stream needs. Ardia does the same.
+- The list is one const in `app/src/webkit.rs`, matched on the domain. Typed, linked and restored loads of a listed site go to WebKit, and a link from it to a site off the list goes back to Chromium. The tab, its place, title and history stay the core's (`bc_tab_set_native_page`), so the core stays free of WebKit and ready for WebView2 on Windows.
+- Each profile gets its own WebKit store, and a private window a store that's forgotten with its session.
+
+What's lost in a WebKit tab: extensions, find, zoom, printing, DevTools, Site Controls and Chromium's logins and cookies, which WebKit doesn't share, so the user signs in again there. Agents can't act in it (decision 8). Every agent call on one fails with "this tab plays protected video in WebKit; agents can't act in it", and `bc_agent_may_act` says no. Muting uses WebKit's private `_setPageMuted:`, as does reading whether the page plays sound, and both do nothing on a WebKit without them.
+
+Revisit if we get a Widevine VMP signature.
