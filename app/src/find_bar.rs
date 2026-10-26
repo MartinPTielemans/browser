@@ -7,7 +7,7 @@ use std::{cell::RefCell, collections::HashMap, ffi::CString};
 
 use browser::{
     log,
-    shell::{self, Shell},
+    shell,
     text_input::TextInput,
 };
 use gpui::{
@@ -26,6 +26,8 @@ const WIDTH: f32 = 300.;
 const HEIGHT: f32 = 32.;
 const RADIUS: f32 = 6.;
 const RIGHT: f32 = shell::CARD_INSET * 2.;
+// Arc's fill, a navy unlike its window's colour (one Space captured).
+const FILL: u32 = 0x131d32;
 const TOP: f32 = shell::CARD_INSET * 2.;
 // Arc's buttons are 28 pt, 2 pt inside the bar, previous and next 26 apart, and a 4 pt divider
 // before close. The field starts 1 pt after the search glyph's square.
@@ -69,8 +71,6 @@ thread_local! {
 
 pub struct FindBar {
     input: Entity<TextInput>,
-    /// For the window's colour, which the bar takes.
-    shell: Entity<Shell>,
     /// The tab the window shows, whose find this bar is.
     tab: u64,
     /// What the page was last asked to find, so a change that leaves the text as it was doesn't
@@ -84,7 +84,7 @@ impl Global for FindBarWindow {}
 
 /// Opens the find bar's window, hidden, over the browser window, ahead of time as the command bar
 /// does.
-pub fn open(shell: Entity<Shell>, cx: &mut App) {
+pub fn open(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("enter", FindNext, Some("FindBar")),
         KeyBinding::new("shift-enter", FindPrevious, Some("FindBar")),
@@ -127,7 +127,6 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
                 .detach();
             FindBar {
                 input,
-                shell,
                 tab: 0,
                 searched: String::new(),
             }
@@ -397,8 +396,7 @@ impl Render for FindBar {
                 .items_center()
                 .px(px(INSET))
                 .rounded(px(RADIUS))
-                // The window's colour, as Arc's bar takes its Space's.
-                .bg(self.shell.read(cx).window_fill())
+                .bg(rgb(FILL))
                 .text_color(rgb(TEXT))
                 .text_size(px(13.))
                 .line_height(px(18.))

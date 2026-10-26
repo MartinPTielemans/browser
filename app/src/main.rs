@@ -1214,7 +1214,7 @@ fn open_window(cx: &mut App) {
                 {
                     unsafe { platform::host_add_toast(view) };
                 }
-                find_bar::open(shell.clone(), cx);
+                find_bar::open(cx);
                 zoom_hud::open(shell.clone(), cx);
                 drop_targets::open(shell.clone(), cx);
                 reveal::open(shell, cx);

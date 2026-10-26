@@ -222,11 +222,12 @@ const SEGMENT_LINE: f32 = 16.;
 const HAIRLINE: f32 = 0.5;
 const DIVIDER_X: f32 = 18.;
 // The Clear divider, under the pinned tabs. Its line's centre is 25 pt above the centre of the first
-// row under it. While Clear shows, the line ends 7.5 pt before Clear's arrow.
+// row under it. While Clear shows, the line ends 9 pt before it.
 const DIVIDER_HEIGHT: f32 = 15.;
 const DIVIDER_LINE_Y: f32 = DIVIDER_HEIGHT - (25. - ROW_HEIGHT / 2.);
-const DIVIDER_GAP: f32 = 7.5;
-// Clear's arrow, 8 pt tall and 3 pt before its label (Arc). Lucide's arrow-down spans 14 of its 24.
+const DIVIDER_GAP: f32 = 9.;
+// The arrow before Clear on a Library card, 8 pt tall and 3 pt before the word (Arc). Lucide's
+// arrow-down spans 14 of its 24.
 const CLEAR_ARROW: f32 = 8. * 24. / 14.;
 const CLEAR_ARROW_INSET: f32 = CLEAR_ARROW * 5. / 24.;
 const CLEAR_GAP: f32 = 3.;
@@ -2022,7 +2023,7 @@ impl Shell {
             .child(name_box().child(div().truncate().child(space.name.clone())))
             .children(pinned.into_iter().map(row))
             .when(!today.is_empty(), |page| {
-                page.child(divider_box(self.tools_shown().then(clear_label)))
+                page.child(divider_box(self.tools_shown().then(|| clear_label(false))))
             })
             .child(row_box().child(plate(plus, new_tab)))
             .children(today.into_iter().map(row))
@@ -2327,24 +2328,24 @@ fn divider_box(clear: Option<impl IntoElement>) -> gpui::Div {
     )
 }
 
-/// The divider's Clear: an arrow down and its label.
-fn clear_label() -> gpui::Div {
+/// The divider's Clear: the word, after an arrow down on a Library card, as in Arc. Arc's sidebar
+/// shows the word alone.
+fn clear_label(arrow: bool) -> gpui::Div {
+    let inset = if arrow { CLEAR_ARROW_INSET } else { 0. };
+    let arrow = arrow.then(|| {
+        svg().path("icons/arrow-down.svg").size(px(CLEAR_ARROW)).text_color(rgba(CLEAR))
+    });
     div()
         .flex_none()
-        .ml(px(DIVIDER_GAP - CLEAR_ARROW_INSET))
+        .ml(px(DIVIDER_GAP - inset))
         .h_full()
         .flex()
         .items_center()
-        .gap(px(CLEAR_GAP - CLEAR_ARROW_INSET))
+        .gap(px(CLEAR_GAP - inset))
         .text_size(px(10.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgba(CLEAR))
-        .child(
-            svg()
-                .path("icons/arrow-down.svg")
-                .size(px(CLEAR_ARROW))
-                .text_color(rgba(CLEAR)),
-        )
+        .children(arrow)
         .child("Clear")
 }
 
