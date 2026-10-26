@@ -433,6 +433,10 @@ void bc_archive_clear(void) {
   browser_core::ClearArchive();
 }
 
+void bc_archive_remove(bc_id archived) {
+  browser_core::TakeArchived(archived);
+}
+
 double bc_archive_after(void) {
   return browser_core::UserSettings().archive_after.InSecondsF();
 }

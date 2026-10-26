@@ -383,6 +383,11 @@ impl Browser for Fake {
         self.report_archive(cx);
     }
 
+    fn remove_archived(&self, archived: u64, cx: &mut App) {
+        self.archive.borrow_mut().retain(|&(id, ..)| id != archived);
+        self.report_archive(cx);
+    }
+
     fn clear_archive(&self, cx: &mut App) {
         self.archive.borrow_mut().clear();
         self.report_archive(cx);

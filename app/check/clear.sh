@@ -9,8 +9,9 @@
 # muted if it was, and after a Clear, ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a
 # row shows its tab's menu, whose Duplicate Tab, Close Tabs Below and Unpin Tab work. ⌘W archives a
 # Today tab. ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right
-# at its width, and its back button closes it. A click on an archived tab reopens it at the top of
-# Today with its history, and Clear Archive asks, then empties the archive.
+# at its width, and its back button closes it. A right-click on an archived tab shows its menu,
+# whose Copy URL copies its URL and Delete from Archive takes it out. A click on one reopens it at
+# the top of Today with its history, and Clear Archive asks, then empties the archive.
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 serve
@@ -268,6 +269,13 @@ view=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layou
 [ "$view" = "417,10 ${docked#* }" ] ||
   fail "the Library didn't push the page to 417 at its width: it's at $view, docked at $docked"
 ../tools/window-screenshot.sh "$pid" "$out/library.png" || fail "no window to capture"
+# A right-click on the archived tab shows its menu, whose Copy URL copies its URL.
+post rightclick 300 111
+expect '^browser: menu shown Restore Tab, Copy URL, Delete from Archive$' \
+  "a right-click on the archived tab didn't show its menu"
+../tools/window-screenshot.sh "$pid" "$out/archived-menu.png" || fail "no window to capture"
+send choose Copy URL
+expect "^browser: copied $url\$" "Copy URL in the archived tab's menu didn't copy its URL"
 send click 300 111
 expect '^browser: restore archived [0-9][0-9]*$' "a click on the archived tab didn't restore it"
 expect "^browser: today [0-9][0-9]* $left\$" \
@@ -287,6 +295,15 @@ view=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layou
 send menu View Library
 expect '^browser: command view-library via ui$' "View Library didn't run"
 expect '^browser: library shown$' "View Library didn't open the Library"
+# Delete from Archive in a tab's menu takes it out, and the Library stays open.
+archived=$(grep '^browser: archive [0-9]* tabs$' "$log" | tail -1 | cut -d' ' -f3)
+post rightclick 300 111
+expect '^browser: menu shown Restore Tab, Copy URL, Delete from Archive$' \
+  "a right-click on an archived tab didn't show its menu"
+send choose Delete from Archive
+expect '^browser: remove archived [0-9][0-9]*$' "Delete from Archive didn't run"
+expect "^browser: archive $((archived - 1)) tabs\$" "Delete from Archive didn't take the tab out"
+none_since '^browser: library hidden$' || fail "Delete from Archive closed the Library"
 send menu Clear Archive
 expect '^browser: dialog shown Clear the archive?$' "Clear Archive didn't ask first"
 send key return
@@ -310,4 +327,4 @@ expect "^browser: copied ${site}.id=1\$" \
   "⇧⌘C copied the URL with its tracking parameters: $(grep '^browser: copied' "$log" | tail -1)"
 exec 3>&-
 quit
-echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history and muted if it was, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, and Clear Archive asks, then empties it. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/library-empty.png"
+echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history and muted if it was, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png"
