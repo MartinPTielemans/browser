@@ -88,7 +88,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Reorder | MVP | neighbour moves at the centre crossing; critically damped ω ≈ 90 (done 76 ms) *interim* | Dia rec 60 fps |
 | [ ] | Reorder and drop, Arc's | MVP | the neighbours making way and the dropped row settling: measure | Arc |
 | [ ] | Drag to another window / desktop | MVP | moves the live page; new window under the pointer | Dia P§1 |
-| [ ] | Drops on the list | MVP | files and http(s) open at the gap; never javascript:, data:, file: from text | Dia, Ardia |
+| [x] | Drops on the list | MVP | files and http(s) open at the gap, which opens as for a dragged row *interim*; never javascript:, data:, file: from text; Arc's: measure | Dia, Ardia |
 | [ ] | Hover card show | MVP | delay 0.5 s; opacity 100 ms + scale spring 0.92 → 1 (0.25 s, ζ 0.75) | Dia bin |
 | [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses | Dia bin |
 | [x] | Background tabs | MVP | a link opened behind loads when first shown, with the link's address and the site's icon until then | Dia |

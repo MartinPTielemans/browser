@@ -1,5 +1,6 @@
 //! Rows and tiles pressed and dragged: reordered, into and out of folders and the
-//! favorites, to another Space, and over the page for a split view.
+//! favorites, to another Space, and over the page for a split view. And links and files
+//! dragged onto the list from the page or another app, which open there.
 
 use std::{collections::HashMap, time::Instant};
 
@@ -12,6 +13,10 @@ use super::{
     Closing, Curve, DRAG_START, Drag, FOLDER_INDENT, Opened, Place, ROW_HEIGHT, ROW_PITCH, Shell,
     Slot, TILE_HEIGHT, slots,
 };
+
+/// The tab that links or files dragged in stand for until they're dropped: none, as the core
+/// counts.
+const INCOMING: u64 = 0;
 
 impl Shell {
     /// Starts the list's rows from where they were in `before` to where they are now: rows still
@@ -163,6 +168,7 @@ impl Shell {
         self.dragged = false;
         self.drag = Some(Drag {
             tab,
+            incoming: tab == INCOMING,
             press: position,
             origin,
             pointer: in_sidebar(position, origin),
@@ -191,11 +197,11 @@ impl Shell {
         let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped) else {
             return;
         };
-        let moved = position - drag.press;
-        if !drag.moving && moved.x.abs().max(moved.y.abs()) < px(DRAG_START) {
+        let (moved, incoming) = (position - drag.press, drag.incoming);
+        if !drag.moving && !incoming && moved.x.abs().max(moved.y.abs()) < px(DRAG_START) {
             return;
         }
-        if self.drag_over_page(position, cx) {
+        if !incoming && self.drag_over_page(position, cx) {
             return;
         }
         let Some(drag) = &self.drag else {
@@ -203,15 +209,20 @@ impl Shell {
         };
         let (tab, to, grab, span) = (drag.tab, drag.to, drag.grab, drag.span);
         let pointer = in_sidebar(position, drag.origin);
-        // Rows in, from where it was, by how far the pointer has gone right.
+        // Rows in, from where it was, by how far the pointer has gone right. Links dragged in go
+        // in as far as the row under them.
         let moved_in = (pointer.x - in_sidebar(drag.press, drag.origin).x) / FOLDER_INDENT;
-        let wants = (drag.from_depth as f32 + moved_in).round().max(0.) as usize;
+        let wants = match incoming {
+            true => 0,
+            false => (drag.from_depth as f32 + moved_in).round().max(0.) as usize,
+        };
         let others = |rows: Vec<u64>| rows.into_iter().filter(|&other| other != tab).collect();
         let (pinned, today) = self.rows();
         let (pinned, today): (Vec<u64>, Vec<u64>) = (others(pinned), others(today));
         let favorites = self.favorites.iter().filter(|&&other| other != tab).count();
         let folder = self.is_folder(tab);
-        let over_favorites = !folder
+        let over_favorites = !incoming
+            && !folder
             && self.panes(tab).len() == 1
             && pointer.y < self.list_top_with(favorites + 1) - self.tiles_scrolled();
         let mut depth = 0;
@@ -339,6 +350,88 @@ impl Shell {
             }
         }
         cx.notify();
+    }
+
+    /// A drag from the page or another app, carrying links or files, is at `position` in the
+    /// window. Over the list of the docked sidebar, the rows make room for them at the place
+    /// nearest, as for a dragged row, and it returns whether they'd open there. Not while the
+    /// Library, a swipe or a row's drag has the sidebar.
+    pub fn drag_in(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) -> bool {
+        let busy = self.sidebar_hidden || self.library_open || self.swipe.is_some();
+        let other = self.drag.as_ref().is_some_and(|drag| !drag.incoming || drag.dropped);
+        if busy || other || !self.list_scroll.bounds().contains(&position) {
+            self.drag_away(cx);
+            return false;
+        }
+        if self.drag.is_none() {
+            // Held by the middle of the row it stands for, where the system draws what it carries.
+            let grab = (ROW_HEIGHT / 2., point(0., 0.));
+            // From no place, so the first one it has makes room.
+            self.press(INCOMING, position, Place::List(false, usize::MAX), 0., grab);
+            if let Some(drag) = &mut self.drag {
+                // The docked sidebar's corner, the window's.
+                drag.origin = Point::default();
+                drag.moving = true;
+            }
+        }
+        self.drag_to(position, cx);
+        true
+    }
+
+    /// The drag from the page or another app left the list, or ended without a drop there: the
+    /// rows settle back.
+    pub fn drag_away(&mut self, cx: &mut Context<Self>) {
+        if self.drag.as_ref().is_some_and(|drag| drag.incoming && !drag.dropped) {
+            self.settle_drag();
+            cx.notify();
+        }
+    }
+
+    /// The drag from the page or another app was let go at `position`. Over the list, `urls` open
+    /// as tabs where the rows made room, and the first shows. Returns whether they opened.
+    pub fn drop_in(
+        &mut self,
+        position: Point<Pixels>,
+        urls: &[String],
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if urls.is_empty() || !self.drag_in(position, cx) {
+            return false;
+        }
+        let Some(drag) = &self.drag else {
+            return false;
+        };
+        let (pinned, today) = self.rows();
+        let (in_pinned, folder, index) = match drag.to {
+            Place::List(true, gap) => {
+                let (folder, index) = self.pinned_place(&pinned, gap, drag.depth, INCOMING);
+                (true, folder, index)
+            }
+            // The browser counts tabs, and the rows above may be split views.
+            Place::List(false, index) => {
+                (false, 0, today.iter().take(index).map(|&row| self.panes(row).len()).sum())
+            }
+            Place::Favorite(_) => return false,
+        };
+        // check.sh waits for these lines.
+        let count = urls.len();
+        match (in_pinned, folder) {
+            (false, _) => log!("browser: dropped {count} in today {index}"),
+            (true, 0) => log!("browser: dropped {count} in pinned {index}"),
+            (true, _) => log!("browser: dropped {count} in folder {folder} {index}"),
+        }
+        let tab = self.browser.open_at(urls, in_pinned, folder, index, cx);
+        match self.drag.as_mut().filter(|_| tab != 0) {
+            // The first one's row lands from where the pointer let go, once the browser reports
+            // the lists it made.
+            Some(drag) => {
+                drag.tab = tab;
+                drag.dropped = true;
+            }
+            None => self.settle_drag(),
+        }
+        cx.notify();
+        tab != 0
     }
 
     /// The depths a row dropped at `gap` in the pinned rows `rows`, which leave out `dragged`, may
@@ -478,8 +571,47 @@ impl Shell {
     }
 }
 
+/// The URLs of what a drag from the page or another app carries that open as tabs: files', and web
+/// links. A dragged link or text never opens a `javascript:` or `data:` URL, which could run script
+/// or pass for a site, or a `file:` one, which could open a file the user didn't drag (Ardia).
+pub fn dropped_urls<'a>(items: impl IntoIterator<Item = (&'a str, bool)>) -> Vec<String> {
+    let web = |url: &str| {
+        let scheme = url.split_once(':').map_or("", |(scheme, _)| scheme);
+        let web = scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https");
+        web && url.len() > scheme.len() + 3 && !url.contains(char::is_whitespace)
+    };
+    let items = items.into_iter().filter(|&(url, file)| file || web(url));
+    items.map(|(url, _)| url.to_owned()).collect()
+}
+
 /// Where `position` in a window is from the corner, `origin`, of the sidebar it draws.
 pub(super) fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Point<f32> {
     let at = position - origin;
     point(f32::from(at.x), f32::from(at.y))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dropped_urls;
+
+    /// Files and web links open; text and links that aren't web links don't.
+    #[test]
+    fn only_files_and_web_links_open() {
+        let dragged = [
+            ("https://example.com/a?b#c", false),
+            ("HTTP://EXAMPLE.COM", false),
+            ("file:///Users/someone/Report%20final.pdf", true),
+            ("javascript:alert(1)", false),
+            ("JavaScript:alert(1)", false),
+            ("data:text/html,<h1>Sign in</h1>", false),
+            ("file:///etc/hosts", false),
+            ("https://example.com and some words", false),
+            ("https://", false),
+            ("example.com", false),
+            ("", false),
+        ];
+        let opened = ["https://example.com/a?b#c", "HTTP://EXAMPLE.COM"];
+        let file = "file:///Users/someone/Report%20final.pdf";
+        assert_eq!(dropped_urls(dragged), [opened[0], opened[1], file]);
+    }
 }

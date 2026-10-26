@@ -198,6 +198,24 @@ void host_watch_accent_color(void (*changed)(void));
 // view has the keyboard.
 void host_watch_control(void (*released)(void));
 
+// A link or a file that a drag from the page or another app carries.
+typedef struct {
+  // Its URL, UTF-8.
+  const char* url;
+  // Whether it's a file's, dragged as a file, rather than a link or text.
+  bool file;
+} host_dragged;
+
+// What host_take_drops hears of a drag.
+enum { HOST_DRAG_OVER, HOST_DRAG_LEFT, HOST_DRAG_DROP };
+
+// Hands drags over the UI's view, from the page or another app, to |dragged|: HOST_DRAG_OVER as
+// the pointer comes or moves to (x, y), in points from the view's top-left corner, HOST_DRAG_LEFT
+// once it leaves or the drag ends elsewhere, and HOST_DRAG_DROP as it's let go there. |items| are
+// what the drag carries. |dragged| returns whether a drop there opens any of them, or opened them.
+void host_take_drops(bool (*dragged)(int phase, double x, double y, const host_dragged* items,
+                                     size_t count));
+
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);
