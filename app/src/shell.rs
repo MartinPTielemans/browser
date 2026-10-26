@@ -5888,7 +5888,13 @@ impl Render for Shell {
             self.browser.show_drop_targets(drop_targets, cx);
         }
         // The page is laid out at every step, as in Arc.
-        self.viewport = window.viewport_size();
+        let viewport = window.viewport_size();
+        if viewport != self.viewport {
+            // check.sh waits for this line before it scrolls the list in a resized window.
+            let (width, height) = (f32::from(viewport.width), f32::from(viewport.height));
+            log!("browser: drawn at {width}x{height}");
+        }
+        self.viewport = viewport;
         if self.tiles_scroll() != self.tiles_scrolled_last {
             self.tiles_scrolled_last = !self.tiles_scrolled_last;
             // check.sh waits for these lines.

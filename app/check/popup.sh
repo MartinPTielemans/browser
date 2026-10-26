@@ -204,6 +204,9 @@ await "^browser: page $waited back 0 forward 0 loading 0 https://example.org/\$"
   fail "the link's tab waiting at the quit didn't come back with its address"
 grep -q "^browser: loaded $waited " "$log" &&
   fail "the link's tab loaded after the relaunch before it was shown"
+# Chromium drops a key for the page before its renderer is up, as the shown tab's is at a launch.
+await '^browser: loaded [0-9]* https://example.com/$' ||
+  fail "the shown tab didn't load after the relaunch"
 send key 3 cmd
 expect "^browser: selected $waited\( in .*\)\{0,1\}\$" "⌘3 didn't show the link's tab"
 expect "^browser: loaded $waited https://example.org/\$" \
