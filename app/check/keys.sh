@@ -1,14 +1,16 @@
 # Clicks move keyboard focus between the page and the UI, and typing goes where the focus is. With
 # the page focused, the browser's reserved shortcuts reach the UI and never the page, and the others
-# reach the page first, which can keep them. ⌘Q asks first: Cancel keeps the browser, and Quit, and
-# don't ask again quits and turns the warning off. The command bar opens over the page with the
-# keyboard, never showing the last query, gives the keyboard back when it closes, and loads what's
-# typed in it, over https for a host typed without one, or searches DuckDuckGo for words. While ⌘T's
-# is open, "New Tab" has the selected plate. Japanese input composes and commits in the page and in
-# the command bar, where return and escape go to the input method while it composes. The Edit menu's
-# Undo, Redo and Select All reach the focused page. ⌘Y opens the history page from the page and the
-# UI. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches the UI from both
-# sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back.
+# reach the page first, which can keep them. ⌘N, from the page and the UI, opens a window whose UI
+# has the keyboard, and ⇧⌘W, from either, closes it, giving back the page it took, live. ⌘Q asks
+# first: Cancel keeps the browser, and Quit, and don't ask again quits and turns the warning off.
+# The command bar opens over the page with the keyboard, never showing the last query, gives the
+# keyboard back when it closes, and loads what's typed in it, over https for a host typed without
+# one, or searches DuckDuckGo for words. While ⌘T's is open, "New Tab" has the selected plate.
+# Japanese input composes and commits in the page and in the command bar, where return and escape go
+# to the input method while it composes. The Edit menu's Undo, Redo and Select All reach the focused
+# page. ⌘Y opens the history page from the page and the UI. Settings › Shortcuts gives New Tab ⌃⌘T,
+# which stays reserved and reaches the UI from both sides, while ⌘T no longer runs it, and its ↺
+# gives ⌘T back.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -71,6 +73,16 @@ for shortcut in "t new-tab" "l edit-url"; do
 done
 send key f cmd
 expect '^browser: title [0-9]* page saw cmd-f$' "⌘F with the page focused didn't reach the page"
+# ⌘N from the page opens a window with no page, so its UI has the keyboard, and ⇧⌘W there closes
+# it.
+page_shortcut n new-window
+expect '^browser: window opened [0-9]' "⌘N with the page focused didn't open a window"
+send state
+in_browser AccessKitSubclassOfGPUIView "in the window ⌘N opened"
+send key w cmd shift
+expect '^browser: command close-window via ui$' "⇧⌘W with the UI focused didn't reach the UI"
+expect '^browser: window closed [0-9]' "⇧⌘W with the UI focused didn't close the window"
+send window 1
 
 send click $sidebar_point
 # GPUI's view in a window it doesn't own, which AccessKit subclasses.
@@ -88,7 +100,32 @@ in_browser RenderWidgetHostViewCocoa "after a click on the page closed the comma
 send type d
 # Input reaches the page in order, so by now it has seen the x and the shortcuts, if they got there.
 expect '^browser: title [0-9]* value abcd$' "the page got keys meant for the UI: $(grep '^browser: title' "$log" | tail -1)"
-grep -q '^browser: title [0-9]* page saw cmd-[tw]$' "$log" && fail "the page saw a reserved shortcut"
+# ⌘N from the UI, and ⇧⌘W from the page in the window it opened: the page moves there on a click
+# on its row, and back, live, as the window closes.
+tab=$(today)
+send click $sidebar_point
+send key n cmd
+expect '^browser: command new-window via ui$' "⌘N with the UI focused didn't reach the UI"
+expect '^browser: window opened [0-9]' "⌘N with the UI focused didn't open a window"
+first=$(grep -m1 '^browser: window opened ' "$log" | cut -d' ' -f4)
+second=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+send window 3
+send click $(row 0)
+expect "^browser: window $second shows $tab\$" \
+  "a click on the page's row didn't move it to the new window"
+send click $page_point
+in_browser RenderWidgetHostViewCocoa "after a click on the page in the new window"
+send key w cmd shift
+expect '^browser: command close-window via page$' "⇧⌘W with the page focused didn't reach the UI"
+expect "^browser: window closed $second\$" \
+  "⇧⌘W with the page focused didn't close the window"
+expect "^browser: window $first shows $tab\$" "the first window didn't get its page back"
+[ "$(grep -c "^browser: loaded $tab " "$log")" = 1 ] ||
+  fail "the page loaded again as it moved"
+send window 1
+send click $page_point
+in_browser RenderWidgetHostViewCocoa "after the window ⌘N opened closed"
+grep -q '^browser: title [0-9]* page saw cmd-[twnW]$' "$log" && fail "the page saw a reserved shortcut"
 grep -q '^browser: title [0-9]* page saw cmd-l$' "$log" || fail "⌘L with the page focused didn't reach the page first"
 grep -q '^browser: command find via page$' "$log" && fail "the page kept ⌘F, but the UI ran it too"
 grep -q '^browser: command \(back\|forward\) via page$' "$log" && fail "⌘← or ⌘→ in the page's text field went back or forward"

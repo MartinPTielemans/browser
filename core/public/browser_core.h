@@ -200,7 +200,8 @@ typedef struct bc_host {
   void (*started)(void* context);
   // Chromium is quitting. The core's calls stop working once this returns.
   void (*stopping)(void* context);
-  // The window has closed, by bc_window_close, the user or quitting. Its tabs closed first.
+  // The window has closed, by bc_window_close, the user or quitting. With other windows open, its
+  // tabs went to the one active before it, their pages live. Else they closed first.
   void (*window_closed)(void* context, bc_id window);
   // Chrome opened a tab in the window that the app didn't ask for: a page's link to a new tab, or
   // its popup or new window, which open as tabs. |opener| is the tab it came from, or 0. In a window
@@ -310,7 +311,8 @@ BC_EXPORT int bc_main(int argc, const char** argv, const bc_host* host);
 BC_EXPORT void bc_quit(void);
 
 // Opens a window at |bounds| with the app's UI view in it, under the pages it shows: an NSView on
-// the Mac, which the window keeps. |ui_view| may be null. Returns 0 if Chromium is quitting.
+// the Mac, which the window keeps. |ui_view| may be null. Returns 0 if Chromium is quitting. Every
+// window shows the same Spaces. The user's: agents get none, as it changes what the user sees.
 BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
@@ -322,7 +324,9 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 // tab_favicon_changed once a tab's favicon is found, window_space_shown and window_selected.
 BC_EXPORT bool bc_window_restore(bc_id window);
 
-// Closes the window: its pages get their unload handlers, then window_closed.
+// Closes the window. With other windows open, its tabs go, their pages live, to the one active
+// before it, which shows its tab live again if it showed one this window took. Else its pages get
+// their unload handlers. Then window_closed. The user's: agents get none.
 BC_EXPORT void bc_window_close(bc_id window);
 
 // Makes an empty Space named |name|, in the profile the core started with, after the others. Any
@@ -476,7 +480,8 @@ BC_EXPORT bool bc_tab_set_split_shares(bc_id tab, const double* shares, size_t c
 
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
 // window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
-// Today tab, else its top pinned tab, else no page. Then window_space_shown and window_selected.
+// Today tab, else its top pinned tab, else no page, passing over tabs another window shows. Then
+// window_space_shown and window_selected.
 BC_EXPORT void bc_window_show_space(bc_id window, bc_id space);
 
 // The width the app last gave the window's docked sidebar, or 0 for none. The core keeps it with
@@ -500,14 +505,16 @@ BC_EXPORT void bc_window_set_focus_color(bc_id window, uint32_t color);
 // What the window's pages show until they draw their first frame, in place of white, 0xRRGGBB.
 BC_EXPORT void bc_window_set_page_color(bc_id window, uint32_t color);
 
-// Shows |tab|, a tab in the window, at its page frame, in place of the page shown before, and its
-// Space if the window shows another. It takes the keyboard if that page had it. A tab in a split
-// view shows with the rest of its split, focused. A click in another page of the split focuses
-// that one. Then window_space_shown if the Space changed, and window_selected.
+// Shows |tab| at the window's page frame, in place of the page shown before, and its Space if the
+// window shows another. It takes the keyboard if that page had it. A tab in a split view shows with
+// the rest of its split, focused. A click in another page of the split focuses that one. A page
+// another window shows moves here live, with its split; that window keeps the tab selected and
+// shows no page until it shows a tab again. Then window_space_shown if the Space changed, and
+// window_selected. For a tab another window shows, the user's: agents get none.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
-// Clears the Space the window shows: closes its Today tabs but those it shows, as bc_tab_close
-// does, for bc_window_undo_clear to bring back. Returns how many tabs it closed.
+// Clears the Space the window shows: closes its Today tabs but those any window shows, as
+// bc_tab_close does, for bc_window_undo_clear to bring back. Returns how many tabs it closed.
 BC_EXPORT size_t bc_window_clear(bc_id window);
 
 // Brings back the tabs the window's last bc_window_clear closed, at their places in their Space's
@@ -797,6 +804,22 @@ BC_EXPORT void bc_window_task_manager(bc_id window);
 // the ✕ on its row does: a pinned split stays a split. Then tab_state_changed, and
 // window_selected.
 BC_EXPORT void bc_tab_close(bc_id tab, bool split);
+
+// Windows. Every window shows the same Spaces, and a tab's page is live in one window at a time:
+// the one that showed it last. The reads are for the UI and agents alike.
+
+// Copies up to |capacity| of the open windows into |windows|, the most recently active first, and
+// returns how many there are.
+BC_EXPORT size_t bc_windows(bc_id* windows, size_t capacity);
+// The Space the window shows, and the tab it shows there, as window_space_shown and
+// window_selected last said. 0 for none.
+BC_EXPORT bc_id bc_window_space(bc_id window);
+BC_EXPORT bc_id bc_window_selected(bc_id window);
+// The window that shows |tab|'s page, focused or in its split view, else 0. A window whose page
+// another window took doesn't count.
+BC_EXPORT bc_id bc_tab_window(bc_id tab);
+// Shows |space| with no page, as a window ⌘N opens does. The user's: agents get none.
+BC_EXPORT void bc_window_show_space_empty(bc_id window, bc_id space);
 
 #ifdef __cplusplus
 }

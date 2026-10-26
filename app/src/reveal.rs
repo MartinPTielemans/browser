@@ -7,8 +7,9 @@ use std::ffi::c_void;
 use browser::log;
 use browser::shell::{SIDEBAR_WIDTH, Shell};
 use gpui::{
-    App, Bounds, Context, Entity, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowKind, WindowOptions, point, prelude::*, px, size,
+    AnyWindowHandle, App, Bounds, Context, Entity, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowKind, WindowOptions, point, prelude::*, px,
+    size,
 };
 
 use crate::{ns_view, platform, update_window, window_with_view};
@@ -25,8 +26,8 @@ impl Render for Reveal {
 
 /// Opens the reveal's window for the browser window whose UI draws in `ui_view`, hidden. Opening it
 /// ahead of time keeps window setup off the path from the pointer reaching the edge to the panel
-/// moving.
-pub fn open(shell: Entity<Shell>, ui_view: *mut c_void, cx: &mut App) {
+/// moving. Returns its window.
+pub fn open(shell: Entity<Shell>, ui_view: *mut c_void, cx: &mut App) -> Option<AnyWindowHandle> {
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
@@ -66,8 +67,12 @@ pub fn open(shell: Entity<Shell>, ui_view: *mut c_void, cx: &mut App) {
             if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
                 unsafe { platform::host_add_reveal(ui_view, view, pointer_moved) };
             }
+            Some(window.into())
         }
-        Err(error) => log!("couldn't open the sidebar reveal: {error}"),
+        Err(error) => {
+            log!("couldn't open the sidebar reveal: {error}");
+            None
+        }
     }
 }
 

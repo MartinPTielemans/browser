@@ -385,6 +385,12 @@ void bc_window_show_space(bc_id window_id, bc_id space) {
   }
 }
 
+void bc_window_show_space_empty(bc_id window_id, bc_id space) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->ShowSpace(space, false);
+  }
+}
+
 double bc_window_sidebar_width(bc_id window_id) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window ? window->sidebar_width() : 0;
@@ -824,4 +830,27 @@ void bc_tab_close(bc_id id, bool split) {
   for (bc_id tab : tabs) {
     browser_core::Window::CloseTab(tab);
   }
+}
+
+size_t bc_windows(bc_id* windows, size_t capacity) {
+  const std::vector<browser_core::Window*> all = browser_core::Window::All();
+  for (size_t i = 0; i < all.size() && i < capacity && windows; ++i) {
+    windows[i] = all[i]->id();
+  }
+  return all.size();
+}
+
+bc_id bc_window_space(bc_id window_id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window ? window->space() : 0;
+}
+
+bc_id bc_window_selected(bc_id window_id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window ? window->selected() : 0;
+}
+
+bc_id bc_tab_window(bc_id tab) {
+  browser_core::Window* window = browser_core::Window::Showing(tab);
+  return window ? window->id() : 0;
 }

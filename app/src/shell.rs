@@ -1569,6 +1569,13 @@ impl Shell {
         cx.notify();
     }
 
+    /// The window became the one in front: the browser's shortcuts and menus act on this shell,
+    /// and the menu bar lists its Space's extensions.
+    pub fn became_key(&mut self, cx: &mut Context<Self>) {
+        cx.set_global(ShellHandle(cx.weak_entity()));
+        self.refresh_menus(cx);
+    }
+
     /// The user left the command bar without choosing anything in it.
     pub fn command_bar_dismissed(&mut self, cx: &mut Context<Self>) {
         self.set_new_tab(false, cx);

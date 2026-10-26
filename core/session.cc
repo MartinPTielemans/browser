@@ -190,7 +190,13 @@ Saved Collect() {
     if (window && space->id() == window->space()) {
       saved.shown = saved.spaces.size();
     }
-    const bc_id shown = window ? window->SelectedIn(space->id()) : 0;
+    // The tab the window active last showed there, else the one another window showed.
+    bc_id shown = 0;
+    for (const Window* each : windows) {
+      if ((shown = each->SelectedIn(space->id()))) {
+        break;
+      }
+    }
     SavedSpace& to = saved.spaces.emplace_back(SaveSpace(*space, shown));
     if (auto favorite = favorites.find(shown); favorite != favorites.end()) {
       to.shown_favorite = favorite->second;

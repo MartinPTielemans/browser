@@ -7,7 +7,7 @@ use std::{ffi::c_void, time::Duration};
 use browser::log;
 use browser::shell::{self, Shell};
 use gpui::{
-    App, Bounds, Context, Entity, FontWeight, Global, Task, TitlebarOptions, Window,
+    App, Bounds, Context, FontWeight, Global, Task, TitlebarOptions, WeakEntity, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, point,
     prelude::*, px, rgb, size,
 };
@@ -30,8 +30,8 @@ const SHOWN: Duration = Duration::from_millis(1500);
 const FADE: f64 = 0.15;
 
 pub struct ZoomHud {
-    /// For the window's colour, which the HUD takes.
-    shell: Entity<Shell>,
+    /// The shell of the browser window it shows over, for the window's colour, which the HUD takes.
+    shell: WeakEntity<Shell>,
     /// The tab zoomed, which the HUD goes with.
     tab: u64,
     percent: i32,
@@ -42,8 +42,8 @@ struct ZoomHudWindow(WindowHandle<ZoomHud>);
 
 impl Global for ZoomHudWindow {}
 
-/// Opens the HUD's window, hidden, over the browser window, ahead of time as the find bar does.
-pub fn open(shell: Entity<Shell>, cx: &mut App) {
+/// Opens the HUD's window, hidden, for every browser window, ahead of time as the find bar does.
+pub fn open(cx: &mut App) {
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
@@ -66,7 +66,7 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
     };
     let window = cx.open_window(options, |_, cx| {
         cx.new(|_| ZoomHud {
-            shell,
+            shell: WeakEntity::new_invalid(),
             tab: 0,
             percent: 100,
             _hide: None,
@@ -91,6 +91,7 @@ pub fn show(tab: u64, percent: i32, ui_view: *mut c_void, cx: &mut App) {
     };
     window
         .update(cx, |hud, _, cx| {
+            hud.shell = crate::shell_with_view(ui_view);
             hud.tab = tab;
             hud.percent = percent;
             hud._hide = Some(cx.spawn(async |_, cx| {
@@ -117,6 +118,7 @@ pub fn tab_shown(tab: u64, cx: &mut App) {
 
 impl Render for ZoomHud {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let fill = self.shell.upgrade().map(|shell| shell.read(cx).window_fill());
         div().size_full().flex().justify_end().child(
             div()
                 .h_full()
@@ -124,7 +126,7 @@ impl Render for ZoomHud {
                 .flex()
                 .items_center()
                 .rounded(px(RADIUS))
-                .bg(self.shell.read(cx).window_fill())
+                .when_some(fill, |pill, fill| pill.bg(fill))
                 .font_family(".SystemUIFont")
                 .font_weight(FontWeight::MEDIUM)
                 .text_size(px(14.))

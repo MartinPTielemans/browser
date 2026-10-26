@@ -176,6 +176,8 @@ impl Browser for Host {
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
     fn jump_to_selection(&self, _: u64, _: &mut App) {}
     fn quit(&self, _: &mut App) {}
+    fn new_window(&self, _: &mut App) {}
+    fn close_window(&self, _: &mut App) {}
 }
 
 /// A shell showing one Space with `pinned` and `today` tabs and `folders`.

@@ -11,9 +11,9 @@ use browser::{
     text_input::TextInput,
 };
 use gpui::{
-    App, Bounds, Context, Entity, Focusable, FontWeight, Global, KeyBinding, SharedString,
-    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
-    WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size, svg,
+    AnyWindowHandle, App, Bounds, Context, Entity, Focusable, FontWeight, Global, KeyBinding,
+    SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
+    WindowKind, WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{bc, platform};
@@ -87,8 +87,8 @@ struct FindBars(HashMap<bc::bc_id, WindowHandle<FindBar>>);
 impl Global for FindBars {}
 
 /// Opens the find bar's window for the browser window `browser`, whose UI draws in `ui_view`,
-/// hidden, ahead of time as the command bar does.
-pub fn open(browser: bc::bc_id, ui_view: *mut c_void, cx: &mut App) {
+/// hidden, ahead of time as the command bar does, and returns its window.
+pub fn open(browser: bc::bc_id, ui_view: *mut c_void, cx: &mut App) -> Option<AnyWindowHandle> {
     // The keys are bound once, for every window's bar.
     if !cx.has_global::<FindBars>() {
         cx.bind_keys([
@@ -148,8 +148,19 @@ pub fn open(browser: bc::bc_id, ui_view: *mut c_void, cx: &mut App) {
                 unsafe { platform::host_add_find_bar(ui_view, view, right, top) };
                 cx.global_mut::<FindBars>().0.insert(browser, window);
             }
+            Some(window.into())
         }
-        Err(error) => log!("couldn't open the find bar: {error}"),
+        Err(error) => {
+            log!("couldn't open the find bar: {error}");
+            None
+        }
+    }
+}
+
+/// Forgets the bar of the browser window `browser`, which closed.
+pub fn window_closed(browser: bc::bc_id, cx: &mut App) {
+    if cx.has_global::<FindBars>() {
+        cx.global_mut::<FindBars>().0.remove(&browser);
     }
 }
 

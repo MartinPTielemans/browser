@@ -57,14 +57,15 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Returns null once Chromium is quitting.
   static Window* Open(const gfx::Rect& bounds, void* ui_view);
   static Window* FromId(bc_id id);
-  // Every window, in the order they opened.
+  // Every window, the most recently active first.
   static std::vector<Window*> All();
   // The window that holds |browser|'s tabs, if the core made |browser|.
   static Window* ForBrowser(const BrowserWindowInterface* browser);
   // Closes every window at once, at quit, once their Browsers are gone.
   static void CloseAll();
-  // Whether a window shows |tab|, focused or beside the tab it shows in a split view.
-  static bool Showing(bc_id tab);
+  // The window that shows |tab|'s page, focused or beside the tab it shows in a split view, else
+  // null. A window whose page another window took doesn't show it.
+  static Window* Showing(bc_id tab);
   // Has each window whose shown tab's split changed show it as it is now.
   static void PanesChanged();
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
@@ -122,8 +123,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id selected() const { return selected_; }
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
-  // pinned tab, else no page.
-  void ShowSpace(bc_id space);
+  // pinned tab, else no page, passing over tabs another window shows. With |page| false, no page,
+  // as a new window opens.
+  void ShowSpace(bc_id space, bool page = true);
   // The tab the window shows in |space|, or showed there last. 0 if none.
   bc_id SelectedIn(bc_id space) const;
   // The tab ShowSpace shows for |space|, or the tab shown for the Space shown, which may be a
@@ -142,12 +144,12 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void SetFocusColor(uint32_t color);
   // What the pages it shows show until their first frame, 0xRRGGBB.
   void SetPageColor(uint32_t color);
-  // Shows |tab|, if it's one of this window's, at the page frame, and its Space if the window shows
-  // another. In a split view, it shows the split with |tab| focused.
+  // Shows |tab| at the page frame, and its Space if the window shows another. In a split view, it
+  // shows the split with |tab| focused. A page another window shows moves here (Adopt).
   void Select(bc_id tab);
 
-  // Closes the Today tabs of the Space the window shows, all but those it shows, for UndoClear to
-  // bring back. Returns how many.
+  // Closes the Today tabs of the Space the window shows, all but those any window shows, for
+  // UndoClear to bring back. Returns how many.
   size_t Clear();
   // Brings back the tabs the last Clear closed, at their places in their Space's Today tabs and
   // unloaded. Once only, and not those ReopenClosedTab brought back. Returns how many.
@@ -198,7 +200,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // |contents| focused.
   void Show(content::WebContents* contents, const gfx::Rect& frame);
 
-  // Asks each Browser to close, which runs its pages' unload handlers; a page can keep it open.
+  // Hands the window's tabs to the window active before it, if there's one, and closes. The last
+  // window asks each Browser to close instead, which runs its pages' unload handlers; a page can
+  // keep it open.
   void Close();
 
   // From the stand-in, as |browser| goes.
@@ -245,6 +249,18 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with);
   // Opens the tab |params| asks for, behind, with nothing loaded until it's first shown.
   content::WebContents* OpenBehind(NavigateParams& params);
+  // Moves the pages of |tab| and its split view into this window's Browsers from the windows
+  // holding them, live, as Chrome's tab dragging does. A window showing one lets it go first.
+  void Adopt(bc_id tab);
+  // Shows no page, keeping the tab selected, as another window took its page.
+  void LetGo();
+  // Moves every tab of this window's Browsers into |to|'s, unshown, which empties them.
+  void HandOver(Window& to);
+  // Whether another window shows |tab|'s page, which an implicit pick passes over.
+  bool ShownElsewhere(bc_id tab) const;
+  // Shows |tab|, or if another window shows it the first tab of the Space shown no window shows,
+  // else no page: for the window's own picks, which never take another window's page.
+  void Pick(bc_id tab);
   // Shows next_after_closing_, as the tab shown has closed.
   void SelectAfterClosing();
   // Shows no page, as for a Space without tabs.
@@ -290,6 +306,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;
+  // Another window took the page shown. The tab stays selected, and the window shows no page.
+  bool let_go_ = false;
   bool opening_tab_ = false;
   // The tab whose page the navigation being made opens a tab beside, until that tab is inserted.
   bc_id split_with_ = 0;

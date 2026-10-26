@@ -27,6 +27,20 @@ void* host_ui_view(void);
 // app the active one.
 void host_show_window(void* ui_view);
 
+// Where the next browser window goes after the one of |ui_view|, in host_centered's terms: as
+// big, down and to the right as AppKit cascades windows, kept on its screen.
+void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height);
+
+// Names the browser window of |ui_view| in the Window menu's list of windows and in Mission
+// Control. The window doesn't draw it.
+void host_set_window_title(void* ui_view, const char* title);
+
+// Calls |changed| with the view of each browser window that becomes the key window.
+void host_watch_key_window(void (*changed)(void* ui_view));
+
+// The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
+void host_forget_window(void* ui_view);
+
 // Makes the window of |overlay_view| float over a browser window when shown, for UI that has
 // to draw over the page, translucent over a blur of what's behind it, with a shadow, in a rounded
 // shape of |radius|. It starts hidden. |dismissed| runs, after the event, when the user leaves the

@@ -43,6 +43,7 @@
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params_utils.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
+#include "chrome/browser/ui/tabs/tab_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/interaction/browser_elements_views_impl.h"
 #include "chrome/common/webui_url_constants.h"
@@ -68,6 +69,22 @@ namespace {
 std::map<bc_id, std::unique_ptr<Window>>& Windows() {
   static base::NoDestructor<std::map<bc_id, std::unique_ptr<Window>>> windows;
   return *windows;
+}
+
+// The windows' ids, the most recently active first.
+std::vector<bc_id>& Order() {
+  static base::NoDestructor<std::vector<bc_id>> order;
+  return *order;
+}
+
+// Moves |id| to the front of Order, and says whether it wasn't there.
+bool ToFront(bc_id id) {
+  if (!Order().empty() && Order().front() == id) {
+    return false;
+  }
+  std::erase(Order(), id);
+  Order().insert(Order().begin(), id);
+  return true;
 }
 
 // A Today tab the user or its page closed.
@@ -222,6 +239,8 @@ Window* Window::Open(const gfx::Rect& bounds, void* ui_view) {
   const bc_id id = NewId();
   Window* window = new Window(id, bounds, ui_view);
   Windows()[id] = base::WrapUnique(window);
+  // It opens active.
+  ToFront(id);
   return window;
 }
 
@@ -234,8 +253,10 @@ Window* Window::FromId(bc_id id) {
 // static
 std::vector<Window*> Window::All() {
   std::vector<Window*> all;
-  for (auto& [id, window] : Windows()) {
-    all.push_back(window.get());
+  for (bc_id id : Order()) {
+    if (Window* window = FromId(id)) {
+      all.push_back(window);
+    }
   }
   return all;
 }
@@ -260,15 +281,23 @@ void Window::CloseAll() {
 }
 
 // static
-bool Window::Showing(bc_id tab) {
-  return std::ranges::any_of(Windows(), [tab](const auto& entry) {
-    return std::ranges::contains(entry.second->panes_, tab);
-  });
+Window* Window::Showing(bc_id tab) {
+  for (auto& [id, window] : Windows()) {
+    if (std::ranges::contains(window->panes_, tab)) {
+      return window.get();
+    }
+  }
+  return nullptr;
 }
 
 // static
 void Window::PanesChanged() {
-  for (auto& [id, window] : Windows()) {
+  // The window the user was in first, so a split it changed takes its pages from the others rather
+  // than the other way round. One whose page another took waits for the user.
+  for (Window* window : All()) {
+    if (window->let_go_) {
+      continue;
+    }
     const bc_id selected = window->selected_;
     // A favorite is in no split.
     Space* space = Space::Holding(selected);
@@ -400,7 +429,8 @@ void Window::OnTabClosing(bc_id tab) {
   } else {
     Favorites::Remove(tab);
   }
-  for (auto& [id, window] : Windows()) {
+  // The window the user was in picks first, as another passes over the tab that one shows.
+  for (Window* window : All()) {
     if (window->selected_ == tab) {
       window->selected_ = 0;
       Space* shown = space ? nullptr : Space::FromId(window->space_);
@@ -439,11 +469,11 @@ void Window::Unload(bc_id tab, bool split) {
     space->Separate(tab);
   }
   // Another tab first, so the pages unload out of sight.
-  for (auto& [id, window] : Windows()) {
+  for (Window* window : All()) {
     if (std::ranges::contains(going, window->selected_)) {
       Space* shown = space ? nullptr : Space::FromId(window->space_);
       if (const bc_id its_next = shown ? shown->NextAfterLeaving(tab, staying) : next) {
-        window->Select(its_next);
+        window->Pick(its_next);
       } else {
         window->ShowNothing();
       }
@@ -545,9 +575,9 @@ void Window::CloseBelow(bc_id tab) {
   // Below its split, if it's in one.
   const std::vector<bc_id> below(std::ranges::find(today, space->Panes(tab).back()) + 1,
                                  today.end());
-  for (auto& [id, window] : Windows()) {
+  for (Window* window : All()) {
     if (std::ranges::contains(below, window->selected_)) {
-      window->Select(tab);
+      window->Pick(tab);
     }
   }
   for (auto id = below.rbegin(); id != below.rend(); ++id) {
@@ -579,7 +609,10 @@ void Window::MoveToSpace(bc_id tab, bc_id space) {
   }
   from->Remove(tab);
   for (auto& [id, window] : Windows()) {
-    if (window->selected_ == tab) {
+    if (window->selected_ == tab && window->let_go_) {
+      // Its page went to another window, which takes it along.
+      window->Pick(next);
+    } else if (window->selected_ == tab) {
       // ShowSpace keeps |next| as the tab the old Space shows.
       window->selected_ = next;
       window->SetSelectedIn(space, moved);
@@ -604,10 +637,10 @@ bool Window::DeleteSpace(bc_id space) {
     return false;
   }
   Space* neighbour = it != staying.begin() ? *(it - 1) : *(it + 1);
-  // Before the windows leave it, so it keeps the tab the first one showed there.
+  // Before the windows leave it, so it keeps the tab the one active last showed there.
   DeletedSpace& deleted = LastDeleted().emplace();
   deleted.id = space;
-  deleted.shown = Windows().empty() ? 0 : Windows().begin()->second->SelectedIn(space);
+  deleted.shown = Order().empty() ? 0 : FromId(Order().front())->SelectedIn(space);
   deleted.saved = SaveSpace(**it, deleted.shown, &deleted.today);
   for (auto& [id, window] : Windows()) {
     if (window->space_ == space) {
@@ -769,6 +802,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   }
   panes_ = std::move(panes);
   shown_ = contents->GetWeakPtr();
+  let_go_ = false;
   page_frame_ = frame;
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
   // new page takes it.
@@ -839,11 +873,11 @@ void Window::LayOutPage() {
   }
 }
 
-void Window::ShowSpace(bc_id space) {
+void Window::ShowSpace(bc_id space, bool page) {
   if (!Space::FromId(space) || space == space_) {
     return;
   }
-  const bc_id tab = TabToShowIn(space);
+  const bc_id tab = page ? TabToShowIn(space) : 0;
   if (space_) {
     selected_in_space_[space_] = selected_;
   }
@@ -869,16 +903,20 @@ bc_id Window::TabToShowIn(bc_id space) const {
   if (!in || space == space_) {
     return in ? selected_ : 0;
   }
+  // Never a page another window shows, which would leave that window.
+  const auto free = [this](bc_id tab) { return !ShownElsewhere(tab); };
   auto last = selected_in_space_.find(space);
-  if (last != selected_in_space_.end() &&
+  if (last != selected_in_space_.end() && free(last->second) &&
       (in->Has(last->second) || (Favorites::Has(last->second) &&
                                  Favorites::ProfileOf(last->second) == in->profile()))) {
     return last->second;
   }
-  if (!in->today().empty()) {
-    return in->today().front();
+  if (auto today = std::ranges::find_if(in->today(), free); today != in->today().end()) {
+    return *today;
   }
-  return in->pinned().empty() ? 0 : in->pinned().front();
+  const std::vector<bc_id> pinned = in->pinned();
+  auto first = std::ranges::find_if(pinned, free);
+  return first == pinned.end() ? 0 : *first;
 }
 
 bc_id Window::SelectedIn(bc_id space) const {
@@ -904,6 +942,7 @@ void Window::ShowNothing() {
     Seen(Tab::FromId(pane));
   }
   shown_ = nullptr;
+  let_go_ = false;
   LayOutPage();
   ReportSelected();
 }
@@ -933,30 +972,113 @@ void Window::SetPageColor(uint32_t color) {
 void Window::Select(bc_id tab) {
   content::WebContents* contents = Tab::FromId(tab);
   tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  if (!in || ForBrowser(in->GetBrowserWindowInterface()) != this) {
+  if (!in || !ForBrowser(in->GetBrowserWindowInterface())) {
     return;
   }
+  bc_id other_space = 0;
   if (Space* space = Space::Holding(tab); space && space_ && space->id() != space_) {
-    // As the tab its Space shows, so the one it showed before doesn't load on the way.
-    SetSelectedIn(space->id(), tab);
-    ShowSpace(space->id());
-    return;
+    other_space = space->id();
   }
   const Space* shown = Space::FromId(space_);
   if (shown && Favorites::Has(tab) && Favorites::ProfileOf(tab) != shown->profile()) {
     // A favorite shows in the Spaces of its profile: the first of them.
-    for (Space* space : Space::All()) {
-      if (space->profile() == Favorites::ProfileOf(tab)) {
-        SetSelectedIn(space->id(), tab);
-        ShowSpace(space->id());
-        return;
-      }
+    auto spaces = Space::All();
+    auto first = std::ranges::find(spaces, Favorites::ProfileOf(tab), &Space::profile);
+    if (first == spaces.end()) {
+      return;
     }
+    other_space = (*first)->id();
+  }
+  // Here before ShowSpace looks for a tab no other window shows.
+  Adopt(tab);
+  if (other_space) {
+    // As the tab its Space shows, so the one it showed before doesn't load on the way.
+    SetSelectedIn(other_space, tab);
+    ShowSpace(other_space);
     return;
   }
   selected_ = tab;
   Show(contents, page_frame_);
   ReportSelected();
+}
+
+void Window::Adopt(bc_id tab) {
+  Space* space = Space::Holding(tab);
+  for (bc_id pane : space ? space->Panes(tab) : std::vector<bc_id>{tab}) {
+    content::WebContents* contents = Tab::FromId(pane);
+    tabs::TabInterface* in =
+        contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+    BrowserWindowInterface* from = in ? in->GetBrowserWindowInterface() : nullptr;
+    if (!from || ForBrowser(from) == this || !ForBrowser(from)) {
+      continue;
+    }
+    // Made before the tab leaves, so the profile always has a Browser and none closes as its last.
+    BrowserWindowInterface* to =
+        BrowserFor(Profile::FromBrowserContext(contents->GetBrowserContext()));
+    if (!to) {
+      return;
+    }
+    if (Window* showing = Showing(pane); showing && showing != this) {
+      showing->LetGo();
+    }
+    TabStripModel* tabs = from->GetTabStripModel();
+    std::unique_ptr<tabs::TabModel> moved =
+        tabs->DetachTabAtForInsertion(tabs->GetIndexOfWebContents(contents));
+    // Not a tab opened, for the app.
+    base::AutoReset<bool> opening(&opening_tab_, true);
+    to->GetTabStripModel()->InsertDetachedTabAt(to->GetTabStripModel()->count(), std::move(moved),
+                                                AddTabTypes::ADD_NONE);
+  }
+}
+
+void Window::LetGo() {
+  panes_.clear();
+  shown_ = nullptr;
+  let_go_ = true;
+  LayOutPage();
+}
+
+void Window::HandOver(Window& to) {
+  std::vector<BrowserWindowInterface*> browsers;
+  for (auto& [profile, held] : browsers_) {
+    browsers.push_back(held.browser);
+  }
+  for (BrowserWindowInterface* browser : browsers) {
+    TabStripModel* tabs = browser->GetTabStripModel();
+    BrowserWindowInterface* into = to.BrowserFor(browser->GetProfile());
+    if (!into) {
+      return;
+    }
+    // Last first: the Browser closes as its last tab leaves, and isn't touched after.
+    for (int index = tabs->count() - 1; index >= 0; --index) {
+      std::unique_ptr<tabs::TabModel> moved = tabs->DetachTabAtForInsertion(index);
+      base::AutoReset<bool> opening(&to.opening_tab_, true);
+      into->GetTabStripModel()->InsertDetachedTabAt(into->GetTabStripModel()->count(),
+                                                    std::move(moved), AddTabTypes::ADD_NONE);
+    }
+  }
+}
+
+bool Window::ShownElsewhere(bc_id tab) const {
+  Window* showing = Showing(tab);
+  return showing && showing != this;
+}
+
+void Window::Pick(bc_id tab) {
+  if (!ShownElsewhere(tab)) {
+    Select(tab);
+    return;
+  }
+  // Only a Today tab, as a pinned tab may be unloading.
+  const Space* space = Space::FromId(space_);
+  const std::vector<bc_id> none;
+  const std::vector<bc_id>& today = space ? space->today() : none;
+  auto free = std::ranges::find_if(today, [this](bc_id each) { return !ShownElsewhere(each); });
+  if (free != today.end()) {
+    Select(*free);
+  } else {
+    ShowNothing();
+  }
 }
 
 size_t Window::Clear() {
@@ -967,7 +1089,7 @@ size_t Window::Clear() {
   cleared_.clear();
   const std::vector<bc_id>& today = space->today();
   for (size_t index = 0; index < today.size(); ++index) {
-    if (!std::ranges::contains(panes_, today[index])) {
+    if (!Showing(today[index])) {
       const bool split = index > 0 && std::ranges::contains(space->Panes(today[index]),
                                                             today[index - 1]);
       cleared_.push_back({today[index], index, split});
@@ -1121,11 +1243,17 @@ bc_id Window::Duplicate(bc_id tab) {
   content::WebContents* contents = Tab::FromId(tab);
   tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   Space* space = Favorites::Has(tab) ? Space::FromId(space_) : Space::Holding(tab);
-  if (!in || !space || ForBrowser(in->GetBrowserWindowInterface()) != this ||
+  if (!in || !space || !ForBrowser(in->GetBrowserWindowInterface()) ||
       DirOf(contents) != space->profile()) {
     return 0;
   }
-  TabStripModel* tabs = in->GetBrowserWindowInterface()->GetTabStripModel();
+  // In this window's Browser, wherever |tab|'s page is, as it shows here.
+  BrowserWindowInterface* browser =
+      BrowserFor(Profile::FromBrowserContext(contents->GetBrowserContext()));
+  if (!browser) {
+    return 0;
+  }
+  TabStripModel* tabs = browser->GetTabStripModel();
   std::unique_ptr<content::WebContents> copy = contents->Clone();
   content::WebContents* copied = copy.get();
   {
@@ -1171,7 +1299,7 @@ bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {
 void Window::SelectAfterClosing() {
   const bc_id next = std::exchange(next_after_closing_, 0);
   if (next && Tab::FromId(next)) {
-    Select(next);
+    Pick(next);
   } else {
     ReportSelected();
   }
@@ -1201,6 +1329,24 @@ void Window::Close() {
   if (closing_) {
     return;
   }
+  // Its tabs are in Spaces every window shows, so with another window open they go there, live,
+  // and no page closes. That one shows its tab again if this one had taken its page.
+  Window* to = nullptr;
+  for (Window* window : All()) {
+    if (window != this && !window->closing_) {
+      to = window;
+      break;
+    }
+  }
+  if (to && !browser_shutdown::IsTryingToQuit()) {
+    const bool give_back = to->let_go_ && Showing(to->selected_) == this;
+    // Its pages out of its view first, as the view goes with the window.
+    LetGo();
+    HandOver(*to);
+    if (give_back) {
+      to->Select(to->selected_);
+    }
+  }
   closing_ = true;
   if (browsers_.empty()) {
     Destroy();
@@ -1226,6 +1372,7 @@ void Window::OnBrowserGone(BrowserWindowInterface* browser) {
 
 void Window::Destroy() {
   // Out of the list first, so the app can't reach the window from its callback.
+  std::erase(Order(), id_);
   auto it = Windows().find(id_);
   std::unique_ptr<Window> self = std::move(it->second);
   Windows().erase(it);
@@ -1293,6 +1440,10 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
   // leaves the keyboard with nothing: Chromium gives none to its new view, and the old one is gone.
   if (active) {
     FocusPageSoon();
+    // The session keeps the Space of the window active last.
+    if (ToFront(id_)) {
+      SessionChanged();
+    }
   }
 }
 
