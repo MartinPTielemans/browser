@@ -1784,7 +1784,8 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
             let profile = unsafe { bc::bc_space_profile(space) };
             let name_of = name(bc::bc_space_name, space);
             let icon = name(bc::bc_space_icon, space);
-            (space, name_of, has_color.then_some(color), profile, icon)
+            let agent = name(bc::bc_space_agent_name, space);
+            (space, name_of, has_color.then_some(color), profile, icon, agent)
         })
         .collect();
     update_shells(|shell, cx| {

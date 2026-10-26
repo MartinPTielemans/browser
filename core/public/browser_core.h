@@ -317,11 +317,12 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // window closed, in the window, which shows the Space it showed. The core saves them as they
-// change, in Chrome's user data directory: the favorites, the Spaces' names, their pinned and Today
-// tabs with each tab's history, and the tab each showed. A tab loads once it's shown. Does nothing
-// and returns false if nothing was saved or there are Spaces already. Then favorites_changed,
-// spaces_changed, space_changed, each tab's tab_state_changed and tab_title_changed,
-// tab_favicon_changed once a tab's favicon is found, window_space_shown and window_selected.
+// change, in Chrome's user data directory: the favorites, the Spaces' names and whose they are,
+// their pinned and Today tabs with each tab's history, and the tab each showed. A tab loads once
+// it's shown. Does nothing and returns false if nothing was saved or there are Spaces already.
+// Then favorites_changed, spaces_changed, space_changed, each tab's tab_state_changed and
+// tab_title_changed, tab_favicon_changed once a tab's favicon is found, window_space_shown and
+// window_selected.
 BC_EXPORT bool bc_window_restore(bc_id window);
 
 // Closes the window. With other windows open, its tabs go, their pages live, to the one active
@@ -330,8 +331,44 @@ BC_EXPORT bool bc_window_restore(bc_id window);
 BC_EXPORT void bc_window_close(bc_id window);
 
 // Makes an empty Space named |name|, in the profile the core started with, after the others. Any
-// window can show it. Then spaces_changed.
+// window can show it. It's the user's. Then spaces_changed.
 BC_EXPORT bc_id bc_space_create(const char* name);
+
+// A Space is the user's or an agent's, from when it's made for as long as it lives, and saved with
+// it (decision 8). An agent is an AI client, such as Claude Code, driving the browser through the
+// core. The rules its calls keep, once there are any:
+// - It works only in its own Space: bc_agent_may_act answers which tabs are its to act on. The
+//   user's tabs and favorites never are, and no tab moves into an agent's Space, by
+//   bc_tab_move_to_space or bc_tab_move, until the user can give an agent a tab, with its
+//   activity-log entry. A tab the user opens in one, while a window shows it, is the agent's like
+//   the rest.
+// - Its actions never move the user's focus: no window shows another Space or tab, and no page
+//   takes the keyboard, because of one.
+// - The user can watch it, as an agent's Space shows in the windows like the others, take over in
+//   it, and hand back. To keep what an agent made, the user moves its tabs into a Space of theirs.
+// An agent's Space shows, switches, renames, clears and deletes as the user's Spaces do, and
+// bc_window_undo_delete_space brings it back the agent's.
+
+// Makes an empty Space named |name| for the agent with the id |agent| and the name |agent_name|,
+// UTF-8, as its client gives them, in the profile the core started with, after the others.
+// bc_space_set_profile puts it in another. The user's actions never call this: New Space makes the
+// user's. Returns 0, making none, if |agent| or |agent_name| is empty. Then spaces_changed.
+BC_EXPORT bc_id bc_space_create_for_agent(const char* name,
+                                          const char* agent,
+                                          const char* agent_name);
+
+// Copies the id of the agent the Space belongs to into |agent| as bc_space_name does, or nothing,
+// an empty string, for the user's own. It's the one the agent's client gave, stable across its
+// connections.
+BC_EXPORT size_t bc_space_agent(bc_id space, char* agent, size_t capacity);
+
+// Copies the name of the agent the Space belongs to, for the user to see, into |name| as
+// bc_space_name does, or an empty string for the user's own Space.
+BC_EXPORT size_t bc_space_agent_name(bc_id space, char* name, size_t capacity);
+
+// Whether the agent with the id |agent| may act on |tab|: only if the tab is in that agent's own
+// Space.
+BC_EXPORT bool bc_agent_may_act(const char* agent, bc_id tab);
 
 // The profile the Space's tabs open in, which its favorites are in.
 BC_EXPORT bc_id bc_space_profile(bc_id space);
@@ -731,8 +768,9 @@ BC_EXPORT void bc_tab_move_to_favorites(bc_id tab, size_t index);
 // split |index| is inside. In the pinned tabs or a folder, |index| counts the tabs and folders
 // directly in it. A Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned
 // tab moved to Today is unpinned. A favorite leaves the favorites for the Space its window shows,
-// pinned at its favorite's URL in the pinned tabs, and a window showing it keeps showing it. Then
-// space_changed and tab_state_changed, and favorites_changed for a favorite.
+// unless that's an agent's, pinned at its favorite's URL in the pinned tabs, and a window showing
+// it keeps showing it. Then space_changed and tab_state_changed, and favorites_changed for a
+// favorite.
 BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, bc_id folder, size_t index);
 
 // Loads a pinned tab's pinned URL, or a favorite's URL, unless it's there already. Then
@@ -766,7 +804,7 @@ BC_EXPORT void bc_tab_close_below(bc_id tab);
 // with it. A page can't take its cookies and logins to another profile, so into another profile's
 // Space the tab goes as a new one, with its history, name and mute, which loads once it's shown.
 // The old one closes, kept out of the archive and ⇧⌘T's tabs, as it lives on in the new one; then
-// tab_closed.
+// tab_closed. Nothing moves into an agent's Space: a tab leaves one only.
 BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
 
 // Zooms the tab's page in (|step| 1) or out (-1) to Chrome's next level, or back to 100 % (0), for

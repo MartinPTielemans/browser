@@ -406,6 +406,7 @@ mod tests {
             color: None,
             icon: Default::default(),
             profile: 0,
+            agent: Default::default(),
             pinned: Vec::new(),
             today: Vec::new(),
             splits: Vec::new(),

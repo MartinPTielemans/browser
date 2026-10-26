@@ -1,7 +1,10 @@
 //! A host for the shell's tests, which records what the shell asks of the core and answers
 //! nothing, so a test plays the core's reports itself.
 
-use std::{cell::RefCell, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    time::Duration,
+};
 
 use gpui::{App, Bounds, Pixels, Point, SharedString};
 
@@ -10,16 +13,28 @@ use super::{
 };
 
 #[derive(Default)]
-pub(super) struct Recorder(RefCell<Vec<String>>);
+pub(super) struct Recorder {
+    calls: RefCell<Vec<String>>,
+    /// How many detents the trackpad was asked for.
+    pub(super) detents: Cell<usize>,
+    /// How many tabs and folders it was asked to move.
+    pub(super) moves: Cell<usize>,
+    /// The Spaces it was asked to show, in order.
+    pub(super) shown: RefCell<Vec<u64>>,
+    /// The menus it was asked to show, each item by its title and whether it's enabled.
+    pub(super) menus: RefCell<Vec<Vec<(SharedString, bool)>>>,
+    /// The Spaces the menu bar's Spaces menu lists.
+    pub(super) menu_spaces: RefCell<Vec<SharedString>>,
+}
 
 impl Recorder {
     fn record(&self, call: String) {
-        self.0.borrow_mut().push(call);
+        self.calls.borrow_mut().push(call);
     }
 
     /// What the shell asked for since the last time, in order.
     pub(super) fn take(&self) -> Vec<String> {
-        std::mem::take(&mut self.0.borrow_mut())
+        std::mem::take(&mut self.calls.borrow_mut())
     }
 }
 
@@ -46,9 +61,13 @@ impl Browser for Recorder {
 
     fn set_pinned(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn move_to_favorites(&self, _: u64, _: usize, _: &mut App) {}
+    fn move_to_favorites(&self, _: u64, _: usize, _: &mut App) {
+        self.moves.set(self.moves.get() + 1);
+    }
 
-    fn move_tab(&self, _: u64, _: bool, _: u64, _: usize, _: &mut App) {}
+    fn move_tab(&self, _: u64, _: bool, _: u64, _: usize, _: &mut App) {
+        self.moves.set(self.moves.get() + 1);
+    }
 
     fn open_at(&self, _: &[String], _: bool, _: u64, _: usize, _: &mut App) -> u64 {
         Default::default()
@@ -62,7 +81,9 @@ impl Browser for Recorder {
 
     fn set_folder_open(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn move_folder(&self, _: u64, _: u64, _: usize, _: &mut App) {}
+    fn move_folder(&self, _: u64, _: u64, _: usize, _: &mut App) {
+        self.moves.set(self.moves.get() + 1);
+    }
 
     fn delete_folder(&self, _: u64, _: &mut App) {}
 
@@ -147,7 +168,9 @@ impl Browser for Recorder {
 
     fn task_manager(&self, _: &mut App) {}
 
-    fn set_menus(&self, _: &[SharedString], _: &[Extension], _: &mut App) {}
+    fn set_menus(&self, spaces: &[SharedString], _: &[Extension], _: &mut App) {
+        *self.menu_spaces.borrow_mut() = spaces.to_vec();
+    }
 
     fn run_extension(&self, _: &str, _: Bounds<Pixels>, _: &mut App) -> bool {
         Default::default()
@@ -173,7 +196,9 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn show_space(&self, _: u64, _: &mut App) {}
+    fn show_space(&self, space: u64, _: &mut App) {
+        self.shown.borrow_mut().push(space);
+    }
 
     fn space_tab(&self, _: u64) -> u64 {
         Default::default()
@@ -207,13 +232,15 @@ impl Browser for Recorder {
 
     fn menu(
         &self,
-        _: Vec<MenuEntry>,
+        entries: Vec<MenuEntry>,
         _: Point<Pixels>,
         _: Option<usize>,
         _: bool,
         _: Box<dyn FnOnce(Option<usize>, &mut App)>,
         _: &mut App,
     ) {
+        let items = entries.into_iter().map(|entry| (entry.title, entry.enabled)).collect();
+        self.menus.borrow_mut().push(items);
     }
 
     fn confirm(
@@ -250,7 +277,9 @@ impl Browser for Recorder {
 
     fn hide_reveal(&self, _: &mut App) {}
 
-    fn detent(&self, _: &mut App) {}
+    fn detent(&self, _: &mut App) {
+        self.detents.set(self.detents.get() + 1);
+    }
 
     fn watch_control(&self, _: &mut App) {}
 

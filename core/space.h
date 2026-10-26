@@ -22,13 +22,27 @@ namespace browser_core {
 //
 // Folders hold pinned tabs and other folders. Each sits in the pinned list followed by what's in
 // it, and moves with it.
+//
+// A Space is the user's, or an agent's (decision 8), for as long as it lives: an agent may act only
+// on the tabs of its own Space.
 class Space {
  public:
   // The most tabs a split shows.
   static constexpr size_t kMaxPanes = 3;
 
-  // With the id |id|, a deleted Space's, if it isn't 0, which puts it back at its place.
-  static Space* Create(std::string name, bc_id id = 0);
+  // An agent a Space belongs to, as its client names itself.
+  struct Agent {
+    // Stable across the agent's connections, and never empty.
+    std::string id;
+    // What the user sees, such as "Claude Code".
+    std::string name;
+  };
+
+  // With the id |id|, a deleted Space's, if it isn't 0, which puts it back at its place. The
+  // agent's if there's |agent|, else the user's.
+  static Space* Create(std::string name,
+                       bc_id id = 0,
+                       std::optional<Agent> agent = std::nullopt);
   // Deletes the Space, which windows no longer show.
   static void Delete(bc_id id);
   static Space* FromId(bc_id id);
@@ -38,6 +52,9 @@ class Space {
   static Space* Holding(bc_id tab);
   // The Space holding |folder|, if any.
   static Space* HoldingFolder(bc_id folder);
+  // Whether the agent with the id |agent| may act on |tab|: only if its own Space holds it. Never
+  // a favorite, which is in no Space.
+  static bool AgentMayAct(const std::string& agent, bc_id tab);
 
   Space(const Space&) = delete;
   Space& operator=(const Space&) = delete;
@@ -50,6 +67,8 @@ class Space {
   const std::string& icon() const { return icon_; }
   // The directory of the profile its tabs open in, which its favorites are in (decision 5).
   const std::string& profile() const { return profile_; }
+  // The agent it belongs to, or none for the user's own.
+  const std::optional<Agent>& agent() const { return agent_; }
   // The pinned tabs and folders, top to bottom, each folder followed by what's in it.
   const std::vector<bc_id>& pinned_rows() const { return pinned_; }
   // The pinned tabs alone.
@@ -143,7 +162,7 @@ class Space {
   bc_id NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> loaded) const;
 
  private:
-  Space(bc_id id, std::string name);
+  Space(bc_id id, std::string name, std::optional<Agent> agent);
 
   bc_id OpenerOf(bc_id tab) const;
   // Makes the tabs |tab| opened its opener's, and |tab| no one's, as Chrome does when a tab moves.
@@ -174,6 +193,7 @@ class Space {
   void ReportChanged();
 
   const bc_id id_;
+  const std::optional<Agent> agent_;
   std::string name_;
   std::optional<uint32_t> color_;
   std::string icon_;

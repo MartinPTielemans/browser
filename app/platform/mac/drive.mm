@@ -70,6 +70,12 @@
 //   window <n>                            drives the n-th browser window opened, from 1, from
 //                                         now, bringing it to the front with the keyboard as a
 //                                         click on it does, logging "browser: drive window <n>"
+//   agentspace <agent> <name>             makes a Space named <name> for the agent with the id
+//                                         <agent> and the name <name>, as agent code will once
+//                                         there is some, logging "browser: made space <space> for
+//                                         agent <agent>"
+//   agentmayact <agent> <tab>             logs whether the agent may act on the tab, as
+//                                         "browser: agent <agent> may act on <tab>: <0|1>"
 //
 // Clicks, drags and moves go to the app's window on top at that point of the browser window
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
@@ -88,6 +94,7 @@
 #include <string>
 #include <thread>
 
+#include "browser_core.h"
 #include "host.h"
 
 // A drag from another app, as AppKit describes it to the view under the pointer: what it carries
@@ -881,6 +888,28 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   if (action == "state") {
+    done();
+    return true;
+  }
+  if (action == "agentspace") {
+    std::string agent, name;
+    if (!(words >> agent) || !std::getline(words >> std::ws, name) || name.empty()) {
+      return false;
+    }
+    const bc_id space = bc_space_create_for_agent(name.c_str(), agent.c_str(), name.c_str());
+    fprintf(stderr, "browser: made space %llu for agent %s\n", (unsigned long long)space,
+            agent.c_str());
+    done();
+    return true;
+  }
+  if (action == "agentmayact") {
+    std::string agent;
+    bc_id tab;
+    if (!(words >> agent >> tab)) {
+      return false;
+    }
+    fprintf(stderr, "browser: agent %s may act on %llu: %d\n", agent.c_str(),
+            (unsigned long long)tab, bc_agent_may_act(agent.c_str(), tab));
     done();
     return true;
   }
