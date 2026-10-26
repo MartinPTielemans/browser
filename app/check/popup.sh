@@ -34,15 +34,15 @@ expect '^browser: loaded [0-9]* https://example.com/$' "the popup's page didn't 
 check_layout "with the popup's tab"
 ../tools/window-screenshot.sh "$pid" "$out/popup.png" || fail "no window to capture"
 # The page's context menu is Chrome's, without the items for what the browser doesn't have yet
-# (other windows, split view, incognito) or whose UI is in Chrome's own window (Cast, Reading Mode).
+# (other windows, incognito) or whose UI is in Chrome's own window (Cast, Reading Mode).
 send key 1 cmd
 expect "^browser: selected $opener in " "⌘1 didn't show the page again"
 post rightclick 250 30
-expect '^browser: menu tracked Open Link in New Tab, Save Link As…, Copy Link Address, ' \
+expect '^browser: menu tracked Open Link in New Tab, Open Link in Split View, Save Link As…, ' \
   "a right-click on the page's link didn't show the link's menu"
 menu=$(grep '^browser: menu tracked' "$log" | tail -1 | cut -d' ' -f4-)
 case "$menu" in
-*Window* | *"Split View"*) fail "the link's menu offers what the window can't do: $menu" ;;
+*Window*) fail "the link's menu offers what the window can't do: $menu" ;;
 esac
 ../tools/window-screenshot.sh "$pid" "$out/link-menu.png" || fail "no window to capture"
 send choose Open Link in New Tab
