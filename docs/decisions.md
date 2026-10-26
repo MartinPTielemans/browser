@@ -22,7 +22,8 @@ Not raw Chromium and not all of Helium.
   - An install the user confirms fetches the extension's icon from the address the page gives, Google's image host. It then downloads the extension from clients2.google.com, which redirects to clients2.googleusercontent.com. The download carries the profile's cookies and the store page as referrer, as in Chrome.
   - Installed store extensions are checked for updates at clients2.google.com, soon after launch and every 5 hours (±20%) after. The check sends each one's id and version, and the browser's OS, architecture, version and language, without cookies or usage pings. An update downloads from clients2.googleusercontent.com.
 
-  Nothing else of Google's comes back: no Safe Browsing, sync, metrics or component updater.
+  Besides the security updates in the next entry, nothing else of Google's comes back: no Safe Browsing, sync or metrics, and the component updater fetches nothing more.
+- We take back one thing ungoogled-chromium removes: the updates that keep the browser from trusting what is known to be bad. These are certificate revocations, the root store, and Google's malware verdicts on extensions. Without them, a revoked certificate or a malicious extension stays trusted until the next release. Ardia's patches fetch them from Google with the identifying fields stripped. `engine/README.md` lists what is fetched and what is sent.
 
 Revisit if cherry-picking from Helium costs more per release than taking its whole series would.
 

@@ -34,9 +34,20 @@ Steps 1–3 change the tree and run once; a run that stopped in one of them mean
 
 It also needs the macOS SDK of Chromium's official builds (`mac_sdk_official_version` in `build/config/mac/mac_sdk.gni`: 26.5 for Chromium 155), from Xcode or the Command Line Tools, even when a newer Xcode is installed. The pinned LLVM's linker can't read newer SDKs.
 
+## What reaches Google
+
+ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patches/ardia/` bring back two of them, for security only (decision 2).
+
+- **Security components.** The component updater checks `https://update.googleapis.com/service/update2/json` for three components only: CRLSet (revoked certificates), PKI Metadata (Chrome Root Store, CT logs, pins) and the SSL error assistant. Every other component stays out of the request and is never downloaded. The first check runs a minute after launch, then one every five hours. Downloads may come only from `dl.google.com`, `*.gvt1.com` or `www.google.com/dl/`, over https, and redirects are held to the same hosts.
+  - **What a check sends.** In the body: the protocol version, Chromium's version and channel, the updater's version, macOS's version, the CPU architecture, and a random session id and request id. For each component it sends the id and the installed version. The headers repeat the ids and say whether the check runs in the foreground.
+  - **What it doesn't send.** No cookies and no pings. None of the fields Chrome uses to link one check to the next (install id, install date, cohorts, ping day counts). No language, hardware or enterprise state. Google still sees the IP address, and the versions can help it link checks.
+  - **How responses are checked.** CUP signatures and the CRX3 publisher key, as in Chrome.
+- **Extension kill switch.** The extension update check's `_malware`, `_policy_violation` and `_potentially_uws` answers blocklist or disable the extension, as in Chrome. That check covers only Web Store extensions. ungoogled-chromium's `disable-webstore-urls.patch` and domain substitution still stop the store's extensions from installing and updating, so the kill switch does nothing until Web Store installs come back.
+
 ## Rules
 
-- Keep patches small and separate. New code goes in new files under `//browser_core` where possible. Patches to Chrome's files add hooks; they don't move logic.
+- Keep patches small and separate.
+- Domain substitution rewrites Google's hosts in the source before the series is applied, so a patch that needs a real host writes it in full, and nothing rewrites it. New code goes in new files under `//browser_core` where possible. Patches to Chrome's files add hooks; they don't move logic.
 - One concern per patch, named `chromium-<area>-<what>.patch`.
 - Each release, diff Helium's and Ardia's series against ours for anything worth taking.
 - A new Chromium version, or a change to the GN args, means a full build.
