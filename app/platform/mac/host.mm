@@ -983,6 +983,17 @@ void host_hide_settings(void) {
   [g_settings orderOut:nil];
 }
 
+bool host_close_other_window(void) {
+  NSWindow* key = NSApp.keyWindow;
+  // The browser window, the windows over it and Settings take ⌘W themselves.
+  if (!key || key == g_window || key == g_settings || key.parentWindow ||
+      !(key.styleMask & NSWindowStyleMaskClosable)) {
+    return false;
+  }
+  [key performClose:nil];
+  return true;
+}
+
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
   NSAlert* alert = [[NSAlert alloc] init];
   alert.messageText = @(message);

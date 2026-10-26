@@ -83,6 +83,7 @@ mod platform {
         pub fn host_add_settings(settings_view: *mut c_void);
         pub fn host_show_settings();
         pub fn host_hide_settings();
+        pub fn host_close_other_window() -> bool;
         pub fn host_ask(
             message: *const c_char,
             detail: *const c_char,
@@ -599,6 +600,14 @@ impl Browser for Engine {
         if tab != 0 {
             unsafe { bc::bc_tab_devtools(tab, what) };
         }
+    }
+
+    fn task_manager(&self, _: &mut App) {
+        unsafe { bc::bc_window_task_manager(WINDOW.get()) };
+    }
+
+    fn close_other_window(&self, _: &mut App) -> bool {
+        unsafe { platform::host_close_other_window() }
     }
 
     fn show_space(&self, space: u64, _: &mut App) {
@@ -1127,6 +1136,13 @@ fn menus() -> Vec<Menu> {
                 item("View Library", Command::ViewLibrary),
                 item("View Downloads", Command::ViewDownloads),
             ],
+        ),
+        menu(
+            "Help",
+            vec![MenuItem::submenu(menu(
+                "Troubleshooting",
+                vec![item("Open Task Manager", Command::TaskManager)],
+            ))],
         ),
     ]
 }

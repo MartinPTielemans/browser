@@ -375,6 +375,8 @@ pub enum Command {
     InspectElements,
     /// Opens the page's DevTools at the console, or closes them there.
     JavaScriptConsole,
+    /// Opens Chrome's Task Manager.
+    TaskManager,
     NewSpace,
     /// The Space at this index in the switcher.
     SelectSpace(usize),
@@ -533,6 +535,7 @@ const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Developer Tools", Command::DevTools),
     ("Inspect Elements", Command::InspectElements),
     ("JavaScript Console", Command::JavaScriptConsole),
+    ("Open Task Manager", Command::TaskManager),
     ("New Space", Command::NewSpace),
     ("Next Space", Command::NextSpace),
     ("Previous Space", Command::PreviousSpace),
@@ -767,6 +770,7 @@ impl Command {
             Command::DevTools => "devtools",
             Command::InspectElements => "inspect-elements",
             Command::JavaScriptConsole => "javascript-console",
+            Command::TaskManager => "task-manager",
             Command::NewSpace => "new-space",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
@@ -1012,6 +1016,11 @@ pub trait Browser {
     /// Opens or closes the tab's DevTools (0), opens or closes them at the console (1), or opens
     /// them picking an element (2).
     fn devtools(&self, tab: u64, what: i32, cx: &mut App);
+    /// Opens Chrome's Task Manager, with the page shown selected.
+    fn task_manager(&self, cx: &mut App);
+    /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
+    /// Manager, and says whether it did.
+    fn close_other_window(&self, cx: &mut App) -> bool;
     fn show_space(&self, space: u64, cx: &mut App);
     /// The tab the window shows when it shows `space`, or the one it shows, else 0.
     fn space_tab(&self, space: u64) -> u64;
@@ -2427,7 +2436,9 @@ impl Shell {
                 return self.browser.command_bar(editing, self.url_field_bounds(), cx);
             }
             Command::CloseTab => {
-                if self.selected != 0 {
+                // From a window of Chrome's, such as its Task Manager, ⌘W closes that window, as in
+                // Chrome, and leaves the tab alone.
+                if !self.browser.close_other_window(cx) && self.selected != 0 {
                     self.browser.close(self.selected, false, cx);
                 }
                 return;
@@ -2471,6 +2482,7 @@ impl Shell {
             Command::DevTools => return self.browser.devtools(self.selected, 0, cx),
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
+            Command::TaskManager => return self.browser.task_manager(cx),
             Command::Settings => return self.browser.settings(cx),
             Command::Quit => return self.browser.quit(cx),
             Command::AddSplit => return self.add_pane(cx),
