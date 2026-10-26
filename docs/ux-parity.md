@@ -151,8 +151,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 |---|---|---|---|---|
 | [x] | Panel width and place | MVP | 765, centred on the window, its top 169 above the window's middle | Arc 1.170 rec |
 | [x] | Text alignment | MVP | input row 64; glyph 18 pt at 23 in; text ≈ 18 pt at 53 in; hint at the field's end | Arc 1.170.0 ax |
-| [x] | Open | MVP | one frame, as ⌘T's; no grow from the field (Arc's panel isn't anchored to it) | Arc 1.170.0 rec |
-| [x] | Close | MVP | ⌘T's in one frame, as it opens; ⌘L's the same *interim*; Arc's ⌘L: measure | Arc 1.170.0 rec |
+| [x] | Open | MVP | one frame, for ⌘T, ⌘L and a click on the URL field | Arc 1.170 rec |
+| [x] | Close | MVP | one frame, as it opens | Arc 1.170 rec |
+| [x] | Over the URL field | MVP | a click on the field: 350 wide at the field's left, 2 above its top, 310 tall with five rows; input row 50 with the rows' columns, no line; radius ≈ 12; titles without the host. ⌘L stays centred. With the sidebar hidden, centred *interim* | Arc 1.170 rec |
 | [x] | Selection motion | MVP | ↓ and ↑ move the selection in one frame | Arc 1.170 rec |
 | [x] | Hover plate | MVP | the row under the pointer: the selection's shape in white 0.05, in one frame; kept as ↓ ↑ move the selection; none on the selected row | Arc 1.170 rec |
 | [x] | Fill / border / radius | MVP | #191919 at 0.86 over an untinted blur of what's behind; 0.5 pt outline and 1 pt grey edge; radius ≈ 18 | Arc 1.170.0 cap, Dia 1.50.1 bin |

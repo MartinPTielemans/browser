@@ -4,7 +4,8 @@
 //! selected, the input completes what's typed to it, as Chrome's address bar does. Its size and
 //! rows are Arc's (docs/ux-spec.md › Command bar). Tab on a row that hints a search engine, or a
 //! space after the engine's keyword, searches only with that engine until ⌫ leaves, as Chrome's
-//! keyword mode does. What it asks of the core and of its window goes through `Host`.
+//! keyword mode does. A click on the sidebar's URL field opens a narrower panel over the field,
+//! as Arc's does. What it asks of the core and of its window goes through `Host`.
 
 use std::{collections::HashMap, rc::Rc, sync::Arc, time::Instant};
 
@@ -66,6 +67,15 @@ pub const RADIUS: f32 = 18.;
 /// How far above the browser window's middle the panel's top is: Arc's is at y 396 of 1130 and at
 /// 305.5 of 949, which no fraction of the height fits.
 pub const ABOVE_MIDDLE: f32 = 169.;
+/// A click on the URL field opens the panel over it (Arc 1.170 rec): 350 wide, its left at the
+/// field's and its top 2 above, rounded as the panels anchored to the field are.
+pub const FIELD_WIDTH: f32 = 350.;
+const FIELD_ABOVE: f32 = 2.;
+pub const FIELD_RADIUS: f32 = 12.;
+/// There the input's row is a row tall, with no line under it, and its icon and 14 pt text sit in
+/// the rows' icon and title columns.
+const FIELD_INPUT: f32 = ROW_HEIGHT;
+const FIELD_INPUT_TEXT: f32 = 14.;
 /// Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
 const BESIDE_END: f32 = 70.;
 /// Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
@@ -247,9 +257,10 @@ pub trait Host {
     fn open_split(&self, url: &str, with: u64, cx: &mut App);
     /// Copies `text`, a sum's result, and says so.
     fn copy(&self, text: &str, cx: &mut App);
-    /// Shows the bar's window, `width` wide, with the keyboard: centred across the browser window
-    /// with its top `top` above the window's middle, else at `left` and `top` in it.
-    fn show(&self, centered: bool, left: f32, top: f32, width: f32);
+    /// Shows the bar's window, `width` wide and its corners rounded by `radius`, with the keyboard:
+    /// centred across the browser window with its top `top` above the window's middle, else at
+    /// `left` and `top` in it.
+    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32);
     fn set_height(&self, height: f32);
     /// Hides the bar's window once the user has chosen something in it.
     fn hide(&self);
@@ -297,6 +308,10 @@ pub struct CommandBar {
     selected: usize,
     /// The row under the pointer, which keeps its plate as the keys move the selection (Arc).
     hovered: Option<usize>,
+    /// Whether it shows over the URL field, from a click on it, rather than centred.
+    over_field: bool,
+    /// The URL it opened on, whose favicon the input shows until it's edited, as Arc's does.
+    page: String,
     /// The site search the bar is in, if any.
     site: Option<Site>,
     /// The rows' favicons by page, asked for as they first show. None until one comes.
@@ -396,6 +411,8 @@ pub fn open_at(
                 suggested: String::new(),
                 selected: 0,
                 hovered: None,
+                over_field: false,
+                page: String::new(),
                 site: None,
                 favicons: HashMap::new(),
                 tabs: Vec::new(),
@@ -417,16 +434,31 @@ pub fn open_at(
 
 /// Shows the command bar with the keyboard: empty for a new tab, listing `tabs`, or on `editing`'s
 /// URL, selected. It suggests nothing for the URL until the text is edited, as Chrome's address
-/// bar, and lists `tabs` again once the text is empty. It's centred over the browser window
-/// whatever opened it, as Arc's is for ⌘L and a click on the URL field too, and it shows at once.
-pub fn show(editing: Option<(u64, SharedString)>, tabs: Vec<shell::BarTab>, cx: &mut App) {
+/// bar, and lists `tabs` again once the text is empty. It shows at once: over `field`, the URL
+/// field's box in the window, when a click on the field opened it, else centred, as Arc's is for
+/// ⌘T and ⌘L.
+pub fn show(
+    editing: Option<(u64, SharedString)>,
+    tabs: Vec<shell::BarTab>,
+    field: Option<Bounds<Pixels>>,
+    cx: &mut App,
+) {
     let target = editing.as_ref().map_or(Target::NewTab, |&(tab, _)| Target::Tab(tab));
     let text = editing.map(|(_, url)| url).unwrap_or_default();
-    // check.sh reads this line.
+    // check.sh reads these lines.
     let ids: Vec<String> = tabs.iter().map(|tab| tab.tab.to_string()).collect();
     log!("browser: command bar tabs {}", ids.join(" "));
-    if let Some(host) = reset(target, text, tabs, cx) {
-        host.show(true, 0., ABOVE_MIDDLE, WIDTH);
+    let place = if field.is_some() { "over the URL field" } else { "centred" };
+    log!("browser: command bar opens {place}");
+    let Some(host) = reset(target, text, tabs, field.is_some(), cx) else {
+        return;
+    };
+    match field {
+        Some(field) => {
+            let top = f32::from(field.top()) - FIELD_ABOVE;
+            host.show(false, field.left().into(), top, FIELD_WIDTH, FIELD_RADIUS);
+        }
+        None => host.show(true, 0., ABOVE_MIDDLE, WIDTH, RADIUS),
     }
 }
 
@@ -434,28 +466,31 @@ pub fn show(editing: Option<(u64, SharedString)>, tabs: Vec<shell::BarTab>, cx: 
 /// a page to show there beside `with`. It's centred over the pane, as far into the card as it
 /// needs to be, and as far down the pane as it opens down the window for a new tab.
 pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
-    if let Some(host) = reset(Target::Beside(with), SharedString::default(), Vec::new(), cx) {
+    let text = SharedString::default();
+    if let Some(host) = reset(Target::Beside(with), text, Vec::new(), false, cx) {
         let left = pane.center().x - px(WIDTH / 2.);
         let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
         // The card is as far in from the window's bottom as from its top.
         let window = f32::from(card.top() + card.bottom());
         let top = centered_top(window) + f32::from(pane.top() - card.top());
-        host.show(false, left.into(), top, WIDTH);
+        host.show(false, left.into(), top, WIDTH, RADIUS);
     }
 }
 
-/// Puts the bar to `target` with `text` in its input, and `tabs` to list while it's empty. Returns
-/// its host, or none if there's no bar.
+/// Puts the bar to `target` with `text` in its input, and `tabs` to list while it's empty, over
+/// the URL field if `over_field`. Returns its host, or none if there's no bar.
 fn reset(
     target: Target,
     text: SharedString,
     tabs: Vec<shell::BarTab>,
+    over_field: bool,
     cx: &mut App,
 ) -> Option<Rc<dyn Host>> {
     let window = cx.try_global::<CommandBarWindow>()?.0;
     window
         .update(cx, |bar, window, cx| {
             bar.target = target;
+            bar.over_field = over_field;
             // The pointer has been elsewhere since the bar last showed.
             bar.hovered = None;
             // Favicons change over time, and a long session shouldn't keep every one it saw. The
@@ -467,6 +502,11 @@ fn reset(
                 }
             }
             bar.tabs = tabs;
+            bar.page = text.to_string();
+            if !text.is_empty() {
+                bar.favicons.insert(bar.page.clone(), None);
+                bar.host.page_favicon(&bar.page);
+            }
             bar.site_left(cx);
             bar.asked = text.to_string();
             bar.complete = false;
@@ -509,6 +549,14 @@ pub fn height(rows: usize) -> f32 {
     match rows {
         0 => HEIGHT,
         rows => HEIGHT + LINE + LIST_TOP + rows.min(ROWS_SHOWN) as f32 * ROW_HEIGHT + LIST_END,
+    }
+}
+
+/// How tall it is over the URL field: the input's row, and under it up to five rows.
+pub fn field_height(rows: usize) -> f32 {
+    match rows {
+        0 => FIELD_INPUT,
+        rows => FIELD_INPUT + rows.min(ROWS_SHOWN) as f32 * ROW_HEIGHT + LIST_END,
     }
 }
 
@@ -833,7 +881,8 @@ impl CommandBar {
         };
         self.rows = rows;
         self.suggested = text;
-        self.host.set_height(height(self.rows.len()));
+        let rows = self.rows.len();
+        self.host.set_height(if self.over_field { field_height(rows) } else { height(rows) });
         self.scroll.scroll_to_item(self.selected);
         for row in self.rows.iter().filter(|row| row.icon() == Icon::Favicon) {
             if !self.favicons.contains_key(&row.url) {
@@ -1056,22 +1105,25 @@ impl CommandBar {
 
     /// `row`'s icon, `size` square, in `color` where it's a glyph.
     fn glyph(&self, row: &Suggestion, size: f32, color: Hsla) -> Option<AnyElement> {
-        let glyph = move |path: &'static str| {
-            svg().path(path).size(px(size)).flex_none().text_color(color).into_any_element()
-        };
         Some(match row.icon() {
-            Icon::Favicon => match self.favicons.get(&row.url).cloned().flatten() {
-                // GPUI decodes the favicon off the main thread, and draws nothing until it has.
-                Some(favicon) => img(favicon)
-                    .size(px(size))
-                    .flex_none()
-                    .with_loading(move || glyph("icons/globe.svg"))
-                    .into_any_element(),
-                None => glyph("icons/globe.svg"),
-            },
-            Icon::Glyph(path) => glyph(path),
+            Icon::Favicon => self.favicon(&row.url, size, color),
+            Icon::Glyph(path) => glyph(path, size, color),
             Icon::None => return None,
         })
+    }
+
+    /// The favicon of the page at `url`, `size` square, with a globe in `color` until it comes or
+    /// if it has none.
+    fn favicon(&self, url: &str, size: f32, color: Hsla) -> AnyElement {
+        match self.favicons.get(url).cloned().flatten() {
+            // GPUI decodes the favicon off the main thread, and draws nothing until it has.
+            Some(favicon) => img(favicon)
+                .size(px(size))
+                .flex_none()
+                .with_loading(move || glyph("icons/globe.svg", size, color))
+                .into_any_element(),
+            None => glyph("icons/globe.svg", size, color),
+        }
     }
 
     /// The Space's tabs, as rows, which the bar lists before anything is typed.
@@ -1080,18 +1132,17 @@ impl CommandBar {
     }
 
     /// The input's icon: the search glyph, or once something is typed, the selected row's, as
-    /// Arc's becomes its favicon.
+    /// Arc's becomes its favicon. On a page's URL it's the page's favicon until it's edited.
     fn input_icon(&self) -> AnyElement {
         let color = rgb(0xffffff).into();
+        let size = if self.over_field { ICON_SIZE } else { INPUT_ICON };
+        if !self.page.is_empty() && self.asked == self.page {
+            return self.favicon(&self.page, size, color);
+        }
         let row = self.chosen().filter(|_| !self.asked.is_empty());
-        match row.and_then(|row| self.glyph(row, INPUT_ICON, color)) {
+        match row.and_then(|row| self.glyph(row, size, color)) {
             Some(icon) => icon,
-            None => svg()
-                .path("icons/search.svg")
-                .size(px(INPUT_ICON))
-                .flex_none()
-                .text_color(color)
-                .into_any_element(),
+            None => glyph("icons/search.svg", size, color),
         }
     }
 
@@ -1195,7 +1246,8 @@ impl CommandBar {
                     .flex()
                     .gap(px(3.))
                     .child(div().min_w_0().truncate().child(row.text.clone()))
-                    .when(!row.detail.is_empty(), |line| {
+                    // Over the URL field Arc's titles have no host after them.
+                    .when(!row.detail.is_empty() && !self.over_field, |line| {
                         let detail = format!("— {}", row.detail);
                         line.child(div().min_w_0().truncate().text_color(dim).child(detail))
                     }),
@@ -1230,6 +1282,11 @@ impl CommandBar {
     }
 }
 
+/// The glyph at `path`, `size` square, in `color`.
+fn glyph(path: &'static str, size: f32, color: Hsla) -> AnyElement {
+    svg().path(path).size(px(size)).flex_none().text_color(color).into_any_element()
+}
+
 /// The accent the selected row takes, dark enough for white on it.
 fn accent(cx: &App) -> Hsla {
     let color = cx.try_global::<Accent>().map_or(ACCENT, |accent| accent.0);
@@ -1248,6 +1305,18 @@ impl Render for CommandBar {
             .map(|(index, row)| self.row(index, row, cx).into_any_element())
             .collect();
         let shown = rows.len().min(ROWS_SHOWN) as f32;
+        let (radius, input_height, list_top) = match self.over_field {
+            true => (FIELD_RADIUS, FIELD_INPUT, 0.),
+            false => (RADIUS, HEIGHT, LIST_TOP),
+        };
+        // Over the field the input's icon and text are in the rows' columns.
+        let (icon_x, icon, text_x, text_size) = match self.over_field {
+            true => {
+                let icon_x = LIST_X + ICON_BOX_X + (ICON_BOX - ICON_SIZE) / 2.;
+                (icon_x, ICON_SIZE, LIST_X + TITLE_X, FIELD_INPUT_TEXT)
+            }
+            false => (INPUT_ICON_X, INPUT_ICON, INPUT_TEXT_X, INPUT_TEXT),
+        };
         // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
         let hairline = 1. / window.scale_factor();
         let edge = |inset: f32, width: f32, color: u32| {
@@ -1257,7 +1326,7 @@ impl Render for CommandBar {
                 .left(px(inset))
                 .right(px(inset))
                 .bottom(px(inset))
-                .rounded(px(RADIUS - inset))
+                .rounded(px(radius - inset))
                 .border(px(width))
                 .border_color(rgb(color))
         };
@@ -1290,7 +1359,7 @@ impl Render for CommandBar {
                 .relative()
                 .size_full()
                 .overflow_hidden()
-                .rounded(px(RADIUS))
+                .rounded(px(radius))
                 .bg(rgba(FILL))
                 .text_color(rgb(0xffffff))
                 // Arc's text is medium, by its strokes at 2× (Arc 1.170.0 cap).
@@ -1298,14 +1367,14 @@ impl Render for CommandBar {
                 .text_size(px(14.))
                 .child(
                     div()
-                        .h(px(HEIGHT))
+                        .h(px(input_height))
                         .flex_none()
                         .flex()
                         .items_center()
-                        .pl(px(INPUT_ICON_X))
+                        .pl(px(icon_x))
                         .pr(px(HINT_END))
-                        .gap(px(INPUT_TEXT_X - INPUT_ICON_X - INPUT_ICON))
-                        .text_size(px(INPUT_TEXT))
+                        .gap(px(text_x - icon_x - icon))
+                        .text_size(px(text_size))
                         .line_height(px(23.))
                         .child(self.input_icon())
                         .when_some(self.site.as_ref(), |line, site| {
@@ -1323,14 +1392,16 @@ impl Render for CommandBar {
                         .child(div().flex_1().min_w_0().child(self.input.clone()))
                         .children(self.site_hint()),
                 )
-                .when(!rows.is_empty(), |bar| {
+                .when(!rows.is_empty() && !self.over_field, |bar| {
                     bar.child(
                         div().h(px(hairline)).mx(px(LINE_INSET)).flex_none().bg(rgba(LINE_COLOR)),
                     )
-                    .child(
+                })
+                .when(!rows.is_empty(), |bar| {
+                    bar.child(
                         div()
                             .id("suggestions")
-                            .mt(px(LIST_TOP))
+                            .mt(px(list_top))
                             .mx(px(LIST_X))
                             .h(px(shown * ROW_HEIGHT))
                             .flex_none()

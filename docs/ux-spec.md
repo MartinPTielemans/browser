@@ -115,7 +115,7 @@ Under Reduce Motion, Dia skips the New Tab intro and the PiP throw. Ardia also d
 
 ### Overlays
 
-The command bar, the Space icon picker, menus, hover cards, Peek, find and every prompt over the page are child windows (decision 4). AGENTS.md › Over the page has the rules: a click outside closes the overlay and still does its own thing, and the host draws the overlay before showing it. Panels anchored to the URL field share one grid. **Ardia** set it on the owner's request; it is not measured from Dia:
+The command bar, the Space icon picker, menus, hover cards, Peek, find and every prompt over the page are child windows (decision 4). AGENTS.md › Over the page has the rules: a click outside closes the overlay and still does its own thing, and the host draws the overlay before showing it. Panels anchored to the URL field share one grid, except the command bar over the field, which keeps Arc's measures (Command bar › Over the URL field). **Ardia** set it on the owner's request; it is not measured from Dia:
 
 - Content inset 16 on every side, corner radius 12. Rows 32 tall, with the hover fill inset 6 at radius 6.
 - A 20 pt icon slot holds 13 pt glyphs, with text 10 pt after the slot, so titles start at 46. Separators sit 16 in, with 5 above and below.
@@ -503,10 +503,12 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 
 **Opening**
 
-- ⌘T, ⌘L and a click on the sidebar's URL field open the same panel in the same place, centred on the window (Arc ax: ⌘L's is ⌘T's). ⌘T makes no tab until a pick (Arc; Ardia's opt-in, P§7); Dia's New Tab page isn't ours (New tab). ⌘L and the click open it on the tab's URL, selected.
+- ⌘T and ⌘L open the same panel, centred on the window (Arc 1.170 rec; Arc ax). A click on the sidebar's URL field opens a narrower one over the field (Arc 1.170 rec; Over the URL field, below). ⌘T makes no tab until a pick (Arc; Ardia's opt-in, P§7); Dia's New Tab page isn't ours (New tab). ⌘L and the click open it on the tab's URL, selected, with the page's favicon as the field's icon until the text is edited (Arc 1.170 rec).
+- The recording's panel over the field is taken to be a click's, with medium-high confidence: the field brightens under the pointer 242 ms before it opens, and ⌘L's, recorded right after, is centred.
+- With the sidebar hidden there's no field, and the click in the reveal's panel opens the centred one as the panel makes way (*interim*: Arc's isn't recorded).
 - In a split view's new pane the panel moves right to 70 in from the card's right edge, which puts its field at x 719 where ⌘T's is at 426 (Arc cap).
 - ⇧⌘A opens Search Tabs.
-- Open and close are one frame (Arc rec 120 fps, 3 runs, ⌘T). Ours: ⌘L and the click are the same, *interim* (Arc's ⌘L isn't recorded); Dia's grow out of the URL field is gone, since Arc's panel isn't anchored to the field.
+- Open and close are one frame, for ⌘T, ⌘L and the click alike (Arc rec 120 fps, 3 runs, ⌘T; Arc 1.170 rec). Over the field the panel shows already grown, as Arc's does; Dia's grow out of the URL field isn't ours.
 
 **Panel** (Arc 1.170.0 cap, ax, 1512 × 949 window)
 
@@ -531,10 +533,22 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 | Title | 14 pt, medium (its strokes at 2×), at the row's left + 43, white 0.8 (white on the selected row); " — host" follows after 2 in white 0.35 (0.5 on the plate) |
 | Switch to Tab | on an open tab's row (the selected one too): "Switch to Tab" at 14 pt, white 0.35 (white on the plate), ending 46 in from the row's right, and 7 after it a 24 × 24 tile at radius 6 with an arrow, white 0.04 on the panel, a white tile with an accent arrow on the plate. "Switch to Split View" for a split's row |
 | Shortcut | on a command, a chip 24 tall at radius 6, ending 10 inside the plate: white with accent-coloured keys on the plate |
-| The field's icon | the search glyph, or the selected row's icon when a row is chosen |
+| The field's icon | the search glyph, or the selected row's icon when a row is chosen; the page's favicon while the field holds the tab's URL as it opened (Arc 1.170 rec) |
 
 - Ours, where Arc's isn't measured: all the bar's text is medium, as its title's strokes are, though Arc's cap height reads ≈ 13.5 pt against our 14; the caret, selection and placeholder colours are Dia's (Colour tokens); the accent is the Space's colour, or the system's, with its lightness held to 0.55; "Add to Split View" in place of "Switch to Tab" over a split's new pane; Tab's key on an unselected row isn't shown; a sum's row has no icon; each command has Lucide's glyph for it where Lucide plainly has one, and the rest share Lucide's command; page rows ask the profile's history for the favicon, with a globe until it comes; the field's icon stays the search glyph until something is typed, as Arc's empty bar has it.
 - Not built: the info button, and the recents and commands Arc lists under the open tabs for empty text.
+
+**Over the URL field** (Arc 1.170 rec at 2×, 1800 × 1130 window, sidebar 260)
+
+| Item | Value |
+|---|---|
+| Place | its left at the field's, x 8, and its top 2 above the field's, y 44 over the field at 46: the field's box is the panel's top left, whatever the window's size. Ours: the host puts it there, still a child window of the browser window (Overlays) |
+| Width | 350 (x 8 to 358), whatever the sidebar's width; it reaches over the page |
+| Height | 310 with five rows: the input row 50, the rows at 50 each from y 94, 10 below. No line under the input. With no rows it's the input row alone (ours: Arc's always listed five) |
+| Radius | ≈ 12, read off the corner's curve at 2× (± 1) |
+| Edge, fill, shadow | the centred panel's: a 0.5 pt near-black outline, a 1 pt grey one inside it (≈ 77, where the centred panel's reads 75 in the same recording), and the translucent fill, ≈ (28, 27, 30) over the sidebar and 22–24 over the page |
+| Input row | the page's favicon, 16 pt, its centre 32 in, and the text at 14 pt from 51 in: the rows' icon and title columns, centred in the row. Arc's input text sits ≈ 6 lower than the field's own |
+| Rows | the centred panel's: 8 in, a 50 pitch, the selected plate inset 2 (x 18 to 348, 46 tall) in the accent, the icon's white tile from x 28. Titles have no " — host" after them |
 
 **Rows**
 
