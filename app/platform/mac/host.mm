@@ -764,6 +764,23 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
                                               }];
 }
 
+void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {
+  for (NSNotificationName name in
+       @[ NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification ]) {
+    const bool entered = name == NSWindowDidEnterFullScreenNotification;
+    [NSNotificationCenter.defaultCenter addObserverForName:name
+                                                    object:nil
+                                                     queue:nil
+                                                usingBlock:^(NSNotification* notification) {
+                                                  if (Browser* browser =
+                                                          BrowserOf(notification.object)) {
+                                                    changed((__bridge void*)browser->ui_view,
+                                                            entered);
+                                                  }
+                                                }];
+  }
+}
+
 void host_forget_window(void* ui_view) {
   Browser* browser = BrowserWithView(ui_view);
   if (!browser) {

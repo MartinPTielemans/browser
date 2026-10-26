@@ -273,7 +273,11 @@ impl Browser for Recorder {
 
     fn show_window_buttons(&self, _: bool, _: &mut App) {}
 
-    fn press_window_button(&self, _: WindowButton, _: &mut App) {}
+    fn press_window_button(&self, button: WindowButton, _: &mut App) {
+        if let WindowButton::Zoom = button {
+            self.record("window button zoom".into())
+        }
+    }
 
     fn show_reveal(&self, _: f32, _: &mut App) {}
 
@@ -295,6 +299,10 @@ impl Browser for Recorder {
 
     fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {
         Default::default()
+    }
+
+    fn full_screen_note(&self, shown: bool, _: &mut App) {
+        self.record(format!("full screen note {}", if shown { "shown" } else { "hidden" }))
     }
 
     fn tooltip(&self, tip: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, _: &mut App) {

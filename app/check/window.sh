@@ -147,6 +147,10 @@ check_layout "after a resize"
 check_buttons "after a resize"
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen"
+# Once there, it says how to leave, at the card's top right, as Arc's does.
+expect '^browser: toast shown To exit full screen, press ⎋.$' "full screen didn't say how to leave"
+expect '^browser: toast settled$' "the note on leaving full screen didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/fullscreen-note.png" || fail "no window to capture"
 check_layout "in full screen"
 send key l cmd
 expect '^browser: command bar shown$' "⌘L in full screen didn't open the command bar"
@@ -168,6 +172,8 @@ send key f
 expect '^browser: page entered full screen$' "the page didn't go full screen"
 expect '^browser: window entered full screen$' "the window didn't go full screen with the page"
 check_layout "with the page full screen" fills
+none_since '^browser: toast shown To exit full screen' ||
+  fail "a page's full screen showed the window's note on leaving it"
 resized_once "going full screen" "$content"
 ../tools/window-screenshot.sh "$pid" "$out/page-fullscreen.png" || fail "no window to capture"
 resizes=$(page_resizes)
@@ -416,4 +422,4 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
 fi
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Material: $material. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
