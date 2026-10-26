@@ -800,6 +800,8 @@ pub struct Shell {
     browser: Rc<dyn Browser>,
     /// Holds GPUI's focus while nothing in the shell takes it, so the shortcuts have their context.
     focus_handle: FocusHandle,
+    /// What the reveal's window focuses, so its keys match the shell's bindings.
+    reveal_focus: FocusHandle,
     /// In the switcher's order.
     spaces: Vec<Space>,
     /// The Space the window shows.
@@ -1018,6 +1020,7 @@ impl Shell {
         Self {
             browser,
             focus_handle: cx.focus_handle(),
+            reveal_focus: cx.focus_handle(),
             spaces: Vec::new(),
             space: 0,
             form: None,
@@ -2545,7 +2548,15 @@ impl Shell {
         self.step_scroll_edge(window);
         self.step_tools(window);
         let left = REVEAL_INSET - (REVEAL_INSET + self.width()) * (1. - self.reveal_out());
+        // Unless a field in the panel has it.
+        if !self.reveal_focus.contains_focused(window, cx) {
+            window.focus(&self.reveal_focus, cx);
+        }
         let panel = div()
+            // GPUI matches a binding against the focused element's contexts, so with none focused a
+            // key here falls through to the menu's key equivalents, where ⌘S found Save Page.
+            .key_context(KEY_CONTEXT)
+            .track_focus(&self.reveal_focus)
             .size_full()
             .font_family(".SystemUIFont")
             // A double-click below the rows opens a new tab, as in the docked sidebar.

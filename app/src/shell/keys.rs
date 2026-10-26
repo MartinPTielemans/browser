@@ -367,6 +367,44 @@ mod tests {
         assert_eq!(ran.take(), [Command::EditUrl]);
     }
 
+    /// The sidebar reveal's window draws the shell's panel and has no focus of its own, and ⌘S
+    /// there locks the sidebar, as in the window, not whatever a menu's key equivalent finds.
+    #[gpui::test]
+    fn cmd_s_toggles_the_sidebar_from_the_reveal_panel(cx: &mut TestAppContext) {
+        use crate::shell::{Shell, drag::detents::shell_with};
+
+        struct Reveal(gpui::Entity<Shell>);
+
+        impl Render for Reveal {
+            fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                self.0.update(cx, |shell, cx| shell.render_reveal(window, cx))
+            }
+        }
+
+        cx.update(|cx| {
+            cx.bind_keys(key_bindings(cx));
+            cx.on_action(|run: &Run, cx| {
+                let shell = cx.global::<ShellHandle>().0.clone();
+                shell.update(cx, |shell, cx| shell.run(run.0, "ui", cx)).ok();
+            });
+        });
+        let (shell, _) = shell_with(cx, &[], &[1], Default::default());
+        cx.update(|cx| cx.set_global(ShellHandle(shell.downgrade())));
+        let window = cx.update(|cx| cx.open_window(Default::default(), |_, cx| {
+            cx.new(|_| Reveal(shell.clone()))
+        }));
+        let mut cx = VisualTestContext::from_window(window.unwrap().into(), cx);
+        // The panel comes out only over a hidden sidebar.
+        shell.update(&mut cx, |shell, cx| {
+            shell.sidebar_hidden = true;
+            shell.set_revealed(true, cx);
+        });
+        cx.simulate_resize(gpui::size(gpui::px(800.), gpui::px(600.)));
+        cx.run_until_parked();
+        cx.simulate_keystrokes("cmd-s");
+        assert!(!shell.read_with(&cx, |shell, _| shell.sidebar_hidden));
+    }
+
     fn keys(keys: &[&str]) -> Vec<String> {
         keys.iter().map(|key| key.to_string()).collect()
     }

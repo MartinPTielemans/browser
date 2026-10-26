@@ -7,7 +7,7 @@ use gpui::{AppContext, Pixels, Point, TestAppContext, point, px};
 use crate::shell::{Folders, ROW_HEIGHT, ROW_PITCH, Shell, Slot, TILE_HEIGHT, recorder::Recorder};
 
 /// A shell showing one Space with `pinned` and `today` tabs and `folders`.
-fn shell_with(
+pub(in crate::shell) fn shell_with(
     cx: &mut TestAppContext,
     pinned: &[u64],
     today: &[u64],

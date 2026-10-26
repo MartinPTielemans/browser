@@ -1562,8 +1562,15 @@ void host_hide_reveal(void* ui_view) {
     }
     [NSEvent removeMonitor:browser->reveal_monitor];
     browser->reveal_monitor = nil;
+    // Asked before it goes: a window that hides while key leaves AppKit to pick the next key one
+    // later, and the panel can still be it when a key arrives.
+    const bool had_keyboard = browser->reveal.keyWindow;
     [browser->window removeChildWindow:browser->reveal];
     [browser->reveal orderOut:nil];
+    // Its first responder, the page or the UI, has the keyboard again.
+    if (had_keyboard) {
+      [browser->window makeKeyWindow];
+    }
   });
 }
 

@@ -411,6 +411,9 @@ expect "^browser: page $r asks nothing\$" "Block didn't take the question down"
 expect "^browser: title $r refused NotAllowedError\$" "Block didn't refuse the page"
 send move 600 400
 expect '^browser: reveal hidden$' "the pointer leaving didn't send the sidebar away once answered"
+# A key that does nothing reports who has the keyboard, which the hidden panel must not.
+send flags
+in_browser RenderWidgetHostViewCocoa "the hidden sidebar's panel kept the keyboard"
 send key s cmd
 expect '^browser: sidebar shown$' "⌘S didn't bring the sidebar back"
 send click $page_point
