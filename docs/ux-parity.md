@@ -222,7 +222,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Shortcuts tab | MVP | the browser's shortcuts by section, read-only | Ours |
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
-| [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit Browser?" with Quit, "Quit, and don't ask again" and Cancel; Dock and logout quits don't | Arc 1.170.0 cap, bin |
+| [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit Browser?" in the dialog: "Quit, and don't ask again" at the left, Cancel ESC and a blue Quit ↩ at the right; no icon, so 172 tall where Arc's is 249; Dock and logout quits don't | Arc 1.170.0 cap, bin; Arc 1.170 rec |
 | [x] | Profiles tab | MVP | ours: a row per profile with its Spaces, rename on a double-click, Delete for an unused one, New Profile *interim*; Arc's: measure | Arc 1.170.0 cap |
 | [ ] | Arc's other tabs | MVP | Links, Icon, Previews: with their features; none built | Arc 1.170.0 cap |
 

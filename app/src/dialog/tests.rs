@@ -95,3 +95,49 @@ fn an_ask_while_one_shows_is_dropped(cx: &mut TestAppContext) {
     dialog.keys("enter");
     assert_eq!(dialog.calls(), ["show", "hide", "delete"]);
 }
+
+/// The dialog asking to quit, with "Quit, and don't ask again" at the left. Each answer records
+/// itself on the host when it runs.
+fn asking_to_quit(cx: &mut TestAppContext) -> Asking {
+    let host = Rc::new(Recorder::default());
+    let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the dialog");
+    let (quit, always) = (host.clone(), host.clone());
+    cx.update(|cx| {
+        let question = Question {
+            message: "Quit Browser?".into(),
+            detail: String::new(),
+            action: "Quit",
+            destructive: false,
+            also: Some((
+                "Quit, and don’t ask again",
+                Box::new(move |_: &mut App| always.0.borrow_mut().push("always".into())),
+            )),
+        };
+        pose(question, Box::new(move |_| quit.0.borrow_mut().push("quit".into())), cx);
+    });
+    let cx = VisualTestContext::from_window(window.into(), cx);
+    cx.simulate_resize(size(px(800.), px(600.)));
+    cx.run_until_parked();
+    Asking { cx, host }
+}
+
+#[gpui::test]
+fn return_quits_and_escape_doesnt(cx: &mut TestAppContext) {
+    let mut dialog = asking_to_quit(cx);
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show", "hide", "quit"]);
+    let mut dialog = asking_to_quit(cx);
+    dialog.keys("escape");
+    assert_eq!(dialog.calls(), ["show", "hide"]);
+}
+
+#[gpui::test]
+fn the_left_button_gives_the_other_answer(cx: &mut TestAppContext) {
+    let mut dialog = asking_to_quit(cx);
+    // The card is centred in the 800 × 600 window, still 32 above its place as it comes down:
+    // 172 tall with no detail, its buttons 107 under its top and the left one 29 in.
+    let card = (800. - WIDTH) / 2.;
+    let buttons = (600. - 172.) / 2. - DROP + 1. + TEXT_INSET + TITLE_LINE + BUTTONS_UNDER_TITLE;
+    dialog.click(card + 1. + BUTTON_INSET + 40., buttons + BUTTON_HEIGHT / 2.);
+    assert_eq!(dialog.calls(), ["show", "hide", "always"]);
+}

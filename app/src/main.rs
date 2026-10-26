@@ -1404,24 +1404,29 @@ impl Browser for Engine {
     /// Asks first, as Arc does, unless the user said not to. Only the user's Quit asks: a quit from
     /// the Dock or at logout doesn't come here.
     fn quit(&self, cx: &mut App) {
-        if !unsafe { bc::bc_warn_before_quitting() } {
+        // With no window to ask over, there's nothing open to lose.
+        if !unsafe { bc::bc_warn_before_quitting() } || front().1.is_null() {
             unsafe { bc::bc_quit() };
             return;
         }
-        cx.spawn(async move |_| {
-            let buttons = ["Quit", "Quit, and don’t ask again", "Cancel"];
-            match ask("Quit Browser?", "", &buttons) {
-                0 => {}
-                1 => {
+        let question = dialog::Question {
+            message: "Quit Browser?".into(),
+            detail: String::new(),
+            action: "Quit",
+            destructive: false,
+            also: Some((
+                "Quit, and don’t ask again",
+                Box::new(|_| {
                     // check.sh waits for this line.
                     log!("browser: warn before quitting off");
-                    unsafe { bc::bc_set_warn_before_quitting(false) };
-                }
-                _ => return,
-            }
-            unsafe { bc::bc_quit() };
-        })
-        .detach();
+                    unsafe {
+                        bc::bc_set_warn_before_quitting(false);
+                        bc::bc_quit();
+                    }
+                }),
+            )),
+        };
+        dialog::pose(question, Box::new(|_| unsafe { bc::bc_quit() }), cx);
     }
 }
 
