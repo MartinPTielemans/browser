@@ -296,12 +296,13 @@ expect '^browser: command view-library via sidebar$' "the footer's Library butto
 expect '^browser: library shown$' "the footer's Library button didn't open the Library"
 send key l cmd shift
 expect '^browser: library hidden$' "⇧⌘L didn't close the Library"
-# A copied URL leaves out the parameters that only tell a site where a click came from.
-go_from_bar "example.org/?utm_source=check&id=1&fbclid=2"
-expect "^browser: loaded $r https://example.org/.utm_source=check&id=1&fbclid=2\$" \
+# A copied URL leaves out the parameters that only tell a site where a click came from. On the
+# check's own site: the tabs run types example.org, which this URL in history would complete to.
+go_from_bar "${site#http://}?utm_source=check&id=1&fbclid=2"
+expect "^browser: loaded $r ${site}.utm_source=check&id=1&fbclid=2\$" \
   "the tab didn't go to the URL with tracking parameters"
 send key c cmd shift
-expect '^browser: copied https://example.org/.id=1$' \
+expect "^browser: copied ${site}.id=1\$" \
   "⇧⌘C copied the URL with its tracking parameters: $(grep '^browser: copied' "$log" | tail -1)"
 exec 3>&-
 quit
