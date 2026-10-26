@@ -54,9 +54,19 @@ expect "^browser: favorites $a\$" \
   "Add to Favorites didn't make the tab a favorite: \"$(favorites)\""
 expect "^browser: today $b\$" "the favorite is still in Today: Today is \"$(today)\""
 none_since '^browser: selected' || fail "Add to Favorites showed another tab"
+# The tile has only an icon, so after a moment over it a tooltip names the favorite, and it goes
+# when the pointer leaves and when the tile is clicked.
+send move $tile
+expect '^browser: tooltip shown ready$' "resting on the tile didn't show its tooltip"
+send move 100 400
+expect '^browser: tooltip hidden$' "the pointer leaving the tile didn't hide its tooltip"
+send move $tile
+expect '^browser: tooltip shown ready$' "resting on the tile again didn't show its tooltip"
+../tools/window-screenshot.sh "$pid" "$out/favorite-tooltip.png" || fail "no window to capture"
 # A click on the tile shows the favorite, and ⌘1–⌘9 count favorites first.
 send click $tile
 expect '^browser: command select via favorite$' "a click on the tile didn't run"
+expect '^browser: tooltip hidden$' "a click on the tile didn't hide its tooltip"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
 ../tools/window-screenshot.sh "$pid" "$out/favorites.png" || fail "no window to capture"
 send click $(tiled_row 0)

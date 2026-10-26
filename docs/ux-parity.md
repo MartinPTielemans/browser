@@ -109,7 +109,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Folders | MVP | in the pinned tabs, indented 16 a level: New Folder…, a click opens and closes, a double-click or the menu renames, Delete Folder keeps the tabs, a drag right or left takes a row in or out, kept over a quit; motion and icon *interim* | Arc ax, cap, menus |
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
 | [ ] | Folder motion and drag | MVP | measure Arc's open and close by a click, and how a dragged row goes into a folder | — |
-| [ ] | Folder tooltip | MVP | the name after a moment | Arc cap |
+| [x] | Folder tooltip | MVP | the name after a moment; ours 0.5 s, the system's | Arc cap |
 | [ ] | Favorite tooltip | MVP | the name after a moment; its delay, motion and the move to the next tile: measure | Arc cap |
 | [x] | Collapse All Folders | MVP | a command bar command | Arc cap |
 

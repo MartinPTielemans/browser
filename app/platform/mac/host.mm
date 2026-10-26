@@ -176,6 +176,14 @@ NSWindow* g_toast;
 NSView* g_toast_view;
 bool g_toast_shown = false;
 
+// The tooltip's window and view, and where its top left goes in the browser window.
+NSWindow* g_tooltip;
+NSView* g_tooltip_view;
+bool g_tooltip_shown = false;
+double g_tooltip_left = 0;
+double g_tooltip_top = 0;
+void (*g_tooltip_away)(void);
+
 // The find bar's window and view, and its distance from the top right of the browser window's
 // content.
 NSWindow* g_find_bar;
@@ -283,6 +291,15 @@ void PlaceToast() {
   NSRect frame = g_window.frame;
   NSSize size = g_toast.frame.size;
   [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - size.width, NSMaxY(frame) - size.height)];
+}
+
+// Where the UI asked, kept inside the browser window's width.
+void PlaceTooltip() {
+  NSRect content = [g_window contentRectForFrameRect:g_window.frame];
+  NSSize size = g_tooltip.frame.size;
+  double left = fmin(g_tooltip_left, NSWidth(content) - size.width);
+  [g_tooltip setFrameOrigin:NSMakePoint(NSMinX(content) + fmax(left, 0),
+                                        NSMaxY(content) - g_tooltip_top - size.height)];
 }
 
 // 8 points below the find bar while it shows, where the HUD would cover it.
@@ -779,6 +796,68 @@ void host_hide_toast(void) {
   g_toast_shown = false;
   [g_window removeChildWindow:g_toast];
   [g_toast orderOut:nil];
+}
+
+void host_add_tooltip(void* tooltip_view, void (*away)(void)) {
+  g_tooltip_view = (__bridge NSView*)tooltip_view;
+  g_tooltip = g_tooltip_view.window;
+  g_tooltip_away = away;
+  MakeOverlay(g_tooltip);
+  g_tooltip.styleMask = NSWindowStyleMaskBorderless;
+  g_tooltip.hasShadow = NO;
+  // It takes neither a click nor the keyboard.
+  g_tooltip.ignoresMouseEvents = YES;
+  // The user leaves the browser window for another or another app.
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  void (^left_window)(NSNotification*) = ^(NSNotification*) {
+    if (g_tooltip_shown && g_tooltip_away) {
+      g_tooltip_away();
+    }
+  };
+  [center addObserverForName:NSWindowDidResignKeyNotification
+                      object:g_window
+                       queue:nil
+                  usingBlock:left_window];
+  [center addObserverForName:NSApplicationDidResignActiveNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:left_window];
+}
+
+void host_show_tooltip(double left, double top) {
+  if (!g_tooltip || !g_window) {
+    return;
+  }
+  g_tooltip_left = left;
+  g_tooltip_top = top;
+  bool shown = g_tooltip_shown;
+  g_tooltip_shown = true;
+  // After the UI's update that asked, since the window draws here, before it shows or moves, since
+  // it keeps the last frame it drew, the last name.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_tooltip_shown) {
+      return;
+    }
+    PlaceTooltip();
+    [g_tooltip_view.layer setNeedsDisplay];
+    [g_tooltip_view.layer displayIfNeeded];
+    if (shown) {
+      return;
+    }
+    [g_window addChildWindow:g_tooltip ordered:NSWindowAbove];
+    if (g_overlay_shown) {
+      [g_overlay orderWindow:NSWindowAbove relativeTo:g_tooltip.windowNumber];
+    }
+  });
+}
+
+void host_hide_tooltip(void) {
+  if (!g_tooltip_shown) {
+    return;
+  }
+  g_tooltip_shown = false;
+  [g_window removeChildWindow:g_tooltip];
+  [g_tooltip orderOut:nil];
 }
 
 void host_show_window_buttons(bool shown) {

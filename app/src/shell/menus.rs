@@ -250,6 +250,7 @@ impl Shell {
     /// The menu a right-click on a tab's row shows: Chrome's tab actions that Arc's sidebar has,
     /// with their shortcuts.
     pub(super) fn tab_menu(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
+        self.browser.tooltip(None, cx);
         let row = Row::Tab(self.row_of(tab));
         let items = if self.favorites.contains(&tab) {
             self.favorite_menu(tab)

@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use browser::{command_bar, dialog, log, toast};
+use browser::{command_bar, dialog, log, toast, tooltip};
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, Folders, MenuEntry, Page, Shell, Split, WindowButton,
@@ -112,6 +112,9 @@ mod platform {
         pub fn host_add_toast(toast_view: *mut c_void);
         pub fn host_show_toast();
         pub fn host_hide_toast();
+        pub fn host_add_tooltip(tooltip_view: *mut c_void, away: extern "C" fn());
+        pub fn host_show_tooltip(left: f64, top: f64);
+        pub fn host_hide_tooltip();
     }
 
     /// Where host_menu shows a menu.
@@ -468,6 +471,24 @@ impl command_bar::Host for Bar {
 /// The user left the command bar without choosing anything in it.
 extern "C" fn command_bar_dismissed() {
     update_shell(|shell, cx| shell.command_bar_dismissed(cx));
+}
+
+/// The tooltip's requests, to the host's tooltip window.
+struct TooltipHost;
+
+impl tooltip::Host for TooltipHost {
+    fn show(&self, left: f32, top: f32) {
+        unsafe { platform::host_show_tooltip(left.into(), top.into()) };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_tooltip() };
+    }
+}
+
+/// The window lost the keyboard, or the app stopped being the active one.
+extern "C" fn tooltip_away() {
+    update_app(tooltip::dismiss);
 }
 
 /// The shell's requests, as calls to the core. The core reports back once each call has returned.
@@ -932,6 +953,13 @@ impl Browser for Engine {
         toast::show(text, key, time, cx);
     }
 
+    fn tooltip(&self, tip: Option<(SharedString, (f32, f32))>, cx: &mut App) {
+        match tip {
+            Some((text, at)) => tooltip::hover(text, at, cx),
+            None => tooltip::dismiss(cx),
+        }
+    }
+
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,
@@ -1213,6 +1241,11 @@ fn open_window(cx: &mut App) {
                 ) && let Ok(view) = toast.update(cx, |_, window, _| ns_view(window))
                 {
                     unsafe { platform::host_add_toast(view) };
+                }
+                if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
+                    && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
+                {
+                    unsafe { platform::host_add_tooltip(view, tooltip_away) };
                 }
                 find_bar::open(cx);
                 zoom_hud::open(shell.clone(), cx);

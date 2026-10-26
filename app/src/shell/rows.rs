@@ -83,8 +83,9 @@ impl Shell {
             // A dragged row is drawn over the list, from `list`.
             .top(px(if dragging == Some(slot) { 0. } else { self.slide(slot) }))
             .block_mouse_except_scroll()
-            .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
-                shell.hover(row, *hovered, cx)
+            .on_hover(cx.listener(move |shell, hovered: &bool, window, cx| {
+                shell.hover(row, *hovered, cx);
+                shell.hover_tooltip(row, *hovered, window.mouse_position(), cx)
             }))
             .child(
                 content
@@ -178,6 +179,7 @@ impl Shell {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    shell.browser.tooltip(None, cx);
                     // The first click opened or closed it.
                     if event.click_count == 2 {
                         return shell.rename_folder(folder, cx);
