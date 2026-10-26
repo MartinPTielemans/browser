@@ -178,6 +178,11 @@ void Space::SetIcon(std::string icon) {
   ReportSpacesChanged();
 }
 
+void Space::SetTheme(std::string theme) {
+  theme_ = std::move(theme);
+  ReportSpacesChanged();
+}
+
 void Space::SetProfile(std::string profile) {
   profile_ = std::move(profile);
   ReportSpacesChanged();

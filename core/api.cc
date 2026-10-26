@@ -257,6 +257,17 @@ void bc_space_set_icon(bc_id id, const char* icon) {
   }
 }
 
+size_t bc_space_theme(bc_id id, char* theme, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return space ? CopyString(space->theme(), theme, capacity) : 0;
+}
+
+void bc_space_set_theme(bc_id id, const char* theme) {
+  if (browser_core::Space* space = browser_core::Space::FromId(id)) {
+    space->SetTheme(theme ? theme : "");
+  }
+}
+
 bool bc_space_delete(bc_id id) {
   return browser_core::Window::DeleteSpace(id);
 }
