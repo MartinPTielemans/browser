@@ -105,6 +105,7 @@ class Tab : public content::WebContentsObserver,
   void RenderFrameHostChanged(content::RenderFrameHost* old_host,
                               content::RenderFrameHost* new_host) override;
   void RenderViewReady() override;
+  void PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) override;
   void TitleWasSet(content::NavigationEntry* entry) override;
   void DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) override;
   void DidUpdateAudioMutingState(bool muted) override;

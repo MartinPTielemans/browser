@@ -370,6 +370,12 @@ void Tab::OnVisibilityChanged(content::Visibility visibility) {
   }
 }
 
+// The page's renderer went away, crashed or killed. The page shows nothing until it's reloaded, and
+// check.sh waits for this line, an error since our builds print no warnings.
+void Tab::PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) {
+  LOG(ERROR) << "browser: tab " << id_ << " page gone, status " << static_cast<int>(status);
+}
+
 void Tab::WebContentsDestroyed() {
   // The driver is the page's too, and may go before the tab does.
   favicon_observation_.Reset();
