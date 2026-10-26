@@ -659,7 +659,7 @@ pub(super) fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Poin
 }
 
 #[cfg(test)]
-mod detents;
+pub(in crate::shell) mod detents;
 
 #[cfg(test)]
 mod tests {
