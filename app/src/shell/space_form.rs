@@ -1,0 +1,264 @@
+//! The New Space form, which a new Space's page shows in place of its list: its name,
+//! its profile and its theme (docs/ux-spec.md › Spaces).
+
+use std::time::Instant;
+
+use gpui::{
+    Context, FontWeight, MouseButton, MouseDownEvent, Pixels, Point, Window, div, point, prelude::*,
+    px, rgb, rgba, svg,
+};
+
+use super::{
+    CANCEL_BOTTOM, CANCEL_HEIGHT, CREATE, CREATE_BOTTOM, CREATE_UNNAMED, CreateSpace, FORM_CHEVRON,
+    FORM_CHEVRON_GAP, FORM_FIELD_TOP, FORM_GLYPH, FORM_GLYPH_COLOR, FORM_GLYPH_X, FORM_INSET,
+    FORM_LABEL_X, FORM_LEAVE, FORM_LEAVE_FIELD, FORM_LEAVE_ROWS, FORM_LEAVE_TITLE, FORM_PILL,
+    FORM_PILL_HEIGHT, FORM_PILL_LEFT, FORM_PILL_RIGHT, FORM_PILL_X, FORM_PLACEHOLDER, FORM_PLATE,
+    FORM_PLATE_HEIGHT, FORM_PROFILE_TOP, FORM_RADIUS, FORM_SINK, FORM_TEXT, FORM_TEXT_X,
+    FORM_THEME_TOP, FORM_TITLE_HEIGHT, FORM_TITLE_TOP, SECONDARY, Shell, SpaceForm,
+};
+use crate::text_input::TextInput;
+
+impl Shell {
+    /// Makes a Space and shows it with the form for naming it, or shows the form already open.
+    pub(super) fn new_space(&mut self, cx: &mut Context<Self>) {
+        let space = match &self.form {
+            Some(form) => form.space,
+            None => {
+                // Arc's name for a Space the user doesn't name.
+                let name = format!("Space {}", self.spaces.len() + 1);
+                // In the profile of the Space it's made from (Arc).
+                let profile = self.shown_space().map_or(0, |space| space.profile);
+                let space = self.browser.create_space(&name, profile, cx);
+                let name = cx.new(|cx| {
+                    TextInput::new("Space name", cx).placeholder_color(rgba(FORM_PLACEHOLDER))
+                });
+                self.form = Some(SpaceForm {
+                    space,
+                    from: self.space,
+                    name,
+                });
+                space
+            }
+        };
+        if space == self.space {
+            self.focus_form(cx);
+        } else {
+            self.show_space(space, cx);
+        }
+    }
+
+    /// The form, if the window shows its Space.
+    pub(super) fn form(&self) -> Option<&SpaceForm> {
+        self.form.as_ref().filter(|form| form.space == self.space)
+    }
+
+    pub(super) fn focus_form(&mut self, cx: &mut Context<Self>) {
+        // The panel never takes the keyboard, and goes when the pointer leaves it.
+        self.dock(cx);
+        self.browser.focus_ui(cx);
+        self.focus_form = true;
+        cx.notify();
+    }
+
+    /// Names the form's Space, if it has a name, and closes the form.
+    fn create_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.form() else {
+            return;
+        };
+        let name = form.name.read(cx).text().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        // check.sh waits for these lines.
+        log!("browser: create space {} {name}", form.space);
+        self.browser.rename_space(form.space, &name, cx);
+        self.leaving_form = self.form.take().map(|form| (form, Instant::now()));
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
+    }
+
+    /// Shows the Space the form was opened from and deletes the form's.
+    fn cancel_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(form) = self.form.take_if(|form| form.space == self.space) else {
+            return;
+        };
+        log!("browser: cancel space {}", form.space);
+        self.show_space(form.from, cx);
+        self.browser.delete_space(form.space, cx);
+        window.focus(&self.focus_handle, cx);
+        cx.notify();
+    }
+
+    /// The Create a Space form, in place of the URL field and the Space's tabs, and as it leaves,
+    /// `left` seconds after Create.
+    pub(super) fn space_form(
+        &self,
+        form: &SpaceForm,
+        left: Option<f32>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
+        let named = !form.name.read(cx).text().trim().is_empty();
+        // How far a part has gone, from 0 to 1, if it starts to leave `delay` after Create. It
+        // fades and sinks slowly at first, as Arc's do.
+        let gone = |delay: f32| left.map_or(0., |left| ((left - delay) / FORM_LEAVE).clamp(0., 1.));
+        let sinking = |delay: f32| {
+            let gone = gone(delay);
+            (1. - gone.powi(3), FORM_SINK * gone * gone)
+        };
+        let (title_opacity, title_sink) = sinking(FORM_LEAVE_TITLE);
+        let (field_opacity, field_sink) = sinking(FORM_LEAVE_FIELD);
+        let (rows_opacity, rows_sink) = sinking(FORM_LEAVE_ROWS);
+        let buttons_opacity = 1. - gone(0.);
+        let plate = |id: &'static str| {
+            div()
+                .id(id)
+                .absolute()
+                .left(px(FORM_INSET))
+                .w(px(self.width() - 2. * FORM_INSET))
+                .h(px(FORM_PLATE_HEIGHT))
+                .flex()
+                .items_center()
+                .rounded(px(FORM_RADIUS))
+                .block_mouse_except_scroll()
+        };
+        let title = div()
+            .absolute()
+            .top(px(FORM_TITLE_TOP + title_sink))
+            .opacity(title_opacity)
+            .w_full()
+            .h(px(FORM_TITLE_HEIGHT))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(17.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgb(FORM_TEXT))
+            .child("New Space");
+        let field = plate("space-name-field")
+            .top(px(FORM_FIELD_TOP + field_sink))
+            .opacity(field_opacity)
+            .px(px(FORM_TEXT_X - FORM_INSET))
+            .bg(rgba(FORM_PLATE))
+            .text_size(px(14.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(rgb(FORM_TEXT))
+            .child(form.name.clone());
+        // A row with a glyph and a label, whose menu a press shows while the form is up.
+        let row = |id: &'static str, top: f32, glyph: &'static str, label: &'static str| {
+            plate(id)
+                .top(px(top + rows_sink))
+                .opacity(rows_opacity)
+                .pl(px(FORM_GLYPH_X - FORM_GLYPH / 2. - FORM_INSET))
+                .bg(rgba(FORM_PLATE))
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(FORM_TEXT))
+                .child(svg().path(glyph).size(px(FORM_GLYPH)).text_color(rgba(FORM_GLYPH_COLOR)))
+                .child(div().ml(px(FORM_LABEL_X - FORM_GLYPH_X - FORM_GLYPH / 2.)).child(label))
+        };
+        let profile = (self.spaces.iter().find(|each| each.id == form.space))
+            .and_then(|space| self.profiles.iter().find(|(id, _)| *id == space.profile))
+            .map(|(_, name)| name.clone())
+            .unwrap_or_default();
+        let pill = div()
+            .absolute()
+            .left(px(FORM_PILL_X - FORM_INSET))
+            .h(px(FORM_PILL_HEIGHT))
+            .flex()
+            .items_center()
+            .pl(px(FORM_PILL_LEFT))
+            .pr(px(FORM_PILL_RIGHT))
+            .rounded(px(FORM_PILL_HEIGHT / 2.))
+            .bg(rgba(FORM_PILL))
+            .text_size(px(11.))
+            .font_weight(FontWeight::BOLD)
+            .child(profile)
+            .child(
+                svg()
+                    .path("icons/chevron-down.svg")
+                    .ml(px(FORM_CHEVRON_GAP))
+                    .size(px(FORM_CHEVRON))
+                    .text_color(rgb(FORM_TEXT)),
+            );
+        let menu = |show: fn(&mut Self, Point<Pixels>, &mut Context<Self>)| {
+            cx.listener(move |shell, event: &MouseDownEvent, _, cx| show(shell, event.position, cx))
+        };
+        let profile_row = row("space-profile", FORM_PROFILE_TOP, "icons/user.svg", "Profile")
+            .child(pill)
+            .when(left.is_none(), |row| {
+                row.on_mouse_down(MouseButton::Left, menu(Self::form_profile_menu))
+            });
+        let theme_row = row("space-theme", FORM_THEME_TOP, "icons/paintbrush.svg", "Choose a Theme")
+            .when(left.is_none(), |row| {
+                row.on_mouse_down(MouseButton::Left, menu(Self::form_theme_menu))
+            });
+        let create = plate("create-space")
+            .bottom(px(CREATE_BOTTOM))
+            .justify_center()
+            .opacity(buttons_opacity * if named { 1. } else { CREATE_UNNAMED })
+            .bg(rgb(CREATE))
+            .text_size(px(13.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(rgb(FORM_TEXT))
+            .child("Create Space")
+            .on_click(cx.listener(|shell, _, window, cx| shell.create_space(window, cx)));
+        let cancel = div()
+            .absolute()
+            .bottom(px(CANCEL_BOTTOM))
+            .w_full()
+            .h(px(CANCEL_HEIGHT))
+            .flex()
+            .justify_center()
+            .opacity(buttons_opacity)
+            .child(
+                div()
+                    .id("cancel-space")
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .block_mouse_except_scroll()
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgba(SECONDARY))
+                    .child("Cancel")
+                    .on_click(cx.listener(|shell, _, window, cx| shell.cancel_space(window, cx))),
+            );
+        div()
+            .key_context("SpaceForm")
+            .on_action(cx.listener(|shell, _: &CreateSpace, window, cx| {
+                shell.create_space(window, cx)
+            }))
+            .absolute()
+            .top_0()
+            .w(px(self.width()))
+            .bottom_0()
+            .child(title)
+            .child(field)
+            .child(profile_row)
+            .child(theme_row)
+            .child(create)
+            .child(cancel)
+    }
+
+    /// The form's Profile row's menu: the profiles its Space can be in, the Space's on the pill's
+    /// name, as a pop-up button's menu is, and a new one.
+    fn form_profile_menu(&mut self, _: Point<Pixels>, cx: &mut Context<Self>) {
+        if let Some(space) = self.form().map(|form| form.space) {
+            let items = self.profile_items(space);
+            let over = items.iter().position(|(entry, _)| entry.checked);
+            let name = point(
+                px(FORM_PILL_X + FORM_PILL_LEFT),
+                px(FORM_PROFILE_TOP + (FORM_PLATE_HEIGHT - FORM_PILL_HEIGHT) / 2.),
+            );
+            self.show_menu(items, name, over, cx);
+        }
+    }
+
+    /// The form's Choose a Theme row's menu: the Space menu's colours, until Space themes come
+    /// (Arc's picker isn't recorded).
+    fn form_theme_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if let Some(space) = self.form().map(|form| form.space) {
+            self.show_menu(self.color_items(space), position, None, cx);
+        }
+    }
+}
