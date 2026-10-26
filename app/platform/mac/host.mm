@@ -200,6 +200,18 @@ void StripTint(CALayer* layer) {
 }
 @end
 
+// Gives the service the user picks in the share menu the page's title, as a mail's subject.
+@interface HostShareDelegate : NSObject <NSSharingServicePickerDelegate>
+@property(copy) NSString* title;
+@end
+
+@implementation HostShareDelegate
+- (void)sharingServicePicker:(NSSharingServicePicker*)picker
+     didChooseSharingService:(NSSharingService*)service {
+  service.subject = self.title;
+}
+@end
+
 namespace {
 
 // A round swatch of |color|, 0xRRGGBB in sRGB, for a menu item.
@@ -298,13 +310,16 @@ constexpr double kOverlayShadowRadius = 20;
 constexpr double kOverlayGrow = 0.2;
 constexpr double kOverlayGrowFade = 0.1;
 constexpr float kOverlayShadowOpacity = 0.23;
-// Past this, three times the blur, the shadow is nothing.
-constexpr double kOverlayShadowReach = 3 * kOverlayShadowRadius;
 
 // A window of the UI's over a browser window's page, translucent over a blur, with a shadow: the
-// command bar, or the Space's icon picker.
+// command bar, the Space's icon picker, or the Site Controls.
 struct Overlay {
   explicit Overlay(const char* name) : name(name) {}
+  Overlay(const char* name, float shadow_opacity, double shadow_radius, double shadow_drop)
+      : name(name),
+        shadow_opacity(shadow_opacity),
+        shadow_radius(shadow_radius),
+        shadow_drop(shadow_drop) {}
   // What its log lines call it, which check.sh reads.
   const char* name;
   NSWindow* window = nil;
@@ -330,9 +345,19 @@ struct Overlay {
   bool grows = false;
   double grow_x = 0;
   double grow_y = 0;
+  float shadow_opacity = kOverlayShadowOpacity;
+  double shadow_radius = kOverlayShadowRadius;
+  // How far down it falls.
+  double shadow_drop = 0;
+  // Past this, three times the blur and its drop, the shadow is nothing.
+  double reach() const { return 3 * shadow_radius + shadow_drop; }
 };
 
 Overlay g_overlays[] = {Overlay("command bar"), Overlay("icon picker")};
+
+// Arc's Site Controls' shadow, fitted over a dark page: darker below, as it falls 4 pt. It's an
+// overlay for its blur and shadow alone, outside g_overlays, so the tooltip shows over it.
+Overlay g_site_controls_overlay("site controls", 0.24, 16, 4);
 
 Overlay* OverlayAt(int index) {
   return index >= 0 && index < int(std::size(g_overlays)) && g_overlays[index].window
@@ -562,15 +587,14 @@ void MaskOverlayBlur(Overlay& overlay) {
 // Around the overlay by the shadow's reach, with the overlay's shape cut out of it, since what's
 // under the translucent overlay shows through it.
 void PlaceOverlayShadow(Overlay& overlay) {
-  const NSRect frame =
-      NSInsetRect(overlay.window.frame, -kOverlayShadowReach, -kOverlayShadowReach);
+  const double reach = overlay.reach();
+  const NSRect frame = NSInsetRect(overlay.window.frame, -reach, -reach);
   if (NSEqualRects(frame, overlay.shadow.frame)) {
     return;
   }
   [overlay.shadow setFrame:frame display:NO];
   const CGRect bounds = CGRectMake(0, 0, NSWidth(frame), NSHeight(frame));
-  CGPathRef shape =
-      OverlayPath(overlay, CGRectInset(bounds, kOverlayShadowReach, kOverlayShadowReach));
+  CGPathRef shape = OverlayPath(overlay, CGRectInset(bounds, reach, reach));
   CGMutablePathRef outside = CGPathCreateMutable();
   CGPathAddRect(outside, nullptr, bounds);
   CGPathAddPath(outside, nullptr, shape);
@@ -585,6 +609,47 @@ void PlaceOverlayShadow(Overlay& overlay) {
   [CATransaction commit];
   CGPathRelease(outside);
   CGPathRelease(shape);
+}
+
+// Puts the blur under the overlay's view and makes its shadow's window.
+void AddBlurAndShadow(Overlay& overlay) {
+  // The UI draws the overlay's shape, translucent, over the blur, and the shadow is its own
+  // window. A titled window would draw its edge at the window's full size.
+  overlay.window.styleMask = NSWindowStyleMaskBorderless;
+  overlay.window.hasShadow = NO;
+  overlay.blur = [[HostBlurView alloc] initWithFrame:overlay.view.frame];
+  overlay.blur.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  overlay.blur.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+  overlay.blur.material = NSVisualEffectMaterialUnderWindowBackground;
+  overlay.blur.state = NSVisualEffectStateActive;
+  MaskOverlayBlur(overlay);
+  [overlay.view.superview addSubview:overlay.blur
+                          positioned:NSWindowBelow
+                          relativeTo:overlay.view];
+  overlay.shadow = [[NSWindow alloc] initWithContentRect:NSZeroRect
+                                               styleMask:NSWindowStyleMaskBorderless
+                                                 backing:NSBackingStoreBuffered
+                                                   defer:YES];
+  overlay.shadow.releasedWhenClosed = NO;
+  overlay.shadow.opaque = NO;
+  overlay.shadow.backgroundColor = NSColor.clearColor;
+  overlay.shadow.hasShadow = NO;
+  overlay.shadow.ignoresMouseEvents = YES;
+  NSView* shadow_view = overlay.shadow.contentView;
+  shadow_view.wantsLayer = YES;
+  // The mask is on a layer holding the shadow's, since a layer's own mask doesn't cut its shadow.
+  CALayer* holder = [CALayer layer];
+  overlay.shadow_mask = [CAShapeLayer layer];
+  overlay.shadow_mask.fillRule = kCAFillRuleEvenOdd;
+  holder.mask = overlay.shadow_mask;
+  overlay.shadow_layer = [CALayer layer];
+  overlay.shadow_layer.shadowColor = NSColor.blackColor.CGColor;
+  overlay.shadow_layer.shadowOpacity = overlay.shadow_opacity;
+  overlay.shadow_layer.shadowRadius = overlay.shadow_radius;
+  // The layer's y goes up.
+  overlay.shadow_layer.shadowOffset = CGSizeMake(0, -overlay.shadow_drop);
+  [holder addSublayer:overlay.shadow_layer];
+  [shadow_view.layer addSublayer:holder];
 }
 
 // Puts the overlays showing over |browser| above |window|, one of its child windows.
@@ -718,6 +783,7 @@ void host_show_window(void* ui_view) {
                                                 if (g_site_controls_shown &&
                                                     g_site_controls_over == browser) {
                                                   PlaceSiteControls();
+                                                  PlaceOverlayShadow(g_site_controls_overlay);
                                                 }
                                               }];
 }
@@ -832,42 +898,7 @@ void host_add_overlay(int index, void* overlay_view, double radius, void (*dismi
   overlay.radius = radius;
   overlay.window = overlay.view.window;
   MakeOverlay(overlay.window);
-  // The UI draws the overlay's shape, translucent, over the blur, and the shadow is its own
-  // window. A titled window would draw its edge at the window's full size.
-  overlay.window.styleMask = NSWindowStyleMaskBorderless;
-  overlay.window.hasShadow = NO;
-  overlay.blur = [[HostBlurView alloc] initWithFrame:overlay.view.frame];
-  overlay.blur.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  overlay.blur.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-  overlay.blur.material = NSVisualEffectMaterialUnderWindowBackground;
-  overlay.blur.state = NSVisualEffectStateActive;
-  MaskOverlayBlur(overlay);
-  [overlay.view.superview addSubview:overlay.blur
-                          positioned:NSWindowBelow
-                          relativeTo:overlay.view];
-  overlay.shadow = [[NSWindow alloc] initWithContentRect:NSZeroRect
-                                               styleMask:NSWindowStyleMaskBorderless
-                                                 backing:NSBackingStoreBuffered
-                                                   defer:YES];
-  overlay.shadow.releasedWhenClosed = NO;
-  overlay.shadow.opaque = NO;
-  overlay.shadow.backgroundColor = NSColor.clearColor;
-  overlay.shadow.hasShadow = NO;
-  overlay.shadow.ignoresMouseEvents = YES;
-  NSView* shadow_view = overlay.shadow.contentView;
-  shadow_view.wantsLayer = YES;
-  // The mask is on a layer holding the shadow's, since a layer's own mask doesn't cut its shadow.
-  CALayer* holder = [CALayer layer];
-  overlay.shadow_mask = [CAShapeLayer layer];
-  overlay.shadow_mask.fillRule = kCAFillRuleEvenOdd;
-  holder.mask = overlay.shadow_mask;
-  overlay.shadow_layer = [CALayer layer];
-  overlay.shadow_layer.shadowColor = NSColor.blackColor.CGColor;
-  overlay.shadow_layer.shadowOpacity = kOverlayShadowOpacity;
-  overlay.shadow_layer.shadowRadius = kOverlayShadowRadius;
-  overlay.shadow_layer.shadowOffset = CGSizeZero;
-  [holder addSublayer:overlay.shadow_layer];
-  [shadow_view.layer addSublayer:holder];
+  AddBlurAndShadow(overlay);
   // The command bar grows and shrinks from its top with the rows. Until the frame at the new size
   // lands, the last one stays as drawn at the top; scaled to the window, it stretched or squashed
   // them.
@@ -1346,10 +1377,10 @@ void host_add_site_controls(void* view, void (*dismissed)(void)) {
   g_site_controls = g_site_controls_view.window;
   g_site_controls_dismissed = dismissed;
   MakeOverlay(g_site_controls);
-  // The UI draws the panel's rounded shape, which a borderless window's shadow takes, as the find
-  // bar's does.
-  g_site_controls.styleMask = NSWindowStyleMaskBorderless;
-  g_site_controls.hasShadow = YES;
+  Overlay& overlay = g_site_controls_overlay;
+  overlay.view = g_site_controls_view;
+  overlay.window = g_site_controls;
+  AddBlurAndShadow(overlay);
   // Until the frame at a new height lands, the last one stays as drawn at the top.
   g_site_controls_view.layer.contentsGravity = kCAGravityTopLeft;
   // They close when the user leaves them, as the command bar does: a click outside them (the
@@ -1380,6 +1411,29 @@ void host_add_site_controls(void* view, void (*dismissed)(void)) {
                   }];
 }
 
+void host_set_site_controls_shape(const double* corners, size_t count) {
+  g_site_controls_overlay.corners.assign(corners, corners + 3 * count);
+}
+
+namespace {
+
+// The blur and the shadow in the Site Controls' shape at their window's size now.
+void ShapeSiteControls() {
+  Overlay& overlay = g_site_controls_overlay;
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  overlay.blur.frame = overlay.view.frame;
+  // At its full size while it's placed, as a transform would scale the new frame.
+  overlay.shadow_layer.superlayer.affineTransform = CGAffineTransformIdentity;
+  [CATransaction commit];
+  MaskOverlayBlur(overlay);
+  // Drawn again at the new shape.
+  [overlay.shadow setFrame:NSZeroRect display:NO];
+  PlaceOverlayShadow(overlay);
+}
+
+}  // namespace
+
 void host_show_site_controls(void* ui_view, double left, double top, double width, double height) {
   Browser* browser = BrowserWithView(ui_view);
   if (!g_site_controls || !browser || !browser->window) {
@@ -1401,11 +1455,19 @@ void host_show_site_controls(void* ui_view, double left, double top, double widt
       return;
     }
     NSWindow* window = browser->window;
+    Overlay& overlay = g_site_controls_overlay;
     [g_site_controls setFrame:NSMakeRect(0, 0, width, height) display:NO];
     PlaceSiteControls();
     [g_site_controls_view.layer setNeedsDisplay];
     [g_site_controls_view.layer displayIfNeeded];
-    [g_site_controls invalidateShadow];
+    ShapeSiteControls();
+    // They come in from nothing, as the UI's frames say (host_site_controls_drew).
+    overlay.blur.alphaValue = 0;
+    overlay.shadow.alphaValue = 0;
+    if (overlay.shadow.parentWindow != window) {
+      [overlay.shadow.parentWindow removeChildWindow:overlay.shadow];
+      [window addChildWindow:overlay.shadow ordered:NSWindowAbove];
+    }
     [window addChildWindow:g_site_controls ordered:NSWindowAbove];
     [g_site_controls makeKeyAndOrderFront:nil];
     // check.sh reads these lines.
@@ -1426,17 +1488,38 @@ void host_set_site_controls_height(double height) {
          display:NO];
     [g_site_controls_view.layer setNeedsDisplay];
     [g_site_controls_view.layer displayIfNeeded];
-    [g_site_controls invalidateShadow];
+    ShapeSiteControls();
     fprintf(stderr, "browser: site controls height %g\n", height);
   });
 }
 
-void host_site_controls_drew(void) {
-  // Posted, so the shadow is taken from the frame the UI is drawing now.
+void host_site_controls_drew(double scale, double opacity, double x, double y) {
+  // Posted, so the blur and the shadow take the frame the UI is drawing now.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (g_site_controls_shown) {
-      [g_site_controls invalidateShadow];
+    if (!g_site_controls_shown) {
+      return;
     }
+    Overlay& overlay = g_site_controls_overlay;
+    const NSRect full = overlay.view.frame;
+    // From the window's top left to AppKit's bottom left.
+    const double up = NSHeight(full) - y;
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    overlay.blur.frame =
+        NSMakeRect(NSMinX(full) + x * (1 - scale), NSMinY(full) + up * (1 - scale),
+                   NSWidth(full) * scale, NSHeight(full) * scale);
+    overlay.blur.alphaValue = opacity;
+    // Scaled about the same point of the shadow's window, which reaches past the panel's.
+    CALayer* holder = overlay.shadow_layer.superlayer;
+    const double reach = overlay.reach();
+    const CGPoint about = CGPointMake(reach + x, reach + up);
+    // Its middle, which a layer's transform scales about.
+    const CGPoint middle = holder.position;
+    holder.affineTransform =
+        CGAffineTransformMake(scale, 0, 0, scale, (1 - scale) * (about.x - middle.x),
+                              (1 - scale) * (about.y - middle.y));
+    [CATransaction commit];
+    overlay.shadow.alphaValue = opacity;
   });
 }
 
@@ -1462,6 +1545,7 @@ void host_hide_site_controls(void) {
   g_site_controls_shown = false;
   [g_site_controls_over->window removeChildWindow:g_site_controls];
   [g_site_controls orderOut:nil];
+  g_site_controls_overlay.shadow.alphaValue = 0;
   fprintf(stderr, "browser: site controls hidden\n");
 }
 
@@ -1808,6 +1892,39 @@ void host_copy(const char* text) {
   NSPasteboard* pasteboard = driven ?: NSPasteboard.generalPasteboard;
   [pasteboard clearContents];
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
+}
+
+void host_share(void* ui_view,
+                double x,
+                double y,
+                double width,
+                double height,
+                const char* url,
+                const char* title) {
+  Browser* browser = BrowserWithView(ui_view);
+  NSURL* link = [NSURL URLWithString:@(url)];
+  if (!browser || !browser->window || !link) {
+    return;
+  }
+  // check.sh reads this line. A driven run doesn't show the menu, which would wait on a choice.
+  fprintf(stderr, "browser: share %s\n", url);
+  if (getenv("BROWSER_DRIVE")) {
+    return;
+  }
+  // Kept while the menu shows, which doesn't keep its delegate.
+  static NSSharingServicePicker* picker;
+  static HostShareDelegate* delegate;
+  delegate = [[HostShareDelegate alloc] init];
+  delegate.title = @(title);
+  picker = [[NSSharingServicePicker alloc] initWithItems:@[ link ]];
+  picker.delegate = delegate;
+  NSView* content = browser->window.contentView;
+  // From the content's top left, under the tile it hangs from.
+  const NSRect rect = NSMakeRect(x, content.flipped ? y : NSHeight(content.bounds) - y - height,
+                                 width, height);
+  [picker showRelativeToRect:rect
+                      ofView:content
+               preferredEdge:content.flipped ? NSRectEdgeMaxY : NSRectEdgeMinY];
 }
 
 void host_day_starts(double starts[4]) {

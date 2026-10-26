@@ -133,6 +133,15 @@ mod platform {
             ),
         );
         pub fn host_copy(text: *const c_char);
+        pub fn host_share(
+            ui_view: *mut c_void,
+            x: f64,
+            y: f64,
+            width: f64,
+            height: f64,
+            url: *const c_char,
+            title: *const c_char,
+        );
         pub fn host_day_starts(starts: *mut f64);
         pub fn host_menu(
             ui_view: *mut c_void,
@@ -171,8 +180,9 @@ mod platform {
             width: f64,
             height: f64,
         );
+        pub fn host_set_site_controls_shape(corners: *const f64, count: usize);
         pub fn host_set_site_controls_height(height: f64);
-        pub fn host_site_controls_drew();
+        pub fn host_site_controls_drew(scale: f64, opacity: f64, x: f64, y: f64);
         pub fn host_release_site_controls();
         pub fn host_hide_site_controls();
         pub fn host_add_toast(toast_view: *mut c_void);
@@ -573,19 +583,30 @@ struct SiteControlsHost {
     view: Cell<*mut c_void>,
 }
 
+/// The panel's shape, for the host's blur and shadow, as x, y and radius each.
+fn set_site_controls_shape(corners: &[(f32, f32, f32)]) {
+    let flat: Vec<f64> = (corners.iter())
+        .flat_map(|&(x, y, radius)| [f64::from(x), f64::from(y), f64::from(radius)])
+        .collect();
+    unsafe { platform::host_set_site_controls_shape(flat.as_ptr(), corners.len()) };
+}
+
 impl site_controls::Host for SiteControlsHost {
-    fn show(&self, at: Point<Pixels>, size: gpui::Size<Pixels>) {
+    fn show(&self, at: Point<Pixels>, size: gpui::Size<Pixels>, corners: &[(f32, f32, f32)]) {
+        set_site_controls_shape(corners);
         let (left, top) = (f64::from(at.x), f64::from(at.y));
         let (width, height) = (f64::from(size.width), f64::from(size.height));
         unsafe { platform::host_show_site_controls(front().1, left, top, width, height) };
     }
 
-    fn set_height(&self, height: f32) {
+    fn set_height(&self, height: f32, corners: &[(f32, f32, f32)]) {
+        set_site_controls_shape(corners);
         unsafe { platform::host_set_site_controls_height(f64::from(height)) };
     }
 
-    fn drew(&self) {
-        unsafe { platform::host_site_controls_drew() };
+    fn drew(&self, scale: f32, opacity: f32, origin: Point<Pixels>) {
+        let (x, y) = (f64::from(origin.x), f64::from(origin.y));
+        unsafe { platform::host_site_controls_drew(scale.into(), opacity.into(), x, y) };
     }
 
     fn release(&self) {
@@ -617,24 +638,52 @@ impl site_controls::Host for SiteControlsHost {
         unsafe { bc::bc_tab_reset_site_permissions(tab) };
     }
 
-    fn run(&self, tile: site_controls::Tile, tab: u64, cx: &mut App) {
-        // Copy Clean Link and Find are the shell's commands, which the keys and the command bar
-        // run too.
-        let command = match tile {
-            site_controls::Tile::CopyLink => Command::CopyUrl,
-            site_controls::Tile::Find => Command::Find,
-            site_controls::Tile::PictureInPicture => {
-                unsafe { bc::bc_tab_picture_in_picture(tab) };
-                return;
-            }
+    fn run(&self, run: site_controls::Run, tab: u64, cx: &mut App) {
+        let Some(window) = tab_window(tab, cx) else {
+            return;
         };
-        if let Some(window) = tab_window(tab, cx) {
-            window.shell.update(cx, |shell, cx| shell.run(command, "site-controls", cx)).ok();
+        match run {
+            // The shell's commands, which the keys and the command bar run too.
+            site_controls::Run::Command(command) => {
+                window.shell.update(cx, |shell, cx| shell.run(command, "site-controls", cx)).ok();
+            }
+            site_controls::Run::Share(frame) => {
+                let Some((url, title)) = window.shell.upgrade().map(|shell| {
+                    let shell = shell.read(cx);
+                    (shell.page(tab).url, shell.title(tab))
+                }) else {
+                    return;
+                };
+                let (url, title) = (CString::new(url.as_ref()), CString::new(title.as_ref()));
+                let (Ok(url), Ok(title)) = (url, title) else {
+                    return;
+                };
+                let frame = rect(frame);
+                let (x, y, width, height) = (frame.x, frame.y, frame.width, frame.height);
+                let (url, title) = (url.as_ptr(), title.as_ptr());
+                unsafe { platform::host_share(window.ui_view, x, y, width, height, url, title) };
+            }
+            site_controls::Run::SiteSettings => {
+                let url = window.shell.upgrade().map(|shell| shell.read(cx).page(tab).url);
+                let settings = url.and_then(|url| site_controls::site_settings_url(&url));
+                open_tab(window.id, settings.as_deref().unwrap_or("chrome://settings/content"));
+            }
+            site_controls::Run::Extension(id) => {
+                window.shell.update(cx, |shell, cx| shell.run_extension(&id, cx)).ok();
+            }
+            site_controls::Run::Certificate => unsafe { bc::bc_tab_show_certificate(tab) },
         }
     }
 
     fn menu(&self, items: &[MenuEntry], position: Point<Pixels>) -> Option<usize> {
         show_field_menu(items, position, self.view.get())
+    }
+
+    fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, cx: &mut App) {
+        match tip {
+            Some((text, anchor)) => tooltip::hover(tooltip::Tip::named(text), anchor, cx),
+            None => tooltip::dismiss(cx),
+        }
     }
 }
 
@@ -1340,8 +1389,15 @@ impl Browser for Engine {
         find_bar::show(self.window, tab, cx);
     }
 
-    fn site_controls(&self, tab: u64, at: Point<Pixels>, anchor: Bounds<Pixels>, cx: &mut App) {
-        site_controls::show(tab, at, anchor, cx);
+    fn site_controls(
+        &self,
+        tab: u64,
+        place: site_controls::Place,
+        window: gpui::Size<Pixels>,
+        extensions: Vec<site_controls::Extension>,
+        cx: &mut App,
+    ) {
+        site_controls::show(tab, place, window, extensions, cx);
     }
 
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
@@ -1782,11 +1838,8 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
         unsafe { platform::host_add_toast(view) };
     }
     let host = Rc::new(SiteControlsHost { view: Cell::new(std::ptr::null_mut()) });
-    if let Some(panel) = site_controls::open(
-        host.clone(),
-        move |cx| fill(cx).unwrap_or_default(),
-        cx,
-    ) && let Ok(view) = panel.update(cx, |_, window, _| ns_view(window))
+    if let Some(panel) = site_controls::open(host.clone(), cx)
+        && let Ok(view) = panel.update(cx, |_, window, _| ns_view(window))
     {
         host.view.set(view);
         unsafe { platform::host_add_site_controls(view, site_controls_dismissed) };
@@ -2449,23 +2502,21 @@ unsafe extern "C" fn tab_site_controls(
             _ => site_controls::Connection::NotSecure,
         },
         connection_summary: string(controls.connection_summary),
+        certificate: controls.certificate,
         permissions: permissions
             .iter()
             .map(|permission| site_controls::Permission {
                 kind: permission.type_,
+                key: string(permission.key),
                 name: string(permission.name),
                 value: value(permission.value as u32),
+                state: string(permission.state),
                 choices: (site_controls::Value::ALL.into_iter())
                     .filter(|&each| permission.choices & (1 << bit(each)) != 0)
                     .collect(),
             })
             .collect(),
         reset: Some(string(controls.reset)).filter(|reset| !reset.is_empty()),
-        picture_in_picture: match controls.picture_in_picture as u32 {
-            bc::BC_PICTURE_IN_PICTURE_ENTER => site_controls::PictureInPicture::Enter,
-            bc::BC_PICTURE_IN_PICTURE_EXIT => site_controls::PictureInPicture::Exit,
-            _ => site_controls::PictureInPicture::None,
-        },
     };
     update_app(|cx| site_controls::changed(tab, site, cx));
 }

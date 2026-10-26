@@ -7,9 +7,12 @@ use gpui::{
     AppContext, Bounds, Entity, Modifiers, TestAppContext, VisualTestContext, point, px, size,
 };
 
-use crate::shell::{
-    Command, FOOTER_HEIGHT, Folders, NAV_SIZE, NAV_TOP, SIDEBAR_BUTTON_X, Shell,
-    library::LIBRARY_BACK_INSET, recorder::Recorder,
+use crate::{
+    shell::{
+        Command, FOOTER_HEIGHT, Folders, NAV_SIZE, NAV_TOP, SIDEBAR_BUTTON_X, Shell,
+        library::LIBRARY_BACK_INSET, recorder::Recorder,
+    },
+    site_controls::Place,
 };
 
 /// A shell showing one Space with `pinned` and `today` tabs and `folders`.
@@ -29,8 +32,8 @@ fn shell_with(
     (shell, host)
 }
 
-/// From the command bar as from its button: under the URL field, growing from the button at x 191
-/// of the 228 pt sidebar, where Arc's is.
+/// From the command bar as from its button: hanging from the button at x 191 of the 228 pt
+/// sidebar, where Arc's is, under the URL field.
 #[gpui::test]
 fn site_controls_open_under_the_url_field(cx: &mut TestAppContext) {
     let (shell, host) = shell_with(cx, &[], &[1, 2], Folders::default());
@@ -39,7 +42,8 @@ fn site_controls_open_under_the_url_field(cx: &mut TestAppContext) {
         shell.run(Command::SiteControls, "ui", cx);
     });
     let button = Bounds::new(point(px(191.), px(49.)), size(px(30.), px(30.)));
-    assert_eq!(host.site_controls.take(), [(2, point(px(8.), px(88.)), button)]);
+    let field = Bounds::new(point(px(8.), px(46.)), size(px(212.), px(36.)));
+    assert_eq!(host.site_controls.take(), [(2, Place::Button { field, button })]);
 }
 
 /// With the sidebar hidden they open at the page's top left corner, as an extension's popup does.
@@ -52,7 +56,7 @@ fn site_controls_open_at_the_corner_with_the_sidebar_hidden(cx: &mut TestAppCont
         shell.run(Command::SiteControls, "ui", cx);
     });
     let corner = point(px(18.), px(8.));
-    assert_eq!(host.site_controls.take(), [(1, corner, Bounds::new(corner, Default::default()))]);
+    assert_eq!(host.site_controls.take(), [(1, Place::Corner(corner))]);
 }
 
 /// The new tab page has no site.

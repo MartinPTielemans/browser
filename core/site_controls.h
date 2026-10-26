@@ -26,6 +26,7 @@ class SiteControls : public PageInfoUI, public content::WebContentsObserver {
   static void SetPermission(bc_id tab, int type, int value);
   static void Reset(bc_id tab);
   static void PictureInPicture(bc_id tab);
+  static void ShowCertificate(bc_id tab);
 
   SiteControls(const SiteControls&) = delete;
   SiteControls& operator=(const SiteControls&) = delete;

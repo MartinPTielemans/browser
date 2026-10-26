@@ -716,6 +716,10 @@ void bc_tab_picture_in_picture(bc_id id) {
   browser_core::SiteControls::PictureInPicture(id);
 }
 
+void bc_tab_show_certificate(bc_id id) {
+  browser_core::SiteControls::ShowCertificate(id);
+}
+
 void bc_tab_jump_to_selection(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     contents->CenterSelection();
