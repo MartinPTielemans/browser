@@ -392,8 +392,9 @@ impl Shell {
         self.show_menu(items, button.bottom_left(), None, cx);
     }
 
-    /// A pinned action's menu, as Chrome's toolbar gives one: Unpin, Options if it has them,
-    /// Remove, and Manage Extension, which opens its details on Chrome's extensions page.
+    /// A pinned action's menu, as Chrome's toolbar gives one: Unpin, Options if it has them, Open
+    /// Side Panel if it has one for the tab, Remove, and Manage Extension, which opens its details
+    /// on Chrome's extensions page.
     fn action_menu(&mut self, id: SharedString, position: Point<Pixels>, cx: &mut Context<Self>) {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         let Some(extension) = (self.extensions.get(&profile).into_iter().flatten())
@@ -402,7 +403,7 @@ impl Shell {
         else {
             return;
         };
-        let (unpin, remove, manage) = (id.clone(), id.clone(), id);
+        let (unpin, remove, manage) = (id.clone(), id.clone(), id.clone());
         let mut items: Vec<(MenuEntry, MenuAction)> = vec![(
             MenuEntry::new("Unpin", true),
             Box::new(move |shell, cx| shell.toggle_pinned(&unpin, cx)),
@@ -412,6 +413,16 @@ impl Shell {
             items.push((
                 MenuEntry::new("Options", true),
                 Box::new(move |shell, cx| shell.browser.open_extension_options(&options, cx)),
+            ));
+        }
+        if self.browser.has_side_panel(&id) {
+            let label = match self.side_panel_shown(&id) {
+                true => "Close Side Panel",
+                false => "Open Side Panel",
+            };
+            items.push((
+                MenuEntry::new(label, true),
+                Box::new(move |shell, cx| shell.browser.toggle_side_panel(&id, cx)),
             ));
         }
         items.extend([

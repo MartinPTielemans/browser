@@ -6,6 +6,7 @@
 
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "browser_core/archive.h"
@@ -944,4 +945,33 @@ bc_id bc_window_open_private(bc_rect bounds, void* ui_view, bc_id profile_id) {
   browser_core::Window* window =
       profile ? browser_core::Window::OpenPrivate(ToRect(bounds), ui_view, profile) : nullptr;
   return window ? window->id() : 0;
+}
+
+void bc_window_set_side_panel_frame(bc_id window_id, bc_rect frame) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->SetSidePanelFrame(ToRect(frame));
+  }
+}
+
+void bc_window_close_side_panel(bc_id window_id) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->CloseSidePanel();
+  }
+}
+
+bool bc_window_has_side_panel(bc_id window_id, const char* id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window && id && window->HasSidePanel(id);
+}
+
+void bc_window_toggle_side_panel(bc_id window_id, const char* id) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id); window && id) {
+    window->ToggleSidePanel(id);
+  }
+}
+
+void bc_window_set_side_panel_width(bc_id window_id, double width) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->SetSidePanelWidth(base::ClampRound(width));
+  }
 }

@@ -11,6 +11,7 @@
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
+#include "browser_core/side_panel.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
 #include "chrome/browser/profiles/profile.h"
@@ -322,6 +323,8 @@ BrowserWindowStandIn::BrowserWindowStandIn(base::WeakPtr<Window> window)
     : window_(std::move(window)), location_bar_(std::make_unique<NoLocationBar>()) {}
 
 BrowserWindowStandIn::~BrowserWindowStandIn() {
+  // Before the features it uses go, as Chrome's window closes its panel first.
+  side_panel_.reset();
   if (browser_) {
     // BrowserWidget does this for Chrome's windows: features may read the window as they go.
     browser_->GetFeatures().TearDownPreBrowserWindowDestruction();
@@ -334,6 +337,7 @@ BrowserWindowStandIn::~BrowserWindowStandIn() {
 void BrowserWindowStandIn::SetBrowser(BrowserWindowInterface* browser) {
   browser_ = browser;
   location_bar_->set_browser(browser);
+  side_panel_ = std::make_unique<SidePanel>(browser);
   if (views::Widget* widget = this->widget()) {
     widget_observation_.Observe(widget);
   }

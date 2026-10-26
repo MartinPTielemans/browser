@@ -8,6 +8,7 @@
 #include <optional>
 
 #include "base/containers/span.h"
+#include "base/functional/callback_forward.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_ui_types.h"
 
@@ -42,18 +43,31 @@ struct Pane {
   std::optional<DockedDevTools> devtools;
 };
 
-// Shows |panes| in place of the pages shown, with corners of |corner_radius|. With more than one,
-// as in a split view, the one at |focused| has a ring of |ring_color|, 0xRRGGBB, inside its edge.
-// No panes shows no page.
+// An extension's side panel page, at |frame| like a pane's. The app draws its header above it, so
+// only its bottom corners are round.
+struct SidePanelPage {
+  gfx::NativeView page;
+  gfx::Rect frame;
+};
+
+// Shows |panes| in place of the pages shown, with corners of |corner_radius|, and |side_panel| in
+// place of the side panel shown. With more than one pane, as in a split view, the one at |focused|
+// has a ring of |ring_color|, 0xRRGGBB, inside its edge. No panes shows no page.
 void ShowPages(views::Widget* widget,
                base::span<const Pane> panes,
                double corner_radius,
                size_t focused,
-               uint32_t ring_color);
+               uint32_t ring_color,
+               std::optional<SidePanelPage> side_panel);
 
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
-// the window opens or the page view that had it left the window. Not in DevTools.
+// the window opens or the page view that had it left the window. Not in DevTools or the side
+// panel.
 bool KeyboardForPage(views::Widget* widget);
+
+// Runs |change|, which may move the keyboard in |widget|'s window, then gives the keyboard back to
+// what had it, if that's still in the window.
+void KeepKeyboard(views::Widget* widget, base::OnceClosure change);
 
 }  // namespace browser_core::platform
 

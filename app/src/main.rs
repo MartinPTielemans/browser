@@ -15,15 +15,15 @@ use browser::{
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, Split,
-    WindowButton,
+    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, SidePanel,
+    Split, WindowButton,
 };
 use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, Undo};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
-    ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, SystemMenuType,
-    WeakEntity, Window, WindowBackgroundAppearance, WindowOptions, actions, point, prelude::*, px,
-    size,
+    ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, Size,
+    SystemMenuType, WeakEntity, Window, WindowBackgroundAppearance, WindowOptions, actions, point,
+    prelude::*, px, size,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -532,6 +532,19 @@ fn field_menu(
 /// (`Shell::page_frame`).
 fn set_page_frame(window: bc::bc_id, (frame, radius): (Bounds<Pixels>, f32)) {
     unsafe { bc::bc_window_set_page_frame(window, rect(frame), f64::from(radius)) };
+}
+
+/// Tells the core where the window's page, at `page`, and its side panel's page go, in a window
+/// whose content is `viewport`, as it resizes or a page goes full screen between the shell's draws.
+fn set_frames(
+    window: bc::bc_id,
+    shell: &Shell,
+    page: (Bounds<Pixels>, f32),
+    viewport: Size<Pixels>,
+) {
+    set_page_frame(window, page);
+    let panel = shell.side_panel_page(viewport).unwrap_or_default();
+    unsafe { bc::bc_window_set_side_panel_frame(window, rect(panel)) };
 }
 
 fn rect(bounds: Bounds<Pixels>) -> bc::bc_rect {
@@ -1377,6 +1390,31 @@ impl Browser for Engine {
         open_tab(self.window, WEB_STORE);
     }
 
+    fn lay_out_side_panel(&self, frame: Bounds<Pixels>, _: &mut App) {
+        unsafe { bc::bc_window_set_side_panel_frame(self.window, rect(frame)) };
+    }
+
+    fn close_side_panel(&self, _: &mut App) {
+        unsafe { bc::bc_window_close_side_panel(self.window) };
+    }
+
+    fn has_side_panel(&self, id: &str) -> bool {
+        let Ok(id) = CString::new(id) else {
+            return false;
+        };
+        unsafe { bc::bc_window_has_side_panel(self.window, id.as_ptr()) }
+    }
+
+    fn toggle_side_panel(&self, id: &str, _: &mut App) {
+        if let Ok(id) = CString::new(id) {
+            unsafe { bc::bc_window_toggle_side_panel(self.window, id.as_ptr()) };
+        }
+    }
+
+    fn set_side_panel_width(&self, width: f32, _: &mut App) {
+        unsafe { bc::bc_window_set_side_panel_width(self.window, width.into()) };
+    }
+
     fn view_history(&self, _: &mut App) {
         open_tab(self.window, "chrome://history");
     }
@@ -1957,8 +1995,9 @@ fn open_window(
         let shell = cx.new(|cx| {
             // The page keeps its place in the card as the window resizes.
             cx.observe_window_bounds(window, move |shell: &mut Shell, window, _| {
-                if let Some(frame) = shell.window_page_frame(window.viewport_size()) {
-                    set_page_frame(id, frame);
+                let viewport = window.viewport_size();
+                if let Some(frame) = shell.window_page_frame(viewport) {
+                    set_frames(id, shell, frame, viewport);
                 }
             })
             .detach();
@@ -2007,7 +2046,8 @@ fn open_window(
     };
     window
         .update(cx, |shell, window, _| {
-            set_page_frame(id, shell.page_frame(window.viewport_size()))
+            let viewport = window.viewport_size();
+            set_frames(id, shell, shell.page_frame(viewport), viewport)
         })
         .ok();
     if let Some(from) = from.as_ref().filter(|_| private.is_none()) {
@@ -2772,6 +2812,25 @@ unsafe extern "C" fn window_extension_question(
     }
 }
 
+unsafe extern "C" fn window_side_panel(
+    _: *mut c_void,
+    window: bc::bc_id,
+    panel: *const bc::bc_side_panel,
+) {
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into();
+    let panel = unsafe { panel.as_ref() }.map(|panel| SidePanel {
+        extension: text(panel.extension),
+        name: text(panel.name),
+        icon: (!panel.icon.is_null()).then(|| {
+            let png = unsafe { std::slice::from_raw_parts(panel.icon, panel.icon_size) };
+            Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec()))
+        }),
+        title: text(panel.title),
+        width: panel.width as f32,
+    });
+    update_window(window, |shell, cx| shell.set_side_panel(panel, cx));
+}
+
 unsafe extern "C" fn window_extension_popup(
     _: *mut c_void,
     window: bc::bc_id,
@@ -2984,8 +3043,9 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
         cx.update_window(handle, |_, window, cx| {
             shell.update(cx, |shell, cx| {
                 shell.set_page_fullscreen(fullscreen, window, cx);
-                if let Some(frame) = shell.window_page_frame(window.viewport_size()) {
-                    set_page_frame(id, frame);
+                let viewport = window.viewport_size();
+                if let Some(frame) = shell.window_page_frame(viewport) {
+                    set_frames(id, shell, frame, viewport);
                 }
             })
         })
@@ -3065,6 +3125,7 @@ fn main() {
         window_extension_popup: Some(window_extension_popup),
         window_extension_actions: Some(window_extension_actions),
         window_extension_question: Some(window_extension_question),
+        window_side_panel: Some(window_side_panel),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         tab_permission_asked: Some(tab_permission_asked),

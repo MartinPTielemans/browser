@@ -261,7 +261,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Extensions menu in the menu bar | MVP | per extension, Pin to URL Field, Add (the Web Store in a new tab) and Manage | Dia |
 | [x] | Popups | MVP | Chrome's, from the action or under the URL field *interim*; 25 × 25 to 800 × 600, shrink and grow; openPopup works; Arc's opening and closing: measure | Chrome |
 | [x] | Action state without polling | MVP | from change notifications and tab switches only | principle 1 |
-| [ ] | Side panel | MVP | card right of the page, header, 320–600 saved. In progress: side panel | Dia, Ardia |
+| [x] | Side panel | MVP | card right of the page, header, 320–600 saved; opening motion: measure | Dia, Ardia |
 | [ ] | Install, re-enable, new-permission dialog | MVP | ours, Chrome's words and warnings, done; the store's button can't install under ungoogled-chromium *interim*; Arc's: measure | Dia P§15 |
 | [x] | Remove | MVP | "Remove “<name>”?", Cancel / destructive Remove, from the pinned action's menu; Chrome's page asks with Chrome's dialog *interim* | Dia P§15 |
 | [x] | Keyboard commands | MVP | fire with the page and the UI focused; actions' keys; never reserved keys; suggestions that are ours stay ours; media keys: later | Chrome P§15 |

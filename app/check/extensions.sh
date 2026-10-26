@@ -8,15 +8,19 @@
 # details on Chrome's extensions page, or removes it once the user confirms. The actions that don't
 # fit are behind an overflow button in the last place, whose menu runs them. Manage Extensions…
 # opens Chrome's extensions page. An extension's keyboard commands run with the page focused and
-# with the UI, but a key it suggests doesn't take one of the browser's. Chrome asks whether to add
+# with the UI, but a key it suggests doesn't take one of the browser's. An extension's side panel
+# opens from its action as a card right of the page, drags from its left edge to resize, closes
+# from its header's ✕ and ⋯ menu, and goes as its tab does. Chrome asks whether to add
 # an extension with the browser's dialog, which lists what Chrome warns it can do: escape cancels,
 # and return adds it. Add Extension… opens the Web Store in a new tab.
 
-# Three unpacked extensions of the check's own, loaded as a developer loads one. A click on the
+# Four unpacked extensions of the check's own, loaded as a developer loads one. A click on the
 # first gives the tab it's on a badge, then opens its page, and its command ⇧⌘Y opens another. The
 # second's popup gives it a badge on every tab, and ⌥⇧P opens it. The third has a popup and
 # options, and suggests ⌘J, Jump to Selection's key, which Chrome gives away, for a command. The
 # check removes it, and the next loads it again, as Chrome leaves an unpacked extension's folder.
+# A click on the fourth's action opens its side panel, and its command ⌥⇧K turns that off for
+# every tab but the one it's on, with a panel of its own, and opens it.
 extensions="$PWD/$out/extensions"
 script='chrome.action.onClicked.addListener(async tab => {
   await chrome.action.setBadgeText({tabId: tab.id, text: "7"});
@@ -26,7 +30,7 @@ chrome.commands.onCommand.addListener(() => chrome.tabs.create({url: "command.ht
 # Chrome keeps running the script it first registered for an extension, so a changed script is a
 # new extension, in a folder of its own.
 clicked_dir="$extensions/clicked-$(printf %s "$script" | cksum | cut -d' ' -f1)"
-mkdir -p "$clicked_dir" "$extensions/popup" "$extensions/third"
+mkdir -p "$clicked_dir" "$extensions/popup" "$extensions/third" "$extensions/panel"
 printf '%s\n' "$script" > "$clicked_dir/background.js"
 cat > "$clicked_dir/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Clicked", "version": "1", "action": {},
@@ -51,23 +55,44 @@ EOF
 echo '<body style="width:240px;height:120px;display:grid;place-items:center;font:16px system-ui">
 the third popup</body>' > "$extensions/third/popup.html"
 echo '<body style="font:16px system-ui">the third options</body>' > "$extensions/third/options.html"
+cat > "$extensions/panel/manifest.json" << 'EOF'
+{"manifest_version": 3, "name": "Check Panel", "version": "1", "action": {},
+ "permissions": ["sidePanel"], "side_panel": {"default_path": "panel.html"},
+ "background": {"service_worker": "background.js"},
+ "commands": {"tab": {"suggested_key": {"default": "Alt+Shift+K"}, "description": "Tab panel"}}}
+EOF
+# Not awaited, so open() is called while the command's gesture lasts, after the options it needs.
+cat > "$extensions/panel/background.js" << 'EOF'
+chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true});
+chrome.commands.onCommand.addListener((command, tab) => {
+  chrome.sidePanel.setOptions({enabled: false});
+  chrome.sidePanel.setOptions({tabId: tab.id, path: "tab.html", enabled: true});
+  chrome.sidePanel.open({tabId: tab.id});
+});
+EOF
+echo '<title>the panel</title><body style="font:16px system-ui">the panel</body>' > \
+  "$extensions/panel/panel.html"
+echo '<title>the tab panel</title><body style="font:16px system-ui">the tab panel</body>' > \
+  "$extensions/panel/tab.html"
 page='data:text/html,<title>loading</title>
 <script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
 log="$out/extensions.log"
 step=0
 rm -f "$saved"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" \
-  --load-extension="$clicked_dir,$extensions/popup,$extensions/third" < "$out/drive" > "$log" 2>&1 &
+  --load-extension="$clicked_dir,$extensions/popup,$extensions/third,$extensions/panel" \
+  < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
-await '^browser: extensions menu [a-p]* [a-p]* [a-p]*$' ||
-  fail "the Extensions menu didn't list the three extensions: $(grep '^browser: extensions' "$log")"
+await '^browser: extensions menu [a-p]* [a-p]* [a-p]* [a-p]*$' ||
+  fail "the Extensions menu didn't list the four extensions: $(grep '^browser: extensions' "$log")"
 # By name.
 ids=$(grep -m1 '^browser: extensions menu [a-p]* ' "$log" | cut -d' ' -f4-)
 clicked=$(echo "$ids" | cut -d' ' -f1)
-popup=$(echo "$ids" | cut -d' ' -f2)
-third=$(echo "$ids" | cut -d' ' -f3)
+panel=$(echo "$ids" | cut -d' ' -f2)
+popup=$(echo "$ids" | cut -d' ' -f3)
+third=$(echo "$ids" | cut -d' ' -f4)
 pinned=$(grep '^browser: pinned extensions' "$log" | tail -1)
 echo "$pinned" | grep -q '^browser: pinned extensions [0-9]* $' ||
   fail "an extension started pinned: $pinned"
@@ -237,13 +262,84 @@ expect '^browser: dialog shown Remove “Check Third”?$' "Remove didn't ask fi
 ../tools/window-screenshot.sh "$pid" "$out/extension-remove.png" || fail "no window to capture"
 send key return
 expect "^browser: remove extension $third removed\$" "Remove didn't remove Check Third"
-expect "^browser: extensions menu $clicked $popup\$" \
+expect "^browser: extensions menu $clicked $panel $popup\$" \
   "the removed Check Third stayed in the Extensions menu"
 expect '^browser: extension actions $' "the removed Check Third's action stayed"
+# Check Panel's side panel, on the first tab. Its script sets its action to open the panel once it
+# has run, so on a fresh profile it's chosen until the panel opens.
+index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
+send click $(row $((index - 1)))
+expect "^browser: selected $first\( in .*\)\{0,1\}\$" \
+  "a click on the first tab's row didn't show it"
+for _ in $(seq 10); do
+  send menu "Check Panel"
+  for _ in $(seq 20); do
+    none_since "^browser: side panel $panel " || break 2
+    sleep 0.1
+  done
+done
+none_since "^browser: side panel $panel " && fail "Check Panel's action didn't open its side panel"
+expect "^browser: side panel $panel the panel\$" "the side panel's page didn't load"
+expect '^browser: side panel at ' "the side panel didn't show right of the page"
+# Where the panel's card is: "left top width height".
+panel_at() {
+  grep '^browser: side panel at ' "$log" | tail -1 | cut -d' ' -f5-
+}
+read -r px py pw ph <<EOF
+$(panel_at)
+EOF
+../tools/window-screenshot.sh "$pid" "$out/side-panel.png" || fail "no window to capture"
+# Its page takes the keyboard on a click, under the 36-tall header.
+send click $((px + pw / 2)) $((py + ph / 2))
+in_browser RenderWidgetHostViewCocoa "after a click on the side panel's page"
+# Its left edge, in the gap before it, drags it 40 narrower, or 40 wider if that's under 320.
+to=$((pw - 40))
+[ "$to" -ge 320 ] || to=$((pw + 40))
+send press $((px - 5)) $((py + ph / 2))
+send dragto $((px - 5 + (pw - to) / 2)) $((py + ph / 2))
+send dragto $((px - 5 + pw - to)) $((py + ph / 2))
+send release $((px - 5 + pw - to)) $((py + ph / 2))
+expect "^browser: side panel width $to\$" "a drag on the side panel's edge didn't make it $to wide"
+# It took that width as it was dragged, before the release.
+for _ in $(seq 50); do
+  [ "$(panel_at | cut -d' ' -f2-)" = "$py $to $ph" ] && break
+  sleep 0.1
+done
+[ "$(panel_at | cut -d' ' -f2-)" = "$py $to $ph" ] ||
+  fail "the side panel didn't show $to wide: it's at $(panel_at)"
+read -r px py pw ph <<EOF
+$(panel_at)
+EOF
+../tools/window-screenshot.sh "$pid" "$out/side-panel-resized.png" || fail "no window to capture"
+# The header's ✕ is its last button, 30 square, 3 in from the card's corner.
+send click $((px + pw - 18)) $((py + 18))
+expect '^browser: side panel none$' "the header's ✕ didn't close the side panel"
+# ⌥⇧K opens the panel for this tab alone, which goes on a switch to a tab without one and comes
+# back with its tab.
+send key k alt shift
+expect "^browser: extension command $panel tab ran via " "⌥⇧K didn't run Check Panel's command"
+expect "^browser: side panel $panel the tab panel\$" "⌥⇧K didn't open the tab's side panel"
+other=$(today | tr ' ' '\n' | grep -v "^$first\$" | head -1)
+index=$(today | tr ' ' '\n' | grep -n "^$other\$" | cut -d: -f1)
+send click $(row $((index - 1)))
+expect "^browser: selected $other\( in .*\)\{0,1\}\$" "a click on another tab's row didn't show it"
+expect '^browser: side panel none$' "the tab's side panel stayed on a tab without one"
+index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
+send click $(row $((index - 1)))
+expect "^browser: selected $first\( in .*\)\{0,1\}\$" \
+  "a click on the first tab's row didn't show it"
+expect "^browser: side panel $panel the tab panel\$" "the tab's side panel didn't come back with it"
+expect "^browser: side panel at [0-9]* $py $to $ph\$" "the side panel didn't keep its width"
+# The header's ⋯ is left of its ✕, and its menu closes the panel too.
+post click $((px + pw - 51)) $((py + 18))
+expect '^browser: menu shown Manage Extension, Close Side Panel$' \
+  "a click on the side panel's ⋯ didn't show its menu"
+send choose Close Side Panel
+expect '^browser: side panel none$' "Close Side Panel didn't close the side panel"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png"
+echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/side-panel.png, $out/side-panel-resized.png"
 
 # An extension's .crx from the served page, which Chrome installs from off the Web Store with
 # ungoogled-chromium's flag, asking first. It's added in a profile of the launch's own, which the
