@@ -260,6 +260,15 @@ void bc_tab_separate(bc_id id) {
   }
 }
 
+bool bc_tab_move_in_split(bc_id id, size_t index) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  if (!space || !space->MoveInSplit(id, index)) {
+    return false;
+  }
+  browser_core::Window::PanesChanged();
+  return true;
+}
+
 void bc_window_show_space(bc_id window_id, bc_id space) {
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
     window->ShowSpace(space);

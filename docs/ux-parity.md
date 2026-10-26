@@ -213,7 +213,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Drop away from a target | MVP | new window grows from the card ≈ 200 ms, takes focus | Dia rec |
 | [x] | Close pane, Separate | MVP | Close this Split Pane, Separate Page from Split View | Arc menus |
 | [ ] | Expand Current Split | MVP | measure | Arc menus |
-| [ ] | Commands | MVP | Flip, Change Orientation, Move Pane Left/Right, Separate All | Dia P§6 |
+| [x] | Commands | MVP | Flip, Move Pane Left/Right, Separate All, in the command bar | Dia P§6 |
+| [ ] | Change Orientation | MVP | the panes stacked top to bottom | Dia P§6 |
 
 ## Settings
 

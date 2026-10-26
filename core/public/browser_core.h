@@ -314,6 +314,11 @@ BC_EXPORT bool bc_tab_split_with(bc_id tab, bc_id with, bool left);
 // it alone. The split goes once one tab is left. Then space_changed.
 BC_EXPORT void bc_tab_separate(bc_id tab);
 
+// Moves |tab| to |index| in its split view, counted from the left: a window showing it shows the
+// pages in their new order. Returns false, doing nothing, if |tab| is in no split view or |index|
+// is past its end. Then space_changed.
+BC_EXPORT bool bc_tab_move_in_split(bc_id tab, size_t index);
+
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
 // window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
 // Today tab, else its top pinned tab, else no page. Then window_space_shown and window_selected.

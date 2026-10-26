@@ -462,6 +462,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_separate(tab) };
     }
 
+    fn move_in_split(&self, tab: u64, index: usize, _: &mut App) {
+        unsafe { bc::bc_tab_move_in_split(tab, index) };
+    }
+
     fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
         unsafe {
             bc::bc_tab_split_with(tab, with, left);

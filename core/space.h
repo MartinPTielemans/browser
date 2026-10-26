@@ -108,6 +108,9 @@ class Space {
   bool Split(bc_id tab, bc_id with, GURL url, bool left = false);
   // Takes |tab| out of its split, to just below the tabs left in it. The split goes once one is.
   void Separate(bc_id tab);
+  // Moves |tab| to |index| in its split, and in its list with it. False, doing nothing, if it's in
+  // no split or |index| is past its end.
+  bool MoveInSplit(bc_id tab, size_t index);
 
   // The lowest pinned tab still |loaded|, else 0: the one to show once no Today tab is left.
   bc_id LastLoadedPinned(base::FunctionRef<bool(bc_id)> loaded) const;
