@@ -8,8 +8,13 @@
 #include <optional>
 
 #include "base/containers/span.h"
+#include "base/functional/callback_forward.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_ui_types.h"
+
+namespace content {
+class RenderWidgetHostView;
+}
 
 namespace views {
 class NativeWidget;
@@ -54,6 +59,20 @@ void ShowPages(views::Widget* widget,
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
 // the window opens or the page view that had it left the window. Not in DevTools.
 bool KeyboardForPage(views::Widget* widget);
+
+// Whether |view|, a page's, stretches the frame it last drew to fill it as it resizes, until the
+// page draws at its new size, rather than show that frame at its old size in the top-left corner.
+void StretchOnResize(content::RenderWidgetHostView* view, bool stretch);
+
+// Whether |view|, a page's, shows a frame drawn at its size, or has none to wait for.
+bool DrawnAtSize(content::RenderWidgetHostView* view);
+
+// Holds the changes going to the screen now, the whole window's, until |drawn| is true, for a
+// frame or two at most, then posts |shown| whether it was late. One hold per |key|: another before
+// the changes go replaces it.
+void HoldCommit(uint64_t key,
+                base::RepeatingCallback<bool()> drawn,
+                base::OnceCallback<void(bool late)> shown);
 
 }  // namespace browser_core::platform
 

@@ -142,6 +142,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void SetFocusColor(uint32_t color);
   // What the pages it shows show until their first frame, 0xRRGGBB.
   void SetPageColor(uint32_t color);
+  // While the app moves the page frame on its own, each change to it waits to go to the screen
+  // until the pages shown have drawn at their new size, for a frame or two, and they stretch their
+  // last frame to fill them meanwhile. Returns how many page views it told.
+  size_t SetPageMoving(bool moving);
   // Shows |tab|, if it's one of this window's, at the page frame, and its Space if the window shows
   // another. In a split view, it shows the split with |tab| focused.
   void Select(bc_id tab);
@@ -252,6 +256,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Puts the pages shown, and their docked DevTools if they have them, at the page frame, side by
   // side.
   void LayOutPage();
+  // Reports a change to the page frame, while it moves, gone to the screen.
+  void PageMoved(bool late);
   void ReportSelected();
 
   // Gives the page shown the keyboard if the window is key and its keyboard is the page's.
@@ -283,6 +289,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The focused page's part of it in a split view, else all of it: where the tab's dialogs go.
   gfx::Rect focused_frame_;
   double page_corner_radius_ = 0;
+  bool page_moving_ = false;
   double sidebar_width_;
   std::map<Profile*, Held> browsers_;
   // The tabs the last Clear closed, top to bottom.

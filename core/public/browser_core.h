@@ -300,6 +300,9 @@ typedef struct bc_host {
                                    bc_id window,
                                    const bc_extension_action* actions,
                                    size_t count);
+  // While bc_window_set_page_moving says the window's page frame moves, a change to it went to the
+  // screen: with its pages drawn at their new size, or |late|, with the frame they drew before.
+  void (*window_page_moved)(void* context, bc_id window, bool late);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -499,6 +502,16 @@ BC_EXPORT void bc_window_set_focus_color(bc_id window, uint32_t color);
 
 // What the window's pages show until they draw their first frame, in place of white, 0xRRGGBB.
 BC_EXPORT void bc_window_set_page_color(bc_id window, uint32_t color);
+
+// Whether the app is moving the window's page frame on its own, as the sidebar hides or shows.
+// Chrome shows a page that hasn't drawn at its new size yet at its old size in the top-left corner,
+// so the edge that doesn't move jumps with the one that does. While moving, each change to the
+// frame goes to the screen, with the rest of the window, once its pages have drawn at their new
+// size, for a frame or two at most, and window_page_moved reports it; a renderer still late shows
+// its last frame stretched to fill the page. Set it before the motion's first
+// bc_window_set_page_frame and clear it after its last. A page full screen keeps Chrome's way.
+// Returns how many page views it told, the pages shown and their docked DevTools.
+BC_EXPORT size_t bc_window_set_page_moving(bc_id window, bool moving);
 
 // Shows |tab|, a tab in the window, at its page frame, in place of the page shown before, and its
 // Space if the window shows another. It takes the keyboard if that page had it. A tab in a split

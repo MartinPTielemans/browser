@@ -1033,6 +1033,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_set_page_color(self.window, color) };
     }
 
+    fn set_page_moving(&self, moving: bool, _: &mut App) -> usize {
+        unsafe { bc::bc_window_set_page_moving(self.window, moving) }
+    }
+
     fn set_pane_corner(&self, right: f32, top: f32, _: &mut App) {
         unsafe { platform::host_set_pane_corner(self.ui_view, right as f64, top as f64) };
     }
@@ -1714,6 +1718,12 @@ unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc:
     });
 }
 
+// check.sh counts these: each step of the page's motion as it reached the screen, late if the
+// page hadn't drawn at its new size by then.
+unsafe extern "C" fn window_page_moved(_: *mut c_void, _: bc::bc_id, late: bool) {
+    log!("browser: page step{}", if late { " late" } else { "" });
+}
+
 // check.sh reads these lines. Test pages report what reached them through their title.
 unsafe extern "C" fn tab_loaded(_: *mut c_void, tab: bc::bc_id, url: *const c_char) {
     let url = unsafe { CStr::from_ptr(url) }.to_string_lossy();
@@ -2110,6 +2120,7 @@ fn main() {
         favorites_changed: Some(favorites_changed),
         window_space_shown: Some(window_space_shown),
         window_selected: Some(window_selected),
+        window_page_moved: Some(window_page_moved),
         tab_opened: Some(tab_opened),
         tab_closed: Some(tab_closed),
         tab_loaded: Some(tab_loaded),

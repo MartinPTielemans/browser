@@ -152,6 +152,9 @@ impl Browser for Host {
     fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {}
     fn set_focus_color(&self, _: u32, _: &mut App) {}
     fn set_page_color(&self, _: u32, _: &mut App) {}
+    fn set_page_moving(&self, _: bool, _: &mut App) -> usize {
+        0
+    }
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
     fn show_window_buttons(&self, _: bool, _: &mut App) {}
     fn press_window_button(&self, _: WindowButton, _: &mut App) {}

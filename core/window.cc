@@ -22,6 +22,7 @@
 #include "browser_core/extensions.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
+#include "browser_core/page_motion.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
@@ -812,6 +813,8 @@ void Window::LayOutPage() {
       tab->SetPageColor(SkColorSetRGB(*page_color_ >> 16, *page_color_ >> 8 & 0xff,
                                       *page_color_ & 0xff));
     }
+    // Again at each layout, for a page whose view changed or that comes back, before the resize.
+    ShowPageMoving(contents, page_moving_);
     const int from = edge(i);
     const int to = edge(i + 1) - kSplitGap;
     platform::Pane& pane = panes.emplace_back(
@@ -830,6 +833,9 @@ void Window::LayOutPage() {
     }
   }
   platform::ShowPages(widget_.get(), panes, page_corner_radius_, focused, focus_color_);
+  if (page_moving_) {
+    HoldUntilDrawn(id(), shown, base::BindOnce(&Window::PageMoved, weak_factory_.GetWeakPtr()));
+  }
   const gfx::Rect focused_frame = panes.empty() ? page_frame_ : panes[focused].frame;
   if (focused_frame != focused_frame_) {
     focused_frame_ = focused_frame;
@@ -927,6 +933,23 @@ void Window::SetPageColor(uint32_t color) {
   if (page_color_ != color) {
     page_color_ = color;
     LayOutPage();
+  }
+}
+
+size_t Window::SetPageMoving(bool moving) {
+  page_moving_ = moving;
+  size_t views = 0;
+  for (bc_id pane : panes_) {
+    if (content::WebContents* contents = Tab::FromId(pane)) {
+      views += ShowPageMoving(contents, moving);
+    }
+  }
+  return views;
+}
+
+void Window::PageMoved(bool late) {
+  if (Host().window_page_moved) {
+    Host().window_page_moved(Host().context, id(), late);
   }
 }
 

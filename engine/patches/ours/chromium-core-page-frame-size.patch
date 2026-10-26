@@ -1,0 +1,80 @@
+Lets the core ask whether a page view shows a frame its browser compositor drew at the view's
+size. While the app moves a page's left edge, as the sidebar hides or shows, the core holds each
+of the window's CATransaction commits until it does, as Chrome's own windows hold theirs in a live
+resize, so the page's right edge and scrollbar never show at the last frame's size (issue #166).
+A hook only: the core decides when, and how long to wait.
+
+--- a/content/public/browser/BUILD.gn
++++ b/content/public/browser/BUILD.gn
+@@ -713,6 +713,7 @@
+   if (is_mac) {
+     sources += [
+       "ax_inspect_factory_mac.mm",
++      "frame_at_view_size_mac.h",
+       "native_event_processor_mac.h",
+       "native_event_processor_observer_mac.h",
+       "native_event_processor_observer_mac.mm",
+--- a/content/browser/renderer_host/render_widget_host_view_mac.mm
++++ b/content/browser/renderer_host/render_widget_host_view_mac.mm
+@@ -55,6 +55,7 @@
+ #include "content/common/features.h"
+ #include "content/public/browser/browser_context.h"
+ #include "content/public/browser/browser_plugin_guest_manager.h"
++#include "content/public/browser/frame_at_view_size_mac.h"
+ #include "content/public/browser/render_widget_host.h"
+ #include "content/public/browser/stretch_content_on_resize_mac.h"
+ #include "content/public/browser/web_contents.h"
+@@ -91,6 +92,7 @@
+ #include "ui/events/keycodes/dom/dom_keyboard_layout_map.h"
+ #include "ui/gfx/geometry/dip_util.h"
+ #include "ui/gfx/geometry/rect.h"
++#include "ui/gfx/geometry/size_conversions.h"
+ #include "ui/gfx/mac/coordinate_conversion.h"
+ #include "ui/gfx/native_ui_types.h"
+ #include "ui/menus/cocoa/text_services_context_menu.h"
+@@ -2779,4 +2781,23 @@
+   }
+ }
+ 
++bool HasFrameAtViewSize(RenderWidgetHostView* view) {
++  // A frame's view in its page draws in the page's frame.
++  if (!view || static_cast<RenderWidgetHostViewBase*>(view)
++                   ->IsRenderWidgetHostViewChildFrame()) {
++    return true;
++  }
++  BrowserCompositorMac* compositor =
++      static_cast<RenderWidgetHostViewMac*>(view)->BrowserCompositor();
++  const gfx::CALayerParams* frame =
++      compositor ? compositor->GetLastCALayerParams() : nullptr;
++  if (!frame) {
++    return true;
++  }
++  // As ui::AcceleratedWidgetMac::HasFrameOfSize and Chrome's windows compare.
++  return gfx::ToFlooredSize(gfx::ConvertSizeToDips(
++             frame->pixel_size, frame->scale_factor)) ==
++         compositor->GetRendererSize();
++}
++
+ }  // namespace content
+--- /dev/null
++++ b/content/public/browser/frame_at_view_size_mac.h
+@@ -0,0 +1,19 @@
++// browser_core: lets the core hold the window's commit until a moving page has drawn at its size.
++
++#ifndef CONTENT_PUBLIC_BROWSER_FRAME_AT_VIEW_SIZE_MAC_H_
++#define CONTENT_PUBLIC_BROWSER_FRAME_AT_VIEW_SIZE_MAC_H_
++
++#include "content/common/content_export.h"
++
++namespace content {
++
++class RenderWidgetHostView;
++
++// Whether |view| shows a frame its browser compositor drew at the view's size, or has nothing to
++// wait for: a frame's view in its page, or a view that hasn't drawn. Until it has, AppKit shows
++// the last frame at its old size in the view's top-left corner.
++CONTENT_EXPORT bool HasFrameAtViewSize(RenderWidgetHostView* view);
++
++}  // namespace content
++
++#endif  // CONTENT_PUBLIC_BROWSER_FRAME_AT_VIEW_SIZE_MAC_H_

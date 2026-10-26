@@ -1,0 +1,110 @@
+Lets the core have a page view stretch its last frame to fill it while it resizes, until the
+renderer draws at the new size, rather than show it at its old size in the top-left corner. The
+core turns it on while the app moves a page's left edge, as the sidebar hides or shows, so the
+page's right edge and scrollbar stay still (issue #166). A hook only: the core decides when.
+
+--- a/content/public/browser/BUILD.gn
++++ b/content/public/browser/BUILD.gn
+@@ -717,6 +717,7 @@
+       "native_event_processor_observer_mac.h",
+       "native_event_processor_observer_mac.mm",
+       "remote_cocoa.h",
++      "stretch_content_on_resize_mac.h",
+     ]
+   }
+ 
+--- /dev/null
++++ b/content/public/browser/stretch_content_on_resize_mac.h
+@@ -0,0 +1,19 @@
++// browser_core: lets the core keep a page's still edge still while the app moves the other.
++
++#ifndef CONTENT_PUBLIC_BROWSER_STRETCH_CONTENT_ON_RESIZE_MAC_H_
++#define CONTENT_PUBLIC_BROWSER_STRETCH_CONTENT_ON_RESIZE_MAC_H_
++
++#include "content/common/content_export.h"
++
++namespace content {
++
++class RenderWidgetHostView;
++
++// Whether |view|'s resizes from now on stretch the frame it last drew to fill it until the
++// renderer draws at the new size, rather than show that frame at its old size in the top-left
++// corner, which moves the page's right edge and scrollbar with its left edge.
++CONTENT_EXPORT void SetStretchContentOnResize(RenderWidgetHostView* view, bool stretch);
++
++}  // namespace content
++
++#endif  // CONTENT_PUBLIC_BROWSER_STRETCH_CONTENT_ON_RESIZE_MAC_H_
+--- a/content/browser/renderer_host/delegated_frame_host.cc
++++ b/content/browser/renderer_host/delegated_frame_host.cc
+@@ -371,7 +371,7 @@
+         SkColor4f::FromColor(GetGutterColor()));
+     client_->GetDelegatedFrameHostLayer()->SetShowSurface(
+         new_primary_surface_id, current_frame_size_in_dip_, deadline_policy,
+-        false /* stretch_content_to_fill_bounds */);
++        stretch_content_on_resize_ /* stretch_content_to_fill_bounds */);
+     if (compositor_)
+       compositor_->OnChildResizing();
+   }
+@@ -380,6 +380,10 @@
+ void DelegatedFrameHost::SetForceSpecifiedDeadline(
+     std::optional<uint32_t> deadline_in_frames) {
+   force_specified_deadline_ = deadline_in_frames;
++}
++
++void DelegatedFrameHost::SetStretchContentOnResize(bool stretch) {
++  stretch_content_on_resize_ = stretch;
+ }
+ 
+ SkColor DelegatedFrameHost::GetGutterColor() const {
+--- a/content/browser/renderer_host/delegated_frame_host.h
++++ b/content/browser/renderer_host/delegated_frame_host.h
+@@ -137,6 +137,9 @@
+                     const gfx::Size& dip_size,
+                     cc::DeadlinePolicy deadline_policy);
+   void SetForceSpecifiedDeadline(std::optional<uint32_t> deadline_in_frames);
++  // browser_core: whether the surfaces EmbedSurface shows from now on stretch their fallback to
++  // fill the layer, as content::SetStretchContentOnResize says.
++  void SetStretchContentOnResize(bool stretch);
+   bool HasSavedFrame() const;
+   void AttachToCompositor(ui::Compositor* compositor);
+   void DetachFromCompositor();
+@@ -307,6 +310,8 @@
+   FrameEvictionState frame_eviction_state_ = FrameEvictionState::kNotStarted;
+ 
+   std::optional<uint32_t> force_specified_deadline_ = std::nullopt;
++
++  bool stretch_content_on_resize_ = false;
+ 
+   // Layer responsible for displaying the stale content for the DFHC when the
+   // actual web content frame has been evicted. This will be reset when a new
+--- a/content/browser/renderer_host/render_widget_host_view_mac.mm
++++ b/content/browser/renderer_host/render_widget_host_view_mac.mm
+@@ -56,6 +56,7 @@
+ #include "content/public/browser/browser_context.h"
+ #include "content/public/browser/browser_plugin_guest_manager.h"
+ #include "content/public/browser/render_widget_host.h"
++#include "content/public/browser/stretch_content_on_resize_mac.h"
+ #include "content/public/browser/web_contents.h"
+ #include "content/public/common/page_visibility_state.h"
+ #include "media/base/media_switches.h"
+@@ -2763,6 +2764,19 @@
+ 
+ Class GetRenderWidgetHostViewCocoaClassForTesting() {
+   return [RenderWidgetHostViewCocoa class];
++}
++
++void SetStretchContentOnResize(RenderWidgetHostView* view, bool stretch) {
++  // A frame's view in its page draws in the page's surface, which stretches with it.
++  if (!view || static_cast<RenderWidgetHostViewBase*>(view)
++                   ->IsRenderWidgetHostViewChildFrame()) {
++    return;
++  }
++  BrowserCompositorMac* compositor =
++      static_cast<RenderWidgetHostViewMac*>(view)->BrowserCompositor();
++  if (compositor && compositor->GetDelegatedFrameHost()) {
++    compositor->GetDelegatedFrameHost()->SetStretchContentOnResize(stretch);
++  }
+ }
+ 
+ }  // namespace content

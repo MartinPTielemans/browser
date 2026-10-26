@@ -3,8 +3,20 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <map>
+#include <optional>
+#include <utility>
+
 #include "base/apple/foundation_util.h"
+#include "base/functional/bind.h"
+#include "base/functional/callback.h"
+#include "base/no_destructor.h"
+#include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #import "components/remote_cocoa/app_shim/bridged_content_view.h"
+#include "content/public/browser/frame_at_view_size_mac.h"
+#include "content/public/browser/stretch_content_on_resize_mac.h"
+#include "ui/accelerated_widget_mac/ca_transaction_observer.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/widget/widget.h"
 
@@ -166,6 +178,83 @@ void UpdateOcclusion(NSWindow* window) {
 constexpr CACornerMask kAllCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner |
                                      kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
 
+// How long a hold waits: a page's frame comes a display refresh after its view resizes, so a
+// refresh at 60 Hz and the GPU's draw. A page slower than that costs the motion a frame, not a
+// stall.
+constexpr base::TimeDelta kHoldWait = base::Milliseconds(25);
+
+// Holds the window's Core Animation commit before it goes to the window server, as Chrome's
+// windows hold theirs in a live resize until their compositor draws at the new size. Chrome's
+// coordinator has the GPU process commit with it, so a frame and the resize it answers show
+// together.
+class CommitHold : public ui::CATransactionCoordinator::PreCommitObserver {
+ public:
+  static CommitHold& Get() {
+    static base::NoDestructor<CommitHold> hold;
+    return *hold;
+  }
+
+  void Add(uint64_t key,
+           base::RepeatingCallback<bool()> drawn,
+           base::OnceCallback<void(bool late)> shown) {
+    auto [it, added] = holds_.try_emplace(key);
+    // A hold already asked in a commit was in one that went without its frames.
+    if (!added && it->second.since) {
+      Shown(it->second, true);
+    }
+    it->second = {std::move(drawn), std::move(shown), std::nullopt};
+    // Has the coordinator ask its observers before this run loop's commit.
+    ui::CATransactionCoordinator::Get().Synchronize();
+  }
+
+  // ui::CATransactionCoordinator::PreCommitObserver:
+  bool ShouldWaitInPreCommit() override {
+    const base::TimeTicks now = base::TimeTicks::Now();
+    bool wait = false;
+    for (auto it = holds_.begin(); it != holds_.end();) {
+      Hold& hold = it->second;
+      hold.since = hold.since.value_or(now);
+      const bool late = now - *hold.since >= kHoldWait;
+      if (late || hold.drawn.Run()) {
+        Shown(hold, late);
+        it = holds_.erase(it);
+      } else {
+        wait = true;
+        ++it;
+      }
+    }
+    return wait;
+  }
+
+  // A little past the wait, so the coordinator asks once more after it, and a hold that timed out
+  // says so in the commit it held.
+  base::TimeDelta PreCommitTimeout() override { return kHoldWait + base::Milliseconds(2); }
+
+  // So the coordinator runs the compositor's tasks while it waits, which it may skip outside a
+  // live resize: the pages resize at every step, as a window's content does in one.
+  bool IsWindowInLiveResize() override { return true; }
+
+ private:
+  friend class base::NoDestructor<CommitHold>;
+
+  struct Hold {
+    base::RepeatingCallback<bool()> drawn;
+    base::OnceCallback<void(bool late)> shown;
+    // When a commit first asked about it.
+    std::optional<base::TimeTicks> since;
+  };
+
+  CommitHold() { ui::CATransactionCoordinator::Get().AddPreCommitObserver(this); }
+
+  // Posted: the commit is under way.
+  static void Shown(Hold& hold, bool late) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(std::move(hold.shown), late));
+  }
+
+  std::map<uint64_t, Hold> holds_;
+};
+
 }  // namespace
 
 void AddWindowViews(views::Widget* widget, void* ui_view) {
@@ -289,6 +378,20 @@ bool KeyboardForPage(views::Widget* widget) {
     }
   }
   return true;
+}
+
+void StretchOnResize(content::RenderWidgetHostView* view, bool stretch) {
+  content::SetStretchContentOnResize(view, stretch);
+}
+
+bool DrawnAtSize(content::RenderWidgetHostView* view) {
+  return content::HasFrameAtViewSize(view);
+}
+
+void HoldCommit(uint64_t key,
+                base::RepeatingCallback<bool()> drawn,
+                base::OnceCallback<void(bool late)> shown) {
+  CommitHold::Get().Add(key, std::move(drawn), std::move(shown));
 }
 
 }  // namespace browser_core::platform

@@ -34,6 +34,7 @@ mod library;
 mod menus;
 mod naming;
 mod new_space;
+mod page_motion;
 mod panes;
 mod permission;
 mod rows;
@@ -857,6 +858,8 @@ pub struct Shell {
     width_motion: Option<(f32, Instant)>,
     /// While the sidebar moves: where the card's left edge started from, and when.
     sidebar_motion: Option<(f32, Instant)>,
+    /// Whether the core knows the page's frame is moving.
+    page_motion: page_motion::PageMotion,
     /// Whether the hidden sidebar is out over the page, or on its way.
     revealed: bool,
     /// While the reveal panel moves: how far out it started (`reveal_out`), and when.
@@ -1002,6 +1005,7 @@ impl Shell {
             pane_resize: None,
             width_motion: None,
             sidebar_motion: None,
+            page_motion: Default::default(),
             revealed: false,
             reveal_motion: None,
             reveal_wait: None,
@@ -2026,7 +2030,7 @@ impl Render for Shell {
                 false => log!("browser: tiles stay put"),
             }
         }
-        self.lay_out_page(cx);
+        self.lay_out_moving_page(cx);
         let card_left = self.card_left();
         let focus_color = self.shown_space().and_then(|space| space.color);
         let focus_color = focus_color.unwrap_or(self.accent_color);

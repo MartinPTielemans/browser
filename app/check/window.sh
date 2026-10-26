@@ -247,10 +247,20 @@ expect '^browser: command bar hidden$' "escape didn't close the command bar"
 
 # ⌘S hides the sidebar, with the page focused or the UI, and the card takes its place, 10 in from
 # every side, as the window's buttons go. ⌘S and the sidebar button bring both back.
-# toggle <from> <hidden|shown> <what>: waits for the sidebar to finish moving after the command.
+# The page moves with the sidebar, and the core holds each step from the screen until the page has
+# drawn at its size, stretching its last frame meanwhile, so its right edge stays still, until it's
+# at rest (issue #166). Each step logs "page step", "page step late" if the page wasn't in time.
+# Docking the sidebar out puts the page in place at once.
+# toggle <from> <hidden|shown> <what> [docks]: waits for the sidebar to finish moving after the
+# command.
 toggle() {
   expect "^browser: command toggle-sidebar via $1\$" "$3 didn't reach the UI"
   expect "^browser: sidebar $2\$" "$3 didn't leave the sidebar $2"
+  if [ "${4:-}" != docks ]; then
+    expect '^browser: page moving [1-9]' "$3 didn't tell the core the page moves"
+    expect '^browser: page still [1-9]' "$3 left the core stretching the page"
+    expect '^browser: page step' "$3 didn't hold the page's steps for its frames"
+  fi
   if [ "$2" = hidden ]; then
     check_layout "after $3" inset
     check_buttons "after $3" hidden
@@ -282,6 +292,17 @@ send resize 1000 700
 check_layout "after a resize with the sidebar hidden" inset
 send key s cmd
 toggle ui shown "⌘S after a resize"
+# ⌘S again before the sidebar is at rest turns it around, and the core hears the page stop as often
+# as it heard it move.
+moved=$((step + 1))
+send key s cmd
+send key s cmd
+expect '^browser: sidebar shown$' "⌘S twice didn't leave the sidebar shown"
+expect '^browser: page still [1-9]' "⌘S twice left the core stretching the page"
+since=$(sed -n "/^browser: drive $moved: /,\$p" "$log")
+[ "$(echo "$since" | grep -c '^browser: page moving')" = \
+  "$(echo "$since" | grep -c '^browser: page still')" ] ||
+  fail "⌘S twice told the core of the page unevenly: $(echo "$since" | grep '^browser: page')"
 
 # With the sidebar hidden, the pointer at the window's left edge brings it out over the page in a
 # window of its own, which takes clicks and leaves the keyboard to the browser window, and the
@@ -323,14 +344,14 @@ check_reveal "after the sidebar went away"
 send move 3 300
 expect '^browser: reveal shown$' "the pointer at the edge didn't bring the sidebar back out"
 send click 93 24
-toggle sidebar shown "a click on the sidebar button of the sidebar out"
+toggle sidebar shown "a click on the sidebar button of the sidebar out" docks
 check_reveal "with the sidebar docked from its sidebar button"
 send key s cmd
 toggle ui hidden "⌘S after docking the sidebar out"
 send move 3 300
 expect '^browser: reveal shown$' "the pointer at the edge didn't bring the sidebar out again"
 send key s cmd
-toggle ui shown "⌘S with the sidebar out"
+toggle ui shown "⌘S with the sidebar out" docks
 check_reveal "with the sidebar docked by ⌘S"
 # The sidebar's edge, the 6 pt right of its rows, drags its width between 160 and 400. Past them it
 # rubber-bands, and let go it settles at the one it passed. A double-click on it puts back 228.
@@ -357,6 +378,7 @@ check_layout "with the sidebar at its narrowest" 160
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-narrow.png" || fail "no window to capture"
 send doubleclick 157 400
 expect '^browser: sidebar width 228$' "a double-click on the sidebar's edge didn't put its width back"
+expect '^browser: page still [1-9]' "the sidebar's width settling left the core stretching the page"
 none_since '^browser: command new-tab' || fail "a double-click on the sidebar's edge opened a tab"
 check_layout "after a double-click on the sidebar's edge"
 exec 3>&-

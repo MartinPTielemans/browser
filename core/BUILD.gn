@@ -34,6 +34,8 @@ source_set("browser_core") {
     "host.h",
     "main_delegate.cc",
     "main_delegate.h",
+    "page_motion.cc",
+    "page_motion.h",
     "permission_question.cc",
     "permission_question.h",
     "platform/window_views.h",
@@ -136,6 +138,7 @@ source_set("browser_core") {
     deps += [
       "//components/remote_cocoa/app_shim",
       "//components/remote_cocoa/common:mojo",
+      "//ui/accelerated_widget_mac",
     ]
     # Only where Chrome lists the framework's exports (chrome/BUILD.gn): on its own, this list
     # would be the only one, and hide ChromeMain. Elsewhere the API's visibility exports it.
