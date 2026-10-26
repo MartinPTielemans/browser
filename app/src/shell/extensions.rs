@@ -11,9 +11,9 @@ use gpui::{
 };
 
 use super::{
-    Command, MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
+    MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
     ShellHandle, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X,
-    URL_FIELD_TOP,
+    URL_FIELD_TOP, UserKeys, user_keys,
 };
 
 /// The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -183,6 +183,11 @@ impl Shell {
         self.menu_spaces = spaces;
     }
 
+    /// Gives the menu bar the keys the commands have now.
+    pub(super) fn refresh_menus(&mut self, cx: &mut Context<Self>) {
+        self.browser.set_menus(&self.menu_spaces, &self.menu_extensions, cx);
+    }
+
     /// The name of the extension whose page `url` is, in the shown Space's profile, which the URL
     /// field shows in place of its id, as Chrome's omnibox does.
     pub(super) fn extension_name(&self, url: &str) -> Option<SharedString> {
@@ -227,7 +232,8 @@ impl Shell {
     ) -> bool {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         let extensions = self.extensions.get(&profile).map_or(&[][..], Vec::as_slice);
-        let Some((id, name)) = (command_for(keystroke, extensions))
+        let keys = user_keys(cx);
+        let Some((id, name)) = (command_for(keystroke, extensions, keys))
             .map(|(extension, command)| (extension.id.clone(), command.name.clone()))
         else {
             return false;
@@ -453,11 +459,12 @@ impl Shell {
 fn command_for<'a>(
     keystroke: &str,
     extensions: &'a [Extension],
+    keys: &UserKeys,
 ) -> Option<(&'a Extension, &'a ExtensionCommand)> {
-    if Command::for_keystroke(keystroke, true).is_some() {
+    if keys.command_for(keystroke, true).is_some() {
         return None;
     }
-    let ours = Command::for_keystroke(keystroke, false).is_some();
+    let ours = keys.command_for(keystroke, false).is_some();
     extensions.iter().filter(|extension| extension.enabled).find_map(|extension| {
         (extension.commands.iter())
             .find(|command| command.keystroke == keystroke && !(ours && command.suggested))
@@ -493,7 +500,7 @@ fn fit_actions(places: usize, count: usize) -> (usize, bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Extension, ExtensionCommand, command_for, fit_actions};
+    use super::{Extension, ExtensionCommand, UserKeys, command_for, fit_actions};
 
     fn extension(id: &str, enabled: bool, commands: &[(&str, &str, bool)]) -> Extension {
         Extension {
@@ -523,7 +530,7 @@ mod tests {
             extension("b", true, &[("library", "shift-cmd-l", true), ("side", "cmd-s", false)]),
         ];
         let run = |keystroke| {
-            command_for(keystroke, &extensions)
+            command_for(keystroke, &extensions, &UserKeys::default())
                 .map(|(extension, command)| format!("{} {}", extension.id, command.name))
         };
         assert_eq!(run("shift-cmd-y").as_deref(), Some("a hello"));

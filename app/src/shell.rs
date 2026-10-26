@@ -28,6 +28,7 @@ mod extensions;
 mod favorites;
 mod fly_in;
 mod footer;
+mod keys;
 mod header;
 mod library;
 mod menus;
@@ -47,13 +48,14 @@ pub use assets::Assets;
 pub use browser::{Browser, Folders, Page, Split, WindowButton};
 pub use commands::{
     BarCommand, CancelName, Command, CreateSpace, KEY_CONTEXT, KeepName, bar_commands, bind_keys,
-    copy_from_bar, menu_item, pane_added, run_from_bar, shortcut_label, shown_tab,
+    copy_from_bar, keystroke_label, menu_item, pane_added, run_from_bar, shown_tab,
 };
 pub use drag::dropped_urls;
 pub use extensions::{
     Extension, ExtensionAction, ExtensionCommand, menu_item as extension_menu_item,
     pin_menu_item as extension_pin_menu_item,
 };
+pub use keys::{Holder, Refused, UserKeys, change_keys, rebindable, recorded, reserved, user_keys};
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menus::{MenuEntry, new_profile_name};
 pub use panes::page_frame;

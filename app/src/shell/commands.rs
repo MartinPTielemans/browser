@@ -3,7 +3,7 @@
 
 use gpui::{Action, App, Context, Global, KeyBinding, MenuItem, SharedString, WeakEntity, actions};
 
-use super::{COPIED_TIME, Section, Shell, Undo, clean_link, extensions};
+use super::{COPIED_TIME, Section, Shell, Undo, clean_link, extensions, keys, user_keys};
 
 /// A browser command, from a key or the sidebar.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -203,7 +203,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
 
 /// The commands the command bar finds by name: Arc's bar's names where they're known, else its
 /// menus' (docs/ux-spec.md › Command bar › Rows).
-const BAR_COMMANDS: &[(&str, Command)] = &[
+pub(super) const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Clear Today", Command::Clear),
     ("Clear Cache and Refresh", Command::ClearCacheAndRefresh),
     ("Clear Archive", Command::ClearArchive),
@@ -281,18 +281,18 @@ pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
         return Vec::new();
     };
     let shell = shell.read(cx);
+    let keys = user_keys(cx);
     let mut found: Vec<(u8, BarCommand)> = BAR_COMMANDS
         .iter()
         .filter(|&&(_, command)| shell.offers(command))
         .filter_map(|&(name, command)| {
             let score = match_score(name, &typed)?;
-            let shortcut = SHORTCUTS.iter().find(|&&(_, each, _)| each == command);
             Some((
                 score,
                 BarCommand {
                     name: name.into(),
                     command,
-                    shortcut: shortcut.map(|&(key, ..)| keystroke_label(key).into()),
+                    shortcut: keys.label(command).map(Into::into),
                     strong: score == 3 && typed.chars().count() >= 3,
                 },
             ))
@@ -325,14 +325,8 @@ fn match_score(name: &str, typed: &str) -> Option<u8> {
     }
 }
 
-/// How a menu shows the first shortcut that runs `command`, if one does.
-pub fn shortcut_label(command: Command) -> Option<String> {
-    let shortcut = SHORTCUTS.iter().find(|&&(_, each, _)| each == command);
-    shortcut.map(|&(key, ..)| keystroke_label(key))
-}
-
 /// How a menu shows `keystroke`, as SHORTCUTS writes it: ⇧⌘K for shift-cmd-k.
-fn keystroke_label(keystroke: &str) -> String {
+pub fn keystroke_label(keystroke: &str) -> String {
     let mut rest = keystroke;
     let mut label = String::new();
     for (modifier, glyph) in [("ctrl-", "⌃"), ("alt-", "⌥"), ("shift-", "⇧"), ("cmd-", "⌘")] {
@@ -349,6 +343,13 @@ fn keystroke_label(keystroke: &str) -> String {
         "left" => "←".to_string(),
         "right" => "→".to_string(),
         "tab" => "⇥".to_string(),
+        "backspace" => "⌫".to_string(),
+        "delete" => "⌦".to_string(),
+        "space" => "Space".to_string(),
+        "pageup" => "⇞".to_string(),
+        "pagedown" => "⇟".to_string(),
+        "home" => "↖".to_string(),
+        "end" => "↘".to_string(),
         key => key.to_uppercase(),
     };
     label + &key
@@ -380,15 +381,8 @@ pub fn run_from_bar(command: Command, cx: &mut App) {
 }
 
 impl Command {
-    /// The command `keystroke` runs, if it's a shortcut that is `reserved` or isn't.
-    pub fn for_keystroke(keystroke: &str, reserved: bool) -> Option<Command> {
-        SHORTCUTS
-            .iter()
-            .find(|(key, _, is_reserved)| *key == keystroke && *is_reserved == reserved)
-            .map(|&(_, command, _)| command)
-    }
-
-    pub(super) fn name(self) -> &'static str {
+    /// The command's name in the log and in the user's saved keys.
+    pub fn name(self) -> &'static str {
         match self {
             Command::NewTab => "new-tab",
             Command::EditUrl => "edit-url",
@@ -461,7 +455,7 @@ impl Command {
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = browser, no_json)]
-struct Run(pub(super) Command);
+pub(super) struct Run(pub(super) Command);
 
 actions!(space_form, [CreateSpace]);
 actions!(space_name, [KeepName, CancelName]);
@@ -478,11 +472,7 @@ pub const KEY_CONTEXT: &str = "Browser";
 /// Binds the shortcuts for while the UI has the keyboard. The browser hands them over itself while
 /// the page has it.
 pub fn bind_keys(cx: &mut App) {
-    cx.bind_keys(
-        SHORTCUTS
-            .iter()
-            .map(|&(key, command, _)| KeyBinding::new(key, Run(command), Some(KEY_CONTEXT))),
-    );
+    cx.bind_keys(keys::key_bindings(cx));
     cx.bind_keys([
         KeyBinding::new("enter", CreateSpace, Some("SpaceForm")),
         KeyBinding::new("enter", KeepName, Some("Naming")),
@@ -872,6 +862,7 @@ pub(super) fn markdown_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::UserKeys;
 
     /// A key that ran two commands would run the first of them, and the menu would show it for
     /// the other.
@@ -886,18 +877,21 @@ mod tests {
     /// no key.
     #[test]
     fn ctrl_and_a_digit_show_the_spaces_in_order() {
+        let keys = UserKeys::default();
         for number in 1..=9 {
             let key = format!("ctrl-{number}");
-            assert_eq!(Command::for_keystroke(&key, false), Some(Command::SelectSpace(number - 1)));
+            let command = keys.command_for(&key, false);
+            assert_eq!(command, Some(Command::SelectSpace(number - 1)));
         }
-        assert_eq!(shortcut_label(Command::SelectSpace(0)).as_deref(), Some("⌃1"));
-        assert_eq!(shortcut_label(Command::SelectSpace(9)), None);
+        assert_eq!(keys.label(Command::SelectSpace(0)).as_deref(), Some("⌃1"));
+        assert_eq!(keys.label(Command::SelectSpace(9)), None);
     }
 
     /// ⌘Y is a page's to keep, as Chrome's is, unlike the reserved keys.
     #[test]
     fn history_is_not_a_reserved_key() {
-        assert_eq!(Command::for_keystroke("cmd-y", false), Some(Command::ViewHistory));
-        assert_eq!(Command::for_keystroke("cmd-y", true), None);
+        let keys = UserKeys::default();
+        assert_eq!(keys.command_for("cmd-y", false), Some(Command::ViewHistory));
+        assert_eq!(keys.command_for("cmd-y", true), None);
     }
 }

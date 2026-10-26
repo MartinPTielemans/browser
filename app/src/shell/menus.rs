@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use gpui::{Context, Pixels, Point, SharedString};
 
-use super::{Command, Row, SPACE_COLORS, Shell, commands::SHORTCUTS};
+use super::{Command, Row, SPACE_COLORS, Shell, UserKeys, user_keys};
 
 /// What an item of a menu does once chosen.
 pub(super) type MenuAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
@@ -16,7 +16,7 @@ pub struct MenuEntry {
     pub title: SharedString,
     pub enabled: bool,
     /// The keystroke it shows, as SHORTCUTS writes it.
-    pub shortcut: Option<&'static str>,
+    pub shortcut: Option<String>,
     /// The item whose submenu it's in, by index.
     pub parent: Option<usize>,
     /// Whether it shows a check mark.
@@ -55,9 +55,8 @@ impl MenuEntry {
     }
 
     /// Shows the shortcut that runs `command`.
-    fn shortcut(self, command: Command) -> Self {
-        let shortcut =
-            SHORTCUTS.iter().find(|&&(_, each, _)| each == command).map(|&(key, ..)| key);
+    fn shortcut(self, command: Command, keys: &UserKeys) -> Self {
+        let shortcut = keys.keys(command).first().map(|&key| key.to_string());
         MenuEntry { shortcut, ..self }
     }
 }
@@ -252,12 +251,13 @@ impl Shell {
     pub(super) fn tab_menu(&mut self, tab: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
         self.browser.tooltip(None, cx);
         let row = Row::Tab(self.row_of(tab));
+        let keys = user_keys(cx);
         let items = if self.favorites.contains(&tab) {
-            self.favorite_menu(tab)
+            self.favorite_menu(keys, tab)
         } else if self.is_folder(tab) {
             self.folder_menu(tab)
         } else {
-            self.space_tab_menu(tab)
+            self.space_tab_menu(keys, tab)
         };
         let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
         let shell = cx.weak_entity();
@@ -290,12 +290,16 @@ impl Shell {
     }
 
     /// A favorite's menu.
-    fn favorite_menu(&self, tab: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+    fn favorite_menu(
+        &self,
+        keys: &UserKeys,
+        tab: u64,
+    ) -> Vec<(MenuEntry, &'static str, MenuAction)> {
         let page = self.page(tab);
         let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
             (
                 MenuEntry::new("Back to Favorite URL", page.away_from_pinned_url)
-                    .shortcut(Command::BackToPinnedUrl),
+                    .shortcut(Command::BackToPinnedUrl, keys),
                 "back-to-pinned-url",
                 Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ),
@@ -318,7 +322,7 @@ impl Shell {
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         // One closed already has nothing to close.
         items.push((
-            MenuEntry::new("Close Tab", !page.unloaded).shortcut(Command::CloseTab),
+            MenuEntry::new("Close Tab", !page.unloaded).shortcut(Command::CloseTab, keys),
             "close-tab",
             Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
         ));
@@ -343,7 +347,11 @@ impl Shell {
     }
 
     /// The menu of a tab in the Space.
-    fn space_tab_menu(&self, tab: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+    fn space_tab_menu(
+        &self,
+        keys: &UserKeys,
+        tab: u64,
+    ) -> Vec<(MenuEntry, &'static str, MenuAction)> {
         let pinned = self.pinned().contains(&tab);
         let page = self.page(tab);
         let panes = self.panes(tab);
@@ -358,7 +366,7 @@ impl Shell {
         let pin = MenuEntry::new(if pinned { "Unpin Tab" } else { "Pin Tab" }, true);
         let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
             (
-                pin.shortcut(Command::TogglePin),
+                pin.shortcut(Command::TogglePin, keys),
                 "toggle-pin",
                 Box::new(move |shell, cx| {
                     let pinned = shell.pinned().contains(&tab);
@@ -374,7 +382,7 @@ impl Shell {
         if pinned {
             items.push((
                 MenuEntry::new("Back to Pinned URL", page.away_from_pinned_url)
-                    .shortcut(Command::BackToPinnedUrl),
+                    .shortcut(Command::BackToPinnedUrl, keys),
                 "back-to-pinned-url",
                 Box::new(move |shell, cx| shell.browser.back_to_pinned_url(tab, cx)),
             ));
@@ -422,7 +430,7 @@ impl Shell {
         // A pinned tab closed already has nothing to close.
         let closable = !(page.unloaded && pinned);
         items.push((
-            MenuEntry::new("Close Tab", closable).shortcut(Command::CloseTab),
+            MenuEntry::new("Close Tab", closable).shortcut(Command::CloseTab, keys),
             "close-tab",
             Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
         ));

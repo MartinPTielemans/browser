@@ -7,7 +7,8 @@
 # is open, "New Tab" has the selected plate. Japanese input composes and commits in the page and in
 # the command bar, where return and escape go to the input method while it composes. The Edit menu's
 # Undo, Redo and Select All reach the focused page. ⌘Y opens the history page from the page and the
-# UI.
+# UI. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches the UI from both
+# sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -25,7 +26,8 @@ addEventListener("keydown", e => {
 </script>'
 log="$out/keys.log"
 step=0
-rm -f "$saved"
+# The user's keys, which a failed run may have left changed.
+rm -f "$saved" "$(dirname "$saved")/Shortcuts"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -134,6 +136,60 @@ expect "^browser: today $before\$" "⌘W didn't close the history tab"
 send click $page_point
 in_browser RenderWidgetHostViewCocoa "after the history tab closed"
 
+# Settings › Shortcuts lists New Tab first, its keys in a chip at the row's right, 56 wide and 10
+# in from the box, and ↺, once it has other keys, 6 before the chip. A click on the chip records
+# the next keys pressed.
+send menu Settings…
+expect '^browser: settings shown ' "Settings… didn't show Settings"
+send clickkey 365 60
+expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
+send clickkey 581 159
+expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't record them"
+send key t cmd ctrl
+expect '^browser: shortcut new-tab ctrl-cmd-t$' "⌃⌘T didn't become New Tab's key"
+../tools/window-screenshot.sh "$pid" "$out/shortcuts.png" || fail "no window to capture"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+# New Tab's new key is reserved, as ⌘T was: the page never sees it.
+send click $page_point
+send key t cmd ctrl
+expect '^browser: command new-tab via page$' "⌃⌘T with the page focused didn't reach the UI"
+expect '^browser: command bar shown$' "⌃⌘T with the page focused didn't open the command bar"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+in_browser RenderWidgetHostViewCocoa "after the command bar closed"
+send type z
+expect '^browser: title [0-9]* value yz$' "typing didn't reach the page after ⌃⌘T"
+grep -q '^browser: title [0-9]* page saw cmd-t$' "$log" &&
+  fail "the page saw ⌃⌘T, New Tab's reserved key"
+# ⌘T is the page's now, and runs nothing from either side.
+send key t cmd
+expect '^browser: title [0-9]* page saw cmd-t$' "⌘T with the page focused didn't reach the page"
+none_since '^browser: command new-tab' || fail "⌘T with the page focused still ran New Tab"
+send click $sidebar_point
+in_browser AccessKitSubclassOfGPUIView "after a click on the sidebar"
+send key t cmd
+none_since '^browser: command new-tab' || fail "⌘T with the UI focused still ran New Tab"
+send key t cmd ctrl
+expect '^browser: command new-tab via ui$' "⌃⌘T with the UI focused didn't reach the UI"
+expect '^browser: command bar shown$' "⌃⌘T with the UI focused didn't open the command bar"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+# ↺ gives New Tab ⌘T back, so later runs have the defaults.
+send menu Settings…
+expect '^browser: settings shown Shortcuts$' \
+  "Settings… didn't show the Shortcuts tab it showed last"
+send clickkey 537 159
+expect '^browser: shortcut new-tab cmd-t$' "↺ didn't give New Tab ⌘T back"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+send click $page_point
+page_shortcut t new-tab
+expect '^browser: command bar shown$' "⌘T didn't open the command bar once it was New Tab's again"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
+in_browser RenderWidgetHostViewCocoa "after the command bar closed"
+
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send ime on
@@ -193,4 +249,4 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first, and Cancel keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first, and Cancel keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back. Windows: $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
