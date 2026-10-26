@@ -10,10 +10,10 @@ use gpui::{
 };
 
 use super::{
-    CARD_INSET, GRADIENT_ALPHA, MATERIAL_STAND_IN, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, REVEAL_HOLD,
-    REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING, REVEAL_OUT_RESPONSE,
-    REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX, SIDEBAR_MIN,
-    SIDEBAR_SHOW, SIDEBAR_WIDTH, Shell, rubber_band, settle_progress, spring,
+    CARD_INSET, GRADIENT_ALPHA, MATERIAL_STAND_IN, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, PRIVATE_SHADE,
+    REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
+    REVEAL_OUT_RESPONSE, REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX,
+    SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Shell, rubber_band, settle_progress, spring,
 };
 
 impl Shell {
@@ -235,6 +235,9 @@ impl Shell {
     /// `space`'s colour `y` of the way down the window, as the gradient has it.
     fn space_color_at(&self, space: u64, y: f32) -> Rgba {
         // A Space without a colour has the system's accent colour, as in Dia.
+        if self.private {
+            return Rgba { r: 0., g: 0., b: 0., a: PRIVATE_SHADE };
+        }
         let space = self.spaces.iter().find(|each| each.id == space);
         let color = space.and_then(|space| space.color).unwrap_or(self.accent_color);
         let color = Hsla::from(rgb(color));

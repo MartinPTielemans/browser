@@ -73,10 +73,10 @@ impl Shell {
     }
 
     /// Whether fingers going right from `space` bring out the Library: from the first Space, in the
-    /// docked sidebar.
+    /// docked sidebar, of a regular window.
     fn library_beside(&self, space: u64) -> bool {
         let first = self.spaces.first().is_some_and(|first| first.id == space);
-        first && !self.sidebar_hidden && !self.page_fullscreen
+        first && !self.sidebar_hidden && !self.page_fullscreen && !self.private
     }
 
     /// How far out a swipe has taken the Library (`library_out`), while it moves the Library.

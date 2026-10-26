@@ -24,6 +24,10 @@ const PICKER_WAIT: Duration = Duration::from_secs(2);
 impl Shell {
     /// Shows the Space with its name in a field, all selected, to type a new one over.
     pub(super) fn rename_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        // A private window's Space is named for what it is.
+        if self.private {
+            return;
+        }
         let Some(name) = self.spaces.iter().find(|each| each.id == space).map(|each| &each.name)
         else {
             return;

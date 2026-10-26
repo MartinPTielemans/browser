@@ -396,6 +396,10 @@ void BrowserWindowStandIn::ShowInactive() {
 }
 
 void BrowserWindowStandIn::Close() {
+  // Chrome closes a Browser once its last tab has, but a private window's holds its session.
+  if (window_ && window_->KeepsBrowsers()) {
+    return;
+  }
   // As BrowserView does when its widget is asked to close: the unload controller runs the pages'
   // beforeunload handlers, closes the tabs, and comes back here once they're gone to finish.
   if (browser_) {

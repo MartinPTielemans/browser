@@ -301,6 +301,10 @@ typedef struct bc_host {
                                    bc_id window,
                                    const bc_extension_action* actions,
                                    size_t count);
+  // The private session of |profile| ended: its last private window closed, and Chrome destroyed
+  // the off-the-record profile they shared, with its cookies, cache and the rest. Not at quit. The
+  // user's alone: agents hear none of it.
+  void (*private_session_ended)(void* context, bc_id profile);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -850,7 +854,7 @@ BC_EXPORT void bc_tab_close(bc_id tab, bool split);
 // the one that showed it last. The reads are for the UI and agents alike.
 
 // Copies up to |capacity| of the open windows into |windows|, the most recently active first, and
-// returns how many there are.
+// returns how many there are. Private windows aren't among them.
 BC_EXPORT size_t bc_windows(bc_id* windows, size_t capacity);
 // The Space the window shows, and the tab it shows there, as window_space_shown and
 // window_selected last said. 0 for none.
@@ -861,6 +865,20 @@ BC_EXPORT bc_id bc_window_selected(bc_id window);
 BC_EXPORT bc_id bc_tab_window(bc_id tab);
 // Shows |space| with no page, as a window ⌘N opens does. The user's: agents get none.
 BC_EXPORT void bc_window_show_space_empty(bc_id window, bc_id space);
+
+// Private windows are the user's alone: agents get no path into them or their tabs, not even reads.
+// bc_windows leaves them out, and the agent server is to refuse a private window's id, its Space's
+// and its tabs'. The UI uses the rest of the API on them, as on any window, but they never show
+// another window's Spaces, and closing one closes its tabs.
+
+// Opens a private window at |bounds|, as bc_window_open does, for |profile|'s off-the-record
+// profile: Chrome's incognito. Its private windows share one session, cookies and cache, that the
+// last one's closing ends (private_session_ended), and nothing of it is written: no history, and
+// its Space, which holds its tabs as Today tabs, is never saved, archived or listed by bc_spaces.
+// It shows that Space alone, reported by window_space_shown, and no page until one opens. Its
+// tabs never move to a regular window, nor regular tabs to it. Closing it closes its tabs. Returns
+// 0 if |profile| isn't loaded or Chromium is quitting. The user's alone: agents get none.
+BC_EXPORT bc_id bc_window_open_private(bc_rect bounds, void* ui_view, bc_id profile);
 
 #ifdef __cplusplus
 }

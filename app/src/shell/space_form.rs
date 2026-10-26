@@ -21,6 +21,9 @@ use crate::text_input::TextInput;
 impl Shell {
     /// Makes a Space and shows it with the form for naming it, or shows the form already open.
     pub(super) fn new_space(&mut self, cx: &mut Context<Self>) {
+        if self.private {
+            return;
+        }
         let space = match &self.form {
             Some(form) => form.space,
             None => {

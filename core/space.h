@@ -43,10 +43,14 @@ class Space {
   static Space* Create(std::string name,
                        bc_id id = 0,
                        std::optional<Agent> agent = std::nullopt);
+  // A private window's Space, its tabs in the off-the-record profile of the profile in the
+  // directory |profile|. It holds Today tabs alone, and isn't among All(), so it's never saved,
+  // archived or listed with the Spaces. It goes with its window.
+  static Space* CreateOffTheRecord(std::string profile);
   // Deletes the Space, which windows no longer show.
   static void Delete(bc_id id);
   static Space* FromId(bc_id id);
-  // Every Space, in the order they were made.
+  // Every Space but the private windows', in the order they were made.
   static std::vector<Space*> All();
   // The Space holding |tab|, pinned or in Today, if any.
   static Space* Holding(bc_id tab);
@@ -69,6 +73,9 @@ class Space {
   const std::string& profile() const { return profile_; }
   // The agent it belongs to, or none for the user's own.
   const std::optional<Agent>& agent() const { return agent_; }
+  // Whether it's a private window's (CreateOffTheRecord), whose tabs open in that profile's
+  // off-the-record profile instead.
+  bool off_the_record() const { return off_the_record_; }
   // The pinned tabs and folders, top to bottom, each folder followed by what's in it.
   const std::vector<bc_id>& pinned_rows() const { return pinned_; }
   // The pinned tabs alone.
@@ -198,6 +205,7 @@ class Space {
   std::optional<uint32_t> color_;
   std::string icon_;
   std::string profile_;
+  bool off_the_record_ = false;
   // Pinned tabs and folders.
   std::vector<bc_id> pinned_;
   std::map<bc_id, GURL> pinned_urls_;

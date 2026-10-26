@@ -255,6 +255,9 @@ pub trait Browser {
     fn quit(&self, cx: &mut App);
     /// Opens another window on the same Spaces, after this one's draw.
     fn new_window(&self, cx: &mut App);
+    /// Opens a private window in the shown Space's profile's off-the-record session, after this
+    /// one's draw.
+    fn new_private_window(&self, cx: &mut App);
     /// Closes this window. Its tabs go to the window that was in front before it, live.
     fn close_window(&self, cx: &mut App);
 }

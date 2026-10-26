@@ -79,10 +79,13 @@ void SplitMoved(browser_core::Space& space, bc_id id) {
   }
 }
 
-// The profile of the Space the window shows, which what it opens and suggests comes from.
+// The profile of the Space the window shows, which what it opens and suggests comes from: for a
+// private window's, the off-the-record one.
 Profile* ProfileOf(const browser_core::Window& window) {
   const browser_core::Space* space = browser_core::Space::FromId(window.space());
-  return browser_core::ProfileFor(space ? space->profile() : std::string());
+  Profile* profile = browser_core::ProfileFor(space ? space->profile() : std::string());
+  return space && space->off_the_record() && profile ? browser_core::PrivateProfileOf(profile)
+                                                     : profile;
 }
 
 // Loads |url| in the tab, as Chrome loads what's typed in its location bar or a bookmark.
@@ -171,7 +174,8 @@ bc_id bc_space_profile(bc_id id) {
 bool bc_space_set_profile(bc_id id, bc_id profile) {
   browser_core::Space* space = browser_core::Space::FromId(id);
   const std::string dir = browser_core::ProfileDir(profile);
-  if (!space || dir.empty() || !space->pinned_rows().empty() || !space->today().empty()) {
+  if (!space || space->off_the_record() || dir.empty() || !space->pinned_rows().empty() ||
+      !space->today().empty()) {
     return false;
   }
   // At once for a profile that's loaded, as a Space's is.
@@ -858,7 +862,9 @@ void bc_tab_close(bc_id id, bool split) {
 }
 
 size_t bc_windows(bc_id* windows, size_t capacity) {
-  const std::vector<browser_core::Window*> all = browser_core::Window::All();
+  // Private windows are the user's alone.
+  std::vector<browser_core::Window*> all = browser_core::Window::All();
+  std::erase_if(all, [](const browser_core::Window* each) { return each->off_the_record(); });
   for (size_t i = 0; i < all.size() && i < capacity && windows; ++i) {
     windows[i] = all[i]->id();
   }
@@ -877,5 +883,12 @@ bc_id bc_window_selected(bc_id window_id) {
 
 bc_id bc_tab_window(bc_id tab) {
   browser_core::Window* window = browser_core::Window::Showing(tab);
+  return window ? window->id() : 0;
+}
+
+bc_id bc_window_open_private(bc_rect bounds, void* ui_view, bc_id profile_id) {
+  Profile* profile = LoadedProfile(profile_id);
+  browser_core::Window* window =
+      profile ? browser_core::Window::OpenPrivate(ToRect(bounds), ui_view, profile) : nullptr;
   return window ? window->id() : 0;
 }

@@ -151,6 +151,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         &[
             ("New Tab", Keys::Of(Command::NewTab)),
             ("New Window", Keys::Of(Command::NewWindow)),
+            ("New Incognito Window", Keys::Of(Command::NewPrivateWindow)),
             ("Open Command Bar", Keys::Of(Command::EditUrl)),
             ("Archive Tab", Keys::Of(Command::CloseTab)),
             ("Close Window", Keys::Of(Command::CloseWindow)),

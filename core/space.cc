@@ -52,8 +52,25 @@ Space* Space::Create(std::string name, bc_id id, std::optional<Agent> agent) {
 }
 
 // static
+Space* Space::CreateOffTheRecord(std::string profile) {
+  const bc_id id = NewId();
+  Space* space = new Space(id, std::string(), std::nullopt);
+  space->profile_ = std::move(profile);
+  space->off_the_record_ = true;
+  Spaces()[id] = base::WrapUnique(space);
+  return space;
+}
+
+// static
 void Space::Delete(bc_id id) {
-  if (Spaces().erase(id)) {
+  auto it = Spaces().find(id);
+  if (it == Spaces().end()) {
+    return;
+  }
+  // The Spaces listed don't change with a private window's.
+  const bool listed = !it->second->off_the_record_;
+  Spaces().erase(it);
+  if (listed) {
     ReportSpacesChanged();
   }
 }
@@ -68,7 +85,9 @@ Space* Space::FromId(bc_id id) {
 std::vector<Space*> Space::All() {
   std::vector<Space*> all;
   for (auto& [id, space] : Spaces()) {
-    all.push_back(space.get());
+    if (!space->off_the_record_) {
+      all.push_back(space.get());
+    }
   }
   return all;
 }
@@ -206,7 +225,7 @@ void Space::AddPinned(bc_id tab, bc_id folder, size_t index, GURL url) {
 }
 
 void Space::Pin(bc_id tab, base::FunctionRef<GURL(bc_id)> url_of) {
-  if (!std::ranges::contains(today_, tab)) {
+  if (!std::ranges::contains(today_, tab) || off_the_record_) {
     return;
   }
   for (bc_id pane : Panes(tab)) {
@@ -239,7 +258,7 @@ void Space::Move(bc_id tab,
                  base::FunctionRef<GURL(bc_id)> url_of) {
   const bool is_folder = IsFolder(tab);
   if ((!Has(tab) && !is_folder) || (is_folder && !pinned) || (folder && !IsFolder(folder)) ||
-      (is_folder && Within(folder, tab))) {
+      (pinned && off_the_record_) || (is_folder && Within(folder, tab))) {
     return;
   }
   const bool was_pinned = IsPinned(tab) || is_folder;
@@ -290,6 +309,9 @@ void Space::Remove(bc_id tab) {
 }
 
 bc_id Space::AddFolder(std::string name, bc_id folder, size_t index) {
+  if (off_the_record_) {
+    return 0;
+  }
   if (!IsFolder(folder)) {
     folder = 0;
   }

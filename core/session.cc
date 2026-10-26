@@ -168,7 +168,9 @@ namespace {
 
 Saved Collect() {
   Saved saved;
-  const std::vector<Window*> windows = Window::All();
+  // The regular windows, as nothing of a private one is saved.
+  std::vector<Window*> windows = Window::All();
+  std::erase_if(windows, [](const Window* each) { return each->off_the_record(); });
   const Window* window = windows.empty() ? nullptr : windows.front();
   saved.sidebar_width = window ? window->sidebar_width() : 0;
   saved.settings = UserSettings();
