@@ -97,6 +97,14 @@ void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
   Navigate(&params);
 }
 
+// The loaded profile |profile_id| names, or null.
+Profile* LoadedProfile(bc_id profile_id) {
+  const std::string dir = browser_core::ProfileDir(profile_id);
+  // ProfileFor gives the first profile for one that isn't loaded.
+  Profile* profile = dir.empty() ? nullptr : browser_core::ProfileFor(dir);
+  return profile && browser_core::DirOf(profile) == dir ? profile : nullptr;
+}
+
 }  // namespace
 
 int bc_main(int argc, const char** argv, const bc_host* host) {
@@ -435,12 +443,14 @@ void bc_extensions_report() {
 }
 
 void bc_extension_set_pinned(bc_id profile_id, const char* id, bool pinned) {
-  const std::string dir = browser_core::ProfileDir(profile_id);
-  // ProfileFor gives the first profile for one that isn't loaded.
-  Profile* profile = dir.empty() ? nullptr : browser_core::ProfileFor(dir);
-  if (profile && browser_core::DirOf(profile) == dir && id) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && id) {
     browser_core::SetExtensionPinned(profile, id, pinned);
   }
+}
+
+bool bc_extension_remove(bc_id profile_id, const char* id) {
+  Profile* profile = LoadedProfile(profile_id);
+  return profile && id && browser_core::RemoveExtension(profile, id);
 }
 
 bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {

@@ -4,16 +4,17 @@
 # with a popup opens it with the keyboard, which escape closes, giving the browser window the
 # keyboard back. Pin to URL Field's items pin an extension's action at the URL field's end, in the
 # order pinned, showing its badge for the tab shown as it changes. A click on a pinned action runs
-# it, its popup hanging from it, and its right-click menu unpins it or opens its details on
-# Chrome's extensions page. The actions that don't fit are behind an overflow button in the last
-# place, whose menu runs them. Manage Extensions… opens Chrome's extensions page. An extension's
-# keyboard commands run with the page focused and with the UI, but a key it suggests doesn't take
-# one of the browser's.
+# it, its popup hanging from it, and its right-click menu unpins it, opens its options or its
+# details on Chrome's extensions page, or removes it once the user confirms. The actions that don't
+# fit are behind an overflow button in the last place, whose menu runs them. Manage Extensions…
+# opens Chrome's extensions page. An extension's keyboard commands run with the page focused and
+# with the UI, but a key it suggests doesn't take one of the browser's.
 
 # Three unpacked extensions of the check's own, loaded as a developer loads one. A click on the
 # first gives the tab it's on a badge, then opens its page, and its command ⇧⌘Y opens another. The
-# second's popup gives it a badge on every tab, and ⌥⇧P opens it. The third has a popup, and
-# suggests ⌘J, Jump to Selection's key, which Chrome gives away, for a command.
+# second's popup gives it a badge on every tab, and ⌥⇧P opens it. The third has a popup and
+# options, and suggests ⌘J, Jump to Selection's key, which Chrome gives away, for a command. The
+# check removes it, and the next loads it again, as Chrome leaves an unpacked extension's folder.
 extensions="$PWD/$out/extensions"
 script='chrome.action.onClicked.addListener(async tab => {
   await chrome.action.setBadgeText({tabId: tab.id, text: "7"});
@@ -42,11 +43,12 @@ the popup<script src="popup.js"></script></body>' > "$extensions/popup/popup.htm
 echo 'chrome.action.setBadgeText({text: "1"});' > "$extensions/popup/popup.js"
 cat > "$extensions/third/manifest.json" << 'EOF'
 {"manifest_version": 3, "name": "Check Third", "version": "1",
- "action": {"default_popup": "popup.html"},
+ "action": {"default_popup": "popup.html"}, "options_ui": {"page": "options.html"},
  "commands": {"jump": {"suggested_key": {"default": "Ctrl+J"}, "description": "Jump"}}}
 EOF
 echo '<body style="width:240px;height:120px;display:grid;place-items:center;font:16px system-ui">
 the third popup</body>' > "$extensions/third/popup.html"
+echo '<body style="font:16px system-ui">the third options</body>' > "$extensions/third/options.html"
 page='data:text/html,<title>loading</title>
 <script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
 log="$out/extensions.log"
@@ -119,9 +121,9 @@ expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show fro
 send key escape
 expect '^browser: extension popup none$' "escape didn't close the extension's popup"
 # A right-click on an action shows its menu: Manage Extension opens its details, and Unpin
-# unpins it.
+# unpins it. Check Clicked has no options.
 post rightclick $second_place
-expect '^browser: menu shown Unpin, Manage Extension$' \
+expect '^browser: menu shown Unpin, Remove, Manage Extension$' \
   "a right-click on Check Clicked's action didn't show its menu"
 send choose Manage Extension
 expect "^browser: loaded [0-9]* chrome://extensions/?id=$clicked\$" \
@@ -148,8 +150,15 @@ expect "^browser: unpin extension $clicked\$" "Pin to URL Field › Check Clicke
 expect "^browser: extension actions $popup:1 $third\$" \
   "unpinning Check Clicked didn't give Check Third its place"
 post rightclick $second_place
-expect '^browser: menu shown Unpin, Manage Extension$' \
+expect '^browser: menu shown Unpin, Options, Remove, Manage Extension$' \
   "a right-click on Check Third's action didn't show its menu"
+# Chrome shows options that don't ask for a tab in a dialog on its extensions page.
+send choose Options
+expect "^browser: loaded [0-9]* chrome://extensions/?options=$third\$" \
+  "Options didn't open Check Third's options"
+post rightclick $second_place
+expect '^browser: menu shown Unpin, Options, Remove, Manage Extension$' \
+  "a right-click on Check Third's action didn't show its menu again"
 send choose Unpin
 expect "^browser: unpin extension $third\$" "Unpin didn't reach the UI"
 expect "^browser: extension actions $popup:1\$" "Unpin didn't take Check Third's action away"
@@ -214,7 +223,22 @@ expect '^browser: command jump-to-selection via page$' \
   "⌘J with the page focused didn't reach the UI"
 none_since "^browser: extension command $third " ||
   fail "⌘J with the page focused ran Check Third's command, which suggested it"
+# Remove asks first, then takes the extension from the menus and the URL field. Alone, its action
+# is at the field's end.
+send menu "Pin to URL Field › Check Third"
+expect "^browser: extension actions $third\$" "the pinned Check Third didn't show again"
+post rightclick $second_place
+expect '^browser: menu shown Unpin, Options, Remove, Manage Extension$' \
+  "a right-click on Check Third's action didn't show its menu to remove it"
+send choose Remove
+expect '^browser: dialog shown Remove “Check Third”?$' "Remove didn't ask first"
+../tools/window-screenshot.sh "$pid" "$out/extension-remove.png" || fail "no window to capture"
+send key return
+expect "^browser: remove extension $third removed\$" "Remove didn't remove Check Third"
+expect "^browser: extensions menu $clicked $popup\$" \
+  "the removed Check Third stayed in the Extensions menu"
+expect '^browser: extension actions $' "the removed Check Third's action stayed"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it and opens its details. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png"
+echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png"

@@ -35,6 +35,8 @@ pub struct Extension {
     pub enabled: bool,
     /// Its action shows at the URL field's end.
     pub pinned: bool,
+    /// The page its options are on, or "" for none.
+    pub options: SharedString,
     pub commands: Vec<ExtensionCommand>,
 }
 
@@ -374,21 +376,68 @@ impl Shell {
         self.show_menu(items, button.bottom_left(), None, cx);
     }
 
-    /// A pinned action's menu: Unpin, and Manage Extension, which opens its details on Chrome's
-    /// extensions page.
+    /// A pinned action's menu, as Chrome's toolbar gives one: Unpin, Options if it has them,
+    /// Remove, and Manage Extension, which opens its details on Chrome's extensions page.
     fn action_menu(&mut self, id: SharedString, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let manage = id.clone();
-        let items: Vec<(MenuEntry, MenuAction)> = vec![
+        let profile = self.shown_space().map_or(0, |space| space.profile);
+        let Some(extension) = (self.extensions.get(&profile).into_iter().flatten())
+            .find(|extension| extension.id == id)
+            .cloned()
+        else {
+            return;
+        };
+        let (unpin, remove, manage) = (id.clone(), id.clone(), id);
+        let mut items: Vec<(MenuEntry, MenuAction)> = vec![(
+            MenuEntry::new("Unpin", true),
+            Box::new(move |shell, cx| shell.toggle_pinned(&unpin, cx)),
+        )];
+        if !extension.options.is_empty() {
+            let options = extension.options.clone();
+            items.push((
+                MenuEntry::new("Options", true),
+                Box::new(move |shell, cx| shell.browser.open_extension_options(&options, cx)),
+            ));
+        }
+        items.extend([
             (
-                MenuEntry::new("Unpin", true),
-                Box::new(move |shell, cx| shell.toggle_pinned(&id, cx)),
+                MenuEntry::new("Remove", true),
+                Box::new(move |shell: &mut Shell, cx: &mut Context<Shell>| {
+                    shell.remove_extension(profile, remove, extension.name, cx)
+                }) as MenuAction,
             ),
             (
                 MenuEntry::new("Manage Extension", true),
                 Box::new(move |shell, cx| shell.browser.manage_extensions(Some(&manage), cx)),
             ),
-        ];
+        ]);
         self.show_menu(items, position, None, cx);
+    }
+
+    /// Removes the extension from the profile once the user confirms, as Chrome asks first.
+    fn remove_extension(
+        &mut self,
+        profile: u64,
+        id: SharedString,
+        name: SharedString,
+        cx: &mut Context<Self>,
+    ) {
+        let shell = cx.weak_entity();
+        self.browser.confirm(
+            format!("Remove “{name}”?"),
+            "Its settings and the data it keeps go with it.".into(),
+            "Remove",
+            Box::new(move |cx| {
+                shell
+                    .update(cx, |shell, cx| {
+                        let removed = shell.browser.remove_extension(profile, &id, cx);
+                        // check.sh waits for this line.
+                        let result = if removed { "removed" } else { "refused" };
+                        log!("browser: remove extension {id} {result}");
+                    })
+                    .ok();
+            }),
+            cx,
+        );
     }
 }
 
@@ -446,6 +495,7 @@ mod tests {
             name: id.to_string().into(),
             enabled,
             pinned: false,
+            options: Default::default(),
             commands: (commands.iter())
                 .map(|&(name, keystroke, suggested)| ExtensionCommand {
                     name: name.to_string().into(),

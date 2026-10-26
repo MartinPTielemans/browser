@@ -480,6 +480,12 @@ impl Browser for Fake {
 
     fn set_extension_pinned(&self, _: u64, _: &str, _: bool, _: &mut App) {}
 
+    fn remove_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
+        false
+    }
+
+    fn open_extension_options(&self, _: &str, _: &mut App) {}
+
     fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {

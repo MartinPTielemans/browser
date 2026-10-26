@@ -655,6 +655,17 @@ impl Browser for Engine {
         }
     }
 
+    fn remove_extension(&self, profile: u64, id: &str, _: &mut App) -> bool {
+        let Ok(id) = CString::new(id) else {
+            return false;
+        };
+        unsafe { bc::bc_extension_remove(profile, id.as_ptr()) }
+    }
+
+    fn open_extension_options(&self, url: &str, _: &mut App) {
+        open_tab(url);
+    }
+
     fn manage_extensions(&self, id: Option<&str>, _: &mut App) {
         match id {
             Some(id) => open_tab(&format!("chrome://extensions/?id={id}")),
@@ -1502,6 +1513,7 @@ unsafe extern "C" fn extensions_changed(
             name: text(extension.name),
             enabled: extension.enabled,
             pinned: extension.pinned,
+            options: text(extension.options),
             commands: match extension.commands.is_null() {
                 true => &[][..],
                 false => unsafe {
