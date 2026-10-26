@@ -7,11 +7,12 @@ use std::sync::Arc;
 use gpui::{
     Action, AnyElement, App, Bounds, Context, FontWeight, Image, MenuItem, MouseButton,
     MouseDownEvent, Pixels, Point, SharedString, div, img, point, prelude::*, px, rgb, rgba, size,
+    svg,
 };
 
 use super::{
-    MenuAction, MenuEntry, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell, ShellHandle,
-    URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X, URL_FIELD_TOP,
+    MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell, ShellHandle,
+    URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X, URL_FIELD_TOP,
 };
 
 /// The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -147,16 +148,19 @@ impl Shell {
     }
 
     /// Runs the extension's action on the tab shown, as a click on its toolbar button does in
-    /// Chrome. Its popup hangs from the action's button if it's shown, else under the URL field,
-    /// or from the page's top left corner while the sidebar is hidden.
+    /// Chrome. Its popup hangs from the action's button if it's shown, or the overflow button it's
+    /// behind, else under the URL field, or from the page's top left corner while the sidebar is
+    /// hidden.
     pub fn run_extension(&mut self, id: &str, cx: &mut Context<Self>) {
         if self.selected == 0 {
             return;
         }
-        let button = (self.extension_actions.iter().take(self.shown_actions()))
-            .position(|action| action.id == id)
+        let (shown, overflow) = self.shown_actions();
+        let button = (self.extension_actions.iter().position(|action| action.id == id))
+            .map(|index| index.min(shown))
+            .filter(|&place| place < shown || overflow)
             .filter(|_| self.url_field_bounds().is_some())
-            .map(|index| self.action_bounds(index));
+            .map(|place| self.action_bounds(place));
         let anchor = button.or(self.url_field_bounds()).unwrap_or_else(|| {
             let corner = point(px(self.card_left() + PLATE_INSET), px(PLATE_INSET));
             Bounds::new(corner, Default::default())
@@ -178,20 +182,21 @@ impl Shell {
         self.browser.set_extension_pinned(profile, id, !pinned, cx);
     }
 
-    /// How many of the actions show, as many as leave the host its room with the field's button
-    /// shown, so they keep their places as it comes and goes. The others are in the Extensions
-    /// menu.
-    pub(super) fn shown_actions(&self) -> usize {
+    /// How many of the actions show, and whether the overflow button follows them, in the places
+    /// that leave the host its room with the field's button shown, so they keep their places as
+    /// it comes and goes.
+    pub(super) fn shown_actions(&self) -> (usize, bool) {
         let field = self.width() - 2. * PLATE_INSET;
         let room = field - (URL_FIELD_TEXT_X - PLATE_INSET) - HOST_ROOM - URL_BUTTON_INSET;
-        let fit = ((room - URL_BUTTON_SIZE) / URL_BUTTON_SIZE).floor().max(0.) as usize;
-        fit.min(self.extension_actions.len())
+        let places = ((room - URL_BUTTON_SIZE) / URL_BUTTON_SIZE).floor().max(0.) as usize;
+        fit_actions(places, self.extension_actions.len())
     }
 
-    /// Action `index`'s button in the window, the shown ones in a row at the URL field's end.
+    /// Place `index`'s button in the window, the places in a row at the URL field's end.
     fn action_bounds(&self, index: usize) -> Bounds<Pixels> {
+        let (shown, overflow) = self.shown_actions();
         let end = self.width() - PLATE_INSET - URL_BUTTON_INSET;
-        let left = end - (self.shown_actions() - index) as f32 * URL_BUTTON_SIZE;
+        let left = end - (shown + overflow as usize - index) as f32 * URL_BUTTON_SIZE;
         Bounds::new(
             point(px(left), px(URL_FIELD_TOP + URL_BUTTON_INSET)),
             size(px(URL_BUTTON_SIZE), px(URL_BUTTON_SIZE)),
@@ -199,11 +204,12 @@ impl Shell {
     }
 
     /// The shown actions' buttons, for the URL field's end: a click runs one, and a right-click
-    /// shows its menu.
+    /// shows its menu. Then the overflow button, whose menu runs the others.
     pub(super) fn action_buttons(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let shown = self.shown_actions();
+        let (shown, overflow) = self.shown_actions();
+        let places = shown + overflow as usize;
         let actions = self.extension_actions.iter().take(shown).enumerate();
-        actions
+        let mut buttons: Vec<AnyElement> = actions
             .map(|(index, action)| {
                 let id = action.id.clone();
                 let menu_id = action.id.clone();
@@ -234,7 +240,7 @@ impl Shell {
                     .id(SharedString::from(format!("action-{}", action.id)))
                     .absolute()
                     .top(px(URL_BUTTON_INSET))
-                    .right(px(URL_BUTTON_INSET + (shown - 1 - index) as f32 * URL_BUTTON_SIZE))
+                    .right(px(URL_BUTTON_INSET + (places - 1 - index) as f32 * URL_BUTTON_SIZE))
                     .size(px(URL_BUTTON_SIZE))
                     .flex()
                     .items_center()
@@ -257,7 +263,48 @@ impl Shell {
                     .children(badge)
                     .into_any_element()
             })
-            .collect()
+            .collect();
+        if overflow {
+            buttons.push(
+                div()
+                    .id("actions-overflow")
+                    .absolute()
+                    .top(px(URL_BUTTON_INSET))
+                    .right(px(URL_BUTTON_INSET))
+                    .size(px(URL_BUTTON_SIZE))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(NAV_RADIUS))
+                    .block_mouse_except_scroll()
+                    .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                    .active(|style| style.bg(rgba(PRESSED)))
+                    .on_click(cx.listener(|shell, _, _, cx| shell.overflow_menu(cx)))
+                    .child(
+                        svg()
+                            .path("icons/ellipsis.svg")
+                            .size(px(URL_BUTTON_GLYPH))
+                            .text_color(rgba(NAV)),
+                    )
+                    .into_any_element(),
+            );
+        }
+        buttons
+    }
+
+    /// The overflow button's menu, under it: the actions that don't fit, by title, each of which
+    /// runs its action, its popup hanging from the button.
+    fn overflow_menu(&mut self, cx: &mut Context<Self>) {
+        let (shown, _) = self.shown_actions();
+        let items: Vec<(MenuEntry, MenuAction)> = (self.extension_actions.iter().skip(shown))
+            .map(|action| {
+                let id = action.id.clone();
+                let run: MenuAction = Box::new(move |shell, cx| shell.run_extension(&id, cx));
+                (MenuEntry::new(action.title.clone(), true), run)
+            })
+            .collect();
+        let button = self.action_bounds(shown);
+        self.show_menu(items, button.bottom_left(), None, cx);
     }
 
     /// A pinned action's menu: Unpin, and Manage Extension, which opens its details on Chrome's
@@ -275,5 +322,30 @@ impl Shell {
             ),
         ];
         self.show_menu(items, position, None, cx);
+    }
+}
+
+/// How many of `count` actions show in `places`, and whether the overflow button takes the last
+/// place, for the rest.
+fn fit_actions(places: usize, count: usize) -> (usize, bool) {
+    match count <= places {
+        true => (count, false),
+        false => (places.saturating_sub(1), places > 0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit_actions;
+
+    /// Every pinned action has a place to be run from: its own, or the overflow button's.
+    #[test]
+    fn actions_that_dont_fit_are_behind_the_overflow_button() {
+        assert_eq!(fit_actions(2, 0), (0, false));
+        assert_eq!(fit_actions(2, 2), (2, false));
+        assert_eq!(fit_actions(2, 3), (1, true));
+        assert_eq!(fit_actions(1, 5), (0, true));
+        // With no place at all, the Extensions menu runs them.
+        assert_eq!(fit_actions(0, 1), (0, false));
     }
 }
