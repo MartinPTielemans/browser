@@ -4522,7 +4522,8 @@ impl Shell {
         self.slides
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
         if sliding && self.slides.is_empty() {
-            // check.sh waits for this line before it presses a row that moved.
+            // check.sh waits for this line before it presses a row that moved, or scrolls the
+            // list: a row sliding in from above leaves the list short until it settles.
             log!("browser: rows settled");
         }
         let tiling = !self.tile_slides.is_empty();
