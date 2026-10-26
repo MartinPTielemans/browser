@@ -541,6 +541,8 @@ impl Browser for Fake {
 
     fn separate(&self, _: u64, _: &mut App) {}
 
+    fn move_in_split(&self, _: u64, _: usize, _: &mut App) {}
+
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
 
     // The targets' window is the app's, over the page, which the preview has neither of.

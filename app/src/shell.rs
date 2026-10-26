@@ -389,6 +389,13 @@ pub enum Command {
     CloseSplitPane,
     /// Takes the split view's focused page out of it, to show alone.
     SeparatePane,
+    /// Takes every page of the split view out of it, and shows the focused one alone.
+    SeparateSplit,
+    /// Puts the split view's pages in the opposite order.
+    FlipSplit,
+    /// Swaps the split view's focused page with the one on its left, or on its right.
+    MovePaneLeft,
+    MovePaneRight,
     /// Focuses the split view's page right of the focused one, or left of it.
     NextPane,
     PreviousPane,
@@ -503,6 +510,11 @@ const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Zoom to Actual Size", Command::ActualSize),
     ("Close this Split Pane", Command::CloseSplitPane),
     ("Separate Page from Split View", Command::SeparatePane),
+    // Dia's (docs/ux-spec.md › Split view).
+    ("Flip Split View", Command::FlipSplit),
+    ("Move Pane Left", Command::MovePaneLeft),
+    ("Move Pane Right", Command::MovePaneRight),
+    ("Separate All Pages", Command::SeparateSplit),
     ("Show/Hide Sidebar", Command::ToggleSidebar),
     ("Save Page As", Command::SavePage),
     ("Print", Command::Print),
@@ -755,6 +767,10 @@ impl Command {
             Command::AddSplit => "add-split",
             Command::CloseSplitPane => "close-split-pane",
             Command::SeparatePane => "separate-pane",
+            Command::SeparateSplit => "separate-split",
+            Command::FlipSplit => "flip-split",
+            Command::MovePaneLeft => "move-pane-left",
+            Command::MovePaneRight => "move-pane-right",
             Command::NextPane => "next-pane",
             Command::PreviousPane => "previous-pane",
             Command::Settings => "settings",
@@ -925,6 +941,8 @@ pub trait Browser {
     fn delete_folder(&self, folder: u64, cx: &mut App);
     /// Takes `tab` out of its split view.
     fn separate(&self, tab: u64, cx: &mut App);
+    /// Moves `tab` to `index` in its split view, counted from the left.
+    fn move_in_split(&self, tab: u64, index: usize, cx: &mut App);
     /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
     /// shows it there.
     fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
@@ -2418,6 +2436,31 @@ impl Shell {
                 }
                 return;
             }
+            Command::SeparateSplit => {
+                // From the right, so the pages keep their order in the list.
+                for &tab in self.panes(self.selected)[1..].iter().rev() {
+                    self.browser.separate(tab, cx);
+                }
+                return;
+            }
+            Command::FlipSplit => {
+                for (index, &tab) in self.panes(self.selected).iter().rev().enumerate() {
+                    self.browser.move_in_split(tab, index, cx);
+                }
+                return;
+            }
+            Command::MovePaneLeft | Command::MovePaneRight => {
+                let panes = self.panes(self.selected);
+                let at = panes.iter().position(|&tab| tab == self.selected).unwrap_or_default();
+                let to = match command {
+                    Command::MovePaneLeft => at.checked_sub(1),
+                    _ => Some(at + 1).filter(|&to| to < panes.len()),
+                };
+                if let Some(to) = to {
+                    self.browser.move_in_split(self.selected, to, cx);
+                }
+                return;
+            }
             Command::NextPane => return self.focus_pane(true, cx),
             Command::PreviousPane => return self.focus_pane(false, cx),
             Command::ToggleSidebar => return self.toggle_sidebar(cx),
@@ -2978,7 +3021,12 @@ impl Shell {
                 page.url.starts_with("http://") || page.url.starts_with("https://")
             }
             Command::BackToPinnedUrl => page.away_from_pinned_url,
-            Command::CloseSplitPane | Command::SeparatePane => self.panes(self.selected).len() > 1,
+            Command::CloseSplitPane
+            | Command::SeparatePane
+            | Command::SeparateSplit
+            | Command::FlipSplit => self.panes(self.selected).len() > 1,
+            Command::MovePaneLeft => self.panes(self.selected).first() != Some(&self.selected),
+            Command::MovePaneRight => self.panes(self.selected).last() != Some(&self.selected),
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),

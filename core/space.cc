@@ -354,6 +354,21 @@ bool Space::Split(bc_id tab, bc_id with, GURL url, bool left) {
   return true;
 }
 
+bool Space::MoveInSplit(bc_id tab, size_t index) {
+  auto split = SplitOf(tab);
+  if (split == splits_.end() || index >= split->size()) {
+    return false;
+  }
+  // A split's tabs sit together in their list, in its order.
+  std::vector<bc_id>& list = IsPinned(tab) ? pinned_ : today_;
+  const auto first = std::ranges::find(list, split->front());
+  std::erase(*split, tab);
+  split->insert(split->begin() + index, tab);
+  std::ranges::copy(*split, first);
+  ReportChanged();
+  return true;
+}
+
 void Space::Separate(bc_id tab) {
   auto split = SplitOf(tab);
   if (split == splits_.end()) {
