@@ -261,7 +261,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Pinned actions | MVP | at the URL field's end, 16 pt on a 30 pitch, badges, click and right-click done; overflow button when full *interim*; Arc placement: measure | Dia 1.52 cap |
+| [ ] | Pinned actions | MVP | at the URL field's end, 16 pt on a 30 pitch, badges, click, right-click and overflow menu done; Arc placement: measure | Dia 1.52 cap |
 | [ ] | Extensions menu in the menu bar | MVP | per extension, Pin to URL Field and Manage done; Add with install | Dia |
 | [ ] | Popups | MVP | Chrome's, from the action or under the URL field *interim*; 25 × 25 to 800 × 600, shrink and grow; openPopup works; Arc's opening and closing: measure | Chrome |
 | [x] | Action state without polling | MVP | from change notifications and tab switches only | principle 1 |
