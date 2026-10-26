@@ -36,6 +36,8 @@ const ARROW_FOOT_RADIUS: f32 = 3.5;
 const TIP_SHORT: f32 = ARROW_TIP_RADIUS * (std::f32::consts::SQRT_2 - 1.);
 pub const WIDTH: f32 = ARROW + CARD_WIDTH;
 const RADIUS: f32 = 20.;
+/// The arrow's tip is this far right of the row it points at.
+const GAP: f32 = 2.5;
 /// Kept off the browser window's top and bottom, when the card can't centre on its arrow (ours).
 const MARGIN: f32 = 8.;
 /// The square field, 8.5 inside the card's top and sides.
@@ -238,19 +240,20 @@ pub fn corners(arrow_y: f32) -> [(f32, f32, f32); 7] {
     ]
 }
 
-/// Where the window goes for its arrow to point at `anchor` in a browser window `height` tall: its
-/// top left, and the arrow's tip down it. The card centres on the arrow, as Arc's does, unless
-/// that takes it past the browser window's top or bottom.
+/// Where the window goes for its arrow to point at `anchor`, the middle of a row's right end, in a
+/// browser window `height` tall: its top left, and the arrow's tip down it. The card centres on
+/// the arrow, as Arc's does, unless that takes it past the browser window's top or bottom.
 pub fn placed(anchor: Point<f32>, height: f32) -> (f32, f32, f32) {
     let top = (anchor.y - HEIGHT / 2.).min(height - MARGIN - HEIGHT).max(MARGIN);
     // The tip keeps clear of the card's rounded corners.
     let reach = RADIUS + ARROW + ARROW_FOOT_RADIUS;
     let arrow_y = (anchor.y - top).clamp(reach, HEIGHT - reach);
-    (anchor.x - TIP_SHORT, top, arrow_y)
+    (anchor.x + GAP - TIP_SHORT, top, arrow_y)
 }
 
-/// Shows the picker for `space`, which has `theme` or none yet, its arrow at `anchor` in a browser
-/// window `height` tall. `changed` gets the theme as the user makes it.
+/// Shows the picker for `space`, which has `theme` or none yet, pointing at `anchor`, the middle
+/// of a row's right end, in a browser window `height` tall. `changed` gets the theme as the user
+/// makes it.
 pub fn show(
     space: u64,
     theme: Option<Theme>,
