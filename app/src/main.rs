@@ -1863,9 +1863,12 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
 fn main() {
     let home = std::env::var("HOME").unwrap_or_default();
     let mut args: Vec<String> = std::env::args().take(1).collect();
+    // A profile of the dev build's own, never the owner's. A copy the owner uses is given its own
+    // in BROWSER_PROFILE_DIR, so the checks, which delete what the last run saved, never reach it.
+    let profile = std::env::var("BROWSER_PROFILE_DIR")
+        .unwrap_or_else(|_| format!("{home}/Library/Caches/browser-app"));
     args.extend([
-        // A profile of the dev build's own, never the owner's.
-        format!("--user-data-dir={home}/Library/Caches/browser-app"),
+        format!("--user-data-dir={profile}"),
         // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed build
         // asking for it gets a password prompt, and every request that uses cookies waits.
         "--use-mock-keychain".into(),
