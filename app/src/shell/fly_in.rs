@@ -22,7 +22,7 @@ const FLIGHT_TO: f32 = 16.;
 /// A download's icon on its way to the Library button: which download, and when its first frame
 /// was drawn.
 pub(super) struct Flight {
-    id: u64,
+    pub(super) id: u64,
     start: Option<Instant>,
 }
 
