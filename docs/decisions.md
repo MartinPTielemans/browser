@@ -17,6 +17,7 @@ Not raw Chromium and not all of Helium.
 - De-Googling Chromium is continuous work across hundreds of call sites and every release. ungoogled-chromium has done it for a decade.
 - Helium is a product on top of ungoogled-chromium. Ardia built on Helium and needs about 15 skipped patches, about 10 patches that undo Helium, and a guard stage to keep that working (`docs/engine-build.md` in mantrakp04/ardia). We cherry-pick from Helium instead.
 - One fewer upstream means Chromium security fixes reach us sooner.
+- We take back one thing ungoogled-chromium removes: the updates that keep the browser from trusting what is known to be bad. These are certificate revocations, the root store, and Google's malware verdicts on extensions. Without them, a revoked certificate or a malicious extension stays trusted until the next release. Ardia's patches fetch them from Google with the identifying fields stripped. `engine/README.md` lists what is fetched and what is sent.
 
 Revisit if cherry-picking from Helium costs more per release than taking its whole series would.
 

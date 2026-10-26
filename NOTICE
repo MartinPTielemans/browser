@@ -2,8 +2,8 @@ This repository adapts material from other projects. Their attribution notices f
 
 Ardia (https://github.com/mantrakp04/ardia), Apache License 2.0
 Used in docs/ux-spec.md, docs/ux-parity.md, core/browser_window_stand_in.{h,cc},
-engine/patches/ours/chromium-core-browser-window.patch and
-engine/patches/ours/chromium-core-embedded-view.patch.
+engine/patches/ours/chromium-core-browser-window.patch,
+engine/patches/ours/chromium-core-embedded-view.patch and the patches in engine/patches/ardia/.
 
   Ardia
   Copyright 2026 Mantra Patel
