@@ -4,6 +4,8 @@
 # and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore find pinned clear split
 #   favorites extensions windows private capture
+# The store run installs from Google's Web Store, so it needs the network and runs only when named:
+# ./check.sh store.
 # Every run but load needs Browser to be the active app, and window and find take it full screen
 # for a moment.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
@@ -14,10 +16,11 @@ export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces agents profiles restore find pinned clear split"
 runs="$runs favorites extensions windows private capture"
+named="store"
 for run in "$@"; do
-  case " $runs " in
+  case " $runs $named " in
     *" $run "*) ;;
-    *) echo "FAIL: there's no run $run. The runs: $runs" >&2; exit 1 ;;
+    *) echo "FAIL: there's no run $run. The runs: $runs $named" >&2; exit 1 ;;
   esac
 done
 app="$PWD/build/Browser.app"
