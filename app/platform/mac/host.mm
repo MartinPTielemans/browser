@@ -805,6 +805,8 @@ void host_show_window(void* ui_view) {
   NSView* view = browser->ui_view;
   NSWindow* window = view.window;
   browser->window = window;
+  // Never drawn, but Mission Control and the Window menu name the window by it.
+  window.title = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
   // Dia's window material (docs/ux-spec.md › Window material): what's behind the window, blurred,
   // under the UI, which tints it. AppKit swaps it for an opaque fill while the window is inactive,
   // and with Reduce Transparency or Increase Contrast.

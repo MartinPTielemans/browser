@@ -1467,7 +1467,7 @@ impl Browser for Engine {
             return;
         }
         let question = dialog::Question {
-            message: "Quit Browser?".into(),
+            message: concat!("Quit ", env!("APP_NAME"), "?").into(),
             detail: String::new(),
             action: "Quit",
             destructive: false,
@@ -1908,17 +1908,17 @@ fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
     let item = shell::menu_item;
     vec![
         menu(
-            "Browser",
+            env!("APP_NAME"),
             vec![
                 item("Settings…", Command::Settings),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action("Hide Browser", Hide),
+                MenuItem::action(concat!("Hide ", env!("APP_NAME")), Hide),
                 MenuItem::action("Hide Others", HideOthers),
                 MenuItem::action("Show All", ShowAll),
                 MenuItem::separator(),
-                item("Quit Browser", Command::Quit),
+                item(concat!("Quit ", env!("APP_NAME")), Command::Quit),
             ],
         ),
         menu(

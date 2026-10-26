@@ -40,6 +40,12 @@ fn main() {
     }
     println!("cargo:rustc-link-lib=framework=Cocoa");
     println!("cargo:rustc-link-lib=framework=ImageIO");
+
+    // The name the user reads, from branding/, which build.sh also reads for the app's bundle.
+    let name = root.join("branding/name");
+    let name_text = std::fs::read_to_string(&name).expect("no branding/name");
+    println!("cargo:rustc-env=APP_NAME={}", name_text.trim());
+    println!("cargo:rerun-if-changed={}", name.display());
     println!("cargo:rerun-if-changed=platform");
     println!("cargo:rerun-if-changed={}", header.display());
 }

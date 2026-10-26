@@ -144,11 +144,11 @@ expect '^browser: character palette shown$' "Change Icon… didn't show the char
 send insert 🦊
 expect "^browser: page $c icon 🦊\$" "an emoji from the palette didn't become the tab's icon"
 ../tools/window-screenshot.sh "$pid" "$out/tab-icon.png" || fail "no window to capture"
-# With a download running, Quit in the dialog ⌘Q shows asks again, in Chrome's. Continue Downloading
+# With a download running, Quit in the alert ⌘Q shows asks again, in Chrome's. Continue Downloading
 # keeps the browser running and shows the Library's Downloads, and Quit quits, cancelling it.
 post key q cmd
 expect '^browser: command quit via ' "⌘Q didn't reach the UI"
-expect '^browser: dialog shown Quit Browser?$' "⌘Q didn't ask before quitting"
+expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitting"
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
 post key return
 expect '^browser: modal shown Download is in progress, .*, Continue Downloading, Quit$' \
@@ -160,7 +160,7 @@ expect '^browser: library section downloads$' \
   "Continue Downloading didn't show the Library's Downloads"
 ../tools/window-screenshot.sh "$pid" "$out/quit-downloads.png" || fail "no window to capture"
 post key q cmd
-expect '^browser: dialog shown Quit Browser?$' "⌘Q didn't ask before quitting"
+expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitting"
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
 post key return
 expect '^browser: modal shown Download is in progress, ' "⌘Q didn't ask again"

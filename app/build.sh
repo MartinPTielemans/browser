@@ -24,8 +24,20 @@ fi
 plist=$app/Contents/Info.plist
 plutil -replace CFBundleExecutable -string Browser "$plist"
 plutil -replace CFBundleIdentifier -string dev.browser.app "$plist"
-plutil -replace CFBundleName -string Browser "$plist"
-plutil -replace CFBundleDisplayName -string Browser "$plist"
+# The name and icon the user sees, from branding/ (icon.sh compiles the icon). Finder, the Dock
+# and ⌘-Tab name the app by its file, though, so this one shows as Browser there.
+name=$(cat branding/name)
+plutil -replace CFBundleName -string "$name" "$plist"
+plutil -replace CFBundleDisplayName -string "$name" "$plist"
+rm "$app/Contents/Resources/app.icns"
+cp branding/Assets.car "branding/$name.icns" "$app/Contents/Resources/"
+plutil -replace CFBundleIconFile -string "$name" "$plist"
+plutil -replace CFBundleIconName -string "$name" "$plist"
+# Chromium's translations of the strings below name Chromium, and macOS shows a translation over
+# Info.plist's string. Emptied, they leave the English ones below in every language.
+for strings in "$app"/Contents/Resources/*.lproj/InfoPlist.strings; do
+  plutil -create binary1 "$strings"
+done
 # A dev build doesn't offer to open the owner's links and files.
 plutil -remove CFBundleURLTypes "$plist"
 plutil -remove CFBundleDocumentTypes "$plist"

@@ -357,14 +357,14 @@ width=${content%x*}
 height=${content#*x}
 post key q cmd
 expect '^browser: command quit via page$' "⌘Q with the page focused didn't reach the UI"
-expect '^browser: dialog shown Quit Browser?$' "⌘Q didn't ask before quitting"
+expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitting"
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/quit.png" || fail "no window to capture"
 send key escape
 expect '^browser: dialog cancelled$' "escape didn't cancel quitting"
 expect '^browser: dialog hidden$' "the dialog asking to quit didn't go"
 post key q cmd
-expect '^browser: dialog shown Quit Browser?$' "⌘Q didn't ask again after Cancel"
+expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask again after Cancel"
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle again"
 # It's the driver's last command: the app doesn't report it done.
 post click $((width / 2 - 225 + 29 + 40)) $((height / 2 - 86 + 1 + 38 + 22 + 46 + 18))

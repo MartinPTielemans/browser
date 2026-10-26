@@ -235,15 +235,15 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
         ],
     ),
     (
-        "Browser",
+        env!("APP_NAME"),
         &[
             ("Settings", Keys::Of(Command::Settings)),
             ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
             // main.rs binds these.
-            ("Hide Browser", Keys::Text("⌘H")),
+            (concat!("Hide ", env!("APP_NAME")), Keys::Text("⌘H")),
             ("Hide Others", Keys::Text("⌥⌘H")),
             ("Minimize", Keys::Text("⌘M")),
-            ("Quit Browser", Keys::Of(Command::Quit)),
+            (concat!("Quit ", env!("APP_NAME")), Keys::Of(Command::Quit)),
         ],
     ),
 ];
