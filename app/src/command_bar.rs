@@ -171,6 +171,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::ReopenClosedTab => "icons/undo-2.svg",
         Command::CopyUrl | Command::CopyMarkdownLink => "icons/link.svg",
         Command::Find => "icons/text-search.svg",
+        Command::SiteControls => "icons/sliders-horizontal.svg",
         Command::Back => "icons/arrow-left.svg",
         Command::Forward => "icons/arrow-right.svg",
         Command::Reload | Command::ForceReload => "icons/rotate-cw.svg",

@@ -331,6 +331,17 @@ NSWindow* g_dialog;
 NSView* g_dialog_view;
 bool g_dialog_shown = false;
 
+// The Site Controls' window and view, the browser they show over, and where their top left goes
+// there. Released, they're on screen only for the motion of their leaving, and take no clicks.
+Browser* g_site_controls_over;
+NSWindow* g_site_controls;
+NSView* g_site_controls_view;
+bool g_site_controls_shown = false;
+bool g_site_controls_released = false;
+double g_site_controls_left;
+double g_site_controls_top;
+void (*g_site_controls_dismissed)(void);
+
 // The toast's window and view, and the browser it shows over.
 Browser* g_toast_over;
 NSWindow* g_toast;
@@ -427,6 +438,29 @@ void PlaceFindBar(Browser* browser) {
                                      browser->find_bar_right - size.width,
                                  NSMaxY(content) - browser->page_top - browser->find_bar_top -
                                      size.height)];
+}
+
+// Where the UI asked, from the top left of the browser window's content, which a window resized
+// from its top moves.
+void PlaceSiteControls() {
+  NSWindow* window = g_site_controls_over->window;
+  NSRect content = [window contentRectForFrameRect:window.frame];
+  NSSize size = g_site_controls.frame.size;
+  [g_site_controls setFrameOrigin:NSMakePoint(NSMinX(content) + g_site_controls_left,
+                                              NSMaxY(content) - g_site_controls_top - size.height)];
+}
+
+// The user left the Site Controls. Posted: the UI may be handling the event that left them.
+void DismissSiteControls() {
+  if (!g_site_controls_shown || g_site_controls_released) {
+    return;
+  }
+  host_release_site_controls();
+  if (g_site_controls_dismissed) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      g_site_controls_dismissed();
+    });
+  }
 }
 
 // At the browser window's top right corner, where the toast draws itself.
@@ -638,6 +672,9 @@ void host_show_window(void* ui_view) {
                                                 host_dismiss_overlay(index);
                                               }
                                             }
+                                            if (event.window != g_site_controls) {
+                                              DismissSiteControls();
+                                            }
                                             return event;
                                           }];
   }
@@ -658,6 +695,10 @@ void host_show_window(void* ui_view) {
                                                 }
                                                 if (g_toast_shown && g_toast_over == browser) {
                                                   PlaceToast();
+                                                }
+                                                if (g_site_controls_shown &&
+                                                    g_site_controls_over == browser) {
+                                                  PlaceSiteControls();
                                                 }
                                               }];
 }
@@ -1209,6 +1250,130 @@ void host_hide_dialog(void) {
   [g_dialog orderOut:nil];
   [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
       makeKeyWindow];
+}
+
+void host_add_site_controls(void* view, void (*dismissed)(void)) {
+  g_site_controls_view = (__bridge NSView*)view;
+  g_site_controls = g_site_controls_view.window;
+  g_site_controls_dismissed = dismissed;
+  MakeOverlay(g_site_controls);
+  // The UI draws the panel's rounded shape, which a borderless window's shadow takes, as the find
+  // bar's does.
+  g_site_controls.styleMask = NSWindowStyleMaskBorderless;
+  g_site_controls.hasShadow = YES;
+  // Until the frame at a new height lands, the last one stays as drawn at the top.
+  g_site_controls_view.layer.contentsGravity = kCAGravityTopLeft;
+  // They close when the user leaves them, as the command bar does: a click outside them (the
+  // browser window's click monitor), another window taking the keyboard, or switching apps.
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  [center addObserverForName:NSApplicationDidResignActiveNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification*) {
+                    DismissSiteControls();
+                  }];
+  // Chromium makes its window key by itself, such as when a page commits. That isn't the user
+  // leaving, so they take the keyboard back.
+  [center addObserverForName:NSWindowDidBecomeKeyNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    NSWindow* window = notification.object;
+                    if (!g_site_controls_shown || g_site_controls_released ||
+                        window == g_site_controls || !g_site_controls.visible) {
+                      return;
+                    }
+                    if (BrowserOf(window) == g_site_controls_over) {
+                      [g_site_controls makeKeyWindow];
+                    } else {
+                      DismissSiteControls();
+                    }
+                  }];
+}
+
+void host_show_site_controls(void* ui_view, double left, double top, double width, double height) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_site_controls || !browser || !browser->window) {
+    return;
+  }
+  if (g_site_controls_shown && g_site_controls_over != browser) {
+    host_hide_site_controls();
+  }
+  g_site_controls_shown = true;
+  g_site_controls_released = false;
+  g_site_controls_over = browser;
+  g_site_controls_left = left;
+  g_site_controls_top = top;
+  g_site_controls.ignoresMouseEvents = NO;
+  // As the command bar does: on screen once the UI has drawn it as it is now, which it can't while
+  // it handles the press that opened it.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_site_controls_shown || g_site_controls_released || g_site_controls_over != browser) {
+      return;
+    }
+    NSWindow* window = browser->window;
+    [g_site_controls setFrame:NSMakeRect(0, 0, width, height) display:NO];
+    PlaceSiteControls();
+    [g_site_controls_view.layer setNeedsDisplay];
+    [g_site_controls_view.layer displayIfNeeded];
+    [g_site_controls invalidateShadow];
+    [window addChildWindow:g_site_controls ordered:NSWindowAbove];
+    [g_site_controls makeKeyAndOrderFront:nil];
+    // check.sh reads these lines.
+    fprintf(stderr, "browser: site controls at %g %g %g %g\n", left, top, width, height);
+    fprintf(stderr, "browser: site controls shown\n");
+  });
+}
+
+void host_set_site_controls_height(double height) {
+  // After the UI's update that asked, since they draw at their new size here.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_site_controls_shown || NSHeight(g_site_controls.frame) == height) {
+      return;
+    }
+    NSRect frame = g_site_controls.frame;
+    [g_site_controls
+        setFrame:NSMakeRect(NSMinX(frame), NSMaxY(frame) - height, NSWidth(frame), height)
+         display:NO];
+    [g_site_controls_view.layer setNeedsDisplay];
+    [g_site_controls_view.layer displayIfNeeded];
+    [g_site_controls invalidateShadow];
+    fprintf(stderr, "browser: site controls height %g\n", height);
+  });
+}
+
+void host_site_controls_drew(void) {
+  // Posted, so the shadow is taken from the frame the UI is drawing now.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (g_site_controls_shown) {
+      [g_site_controls invalidateShadow];
+    }
+  });
+}
+
+void host_release_site_controls(void) {
+  if (!g_site_controls_shown || g_site_controls_released) {
+    return;
+  }
+  g_site_controls_released = true;
+  g_site_controls.ignoresMouseEvents = YES;
+  if (g_site_controls.keyWindow) {
+    Browser* browser = g_site_controls_over;
+    [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
+        makeKeyWindow];
+  }
+  fprintf(stderr, "browser: site controls released\n");
+}
+
+void host_hide_site_controls(void) {
+  if (!g_site_controls_shown) {
+    return;
+  }
+  host_release_site_controls();
+  g_site_controls_shown = false;
+  [g_site_controls_over->window removeChildWindow:g_site_controls];
+  [g_site_controls orderOut:nil];
+  fprintf(stderr, "browser: site controls hidden\n");
 }
 
 void host_add_toast(void* toast_view) {

@@ -191,6 +191,55 @@ typedef struct bc_download {
   double started;
 } bc_download;
 
+// The values a site's permission takes in the Site Controls, as Chrome's page info words them: the
+// site may, it may not, or it asks first.
+#define BC_SITE_ALLOW 0
+#define BC_SITE_BLOCK 1
+#define BC_SITE_ASK 2
+
+// A permission of the site of a tab's page, as Chrome's page info lists it.
+typedef struct bc_site_permission {
+  // Chrome's ContentSettingsType for it, which bc_tab_set_site_permission takes.
+  int type;
+  // Chrome's name for it, such as "Location".
+  const char* name;
+  // A BC_SITE_ value.
+  int value;
+  // The values the user may give it, a bit (1 << value) each. 0 for one that isn't the user's to
+  // change, as a policy's or an extension's isn't.
+  uint32_t choices;
+} bc_site_permission;
+
+// What the connection to a tab's page is, as the Site Controls' footer says.
+#define BC_CONNECTION_SECURE 0
+#define BC_CONNECTION_NOT_SECURE 1
+// A file, or one of the browser's own pages.
+#define BC_CONNECTION_INTERNAL 2
+
+// What Picture in Picture can do for a tab's page: nothing, take its playing video, or bring the
+// video it has back.
+#define BC_PICTURE_IN_PICTURE_NONE 0
+#define BC_PICTURE_IN_PICTURE_ENTER 1
+#define BC_PICTURE_IN_PICTURE_EXIT 2
+
+// The site of a tab's page, for its Site Controls.
+typedef struct bc_site_controls {
+  // The site as the user should see it, such as "example.com".
+  const char* site;
+  // A BC_CONNECTION_ value, and Chrome's words for it, such as "Connection is secure".
+  int connection;
+  const char* connection_summary;
+  // Those Chrome's page info lists: the ones the site was given, has asked for or uses, and none
+  // for a file or one of the browser's pages.
+  const bc_site_permission* permissions;
+  size_t count;
+  // Chrome's words for the button that sets them back to their defaults, such as "Reset
+  // permissions", or "" when it has none, as when the user set none of them.
+  const char* reset;
+  // A BC_PICTURE_IN_PICTURE_ value.
+  int picture_in_picture;
+} bc_site_controls;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -305,6 +354,10 @@ typedef struct bc_host {
   // the off-the-record profile they shared, with its cookies, cache and the rest. Not at quit. The
   // user's alone: agents hear none of it.
   void (*private_session_ended)(void* context, bc_id profile);
+  // The site of the tab's page, for its Site Controls, after bc_tab_site_controls, and again as it
+  // changes, until bc_site_controls_close: a permission changed or was used, the tab went to
+  // another page, or a video started or stopped.
+  void (*tab_site_controls)(void* context, bc_id tab, const bc_site_controls* controls);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -751,6 +804,29 @@ BC_EXPORT void bc_tab_find_close(bc_id tab);
 // change. Then tab_permission_asked. The user's: agents get none, as an answer can give a site the
 // camera or where the user is.
 BC_EXPORT void bc_tab_answer_permission(bc_id tab, int answer);
+
+// Reads the site of the tab's page for its Site Controls, as Chrome's page info does, and watches
+// it until bc_site_controls_close or another tab's bc_tab_site_controls. Then tab_site_controls.
+BC_EXPORT void bc_tab_site_controls(bc_id tab);
+
+// Stops watching the site bc_tab_site_controls read.
+BC_EXPORT void bc_site_controls_close(void);
+
+// Gives the site of the tab's page |value|, a BC_SITE_ value, for the permission of |type|, as
+// Chrome's page info does, if it's one of the permission's choices and bc_tab_site_controls is
+// watching that tab. The profile keeps it, as Chrome's site settings do. Then tab_site_controls.
+// The user's: agents get none, as a change can give a site the camera or where the user is, and
+// take back what the user blocked.
+BC_EXPORT void bc_tab_set_site_permission(bc_id tab, int type, int value);
+
+// Sets the site's permissions the user set back to their defaults, as Chrome's page info's "Reset
+// permissions" does, if bc_tab_site_controls is watching the tab. Then tab_site_controls. The
+// user's, as bc_tab_set_site_permission is.
+BC_EXPORT void bc_tab_reset_site_permissions(bc_id tab);
+
+// Takes the tab's playing video into Picture in Picture, or brings it back, as
+// bc_site_controls' picture_in_picture says it can. Then tab_site_controls.
+BC_EXPORT void bc_tab_picture_in_picture(bc_id tab);
 
 // Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.

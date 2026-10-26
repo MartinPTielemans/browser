@@ -15,6 +15,10 @@
 # Archive takes it out. A click on one reopens it at the top of Today with its history, and Clear
 # Archive asks, then empties the archive. A page's question about a permission shows under the URL
 # field while its tab is shown, bringing out a hidden sidebar, and its ×, Block and Allow answer it.
+# The URL field's Site Controls button and the command bar's Site Controls, from the page, open a
+# panel under the field that lists the site's permissions as Chrome's page info does. A value
+# changed there sticks, and its Reset permissions sets them back. Escape, a click outside and the
+# button close it.
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 serve
@@ -61,10 +65,11 @@ expect "^browser: title $a cookie none cache 2\$" \
 ../tools/window-screenshot.sh "$pid" "$out/clear-site.png" || fail "no window to capture"
 send key left cmd
 expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "⌘← didn't go back to the served page"
-# Clear on the divider, which sits under the one pinned tab, the URL field's button, and the
-# served page's text field, along the bottom of the 800 pt tall window.
+# Clear on the divider, which sits under the one pinned tab, the URL field's Copy URL and Site
+# Controls buttons, and the served page's text field, along the bottom of the 800 pt tall window.
 clear_point="200 185"
-copy_point="202 64"
+copy_point="178 64"
+site_controls_point="206 64"
 field_point="600 760"
 open_from_bar example.com
 b=$tab
@@ -429,6 +434,76 @@ asks "http://localhost:$port" "another site's question didn't come"
 send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Allow didn't take the question down"
 expect "^browser: title $r granted\$" "Allow didn't grant the page"
+
+# The Site Controls list the site's permissions as Chrome's page info does, here the one Allow gave.
+# The panel's top left is at 8 88, under the field; its rows start 83 down it, 32 apart, with their
+# values at their right end and Reset permissions under them.
+controls="^browser: site controls http://localhost:$port: "
+# The permissions the Site Controls listed last, one a line, in their order.
+listed() {
+  grep "$controls" "$log" | tail -1 | sed 's/^[^;]*; //' | tr ',' '\n' | sed 's/^ //'
+}
+send move $page_point
+expect '^browser: sidebar tools hidden$' "Clear and the URL field's buttons didn't fade out"
+send move $sidebar_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
+send click $site_controls_point
+expect '^browser: command site-controls via sidebar$' "a click on Site Controls didn't run it"
+expect "${controls}[^;]*; .*Window management Allow" \
+  "the Site Controls didn't list Window management as allowed"
+expect '^browser: site controls shown$' "the Site Controls didn't show"
+expect '^browser: site controls settled$' "the Site Controls didn't finish opening"
+none_since '^browser: command edit-url' || fail "a click on Site Controls opened the command bar"
+../tools/window-screenshot.sh "$pid" "$out/site-controls.png" || fail "no window to capture"
+# Its value's menu offers Chrome's three, and Block blocks the site at once.
+i=$(listed | grep -n '^Window management ' | cut -d: -f1)
+post click 268 $((88 + 83 + 32 * (i - 1) + 16))
+expect '^browser: menu shown Allow (checked), Block, Ask$' \
+  "the value of Window management didn't offer Allow, Block and Ask"
+send choose Block
+expect '^browser: site controls set Window management Block$' "Block in the menu didn't run"
+expect "${controls}[^;]*; .*Window management Block" \
+  "the Site Controls didn't show Window management as blocked"
+# The button again closes them.
+send click $site_controls_point
+expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
+expect '^browser: site controls hidden$' "the Site Controls didn't leave"
+# The page asks and is refused without a question.
+send click $page_point
+send key a
+expect "^browser: title $r refused NotAllowedError\$" \
+  "the site blocked in Site Controls wasn't refused"
+none_since "^browser: page $r asks http" || fail "the site blocked in Site Controls asked"
+# From the page, the command bar's Site Controls open them, which kept the change, and Escape closes
+# them.
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type site controls
+expect '^browser: command bar commands "site controls": Site Controls$' \
+  "the command bar didn't find Site Controls"
+send key return
+expect '^browser: command site-controls via command bar$' "Site Controls didn't run from the bar"
+expect "${controls}[^;]*; .*Window management Block" "the Site Controls didn't keep Block"
+expect '^browser: site controls settled$' "the Site Controls didn't open from the command bar"
+../tools/window-screenshot.sh "$pid" "$out/site-controls-blocked.png" ||
+  fail "no window to capture"
+send key escape
+expect '^browser: site controls closing (escape)$' "escape didn't close the Site Controls"
+expect '^browser: site controls hidden$' "the Site Controls didn't leave after escape"
+# Reset permissions sets the site back to asking, and a click outside closes them.
+send click $site_controls_point
+expect '^browser: site controls settled$' "the Site Controls didn't open again"
+send click 28 $((88 + 83 + 32 * $(listed | wc -l) + 6 + 14))
+expect '^browser: site controls reset$' "Reset permissions didn't run"
+expect "${controls}" "the Site Controls didn't list the permissions again after the reset"
+send click $page_point
+expect '^browser: site controls closing (dismissed)$' \
+  "a click outside didn't close the Site Controls"
+expect '^browser: site controls hidden$' "the Site Controls didn't leave after a click outside"
+send key a
+asks "http://localhost:$port" "the site reset in Site Controls didn't ask again"
+send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
+expect "^browser: title $r granted\$" "Allow didn't grant the page after the reset"
 exec 3>&-
 quit
-echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png"
+echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, and the button, escape and a click outside close them. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png"

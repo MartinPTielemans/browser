@@ -1,0 +1,298 @@
+#include "browser_core/site_controls.h"
+
+#include <algorithm>
+#include <utility>
+#include <vector>
+
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
+#include "base/memory/ptr_util.h"
+#include "base/no_destructor.h"
+#include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
+#include "browser_core/host.h"
+#include "browser_core/tab.h"
+#include "chrome/browser/ui/page_info/chrome_page_info_delegate.h"
+#include "chrome/browser/ui/page_info/chrome_page_info_ui_delegate.h"
+#include "components/content_settings/core/browser/permission_settings_registry.h"
+#include "components/content_settings/core/common/content_settings.h"
+#include "components/strings/grit/components_branded_strings.h"
+#include "components/strings/grit/components_strings.h"
+#include "components/url_formatter/elide_url.h"
+#include "content/public/browser/media_session.h"
+#include "content/public/browser/web_contents.h"
+#include "services/media_session/public/mojom/media_session.mojom.h"
+#include "ui/base/l10n/l10n_util.h"
+#include "url/gurl.h"
+
+namespace browser_core {
+
+namespace {
+
+using content_settings::SettingSource;
+using media_session::mojom::MediaSessionAction;
+
+// The panel's tab's, while it shows.
+std::unique_ptr<SiteControls>& Shown() {
+  static base::NoDestructor<std::unique_ptr<SiteControls>> shown;
+  return *shown;
+}
+
+SiteControls* ShownFor(bc_id tab) {
+  return Shown() && Tab::IdOf(Shown()->web_contents()) == tab ? Shown().get() : nullptr;
+}
+
+const content_settings::PermissionSettingsInfo::Delegate* DelegateFor(ContentSettingsType type) {
+  const content_settings::PermissionSettingsInfo* info =
+      content_settings::PermissionSettingsRegistry::GetInstance()->Get(type);
+  return info ? &info->delegate() : nullptr;
+}
+
+// A setting as one of the three the panel shows, as Chrome's page info words it.
+int ValueOf(const content_settings::PermissionSettingsInfo::Delegate& delegate,
+            const PermissionSetting& setting) {
+  if (delegate.IsAnyPermissionAllowed(setting)) {
+    return BC_SITE_ALLOW;
+  }
+  return delegate.IsUndecided(setting) ? BC_SITE_ASK : BC_SITE_BLOCK;
+}
+
+// Chrome lets the user change only what the user set: not a policy's, an extension's or a
+// supervisor's, and its page info leaves out the choices a type doesn't take.
+uint32_t ChoicesFor(const content_settings::PermissionSettingsInfo::Delegate& delegate,
+                    ChromePageInfoUiDelegate& ui_delegate,
+                    const PageInfo::PermissionInfo& permission) {
+  if (permission.source != SettingSource::kUser) {
+    return 0;
+  }
+  uint32_t choices = 1u << BC_SITE_BLOCK;
+  if (ui_delegate.ShouldShowAllow(permission.type)) {
+    choices |= 1u << BC_SITE_ALLOW;
+  }
+  if (delegate.IsUndecided(permission.default_setting) ||
+      ui_delegate.ShouldShowAsk(permission.type)) {
+    choices |= 1u << BC_SITE_ASK;
+  }
+  return choices;
+}
+
+// Chrome's page info shows its reset button for a setting the user made that it lets them change.
+bool Resettable(ChromePageInfoUiDelegate& ui_delegate, const PageInfo::PermissionInfo& permission) {
+  return permission.source == SettingSource::kUser && permission.setting &&
+         (ui_delegate.ShouldShowAllow(permission.type) ||
+          ui_delegate.ShouldShowAsk(permission.type));
+}
+
+// Whether the page plays a video that Picture in Picture can take, or has, as the media session
+// that Chrome's media controls use says.
+int PictureInPictureOf(content::WebContents* contents) {
+  content::MediaSession* session = content::MediaSession::GetIfExists(contents);
+  if (!session) {
+    return BC_PICTURE_IN_PICTURE_NONE;
+  }
+  const std::vector<MediaSessionAction> actions = session->GetMediaSessionActionsSync();
+  if (std::ranges::contains(actions, MediaSessionAction::kExitPictureInPicture)) {
+    return BC_PICTURE_IN_PICTURE_EXIT;
+  }
+  const bool playing = session->GetMediaSessionInfoSync()->playback_state ==
+                       media_session::mojom::MediaPlaybackState::kPlaying;
+  return playing && std::ranges::contains(actions, MediaSessionAction::kEnterPictureInPicture)
+             ? BC_PICTURE_IN_PICTURE_ENTER
+             : BC_PICTURE_IN_PICTURE_NONE;
+}
+
+}  // namespace
+
+void SiteControls::Open(bc_id tab) {
+  content::WebContents* contents = Tab::FromId(tab);
+  if (!contents) {
+    return;
+  }
+  Shown() = base::WrapUnique(new SiteControls(contents));
+}
+
+void SiteControls::Close() {
+  Shown().reset();
+}
+
+void SiteControls::SetPermission(bc_id tab, int type, int value) {
+  SiteControls* controls = ShownFor(tab);
+  if (!controls || !controls->page_info_) {
+    return;
+  }
+  auto permission =
+      std::ranges::find(controls->permissions_, static_cast<ContentSettingsType>(type),
+                        &PageInfo::PermissionInfo::type);
+  const auto* delegate =
+      permission != controls->permissions_.end() ? DelegateFor(permission->type) : nullptr;
+  if (!delegate || value < 0 || value > BC_SITE_ASK ||
+      !(ChoicesFor(*delegate, *controls->ui_delegate_, *permission) & (1u << value))) {
+    return;
+  }
+  // Ask where asking is what the site gets by default is no setting of its own, which Chrome's
+  // page info passes as none.
+  std::optional<PermissionSetting> setting;
+  if (value != BC_SITE_ASK || !delegate->IsUndecided(permission->default_setting)) {
+    setting = delegate->ToPermissionSetting(value == BC_SITE_ALLOW   ? CONTENT_SETTING_ALLOW
+                                            : value == BC_SITE_BLOCK ? CONTENT_SETTING_BLOCK
+                                                                     : CONTENT_SETTING_ASK);
+  }
+  // PageInfo lists the permissions again, which reports them.
+  controls->page_info_->OnSitePermissionChanged(permission->type, setting,
+                                                permission->requesting_origin,
+                                                /*is_one_time=*/false);
+}
+
+void SiteControls::Reset(bc_id tab) {
+  SiteControls* controls = ShownFor(tab);
+  if (!controls || !controls->page_info_) {
+    return;
+  }
+  // As Chrome's page info's button: each setting goes back to the default. A copy, as each
+  // change lists the permissions again.
+  const PermissionInfoList permissions = controls->permissions_;
+  for (const PageInfo::PermissionInfo& permission : permissions) {
+    if (Resettable(*controls->ui_delegate_, permission)) {
+      controls->page_info_->OnSitePermissionChanged(permission.type, std::nullopt,
+                                                    permission.requesting_origin,
+                                                    /*is_one_time=*/false);
+    }
+  }
+}
+
+void SiteControls::PictureInPicture(bc_id tab) {
+  content::WebContents* contents = Tab::FromId(tab);
+  content::MediaSession* session =
+      contents ? content::MediaSession::GetIfExists(contents) : nullptr;
+  switch (contents ? PictureInPictureOf(contents) : BC_PICTURE_IN_PICTURE_NONE) {
+    case BC_PICTURE_IN_PICTURE_ENTER:
+      session->EnterPictureInPicture();
+      break;
+    case BC_PICTURE_IN_PICTURE_EXIT:
+      session->ExitPictureInPicture();
+      break;
+  }
+}
+
+SiteControls::SiteControls(content::WebContents* contents)
+    : content::WebContentsObserver(contents), tab_(Tab::IdOf(contents)) {
+  Read();
+}
+
+SiteControls::~SiteControls() = default;
+
+void SiteControls::Read() {
+  const GURL url = web_contents()->GetLastCommittedURL();
+  page_info_.reset();
+  permissions_.clear();
+  ui_delegate_ = std::make_unique<ChromePageInfoUiDelegate>(web_contents(), url);
+  site_ = base::UTF16ToUTF8(url_formatter::FormatUrlForSecurityDisplay(
+      url, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC));
+  // As Chrome's bubble for these, which says what the page is and lists nothing.
+  if (PageInfo::IsFileOrInternalPage(url)) {
+    connection_ = BC_CONNECTION_INTERNAL;
+    connection_summary_ = l10n_util::GetStringUTF16(
+        url.SchemeIsFile() ? IDS_PAGE_INFO_FILE_PAGE : IDS_PAGE_INFO_INTERNAL_PAGE);
+  } else {
+    page_info_ = std::make_unique<PageInfo>(
+        std::make_unique<ChromePageInfoDelegate>(web_contents()), web_contents(), url);
+    // It lists the permissions and the connection now, and the cookies later, which the panel
+    // doesn't show.
+    page_info_->InitializeUiState(this, base::DoNothing());
+  }
+  Changed();
+}
+
+void SiteControls::SetPermissionInfo(const PermissionInfoList& permission_info_list,
+                                     ChosenObjectInfoList chosen_object_info_list) {
+  permissions_ = permission_info_list;
+  Changed();
+}
+
+void SiteControls::SetIdentityInfo(const IdentityInfo& identity_info) {
+  const std::unique_ptr<SecurityDescription> description = GetSecurityDescription(identity_info);
+  connection_summary_ = description ? description->summary : std::u16string();
+  connection_ = identity_info.identity_status == PageInfo::SITE_IDENTITY_STATUS_INTERNAL_PAGE
+                    ? BC_CONNECTION_INTERNAL
+                : description && description->summary_style == SecuritySummaryColor::GREEN
+                    ? BC_CONNECTION_SECURE
+                    : BC_CONNECTION_NOT_SECURE;
+  Changed();
+}
+
+void SiteControls::PrimaryPageChanged(content::Page& page) {
+  Read();
+}
+
+void SiteControls::MediaStartedPlaying(const MediaPlayerInfo& info,
+                                       const content::MediaPlayerId& id) {
+  Changed();
+}
+
+void SiteControls::MediaStoppedPlaying(const MediaPlayerInfo& info,
+                                       const content::MediaPlayerId& id,
+                                       MediaStoppedReason reason) {
+  Changed();
+}
+
+void SiteControls::MediaPictureInPictureChanged(bool is_picture_in_picture) {
+  Changed();
+}
+
+void SiteControls::WebContentsDestroyed() {
+  // PageInfo can't outlive its tab. This destroys this.
+  Close();
+}
+
+void SiteControls::Changed() {
+  if (reporting_) {
+    return;
+  }
+  reporting_ = true;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&SiteControls::Report, weak_factory_.GetWeakPtr()));
+}
+
+void SiteControls::Report() {
+  reporting_ = false;
+  if (!Host().tab_site_controls) {
+    return;
+  }
+  std::vector<std::string> names;
+  std::vector<bc_site_permission> permissions;
+  bool resettable = false;
+  for (const PageInfo::PermissionInfo& permission : permissions_) {
+    const auto* delegate = DelegateFor(permission.type);
+    if (!delegate) {
+      continue;
+    }
+    names.push_back(base::UTF16ToUTF8(PageInfoUI::PermissionTypeToUIString(permission.type)));
+    permissions.push_back({
+        .type = static_cast<int>(permission.type),
+        .value = ValueOf(*delegate, permission.setting.value_or(permission.default_setting)),
+        .choices = ChoicesFor(*delegate, *ui_delegate_, permission),
+    });
+    resettable |= Resettable(*ui_delegate_, permission);
+  }
+  for (size_t i = 0; i < permissions.size(); ++i) {
+    permissions[i].name = names[i].c_str();
+  }
+  const std::string connection = base::UTF16ToUTF8(connection_summary_);
+  // Chrome counts every row it lists in its button's words.
+  const std::string reset =
+      resettable ? base::UTF16ToUTF8(l10n_util::GetPluralStringFUTF16(
+                       IDS_PAGE_INFO_RESET_PERMISSIONS, static_cast<int>(permissions_.size())))
+                 : std::string();
+  const bc_site_controls controls = {
+      .site = site_.c_str(),
+      .connection = connection_,
+      .connection_summary = connection.c_str(),
+      .permissions = permissions.data(),
+      .count = permissions.size(),
+      .reset = reset.c_str(),
+      .picture_in_picture = PictureInPictureOf(web_contents()),
+  };
+  Host().tab_site_controls(Host().context, tab_, &controls);
+}
+
+}  // namespace browser_core
