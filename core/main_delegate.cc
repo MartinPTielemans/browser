@@ -10,6 +10,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
+#include "browser_core/install_question.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
@@ -109,6 +110,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_update_devtools = &Window::UpdateDevTools;
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
+  g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   return ChromeMain(argc, argv);
 }
 

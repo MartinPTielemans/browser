@@ -233,6 +233,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("JavaScript Console", Keys::Of(Command::JavaScriptConsole)),
             ("Open Task Manager", Keys::Of(Command::TaskManager)),
             ("Manage Extensions", Keys::Of(Command::ManageExtensions)),
+            ("Add Extension", Keys::Of(Command::AddExtension)),
         ],
     ),
     (

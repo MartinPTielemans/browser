@@ -34,6 +34,8 @@ source_set("browser_core") {
     "find.h",
     "hooks.h",
     "host.h",
+    "install_question.cc",
+    "install_question.h",
     "main_delegate.cc",
     "main_delegate.h",
     "permission_question.cc",

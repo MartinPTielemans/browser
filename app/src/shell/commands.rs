@@ -107,6 +107,8 @@ pub enum Command {
     TaskManager,
     /// Opens Chrome's extensions page in a new tab.
     ManageExtensions,
+    /// Opens the Web Store in a new tab, as Dia's Add Extension… does.
+    AddExtension,
     NewSpace,
     /// Shows the Space shown with its name in a field.
     RenameSpace,
@@ -299,6 +301,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("JavaScript Console", Command::JavaScriptConsole, &[]),
     ("Open Task Manager", Command::TaskManager, &[]),
     ("Manage Extensions…", Command::ManageExtensions, &["plugins"]),
+    ("Add Extension…", Command::AddExtension, &[]),
     ("New Space…", Command::NewSpace, &[]),
     ("Rename Space", Command::RenameSpace, &[]),
     ("Rename Current Tab…", Command::RenameTab, &["title"]),
@@ -546,6 +549,7 @@ impl Command {
             Command::JavaScriptConsole => "javascript-console",
             Command::TaskManager => "task-manager",
             Command::ManageExtensions => "manage-extensions",
+            Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
             Command::SelectSpace(_) => "select-space",
@@ -750,6 +754,7 @@ impl Shell {
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::TaskManager => return self.browser.task_manager(cx),
             Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
+            Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
             Command::ViewHistory => {
@@ -1059,6 +1064,7 @@ impl Shell {
             | Command::ClearArchive
             | Command::ViewDownloads
             | Command::ManageExtensions
+            | Command::AddExtension
             | Command::ViewHistory
             | Command::KeyboardShortcuts
             | Command::Settings => true,
@@ -1105,6 +1111,7 @@ fn private_runs(command: Command) -> bool {
             | Command::ViewDownloads
             | Command::ViewHistory
             | Command::ManageExtensions
+            | Command::AddExtension
     )
 }
 

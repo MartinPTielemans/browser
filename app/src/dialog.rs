@@ -2,27 +2,31 @@
 //! tabs, or before quitting: a card over the window, which dims, as Arc's (docs/ux-spec.md ›
 //! Spaces › Renaming and deleting, and Warn before quitting). GPUI can't draw over the page's
 //! native view, so it's a window of its own that the host shows over all of the browser window,
-//! as its child, with the keyboard. What it asks of its window goes through `Host`.
+//! as its child, with the keyboard. What it asks of its window goes through `Host`. It also asks
+//! Chrome's questions, such as whether to add an extension, which wait their turn behind the
+//! dialog that shows and which Chrome can take back.
 
 use std::{
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use gpui::{
-    App, Bounds, BoxShadow, Context, Div, FocusHandle, FontWeight, Global, Hsla, KeyBinding,
-    MouseButton, SharedString, Stateful, Task, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div, hsla, point, prelude::*,
-    px, rgb, rgba, size, svg,
+    App, Bounds, BoxShadow, Context, Div, FocusHandle, FontWeight, Global, Hsla, Image,
+    KeyBinding, MouseButton, SharedString, Stateful, Task, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
+    div, hsla, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
-use crate::shell::cubic_bezier;
+use crate::{command_bar, shell::cubic_bezier};
 
 actions!(dialog, [Confirm, Cancel]);
 
 // Arc's, measured at 2× (docs/ux-spec.md › Spaces › Renaming and deleting). The card is centred
 // in the window. Its text is inset 38 from its top and left, and its buttons 28 from its right
-// and bottom. Arc's has its icon over the title, and ours starts with the title.
+// and bottom. Arc's has its icon over the title, and ours starts with the title unless what it
+// asks about has an icon of its own, such as an extension.
 const WIDTH: f32 = 450.;
 const RADIUS: f32 = 16.;
 const TEXT_INSET: f32 = 38.;
@@ -30,6 +34,16 @@ const BUTTON_INSET: f32 = 28.;
 const TITLE_LINE: f32 = 22.;
 const DETAIL_TOP: f32 = 15.5;
 const DETAIL_LINE: f32 = 18.;
+/// An icon over the title, such as the extension's, and the gap under it.
+const ICON: f32 = 32.;
+const ICON_GAP: f32 = 16.;
+/// A list under the detail, such as an extension's permission warnings, each with its smaller,
+/// dimmer lines under it, indented.
+const LIST_TOP: f32 = 10.;
+const LIST_GAP: f32 = 6.;
+const SUBLINE: f32 = 16.;
+const SUBLINE_INDENT: f32 = 12.;
+const SUBLINE_TEXT: u32 = 0xffff_ff8c;
 const BUTTONS_TOP: f32 = 38.;
 /// From the title's line to the buttons when there's no detail, as in Arc's ⌘Q.
 const BUTTONS_UNDER_TITLE: f32 = 46.;
@@ -63,6 +77,9 @@ const ACTION_LEDGE: u32 = 0xe149_2c33;
 const SAFE_ACTION: u32 = 0x3338f2;
 const SAFE_ACTION_HOVERED: u32 = 0x2e32da;
 const SAFE_ACTION_LEDGE: u32 = 0x393f92;
+/// An action that takes nothing back, such as adding an extension, has the Space's accent
+/// instead, darker by this under the pointer.
+const ACCENT_HOVERED: f32 = 0.05;
 const CHIP_HEIGHT: f32 = 20.;
 const CHIP_RADIUS: f32 = 5.;
 /// White 0.14 over the button, so it lightens with it.
@@ -80,15 +97,30 @@ const DROP: f32 = 32.;
 
 /// What a dialog asks.
 pub struct Question {
-    pub message: String,
-    /// Under the message, if any.
-    pub detail: String,
-    /// The button that does it, which ↩ chooses.
-    pub action: &'static str,
-    /// Whether the action is hard to take back, which makes it red, else blue.
-    pub destructive: bool,
+    /// Shown over the message, such as the extension's.
+    pub icon: Option<Arc<Image>>,
+    pub message: SharedString,
+    /// Under the message, or nothing if empty.
+    pub detail: SharedString,
+    /// Lines listed under the detail, each with its smaller lines under it.
+    pub list: Vec<(SharedString, Vec<SharedString>)>,
+    /// The button that does it, which ↩ chooses. With none, only Cancel answers.
+    pub action: SharedString,
+    pub cancel: SharedString,
+    pub tone: Tone,
     /// A button at the left for another answer, and what it does once the dialog has gone.
-    pub also: Option<(&'static str, Box<dyn FnOnce(&mut App)>)>,
+    pub also: Option<(SharedString, Box<dyn FnOnce(&mut App)>)>,
+}
+
+/// The action's colour, by what it does.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Tone {
+    /// Red, as it's hard to take back, such as deleting a Space.
+    Destructive,
+    /// Blue, as it can be taken back, such as quitting.
+    Safe,
+    /// The Space's accent, as it takes nothing back, such as adding an extension.
+    Accent,
 }
 
 /// What the user chose.
@@ -142,19 +174,26 @@ fn ease_in_out(t: f32) -> f32 {
     cubic_bezier(0.42, 0., 0.58, 1., t)
 }
 
+/// A question to show, and what's told of its answer once the dialog has gone.
+struct Request {
+    question: Question,
+    /// Whether Chrome asked it, and can take it back.
+    chrome: bool,
+    answered: Box<dyn FnOnce(bool, &mut App)>,
+}
+
 struct Asked {
-    message: SharedString,
-    detail: SharedString,
-    action: SharedString,
-    destructive: bool,
+    /// The question, its other answer taken out into `also` and `also_chosen`.
+    question: Question,
     also: Option<SharedString>,
-    confirmed: Option<Box<dyn FnOnce(&mut App)>>,
     also_chosen: Option<Box<dyn FnOnce(&mut App)>>,
+    chrome: bool,
+    answered: Option<Box<dyn FnOnce(bool, &mut App)>>,
     /// When its window was first on screen, where the motion starts.
     shown: Option<Instant>,
     settled: bool,
-    /// Once the user has answered: when, and where the motion was.
-    answered: Option<(Instant, Pose)>,
+    /// Once the user has answered, or Chrome took it back: when, and where the motion was.
+    answered_at: Option<(Instant, Pose)>,
     _leave: Option<Task<()>>,
 }
 
@@ -165,7 +204,7 @@ impl Asked {
     }
 
     fn pose(&self) -> Pose {
-        match self.answered {
+        match self.answered_at {
             Some((at, from)) => from.leaving(at.elapsed().as_secs_f32()),
             None => Pose::arriving(self.arrived_for()),
         }
@@ -176,6 +215,8 @@ pub struct Dialog {
     host: Rc<dyn Host>,
     focus: FocusHandle,
     asked: Option<Asked>,
+    /// Chrome's question, waiting for the dialog that shows to go.
+    next: Option<Request>,
 }
 
 struct DialogWindow(WindowHandle<Dialog>);
@@ -210,7 +251,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<Dialog>> {
         ..Default::default()
     };
     let window = cx.open_window(options, |_, cx| {
-        cx.new(|cx| Dialog { host, focus: cx.focus_handle(), asked: None })
+        cx.new(|cx| Dialog { host, focus: cx.focus_handle(), asked: None, next: None })
     });
     match window {
         Ok(window) => {
@@ -241,61 +282,119 @@ pub fn ask(
     confirmed: Box<dyn FnOnce(&mut App)>,
     cx: &mut App,
 ) {
-    let question = Question { message, detail, action, destructive: true, also: None };
+    let question = Question {
+        icon: None,
+        message: message.into(),
+        detail: detail.into(),
+        list: Vec::new(),
+        action: action.into(),
+        cancel: "Cancel".into(),
+        tone: Tone::Destructive,
+        also: None,
+    };
     pose(question, confirmed, cx);
 }
 
 /// Asks `question`, and calls `confirmed` if the user chooses its action, once the dialog has
 /// gone. Nothing while another dialog shows.
 pub fn pose(question: Question, confirmed: Box<dyn FnOnce(&mut App)>, cx: &mut App) {
-    let Question { message, detail, action, destructive, also } = question;
+    let answered = Box::new(move |confirm, cx: &mut App| {
+        if confirm {
+            confirmed(cx);
+        }
+    });
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         return;
     };
     window
         .update(cx, |dialog, window, cx| {
-            if dialog.asked.is_some() {
-                return;
+            if dialog.asked.is_none() {
+                dialog.show(Request { question, chrome: false, answered }, window, cx);
             }
-            // check.sh reads this line.
-            log!("browser: dialog shown {message}");
-            let (also, also_chosen) = also.unzip();
-            dialog.asked = Some(Asked {
-                message: message.into(),
-                detail: detail.into(),
-                action: action.into(),
-                destructive,
-                also: also.map(SharedString::from),
-                confirmed: Some(confirmed),
-                also_chosen,
-                shown: None,
-                settled: false,
-                answered: None,
-                _leave: None,
-            });
-            window.focus(&dialog.focus, cx);
-            dialog.host.show();
-            cx.notify();
         })
         .ok();
 }
 
+/// Asks Chrome's `question` once the dialog that shows has gone, in place of any of Chrome's
+/// that hasn't been answered, and calls `answered` with the answer once the dialog has gone.
+/// With no dialog to ask in, it's answered no at once, so that Chrome isn't left waiting.
+pub fn ask_chrome(question: Question, answered: Box<dyn FnOnce(bool, &mut App)>, cx: &mut App) {
+    let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
+        answered(false, cx);
+        return;
+    };
+    let mut request = Some(Request { question, chrome: true, answered });
+    window
+        .update(cx, |dialog, window, cx| {
+            dialog.withdraw(cx);
+            let request = request.take().expect("asked once");
+            if dialog.asked.is_some() {
+                dialog.next = Some(request);
+            } else {
+                dialog.show(request, window, cx);
+            }
+        })
+        .ok();
+    if let Some(request) = request {
+        (request.answered)(false, cx);
+    }
+}
+
+/// Takes back Chrome's question, unanswered: the dialog leaves if it shows it, and nothing is
+/// told of an answer.
+pub fn withdraw_chrome(cx: &mut App) {
+    let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
+        return;
+    };
+    window.update(cx, |dialog, _, cx| dialog.withdraw(cx)).ok();
+}
+
 impl Dialog {
+    fn show(&mut self, request: Request, window: &mut Window, cx: &mut Context<Self>) {
+        let Request { mut question, chrome, answered } = request;
+        // check.sh reads this line.
+        log!("browser: dialog shown {}", question.message);
+        let (also, also_chosen) = question.also.take().unzip();
+        self.asked = Some(Asked {
+            question,
+            also,
+            also_chosen,
+            chrome,
+            answered: Some(answered),
+            shown: None,
+            settled: false,
+            answered_at: None,
+            _leave: None,
+        });
+        window.focus(&self.focus, cx);
+        self.host.show();
+        cx.notify();
+    }
+
+    /// Drops Chrome's question that waits, and Chrome's that shows leaves, both untold.
+    fn withdraw(&mut self, cx: &mut Context<Self>) {
+        self.next = None;
+        let Some(asked) = &mut self.asked else {
+            return;
+        };
+        if asked.chrome && asked.answered_at.is_none() {
+            // check.sh reads this line.
+            log!("browser: dialog withdrawn");
+            self.leave(None, cx);
+        }
+    }
+
     /// The user chose the action, the other answer or Cancel. The dialog leaves, and then what
     /// was chosen happens.
     fn answer(&mut self, answer: Answer, cx: &mut Context<Self>) {
         let Some(asked) = &mut self.asked else {
             return;
         };
-        if asked.answered.is_some() {
+        if asked.answered_at.is_some()
+            || (answer == Answer::Action && asked.question.action.is_empty())
+        {
             return;
         }
-        asked.answered = Some((Instant::now(), asked.pose()));
-        let confirmed = match answer {
-            Answer::Action => asked.confirmed.take(),
-            Answer::Also => asked.also_chosen.take(),
-            Answer::Cancel => None,
-        };
         // check.sh reads these lines.
         match answer {
             Answer::Action => log!("browser: dialog confirmed"),
@@ -304,6 +403,22 @@ impl Dialog {
             }
             Answer::Cancel => log!("browser: dialog cancelled"),
         }
+        self.leave(Some(answer), cx);
+    }
+
+    /// The dialog leaves, and then what was chosen happens, unless it was taken back.
+    fn leave(&mut self, answer: Option<Answer>, cx: &mut Context<Self>) {
+        let Some(asked) = &mut self.asked else {
+            return;
+        };
+        asked.answered_at = Some((Instant::now(), asked.pose()));
+        let (answered, also_chosen) = match answer {
+            Some(Answer::Also) => (None, asked.also_chosen.take()),
+            Some(answer) => {
+                (asked.answered.take().map(|answered| (answered, answer == Answer::Action)), None)
+            }
+            None => (None, None),
+        };
         asked._leave = Some(cx.spawn(async move |dialog, cx| {
             cx.background_executor().timer(Duration::from_secs_f32(MOVE)).await;
             let hidden = dialog.update(cx, |dialog, cx| {
@@ -313,12 +428,35 @@ impl Dialog {
                 log!("browser: dialog hidden");
                 cx.notify();
             });
-            if let (Ok(()), Some(confirmed)) = (hidden, confirmed) {
-                cx.update(confirmed);
+            if hidden.is_err() {
+                return;
             }
+            if let Some((answered, confirm)) = answered {
+                cx.update(|cx| answered(confirm, cx));
+            }
+            if let Some(also_chosen) = also_chosen {
+                cx.update(also_chosen);
+            }
+            cx.update(show_next);
         }));
         cx.notify();
     }
+}
+
+/// Shows Chrome's question that waits, if no other dialog has come up first.
+fn show_next(cx: &mut App) {
+    let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
+        return;
+    };
+    window
+        .update(cx, |dialog, window, cx| {
+            if dialog.asked.is_none()
+                && let Some(request) = dialog.next.take()
+            {
+                dialog.show(request, window, cx);
+            }
+        })
+        .ok();
 }
 
 /// A button with its key's chip after its label.
@@ -369,7 +507,7 @@ impl Render for Dialog {
             asked.shown = Some(Instant::now());
         }
         let pose = asked.pose();
-        let moving = asked.answered.is_some() || asked.arrived_for() < MOVE;
+        let moving = asked.answered_at.is_some() || asked.arrived_for() < MOVE;
         if moving {
             window.request_animation_frame();
         } else if !asked.settled {
@@ -377,9 +515,10 @@ impl Render for Dialog {
             // check.sh reads this line.
             log!("browser: dialog settled");
         }
+        let question = &asked.question;
         let cancel = button(
             "dialog-cancel",
-            "Cancel".into(),
+            question.cancel.clone(),
             chip()
                 .px(px(6.5))
                 .bg(rgba(ESC_FILL))
@@ -415,38 +554,76 @@ impl Render for Dialog {
                 .child(label)
                 .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Also, cx)))
         });
-        let (fill, hovered, ledge) = match asked.destructive {
-            true => (ACTION, ACTION_HOVERED, rgba(ACTION_LEDGE)),
-            false => (SAFE_ACTION, SAFE_ACTION_HOVERED, rgb(SAFE_ACTION_LEDGE).into()),
+        let (fill, hovered, ledge): (Hsla, Hsla, Hsla) = match question.tone {
+            Tone::Destructive => {
+                (rgb(ACTION).into(), rgb(ACTION_HOVERED).into(), rgba(ACTION_LEDGE).into())
+            }
+            Tone::Safe => (
+                rgb(SAFE_ACTION).into(),
+                rgb(SAFE_ACTION_HOVERED).into(),
+                rgb(SAFE_ACTION_LEDGE).into(),
+            ),
+            Tone::Accent => {
+                let accent = command_bar::accent(cx);
+                (accent, Hsla { l: accent.l - ACCENT_HOVERED, ..accent }, accent.opacity(0.2))
+            }
         };
-        let action = button(
-            "dialog-confirm",
-            asked.action.clone(),
-            chip()
-                .w(px(RETURN_WIDTH))
-                .border_1()
-                .border_color(rgba(RETURN_BORDER))
-                .bg(rgba(RETURN_FILL))
-                .child(
-                    svg()
-                        .path("icons/corner-down-left.svg")
-                        .size(px(RETURN_GLYPH))
-                        .text_color(rgb(0xffffff)),
-                ),
-        )
-            .bg(rgb(fill))
-            .hover(move |style| style.bg(rgb(hovered)))
-            .shadow(vec![shadow(ledge.into(), 2., 0., 0.)])
+        let action = (!question.action.is_empty()).then(|| {
+            button(
+                "dialog-confirm",
+                question.action.clone(),
+                chip()
+                    .w(px(RETURN_WIDTH))
+                    .border_1()
+                    .border_color(rgba(RETURN_BORDER))
+                    .bg(rgba(RETURN_FILL))
+                    .child(
+                        svg()
+                            .path("icons/corner-down-left.svg")
+                            .size(px(RETURN_GLYPH))
+                            .text_color(rgb(0xffffff)),
+                    ),
+            )
+            .bg(fill)
+            .hover(move |style| style.bg(hovered))
+            .shadow(vec![shadow(ledge, 2., 0., 0.)])
             .text_color(rgb(0xffffff))
-            .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)));
-        let detail = (!asked.detail.is_empty()).then(|| {
+            .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)))
+        });
+        let list = question.list.iter().map(|(line, sublines)| {
+            div()
+                .flex()
+                .flex_col()
+                .child(line.clone())
+                .children(sublines.iter().map(|subline| {
+                    div()
+                        .pl(px(SUBLINE_INDENT))
+                        .line_height(px(SUBLINE))
+                        .text_size(px(12.))
+                        .text_color(rgba(SUBLINE_TEXT))
+                        .child(subline.clone())
+                }))
+        });
+        let detail = (!question.detail.is_empty() || !question.list.is_empty()).then(|| {
             div()
                 .mt(px(DETAIL_TOP))
                 .pr(px(TEXT_INSET - BUTTON_INSET))
+                .flex()
+                .flex_col()
                 .line_height(px(DETAIL_LINE))
                 .text_size(px(14.))
                 .text_color(rgba(DETAIL))
-                .child(asked.detail.clone())
+                .when(!question.detail.is_empty(), |text| text.child(question.detail.clone()))
+                .when(!question.list.is_empty(), |text| {
+                    text.child(
+                        div()
+                            .when(!question.detail.is_empty(), |list| list.mt(px(LIST_TOP)))
+                            .flex()
+                            .flex_col()
+                            .gap(px(LIST_GAP))
+                            .children(list),
+                    )
+                })
         });
         let buttons_top = if detail.is_some() { BUTTONS_TOP } else { BUTTONS_UNDER_TITLE };
         let card = div()
@@ -471,6 +648,9 @@ impl Render for Dialog {
                 shadow(hsla(0., 0., 0., 0.9), 0., 0., 0.5),
             ])
             .opacity(pose.opacity)
+            .children(
+                question.icon.clone().map(|icon| img(icon).size(px(ICON)).mb(px(ICON_GAP))),
+            )
             .child(
                 div()
                     .pr(px(TEXT_INSET - BUTTON_INSET))
@@ -478,7 +658,7 @@ impl Render for Dialog {
                     .text_size(px(18.))
                     .font_weight(FontWeight::MEDIUM)
                     .text_color(rgb(0xffffff))
-                    .child(asked.message.clone()),
+                    .child(question.message.clone()),
             )
             .children(detail)
             .child(
@@ -494,7 +674,7 @@ impl Render for Dialog {
                             .justify_end()
                             .gap(px(CHIP_GAP))
                             .child(cancel)
-                            .child(action),
+                            .children(action),
                     ),
             );
         root.on_action(cx.listener(|dialog, _: &Confirm, _, cx| dialog.answer(Answer::Action, cx)))

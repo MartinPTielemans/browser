@@ -1,0 +1,58 @@
+Lets the core ask about an extension's install, re-enable and new permissions with the app's
+dialog (//browser_core/hooks.h), in place of Chrome's, and leaves out Chrome's dialog after an
+install, which points at a toolbar the core's windows don't have.
+
+--- a/chrome/browser/ui/views/extensions/extension_install_dialog_view.cc
++++ b/chrome/browser/ui/views/extensions/extension_install_dialog_view.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/views/extensions/extension_install_dialog_view.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <memory>
+ #include <string>
+@@ -64,6 +65,12 @@
+ using content::Referrer;
+ using extensions::InstallPromptData;
+ 
++// browser_core: the core's windows ask with the app's dialog (//browser_core/hooks.h).
++void (*g_browser_core_extension_install_dialog)(
++    std::unique_ptr<ExtensionInstallPromptShowParams> show_params,
++    extensions::ExtensionInstallPromptClient::DoneCallback done_callback,
++    std::unique_ptr<extensions::InstallPromptData> prompt) = nullptr;
++
+ namespace {
+ 
+ // Time delay before the install button is enabled after initial display.
+@@ -732,5 +739,9 @@
+ // static
+ ExtensionInstallPrompt::ShowDialogCallback
+ ExtensionInstallPrompt::GetDefaultShowDialogCallback() {
++  if (g_browser_core_extension_install_dialog) {
++    // browser_core: the app asks, in place of Chrome's dialog.
++    return base::BindRepeating(g_browser_core_extension_install_dialog);
++  }
+   return base::BindRepeating(&ShowExtensionInstallDialogImpl);
+ }
+--- a/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
++++ b/chrome/browser/ui/extensions/extension_install_ui_desktop.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/extensions/extension_install_ui_desktop.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <string>
+ #include <utility>
+@@ -122,6 +123,10 @@
+   if (IsUiDisabled() || skip_post_install_ui() || extension->is_theme()) {
+     return;
+   }
++  if (g_browser_core_supplies_windows) {
++    // browser_core: Chrome's "added" dialog points at a toolbar the core's windows don't have.
++    return;
++  }
+ 
+   if (!profile()) {
+     // TODO(zelidrag): Figure out what exact conditions cause crash

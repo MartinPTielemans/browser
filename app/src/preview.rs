@@ -596,6 +596,8 @@ impl Browser for Fake {
 
     fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
 
+    fn add_extension(&self, _: &mut App) {}
+
     fn view_history(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {

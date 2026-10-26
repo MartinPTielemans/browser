@@ -289,6 +289,8 @@ fn key_equivalent(keystroke: &str) -> (String, [bool; 4]) {
     (key, held)
 }
 const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
+/// Where Add Extension… goes, as Dia's does.
+const WEB_STORE: &str = "https://chromewebstore.google.com/";
 
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
 
@@ -1371,6 +1373,10 @@ impl Browser for Engine {
         }
     }
 
+    fn add_extension(&self, _: &mut App) {
+        open_tab(self.window, WEB_STORE);
+    }
+
     fn view_history(&self, _: &mut App) {
         open_tab(self.window, "chrome://history");
     }
@@ -1678,12 +1684,15 @@ impl Browser for Engine {
             return;
         }
         let question = dialog::Question {
+            icon: None,
             message: concat!("Quit ", env!("APP_NAME"), "?").into(),
-            detail: String::new(),
-            action: "Quit",
-            destructive: false,
+            detail: "".into(),
+            list: Vec::new(),
+            action: "Quit".into(),
+            cancel: "Cancel".into(),
+            tone: dialog::Tone::Safe,
             also: Some((
-                "Quit, and don’t ask again",
+                "Quit, and don’t ask again".into(),
                 Box::new(|_| {
                     // check.sh waits for this line.
                     log!("browser: warn before quitting off");
@@ -2274,7 +2283,10 @@ fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
                     let pins = extensions.iter().map(shell::extension_pin_menu_item).collect();
                     MenuItem::submenu(menu("Pin to URL Field", pins))
                 }))
-                .chain([item("Manage Extensions…", Command::ManageExtensions)])
+                .chain([
+                    item("Add Extension…", Command::AddExtension),
+                    item("Manage Extensions…", Command::ManageExtensions),
+                ])
                 .collect(),
         ),
         menu(
@@ -2698,6 +2710,68 @@ unsafe extern "C" fn window_extension_actions(
     update_window(window, |shell, cx| shell.set_extension_actions(actions, cx));
 }
 
+unsafe extern "C" fn window_extension_question(
+    _: *mut c_void,
+    window: bc::bc_id,
+    question: *const bc::bc_extension_question,
+) {
+    let Some(question) = (unsafe { question.as_ref() }) else {
+        if window == front().0 {
+            // check.sh waits for this line.
+            log!("browser: extension question none");
+            update_app(dialog::withdraw_chrome);
+        }
+        return;
+    };
+    let id = question.id;
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+    let lines = |texts: *const *const c_char| match texts.is_null() {
+        true => Vec::new(),
+        false => unsafe { std::slice::from_raw_parts(texts, question.warning_count) }
+            .iter()
+            .map(|&line| text(line))
+            .collect(),
+    };
+    let warnings = lines(question.warnings);
+    // check.sh waits for this line.
+    log!("browser: extension question {} asks {}", text(question.extension), warnings.join("; "));
+    let list: Vec<_> = warnings
+        .into_iter()
+        .zip(lines(question.details))
+        .map(|(warning, details)| {
+            (warning.into(), details.lines().map(|line| line.to_owned().into()).collect())
+        })
+        .collect();
+    let question = dialog::Question {
+        icon: (!question.icon.is_null()).then(|| {
+            let png = unsafe { std::slice::from_raw_parts(question.icon, question.icon_size) };
+            Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec()))
+        }),
+        message: text(question.title).into(),
+        // Chrome's heading, such as "It can:", leads its warnings, and there's none without them.
+        detail: if list.is_empty() { "".into() } else { text(question.heading).into() },
+        list,
+        action: text(question.accept).into(),
+        cancel: text(question.cancel).into(),
+        tone: dialog::Tone::Accent,
+        also: None,
+    };
+    let mut asked = false;
+    if window == front().0 {
+        update_app(|cx| {
+            asked = true;
+            let answered = Box::new(move |accept, _: &mut App| unsafe {
+                bc::bc_extension_answer(id, accept)
+            });
+            dialog::ask_chrome(question, answered, cx);
+        });
+    }
+    // With no UI to ask in, Chrome isn't left waiting.
+    if !asked {
+        unsafe { bc::bc_extension_answer(id, false) };
+    }
+}
+
 unsafe extern "C" fn window_extension_popup(
     _: *mut c_void,
     window: bc::bc_id,
@@ -2990,6 +3064,7 @@ fn main() {
         extensions_changed: Some(extensions_changed),
         window_extension_popup: Some(window_extension_popup),
         window_extension_actions: Some(window_extension_actions),
+        window_extension_question: Some(window_extension_question),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         tab_permission_asked: Some(tab_permission_asked),

@@ -145,6 +145,8 @@ pub trait Browser {
     /// Opens Chrome's extensions page in a new tab, at extension `id`'s details if there's one,
     /// and shows it.
     fn manage_extensions(&self, id: Option<&str>, cx: &mut App);
+    /// Opens the Web Store in a new tab, and shows it.
+    fn add_extension(&self, cx: &mut App);
     /// Opens Chrome's history page in a new tab, and shows it.
     fn view_history(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
