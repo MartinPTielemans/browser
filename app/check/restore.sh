@@ -26,6 +26,12 @@ serve
 log="$out/restore.log"
 step=0
 rm -f "$saved"
+# A failed run leaves its downloads in the profile's history, and the recent downloads count them.
+history_db="$(dirname "$saved")/Default/History"
+if command -v sqlite3 > /dev/null && [ -f "$history_db" ]; then
+  sqlite3 "$history_db" "delete from downloads; delete from downloads_url_chains;
+    delete from downloads_slices;" || { echo "FAIL: the downloads wouldn't clear" >&2; exit 1; }
+fi
 BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
