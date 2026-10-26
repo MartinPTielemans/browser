@@ -198,6 +198,9 @@ pub trait Browser {
     /// Gives a Space `icon`, an emoji or a glyph's `glyph:` name (`space_icon`), to show in place
     /// of its dot and before its name, or takes its icon away for an empty one.
     fn set_space_icon(&self, space: u64, icon: &str, cx: &mut App);
+    /// Gives a Space `theme`, as `theme::Theme` writes it, which the core keeps for the UI, or
+    /// takes it away for an empty one. Its main colour goes with `set_space_color`.
+    fn set_space_theme(&self, space: u64, theme: &str, cx: &mut App);
     /// Puts an empty Space in `profile`.
     fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
     /// Makes a profile named `name`, and returns it. It's listed once it's made.
