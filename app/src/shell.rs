@@ -1557,8 +1557,9 @@ pub struct Shell {
     selected: u64,
     /// Tabs of every Space, shown most recently first.
     recent: Vec<u64>,
-    /// ⌃ is held after a ⌃Tab, and the tabs it shows don't count as shown until it goes up.
-    walking: bool,
+    /// ⌃ is held after a ⌃Tab, which showed this tab. The tabs a walk shows don't count as shown
+    /// until ⌃ goes up, and then its last one does, though a click may have shown another since.
+    walked: Option<u64>,
     hovered: Option<Row>,
     /// The tab whose menu is up, whose row keeps its hover fill until the menu closes.
     menu_row: Option<u64>,
@@ -1699,7 +1700,7 @@ impl Shell {
             profiles: Vec::new(),
             tabs: HashMap::new(),
             recent: Vec::new(),
-            walking: false,
+            walked: None,
             selected: 0,
             hovered: None,
             menu_row: None,
@@ -2587,7 +2588,7 @@ impl Shell {
         self.selected = tab;
         self.show_in_space(tab);
         self.scroll_to_row(tab);
-        if !self.walking {
+        if self.walked.is_none() {
             self.shown(tab);
         }
         // check.sh reads this line.
@@ -2648,9 +2649,12 @@ impl Shell {
         }
     }
 
-    /// ⌃ went up, which ends a ⌃Tab walk on the tab it shows.
+    /// ⌃ went up, which ends a ⌃Tab walk on the tab it shows. A click ends it too, and the core
+    /// may report the tab the click showed before this runs, so the walk's tab counts first.
     pub fn control_released(&mut self, _: &mut Context<Self>) {
-        self.walking = false;
+        if let Some(walked) = self.walked.take().filter(|tab| self.tabs.contains_key(tab)) {
+            self.shown(walked);
+        }
         self.shown(self.selected);
     }
 
@@ -2900,10 +2904,10 @@ impl Shell {
         if tab == self.selected {
             return;
         }
-        if !self.walking {
-            self.walking = true;
+        if self.walked.is_none() {
             self.browser.watch_control(cx);
         }
+        self.walked = Some(tab);
         self.select(tab, cx);
     }
 
