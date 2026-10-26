@@ -6,7 +6,8 @@
 # character palette, after Change Icon…, takes its favicon's place until Remove Icon, as a Japanese
 # conversion's first character does once it's committed. A tab closed before the quit stays closed,
 # in the archive, from which the Library reopens it at its page. A page's downloads go in the
-# check's folder, and ⇧⌘J opens the Library on Downloads, which lists them. With one running, ⌘Q
+# check's folder, a new one's icon flies into the Library button, none of those a relaunch reads
+# does, and ⇧⌘J opens the Library on Downloads, which lists them. With one running, ⌘Q
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
 # After the relaunch, Remove from List and Clear List take them off the list and keep their files. A
 # SIGTERM, which macOS sends at logout and restart, keeps a tab opened just before it. Reports how
@@ -46,6 +47,11 @@ expect '^browser: download [0-9]* done notes.txt$' "the page's download didn't f
 [ -f "$out/downloads/notes.txt" ] || fail "the download isn't in the check's folder"
 send type s
 expect '^browser: download [0-9]* running slow.bin$' "the page's slow download didn't start"
+# Its icon flies into the Library button.
+d=$(grep -m1 '^browser: download [0-9]* running slow.bin$' "$log" | cut -d' ' -f3)
+expect "^browser: download flying $d\$" "the new download's icon didn't fly"
+../tools/window-screenshot.sh "$pid" "$out/download-flying.png" || fail "no window to capture"
+expect "^browser: download landed $d\$" "the new download's icon didn't land"
 send key j cmd shift
 expect '^browser: command view-downloads via page$' "⇧⌘J with the page focused didn't reach the UI"
 expect '^browser: library section downloads$' "⇧⌘J didn't open the Library on Downloads"
@@ -239,6 +245,8 @@ expect '^browser: library hidden$' "reopening a tab didn't close the Library"
 send click $page_point
 send key w cmd
 expect_tabs "$c $a" "$c" "after closing the tab from the archive"
+# The downloads the relaunch read didn't fly.
+grep -q '^browser: download flying ' "$log" && fail "a download the relaunch read flew in"
 # Remove from List in the cancelled download's menu takes it off the list, and Clear List in the
 # finished one's takes off every download that isn't running and keeps their files.
 send key j cmd shift
@@ -332,5 +340,5 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"

@@ -4,7 +4,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
@@ -26,6 +26,7 @@ mod commands;
 mod drag;
 mod extensions;
 mod favorites;
+mod fly_in;
 mod footer;
 mod header;
 mod library;
@@ -59,6 +60,7 @@ pub use panes::page_frame;
 pub use permission::{Answer, Question};
 use clean_link::clean_link;
 use commands::ShellHandle;
+use fly_in::Flight;
 use library::{RECEDE_X, Section};
 use menus::MenuAction;
 use panes::pane_frames;
@@ -816,6 +818,11 @@ pub struct Shell {
     /// The profile's downloads, newest first, and the file icons asked for them.
     downloads: Vec<Download>,
     download_icons: HashMap<u64, Option<Arc<Image>>>,
+    /// Every download a report has listed, whether one has come, and the new download's icon on its
+    /// way to the Library button.
+    downloads_seen: HashSet<u64>,
+    downloads_read: bool,
+    flight: Option<Flight>,
     /// Each profile's extensions, and those the menu bar lists, the shown Space's turned on.
     extensions: HashMap<u64, Vec<Extension>>,
     menu_extensions: Vec<Extension>,
@@ -932,6 +939,9 @@ impl Shell {
             page_favicons: HashMap::new(),
             downloads: Vec::new(),
             download_icons: HashMap::new(),
+            downloads_seen: HashSet::new(),
+            downloads_read: false,
+            flight: None,
             extensions: HashMap::new(),
             menu_extensions: Vec::new(),
             menu_spaces: Vec::new(),
@@ -1775,6 +1785,7 @@ impl Render for Shell {
         }
         self.step_library(window, cx);
         self.step_new_space(window);
+        self.step_flight(window);
         if let Some((_, left)) = &self.leaving_form {
             if left.elapsed().as_secs_f32() < FORM_LEAVE_TITLE + FORM_LEAVE {
                 window.request_animation_frame();
@@ -1985,6 +1996,7 @@ impl Shell {
             .child(self.library_button(cx))
             .child(self.plus_button(cx))
             .children(self.switcher(cx))
+            .children(self.flying_icon())
             .child(self.press_listener())
     }
 
