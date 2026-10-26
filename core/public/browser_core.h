@@ -465,6 +465,10 @@ BC_EXPORT void bc_set_haptics(bool haptics);
 // Spaces.
 BC_EXPORT bool bc_warn_before_quitting(void);
 BC_EXPORT void bc_set_warn_before_quitting(bool warn);
+// Whether the app warns before moving a tab to another profile's Space, which it does once, as Dia
+// does. The core keeps it with the Spaces.
+BC_EXPORT bool bc_warn_moving_profiles(void);
+BC_EXPORT void bc_set_warn_moving_profiles(bool warn);
 
 // What bc_download_act does: opens the file, or for one still running, opens it once it's done or
 // no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off
@@ -613,7 +617,10 @@ BC_EXPORT void bc_tab_close_below(bc_id tab);
 // Moves the tab to |space|: a pinned tab to the bottom of its pinned tabs, still pinned, a Today
 // tab to the top of its Today tabs. A window showing the tab shows |space| with it. Then
 // space_changed for both Spaces, and window_space_shown and window_selected for a window that went
-// with it.
+// with it. A page can't take its cookies and logins to another profile, so into another profile's
+// Space the tab goes as a new one, with its history, name and mute, which loads once it's shown.
+// The old one closes, kept out of the archive and ⇧⌘T's tabs, as it lives on in the new one; then
+// tab_closed.
 BC_EXPORT void bc_tab_move_to_space(bc_id tab, bc_id space);
 
 // Zooms the tab's page in (|step| 1) or out (-1) to Chrome's next level, or back to 100 % (0), for

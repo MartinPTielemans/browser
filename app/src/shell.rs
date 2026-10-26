@@ -971,8 +971,12 @@ pub trait Browser {
     fn close_below(&self, tab: u64, cx: &mut App);
     /// Opens a copy of `tab` with its history, under it in Today, and shows it.
     fn duplicate(&self, tab: u64, cx: &mut App);
-    /// Moves `tab` to `space`. The window goes with it if it shows it.
+    /// Moves `tab` to `space`. The window goes with it if it shows it. Into another profile's Space
+    /// it goes as a new tab, whose page loads there again.
     fn move_to_space(&self, tab: u64, space: u64, cx: &mut App);
+    /// Whether to warn before moving a tab to another profile's Space, which the UI does once.
+    fn warn_moving_profiles(&self, cx: &mut App) -> bool;
+    fn set_warn_moving_profiles(&self, warn: bool, cx: &mut App);
     /// Pins `tab` at the bottom of its Space's pinned tabs, or unpins it to the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App);
     /// Makes `tab` the favorite at `index` of the favorites without it, else the last, out of its
@@ -3122,6 +3126,38 @@ impl Shell {
         );
     }
 
+    /// Moves the tab to the Space, warning the first time it goes to another profile's, where its
+    /// page loads again without this profile's cookies and logins.
+    fn move_to_space(&mut self, tab: u64, space: u64, cx: &mut Context<Self>) {
+        let profile_of =
+            |space| self.spaces.iter().find(|each| each.id == space).map(|each| each.profile);
+        let to = profile_of(space);
+        if profile_of(self.space) == to || !self.browser.warn_moving_profiles(cx) {
+            return self.browser.move_to_space(tab, space, cx);
+        }
+        let name = (self.profiles.iter())
+            .find(|(profile, _)| Some(*profile) == to)
+            .map(|(_, name)| name.clone())
+            .unwrap_or_default();
+        let shell = cx.weak_entity();
+        self.browser.confirm(
+            format!("Move this tab to the “{name}” profile?"),
+            "Its page loads again there, without this profile's cookies and logins, so a site may \
+             ask you to sign in."
+                .into(),
+            "Move",
+            Box::new(move |cx| {
+                shell
+                    .update(cx, |shell, cx| {
+                        shell.browser.set_warn_moving_profiles(false, cx);
+                        shell.browser.move_to_space(tab, space, cx);
+                    })
+                    .ok();
+            }),
+            cx,
+        );
+    }
+
     /// Makes a profile, named as Chrome numbers them, and puts the empty Space in it.
     fn new_profile(&mut self, space: u64, cx: &mut Context<Self>) {
         let names: Vec<SharedString> = self.profiles.iter().map(|(_, name)| name.clone()).collect();
@@ -3230,12 +3266,10 @@ impl Shell {
         let panes = self.panes(tab);
         let last = panes[panes.len() - 1];
         let below = self.today().iter().skip_while(|&&id| id != last).count() > 1;
-        // The other Spaces of its profile, as its page stays in its own.
-        let profile = self.shown_space().map(|space| space.profile);
         let others: Vec<(u64, SharedString)> = self
             .spaces
             .iter()
-            .filter(|space| space.id != self.space && Some(space.profile) == profile)
+            .filter(|space| space.id != self.space)
             .map(|space| (space.id, space.name.clone()))
             .collect();
         let pin = MenuEntry::new(if pinned { "Unpin Tab" } else { "Pin Tab" }, true);
@@ -3290,7 +3324,7 @@ impl Shell {
             items.push((
                 MenuEntry::new(name, true).under(move_to),
                 "move-to-space",
-                Box::new(move |shell, cx| shell.browser.move_to_space(tab, space, cx)),
+                Box::new(move |shell, cx| shell.move_to_space(tab, space, cx)),
             ));
         }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));

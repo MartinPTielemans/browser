@@ -118,7 +118,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 |---|---|---|---|---|
 | [x] | Space model | MVP | name, colour, pinned, Today, profile; many Spaces per profile | decision 5 |
 | [x] | Switching to another profile's Space | MVP | the window's profile switches with it, and its favorites | decision 5 |
-| [ ] | Moving a tab across profiles | MVP | reloads after a one-time warning; ours offers only its profile's Spaces for now | Dia P§1 |
+| [x] | Moving a tab across profiles | MVP | reloads in the new profile after a one-time warning, with its history | Dia P§1 |
 | [x] | Favorites per Space or per profile | MVP | per profile; confirm in Arc | Arc |
 | [x] | Switcher footer | MVP | 50 tall; Library 32 at 8 in on the left; + 32 at 8 in on the right, its menu New Space… and New Folder… *interim*, Arc's: measure | Arc 1.170.0 cap, ax |
 | [x] | Switcher band | MVP | 42 in from each side; items 36 × 34 at a 34 pitch; none with one Space; more than fit: narrower *interim*, Arc's: measure | Arc 1.170.0 ax |
