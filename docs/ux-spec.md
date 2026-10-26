@@ -512,8 +512,8 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 
 | Item | Value |
 |---|---|
-| Width | 766, centred on the window, not on the page's card |
-| Top | y 305.5 of 949, 0.322 of the window's height, whatever the rows below; it grows down |
+| Width | 765, centred on the window, not on the page's card (Arc 1.170 rec: x 517.5 to 1282.5 of 1800) |
+| Top | 169 above the window's middle, whatever the rows below; it grows down. Arc 1.170 rec: y 396 of 1130, and the cap's y 305.5 of 949, which no fraction of the height fits |
 | Height | 328.5 with five rows: the input row 64, a 0.5 pt line, 4, the rows at 50 each, 10 below. The table holds more rows (11 in "wik") and scrolls inside the five |
 | Radius | ≈ 18 (cap, ± 1) |
 | Edge | a 0.5 pt outline (4, 4, 4) with a 1 pt grey one inside it, (89, 89, 93) |

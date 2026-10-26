@@ -59,8 +59,8 @@ void host_set_overlay_shape(int overlay, const double* corners, size_t count);
 
 // Shows the overlay over |ui_view|'s window and gives it the keyboard, |width| points wide: with
 // its top left at |left|, |top| in the window's content and ending at least 8 points inside it, or
-// if |centered|, centred, its top 0.322 of the window's height down. The other overlay closes, as
-// the user leaving it.
+// if |centered|, centred across it with its top |top| points above its middle. The other overlay
+// closes, as the user leaving it.
 void host_show_overlay(int overlay,
                        void* ui_view,
                        bool centered,

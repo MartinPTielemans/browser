@@ -920,9 +920,8 @@ void host_show_overlay(int index,
     const double height = NSHeight(overlay->window.frame);
     NSRect frame;
     if (centered) {
-      // Centred, with its top 0.322 of the way down, where Arc's is: y 305.5 in a window 949 tall.
-      frame = NSMakeRect(NSMidX(content) - width / 2,
-                         NSMaxY(content) - NSHeight(content) * 0.322 - height, width, height);
+      frame = NSMakeRect(NSMidX(content) - width / 2, NSMidY(content) + top - height, width,
+                         height);
     } else {
       frame = NSMakeRect(NSMinX(content) + left, NSMaxY(content) - top - height,
                          fmin(width, NSWidth(content) - left - 8), height);
