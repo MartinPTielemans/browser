@@ -32,7 +32,6 @@ mod library;
 mod menus;
 mod naming;
 mod new_space;
-mod new_tab;
 mod panes;
 mod permission;
 mod rows;
@@ -725,8 +724,6 @@ pub struct Shell {
     /// ⌘T's command bar is open, and "New Tab" has the selected plate in place of the tab shown
     /// (Arc).
     new_tab: bool,
-    /// When the New Tab page's intro started, while it runs.
-    new_tab_intro: Option<Instant>,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
@@ -862,7 +859,6 @@ impl Shell {
             closing: Vec::new(),
             clearing: Vec::new(),
             new_tab: false,
-            new_tab_intro: None,
             drag: None,
             dragged: false,
             swipe: None,
@@ -1358,14 +1354,11 @@ impl Shell {
         }
     }
 
-    /// Gives "New Tab" the selected plate while ⌘T's command bar is open, with the New Tab page in
-    /// the card in place of the page shown, or gives them back.
+    /// Gives "New Tab" the selected plate while ⌘T's command bar is open, or gives it back.
     fn set_new_tab(&mut self, new_tab: bool, cx: &mut Context<Self>) {
         if self.new_tab != new_tab {
             self.new_tab = new_tab;
-            self.browser.hide_page(new_tab, cx);
-            self.set_new_tab_intro(new_tab);
-            // check.sh reads this line, once the page is out or back.
+            // check.sh reads this line.
             log!("browser: new tab plate {}", new_tab as u8);
             cx.notify();
         }
@@ -1781,7 +1774,6 @@ impl Render for Shell {
             self.window_buttons = window_buttons;
             self.browser.show_window_buttons(window_buttons, cx);
         }
-        let intro = self.new_tab_intro(window);
         // The Library slides in from the left with the card's edge, over the sidebar receding.
         let library = self.library.is_some() && !self.page_fullscreen;
         let library = library.then(|| self.library_panel(cx));
@@ -1852,7 +1844,6 @@ impl Render for Shell {
             .child(div().absolute().size_full().bg(self.gradient(None)))
             // The page views go over the cards, as native views.
             .children(self.cards())
-            .children(intro)
             .children(self.pane_gaps(cx))
             .children(library)
             .children(sidebar)

@@ -615,13 +615,6 @@ impl Browser for Fake {
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
 
     // No command bar here, as for a new tab, and no split views but the made-up one.
-    fn new_tab_bar(&self, _: Bounds<Pixels>, cx: &mut App) {
-        self.command_bar(None, None, cx);
-    }
-
-    // The made-up pages are the card's own drawing.
-    fn hide_page(&self, _: bool, _: &mut App) {}
-
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {}
 
     fn separate(&self, _: u64, _: &mut App) {}
@@ -689,10 +682,6 @@ impl Browser for Fake {
     // macOS's default blue.
     fn accent_color(&self) -> u32 {
         0x007aff
-    }
-
-    fn reduce_motion(&self) -> bool {
-        false
     }
 
     // Menus are AppKit's, and the dialog's window is one the app's host lays over the browser

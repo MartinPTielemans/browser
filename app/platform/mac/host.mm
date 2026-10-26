@@ -803,10 +803,6 @@ uint32_t host_accent_color(void) {
          channel(color.blueComponent);
 }
 
-bool host_reduce_motion(void) {
-  return NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceMotion;
-}
-
 void host_watch_accent_color(void (*changed)(void)) {
   [NSNotificationCenter.defaultCenter addObserverForName:NSSystemColorsDidChangeNotification
                                                   object:nil

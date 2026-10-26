@@ -12,7 +12,7 @@ Parts of this file and of `ux-parity.md` are adapted from Ardia (https://github.
 
 1. Decision 5 overrides everything else. A Space holds tabs, pinned tabs and a colour. A profile holds cookies, history, logins and extensions. Dia and Ardia merge the two, so where a Dia value below says "profile", read it as "Space".
 2. Structure comes from Arc: what exists, where it sits, layout sizes and behavior. That covers the sidebar, Spaces, favorites, pinned and Today tabs, archive, split view, Peek, Little Arc and Boosts.
-3. Polish comes from Dia: materials, colours, the command bar, the New Tab page and motion. Interactions that only Arc has (sidebar reveal, Clear, Peek, Little Arc) keep Arc's motion.
+3. Polish comes from Dia: materials, colours, the command bar and motion. Dia's surfaces built around its assistant, such as its New Tab page, aren't copied (decision 6). Interactions that only Arc has (sidebar reveal, Clear, Peek, Little Arc) keep Arc's motion.
 4. Where an Arc value hasn't been measured yet, the Dia value is the target and is marked *interim*. The Arc capture plan at the end lists what will replace it.
 5. Values marked **Ardia** are Ardia's own choices, not measurements of Dia or Arc. Treat them as placeholders.
 
@@ -441,7 +441,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
   - The buttons are 36 tall at radius 8, the label in macOS's control font, 13 pt regular, 12 in from the left, and the key's chip, 20 tall at radius 5, 8 after it and 12 in from the right. Cancel is #2F305F with a 1 pt line of #6462A9 and text at white 0.9, its ESC chip 34.5 wide, #4D4B77 with 11 pt semibold #BBB9E3. The action is #E1492C on a 2 pt ledge of its colour at 0.2, and #CC4126 under the pointer, with a ↩ chip 30 wide, white 0.1 with a line of white 0.27.
   - Esc and Cancel cancel, ↩ and the action confirm, and the action happens once the dialog has gone (Motion › Dialog). Ours: a click on the dim cancels, Cancel doesn't change under the pointer, and the card has no icon over the question, where Arc's has its own.
 
-**Colour.** The Space colour drives the window gradient (Shared rules), the New Tab band and halo, and the accent. Dia's hue families are neutral, red, orange, yellow, green, blue, pink and purple. Only pink is measured: tint #B25B6B (P3), New Tab band #B5556B. Arc's presets and editor are under Themes.
+**Colour.** The Space colour drives the window gradient (Shared rules) and the accent. Dia's hue families are neutral, red, orange, yellow, green, blue, pink and purple. Only pink is measured: tint #B25B6B (P3), New Tab band #B5556B. Arc's presets and editor are under Themes.
 
 - Ours (*interim* until Arc's colour flow is captured): the Space's menu has Color, between Rename Space and Delete Space. Its submenu has System Accent, for no colour, then Dia's families as Gray, Red, Orange, Yellow, Green, Blue, Pink and Purple. Each has a round swatch, and the Space's own is checked.
   - Pink is Dia's, #BF556A in sRGB. The others share its HSL saturation 0.45 and lightness 0.54, at hues 4°, 26°, 46°, 145°, 214° and 268°; Gray has no saturation.
@@ -463,8 +463,8 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 
 **Opening**
 
-- ⌘L or a click on the URL field opens the panel out of the field, with the URL selected. On the New Tab page in our layout, ⌘L and a click both open it at the sidebar field, not at the centred box (Ardia, from user reports).
-- ⌘T opens the New Tab page (see New tab). Arc opens the command bar over the current page instead and makes no tab until a pick (Ardia's opt-in, P§7). Ours shows Dia's page and, like Arc, makes no tab until a pick.
+- ⌘L or a click on the URL field opens the panel out of the field, with the URL selected.
+- ⌘T opens the command bar over the page shown and makes no tab until a pick (Arc; Ardia's opt-in, P§7). Dia opens its New Tab page instead, which isn't ours (New tab).
 - ⇧⌘A opens Search Tabs.
 
 **Panel** (Dia 1.52 rec unless noted)
@@ -475,7 +475,7 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 | Text | the same x, baseline and size as in the field (13 pt); 48 in from the panel's left edge. The search glyph is centred 30 in |
 | Open | grows out of the field's box (Panel grow). Its left edge reaches 63, 82, 92, 95 and 99 % on successive 60 fps frames, and the height grows with it. The content doesn't move or scale; the growing shape uncovers it |
 | Close | measure (Dia and Arc) |
-| Radius | 20 continuous for the New Tab box (bin); ≈ 16 for the URL panel (1.49 cap): measure |
+| Radius | ≈ 16 for the URL panel (1.49 cap): measure |
 | Fill | opaque #2D2D2D / #FEFFFF (1.50.1 bin; the cap reads (45, 45, 45)). The 1.49 URL panel was ≈ #2A2A2A |
 | Border | 1 device pixel, rgba(120,125,134,0.32) in dark |
 | Shadow | black 0.12 (Dia's default), plus from 1.50 two layer shadows: black 0.08 radius 2 offset (0, 0.5), and black 0.04 radius 1 offset (0, 2) |
@@ -488,9 +488,9 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 - Ours (*interim* until Arc's sidebar panel is measured):
   - From the sidebar's URL field, the panel's left edge is the field's and it's 640 wide, ending at least 8 inside the window. Its input row is centred on the field, so the text keeps the field's x, baseline and 13 pt. There's no search glyph, since the field has none to the left of its text.
   - The grow is 1 − 2^(−10t / 0.13), from the panel's first frame on screen, at the field's box: 59, 83, 93 and 97 % on the 60 fps frames after it. The radius goes from the field's 12 to 16, and the shadow follows the shape.
-  - With the sidebar hidden, ⌘L's panel is the same panel centred a fifth of the way down the window, shown at once.
+  - ⌘T's panel is the same panel centred a fifth of the way down the window, shown at once.
   - Rows are 13 pt like the input, without favicons for now. A hovered row takes the hover token.
-  - The shadow is the system's window shadow on the panel's shape, without Dia's two layer shadows. Only the New Tab box has the bottom row.
+  - The shadow is the system's window shadow on the panel's shape, without Dia's two layer shadows. The bottom row isn't built yet.
 
 **Rows**
 
@@ -559,37 +559,7 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 
 ### New tab
 
-Dia's New Tab page (decision 6). The UI draws it; it is not a web page. That keeps New Tab → first paint off the JavaScript runtime (decision 4). A New Tab tab has a sidebar row and no page until the user goes somewhere.
-
-| Item | Value | Source |
-|---|---|---|
-| Page | the card over the Space tint, flat once the intro ends | Dia 1.50.1 cap |
-| Box width | 652 for a content area 708–1700 wide, 774 above that; below 708, min(width − 20, 616) | Dia bin, D›New Tab page |
-| Box x | max(midX − width/2, 14), measured 1 pt right of that | Dia bin + cap |
-| Box top | max(contentHeight/2 − 158, 100) + 38 within the card's content area, measured 1 pt lower | Dia bin + cap |
-| Box height / radius | 112 / 20 continuous. Fill, border and shadow as the panel | Dia 1.50.1 cap, bin |
-| Magnifier | centre 30.5 below the box top, ≈ 30 from its left, ≈ 14 wide | Dia 1.50.1 cap |
-| Bottom row | centred 30.5 above the box bottom. Holds the Go pill, greyed and inert while empty | Dia cap, Ardia |
-| Placeholder | "Search or enter address". Dia's "Ask anything…" is AI | Ardia |
-| Mark slot | Dia's: an 84 pt view, the mark 76 wide, centred 48.6 above the box top. The mark itself is ours or none | Dia 1.50.1 bin + cap |
-
-**Intro** (Dia 1.50.1 bin and 60 fps cap, D›1.50 New Tab intro). There is no box entrance, mark entrance, area light or edge light. Reduce Motion skips the whole intro.
-
-- **Band.** A soft band in the Space colour rises from the bottom (neutral: grey 0.5 at 0.65). It is blurred with radius 24 and covers from ≈ 125 above the box to ≈ 20 above the bottom edge. It peaks 100–200 ms after the page appears, passes the box at ≈ 300 ms, holds a low plateau from 400 to 1200 ms, then fades linearly to nothing by ≈ 3.25 s.
-- **Halo.** A 1 pt line just outside the box edge, half under the box, at radius 22, with a glow inside a frame 50 outside the box. It lights at the bottom centre at 225 ms, runs up both sides (peak ≈ 300 ms), meets at the top at 376 ms and is gone from the top by 529 ms. The line is at × 0.4 in dark mode; the glow is × 0.1 dark and × 0.12 light. The fragment maths is in D›1.50 New Tab intro.
-
-**Behavior** (Dia)
-
-- New Tab pages left untouched close when the app resigns active or the screen locks.
-- Going back to a New Tab page restores its query.
-- Dia 1.49's area light ran a 30 fps display link for up to 60 s, and its edge light and glass orb went with it. They are off in 1.50.1 and not ours: an idle New Tab page does no work.
-- Ours (*interim*: Dia's New Tab tab doesn't fit Arc's recorded plate, so this keeps Arc's structure with Dia's page):
-  - There's no New Tab tab. ⌘T gives "+ New Tab" the selected plate, as Arc's bar does, takes the page shown out of the card, hidden as a tab switched away from is, and opens the command bar as the box, all at once. Suggestions grow the box down from its top.
-  - A pick opens its tab, as from Arc's bar. Esc, a click outside the box, or another window or app taking focus closes the page: the tab gets its plate back, and its page comes back, with the keyboard if it had it. A click on the card only closes it, so the next click is the page's.
-  - The header shows no page: back, forward and reload are dimmed and the URL field is empty.
-  - The Go pill reads "Go", or what the search row names the engine, "DuckDuckGo Search", when ↩ would search. It's 16 in from the box's right edge, as far as it is above the bottom, and at 0.35 while nothing's typed.
-  - No mark.
-  - The intro is Dia's band and halo, in the Space's colour (the system accent for a Space without one), drawn by the UI in the card under the box, and skipped under Reduce Motion. The halo's sweep is fitted to Dia's capture, 1.25 (1 − 2^(−11.2 (t − 0.225))): the binary's, 1.25 (1 − 2^(−8 (t − 0.225))), would reach the top at 515 ms, not the 376 ms the capture shows. Its line and glow are strokes along the box's edge, the glow in three steps rather than Dia's falloff with noise in its width. The band's top starts 160 above the card's bottom, already over it when the page appears, and passes the box's middle at ≈ 300 ms. It shows 0.068 of the colour to 200 ms and 0.036 from 400 ms, then fades from 730 ms to nothing at 3.4 s, the binary's fade. Its blur is a soft top 48 tall, and its bottom fades out over the card's last 48.
+⌘T opens the command bar over the page shown and makes no tab until a pick (Arc; Command bar › Opening). Dia's New Tab page isn't ours (decision 6): its box is the assistant's chat field, and its empty card holds the answers. Its measurements and intro are in D›New Tab page and D›1.50 New Tab intro.
 
 ### Split view
 
@@ -599,7 +569,7 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
 - **Focus.** A click in a pane focuses it. ⌘W and Close this Split Pane close the focused pane, and the one beside it takes focus. Separate Page from Split View puts the focused pane in its own row under the split, shown alone. The find bar, the zoom HUD and a tab's dialogs, such as print preview, go over the focused pane.
 - **Sizes.** The gap between two panes drags them wider and narrower, or taller and shorter stacked, under a resize cursor. Each keeps a tenth of the card, no less than 50 pt and no more than 200, and the gap snaps to even within 15 pt (Chrome's, *interim*: Arc's limits and the divider's motion aren't measured). A double-click on the gap evens them, as one on the sidebar's edge puts its width back. Sizes go with places, not tabs: Flip and Move Pane keep them where they were, Change Orientation turns them onto the new axis, and a tab joining or leaving evens them.
 - **In the sidebar.** A split is one row of equal segments with a 1 pt line between them: each segment's favicon (18) 7 into it, its title 10 after that, ending 5 before the next line (Arc). The row counts as one for ⌘1–⌘9, ⌃Tab and next or previous tab, which show the pane focused last. Its ✕ closes all its tabs, and on a pinned split it unloads them and the row stays a split. Moving or pinning the row moves the split; Move to Space takes one tab out.
-- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel 77 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). Dragging a tab from the sidebar onto the page shows the targets, below. ⌥-click on "+ New Tab" adds a pane as Add Split View does; Dia's opens its New Tab page in the pane, which we don't have yet. ⌥⇧-click on a link opens it in a pane on the right, focused (Dia), and so do ⌥⌘-click and the page menu's Open Link in Split View (Chrome). In a split with three panes the link opens as a tab of its own.
+- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel 77 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). Dragging a tab from the sidebar onto the page shows the targets, below. ⌥-click on "+ New Tab" adds a pane as Add Split View does; Dia's opens its New Tab page in the pane, which isn't ours (New tab). ⌥⇧-click on a link opens it in a pane on the right, focused (Dia), and so do ⌥⌘-click and the page menu's Open Link in Split View (Chrome). In a split with three panes the link opens as a tab of its own.
 - **Commands.** Arc's View menu: Add Split View ⌃+, Close this Split Pane ⌃⇧-, Separate Page from Split View, and Expand Current Split (to build). Dia's Flip, Change Orientation, Move Pane Left/Right and Separate All are in the command bar as Flip Split View, Change Orientation, Move Pane Left, Move Pane Right and Separate All Pages, kept out of Arc's menu; the focused page stays focused. Change Orientation stacks the panes or puts them back side by side; in a stacked split, left is up (*interim*: Dia's names for them there aren't recorded). ⌃⇧] and ⌃⇧[ focus the next and previous pane (Dia, *interim*).
 - **Kept.** A split comes back after a quit, stacked if it was, at its sizes, and so does one brought back by ⇧⌘T or Undo Clear, at even sizes.
 

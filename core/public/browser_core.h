@@ -494,11 +494,6 @@ BC_EXPORT void bc_window_set_page_color(bc_id window, uint32_t color);
 // that one. Then window_space_shown if the Space changed, and window_selected.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
-// Takes the page the window shows, and the rest of its split view, out of the window while the app
-// draws in its place, as for the New Tab page, or with |hidden| false puts it back. They're hidden
-// as a tab switched away from is, and their tab stays selected. Showing a tab puts its page back.
-BC_EXPORT void bc_window_hide_page(bc_id window, bool hidden);
-
 // Clears the Space the window shows: closes its Today tabs but those it shows, as bc_tab_close
 // does, for bc_window_undo_clear to bring back. Returns how many tabs it closed.
 BC_EXPORT size_t bc_window_clear(bc_id window);

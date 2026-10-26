@@ -102,14 +102,12 @@ suggest_example() {
   expect "^browser: command bar suggestions \"example\" in [0-9.]* ms: https://duckduckgo.com/?q=example, .*https://$1/ tab " \
     "the command bar didn't suggest $1's tab: $(suggestions | tr '\n' ' ')"
   rows=$(suggestions | wc -l | tr -d ' ')
-  # ⌘T's bar is the New Tab box: its input row, the rows with their inset, then its bottom row.
-  height=$((61 + 8 + 36 * rows + 51))
   # The bar may have grown to as many rows before.
   for _ in $(seq 50); do
-    [ "$(bar_height)" = $height ] && break
+    [ "$(bar_height)" = $((54 + 8 + 36 * rows)) ] && break
     sleep 0.1
   done
-  [ "$(bar_height)" = $height ] || fail "the command bar is $(bar_height) tall, not fitting $rows rows"
+  [ "$(bar_height)" = $((54 + 8 + 36 * rows)) ] || fail "the command bar is $(bar_height) tall, not fitting $rows rows"
   none_since "https://$2/ tab " || fail "the command bar suggested $2's tab, which is shown"
 }
 suggest_example example.com example.org
