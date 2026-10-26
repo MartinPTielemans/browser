@@ -28,8 +28,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Close confirmations | MVP | none: a closed window's tabs go to the window in front before it, live, so nothing is lost *interim*; Dia asks "Close 3 tabs?". Arc: measure | Dia P§1 |
 | [x] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
 | [ ] | Window full screen with the sidebar | MVP | built (the sidebar stays docked, the window's buttons come down with it, the command bar opens; window check); Arc's: measure | — |
-| [x] | Toast | MVP | at the window's top right, 46.5 tall, 4.5 and 4 in; medium text with a key's chip; grows from 0.7 on spring 0.32 s / ζ 0.52, fades in over 100 ms, leaves over 70 ms. Text size and fill *interim* | Arc 1.170 rec |
-| [ ] | Toast's other uses | MVP | Copy URL's note is built ("Copied URL", 2 s, *interim*); ⌘W's note for an archived tab isn't shown. Arc's words and timing for both: measure | Arc |
+| [x] | Toast | MVP | 46.5 tall, 8 inside the card's top right corner; medium text with a key's chip; grows from 0.7 on spring 0.32 s / ζ 0.52, fades in over 100 ms, leaves over 70 ms. Text size and fill *interim* | Arc 1.170 rec |
+| [ ] | Toast's other uses | MVP | ⇧⌘C's says "Copied Current URL" (Arc 1.170 rec), for 2 s *interim*; its share button comes with Share; ⌘W's note for an archived tab isn't shown; whether Arc has one: measure | Arc 1.170 rec |
 
 ## Sidebar
 
