@@ -12,9 +12,9 @@ use super::{
     LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
     PRESSED, ROW_FILL, ROW_HEIGHT, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE,
     SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
-    Shell, Slot, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon, folder_icon,
-    name_box, new_tab_label, plate, row_box, row_spring, selected_plate, space_icon, split_plate,
-    title,
+    Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
+    folder_icon, name_box, new_tab_label, plate, row_box, row_spring, selected_plate, space_icon,
+    split_plate, swap::folder_glyph, title,
 };
 
 impl Shell {
@@ -176,7 +176,13 @@ impl Shell {
             None => title(self.folder_name(folder), false).pr(px(TITLE_END_INSET)),
         };
         let renaming = renaming.is_some();
-        self.row(Row::Tab(folder), plate(folder_icon(open), label), cx).when(!renaming, |row| {
+        let icon = self.swaps.glyph(
+            Swapped::Folder(folder),
+            folder_glyph(open),
+            FAVICON_DRAWN,
+            rgba(SECONDARY).into(),
+        );
+        self.row(Row::Tab(folder), plate(icon, label), cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -227,7 +233,7 @@ impl Shell {
     /// which a click mutes or unmutes (Dia).
     fn speaker(&self, tab: u64, cx: &mut Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
         let page = self.page(tab);
-        let icon = if page.muted { "icons/volume-x.svg" } else { "icons/volume-2.svg" };
+        let icon = speaker_glyph(page.muted);
         (page.audible || page.muted).then(|| {
             div()
                 .id(("speaker", tab))
@@ -239,7 +245,12 @@ impl Shell {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(svg().path(icon).size(px(SPEAKER_DRAWN)).text_color(rgba(SECONDARY)))
+                .child(self.swaps.glyph(
+                    Swapped::Speaker(tab),
+                    icon,
+                    SPEAKER_DRAWN,
+                    rgba(SECONDARY).into(),
+                ))
                 // Not a double-click's rename.
                 .on_mouse_down(MouseButton::Left, |event: &MouseDownEvent, _, cx| {
                     if event.click_count == 2 {
@@ -568,6 +579,11 @@ impl Shell {
             },
         ))
     }
+}
+
+/// The speaker after a playing tab's favicon, crossed out while it's muted.
+pub(super) fn speaker_glyph(muted: bool) -> &'static str {
+    if muted { "icons/volume-x.svg" } else { "icons/volume-2.svg" }
 }
 
 /// A loading tab's ring, at the row's trailing edge, turning.

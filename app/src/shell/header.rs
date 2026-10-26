@@ -3,13 +3,14 @@
 
 use std::time::Instant;
 
-use gpui::{Bounds, Context, Pixels, Window, div, point, prelude::*, px, rgba, size, svg};
+use gpui::{Bounds, Context, Hsla, Pixels, Window, div, point, prelude::*, px, rgba, size, svg};
 
 use super::{
     BACK_X, Command, FORWARD_X, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS,
     NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY, SIDEBAR_BUTTON_X, Shell,
     TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD, URL_FIELD_HEIGHT,
-    URL_FIELD_TEXT_X, URL_FIELD_TOP, fade_at, host,
+    Swapped, URL_FIELD_TEXT_X, URL_FIELD_TOP, fade_at, host,
+    swap::{CHECK, LINK},
 };
 
 impl Shell {
@@ -23,6 +24,12 @@ impl Shell {
         enabled: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
+        let color = Hsla::from(rgba(if enabled { NAV } else { NAV_DISABLED }));
+        // Reload and stop are one button, which changes with the tab shown's page.
+        let glyph = match x == RELOAD_X {
+            true => self.swaps.glyph(Swapped::Reload(self.selected), icon, NAV_GLYPH, color),
+            false => svg().path(icon).size(px(NAV_GLYPH)).text_color(color).into_any_element(),
+        };
         div()
             .id(command.name())
             .absolute()
@@ -41,12 +48,7 @@ impl Shell {
                         shell.run(command, "sidebar", cx)
                     }))
             })
-            .child(
-                svg()
-                    .path(icon)
-                    .size(px(NAV_GLYPH))
-                    .text_color(rgba(if enabled { NAV } else { NAV_DISABLED })),
-            )
+            .child(glyph)
     }
 
     /// The sidebar button, back, forward, and reload, which is stop while the page loads, as many
@@ -54,8 +56,8 @@ impl Shell {
     pub(super) fn nav_buttons(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         let page = self.page(self.selected);
         let reload = match page.loading {
-            true => (RELOAD_X, "icons/nav-stop.svg", Command::Stop, true),
-            false => (RELOAD_X, "icons/nav-reload.svg", Command::Reload, self.selected != 0),
+            true => (RELOAD_X, reload_glyph(true), Command::Stop, true),
+            false => (RELOAD_X, reload_glyph(false), Command::Reload, self.selected != 0),
         };
         let buttons = [
             (SIDEBAR_BUTTON_X, "icons/nav-sidebar.svg", Command::ToggleSidebar, true),
@@ -110,16 +112,12 @@ impl Shell {
                         .hover(|style| style.bg(rgba(NAV_HOVERED)))
                         .on_click(cx.listener(|shell, _, _, cx| shell.copy_url_from_button(cx)))
                 })
-                .child(
-                    svg()
-                        .path(if self.url_copied.is_some() {
-                            "icons/check.svg"
-                        } else {
-                            "icons/link.svg"
-                        })
-                        .size(px(URL_BUTTON_GLYPH))
-                        .text_color(rgba(NAV)),
-                )
+                .child(self.swaps.glyph(
+                    Swapped::CopyUrl,
+                    if self.url_copied.is_some() { CHECK } else { LINK },
+                    URL_BUTTON_GLYPH,
+                    rgba(NAV).into(),
+                ))
         });
         let text_end = match copy {
             Some(_) => URL_BUTTON_INSET + buttons_width + URL_BUTTON_SIZE,
@@ -197,4 +195,9 @@ impl Shell {
             log!("browser: sidebar tools {}", if shown { "shown" } else { "hidden" });
         }
     }
+}
+
+/// The header's reload, which is stop while the page loads.
+pub(super) fn reload_glyph(loading: bool) -> &'static str {
+    if loading { "icons/nav-stop.svg" } else { "icons/nav-reload.svg" }
 }
