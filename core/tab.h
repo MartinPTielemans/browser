@@ -65,6 +65,10 @@ class Tab : public content::WebContentsObserver,
   // swaps in takes it too, which Chrome's views do on their own only off the Mac.
   void SetPageColor(SkColor color);
 
+  // The modifier keys held at the user's last click or key in the page, as blink::WebInputEvent's
+  // flags: what a link it opens was opened with.
+  int input_modifiers() const { return input_modifiers_; }
+
   // When a window last stopped showing the tab, else when it opened, for the auto-archive.
   base::Time last_seen() const { return last_seen_; }
   void set_last_seen(base::Time time) { last_seen_ = time; }
@@ -110,6 +114,7 @@ class Tab : public content::WebContentsObserver,
   base::Time last_seen_ = base::Time::Now();
   std::optional<SkColor> page_color_;
   bool state_report_posted_ = false;
+  int input_modifiers_ = 0;
   // The favicon the app was last told of.
   gfx::Image favicon_;
   base::ScopedObservation<favicon::FaviconDriver, favicon::FaviconDriverObserver>

@@ -52,6 +52,12 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 - **Reading.** The keyboard path is learned at the moment it's useful, not from a help page.
 - **Applies.** A button with a key shows the key on the button. A message that can be undone names the undo's key.
 
+## A modifier changes where, not what
+
+- **Seen.** ⌥↩ in the command bar opens its URL in a pane on the right (Split view › Creating a split). Dia puts the same ⌥ on "+ New Tab", and on a link with ⇧, since ⌥-click on a link downloads it; Chrome's is ⌥⌘-click. ⌘-click opens a link in a background tab and ⇧⌘-click in front (Keyboard).
+- **Reading.** The action stays one you know, and the modifier picks where its result goes. That's one more key to learn, not one more command.
+- **Applies.** A new destination for an existing action is a modifier on that action, not a new command. ⌥ puts the result beside the page. A modifier means the same in the command bar, the sidebar and the page.
+
 ## Delight on rare paths only
 
 - **Seen.** Making a Space plays an illustration for about 2 s, and the pull glows. Switching, closing and clearing tabs have no flourish, and Clear has no toast.

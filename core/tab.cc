@@ -267,6 +267,7 @@ void Tab::ReportTitle() {
 }
 
 void Tab::DidGetUserInteraction(const blink::WebInputEvent& event) {
+  input_modifiers_ = event.GetModifiers();
   // A click, not the keyboard coming to the page: the core moves the keyboard between the pages of
   // a split view itself, and focus reports posted from those moves arrive after the next one.
   if (event.GetType() == blink::WebInputEvent::Type::kMouseDown) {

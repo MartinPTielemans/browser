@@ -4,7 +4,9 @@
 // owner's mouse or keyboard. Input methods are system-wide, so instead of switching the owner's,
 // the driver has a scripted one of its own.
 //
-//   click <x> <y>                         left click, in points from the window's top-left corner
+//   click <x> <y> [cmd] [shift] [alt] [ctrl]
+//                                         left click, in points from the window's top-left
+//                                         corner, with those modifiers held
 //   doubleclick <x> <y>                   two left clicks, the second with a click count of 2
 //   rightclick <x> <y>                    a right click
 //   clickkey <x> <y>                      a left click in the key window, such as the command bar
@@ -120,10 +122,15 @@ NSWindow* MainWindow() {
   return main;
 }
 
-void PostMouse(NSWindow* window, NSEventType type, double x, double y, int count) {
+void PostMouse(NSWindow* window,
+               NSEventType type,
+               double x,
+               double y,
+               int count,
+               NSEventModifierFlags flags = 0) {
   NSEvent* event = [NSEvent mouseEventWithType:type
                                       location:NSMakePoint(x, NSHeight(window.frame) - y)
-                                 modifierFlags:0
+                                 modifierFlags:flags
                                      timestamp:NSProcessInfo.processInfo.systemUptime
                                   windowNumber:window.windowNumber
                                        context:nil
@@ -187,9 +194,23 @@ NSWindow* WindowAt(NSWindow* browser, double x, double y) {
   return browser;
 }
 
-void Click(NSWindow* window, double x, double y, int count) {
-  PostMouse(window, NSEventTypeLeftMouseDown, x, y, count);
-  PostMouse(window, NSEventTypeLeftMouseUp, x, y, count);
+void Click(NSWindow* window, double x, double y, int count, NSEventModifierFlags flags = 0) {
+  PostMouse(window, NSEventTypeLeftMouseDown, x, y, count, flags);
+  PostMouse(window, NSEventTypeLeftMouseUp, x, y, count, flags);
+}
+
+// The modifiers named in the rest of |words|: cmd, shift, alt and ctrl.
+NSEventModifierFlags Modifiers(std::istringstream& words) {
+  NSEventModifierFlags flags = 0;
+  std::string modifier;
+  while (words >> modifier) {
+    flags |= modifier == "cmd"     ? NSEventModifierFlagCommand
+             : modifier == "shift" ? NSEventModifierFlagShift
+             : modifier == "alt"   ? NSEventModifierFlagOption
+             : modifier == "ctrl"  ? NSEventModifierFlagControl
+                                   : 0;
+  }
+  return flags;
 }
 
 bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
@@ -475,7 +496,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     NSWindow* target = WindowAt(window, x, y);
     Convert(window, target, &x, &y);
-    Click(target, x, y, 1);
+    Click(target, x, y, 1, Modifiers(words));
     done();
     return true;
   }
@@ -692,18 +713,11 @@ bool Run(const std::string& line, void (^done)(void)) {
   }
   NSWindow* key_window = NSApp.keyWindow ?: window;
   if (action == "key" || action == "flags") {
-    std::string key, modifier;
+    std::string key;
     if (action == "key") {
       words >> key;
     }
-    NSEventModifierFlags flags = 0;
-    while (words >> modifier) {
-      flags |= modifier == "cmd"     ? NSEventModifierFlagCommand
-               : modifier == "shift" ? NSEventModifierFlagShift
-               : modifier == "alt"   ? NSEventModifierFlagOption
-               : modifier == "ctrl"  ? NSEventModifierFlagControl
-                                     : 0;
-    }
+    NSEventModifierFlags flags = Modifiers(words);
     if (action == "flags") {
       // As the left ⌃ key would report it.
       [NSApp postEvent:[NSEvent keyEventWithType:NSEventTypeFlagsChanged

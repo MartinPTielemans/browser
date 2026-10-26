@@ -13,7 +13,7 @@ use std::{
 
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, AssetSource, Bounds, BoxShadow, Context,
-    CursorStyle,
+    ClickEvent, CursorStyle,
     DispatchPhase, Entity, FocusHandle, Focusable, FontWeight, Global, Hsla, Image, KeyBinding,
     MenuItem, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, Pixels,
     Point, Rgba, ScrollDelta, ScrollEvent, ScrollHandle, SharedString, Size, Subscription, Task,
@@ -5038,8 +5038,14 @@ impl Shell {
 
     fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let (plus, label) = new_tab_label();
-        self.row(Row::NewTab, plate(plus, label), cx)
-            .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::NewTab, "sidebar", cx)))
+        // ⌥-click opens the new tab beside the page, as Dia's does.
+        self.row(Row::NewTab, plate(plus, label), cx).on_click(cx.listener(
+            |shell, event: &ClickEvent, _, cx| {
+                let command =
+                    if event.modifiers().alt { Command::AddSplit } else { Command::NewTab };
+                shell.run(command, "sidebar", cx)
+            },
+        ))
     }
 }
 

@@ -226,7 +226,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Opens |saved|, a closed tab, unloaded, at |index| in |space|'s Today tabs, else at the top of
   // the Space the window shows. Returns its id, or 0.
   bc_id Reopen(bc_id space, size_t index, const SavedTab& saved);
-  void ReportTabOpened(bc_id tab, bc_id opener, bool foreground);
+  // |split_with| is the tab whose page opened it to show beside it, or 0.
+  void ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with);
   // Shows next_after_closing_, as the tab shown has closed.
   void SelectAfterClosing();
   // Shows no page, as for a Space without tabs.
@@ -270,6 +271,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;
   bool opening_tab_ = false;
+  // The tab whose page the navigation being made opens a tab beside, until that tab is inserted.
+  bc_id split_with_ = 0;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;
   base::WeakPtrFactory<Window> weak_factory_{this};
 };
