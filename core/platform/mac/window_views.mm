@@ -36,6 +36,17 @@
 }
 @end
 
+// Chromium's occlusion checker, and the flag it keeps on each window, which content doesn't export
+// in a component build.
+@protocol BrowserCoreOcclusionChecker
++ (instancetype)sharedInstance;
+- (void)performOcclusionStateUpdates;
+@end
+
+@protocol BrowserCoreOccludedWindow
+- (BOOL)isOccluded;
+@end
+
 // Holds the app's UI view and, over it, the pages shown, left to right, with the focused one's ring
 // in a split view. Flipped, so frames run from the top-left as the core's do.
 @interface BrowserCoreWindowView : NSView
@@ -138,6 +149,20 @@ CACornerMask CornersReached(NSView* view, NSRect rect, NSSize frame) {
          (right && max_y ? kCALayerMaxXMaxYCorner : 0);
 }
 
+// Chromium's occlusion checker passes over a window with no page in it, so a window that comes
+// back from full screen or from behind another while the page is out can stay marked occluded,
+// and a page put in it then never draws or hands back the keys it doesn't use. Chrome's windows
+// always hold a page. Asked again only for a window marked occluded: the checker asks the window
+// server about every window, which takes milliseconds.
+void UpdateOcclusion(NSWindow* window) {
+  if (![window respondsToSelector:@selector(isOccluded)] ||
+      ![static_cast<id<BrowserCoreOccludedWindow>>(window) isOccluded]) {
+    return;
+  }
+  Class<BrowserCoreOcclusionChecker> checker = NSClassFromString(@"WebContentsOcclusionCheckerMac");
+  [[checker sharedInstance] performOcclusionStateUpdates];
+}
+
 constexpr CACornerMask kAllCorners = kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner |
                                      kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner;
 
@@ -165,6 +190,7 @@ void ShowPages(views::Widget* widget,
                size_t focused,
                uint32_t ring_color) {
   BrowserCoreWindowView* view = WindowView(widget);
+  const bool had_page = view.panes.count > 0;
   NSMutableSet<NSView*>* staying = [NSMutableSet set];
   for (const Pane& pane : panes) {
     [staying addObject:pane.page.GetNativeNSView()];
@@ -240,6 +266,9 @@ void ShowPages(views::Widget* widget,
     [view.ring removeFromSuperview];
   }
   [view layOutPage];
+  if (!had_page && !panes.empty()) {
+    UpdateOcclusion(view.window);
+  }
 }
 
 bool KeyboardForPage(views::Widget* widget) {
