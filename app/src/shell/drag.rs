@@ -10,8 +10,9 @@ use gpui::{
 };
 
 use super::{
-    Closing, Curve, DRAG_START, Drag, FOLDER_INDENT, Opened, PLATE_HEIGHT, PLATE_INSET,
-    PLATE_RADIUS, Place, ROW_HEIGHT, ROW_PITCH, Shape, Shell, Slot, TILE_HEIGHT, TILE_RADIUS, slots,
+    Closing, Curve, DRAG_START, Drag, FOLDER_INDENT, NAME_HEIGHT, Opened, PLATE_HEIGHT,
+    PLATE_INSET, PLATE_RADIUS, Place, ROW_HEIGHT, ROW_PITCH, Shape, Shell, Slot, TILE_HEIGHT,
+    TILE_RADIUS, slots,
 };
 
 /// The tab that links or files dragged in stand for until they're dropped: none, as the core
@@ -70,14 +71,13 @@ impl Shell {
     }
 
     /// How far a row is drawn from its place: where the pointer has a dragged one, and others while
-    /// they slide there or make room for it.
+    /// they slide there.
     pub(super) fn slide(&self, slot: Slot) -> f32 {
         let drag = self.drag.as_ref().filter(|drag| drag.moving);
         if let Some(drag) = drag.filter(|drag| slot == Slot::Tab(drag.tab)) {
             return self.drag_at(drag) - drag.top;
         }
-        let room = drag.and_then(|drag| drag.room.get(&slot)).copied().unwrap_or(0.);
-        room + self.slides.get(&slot).map_or(0., |&(from, start, curve)| {
+        self.slides.get(&slot).map_or(0., |&(from, start, curve)| {
             curve.at(start.elapsed().as_secs_f32()).map_or(0., |done| from * (1. - done))
         })
     }
@@ -221,8 +221,7 @@ impl Shell {
             to: from,
             from_depth: self.depth(tab),
             depth: self.depth(tab),
-            room: HashMap::new(),
-            divider: true,
+            line: None,
             dropped: false,
             over_page: None,
             shape: Shape::new(matches!(from, Place::Favorite(_))),
@@ -232,10 +231,10 @@ impl Shell {
 
     /// The pointer pressing a row or a tile moved to `position`. Past DRAG_START the tab comes away
     /// and follows it. Over the favorites it's a tile, and the tiles make room for it at the place
-    /// nearest it. Over the list it's a row, which goes up and down, and the rows make room for it
-    /// at the place, in the pinned tabs or Today, nearest where it's drawn. Where that's at the end
-    /// of folders or after one, the pointer moved right takes it into them, a row in for each
-    /// FOLDER_INDENT. A split view's row stays in the list, and a folder's in the pinned tabs.
+    /// nearest it. Over the list it's a row, which goes up and down over rows that stay put, and a
+    /// line marks the place, in the pinned tabs or Today, nearest where it's drawn. Where that's
+    /// at the end of folders or after one, the pointer moved right takes it into them, a row in for
+    /// each FOLDER_INDENT. A split view's row stays in the list, and a folder's in the pinned tabs.
     fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped && !drag.held) else {
             return;
@@ -252,6 +251,7 @@ impl Shell {
         };
         let (tab, to, grab, span, kept_depth) =
             (drag.tab, drag.to, drag.grab, drag.span, drag.depth);
+        let (from, from_depth) = (drag.from, drag.from_depth);
         let pointer = in_sidebar(position, drag.origin);
         // Rows in, from where it was, by how far the pointer has gone right. Links dragged in go
         // in as far as the row under them.
@@ -272,7 +272,7 @@ impl Shell {
             && self.panes(tab).len() == 1
             && (kept || pointer.y < self.list_top_with(favorites + 1) - self.tiles_scrolled());
         let mut depth = 0;
-        let (place, layout, span) = if over_favorites {
+        let (place, span, line) = if over_favorites {
             let centre = pointer - grab.1;
             let places = self.tile_places(favorites + 1);
             let distance = |index: &usize| {
@@ -284,7 +284,7 @@ impl Shell {
             let index = (0..places.len()).min_by(|a, b| distance(a).total_cmp(&distance(b)));
             // Its row keeps its indent while it turns into a tile.
             depth = kept_depth;
-            (Place::Favorite(index.unwrap_or(0)), slots(&pinned, &today), span)
+            (Place::Favorite(index.unwrap_or(0)), span, None)
         } else {
             let fits = |&gap: &usize| self.gap_depths(&pinned, gap, tab).is_some();
             let places = (0..=pinned.len()).filter(fits).map(|index| (true, index));
@@ -302,7 +302,7 @@ impl Shell {
             let (first, last) = (layouts[0].1, layouts[layouts.len() - 1].1);
             let span = (first.min(last), first.max(last));
             let at = (self.list_y(pointer.y) - grab.0).clamp(span.0, span.1);
-            let Some(((in_pinned, index), _, layout)) =
+            let Some(((in_pinned, index), _, _)) =
                 layouts.into_iter().min_by(|a, b| (a.1 - at).abs().total_cmp(&(b.1 - at).abs()))
             else {
                 return;
@@ -310,13 +310,17 @@ impl Shell {
             if in_pinned && let Some((low, high)) = self.gap_depths(&pinned, index, tab) {
                 depth = wants.clamp(low, high);
             }
-            (Place::List(in_pinned, index), layout, span)
+            let place = Place::List(in_pinned, index);
+            let line = self.line_at(&pinned, &today, place);
+            let stays = place == from && depth == from_depth;
+            (place, span, line.filter(|_| !stays))
         };
         if let Some(drag) = &mut self.drag {
             drag.moving = true;
             drag.pointer = pointer;
             drag.span = span;
             drag.depth = depth;
+            drag.line = line;
             drag.shape.turn(over_favorites, Instant::now());
         }
         // Links dragged in have no place before their first, which they didn't pass a row to get.
@@ -325,32 +329,41 @@ impl Shell {
             self.drag_detent(cx);
         }
         if place != to {
-            // The rows and tiles that make room, or no longer need to, start from where they're
-            // drawn.
-            let now = Instant::now();
-            let room: HashMap<Slot, f32> = self
-                .layout()
-                .into_iter()
-                .filter(|&(slot, _)| slot != Slot::Tab(tab))
-                .filter_map(|(slot, top)| {
-                    let moved = layout.get(&slot)? - top;
-                    (moved != 0.).then_some((slot, moved))
-                })
-                .collect();
-            let old = self.drag.as_ref().map(|drag| drag.room.clone()).unwrap_or_default();
-            for slot in old.keys().chain(room.keys()).copied().collect::<Vec<_>>() {
-                let from = self.slide(slot) - room.get(&slot).copied().unwrap_or(0.);
-                self.slides.insert(slot, (from, now, Curve::Reorder));
+            // The tiles that make room, or no longer need to, start from where they're drawn. The
+            // rows stay put, as Arc's do, so the line, not the list, shows where it would go.
+            // check.sh waits for these lines.
+            match place {
+                Place::List(true, index) if line.is_some() => {
+                    log!("browser: drop line in pinned {index}")
+                }
+                Place::List(false, index) if line.is_some() => {
+                    log!("browser: drop line in today {index}")
+                }
+                _ => {}
             }
             let tiles = self.drawn();
             if let Some(drag) = &mut self.drag {
                 drag.to = place;
-                drag.room = room;
-                drag.divider = layout.contains_key(&Slot::Divider);
             }
             self.move_tiles(tiles, Curve::Reorder);
         }
         cx.notify();
+    }
+
+    /// Where the drop line for `place` in the list goes, down from the list's top: halfway
+    /// between the plates of the rows either side of the gap, in the list as it's drawn, without
+    /// the dragged tab in `pinned` and `today`. None for the favorites.
+    fn line_at(&self, pinned: &[u64], today: &[u64], place: Place) -> Option<f32> {
+        let Place::List(in_pinned, index) = place else {
+            return None;
+        };
+        let above = match (in_pinned, index.checked_sub(1)) {
+            (true, at) => at.map(|at| Slot::Tab(pinned[at])),
+            (false, at) => Some(at.map_or(Slot::NewTab, |at| Slot::Tab(today[at]))),
+        };
+        let layout = self.layout();
+        let below = above.map_or(Some(NAME_HEIGHT), |slot| Some(layout.get(&slot)? + ROW_PITCH))?;
+        Some(below - (ROW_PITCH - ROW_HEIGHT) / 2.)
     }
 
     /// A click on the trackpad, as the dragged row passes another or goes into a folder: one for
@@ -421,9 +434,9 @@ impl Shell {
     }
 
     /// A drag from the page or another app, carrying links or files, is at `position` in the
-    /// window. Over the list of the docked sidebar, the rows make room for them at the place
-    /// nearest, as for a dragged row, and it returns whether they'd open there. Not while the
-    /// Library, a swipe or a row's drag has the sidebar.
+    /// window. Over the list of the docked sidebar, a line marks the place nearest, as for a
+    /// dragged row, and it returns whether they'd open there. Not while the Library, a swipe or a
+    /// row's drag has the sidebar.
     pub fn drag_in(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) -> bool {
         let busy = self.sidebar_hidden || self.library_open || self.swipe.is_some();
         let other = self.drag.as_ref().is_some_and(|drag| !drag.incoming || drag.dropped);
@@ -434,7 +447,7 @@ impl Shell {
         if self.drag.is_none() {
             // Held by the middle of the row it stands for, where the system draws what it carries.
             let grab = (ROW_HEIGHT / 2., point(0., 0.));
-            // From no place, so the first one it has makes room.
+            // From no place, so the first one it has gets its line.
             self.press(INCOMING, position, Place::List(false, usize::MAX), 0., grab);
             if let Some(drag) = &mut self.drag {
                 // The docked sidebar's corner, the window's.
@@ -456,7 +469,7 @@ impl Shell {
     }
 
     /// The drag from the page or another app was let go at `position`. Over the list, `urls` open
-    /// as tabs where the rows made room, and the first shows. Returns whether they opened.
+    /// as tabs where the line marks, and the first shows. Returns whether they opened.
     pub fn drop_in(
         &mut self,
         position: Point<Pixels>,
@@ -660,6 +673,9 @@ pub(super) fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Poin
 
 #[cfg(test)]
 pub(in crate::shell) mod detents;
+
+#[cfg(test)]
+mod drop_line;
 
 #[cfg(test)]
 mod tests {

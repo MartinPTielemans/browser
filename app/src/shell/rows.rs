@@ -52,11 +52,13 @@ impl Shell {
         self.browser.set_folder_open(folder, !open, cx);
     }
 
-    /// A sidebar row: the plate, with the favicon slot and the label.
+    /// A sidebar row: the plate, with the favicon slot and the label. The `ghost` is a dragged
+    /// row's copy the pointer holds, drawn over the list while the row stays in its place.
     fn row(
         &self,
         row: Row,
         content: gpui::Div,
+        ghost: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
         let selected = row == self.selected_row();
@@ -64,10 +66,10 @@ impl Shell {
             Row::NewTab => (("new-tab", 0), Slot::NewTab),
             Row::Tab(tab) => (("tab", tab), Slot::Tab(tab)),
         };
-        // Full for a dragged row, which the pointer holds, and none for the others then.
+        // Full for a dragged row's ghost, which the pointer holds, and none for the others then.
         let dragging = self.dragging();
         let hover = match dragging {
-            Some(dragged) => (dragged == slot).then_some(1.),
+            Some(_) => ghost.then_some(1.),
             None => self.hover_fill(row),
         };
         // A new tab's plate fades in, and rows that come together fade in whole.
@@ -80,7 +82,7 @@ impl Shell {
         });
         // In from its folders, or where a dragged row would go.
         let depth = match (row, &self.drag) {
-            (_, Some(drag)) if dragging == Some(slot) => drag.depth,
+            (_, Some(drag)) if ghost => drag.depth,
             (Row::Tab(tab), _) => self.depth(tab),
             (Row::NewTab, _) => 0,
         };
@@ -89,7 +91,7 @@ impl Shell {
             .id(id)
             .group("row")
             .opacity(row_in)
-            // A dragged row is drawn over the list, from `list`.
+            // A dragged row stays in its place, and its ghost is drawn over the list, from `list`.
             .top(px(if dragging == Some(slot) { 0. } else { self.slide(slot) }))
             .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
@@ -110,8 +112,8 @@ impl Shell {
                             .on_mouse_down(MouseButton::Left, |_, _, _| {})
                             .group_active("row", |style| style.bg(rgba(PRESSED)))
                     })
-                    // A dragged row covers the rows it passes, in the colours it has in place.
-                    .when(dragging == Some(slot), |plate| {
+                    // A ghost covers the rows it passes, in the colours its row has in place.
+                    .when(ghost, |plate| {
                         let fill = if selected { SELECTED } else { HOVERED };
                         plate.bg(self.window_fill().blend(rgba(fill).into()))
                     }),
@@ -161,21 +163,26 @@ impl Shell {
             ))
     }
 
-    /// A tab's row, its split view's for the split's first tab, or a folder's.
-    pub(super) fn tab_row(&self, tab: u64, cx: &mut Context<Self>) -> AnyElement {
+    /// A tab's row, its split view's for the split's first tab, or a folder's, or its `ghost`.
+    pub(super) fn tab_row(&self, tab: u64, ghost: bool, cx: &mut Context<Self>) -> AnyElement {
         if self.is_folder(tab) {
-            return self.folder_row(tab, cx).into_any_element();
+            return self.folder_row(tab, ghost, cx).into_any_element();
         }
         let panes = self.panes(tab);
         match panes.len() > 1 {
-            true => self.split_row(panes, cx).into_any_element(),
-            false => self.single_row(tab, cx).into_any_element(),
+            true => self.split_row(panes, ghost, cx).into_any_element(),
+            false => self.single_row(tab, ghost, cx).into_any_element(),
         }
     }
 
     /// A folder's row: its icon, open or closed, and its name. A click opens or closes it, a
     /// double-click renames it and a right-click shows its menu.
-    fn folder_row(&self, folder: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn folder_row(
+        &self,
+        folder: u64,
+        ghost: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let open = self.shown_space().is_some_and(|space| space.is_open(folder));
         let renaming =
             self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Folder(folder));
@@ -191,7 +198,7 @@ impl Shell {
             rgba(SECONDARY).into(),
         );
         let plate = plate(icon, label).child(self.framed(folder, 0.));
-        self.row(Row::Tab(folder), plate, cx).when(!renaming, |row| {
+        self.row(Row::Tab(folder), plate, ghost, cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -378,7 +385,12 @@ impl Shell {
 
     /// A split view's row, for its first tab: a segment per tab, left to right. A click on one
     /// shows the split with its page focused, and the close button closes them all.
-    fn split_row(&self, panes: Vec<u64>, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn split_row(
+        &self,
+        panes: Vec<u64>,
+        ghost: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let first = panes[0];
         let row_selected = self.selected_row() == Row::Tab(first);
         let hovered = self.hovered == Some(Row::Tab(first));
@@ -410,7 +422,7 @@ impl Shell {
             }
         };
         let renaming = renaming.is_some();
-        self.row(Row::Tab(first), content, cx).when(!renaming, |row| {
+        self.row(Row::Tab(first), content, ghost, cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, _| {
@@ -425,7 +437,12 @@ impl Shell {
         !(self.page(tab).unloaded && self.pinned().contains(&tab))
     }
 
-    fn single_row(&self, tab: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn single_row(
+        &self,
+        tab: u64,
+        ghost: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let page = self.page(tab);
         let loading = page.loading;
         let closable = self.closable(tab);
@@ -493,7 +510,7 @@ impl Shell {
         };
         let renaming = renaming || changing.is_some();
         // The field takes the row's clicks while it's up.
-        self.row(Row::Tab(tab), plate(icon, label), cx).when(!renaming, |row| {
+        self.row(Row::Tab(tab), plate(icon, label), ghost, cx).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -636,7 +653,7 @@ impl Shell {
     pub(super) fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let (plus, label) = new_tab_label();
         // ⌥-click opens the new tab beside the page, as Dia's does.
-        self.row(Row::NewTab, plate(plus, label), cx).on_click(cx.listener(
+        self.row(Row::NewTab, plate(plus, label), false, cx).on_click(cx.listener(
             |shell, event: &ClickEvent, _, cx| {
                 let command =
                     if event.modifiers().alt { Command::AddSplit } else { Command::NewTab };

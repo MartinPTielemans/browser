@@ -221,6 +221,13 @@ const PLATE_INSET: f32 = 8.;
 // What's in a folder sits this far in from it (Arc).
 const FOLDER_INDENT: f32 = 16.;
 const NEW_FOLDER: &str = "New Folder";
+// A dragged row's drop line is Arc's: 2 pt, from a ring 8 across, drawn with the same 2 pt,
+// whose left is 7 in from the plate's, to 2 before the plate's end (Arc 1.170 rec).
+const DROP_LINE: f32 = 2.;
+const DROP_RING: f32 = 8.;
+const DROP_RING_X: f32 = 7.;
+const DROP_LINE_END: f32 = 2.;
+const DROP: u32 = 0xffff_ffe6;
 pub const PLATE_RADIUS: f32 = 12.;
 const FAVICON_X: f32 = 17.;
 const FAVICON_SIZE: f32 = 18.;
@@ -700,10 +707,9 @@ struct Drag {
     /// How many folders it was in, and would be in where it goes.
     from_depth: usize,
     depth: usize,
-    /// How far the other rows are drawn from their places to make room for it there, and whether
-    /// the divider stays, which goes once the last Today tab would leave.
-    room: HashMap<Slot, f32>,
-    divider: bool,
+    /// Over the list, where the drop line is drawn, down from the list's top: in the gap it would
+    /// go to, unless that's where it was. The rows stay where they are until it's let go.
+    line: Option<f32>,
     /// Let go, until the browser reports the lists it made.
     dropped: bool,
     /// Over the page, where it can join the page shown in a split view.
@@ -2491,27 +2497,25 @@ impl Shell {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }
         if !today.is_empty() {
-            let divider = match self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.divider) {
-                true => div().flex_none().h(px(DIVIDER_HEIGHT)).into_any_element(),
-                false => self.divider(cx).into_any_element(),
-            };
-            rows.push((None, divider));
+            rows.push((None, self.divider(cx).into_any_element()));
         }
         rows.push((None, self.new_tab_row(cx).into_any_element()));
         for tab in today {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }
-        // Over the rest, where the pointer has it, unless it's over the favorites or the page. The
-        // system draws links and files dragged in.
-        let dragged = self.drag.as_ref().filter(|drag| {
-            drag.moving && drag.over_page.is_none() && !drag.incoming
+        // A dragged row's ghost, over the rest where the pointer has it, unless it's over the
+        // favorites or the page. The system draws links and files dragged in.
+        let over_list = self.drag.as_ref().filter(|drag| {
+            drag.moving && drag.over_page.is_none() && matches!(drag.to, Place::List(..))
         });
-        let dragged = dragged.filter(|drag| matches!(drag.to, Place::List(..)));
+        let line = over_list.and_then(|drag| Some(self.drop_line(drag.line?, drag.depth, room)));
+        let dragged = over_list.filter(|drag| !drag.incoming);
         // Mid-turn into or out of a tile, it's drawn over the sidebar instead.
         let dragged = dragged.filter(|drag| drag.shape.start.is_none()).map(|drag| {
-            let row = self.tab_row(drag.tab, cx);
+            let row = self.tab_row(drag.tab, true, cx);
             let top = room + self.drag_at(drag);
-            div().absolute().top(px(top)).left_0().w(px(self.width())).child(row)
+            let ghost = div().id("ghost").absolute().top(px(top)).left_0();
+            ghost.w(px(self.width())).child(row)
         });
         let under = self
             .opened
@@ -2536,16 +2540,36 @@ impl Shell {
             .when(!under.is_empty(), |list| {
                 list.child(div().flex_none().flex().flex_col().overflow_hidden().children(under))
             })
+            .children(line)
             .children(dragged)
             .child(self.drag_listeners(cx))
     }
 
-    /// A tab's row in the list, or the room it leaves while it's dragged.
+    /// A tab's row in the list, which stays in its place while it's dragged (Arc).
     fn list_row(&self, tab: u64, cx: &mut Context<Self>) -> AnyElement {
-        match self.dragging() == Some(Slot::Tab(tab)) {
-            true => div().flex_none().h(px(ROW_PITCH)).into_any_element(),
-            false => self.tab_row(tab, cx).into_any_element(),
-        }
+        self.tab_row(tab, false, cx)
+    }
+
+    /// The line that marks where a dragged row would drop, `y` down the list from its top, a row
+    /// `depth` folders in, with a ring at its start, as Arc's (docs/ux-spec.md › Tab rows).
+    fn drop_line(&self, y: f32, depth: usize, room: f32) -> impl IntoElement + use<> {
+        let left = PLATE_INSET + depth as f32 * FOLDER_INDENT + DROP_RING_X;
+        let ring = div()
+            .flex_none()
+            .size(px(DROP_RING))
+            .rounded_full()
+            .border(px(DROP_LINE))
+            .border_color(rgba(DROP));
+        div()
+            .absolute()
+            .top(px(room + y - DROP_RING / 2.))
+            .left(px(left))
+            .w(px(self.width() - PLATE_INSET - DROP_LINE_END - left))
+            .h(px(DROP_RING))
+            .flex()
+            .items_center()
+            .child(ring)
+            .child(div().flex_1().h(px(DROP_LINE)).bg(rgba(DROP)))
     }
 
     /// What the reveal's window shows: the sidebar in a panel, as far out as it is.
