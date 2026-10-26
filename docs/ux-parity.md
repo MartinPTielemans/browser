@@ -202,7 +202,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Keys | MVP | ⌃+ add, ⌃⇧- close pane; ⌃⇧] / ⌃⇧[ focus *interim* | Arc menus, Dia |
 | [x] | Add Split View | MVP | in one frame: page narrows, empty pane, command bar over it 77 in from the card's edge | Arc 1.170.0 rec |
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |
-| [ ] | ⌥-click + New Tab; ⌥⇧-click link | MVP | split New Tab; right pane | Dia P§6 |
+| [x] | ⌥-click + New Tab; ⌥⇧-click link | MVP | Add Split View *interim*, until the New Tab page; the link in a right pane, focused, and ⌥⌘-click too (Chrome) | Dia P§6, Chrome |
 | [x] | Sidebar row | MVP | one row, equal segments: favicon 18 at 7, title 10 after, 5 before the line | Arc 1.170.0 cap |
 | [x] | Kept across a quit | MVP | yes | ours |
 | [x] | Targets at rest | MVP | 198.5 × 333.5, 37.5 in, radius ≈ 20, dashed 6/6 ≈ 1.75 pt | Dia rec |

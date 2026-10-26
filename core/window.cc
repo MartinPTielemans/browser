@@ -46,6 +46,7 @@
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
+#include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/menus/simple_menu_model.h"
@@ -292,8 +293,16 @@ void Window::AdjustNavigate(NavigateParams& params) {
   if (!window) {
     return;
   }
+  // ⌥⌘-click on a link opens it beside its page in a split view, as Chrome's does, and so does
+  // ⌥⇧-click, as Dia's does, which the page asks for as a new window.
+  constexpr int kAltShift = blink::WebInputEvent::kAltKey | blink::WebInputEvent::kShiftKey;
+  Tab* source = params.source_contents ? Tab::FromWebContents(params.source_contents) : nullptr;
+  const bool split = source && (params.disposition == WindowOpenDisposition::NEW_SPLIT_VIEW ||
+                                (params.disposition == WindowOpenDisposition::NEW_WINDOW &&
+                                 (source->input_modifiers() & kAltShift) == kAltShift));
+  window->split_with_ = split ? Tab::IdOf(params.source_contents) : 0;
   // Popups become tabs (decision 3). So do new windows: the app opens its own.
-  if (params.disposition == WindowOpenDisposition::NEW_POPUP ||
+  if (split || params.disposition == WindowOpenDisposition::NEW_POPUP ||
       params.disposition == WindowOpenDisposition::NEW_WINDOW) {
     params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
   }
@@ -1094,6 +1103,7 @@ void Window::OnTabStripModelChanged(TabStripModel* tab_strip_model,
   if (change.type() != TabStripModelChange::kInserted || opening_tab_) {
     return;
   }
+  const bc_id split_with = std::exchange(split_with_, 0);
   for (const TabStripModelChange::ContentsWithIndex& inserted : change.GetInsert()->contents) {
     tabs::TabInterface* opener = tab_strip_model->GetOpenerOfTabAt(inserted.index);
     // Posted: the app shows the tab, and a tab strip can't change while it reports a change.
@@ -1101,7 +1111,7 @@ void Window::OnTabStripModelChanged(TabStripModel* tab_strip_model,
         FROM_HERE, base::BindOnce(&Window::ReportTabOpened, weak_factory_.GetWeakPtr(),
                                   Tab::IdOf(inserted.contents),
                                   opener ? Tab::IdOf(opener->GetContents()) : 0,
-                                  tab_strip_model->active_index() == inserted.index));
+                                  tab_strip_model->active_index() == inserted.index, split_with));
   }
 }
 
@@ -1128,7 +1138,7 @@ void Window::FocusPage() {
   }
 }
 
-void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground) {
+void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with) {
   // A popup can close itself at once.
   if (!Tab::FromId(tab)) {
     return;
@@ -1139,9 +1149,15 @@ void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground) {
   }
   if (space) {
     space->Add(tab, opener, foreground);
+    // Beside the page it came from, unless that page's split view is full.
+    const bool split = split_with && space->Split(tab, split_with, Tab::PageUrl(Tab::FromId(tab)),
+                                                  /*left=*/false);
     // A page in a Space the window doesn't show doesn't bring its tabs to the front.
     if (foreground && space->id() == space_) {
       Select(tab);
+    }
+    if (split) {
+      PanesChanged();
     }
   }
   if (Host().tab_opened) {

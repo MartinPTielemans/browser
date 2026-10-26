@@ -167,7 +167,7 @@ Arc's note at the window's top right, after something done without showing it (A
 Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 
 - ⌘-click opens a background tab. ⇧⌘-click opens a foreground tab. ⇧-click opens a new window. Middle-click opens a background tab.
-- ⌥-click downloads. ⌥⇧-click opens a split pane.
+- ⌥-click downloads. ⌥⇧-click opens a split pane (Dia), and so does ⌥⌘-click (Chrome).
 - ⌘-click on back, forward or reload opens the result in a background tab.
 - Double-click a tab to rename it.
 
@@ -580,7 +580,7 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
 - **Panes.** Up to 3 (Dia; Arc's maximum: measure), side by side and 10 pt apart, sharing the card. Each has its own page, history and docked DevTools. The focused one has a 2 pt ring inside its edge and a ≈ 8 pt glow outside it (Arc), in the Space's colour, else the accent. Unfocused panes aren't dimmed (*interim*, measure). A page in full screen takes the window alone.
 - **Focus.** A click in a pane focuses it. ⌘W and Close this Split Pane close the focused pane, and the one beside it takes focus. Separate Page from Split View puts the focused pane in its own row under the split, shown alone. The find bar, the zoom HUD and a tab's dialogs, such as print preview, go over the focused pane.
 - **In the sidebar.** A split is one row of equal segments with a 1 pt line between them: each segment's favicon (18) 7 into it, its title 10 after that, ending 5 before the next line (Arc). The row counts as one for ⌘1–⌘9, ⌃Tab and next or previous tab, which show the pane focused last. Its ✕ closes all its tabs, and on a pinned split it unloads them and the row stays a split. Moving or pinning the row moves the split; Move to Space takes one tab out.
-- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel 77 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). Dragging a tab from the sidebar onto the page shows the targets, below. To build: ⌥-click on "+ New Tab" opens a New Tab pane, and ⌥⇧-click on a link opens it in a right pane (Dia).
+- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel 77 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). Dragging a tab from the sidebar onto the page shows the targets, below. ⌥-click on "+ New Tab" adds a pane as Add Split View does; Dia's opens its New Tab page in the pane, which we don't have yet. ⌥⇧-click on a link opens it in a pane on the right, focused (Dia), and so does ⌥⌘-click (Chrome). In a split with three panes the link opens as a tab of its own.
 - **Commands.** Arc's View menu: Add Split View ⌃+, Close this Split Pane ⌃⇧-, Separate Page from Split View, and Expand Current Split (to build). Dia's Flip, Move Pane Left/Right and Separate All are in the command bar as Flip Split View, Move Pane Left, Move Pane Right and Separate All Pages, kept out of Arc's menu; the focused page stays focused. To build, from Dia: Change Orientation. ⌃⇧] and ⌃⇧[ focus the next and previous pane (Dia, *interim*).
 - **Kept.** A split comes back after a quit.
 
