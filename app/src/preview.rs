@@ -508,6 +508,15 @@ impl Browser for Fake {
     // The made-up files have the file glyph.
     fn download_icon(&self, _: u64, _: &mut App) {}
 
+    // The made-up downloads have no files, so each is gone already and none drags.
+    fn trash(&self, _: &str, _: &mut App) -> bool {
+        true
+    }
+
+    fn drag_file(&self, _: &str, _: &mut App) -> bool {
+        false
+    }
+
     // The made-up pages have the globe.
     fn page_favicon(&self, _: &str, _: &mut App) {}
 
@@ -971,6 +980,7 @@ fn main() {
                         id,
                         name: name.into(),
                         url: url.into(),
+                        path: SharedString::default(),
                         received,
                         total,
                         state,

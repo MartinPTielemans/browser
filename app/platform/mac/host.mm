@@ -54,6 +54,26 @@ namespace {
 bool (*g_dragged)(int, double, double, const host_dragged*, size_t);
 }  // namespace
 
+// The source of a file host_drag_file drags, which offers a copy wherever it's let go.
+@interface HostFileDragSource : NSObject <NSDraggingSource>
+@property(nonatomic) void (*ended)(bool);
+@end
+
+@implementation HostFileDragSource
+@synthesize ended = _ended;
+
+- (NSDragOperation)draggingSession:(NSDraggingSession*)session
+    sourceOperationMaskForDraggingContext:(NSDraggingContext)context {
+  return NSDragOperationCopy;
+}
+
+- (void)draggingSession:(NSDraggingSession*)session
+           endedAtPoint:(NSPoint)point
+              operation:(NSDragOperation)operation {
+  self.ended(operation != NSDragOperationNone);
+}
+@end
+
 // The view the UI draws in. It takes the links and files dragged onto it, from the page or another
 // app, for the UI.
 @interface HostUIView : NSView
@@ -1064,6 +1084,32 @@ void host_watch_control(void (*released)(void)) {
               usingBlock:^(NSNotification*) {
                 ControlReleased();
               }];
+}
+
+bool host_trash(const char* path) {
+  NSURL* file = [NSURL fileURLWithPath:@(path)];
+  return [NSFileManager.defaultManager trashItemAtURL:file resultingItemURL:nil error:nil] ||
+         ![file checkResourceIsReachableAndReturnError:nil];
+}
+
+bool host_drag_file(const char* path, void (*ended)(bool taken)) {
+  // Kept until the next drag, as the session doesn't keep its source.
+  static HostFileDragSource* source;
+  NSString* file = @(path);
+  NSEvent* event = NSApp.currentEvent;
+  if (!g_ui_view || event.type != NSEventTypeLeftMouseDragged || event.window != g_window ||
+      ![NSFileManager.defaultManager fileExistsAtPath:file]) {
+    return false;
+  }
+  NSDraggingItem* item =
+      [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:file]];
+  // The file's icon under the pointer, 32 points square, as Finder drags one.
+  NSPoint point = [g_ui_view convertPoint:event.locationInWindow fromView:nil];
+  [item setDraggingFrame:NSMakeRect(point.x - 16, point.y - 16, 32, 32)
+                contents:[NSWorkspace.sharedWorkspace iconForFile:file]];
+  source = [[HostFileDragSource alloc] init];
+  source.ended = ended;
+  return [g_ui_view beginDraggingSessionWithItems:@[ item ] event:event source:source] != nil;
 }
 
 void host_copy(const char* text) {

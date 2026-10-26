@@ -6,16 +6,17 @@
 use std::{sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, BoxShadow, ClickEvent, Context, Entity, Focusable, FontWeight, Image, ListAlignment,
-    ListState, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, Window, div,
-    hsla, list, point, prelude::*, px, relative, rgb, rgba, svg,
+    AnyElement, BoxShadow, ClickEvent, Context, DispatchPhase, Entity, Focusable, FontWeight, Image,
+    ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    Point, SharedString, Subscription, Window, canvas, div, hsla, list, point, prelude::*, px,
+    relative, rgb, rgba, svg,
 };
 
 use super::{
-    Command, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry, NAV,
-    NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X, Shell,
-    Space, UNSELECTED_TITLE, clean_link, clear_label, divider_box, favicon, folder_icon, host,
-    name_box, plate, row_box, spring_to, split_plate, title,
+    Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry,
+    NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
+    Shell, Space, UNSELECTED_TITLE, clean_link, clear_label, divider_box, favicon, folder_icon,
+    host, name_box, plate, row_box, spring_to, split_plate, title,
 };
 use crate::text_input::TextInput;
 
@@ -193,6 +194,8 @@ pub struct Download {
     pub id: u64,
     pub name: SharedString,
     pub url: SharedString,
+    /// Where its file is once it's done, or empty until that's known.
+    pub path: SharedString,
     /// The bytes it has, and the bytes it will have in all, or 0 while that isn't known.
     pub received: i64,
     pub total: i64,
@@ -205,7 +208,7 @@ pub struct Download {
 }
 
 /// What `Browser::act_on_download` does.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DownloadAction {
     /// Opens the file, or for one still running, opens it once it's done, or no longer.
     Open,
@@ -218,6 +221,56 @@ pub enum DownloadAction {
     Remove,
     /// Keeps one the browser held.
     Keep,
+}
+
+/// What an item of a download's menu does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DownloadChoice {
+    Act(DownloadAction),
+    /// Moves the file to the Trash and takes it off the list.
+    Trash,
+    /// Takes the downloads that aren't running or paused off the list.
+    Clear,
+}
+
+/// The menu a right-click on `download`'s row shows, what can be done with it where it is, with
+/// Clear List enabled if any download is `finished`.
+fn download_menu_items(
+    download: &Download,
+    finished: bool,
+) -> Vec<(MenuEntry, Option<DownloadChoice>)> {
+    let item = |title: &'static str, choice| (MenuEntry::new(title, true), Some(choice));
+    let act = |title: &'static str, action| item(title, DownloadChoice::Act(action));
+    let mut items = match download.state {
+        _ if download.held => {
+            vec![act("Keep", DownloadAction::Keep), act("Delete", DownloadAction::Remove)]
+        }
+        DownloadState::Running | DownloadState::Paused => vec![
+            match download.state {
+                DownloadState::Paused => act("Resume", DownloadAction::Resume),
+                _ => act("Pause", DownloadAction::Pause),
+            },
+            act("Cancel", DownloadAction::Cancel),
+            (
+                MenuEntry::new("Open When Done", true).checked(download.open_when_done),
+                Some(DownloadChoice::Act(DownloadAction::Open)),
+            ),
+        ],
+        DownloadState::Done => vec![
+            act("Open", DownloadAction::Open),
+            act("Show in Finder", DownloadAction::Show),
+            item("Move to Trash", DownloadChoice::Trash),
+        ],
+        DownloadState::Cancelled | DownloadState::Failed => Vec::new(),
+    };
+    if !download.held {
+        if !items.is_empty() {
+            items.push((MenuEntry::line(), None));
+        }
+        items.push(act("Remove from List", DownloadAction::Remove));
+    }
+    items.push((MenuEntry::new("Clear List", finished), Some(DownloadChoice::Clear)));
+    items
 }
 
 /// A section of the Library.
@@ -838,15 +891,18 @@ impl Shell {
         if spaces {
             return panel.child(self.space_cards(cx));
         }
-        panel.child(field).child(
-            div()
-                .absolute()
-                .left(px(COLUMN_WIDTH))
-                .top(px(ARCHIVE_TOP))
-                .bottom_0()
-                .w(px(ARCHIVE_WIDTH))
-                .child(archive),
-        )
+        panel
+            .child(field)
+            .child(
+                div()
+                    .absolute()
+                    .left(px(COLUMN_WIDTH))
+                    .top(px(ARCHIVE_TOP))
+                    .bottom_0()
+                    .w(px(ARCHIVE_WIDTH))
+                    .child(archive),
+            )
+            .children(self.download_press_listeners(cx))
     }
 
     /// The Spaces section: a card for each Space of the window's profile set, in the switcher's
@@ -1142,6 +1198,9 @@ impl Shell {
             _ => None,
         };
         let name = download.name.clone();
+        // GPUI never hears the release that ends the system's drag, and would keep the row
+        // pressed.
+        let dragged = matches!(self.download_press, Some((pressed, _, true)) if pressed == id);
         // Asked for once a row first shows, as the archive's favicons are.
         if !self.download_icons.contains_key(&id) {
             self.download_icons.insert(id, None);
@@ -1165,8 +1224,19 @@ impl Shell {
                     .rounded(px(ARCHIVED_RADIUS))
                     .block_mouse_except_scroll()
                     .hover(|style| style.bg(rgba(HOVERED)))
-                    .active(|style| style.bg(rgba(PRESSED)))
+                    .when(!dragged, |row| row.active(|style| style.bg(rgba(PRESSED))))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                            shell.download_press = Some((id, event.position, false));
+                            cx.notify();
+                        }),
+                    )
                     .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
+                        // A press that became a drag isn't a click.
+                        if shell.download_press.take().is_some_and(|(_, _, dragged)| dragged) {
+                            return;
+                        }
                         // A held file's only choices are in its menu, so a click shows them.
                         if held {
                             shell.download_menu(id, event.position(), cx);
@@ -1227,39 +1297,10 @@ impl Shell {
         let Some(download) = self.downloads.iter().find(|each| each.id == id) else {
             return;
         };
-        let item = |title: &'static str, action| (MenuEntry::new(title, true), Some(action));
-        let mut items: Vec<(MenuEntry, Option<DownloadAction>)> = match download.state {
-            _ if download.held => {
-                vec![item("Keep", DownloadAction::Keep), item("Delete", DownloadAction::Remove)]
-            }
-            DownloadState::Running | DownloadState::Paused => vec![
-                match download.state {
-                    DownloadState::Paused => item("Resume", DownloadAction::Resume),
-                    _ => item("Pause", DownloadAction::Pause),
-                },
-                item("Cancel", DownloadAction::Cancel),
-                (
-                    MenuEntry::new("Open When Done", true).checked(download.open_when_done),
-                    Some(DownloadAction::Open),
-                ),
-            ],
-            DownloadState::Done => vec![
-                item("Open", DownloadAction::Open),
-                item("Show in Finder", DownloadAction::Show),
-            ],
-            DownloadState::Cancelled | DownloadState::Failed => Vec::new(),
-        };
-        if !download.held {
-            if !items.is_empty() {
-                items.push((MenuEntry::line(), None));
-            }
-            items.push(item("Remove from List", DownloadAction::Remove));
-        }
         let finished = self.downloads.iter().any(|each| {
             !matches!(each.state, DownloadState::Running | DownloadState::Paused)
         });
-        items.push((MenuEntry::new("Clear List", finished), None));
-        let clear = items.len() - 1;
+        let items = download_menu_items(download, finished);
         let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
         let shell = cx.weak_entity();
         self.browser.menu(
@@ -1268,18 +1309,19 @@ impl Shell {
             None,
             false,
             Box::new(move |chosen, cx| {
+                let Some((_, Some(choice))) = chosen.and_then(|at| items.get(at)) else {
+                    return;
+                };
                 shell
-                    .update(cx, |shell, cx| match chosen {
-                        Some(at) if at == clear => {
+                    .update(cx, |shell, cx| match *choice {
+                        DownloadChoice::Act(action) => {
+                            shell.act_on_download(id, action, "download menu", cx)
+                        }
+                        DownloadChoice::Trash => shell.trash_download(id, cx),
+                        DownloadChoice::Clear => {
                             log!("browser: command clear-downloads via download menu");
                             shell.browser.clear_downloads(cx);
                         }
-                        Some(at) => {
-                            if let Some((_, Some(action))) = items.get(at) {
-                                shell.act_on_download(id, *action, "download menu", cx);
-                            }
-                        }
-                        None => {}
                     })
                     .ok();
             }),
@@ -1297,6 +1339,94 @@ impl Shell {
         // check.sh waits for this line.
         log!("browser: download {id} {action:?} via {source}");
         self.browser.act_on_download(id, action, cx);
+    }
+
+    /// Moves a finished download's file to the Trash and takes it off the list, or leaves both
+    /// if the file is there and can't go.
+    fn trash_download(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(path) = self.downloads.iter().find(|each| each.id == id).map(|d| d.path.clone())
+        else {
+            return;
+        };
+        // For check.sh.
+        log!("browser: download {id} Trash via download menu");
+        if path.is_empty() || self.browser.trash(&path, cx) {
+            self.act_on_download(id, DownloadAction::Remove, "download menu", cx);
+        }
+    }
+
+    /// The pointer pressing a download's row moved to `position`, the left button held. Past
+    /// DRAG_START a finished file goes into the system's drag, for Finder, other apps, the page
+    /// or the tab list, and the Library closes so the tab list under it shows.
+    fn drag_download(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some((id, press, false)) = self.download_press else {
+            return;
+        };
+        let moved = position - press;
+        if moved.x.abs().max(moved.y.abs()) < px(DRAG_START) {
+            return;
+        }
+        let Some(download) = self.downloads.iter().find(|each| each.id == id) else {
+            return;
+        };
+        // One with no file yet keeps its press a click, as a sidebar row's does.
+        if download.state != DownloadState::Done || download.held || download.path.is_empty() {
+            return;
+        }
+        let path = download.path.clone();
+        self.download_press = Some((id, press, true));
+        if self.browser.drag_file(&path, cx) {
+            // For check.sh.
+            log!("browser: download {id} drag");
+            self.set_library(false, cx);
+        }
+        cx.notify();
+    }
+
+    /// The system's drag of a download's file was let go. If nothing took it, the Library comes
+    /// back with the row it came from, as a sidebar row dropped nowhere goes back.
+    pub fn file_drag_ended(&mut self, taken: bool, cx: &mut Context<Self>) {
+        // For check.sh.
+        log!("browser: file drag ended {}", if taken { "taken" } else { "nowhere" });
+        if !taken {
+            self.set_library(true, cx);
+        }
+    }
+
+    /// The pointer's presses, moves and release anywhere in the window while a download's row is
+    /// pressed, which only hears the pointer while it's over it.
+    fn download_press_listeners(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+        self.download_press.filter(|(_, _, dragged)| !dragged)?;
+        let shell = cx.weak_entity();
+        Some(
+            canvas(
+                |_, _, _| {},
+                move |_, _, window, _| {
+                    let pressed = shell.clone();
+                    window.on_mouse_event(move |_: &MouseDownEvent, phase, _, cx| {
+                        // Before the row pressed, if it's one, hears it.
+                        if phase == DispatchPhase::Capture {
+                            pressed.update(cx, |shell, _| shell.download_press = None).ok();
+                        }
+                    });
+                    let moved = shell.clone();
+                    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                        if phase == DispatchPhase::Capture && event.dragging() {
+                            let position = event.position;
+                            moved.update(cx, |shell, cx| shell.drag_download(position, cx)).ok();
+                        }
+                    });
+                    window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                        // Before the row's click, which hears no press then and opens.
+                        if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
+                            shell.update(cx, |shell, _| shell.download_press = None).ok();
+                        }
+                    });
+                },
+            )
+            .absolute()
+            .size_0(),
+        )
     }
 
     /// The footer's button that opens the Library, at its left (Arc). While downloads run, it shows
@@ -1409,8 +1539,9 @@ fn of(received: i64, total: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        LIBRARY_BAND, LIBRARY_LAG, Line, RECEDE_SPAN, Space, library_band, receded_opacity,
-        receding_edge, receding_library_opacity as library,
+        Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, LIBRARY_LAG, Line,
+        RECEDE_SPAN, Space, download_menu_items, library_band, receded_opacity, receding_edge,
+        receding_library_opacity as library,
     };
     use crate::shell::{Folders, Split, rubber_band};
 
@@ -1503,5 +1634,45 @@ mod tests {
             assert!(library(out) >= last, "the Library faded back at {out}");
             last = library(out);
         }
+    }
+
+    fn download(state: DownloadState, held: bool) -> Download {
+        Download {
+            id: 1,
+            name: "report.pdf".into(),
+            url: "https://example.com/report.pdf".into(),
+            path: "/Users/someone/Downloads/report.pdf".into(),
+            received: 0,
+            total: 0,
+            state,
+            open_when_done: false,
+            held,
+            started: 0.,
+        }
+    }
+
+    /// A finished file's menu has Move to Trash after Open and Show in Finder; one still coming,
+    /// held, cancelled or failed has no file of its own to move.
+    #[test]
+    fn only_a_finished_file_goes_to_the_trash() {
+        use DownloadState::{Cancelled, Done, Failed, Paused, Running};
+        let done = download_menu_items(&download(Done, false), true);
+        let titles: Vec<_> = done.iter().map(|(entry, _)| entry.title.as_ref()).collect();
+        assert_eq!(
+            titles,
+            ["Open", "Show in Finder", "Move to Trash", "", "Remove from List", "Clear List"]
+        );
+        assert_eq!(done[2].1, Some(DownloadChoice::Trash));
+        assert_eq!(done[4].1, Some(DownloadChoice::Act(DownloadAction::Remove)));
+        let trashes = |state, held| {
+            download_menu_items(&download(state, held), true)
+                .iter()
+                .any(|(_, choice)| *choice == Some(DownloadChoice::Trash))
+        };
+        for state in [Running, Paused, Cancelled, Failed] {
+            assert!(!trashes(state, false));
+            assert!(!trashes(state, true));
+        }
+        assert!(!trashes(Done, true));
     }
 }

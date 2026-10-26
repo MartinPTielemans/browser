@@ -9,9 +9,10 @@
 # check's folder, a new one's icon flies into the Library button, none of those a relaunch reads
 # does, and ⇧⌘J opens the Library on Downloads, which lists them. With one running, ⌘Q
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
-# After the relaunch, Remove from List and Clear List take them off the list and keep their files. A
-# SIGTERM, which macOS sends at logout and restart, keeps a tab opened just before it. Reports how
-# long putting them back takes.
+# After the relaunch, Remove from List and Clear List take them off the list and keep their files.
+# A new download's row dragged hands its file to the system's drag, the Library closing until it's
+# let go, and Move to Trash in its menu puts its file in the Trash. A SIGTERM, which macOS sends at
+# logout and restart, keeps a tab opened just before it. Reports how long putting them back takes.
 # With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long goes in
 # the archive, counting the time across a quit, and the tab shown stays.
 
@@ -260,7 +261,7 @@ send choose Remove from List
 expect "^browser: download $s Remove via download menu\$" "Remove from List didn't reach it"
 expect "^browser: downloads $((listed - 1))\$" "Remove from List didn't take the download off"
 post rightclick 300 111
-expect '^browser: menu shown Open, Show in Finder, Remove from List, Clear List$' \
+expect '^browser: menu shown Open, Show in Finder, Move to Trash, Remove from List, Clear List$' \
   "a right-click on the finished download's row didn't show its menu"
 send choose Clear List
 expect '^browser: command clear-downloads via download menu$' "Clear List didn't run"
@@ -270,6 +271,45 @@ send key j cmd shift
 expect '^browser: library hidden$' "⇧⌘J didn't close the Library"
 switch "2 cmd" "$a"
 expect "^browser: loaded $a $site\$" "tab a didn't load once shown"
+# A finished download's row dragged hands its file to the system's drag and closes the Library,
+# which comes back once it's let go where nothing takes it. Move to Trash in its menu then puts the
+# file in the Trash and takes it off the list.
+send click $page_point
+send type q
+trashed='^browser: download [0-9]* done trash.txt$'
+expect "$trashed" "the page's second download didn't finish"
+t=$(grep "$trashed" "$log" | tail -1 | cut -d' ' -f3)
+send key j cmd shift
+expect '^browser: library shown$' "⇧⌘J didn't open the Library on the second download"
+press=$((step + 1))
+send press 300 111
+send dragto 300 140
+expect "^browser: download $t drag\$" "dragging the download's row didn't start the system's drag"
+send release 300 140
+# No real button holds the system's drag, so it may end before the release reaches it.
+dragged() {
+  for _ in $(seq 100); do
+    sed -n "/^browser: drive $press: /,\$p" "$log" | sed -n "/$1/,\$p" | grep -q "$2" && return 0
+    sleep 0.1
+  done
+  return 1
+}
+dragged "download $t drag" '^browser: library hidden$' ||
+  fail "the Library didn't close for the download's drag"
+dragged "download $t drag" '^browser: file drag ended nowhere$' ||
+  fail "the download's drag didn't end where nothing took it"
+dragged 'file drag ended' '^browser: library shown$' ||
+  fail "the Library didn't come back after the download's drag"
+post rightclick 300 111
+expect '^browser: menu shown Open, Show in Finder, Move to Trash, Remove from List, Clear List$' \
+  "a right-click on the second download's row didn't show its menu"
+send choose Move to Trash
+expect "^browser: download $t Trash via download menu\$" "Move to Trash didn't reach the download"
+expect '^browser: downloads 0$' "Move to Trash didn't take the download off the list"
+[ -e "$out/downloads/trash.txt" ] && fail "Move to Trash left the file in the check's folder"
+send key j cmd shift
+expect '^browser: library hidden$' "⇧⌘J didn't close the Library after Move to Trash"
+send click $page_point
 tab=$a
 history_key right forward page
 expect_page example.com 1 1 "going forward in tab a's restored history"

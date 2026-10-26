@@ -82,6 +82,8 @@ mod platform {
                 count: usize,
             ) -> bool,
         );
+        pub fn host_trash(path: *const c_char) -> bool;
+        pub fn host_drag_file(path: *const c_char, ended: extern "C" fn(taken: bool)) -> bool;
         pub fn host_copy(text: *const c_char);
         pub fn host_day_starts(starts: *mut f64);
         pub fn host_menu(
@@ -686,6 +688,15 @@ impl Browser for Engine {
         unsafe { bc::bc_download_icon(download) };
     }
 
+    fn trash(&self, path: &str, _: &mut App) -> bool {
+        CString::new(path).is_ok_and(|path| unsafe { platform::host_trash(path.as_ptr()) })
+    }
+
+    fn drag_file(&self, path: &str, _: &mut App) -> bool {
+        CString::new(path)
+            .is_ok_and(|path| unsafe { platform::host_drag_file(path.as_ptr(), file_drag_ended) })
+    }
+
     fn remove_archived(&self, archived: u64, _: &mut App) {
         unsafe { bc::bc_archive_remove(archived) };
     }
@@ -1177,6 +1188,10 @@ extern "C" fn accent_color_changed() {
 
 extern "C" fn control_released() {
     update_shell(|shell, cx| shell.control_released(cx));
+}
+
+extern "C" fn file_drag_ended(taken: bool) {
+    update_shell(|shell, cx| shell.file_drag_ended(taken, cx));
 }
 
 extern "C" fn dragged(
@@ -1684,6 +1699,7 @@ unsafe extern "C" fn downloads_changed(
             id: download.id,
             name: text(download.name),
             url: text(download.url),
+            path: text(download.path),
             received: download.received,
             total: download.total,
             state: match download.state as u32 {

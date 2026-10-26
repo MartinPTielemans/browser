@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "base/files/file_path.h"
 #include "base/functional/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
@@ -145,17 +146,19 @@ class Downloads : public download::AllDownloadItemNotifier::Observer {
       return;
     }
     const std::vector<download::DownloadItem*> items = Listed();
-    // Each download's name and URL, kept until the call returns.
+    // Each download's name, URL and path, kept until the call returns.
     std::vector<std::string> text;
-    text.reserve(items.size() * 2);
+    text.reserve(items.size() * 3);
     std::vector<bc_download> downloads;
     downloads.reserve(items.size());
     for (download::DownloadItem* item : items) {
       const std::string& name = text.emplace_back(item->GetFileNameToReportUser().AsUTF8Unsafe());
       const std::string& url = text.emplace_back(item->GetURL().spec());
+      const std::string& path = text.emplace_back(item->GetTargetFilePath().AsUTF8Unsafe());
       downloads.push_back({.id = IdOf(item),
                            .name = name.c_str(),
                            .url = url.c_str(),
+                           .path = path.c_str(),
                            .received = item->GetReceivedBytes(),
                            .total = item->GetTotalBytes(),
                            .state = StateOf(*item),

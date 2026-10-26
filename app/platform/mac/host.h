@@ -227,6 +227,16 @@ enum { HOST_DRAG_OVER, HOST_DRAG_LEFT, HOST_DRAG_DROP };
 void host_take_drops(bool (*dragged)(int phase, double x, double y, const host_dragged* items,
                                      size_t count));
 
+// Moves the file at |path|, a full path in UTF-8, to the system's Trash, and says whether it's gone
+// from there, as it is if it was gone already.
+bool host_trash(const char* path);
+
+// Starts the system's drag of the file at |path|, a full path in UTF-8, from the pointer, during
+// the event of the left button held and moved. Anywhere it's let go may take a copy of it, the
+// UI's view as host_take_drops says. Calls |ended| once it's let go, with whether something took
+// it. Returns false, and never calls |ended|, if it didn't start, as when there's no file there.
+bool host_drag_file(const char* path, void (*ended)(bool taken));
+
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);

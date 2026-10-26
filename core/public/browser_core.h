@@ -175,6 +175,8 @@ typedef struct bc_download {
   // Its file's name, and the URL it comes from.
   const char* name;
   const char* url;
+  // Where its file is once it's done, a full path in UTF-8, or "" until that's known.
+  const char* path;
   // The bytes it has, and the bytes it will have in all, or 0 while that isn't known.
   int64_t received;
   int64_t total;
