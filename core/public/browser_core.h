@@ -700,6 +700,15 @@ BC_EXPORT size_t bc_space_icon(bc_id space, char* icon, size_t capacity);
 // "glyph:star". The core keeps it as it comes; empty takes the icon away. Then spaces_changed.
 BC_EXPORT void bc_space_set_icon(bc_id space, const char* icon);
 
+// Copies up to |capacity| bytes of the Space's theme into |theme| as bc_space_name does: what
+// bc_space_set_theme gave it, UTF-8, or empty.
+BC_EXPORT size_t bc_space_theme(bc_id space, char* theme, size_t capacity);
+
+// Gives the Space |theme|, UTF-8, kept as its name is: the UI's description of the colours the
+// window is drawn in, of which bc_space_set_color gives the main one. The core keeps it as it
+// comes; empty takes the theme away. Then spaces_changed.
+BC_EXPORT void bc_space_set_theme(bc_id space, const char* theme);
+
 // Deletes the Space, unless it's the last, and returns whether it will. A window showing it shows
 // the Space before it, else the one after it. Its tabs close, and it goes with the last of them; a
 // page that keeps its tab open keeps the Space until it closes. Its Today tabs reopen with

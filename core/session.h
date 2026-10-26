@@ -74,6 +74,8 @@ struct SavedSpace {
   std::optional<uint32_t> color;
   // The emoji the user gave it, if any.
   std::string icon;
+  // The theme the UI gave it, if any.
+  std::string theme;
   // Its profile's directory, or empty for the profile the core started with.
   std::string profile;
   // The agent it belongs to, or none for the user's own, as every Space saved before agents had
