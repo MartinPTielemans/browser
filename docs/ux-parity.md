@@ -146,17 +146,17 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Panel width | MVP | field + ≈ 41 left, ≈ 40 right; Arc: measure | Dia 1.52 rec |
-| [x] | Text alignment | MVP | same x, baseline and 13 pt as the field; 48 in; glyph centred 30 in | Dia 1.52 rec |
-| [x] | Open | MVP | grows from the field, exponential ease-out ≈ 130 ms; content doesn't move | Dia 1.52 rec |
+| [x] | Panel width | MVP | 766, centred on the window; ⌘L and a click on the field open the same panel | Arc 1.170.0 cap, ax |
+| [x] | Text alignment | MVP | input row 64; glyph 18 pt at 23 in; text ≈ 18 pt at 53 in; hint at the field's end | Arc 1.170.0 ax |
+| [x] | Open | MVP | one frame, as ⌘T's; no grow from the field (Arc's panel isn't anchored to it) | Arc 1.170.0 rec |
 | [ ] | Close | MVP | ⌘T's in one frame, as it opens; ⌘L's: measure | Arc 1.170.0 rec |
 | [ ] | Selection motion | MVP | the selection moving with ↓ and ↑, and the pointer over the rows: measure | Arc |
-| [x] | Fill / border / radius | MVP | #2D2D2D / #FEFFFF; 1 device px rgba(120,125,134,0.32); radius measure (≈ 16) | Dia 1.50.1 bin, 1.49 cap |
-| [ ] | Shadow | MVP | black 0.12, + black 0.08 r2 (0, 0.5), + black 0.04 r1 (0, 2) | Dia 1.50.1 bin |
+| [ ] | Fill / border / radius | MVP | #2D2D2D / #FEFFFF (Arc's is translucent: not built); 0.5 pt outline and 1 pt grey edge; radius ≈ 18 | Dia 1.50.1 bin, Arc 1.170.0 cap |
+| [ ] | Shadow | MVP | ≈ 30 pt (Arc cap); ours is the system's window shadow | Arc 1.170.0 cap |
 | [x] | No scrim | MVP | page undimmed | Dia 1.49 cap |
-| [ ] | Rows | MVP | input 54; suggestions 36; favicon 16; title ≈ 15 pt; " — url" 0.5 | Dia 1.49 cap |
-| [x] | Selected row | MVP | ≈ #5E5A5D, radius 10, inset 4 | Dia 1.49 cap |
-| [ ] | Bottom row | MVP | 53 tall; Go ↩ pill ≈ 92 × 29 naming the engine; no AI chip or mic | Dia 1.49 cap, Ardia |
+| [x] | Rows | MVP | input 64; rows 50 (five shown, then scroll); favicon at + 16, title 14 pt at + 43; " — url" dim; Switch to Tab and an arrow tile | Arc 1.170.0 cap, ax |
+| [x] | Selected row | MVP | the accent, radius ≈ 6.5, inset 2; icon on a white tile | Arc 1.170.0 cap |
+| [x] | Bottom row | MVP | none: no Go pill, no AI chip or mic; the site-search hint is at the field's end | Arc 1.170.0 ax |
 | [x] | Colours | MVP | placeholder white 0.53, secondary rgba(239,244,255,0.6), caret #4A77D4, selection rgba(120,125,134,0.7) | Dia asset catalogs |
 | [x] | Default match | MVP | inline match, else URL, else search; search row after the top hit | Chrome, Dia 1.49 |
 | [x] | Stable row 0 | MVP | local only; remote rows append | Chrome O |

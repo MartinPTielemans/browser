@@ -226,14 +226,8 @@ pub trait Browser {
     /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
     /// it changes.
     fn accent_color(&self) -> u32;
-    /// Opens the command bar, for a new tab or on `editing`'s URL: out of the URL field at `field`
-    /// in the window, or centred over it.
-    fn command_bar(
-        &self,
-        editing: Option<(u64, SharedString)>,
-        field: Option<Bounds<Pixels>>,
-        cx: &mut App,
-    );
+    /// Opens the command bar, centred over the window, for a new tab or on `editing`'s URL.
+    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App);
     /// Opens the command bar over `pane`, a new pane in the card at `card`, for a page to show
     /// there in a split view with `with`.
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App);

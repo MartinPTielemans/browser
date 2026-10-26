@@ -14,6 +14,7 @@ use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension, Folders,
     MenuEntry, Page, Shell, Split, WindowButton,
 };
+use browser::command_bar::{self, Suggestion};
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -587,12 +588,7 @@ impl Browser for Fake {
         false
     }
 
-    fn command_bar(
-        &self,
-        editing: Option<(u64, SharedString)>,
-        _: Option<Bounds<Pixels>>,
-        cx: &mut App,
-    ) {
+    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
         // No command bar here: a new tab opens at once.
         if editing.is_some() {
             return;
@@ -796,6 +792,117 @@ impl Browser for Fake {
     }
 }
 
+/// The command bar's requests, for the preview: it goes nowhere, but a search goes to a search.
+struct PreviewBar;
+
+impl command_bar::Host for PreviewBar {
+    fn suggest(&self, _: Option<&str>, _: &str, _: bool) {}
+    fn remove_suggestion(&self, _: &str) {}
+    fn typed_url(&self, text: &str) -> Option<String> {
+        self.search_url(None, text)
+    }
+    fn search_url(&self, _: Option<&str>, text: &str) -> Option<String> {
+        Some(format!("https://duckduckgo.com/?q={text}"))
+    }
+    fn page_favicon(&self, _: &str) {}
+    fn open_tab(&self, _: &str, _: bool) {}
+    fn navigate(&self, _: u64, _: &str) {}
+    fn select(&self, _: u64) {}
+    fn split(&self, _: u64, _: u64, _: &mut App) {}
+    fn open_split(&self, _: &str, _: u64, _: &mut App) {}
+    fn copy(&self, _: &str, _: &mut App) {}
+    fn show(&self, _: bool, _: f32, _: f32, _: f32) {}
+    fn set_height(&self, _: f32) {}
+    fn hide(&self) {}
+    fn dismiss(&self) {}
+}
+
+/// Opens the command bar at `at`, with the suggestions for what `mode` has typed.
+fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
+    let page = |text: &str, detail: &str, url: &str, tab: u64| Suggestion {
+        url: url.into(),
+        text: text.to_string().into(),
+        detail: detail.to_string().into(),
+        tab,
+        ..Suggestion::default()
+    };
+    let search = |text: &str| Suggestion {
+        url: format!("https://duckduckgo.com/?q={text}"),
+        text: text.to_string().into(),
+        ..Suggestion::default()
+    };
+    let (typed, rows) = match mode {
+        "empty" => ("", Vec::new()),
+        "commands" => (
+            "clear",
+            vec![
+                shell::BarCommand {
+                    name: "Clear Today".into(),
+                    command: Command::Clear,
+                    shortcut: Some("⇧⌘K".into()),
+                    strong: true,
+                }
+                .into(),
+                search("clear"),
+                shell::BarCommand {
+                    name: "Collapse All Folders".into(),
+                    command: Command::CollapseFolders,
+                    shortcut: None,
+                    strong: false,
+                }
+                .into(),
+                page("clearhaus", "clearhaus.com", "https://clearhaus.com/", 0),
+            ],
+        ),
+        "sites" => (
+            "wik",
+            vec![
+                Suggestion {
+                    keyword: "wikipedia.org".into(),
+                    site: "Wikipedia".into(),
+                    ..page("Wikipedia", "wikipedia.org", "https://wikipedia.org/", 0)
+                },
+                search("wik"),
+                page("Wikimedia", "wikimedia.org", "https://wikimedia.org/", 0),
+                page("Fandom", "wikia.com", "https://wikia.com/", 0),
+            ],
+        ),
+        _ => (
+            "e",
+            vec![
+                page("Example Domain", "", "https://example.com/", 5),
+                search("e"),
+                page("Hacker News", "news.ycombinator.com", "https://news.ycombinator.com/", 0),
+                page("Arc (web browser) - Wikipedia", "", "https://en.wikipedia.org/wiki/Arc", 1),
+                page("Zed — The editor for what's next", "", "https://zed.dev/", 3),
+                page("Rust Programming Language", "", "https://www.rust-lang.org/", 4),
+                page("The Browser Company", "", "https://thebrowser.company/", 0),
+            ],
+        ),
+    };
+    let rows_shown = rows.len();
+    let bounds = Bounds::new(at, size(px(command_bar::WIDTH), px(command_bar::height(rows_shown))));
+    if command_bar::open_at(Rc::new(PreviewBar), bounds, true, cx).is_none() {
+        return;
+    }
+    command_bar::set_accent(0x4248cf, cx);
+    command_bar::show(Some((0, typed.to_string().into())), cx);
+    let icons = [Icon::Envelope, Icon::Blocks, Icon::Play, Icon::Disc([0.9, 0.5, 0.1])];
+    let favicons: Vec<_> = rows
+        .iter()
+        .zip(icons.iter().cycle())
+        .map(|(row, icon)| {
+            let png = icon.png();
+            let image = png.map(|png| gpui::Image::from_bytes(gpui::ImageFormat::Png, png));
+            (row.url.clone(), image.map(Arc::new))
+        })
+        .collect();
+    command_bar::suggested(typed.to_string(), rows, cx);
+    for (url, favicon) in favicons {
+        command_bar::page_favicon(&url, favicon, cx);
+    }
+}
+
 fn main() {
     gpui_platform::application().with_assets(shell::Assets).run(|cx| {
         shell::bind_keys(cx);
@@ -934,6 +1041,13 @@ fn main() {
                 log!("couldn't open the window: {error}");
                 cx.quit();
             }
+        }
+        // PREVIEW_BAR=tabs, sites or commands shows the command bar over the window, with made-up
+        // suggestions.
+        if let Ok(mode) = std::env::var("PREVIEW_BAR") {
+            let left = x + (width - command_bar::WIDTH as f64) / 2.;
+            let at = point(px(left as f32), px((y + height * 0.322) as f32));
+            preview_bar(&mode, at, cx);
         }
         cx.activate(true);
     });

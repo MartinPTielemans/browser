@@ -69,9 +69,9 @@ Material output measured over solid backdrops. Ports without AppKit materials ap
 | Favorite tile default selection ring | white 0.45 | black 0.48 |
 | Menu item hovered | white 0.07 | black 0.07 |
 | Menu hairline border | white 0.30 | black 0.25 |
-| Command bar hover / Go | rgba(120,125,134,0.32) | rgba(15,24,44,0.08) |
+| Command bar hover | rgba(120,125,134,0.32) | rgba(15,24,44,0.08) |
 | Command bar placeholder | white 0.53 | black 0.40 |
-| Command bar primary / secondary text | white / rgba(239,244,255,0.6) | #0F182C / #0F182C 0.6 |
+| Command bar title / dim text | white 0.8 / white 0.35 (Arc cap; white and 0.5 on the plate) | — |
 | Command bar caret | #4A77D4 | #6395FC |
 | Command bar selected text | rgba(120,125,134,0.7) | — |
 | Downloads button tint | rgba(247,245,255,0.78) | black 0.78 |
@@ -91,7 +91,6 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Hover card in | opacity cubic-bezier(0.25, 0.46, 0.45, 0.94) 100 ms; scale 0.92 → 1 spring 0.25 s / ζ 0.75 | tab and favorite hover card | Dia bin, D›Tab hover card motion |
 | Hover card out | opacity same curve 100 ms; scale → 0.92 spring 0.2 s / ζ 0.6 | same | same |
 | Scroll edge | cubic-bezier(0.25, 0.46, 0.45, 0.94), 100 ms | sidebar separator fading in and out | Dia 1.53.0 bin |
-| Panel grow | exponential ease-out, ≈ 130 ms | command bar out of the URL field | Dia 1.52 rec |
 | Sidebar hide | ease-out cubic, 110 ms: within 0.75 pt of rest 67–83 ms in | ⌘S hiding a docked sidebar | Arc 1.170.0 rec 120 fps, 3 runs |
 | Sidebar show | ease-out cubic, 100 ms | ⌘S showing the hidden sidebar | Arc 1.170.0 rec 120 fps, 3 runs |
 | Sidebar reveal in | no fade: spring 0.175 s / ζ 0.80, ≈ 4 pt past rest, starting ≈ 100 ms after the pointer reaches the edge | sidebar reveal at the left edge | Arc 1.170.0 rec 120 fps, 3 runs |
@@ -467,38 +466,41 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 
 ### Command bar
 
-Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome's omnibox, because Dia runs Chrome's AutocompleteController (O).
+Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Arc's aren't measured (decision 6). Parsing, inline completion and ranking follow Chrome's omnibox, because Dia runs Chrome's AutocompleteController (O).
 
 **Opening**
 
-- ⌘L or a click on the URL field opens the panel out of the field, with the URL selected.
-- ⌘T opens the command bar over the page shown and makes no tab until a pick (Arc; Ardia's opt-in, P§7). Dia opens its New Tab page instead, which isn't ours (New tab).
+- ⌘T, ⌘L and a click on the sidebar's URL field open the same panel in the same place, centred on the window (Arc ax: ⌘L's is ⌘T's). ⌘T makes no tab until a pick (Arc; Ardia's opt-in, P§7); Dia's New Tab page isn't ours (New tab). ⌘L and the click open it on the tab's URL, selected.
+- In a split view's new pane the panel moves right to 70 in from the card's right edge, which puts its field at x 719 where ⌘T's is at 426 (Arc cap).
 - ⇧⌘A opens Search Tabs.
+- Open and close are one frame (Arc rec 120 fps, 3 runs, ⌘T). Ours: ⌘L and the click are the same, *interim* (Arc's ⌘L isn't recorded); Dia's grow out of the URL field is gone, since Arc's panel isn't anchored to the field.
 
-**Panel** (Dia 1.52 rec unless noted)
+**Panel** (Arc 1.170.0 cap, ax, 1512 × 949 window)
 
 | Item | Value |
 |---|---|
-| Width | the field's width plus ≈ 41 on the left and ≈ 40 on the right: 888 for an 810 field. Arc's sidebar field: measure |
-| Text | the same x, baseline and size as in the field (13 pt); 48 in from the panel's left edge. The search glyph is centred 30 in |
-| Open | grows out of the field's box (Panel grow). Its left edge reaches 63, 82, 92, 95 and 99 % on successive 60 fps frames, and the height grows with it. The content doesn't move or scale; the growing shape uncovers it |
-| Close | measure (Dia and Arc) |
-| Radius | ≈ 16 for the URL panel (1.49 cap): measure |
-| Fill | opaque #2D2D2D / #FEFFFF (1.50.1 bin; the cap reads (45, 45, 45)). The 1.49 URL panel was ≈ #2A2A2A |
-| Border | 1 device pixel, rgba(120,125,134,0.32) in dark |
-| Shadow | black 0.12 (Dia's default), plus from 1.50 two layer shadows: black 0.08 radius 2 offset (0, 0.5), and black 0.04 radius 1 offset (0, 2) |
-| Scrim | none: the page stays visible and undimmed (1.49) |
-| Input row | 54 tall (1.49 cap). The leading icon becomes the selected suggestion's favicon |
-| Suggestion row | 36 tall, 16 pt favicon, title ≈ 15 pt white, " — url" at 0.5 (1.49 cap) |
-| Selected row | warm grey ≈ #5E5A5D, radius 10, inset 4 (1.49 cap) |
-| Bottom row | 53 tall (1.49). Dia's "+ Add tabs or files" chip and mic are AI and are dropped. The "Go ↩" pill (≈ 92 × 29, lavender ≈ #DCCBD8, dark text) stays and names the search engine (Ardia) |
+| Width | 766, centred on the window, not on the page's card |
+| Top | y 305.5 of 949, 0.322 of the window's height, whatever the rows below; it grows down |
+| Height | 328.5 with five rows: the input row 64, a 0.5 pt line, 4, the rows at 50 each, 10 below. The table holds more rows (11 in "wik") and scrolls inside the five |
+| Radius | ≈ 18 (cap, ± 1) |
+| Edge | a 0.5 pt outline (4, 4, 4) with a 1 pt grey one inside it, (89, 89, 93) |
+| Fill | translucent: (23–25) over a dark page, (39–47) over a blue one. Ours: opaque #2D2D2D |
+| Shadow | ≈ 30 pt. Ours: the system's window shadow on the panel's shape |
+| Scrim | none: the page stays visible and undimmed |
+| Input row | 64 tall; the search glyph 18 × 18 at 23 in, centred; the text at 53 in, 23 tall, ≈ 18 pt, "Search or Enter URL…" in white 0.55; the text field is 656 wide, 534 while the hint shows |
+| Line | 1 px, white 0.1, 12 in from both sides, under the input row |
+| Info button | 26 × 26 at 21 in from the right, a dark circle with an "i". Ours: left out, since its action isn't recorded |
+| Hint | "Search Wikipedia" and a "Tab" key, 146 × 24 for that site, ending 22 from the panel's right and 11 after the field. The text is ≈ 14 pt at white 0.35, the key 30 × 24 at radius 6 on white 0.06. It's the field's end, not the row's. It shows while the selected row hints a site search; no Go pill |
+| Rows | 750 wide at 8 in, 50 tall at a 50 pitch, from 68.5 under the panel's top. The first row's top is 4 under the line |
+| Selected plate | the row inset 2 on every side (746 × 46), radius ≈ 6.5, filled with the Space's accent (66, 72, 207), text white. The row under the pointer doesn't light up while the keyboard selection is elsewhere (cap, 1 run) |
+| Icon | 16 pt at the row's left + 16, centred in a 24 box; on the selected row the box is a white tile at radius 6. A command's has a faint tile (white 0.06); a search row has a magnifier |
+| Title | 14 pt at the row's left + 43, white 0.8 (white on the selected row); " — host" follows after 2 in white 0.35 (0.5 on the plate) |
+| Switch to Tab | on an open tab's row (the selected one too): "Switch to Tab" at 14 pt, white 0.35 (white on the plate), ending 46 in from the row's right, and 7 after it a 24 × 24 tile at radius 6 with an arrow, white 0.04 on the panel, a white tile with an accent arrow on the plate. "Switch to Split View" for a split's row |
+| Shortcut | on a command, a chip 24 tall at radius 6, ending 10 inside the plate: white with accent-coloured keys on the plate |
+| The field's icon | the search glyph, or the selected row's icon when a row is chosen |
 
-- Ours (*interim* until Arc's sidebar panel is measured):
-  - From the sidebar's URL field, the panel's left edge is the field's and it's 640 wide, ending at least 8 inside the window. Its input row is centred on the field, so the text keeps the field's x, baseline and 13 pt. There's no search glyph, since the field has none to the left of its text.
-  - The grow is 1 − 2^(−10t / 0.13), from the panel's first frame on screen, at the field's box: 59, 83, 93 and 97 % on the 60 fps frames after it. The radius goes from the field's 12 to 16, and the shadow follows the shape.
-  - ⌘T's panel is the same panel centred a fifth of the way down the window, shown at once.
-  - Rows are 13 pt like the input, without favicons for now. A hovered row takes the hover token.
-  - The shadow is the system's window shadow on the panel's shape, without Dia's two layer shadows. The bottom row isn't built yet.
+- Ours, where Arc's isn't measured: the title's weight is regular (Arc's width of "Example Domain", 106, matches it); the caret, selection and placeholder colours are Dia's (Colour tokens); the hover fill is Dia's hover token; the accent is the Space's colour, or the system's, with its lightness held to 0.55; "Add to Split View" in place of "Switch to Tab" over a split's new pane; Tab's key on an unselected row isn't shown; a sum's row has no icon; commands share one glyph, Lucide's command, where Arc draws one for each; page rows ask the profile's history for the favicon, with a globe until it comes; the bar shows no suggestions before something is typed (Arc lists open tabs and recents then).
+- Not built: the info button, the translucent fill, Arc's 30 pt shadow, Arc's per-command icons, the open tabs and recents Arc lists for empty text, and the "Search or Enter URL…" text in medium weight.
 
 **Rows**
 
@@ -517,11 +519,11 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
     - The names are Arc's bar's where they're known (Clear Today, Clear Cache and Refresh, Collapse All Folders, Clear Archive), else its menus'.
     - Clear Cookies and Refresh is in the bar too, though Arc's "clear" doesn't list it. A name that starts with what's typed comes before one that only has its letters, so "clear" shows it instead of Collapse All Folders.
     - Only commands that would do something now are listed: Go Back with history behind, Close this Split Pane in a split, and so on.
-    - The chip is the shortcut in 11 pt at the secondary colour on white 0.08, radius 4.
+    - The chip is the shortcut in 13 pt, at 24 tall, radius 6, white 0.08 and the dim text colour; on the selected row white with accent keys (Panel).
     - ↩ or a click runs the command. The bar closes first, as for a pick.
-    - Not yet: the field's icon, and Arc's commands we don't have.
+    - Not yet: Arc's commands we don't have, and a glyph for each.
 - Well-known sites that what's typed could start, such as YouTube for "you", fill the rows the profile's own leave, under them and never as row 0, so a new profile's list isn't bare. The list is built in and ranked by popularity alone (ours).
-- Hovering highlights a row; Enter uses the keyboard selection (Chrome). Dia: measure.
+- Hovering highlights a row; Enter uses the keyboard selection (Chrome). Ours, as Dia's: Arc's didn't light the row under the pointer while the keyboard selection was elsewhere (1 run).
 
 **Inline completion** (Chrome; Dia rec, O)
 
@@ -539,7 +541,7 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 - Tab on the selected row, if it hints, searches with that engine alone, keeping what was typed after the first word. So does a space typed right after the keyword the first row hints, or Japanese input's ideographic space, but not a pasted one.
 - ⌫ with the caret at the start, ⇧Tab or Esc leaves it and puts the keyword back before what was typed, with the caret after it. The space comes back too, unless Tab entered it and nothing was typed since. The bar stays open.
 - Ours (*interim*, until Arc's is measured):
-  - The selected row that hints shows "Search <engine>" dimmed and a Tab chip at its right.
+  - The selected row that hints shows "Search <engine>" dimmed and a Tab key at the input's end, as Arc's hint (Panel).
   - In the search, the engine's name is a chip before the input, whose placeholder is "Search <engine>".
   - The rows are the core's searches only, without commands, sums or well-known sites. Nothing is listed until something is typed, and ↩ does nothing until then.
 
@@ -577,7 +579,7 @@ Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging ta
 - **Focus.** A click in a pane focuses it. ⌘W and Close this Split Pane close the focused pane, and the one beside it takes focus. Separate Page from Split View puts the focused pane in its own row under the split, shown alone. The find bar, the zoom HUD and a tab's dialogs, such as print preview, go over the focused pane.
 - **Sizes.** The gap between two panes drags them wider and narrower, or taller and shorter stacked, under a resize cursor. Each keeps a tenth of the card, no less than 50 pt and no more than 200, and the gap snaps to even within 15 pt (Chrome's, *interim*: Arc's limits and the divider's motion aren't measured). A double-click on the gap evens them, as one on the sidebar's edge puts its width back. Sizes go with places, not tabs: Flip and Move Pane keep them where they were, Change Orientation turns them onto the new axis, and a tab joining or leaving evens them.
 - **In the sidebar.** A split is one row of equal segments with a 1 pt line between them: each segment's favicon (18) 7 into it, its title 10 after that, ending 5 before the next line (Arc). The row counts as one for ⌘1–⌘9, ⌃Tab and next or previous tab, which show the pane focused last. Its ✕ closes all its tabs, and on a pinned split it unloads them and the row stays a split. Moving or pinning the row moves the split; Move to Space takes one tab out.
-- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel 77 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). Dragging a tab from the sidebar onto the page shows the targets, below. ⌥-click on "+ New Tab" adds a pane as Add Split View does; Dia's opens its New Tab page in the pane, which isn't ours (New tab). ⌥⇧-click on a link opens it in a pane on the right, focused (Dia), and so do ⌥⌘-click and the page menu's Open Link in Split View (Chrome). In a split with three panes the link opens as a tab of its own.
+- **Creating a split.** Add Split View: in one frame the page narrows, an empty pane opens on the right and the command bar opens over it, its panel ending 70 in from the card's right edge (Arc). A URL opens in the pane; a tab picked joins the split. ⌥↩ in the command bar opens its URL in a right pane (Arc). Dragging a tab from the sidebar onto the page shows the targets, below. ⌥-click on "+ New Tab" adds a pane as Add Split View does; Dia's opens its New Tab page in the pane, which isn't ours (New tab). ⌥⇧-click on a link opens it in a pane on the right, focused (Dia), and so do ⌥⌘-click and the page menu's Open Link in Split View (Chrome). In a split with three panes the link opens as a tab of its own.
 - **Commands.** Arc's View menu: Add Split View ⌃+, Close this Split Pane ⌃⇧-, Separate Page from Split View, and Expand Current Split (to build). Dia's Flip, Change Orientation, Move Pane Left/Right and Separate All are in the command bar as Flip Split View, Change Orientation, Move Pane Left, Move Pane Right and Separate All Pages, kept out of Arc's menu; the focused page stays focused. Change Orientation stacks the panes or puts them back side by side; in a stacked split, left is up (*interim*: Dia's names for them there aren't recorded). ⌃⇧] and ⌃⇧[ focus the next and previous pane (Dia, *interim*).
 - **Kept.** A split comes back after a quit, stacked if it was, at its sizes, and so does one brought back by ⇧⌘T or Undo Clear, at even sizes.
 
@@ -894,7 +896,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 | Spaces | Renaming a Space, and picking its colour, icon and profile | — | 2 |
 | Command bar | ⌘T open and Esc | one frame | done |
 | Command bar | The first suggestions as a character is typed | 33–42 ms, one frame | done |
-| Command bar | ⌘L or a click from the sidebar's field, then Esc | — (ours: Dia's Panel grow) | 3 |
+| Command bar | ⌘L or a click from the sidebar's field, then Esc | — (ours: ⌘T's, one frame) | 3 |
 | Command bar | The selection moving with ↓ and ↑, and the pointer over the rows | — | 3 |
 | Split view | Add Split View | one frame | done |
 | Split view | The targets as a tab is dragged onto the page | — (ours: Dia's) | 4 |

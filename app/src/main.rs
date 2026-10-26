@@ -47,7 +47,6 @@ mod platform {
         pub fn host_add_overlay(overlay_view: *mut c_void, dismissed: extern "C" fn());
         pub fn host_show_overlay(centered: bool, left: f64, top: f64, width: f64);
         pub fn host_set_overlay_height(height: f64);
-        pub fn host_reshape_overlay();
         pub fn host_hide_overlay();
         pub fn host_dismiss_overlay();
         pub fn host_add_find_bar(find_bar_view: *mut c_void, right: f64, top: f64);
@@ -416,6 +415,12 @@ impl command_bar::Host for Bar {
         url_for(text, |text, url, capacity| unsafe { bc::bc_search_url(site, text, url, capacity) })
     }
 
+    fn page_favicon(&self, url: &str) {
+        if let Ok(url) = CString::new(url) {
+            unsafe { bc::bc_page_favicon(url.as_ptr()) };
+        }
+    }
+
     fn open_tab(&self, url: &str, behind: bool) {
         match behind {
             // ⌘↩'s tab loads once it's first shown, as a link opened behind does (Dia).
@@ -463,9 +468,6 @@ impl command_bar::Host for Bar {
         unsafe { platform::host_dismiss_overlay() };
     }
 
-    fn reshape(&self) {
-        unsafe { platform::host_reshape_overlay() };
-    }
 }
 
 /// The user left the command bar without choosing anything in it.
@@ -888,7 +890,8 @@ impl Browser for Engine {
         set_page_frame((frame, radius));
     }
 
-    fn set_focus_color(&self, color: u32, _: &mut App) {
+    fn set_focus_color(&self, color: u32, cx: &mut App) {
+        command_bar::set_accent(color, cx);
         unsafe { bc::bc_window_set_focus_color(WINDOW.get(), color) };
     }
 
@@ -960,13 +963,8 @@ impl Browser for Engine {
         }
     }
 
-    fn command_bar(
-        &self,
-        editing: Option<(u64, SharedString)>,
-        field: Option<Bounds<Pixels>>,
-        cx: &mut App,
-    ) {
-        command_bar::show(editing, field, cx);
+    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
+        command_bar::show(editing, cx);
     }
 
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
@@ -1784,6 +1782,7 @@ unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *cons
         let png = unsafe { std::slice::from_raw_parts(png, size) }.to_vec();
         Arc::new(Image::from_bytes(ImageFormat::Png, png))
     });
+    update_app(|cx| command_bar::page_favicon(&url, favicon.clone(), cx));
     update_shell(|shell, cx| shell.set_page_favicon(url.into(), favicon, cx));
 }
 

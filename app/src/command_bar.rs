@@ -1,18 +1,18 @@
 //! The command bar. GPUI can't draw over the page's native view, so the bar is a window of its
 //! own that the host shows over the browser window, as its child. Under its input it lists the
 //! core's suggestions for what's typed, and the window grows down to fit them. While the first is
-//! selected, the input completes what's typed to it, as Chrome's address bar does. Opened from the
-//! URL field, it grows out of the field, as Dia's does (docs/ux-spec.md › Command bar). Tab on a
-//! row that hints a search engine, or a space after the engine's keyword, searches only with that
-//! engine until ⌫ leaves, as Chrome's keyword mode does. What it asks of the core and of its window
-//! goes through `Host`.
+//! selected, the input completes what's typed to it, as Chrome's address bar does. Its size and
+//! rows are Arc's (docs/ux-spec.md › Command bar). Tab on a row that hints a search engine, or a
+//! space after the engine's keyword, searches only with that engine until ⌫ leaves, as Chrome's
+//! keyword mode does. What it asks of the core and of its window goes through `Host`.
 
-use std::{rc::Rc, time::Instant};
+use std::{collections::HashMap, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
-    App, Bounds, Context, Entity, Focusable, Global, KeyBinding, Pixels, SharedString,
-    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
-    WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size,
+    AnyElement, App, Bounds, Context, Entity, Focusable, Global, Hsla, Image, KeyBinding, Pixels,
+    ScrollHandle, SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
+    WindowHandle, WindowKind, WindowOptions, actions, div, img, point, prelude::*, px, rgb, rgba,
+    size, svg,
 };
 
 use crate::{
@@ -30,32 +30,62 @@ actions!(
     ]
 );
 
-const WIDTH: f32 = 640.;
-/// The input's row.
-const HEIGHT: f32 = 54.;
-const ROW_HEIGHT: f32 = 36.;
-/// Around the rows, so a selected row's corners clear the bar's edges.
-const ROW_INSET: f32 = 4.;
-/// The text's inset, the URL field's, so the text stays where it was as the bar opens out of it.
-const TEXT_X: f32 = 13.;
-const RADIUS: f32 = 16.;
-/// Over a new pane of a split view, the bar stays this far inside the card's right edge (Arc).
-const BESIDE_END: f32 = 77.;
-const ROW_RADIUS: f32 = 10.;
-/// How long the bar takes to grow out of the URL field, in seconds.
-const GROW: f32 = 0.13;
-// Dia's dark panel (docs/ux-spec.md › Colour tokens).
+// The panel's measures, in points, from Arc's capture (docs/ux-spec.md › Command bar).
+pub const WIDTH: f32 = 766.;
+/// The input's row, down to the line under it.
+const HEIGHT: f32 = 64.;
+/// The line under it in the bar's height: one device pixel at 2×, as Arc's is.
+const LINE: f32 = 0.5;
+/// The line stops this far short of the panel's sides.
+const LINE_INSET: f32 = 12.;
+/// Between the line and the first row, and under the last.
+const LIST_TOP: f32 = 4.;
+const LIST_END: f32 = 10.;
+/// The rows are 8 in from the panel's sides, 50 tall, and the bar shows five before it scrolls.
+const LIST_X: f32 = 8.;
+const ROW_HEIGHT: f32 = 50.;
+const ROWS_SHOWN: usize = 5;
+/// The selected row's plate is this far inside its row, on every side.
+const PLATE_INSET: f32 = 2.;
+const PLATE_RADIUS: f32 = 6.5;
+/// The row's icon is a 24 pt box, centred 24 in, and its title starts 43 in.
+const ICON_BOX: f32 = 24.;
+const ICON_BOX_X: f32 = 12.;
+const ICON_SIZE: f32 = 16.;
+const TITLE_X: f32 = 43.;
+/// The input's icon is 18 pt and 23 in; its text, 18 pt too, starts 53 in.
+const INPUT_ICON: f32 = 18.;
+const INPUT_TEXT: f32 = 18.;
+const INPUT_ICON_X: f32 = 23.;
+const INPUT_TEXT_X: f32 = 53.;
+/// The hint after the input ends this far from the panel's side, 11 after the field.
+const HINT_END: f32 = 22.;
+const HINT_GAP: f32 = 11.;
+const RADIUS: f32 = 18.;
+/// How far down the browser window the panel's top is, as Arc's is at y 305.5 of 949.
+pub const TOP: f32 = 0.322;
+/// Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
+const BESIDE_END: f32 = 70.;
+// Dia's dark panel (docs/ux-spec.md › Colour tokens), under Arc's edge and line.
 const FILL: u32 = 0x2d2d2d;
-const BORDER: u32 = 0x787d_8652;
-const SELECTED: u32 = 0x5e5a5d;
+const OUTLINE: u32 = 0x040404;
+const EDGE: u32 = 0x59595d;
+const LINE_COLOR: u32 = 0xffff_ff1a;
+const TITLE: u32 = 0xffff_ffd9;
+const DIM: u32 = 0xffff_ff59;
 const HOVERED: u32 = 0x787d_8652;
 const PLACEHOLDER: u32 = 0xffff_ff87;
-const SECONDARY: u32 = 0xeff4_ff99;
 const CARET: u32 = 0x4a77d4;
 const SELECTION: u32 = 0x787d_86b3;
-/// A command's shortcut chip (ours).
+/// A tile under an icon or a hint's key, and a command's shortcut (ours).
 const CHIP: u32 = 0xffff_ff14;
-const PLACEHOLDER_TEXT: &str = "Search or enter a URL";
+/// The arrow's tile on a row that switches to a tab.
+const ARROW_TILE: u32 = 0xffff_ff0a;
+/// The accent's lightness is held to this so white reads on it (Arc's is 0.53).
+const ACCENT_LIGHTNESS: f32 = 0.55;
+/// The accent until the shell gives the Space's.
+const ACCENT: u32 = 0x4248cf;
+const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
 
 /// One of the core's suggestions for what's typed.
 #[derive(Default)]
@@ -75,9 +105,34 @@ pub struct Suggestion {
     pub shortcut: Option<SharedString>,
     /// What a sum typed comes to, which the row copies instead.
     pub result: Option<SharedString>,
+    /// Whether it's a search for what was typed, which the bar finds out as the rows come.
+    pub search: bool,
     /// The keyword of the search engine whose site search Tab enters on this row, and its name.
     pub keyword: String,
     pub site: SharedString,
+}
+
+/// What a row's icon stands for.
+enum Kind {
+    Page,
+    Search,
+    Command,
+    Sum,
+}
+
+impl Suggestion {
+    fn kind(&self) -> Kind {
+        match (&self.command, &self.result, self.search) {
+            (Some(_), _, _) => Kind::Command,
+            (_, Some(_), _) => Kind::Sum,
+            (_, _, true) => Kind::Search,
+            _ => Kind::Page,
+        }
+    }
+
+    fn is_page(&self) -> bool {
+        matches!(self.kind(), Kind::Page)
+    }
 }
 
 impl From<shell::BarCommand> for Suggestion {
@@ -106,6 +161,9 @@ pub trait Host {
     /// A search for `text` with the search engine whose keyword is `site`, else the default one,
     /// even if it names a page.
     fn search_url(&self, site: Option<&str>, text: &str) -> Option<String>;
+    /// Asks for the favicon the profile's history has for the page at `url`, which comes back
+    /// through `page_favicon`.
+    fn page_favicon(&self, url: &str);
     /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it unless
     /// `behind`, when it loads only once it's first shown.
     fn open_tab(&self, url: &str, behind: bool);
@@ -125,8 +183,6 @@ pub trait Host {
     fn hide(&self);
     /// Hides the bar's window as the user leaves it without choosing anything.
     fn dismiss(&self);
-    /// The bar's shape changed as it grows, so its window's shadow has to follow.
-    fn reshape(&self);
 }
 
 /// A search engine's site search, which the bar's searches stay in until the user leaves it, as in
@@ -169,18 +225,39 @@ pub struct CommandBar {
     selected: usize,
     /// The site search the bar is in, if any.
     site: Option<Site>,
-    /// While the bar grows out of the URL field: the field's box in the bar's window, and when its
-    /// window was first on screen, where the grow starts.
-    grow: Option<(Bounds<Pixels>, Option<Instant>)>,
+    /// The rows' favicons by page, asked for as they first show. None until one comes.
+    favicons: HashMap<String, Option<Arc<Image>>>,
+    scroll: ScrollHandle,
 }
 
 struct CommandBarWindow(WindowHandle<CommandBar>);
 
 impl Global for CommandBarWindow {}
 
+/// The Space's colour, or the system's accent, which the selected row is filled with.
+struct Accent(u32);
+
+impl Global for Accent {}
+
+/// The colour the selected row takes, for the Space shown.
+pub fn set_accent(color: u32, cx: &mut App) {
+    cx.set_global(Accent(color));
+}
+
 /// Opens the command bar's window, hidden, for `host` to show over the browser window. Opening it
 /// ahead of time keeps window setup off the path from the shortcut to the bar on screen.
 pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>> {
+    let bounds = Bounds::new(point(px(0.), px(0.)), size(px(WIDTH), px(HEIGHT)));
+    open_at(host, bounds, false, cx)
+}
+
+/// Opens the command bar's window at `bounds`, shown if `show`, which the preview does.
+pub fn open_at(
+    host: Rc<dyn Host>,
+    bounds: Bounds<Pixels>,
+    show: bool,
+    cx: &mut App,
+) -> Option<WindowHandle<CommandBar>> {
     cx.bind_keys([
         KeyBinding::new("enter", Go, Some("CommandBar")),
         KeyBinding::new("alt-enter", GoBeside, Some("CommandBar")),
@@ -199,22 +276,20 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
         KeyBinding::new("shift-delete", Remove, Some("CommandBar")),
     ]);
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-            point(px(0.), px(0.)),
-            size(px(WIDTH), px(HEIGHT)),
-        ))),
-        titlebar: Some(TitlebarOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        // The preview's has none, so it hasn't the window buttons the host's takes off.
+        titlebar: (!show).then_some(TitlebarOptions {
             title: None,
             appears_transparent: true,
             traffic_light_position: None,
         }),
         kind: WindowKind::Floating,
-        show: false,
-        focus: false,
+        show,
+        focus: show,
         is_movable: false,
         is_resizable: false,
         is_minimizable: false,
-        // The panel's shape is drawn, as it grows.
+        // The panel's rounded shape is drawn, so the window around it is clear.
         window_background: WindowBackgroundAppearance::Transparent,
         ..Default::default()
     };
@@ -245,7 +320,8 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
                 suggested: String::new(),
                 selected: 0,
                 site: None,
-                grow: None,
+                favicons: HashMap::new(),
+                scroll: ScrollHandle::new(),
             }
         })
     });
@@ -262,18 +338,14 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
 }
 
 /// Shows the command bar with the keyboard: empty for a new tab, or on `editing`'s URL, selected.
-/// It suggests nothing until the text is edited, as Chrome's address bar. It grows out of the URL
-/// field at `field` in the browser window, with its input centred on the field and its left edge
-/// at the field's, or shows centred.
-pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>, cx: &mut App) {
-    let origin = field.map(|field| point(field.left(), field.center().y - px(HEIGHT / 2.)));
-    let grow = field.zip(origin);
-    let grow = grow.map(|(field, origin)| Bounds::new(field.origin - origin, field.size));
+/// It suggests nothing until the text is edited, as Chrome's address bar. It's centred over the
+/// browser window whatever opened it, as Arc's is for ⌘L and a click on the URL field too, and it
+/// shows at once.
+pub fn show(editing: Option<(u64, SharedString)>, cx: &mut App) {
     let target = editing.as_ref().map_or(Target::NewTab, |&(tab, _)| Target::Tab(tab));
     let text = editing.map(|(_, url)| url).unwrap_or_default();
-    if let Some(host) = reset(target, text, grow, cx) {
-        let (left, top) = origin.map_or((0., 0.), |origin| (origin.x.into(), origin.y.into()));
-        host.show(origin.is_none(), left, top, WIDTH);
+    if let Some(host) = reset(target, text, cx) {
+        host.show(true, 0., 0., WIDTH);
     }
 }
 
@@ -281,27 +353,22 @@ pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>,
 /// a page to show there beside `with`. It's centred over the pane, as far into the card as it
 /// needs to be, and as far down the pane as it opens down the window for a new tab.
 pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
-    if let Some(host) = reset(Target::Beside(with), SharedString::default(), None, cx) {
+    if let Some(host) = reset(Target::Beside(with), SharedString::default(), cx) {
         let left = pane.center().x - px(WIDTH / 2.);
         let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
-        let top = (card.top() + card.bottom()) / 5. + (pane.top() - card.top());
+        let top = (card.top() + card.bottom()) * TOP + (pane.top() - card.top());
         host.show(false, left.into(), top.into(), WIDTH);
     }
 }
 
-/// Puts the bar to `target` with `text` in its input, growing out of `grow` in its window if
-/// that's given. Returns its host, or none if there's no bar.
-fn reset(
-    target: Target,
-    text: SharedString,
-    grow: Option<Bounds<Pixels>>,
-    cx: &mut App,
-) -> Option<Rc<dyn Host>> {
+/// Puts the bar to `target` with `text` in its input. Returns its host, or none if there's no bar.
+fn reset(target: Target, text: SharedString, cx: &mut App) -> Option<Rc<dyn Host>> {
     let window = cx.try_global::<CommandBarWindow>()?.0;
     window
         .update(cx, |bar, window, cx| {
-            bar.grow = grow.map(|grow| (grow, None));
             bar.target = target;
+            // Favicons change over time, and a long session shouldn't keep every one it saw.
+            bar.favicons.clear();
             bar.site_left(cx);
             bar.asked = text.to_string();
             bar.complete = false;
@@ -316,11 +383,28 @@ fn reset(
         .ok()
 }
 
-/// How far the bar has grown out of the URL field, from 0 to 1 on an exponential ease-out, or none
-/// once it's done (docs/ux-spec.md › Motion › Panel grow).
-fn grow_progress(start: Instant) -> Option<f32> {
-    let t = start.elapsed().as_secs_f32() / GROW;
-    (t < 1.).then(|| 1. - 2f32.powf(-10. * t))
+/// The favicon `Host::page_favicon` asked for, for a row going to `url`.
+pub fn page_favicon(url: &str, favicon: Option<Arc<Image>>, cx: &mut App) {
+    let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
+        return;
+    };
+    window
+        .update(cx, |bar, _, cx| {
+            if let Some(entry) = bar.favicons.get_mut(url) {
+                *entry = favicon;
+                cx.notify();
+            }
+        })
+        .ok();
+}
+
+/// How tall the bar's window is with `rows` suggestions listed: the input, and under it, with its
+/// line, up to five rows.
+pub fn height(rows: usize) -> f32 {
+    match rows {
+        0 => HEIGHT,
+        rows => HEIGHT + LINE + LIST_TOP + rows.min(ROWS_SHOWN) as f32 * ROW_HEIGHT + LIST_END,
+    }
 }
 
 /// The core's suggestions for `text`.
@@ -355,10 +439,18 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                 urls.join(", ")
             );
             // A site search lists only its searches.
-            let rows = match bar.site {
+            let mut rows = match bar.site {
                 Some(_) => rows,
                 None => with_calculation(&text, bar.with_commands(&text, rows, cx)),
             };
+            // The core doesn't say which are searches, so they're the rows that go where a search
+            // for their words does.
+            let site = bar.site.as_ref().map(|site| site.keyword.as_str());
+            for row in &mut rows {
+                row.search = row.command.is_none()
+                    && row.result.is_none()
+                    && bar.host.search_url(site, &row.text).is_some_and(|url| url == row.url);
+            }
             bar.set_rows(bar.asked.clone(), rows, window, cx);
         })
         .ok();
@@ -635,9 +727,14 @@ impl CommandBar {
         };
         self.rows = rows;
         self.suggested = text;
-        let rows = self.rows.len() as f32;
-        let height = HEIGHT + if rows > 0. { rows * ROW_HEIGHT + 2. * ROW_INSET } else { 0. };
-        self.host.set_height(height);
+        self.host.set_height(height(self.rows.len()));
+        self.scroll.scroll_to_item(self.selected);
+        for row in self.rows.iter().filter(|row| row.is_page()) {
+            if !self.favicons.contains_key(&row.url) {
+                self.favicons.insert(row.url.clone(), None);
+                self.host.page_favicon(&row.url);
+            }
+        }
         self.update_completion(window, cx);
         cx.notify();
     }
@@ -824,6 +921,7 @@ impl CommandBar {
             return;
         }
         self.selected = index;
+        self.scroll.scroll_to_item(index);
         // check.sh reads this line.
         let row = &self.rows[self.selected];
         let named = row.command.is_some() || row.result.is_some();
@@ -840,44 +938,179 @@ impl CommandBar {
         }
     }
 
-    fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
-        let dim = |text: SharedString| div().text_color(rgba(SECONDARY)).child(text);
-        let chip = |text: SharedString| {
-            dim(text).flex_none().px(px(5.)).rounded(px(4.)).bg(rgba(CHIP)).text_size(px(11.))
+    /// `row`'s icon, `size` square, in `color` where it's a glyph: its page's favicon, else a
+    /// globe.
+    fn glyph(&self, row: &Suggestion, size: f32, color: Hsla) -> Option<AnyElement> {
+        let glyph = move |path: &'static str| {
+            svg().path(path).size(px(size)).flex_none().text_color(color).into_any_element()
         };
-        // Tab enters the site search the selected row hints (Chrome's "Search <site>").
-        let hint = index == self.selected && self.site.is_none() && !row.keyword.is_empty();
-        div()
-            .id(("suggestion", index))
-            .h(px(ROW_HEIGHT))
+        Some(match row.kind() {
+            Kind::Page => match self.favicons.get(&row.url).cloned().flatten() {
+                // GPUI decodes the favicon off the main thread, and draws nothing until it has.
+                Some(favicon) => img(favicon)
+                    .size(px(size))
+                    .flex_none()
+                    .with_loading(move || glyph("icons/globe.svg"))
+                    .into_any_element(),
+                None => glyph("icons/globe.svg"),
+            },
+            Kind::Search => glyph("icons/search.svg"),
+            Kind::Command => glyph("icons/command.svg"),
+            Kind::Sum => return None,
+        })
+    }
+
+    /// The input's icon: the search glyph, or the selected row's, as Arc's becomes its favicon.
+    fn input_icon(&self) -> AnyElement {
+        let color = rgb(0xffffff).into();
+        match self.chosen().and_then(|row| self.glyph(row, INPUT_ICON, color)) {
+            Some(icon) => icon,
+            None => svg()
+                .path("icons/search.svg")
+                .size(px(INPUT_ICON))
+                .flex_none()
+                .text_color(color)
+                .into_any_element(),
+        }
+    }
+
+    /// "Search <site>" and the Tab key, at the input's end, while the row ↩ takes hints a site
+    /// search.
+    fn site_hint(&self) -> Option<impl IntoElement + use<>> {
+        let row = self.chosen().filter(|row| self.site.is_none() && !row.keyword.is_empty())?;
+        let key = div()
+            .h(px(ICON_BOX))
+            .px(px(4.))
+            .flex()
+            .items_center()
+            .rounded(px(PLATE_RADIUS))
+            .bg(rgba(CHIP))
+            .text_color(rgba(TITLE))
+            .child("Tab");
+        Some(
+            div()
+                .flex_none()
+                .ml(px(HINT_GAP))
+                .flex()
+                .items_center()
+                .gap(px(9.))
+                .text_size(px(14.))
+                .child(div().text_color(rgba(DIM)).child(format!("Search {}", row.site)))
+                .child(key),
+        )
+    }
+
+    fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
+        let selected = index == self.selected;
+        let accent = accent(cx);
+        let white = Hsla::from(rgb(0xffffff));
+        let (title, dim) = match selected {
+            true => (white, white.opacity(0.5)),
+            false => (Hsla::from(rgba(TITLE)), Hsla::from(rgba(DIM))),
+        };
+        // The icon sits on a white tile in the selected row, and a command's on a faint one in
+        // the rest.
+        let glyph = match selected {
+            true => accent,
+            false => white.opacity(0.7),
+        };
+        let tile = match (selected, row.kind()) {
+            (true, _) => Some(white),
+            (false, Kind::Command) => Some(Hsla::from(rgba(CHIP))),
+            _ => None,
+        };
+        let icon = div()
+            .size(px(ICON_BOX))
+            .mr(px(TITLE_X - ICON_BOX_X - ICON_BOX))
             .flex_none()
             .flex()
             .items_center()
-            .gap(px(6.))
-            .px(px(TEXT_X - ROW_INSET))
-            .rounded(px(ROW_RADIUS))
-            .map(|line| match index == self.selected {
-                true => line.bg(rgb(SELECTED)),
+            .justify_center()
+            .rounded(px(PLATE_RADIUS))
+            .when_some(tile, |icon, tile| icon.bg(tile))
+            .children(self.glyph(row, ICON_SIZE, glyph));
+        // A key's chip: white with the accent's lighter shade on the selected row.
+        let chip = |text: SharedString| {
+            let (fill, text_color) = match selected {
+                true => (white, Hsla { l: (accent.l + 0.12).min(1.), ..accent }),
+                false => (Hsla::from(rgba(CHIP)), dim),
+            };
+            div()
+                .h(px(ICON_BOX))
+                .flex_none()
+                .px(px(7.))
+                .flex()
+                .items_center()
+                .rounded(px(PLATE_RADIUS))
+                .bg(fill)
+                .text_color(text_color)
+                .text_size(px(13.))
+                .child(text)
+        };
+        div()
+            .id(("suggestion", index))
+            .h(px(ROW_HEIGHT - 2. * PLATE_INSET))
+            .mx(px(PLATE_INSET))
+            .my(px(PLATE_INSET))
+            .flex_none()
+            .flex()
+            .items_center()
+            .pl(px(ICON_BOX_X - PLATE_INSET))
+            .pr(px(10.))
+            .rounded(px(PLATE_RADIUS))
+            .text_color(title)
+            .map(|line| match selected {
+                true => line.bg(accent),
                 false => line.hover(|style| style.bg(rgba(HOVERED))),
             })
             .on_click(cx.listener(move |bar, _, _, cx| bar.take(index, cx)))
-            .child(div().min_w_0().truncate().child(row.text.clone()))
-            .when(!row.detail.is_empty(), |line| {
-                line.child(dim(format!("— {}", row.detail).into()).min_w_0().truncate())
-            })
+            .child(icon)
+            .child(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .gap(px(3.))
+                    .child(div().min_w_0().truncate().child(row.text.clone()))
+                    .when(!row.detail.is_empty(), |line| {
+                        let detail = format!("— {}", row.detail);
+                        line.child(div().min_w_0().truncate().text_color(dim).child(detail))
+                    }),
+            )
             .when(row.tab != 0, |line| {
                 let action = match self.target {
                     Target::Beside(_) => "Add to Split View",
                     _ => "Switch to Tab",
                 };
-                line.child(dim(action.into()).flex_none().ml_auto())
+                let arrow = div()
+                    .size(px(ICON_BOX))
+                    .flex_none()
+                    .mr(px(3.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(PLATE_RADIUS))
+                    .bg(if selected { white } else { Hsla::from(rgba(ARROW_TILE)) })
+                    .child(
+                        svg()
+                            .path("icons/arrow-right.svg")
+                            .size(px(14.))
+                            .text_color(if selected { accent } else { white.opacity(0.65) }),
+                    );
+                let tint = if selected { white } else { dim };
+                let label = div().flex_none().mr(px(7.)).text_color(tint);
+                line.child(div().flex_1()).child(label.child(action)).child(arrow)
             })
-            .when_some(row.shortcut.clone(), |line, shortcut| line.child(chip(shortcut).ml_auto()))
-            .when(hint, |line| {
-                let search = dim(format!("Search {}", row.site).into()).flex_none().ml_auto();
-                line.child(search).child(chip("Tab".into()))
+            .when_some(row.shortcut.clone(), |line, shortcut| {
+                line.child(div().flex_1()).child(chip(shortcut))
             })
     }
+}
+
+/// The accent the selected row takes, dark enough for white on it.
+fn accent(cx: &App) -> Hsla {
+    let color = cx.try_global::<Accent>().map_or(ACCENT, |accent| accent.0);
+    let color = Hsla::from(rgb(color));
+    Hsla { l: color.l.min(ACCENT_LIGHTNESS), ..color }
 }
 
 impl Render for CommandBar {
@@ -890,39 +1123,19 @@ impl Render for CommandBar {
             .enumerate()
             .map(|(index, row)| self.row(index, row, cx).into_any_element())
             .collect();
-        // The panel's shape grows from the URL field's box to the window's and uncovers the bar,
-        // which stays still.
-        let size = window.viewport_size();
-        let whole = Bounds::new(point(px(0.), px(0.)), size);
-        // GPUI draws the window again only once AppKit reports it on screen, some frames after
-        // the host's first draw put it there, so the grow starts there rather than skip its start.
-        if let Some((_, start @ None)) = &mut self.grow
-            && window.is_visible()
-        {
-            *start = Some(Instant::now());
-        }
-        let growing = self.grow.and_then(|(field, start)| {
-            Some((field, start.map_or(Some(0.), grow_progress)?))
-        });
-        let (shape, radius) = match growing {
-            Some((field, progress)) => {
-                window.request_animation_frame();
-                self.host.reshape();
-                let shape = Bounds::new(
-                    field.origin * (1. - progress),
-                    gpui::size(
-                        field.size.width + (size.width - field.size.width) * progress,
-                        field.size.height + (size.height - field.size.height) * progress,
-                    ),
-                );
-                (shape, shell::PLATE_RADIUS + (RADIUS - shell::PLATE_RADIUS) * progress)
-            }
-            None => {
-                if self.grow.take().is_some() {
-                    self.host.reshape();
-                }
-                (whole, RADIUS)
-            }
+        let shown = rows.len().min(ROWS_SHOWN) as f32;
+        // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
+        let hairline = 1. / window.scale_factor();
+        let edge = |inset: f32, width: f32, color: u32| {
+            div()
+                .absolute()
+                .top(px(inset))
+                .left(px(inset))
+                .right(px(inset))
+                .bottom(px(inset))
+                .rounded(px(RADIUS - inset))
+                .border(px(width))
+                .border_color(rgb(color))
         };
         // The browser's shortcuts work here too, below the bar's own keys.
         div().key_context(shell::KEY_CONTEXT).size_full().child(
@@ -950,54 +1163,61 @@ impl Render for CommandBar {
                 .on_action(cx.listener(|bar, _: &Last, window, cx| {
                     bar.select(bar.rows.len().saturating_sub(1), window, cx)
                 }))
-                .absolute()
-                .left(shape.left())
-                .top(shape.top())
-                .w(shape.size.width)
-                .h(shape.size.height)
+                .relative()
+                .size_full()
                 .overflow_hidden()
-                .rounded(px(radius))
-                // One device pixel.
-                .border(px(1. / window.scale_factor()))
-                .border_color(rgba(BORDER))
+                .rounded(px(RADIUS))
                 .bg(rgb(FILL))
                 .text_color(rgb(0xffffff))
-                .text_size(px(13.))
+                .text_size(px(14.))
                 .child(
                     div()
-                        .absolute()
-                        .left(-shape.left())
-                        .top(-shape.top())
-                        .w(size.width)
-                        .h(size.height)
+                        .h(px(HEIGHT))
+                        .flex_none()
                         .flex()
-                        .flex_col()
-                        .child(
-                            div()
-                                .h(px(HEIGHT))
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.))
-                                .px(px(TEXT_X))
-                                .line_height(px(17.))
-                                .when_some(self.site.as_ref(), |line, site| {
-                                    line.child(
-                                        div()
-                                            .flex_none()
-                                            .px(px(6.))
-                                            .py(px(2.))
-                                            .rounded(px(6.))
-                                            .bg(rgba(CHIP))
-                                            .child(site.name.clone()),
-                                    )
-                                })
-                                .child(div().flex_1().min_w_0().child(self.input.clone())),
-                        )
-                        .when(!rows.is_empty(), |bar| {
-                            bar.child(div().flex().flex_col().p(px(ROW_INSET)).children(rows))
-                        }),
-                ),
+                        .items_center()
+                        .pl(px(INPUT_ICON_X))
+                        .pr(px(HINT_END))
+                        .gap(px(INPUT_TEXT_X - INPUT_ICON_X - INPUT_ICON))
+                        .text_size(px(INPUT_TEXT))
+                        .line_height(px(23.))
+                        .child(self.input_icon())
+                        .when_some(self.site.as_ref(), |line, site| {
+                            line.child(
+                                div()
+                                    .flex_none()
+                                    .px(px(6.))
+                                    .py(px(2.))
+                                    .rounded(px(6.))
+                                    .bg(rgba(CHIP))
+                                    .text_size(px(14.))
+                                    .child(site.name.clone()),
+                            )
+                        })
+                        .child(div().flex_1().min_w_0().child(self.input.clone()))
+                        .children(self.site_hint()),
+                )
+                .when(!rows.is_empty(), |bar| {
+                    bar.child(
+                        div().h(px(hairline)).mx(px(LINE_INSET)).flex_none().bg(rgba(LINE_COLOR)),
+                    )
+                    .child(
+                        div()
+                            .id("suggestions")
+                            .mt(px(LIST_TOP))
+                            .mx(px(LIST_X))
+                            .h(px(shown * ROW_HEIGHT))
+                            .flex_none()
+                            .flex()
+                            .flex_col()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.scroll)
+                            .children(rows),
+                    )
+                })
+                // Arc's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
+                .child(edge(0., hairline, OUTLINE))
+                .child(edge(hairline, 1., EDGE)),
         )
     }
 }
