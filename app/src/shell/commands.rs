@@ -11,6 +11,7 @@ use super::{
     COPIED_TIME, Section, Shell, Swapped, Undo,
     browser::WindowButton,
     clean_link, extensions, keys,
+    panes::pane_frames,
     swap::{CHECK, LINK},
     user_keys,
 };
@@ -59,6 +60,10 @@ pub enum Command {
     Find,
     /// Opens the Site Controls for the selected tab's site, or closes them.
     SiteControls,
+    /// Starts capture mode over the selected tab's page, or leaves it.
+    CapturePortion,
+    /// Captures all of the selected tab's page, beyond its view, and copies it.
+    CaptureFullPage,
     FindNext,
     FindPrevious,
     /// Scrolls the page to its selection.
@@ -165,6 +170,11 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
     ("cmd-j", Command::JumpToSelection, false),
+    // The first is the one the menu shows. ⇧2 is @ on US layouts, which GPUI names by its
+    // character and a page by the key with shift.
+    ("shift-cmd-2", Command::CapturePortion, false),
+    ("cmd-@", Command::CapturePortion, false),
+    ("shift-cmd-@", Command::CapturePortion, false),
     ("cmd-1", Command::SelectTab(0), false),
     ("cmd-2", Command::SelectTab(1), false),
     ("cmd-3", Command::SelectTab(2), false),
@@ -260,6 +270,8 @@ pub(super) const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Move Pane Right", Command::MovePaneRight),
     ("Separate All Pages", Command::SeparateSplit),
     ("Show/Hide Sidebar", Command::ToggleSidebar),
+    ("Capture", Command::CapturePortion),
+    ("Capture Full Page", Command::CaptureFullPage),
     ("Save Page As", Command::SavePage),
     ("Print", Command::Print),
     ("View Source", Command::ViewSource),
@@ -458,6 +470,8 @@ impl Command {
             Command::CopyMarkdownLink => "copy-markdown-link",
             Command::Find => "find",
             Command::SiteControls => "site-controls",
+            Command::CapturePortion => "capture",
+            Command::CaptureFullPage => "capture-full-page",
             Command::FindNext => "find-next",
             Command::FindPrevious => "find-previous",
             Command::JumpToSelection => "jump-to-selection",
@@ -738,6 +752,8 @@ impl Shell {
             }
             Command::Find => return self.browser.find(self.selected, cx),
             Command::SiteControls => return self.site_controls(cx),
+            Command::CapturePortion => return self.capture(false, cx),
+            Command::CaptureFullPage => return self.capture(true, cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),
             Command::FindPrevious => return self.browser.find_next(self.selected, false, cx),
             Command::JumpToSelection => return self.browser.jump_to_selection(self.selected, cx),
@@ -916,6 +932,19 @@ impl Shell {
                 favicon: self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()),
             })
             .collect()
+    }
+
+    /// Starts capture mode over the focused page, or with `full_page` captures all of it.
+    fn capture(&mut self, full_page: bool, cx: &mut Context<Self>) {
+        if self.selected == 0 {
+            return;
+        }
+        let (frame, radius) = self.page_frame(self.viewport);
+        let panes = self.panes(self.selected);
+        let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
+        let (stacked, shares) = (self.stacked(self.selected), self.shares(self.selected));
+        let pane = pane_frames(frame, panes.len(), stacked, &shares)[focused];
+        self.browser.capture(self.selected, pane, radius, full_page, cx);
     }
 
     /// Whether `command` would do something now, for the command bar to offer it.

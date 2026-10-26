@@ -167,6 +167,7 @@ Arc's note at the window's top right, after something done without showing it (A
 | Copy URL / as Markdown / as Quote | ⇧⌘C / ⌥⇧⌘C / ⌃⇧⌘C (menus) | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C; Quote needs the page's selection |
 | Downloads | ⇧⌘J (menus) | ⇧⌘J | ⇧⌘J |
 | Save page / print | ⇧⌘S / ⌘P (menus) | ⇧⌘S / ⌘P | same |
+| Capture a portion of the page | ⇧⌘2 (tooltip) | — | ⇧⌘2, which leaves capture mode too |
 | DevTools / console / inspect / view source | ⌥⌘I / ⌥⌘J / ⌥⌘C / ⌥⌘U (menus) | ⌥⌘I or F12 / ⌥⌘J / ⌥⌘C / ⌥⌘U | same |
 | Back / forward | ⌘[ / ⌘] (menus) | ⌘[ / ⌘], ⌘← / ⌘→ | same |
 | Reload / force reload / stop | ⌘R / ⇧⌘R / ⌘. (menus) | ⌘R / ⇧⌘R / — | ⌘R / ⇧⌘R / ⌘. and Esc |
@@ -187,7 +188,7 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the same command as its key and shows that key. Each is in the command bar by its name too. Their agent paths are the core's own calls: `bc_tab_open` for View History, `bc_window_show_space` for the Space list and `bc_space_set_name` for Rename Space. Essential Keyboard Shortcuts only shows our Settings window, which an agent has no use for.
 
 - **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help, as Arc's.
-- **File.** New Tab…, New Window (⌘N), Restore Last Closed Tab, Open Command Bar, Close Window (⇧⌘W), Archive Tab (⌘W), then Save Page As (⇧⌘S) and Print (⌘P), as Arc's (the window items' places are Chrome's, *interim* until Arc's are recorded). Save Page As shows Chrome's save panel and Print its print preview, over the page. Arc's other window items, and its profile, Note, Easel, Share and Capture items, come with their features.
+- **File.** New Tab…, New Window (⌘N), Restore Last Closed Tab, Open Command Bar, Close Window (⇧⌘W), Archive Tab (⌘W), then Save Page As (⇧⌘S) and Print (⌘P), as Arc's (the window items' places are Chrome's, *interim* until Arc's are recorded). Save Page As shows Chrome's save panel and Print its print preview, over the page. Capture… (⇧⌘2) and Capture Full Page sit before Save Page As (Capture). Arc's other window items, and its profile, Note, Easel and Share items, come with their features.
 - **Archive.** Go Back, Go Forward, View History (⌘Y), View Archive and Clear Archive, as Arc's. View History opens Chrome's history page in a new tab, and does nothing on that page, as Chrome's ⌘Y shows the one it has (*interim* until a history page of ours).
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu: Find…, Find Next, Find Previous and Jump to Selection.
 - **App.** Settings…, the system's Services, Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
@@ -781,6 +782,20 @@ Chrome's DevTools (Dia, P§23), docked in the card as Arc's.
 - **Undocked.** DevTools' Dock side menu undocks them into Chrome's own window, which takes the keyboard, and docks them again. Dia's is titled "Developer Tools - <url>", opens where it was last left, and is 640 × 640 the first time.
 - **Task Manager.** Help › Troubleshooting › Open Task Manager, and Open Task Manager in the command bar, open Chrome's in a window of its own, with the page shown selected. As in Chrome, ⌘W closes it, as it closes any window of Chrome's that has the keyboard, and the tab the browser window shows stays.
 - **Agents.** DevTools are for the user. Agents get no DevTools and no remote-debugging port (decision 8).
+
+### Capture
+
+Arc's Capture (Arc 1.170 cap ×11, at 1 pt a pixel; no recording, so no motion is measured). Two commands: Capture a Portion of This Page (⇧⌘2, File › Capture… and "Capture" in the command bar) and Capture Full Page (File and the command bar). Site Controls' tiles, when they come, run the same commands.
+
+- **Capture mode.** ⇧⌘2, from the page too, covers the focused pane's page with a still picture of it in a child window with the keyboard (Overlays). The page around what's lit is grey: Rec. 601 luma × 0.749, which gives Arc's grey to the level at the three points measured. What's lit shows in its colours inside a 4 pt ring of (21,28,47) at radius 6, outside the box. The pointer is a camera.
+- **Pill.** "Click or drag to capture a portion of this page", 14 pt semibold (71,28,157), centred on a white pill 356 × 67 at radius 18, its bottom 35.5 above the page's, with a lilac glow round it. It shows only while choosing.
+- **Choosing.** The pointer over the page lights the element under it: the core hit tests the page and answers with the element's border box, with no page JavaScript. A click takes that box and a drag the rectangle dragged. Esc, ⇧⌘2 again, a click in another window or app, or a resize leaves.
+- **Menu.** Once chosen, a menu 273 wide at radius 7, fill (18,15,44), 10 in from the ring's left and level with its top, inside the page. At its top a Send To… field 10 in, 13 down, 29.5 tall, fill (35,32,59), its text (170,169,180) 10 in. Then from 7.5 below it rows 40 tall: a 14 pt glyph at 18 in white 0.3 and 14 pt medium white text at 42. Lines between groups take 9 pt, white 0.06, and 6 pt close the menu. Arc's rows: Save to Library, Copy, Save…, Send via iMessage…, Edit, a line, Retake, New Easel. Ours leave out Save to Library, Edit and New Easel until Library Media and Easel exist; each is an `Action` and a row in `capture.rs`.
+- **What the rows do.** Copy puts the PNG on the pasteboard and shows the toast "Screenshot Copied to Clipboard" with a Save chip and a share glyph's chip (Toast). Save… shows the save panel, Send via iMessage… a new message in Messages, Send To… the system's share menu at the field, and Retake goes back to choosing.
+- **Full page.** The toast says "Capture in Progress", then the picture of the whole page, past its view, is copied and the toast is the one after Copy.
+- **Pictures.** At the display's scale: what's chosen from the compositor's last frame, the full page from DevTools' screenshot beyond the view.
+- **Agents.** No agent path. A capture shows whatever the page holds, which may be what decision 3 keeps from agents, and the pasteboard and share menu take it out of the browser. Agents read pages through their own tool, with its permission rule and activity log.
+- Ours (*interim*, as no capture shows them): Send To… opens the system's share menu, where Arc's field lists people and apps of its own; the glow (0x825a96 at 0.4, blur 90) is fitted by eye; a hovered row has a white 0.08 plate inset 4; a press is a drag past 4 pt; a click away from the menu leaves; the toast stays 5 s, and while the pointer is over it, with white 0.16 under a hovered chip; the file is "Capture yyyy-MM-dd at HH.mm.ss.png"; the pasteboard gets PNG only; the camera, Lucide's, has no flash dot; a drag's rectangle has the ring; Arc's choice of a larger element than the one under the pointer, the pinch zoom and the full page's flow aren't copied; a failure only logs.
 
 ### Import from Arc and Chrome
 

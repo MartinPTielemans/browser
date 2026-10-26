@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 #import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <objc/runtime.h>
 
 #include <algorithm>
@@ -382,6 +383,18 @@ double g_site_controls_left;
 double g_site_controls_top;
 void (*g_site_controls_dismissed)(void);
 
+// Capture's window and view, the browser it shows over, where it goes there, the camera pointer,
+// and while it shows, the monitor that keeps the pointer the camera.
+Browser* g_capture_over;
+NSWindow* g_capture;
+NSView* g_capture_view;
+bool g_capture_shown = false;
+NSRect g_capture_frame;
+void (*g_capture_dismissed)(void);
+NSCursor* g_capture_cursor;
+bool g_capture_camera = true;
+id g_capture_monitor;
+
 // The toast's window and view, and the browser it shows over.
 Browser* g_toast_over;
 NSWindow* g_toast;
@@ -504,6 +517,48 @@ void DismissSiteControls() {
       g_site_controls_dismissed();
     });
   }
+}
+
+// The user left Capture. Posted: the UI may be handling the event that left it.
+void DismissCapture() {
+  if (!g_capture_shown) {
+    return;
+  }
+  host_hide_capture();
+  if (g_capture_dismissed) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      g_capture_dismissed();
+    });
+  }
+}
+
+// Lucide's camera (https://github.com/lucide-icons/lucide, commit
+// 7faf87628a1ad6175975bc595344337ce14a7db4), ISC License; see NOTICE. Drawn as Arc's capture
+// pointer is (docs/ux-spec.md › Capture): a light line a point wide, over a dark fill, with a dark
+// edge either side so it shows on any page.
+constexpr const char* kCameraBody =
+    "M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4"
+    "a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z";
+
+NSCursor* CameraCursor() {
+  NSString* svg = [NSString
+      stringWithFormat:
+          @"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" "
+          @"viewBox=\"0 0 24 24\" stroke-linecap=\"round\" stroke-linejoin=\"round\">"
+          @"<path d=\"%s\" fill=\"rgb(30,41,48)\" stroke=\"rgba(0,0,0,0.6)\" stroke-width=\"3\"/>"
+          @"<circle cx=\"12\" cy=\"13\" r=\"3\" fill=\"none\" stroke=\"rgba(0,0,0,0.6)\" "
+          @"stroke-width=\"3.5\"/>"
+          @"<path d=\"%s\" fill=\"none\" stroke=\"rgb(215,215,215)\" stroke-width=\"1\"/>"
+          @"<circle cx=\"12\" cy=\"13\" r=\"3\" fill=\"none\" stroke=\"white\" "
+          @"stroke-width=\"1.5\"/></svg>",
+          kCameraBody, kCameraBody];
+  NSImage* image = [[NSImage alloc] initWithData:[svg dataUsingEncoding:NSUTF8StringEncoding]];
+  return image ? [[NSCursor alloc] initWithImage:image hotSpot:NSMakePoint(12, 12)]
+               : NSCursor.crosshairCursor;
+}
+
+void SetCaptureCursor() {
+  [(g_capture_camera ? g_capture_cursor : NSCursor.arrowCursor) set];
 }
 
 // At the browser window's top right corner, where the toast draws itself.
@@ -856,6 +911,9 @@ void host_show_window(void* ui_view) {
                                             if (event.window != g_site_controls) {
                                               DismissSiteControls();
                                             }
+                                            if (event.window != g_capture) {
+                                              DismissCapture();
+                                            }
                                             return event;
                                           }];
   }
@@ -881,6 +939,10 @@ void host_show_window(void* ui_view) {
                                                     g_site_controls_over == browser) {
                                                   PlaceSiteControls();
                                                   PlaceOverlayShadow(g_site_controls_overlay);
+                                                }
+                                                if (g_capture_shown &&
+                                                    g_capture_over == browser) {
+                                                  DismissCapture();
                                                 }
                                               }];
 }
@@ -1664,6 +1726,201 @@ void host_hide_site_controls(void) {
   fprintf(stderr, "browser: site controls hidden\n");
 }
 
+void host_add_capture(void* view, void (*dismissed)(void)) {
+  g_capture_view = (__bridge NSView*)view;
+  g_capture = g_capture_view.window;
+  g_capture_dismissed = dismissed;
+  g_capture_cursor = CameraCursor();
+  MakeOverlay(g_capture);
+  // The UI draws the page's rounded card, which the browser window's shadow is already under.
+  g_capture.styleMask = NSWindowStyleMaskBorderless;
+  g_capture.hasShadow = NO;
+  // GPUI keeps its pointer in cursor rects, which would put the arrow back over the camera.
+  [g_capture disableCursorRects];
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  [center addObserverForName:NSApplicationDidResignActiveNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification*) {
+                    DismissCapture();
+                  }];
+  // Chromium makes its window key by itself, such as when a page commits. That isn't the user
+  // leaving, so Capture takes the keyboard back.
+  [center addObserverForName:NSWindowDidBecomeKeyNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    NSWindow* window = notification.object;
+                    if (!g_capture_shown || window == g_capture || !g_capture.visible) {
+                      return;
+                    }
+                    if (BrowserOf(window) == g_capture_over) {
+                      [g_capture makeKeyWindow];
+                    } else {
+                      DismissCapture();
+                    }
+                  }];
+}
+
+void host_show_capture(void* ui_view, double left, double top, double width, double height) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_capture || !browser || !browser->window) {
+    return;
+  }
+  if (g_capture_shown && g_capture_over != browser) {
+    host_hide_capture();
+  }
+  g_capture_shown = true;
+  g_capture_over = browser;
+  g_capture_camera = true;
+  // As the dialog does: on screen once the UI has drawn the picture of the page it covers, so the
+  // page doesn't flash between.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_capture_shown || g_capture_over != browser || g_capture.parentWindow) {
+      return;
+    }
+    NSWindow* window = browser->window;
+    NSRect content = [window contentRectForFrameRect:window.frame];
+    g_capture_frame = NSMakeRect(NSMinX(content) + left, NSMaxY(content) - top - height, width,
+                                 height);
+    [g_capture setFrame:g_capture_frame display:NO];
+    [g_capture_view.layer setNeedsDisplay];
+    [g_capture_view.layer displayIfNeeded];
+    [window addChildWindow:g_capture ordered:NSWindowAbove];
+    [g_capture makeKeyAndOrderFront:nil];
+    SetCaptureCursor();
+    g_capture_monitor = [NSEvent
+        addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged |
+                                             NSEventMaskLeftMouseUp | NSEventMaskMouseEntered
+                                     handler:^NSEvent*(NSEvent* event) {
+                                       if (event.window == g_capture) {
+                                         SetCaptureCursor();
+                                       }
+                                       return event;
+                                     }];
+    // check.sh reads this line.
+    fprintf(stderr, "browser: capture shown at %g %g %g %g\n", left, top, width, height);
+  });
+}
+
+void host_capture_camera(bool camera) {
+  g_capture_camera = camera;
+  if (g_capture_shown && g_capture.parentWindow) {
+    SetCaptureCursor();
+  }
+}
+
+void host_hide_capture(void) {
+  if (!g_capture_shown) {
+    return;
+  }
+  g_capture_shown = false;
+  if (g_capture_monitor) {
+    [NSEvent removeMonitor:g_capture_monitor];
+    g_capture_monitor = nil;
+  }
+  Browser* browser = g_capture_over;
+  const bool key = g_capture.keyWindow;
+  if (g_capture.parentWindow) {
+    [browser->window removeChildWindow:g_capture];
+  }
+  [g_capture orderOut:nil];
+  if (key) {
+    [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
+        makeKeyWindow];
+  }
+  [NSCursor.arrowCursor set];
+  fprintf(stderr, "browser: capture hidden\n");
+}
+
+namespace {
+
+// host_copy's pasteboard: the clipboard, or in a driven run one of its own, so checks never touch
+// the user's clipboard.
+NSPasteboard* CopyPasteboard() {
+  static NSPasteboard* driven =
+      getenv("BROWSER_DRIVE") ? [NSPasteboard pasteboardWithUniqueName] : nil;
+  return driven ?: NSPasteboard.generalPasteboard;
+}
+
+// A capture's name, for when it was taken, as macOS names a screenshot.
+NSString* CaptureName() {
+  NSDateFormatter* format = [[NSDateFormatter alloc] init];
+  format.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+  format.dateFormat = @"'Capture' yyyy-MM-dd 'at' HH.mm.ss";
+  return [[format stringFromDate:NSDate.date] stringByAppendingString:@".png"];
+}
+
+}  // namespace
+
+void host_copy_png(const uint8_t* png, size_t size) {
+  NSPasteboard* pasteboard = CopyPasteboard();
+  [pasteboard clearContents];
+  [pasteboard setData:[NSData dataWithBytes:png length:size] forType:NSPasteboardTypePNG];
+  // check.sh reads this line: what the pasteboard holds now, and which one it is.
+  fprintf(stderr, "browser: pasteboard png %lu bytes, %s\n",
+          (unsigned long)[pasteboard dataForType:NSPasteboardTypePNG].length,
+          pasteboard == NSPasteboard.generalPasteboard ? "general" : "private");
+}
+
+void host_save_png(void* ui_view, const uint8_t* png, size_t size) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser || !browser->window) {
+    return;
+  }
+  NSData* data = [NSData dataWithBytes:png length:size];
+  NSSavePanel* panel = [NSSavePanel savePanel];
+  panel.allowedContentTypes = @[ UTTypePNG ];
+  panel.nameFieldStringValue = CaptureName();
+  [panel beginSheetModalForWindow:browser->window
+                completionHandler:^(NSModalResponse response) {
+                  if (response == NSModalResponseOK) {
+                    [data writeToURL:panel.URL atomically:YES];
+                  }
+                }];
+  fprintf(stderr, "browser: capture save panel shown\n");
+}
+
+void host_share_png(const uint8_t* png,
+                    size_t size,
+                    void* view,
+                    double x,
+                    double y,
+                    double width,
+                    double height,
+                    bool messages) {
+  // Shared as a file, so what takes it gets the capture's name, in a folder of its own.
+  NSString* folder = [NSTemporaryDirectory()
+      stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+  [NSFileManager.defaultManager createDirectoryAtPath:folder
+                          withIntermediateDirectories:YES
+                                           attributes:nil
+                                                error:nil];
+  NSURL* file = [NSURL fileURLWithPath:[folder stringByAppendingPathComponent:CaptureName()]];
+  if (![[NSData dataWithBytes:png length:size] writeToURL:file atomically:YES]) {
+    return;
+  }
+  if (messages) {
+    [[NSSharingService sharingServiceNamed:NSSharingServiceNameComposeMessage]
+        performWithItems:@[ file ]];
+    fprintf(stderr, "browser: capture sent to messages\n");
+    return;
+  }
+  NSView* anchor = (__bridge NSView*)view;
+  if (!anchor.window) {
+    return;
+  }
+  NSRect rect = NSMakeRect(x, anchor.flipped ? y : NSHeight(anchor.bounds) - y - height, width,
+                           height);
+  NSSharingServicePicker* picker = [[NSSharingServicePicker alloc] initWithItems:@[ file ]];
+  [picker showRelativeToRect:rect ofView:anchor preferredEdge:NSRectEdgeMinY];
+  fprintf(stderr, "browser: capture share menu shown\n");
+}
+
+void host_toast_takes_clicks(bool takes) {
+  g_toast.ignoresMouseEvents = !takes;
+}
+
 void host_add_toast(void* toast_view) {
   g_toast_view = (__bridge NSView*)toast_view;
   g_toast = g_toast_view.window;
@@ -2002,9 +2259,7 @@ void host_file_preview(const char* path, uint64_t id,
 }
 
 void host_copy(const char* text) {
-  static NSPasteboard* driven =
-      getenv("BROWSER_DRIVE") ? [NSPasteboard pasteboardWithUniqueName] : nil;
-  NSPasteboard* pasteboard = driven ?: NSPasteboard.generalPasteboard;
+  NSPasteboard* pasteboard = CopyPasteboard();
   [pasteboard clearContents];
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
 }

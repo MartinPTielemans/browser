@@ -4,8 +4,9 @@ use std::borrow::Cow;
 
 use gpui::{AssetSource, SharedString};
 
-/// The shell's glyphs, built in. Lucide's and, for Spaces' icons, Phosphor's (NOTICE), and the
-/// loading ring, the window buttons' glyphs and the close button's bars, which are ours.
+/// The shell's glyphs, built in. Lucide's and, for Spaces' icons and Capture's menu, Phosphor's
+/// (NOTICE), and the loading ring, the window buttons' glyphs and the close button's bars,
+/// which are ours.
 pub struct Assets;
 
 // The close button's bars, as Arc's: 11.4 pt between the middles of their round ends, 2 wide,
@@ -53,6 +54,19 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/bluetooth.svg", include_bytes!("../../assets/icons/bluetooth.svg")),
     ("icons/brush-cleaning.svg", include_bytes!("../../assets/icons/brush-cleaning.svg")),
     ("icons/cable.svg", include_bytes!("../../assets/icons/cable.svg")),
+    ("icons/camera.svg", include_bytes!("../../assets/icons/camera.svg")),
+    (
+        "icons/capture/arrow-counter-clockwise-bold.svg",
+        include_bytes!("../../assets/icons/capture/arrow-counter-clockwise-bold.svg"),
+    ),
+    (
+        "icons/capture/chat-circle-fill.svg",
+        include_bytes!("../../assets/icons/capture/chat-circle-fill.svg"),
+    ),
+    (
+        "icons/capture/tray-arrow-down-fill.svg",
+        include_bytes!("../../assets/icons/capture/tray-arrow-down-fill.svg"),
+    ),
     ("icons/check.svg", include_bytes!("../../assets/icons/check.svg")),
     ("icons/chevron-down.svg", include_bytes!("../../assets/icons/chevron-down.svg")),
     ("icons/chevron-up.svg", include_bytes!("../../assets/icons/chevron-up.svg")),
@@ -117,6 +131,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/save.svg", include_bytes!("../../assets/icons/save.svg")),
     ("icons/search.svg", include_bytes!("../../assets/icons/search.svg")),
     ("icons/settings.svg", include_bytes!("../../assets/icons/settings.svg")),
+    ("icons/share.svg", include_bytes!("../../assets/icons/share.svg")),
     (
         "icons/space/airplane-tilt-fill.svg",
         include_bytes!("../../assets/icons/space/airplane-tilt-fill.svg"),

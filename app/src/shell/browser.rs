@@ -265,6 +265,16 @@ pub trait Browser {
         extensions: Vec<crate::site_controls::Extension>,
         cx: &mut App,
     );
+    /// Starts capture mode over the tab's page, at `frame` in the window with corners of `radius`,
+    /// or leaves it if it's on; or with `full_page` captures all of the page and copies it.
+    fn capture(
+        &self,
+        tab: u64,
+        frame: Bounds<Pixels>,
+        radius: f32,
+        full_page: bool,
+        cx: &mut App,
+    );
     /// Opens the Settings window, or brings it to the front.
     fn settings(&self, cx: &mut App);
     /// Opens the Settings window on its Shortcuts tab.

@@ -12,6 +12,7 @@ macro_rules! log {
     }};
 }
 
+pub mod capture;
 pub mod command_bar;
 pub mod dialog;
 pub mod icon_picker;

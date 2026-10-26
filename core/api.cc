@@ -10,6 +10,7 @@
 #include "base/time/time.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
+#include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/downloads.h"
 #include "browser_core/extensions.h"
@@ -40,6 +41,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/page_zoom.h"
+#include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
@@ -689,6 +691,27 @@ void bc_tab_find_close(bc_id id) {
   if (browser_core::FindInPage* find =
           contents ? browser_core::FindInPage::FromWebContents(contents) : nullptr) {
     find->Close();
+  }
+}
+
+void bc_tab_element_at(bc_id id, double x, double y) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::PageCapture::GetOrCreateForWebContents(contents)->ElementAt(gfx::PointF(x, y));
+  }
+}
+
+void bc_tab_capture(bc_id id, uint64_t request, bool full_page, bc_rect rect) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::PageCapture::GetOrCreateForWebContents(contents)->Capture(
+        request, full_page, gfx::RectF(rect.x, rect.y, rect.width, rect.height));
+  }
+}
+
+void bc_tab_capture_end(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (browser_core::PageCapture* capture =
+          contents ? browser_core::PageCapture::FromWebContents(contents) : nullptr) {
+    capture->End();
   }
 }
 

@@ -174,9 +174,50 @@ void host_release_site_controls(void);
 // Hides the Site Controls once they've left.
 void host_hide_site_controls(void);
 
+// Makes the window of |view| Capture's, which covers a browser window's page when shown, as its
+// child, with the keyboard and a camera for the pointer. It starts hidden. |dismissed| runs, after
+// the event, when the user leaves it: a click outside it, another window taking the keyboard,
+// switching apps, or the browser window changing size, which the picture of the page no longer
+// fits.
+void host_add_capture(void* view, void (*dismissed)(void));
+
+// Shows Capture's window over |ui_view|'s window, as the UI draws it now, with the keyboard:
+// |width| by |height| points, its top left at |left|, |top| in the window's content.
+void host_show_capture(void* ui_view, double left, double top, double width, double height);
+
+// The pointer over Capture's window is the camera, or with |camera| false the arrow, as over its
+// menu.
+void host_capture_camera(bool camera);
+
+// Hides Capture's window. The browser window gets the keyboard back, with the focus where it was.
+void host_hide_capture(void);
+
+// Puts the PNG |png|, |size| bytes long, on the clipboard, or on host_copy's pasteboard of its own
+// in a driven run.
+void host_copy_png(const uint8_t* png, size_t size);
+
+// Asks where to save the PNG |png|, |size| bytes long, in a save panel on |ui_view|'s window, named
+// for when it was taken, and saves it there.
+void host_save_png(void* ui_view, const uint8_t* png, size_t size);
+
+// Shares the PNG |png|, |size| bytes long, as a file named for when it was taken: in the system's
+// share menu at |x|, |y|, |width| by |height| points from the top left of |view|, a window's view,
+// or with |messages| in a new message in Messages.
+void host_share_png(const uint8_t* png,
+                    size_t size,
+                    void* view,
+                    double x,
+                    double y,
+                    double width,
+                    double height,
+                    bool messages);
+
 // Makes the window of |toast_view| the toast's, which floats over a browser window's top right
 // corner when shown, as its child, and lets the mouse through. It starts hidden.
 void host_add_toast(void* toast_view);
+
+// The toast takes clicks, while it has buttons, or lets the mouse through to the page.
+void host_toast_takes_clicks(bool takes);
 
 // Shows the toast's window over |ui_view|'s window, as the UI draws it now.
 void host_show_toast(void* ui_view);

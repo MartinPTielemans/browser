@@ -17,6 +17,10 @@ impl Host for Recorder {
     fn hide(&self) {
         self.0.borrow_mut().push("hide".into());
     }
+
+    fn take_clicks(&self, takes: bool) {
+        self.0.borrow_mut().push(format!("clicks {takes}"));
+    }
 }
 
 const TIME: Duration = Duration::from_secs(5);
@@ -70,4 +74,19 @@ fn it_overshoots_its_size_as_arcs_does(_: &mut TestAppContext) {
     assert_eq!(Pose::arriving(1.), Pose { scale: 1., opacity: 1. });
     let gone = Pose::arriving(1.).leaving(LEAVE);
     assert!((gone.scale - FROM).abs() < 1e-3 && gone.opacity < 1e-3, "{gone:?}");
+}
+
+/// Capture's toast has buttons, so the clicks go to it rather than the page under it, until it
+/// leaves; a toast without them lets them through again.
+#[gpui::test]
+fn a_toast_with_buttons_takes_clicks_while_it_shows(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    let save = Button { label: Label::Text("Save".into()), name: "save", run: Rc::new(|_, _| {}) };
+    cx.update(|cx| show_with_buttons("Screenshot Copied to Clipboard", vec![save], TIME, cx));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks true", "show"]);
+    assert_eq!(after(cx, &host, 5.), ["clicks false"]);
+    assert_eq!(after(cx, &host, LEAVE), ["hide"]);
+    show_deleted(cx);
+    assert_eq!(host.0.take(), ["show"]);
 }
