@@ -130,7 +130,7 @@ Arc's note at the window's top right, after something done without showing it (A
 
 - Focus rules are in AGENTS.md › Keyboard with the page focused. Chrome's reserved commands reach the browser before the page sees them: New Tab, New Window, New Incognito Window, Close Tab, Close Window, Reopen Closed Tab, Next/Previous Tab and Quit. Other browser keys reach the browser only if the page doesn't keep them. A page keeps ⌘F, for example. Extensions can't take the reserved keys (Chrome).
 - Where Arc and Dia bind different keys, Arc's key wins, because Arc refugees are the first users (decision 7). Chrome's key stays as a hidden alternate where it is free. *The owner should confirm this rule.*
-- Every command gets a binding in Settings › Keyboard Shortcuts. A user's binding beats every other binding except the reserved commands (Dia, P§22).
+- Every command's keys can be changed in Settings › Shortcuts (Dia, P§22): the user's keys replace the command's in this table, and a reserved command stays reserved on its new keys. A user's key beats the other commands' (the command that had it loses it) except a reserved command's and those that can't be rebound, which keep theirs, as do Hide, Minimize, the Edit menu and full screen. Quit (⌘Q, every Mac app's way out), Undo (⌘Z, which falls back to the page's own undo), the ⌃Tab walk (it lasts while ⌃ is held), ⌘1–⌘8 and ⌃1–⌃9 can't be rebound. The keys are the user's own setting, with no agent path.
 
 | Action | Arc (recorded) | Dia | Ours |
 |---|---|---|---|
@@ -617,7 +617,7 @@ Arc's window (Arc 1.170.0 cap and ax), opened by ⌘, and Arc › Settings…. I
 
 - **General.** Warn before quitting (Window › Warn before quitting) and Archive tabs after (Archive › Auto-archive). Arc's Previews comes with that feature.
 - **Profiles.** Arc's tab, after General; its content isn't captured, so ours, for now: a row per profile with a grey tile, its name and how many Spaces are in it, 40 tall so they're even with a button's, and Delete for a profile nothing is in, which asks in an alert first. New Profile under them makes one, named as Chrome numbers them, with its name in a field to type over, as Finder's New Folder does. A double-click on a name renames it, as on a Space's: return or a click away keeps it, escape leaves it. Measure Arc's.
-- **Shortcuts.** Ours: the browser's shortcuts by section, read-only, each in a chip as the command bar shows it. Arc's lets the user change some; that comes with rebinding (Keyboard).
+- **Shortcuts.** Ours: every command by section, its keys in a chip as the command bar shows it, at least 56 wide (Keyboard says which can change). A click on a chip records the next keys pressed, which need ⌘ or ⌃ unless they're a function key: escape stops, ⌫ leaves the command without keys, and keys another command keeps stay recording, with "Used by" and its name before the chip. ↺ before the chip gives a command its defaults back once it has others, and Restore Defaults under the boxes every command's. Keys that can't change show grey. The app keeps the user's keys in its profile directory, in `Shortcuts`, as the core keeps none of the app's settings.
 - **Advanced.** Haptic feedback when swiping between Spaces, on by default, which Arc doesn't have (it has one for reordering tabs). More Settings… opens Chromium's settings in a tab and hides the window.
 
 ### Archive

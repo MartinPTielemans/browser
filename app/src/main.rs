@@ -151,18 +151,37 @@ const WINDOW_SIZE: (f64, f64) = (1280., 800.);
 /// AppKit's key equivalent for `keystroke`, as SHORTCUTS writes it, and whether it takes ⌘, ⇧, ⌥
 /// and ⌃.
 fn key_equivalent(keystroke: &str) -> (String, [bool; 4]) {
-    let mut parts: Vec<&str> = keystroke.split('-').collect();
-    let key = match parts.pop().unwrap_or_default() {
-        "enter" => "\r",
-        "escape" => "\u{1b}",
-        "up" => "\u{f700}",
-        "down" => "\u{f701}",
-        "left" => "\u{f702}",
-        "right" => "\u{f703}",
-        key => key,
+    let mut key = keystroke;
+    let mut held = [false; 4];
+    for (modifier, at) in [("ctrl-", 3), ("alt-", 2), ("shift-", 1), ("cmd-", 0)] {
+        if let Some(rest) = key.strip_prefix(modifier) {
+            held[at] = true;
+            key = rest;
+        }
+    }
+    // NSF1FunctionKey on.
+    let function = key.strip_prefix('f').and_then(|number| number.parse::<u32>().ok());
+    if let Some(number) = function.filter(|number| (1..=35).contains(number)) {
+        return (char::from_u32(0xf703 + number).unwrap_or_default().to_string(), held);
+    }
+    let key = match key {
+        "enter" => "\r".to_string(),
+        "escape" => "\u{1b}".to_string(),
+        "up" => "\u{f700}".to_string(),
+        "down" => "\u{f701}".to_string(),
+        "left" => "\u{f702}".to_string(),
+        "right" => "\u{f703}".to_string(),
+        "tab" => "\t".to_string(),
+        "space" => " ".to_string(),
+        "backspace" => "\u{8}".to_string(),
+        "delete" => "\u{f728}".to_string(),
+        "pageup" => "\u{f72c}".to_string(),
+        "pagedown" => "\u{f72d}".to_string(),
+        "home" => "\u{f729}".to_string(),
+        "end" => "\u{f72b}".to_string(),
+        key => key.to_string(),
     };
-    let has = |modifier| parts.contains(&modifier);
-    (key.to_string(), [has("cmd"), has("shift"), has("alt"), has("ctrl")])
+    (key, held)
 }
 const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
 
@@ -234,7 +253,7 @@ fn pop_up(
     let strings: Vec<(CString, CString, [bool; 4])> = items
         .iter()
         .map(|item| {
-            let (key, modifiers) = item.shortcut.map(key_equivalent).unwrap_or_default();
+            let (key, modifiers) = item.shortcut.as_deref().map(key_equivalent).unwrap_or_default();
             let title = CString::new(item.title.as_ref()).unwrap_or_default();
             (title, CString::new(key).unwrap_or_default(), modifiers)
         })
@@ -1062,10 +1081,17 @@ fn keystroke(key: &bc::bc_key) -> String {
     keystroke + &key
 }
 
-/// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't.
+/// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't,
+/// on the keys the user has now.
 fn run_page_shortcut(key: *const bc::bc_key, reserved: bool) -> bool {
     let key = unsafe { &*key };
-    let Some(command) = Command::for_keystroke(&keystroke(key), reserved) else {
+    let keystroke = keystroke(key);
+    // Read without an update, as every key the page gets comes here.
+    let cx = UI.with_borrow(|ui| ui.as_ref().map(|(cx, ..)| cx.clone()));
+    let command = cx.and_then(|cx| {
+        cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, reserved))
+    });
+    let Some(command) = command.flatten() else {
         return false;
     };
     // ⌘Z in a text field is the page's, which the Edit menu gives it.
@@ -1262,6 +1288,8 @@ fn open_window(cx: &mut App) {
 
 unsafe extern "C" fn started(_: *mut c_void) {
     let app = gpui_platform::application().with_assets(shell::Assets).run_embedded(|cx| {
+        // The user's keys, before the shortcuts are bound to them.
+        settings::read_shortcuts(cx);
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
         cx.set_global(FieldMenu(Rc::new(field_menu)));
@@ -1915,13 +1943,18 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
     );
 }
 
-fn main() {
+/// Where Chromium keeps the profiles, and the app the user's keys. A profile of the dev build's
+/// own, never the owner's. A copy the owner uses is given its own in BROWSER_PROFILE_DIR, so the
+/// checks, which delete what the last run saved, never reach it.
+fn profile_dir() -> String {
     let home = std::env::var("HOME").unwrap_or_default();
+    std::env::var("BROWSER_PROFILE_DIR")
+        .unwrap_or_else(|_| format!("{home}/Library/Caches/browser-app"))
+}
+
+fn main() {
     let mut args: Vec<String> = std::env::args().take(1).collect();
-    // A profile of the dev build's own, never the owner's. A copy the owner uses is given its own
-    // in BROWSER_PROFILE_DIR, so the checks, which delete what the last run saved, never reach it.
-    let profile = std::env::var("BROWSER_PROFILE_DIR")
-        .unwrap_or_else(|_| format!("{home}/Library/Caches/browser-app"));
+    let profile = profile_dir();
     args.extend([
         format!("--user-data-dir={profile}"),
         // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed build

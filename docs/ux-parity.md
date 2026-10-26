@@ -351,7 +351,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Reserved commands before the page | MVP | Chrome's reserved set | Chrome, AGENTS.md |
 | [x] | Other browser keys only if the page doesn't keep them | MVP | yes | Chrome, AGENTS.md |
 | [x] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar | Arc (Ardia) |
-| [ ] | Every command rebindable | MVP | Settings › Keyboard Shortcuts | Dia P§22 |
+| [x] | Every command rebindable | MVP | Settings › Shortcuts | Dia P§22 |
 | [x] | Full table in the spec | MVP | ux-spec.md › Keyboard: every key marked built or with its feature | Dia, Chrome |
 | [ ] | Arc's keys not yet recorded | MVP | Back to Pinned URL and Search Tabs: measure; the rest are its menus' | Arc 1.170.0 menus |
 | [x] | Menu bar | MVP | Arc's menus in Arc's order, with the commands the browser has | Arc 1.170.0 menus |

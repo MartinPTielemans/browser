@@ -7,13 +7,13 @@ use std::ffi::CString;
 use std::time::Instant;
 
 use browser::log;
-use browser::shell::{self, CancelName, Command, KeepName, MenuEntry};
+use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::TextInput;
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
-    MouseButton, MouseDownEvent, Rgba, SharedString, Subscription, TitlebarOptions, Window,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, rgb,
-    rgba, size, svg,
+    KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
+    TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
+    point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{bc, ns_view, platform, show_menu};
@@ -66,11 +66,14 @@ const CHEVRONS: f32 = 14.;
 /// Buttons under the boxes are 11 below them.
 const BUTTONS_TOP: f32 = 11.;
 /// Ours, for the Shortcuts tab: a header 8 over each box, 20 below the box before, and keys in
-/// chips as the command bar shows them.
+/// chips as the command bar shows them, at least 56 wide so they line up, with a command's way
+/// back to its default 6 before its chip.
 const HEADER_GAP: f32 = 8.;
 const SECTION_GAP: f32 = 20.;
 const CHIP_HEIGHT: f32 = 20.;
 const CHIP_PADDING: f32 = 6.;
+const CHIP_WIDTH: f32 = 56.;
+const CHIP_GAP: f32 = 6.;
 /// Ours, for the Profiles tab: rows as tall as a button's, so they're even with and without one.
 const PROFILE_ROW: f32 = 40.;
 
@@ -95,6 +98,7 @@ const PROFILE_TILE: u32 = 0x8e8e93;
 /// A row's detail, such as a profile's Spaces, in the toolbar's grey.
 const DETAIL: u32 = 0x9e9f9f;
 const CHIP: u32 = 0xffff_ff14;
+const CHIP_HOVERED: u32 = 0xffff_ff24;
 
 /// What Arc offers for how long a Today tab waits unseen before it's archived, in seconds.
 const ARCHIVE_AFTER: [(&str, f64); 4] = [
@@ -159,6 +163,9 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Clear Today", Keys::Of(Command::Clear)),
             ("Copy URL", Keys::Of(Command::CopyUrl)),
             ("Copy URL as Markdown", Keys::Of(Command::CopyMarkdownLink)),
+            ("Mute/Unmute Tab", Keys::Of(Command::ToggleMute)),
+            ("New Folder", Keys::Of(Command::NewFolder)),
+            ("Collapse All Folders", Keys::Of(Command::CollapseFolders)),
         ],
     ),
     (
@@ -178,6 +185,8 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Actual Size", Keys::Of(Command::ActualSize)),
             ("Save Page As", Keys::Of(Command::SavePage)),
             ("Print", Keys::Of(Command::Print)),
+            ("Clear Cache and Refresh", Keys::Of(Command::ClearCacheAndRefresh)),
+            ("Clear Cookies and Refresh", Keys::Of(Command::ClearCookiesAndRefresh)),
         ],
     ),
     (
@@ -186,8 +195,12 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Next Space", Keys::Of(Command::NextSpace)),
             ("Previous Space", Keys::Of(Command::PreviousSpace)),
             ("Spaces 1 to 9", Keys::Text("⌃1 – ⌃9")),
+            ("New Space", Keys::Of(Command::NewSpace)),
+            ("Rename Space", Keys::Of(Command::RenameSpace)),
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
             ("View Library", Keys::Of(Command::ViewLibrary)),
+            ("View Archive", Keys::Of(Command::ViewArchive)),
+            ("Clear Archive", Keys::Of(Command::ClearArchive)),
             ("View Downloads", Keys::Of(Command::ViewDownloads)),
             ("View History", Keys::Of(Command::ViewHistory)),
         ],
@@ -199,6 +212,12 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Close this Split Pane", Keys::Of(Command::CloseSplitPane)),
             ("Next Pane", Keys::Of(Command::NextPane)),
             ("Previous Pane", Keys::Of(Command::PreviousPane)),
+            ("Separate Page from Split View", Keys::Of(Command::SeparatePane)),
+            ("Separate All Pages", Keys::Of(Command::SeparateSplit)),
+            ("Flip Split View", Keys::Of(Command::FlipSplit)),
+            ("Change Orientation", Keys::Of(Command::ChangeOrientation)),
+            ("Move Pane Left", Keys::Of(Command::MovePaneLeft)),
+            ("Move Pane Right", Keys::Of(Command::MovePaneRight)),
         ],
     ),
     (
@@ -208,12 +227,15 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Developer Tools", Keys::Of(Command::DevTools)),
             ("Inspect Elements", Keys::Of(Command::InspectElements)),
             ("JavaScript Console", Keys::Of(Command::JavaScriptConsole)),
+            ("Open Task Manager", Keys::Of(Command::TaskManager)),
+            ("Manage Extensions", Keys::Of(Command::ManageExtensions)),
         ],
     ),
     (
         "Browser",
         &[
             ("Settings", Keys::Of(Command::Settings)),
+            ("Essential Keyboard Shortcuts", Keys::Of(Command::KeyboardShortcuts)),
             // main.rs binds these.
             ("Hide Browser", Keys::Text("⌘H")),
             ("Hide Others", Keys::Text("⌥⌘H")),
@@ -234,6 +256,10 @@ pub struct Settings {
     renaming: Option<Renaming>,
     /// Whether the field takes the keyboard once its row is drawn.
     focus_renaming: bool,
+    /// The command whose next key the Shortcuts tab takes.
+    recording: Option<Command>,
+    /// Why the key pressed for this command wasn't given to it.
+    refused: Option<(Command, SharedString)>,
 }
 
 struct Renaming {
@@ -337,6 +363,8 @@ fn open(cx: &mut App) {
                 choosing: false,
                 renaming: None,
                 focus_renaming: false,
+                recording: None,
+                refused: None,
             }
         })
     });
@@ -370,6 +398,8 @@ impl Settings {
             return;
         }
         self.keep_name(window, cx);
+        self.recording = None;
+        self.refused = None;
         // check.sh waits for this line.
         log!("browser: settings tab {}", tab.name());
         self.tab = tab;
@@ -684,15 +714,17 @@ impl Settings {
             Some(cx.on_blur(&field, window, |settings, window, cx| settings.keep_name(window, cx)));
     }
 
-    fn shortcuts(&self) -> AnyElement {
+    /// The commands by section, each with its keys in a chip. A click on a command's chip
+    /// records its next keys; escape leaves them and ⌫ takes them away. ↺ gives a command its
+    /// default back, and Restore Defaults every command.
+    fn shortcuts(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let sections = SHORTCUTS.iter().enumerate().map(|(index, (section, rows))| {
             let rows = rows.iter().map(|(name, keys)| {
-                let keys: SharedString = match keys {
-                    Keys::Of(command) => shell::shortcut_label(*command).unwrap_or_default(),
-                    Keys::Text(text) => text.to_string(),
-                }
-                .into();
-                row(None, name, chip(keys).into_any_element())
+                let control = match keys {
+                    Keys::Of(command) => self.shortcut(*command, accent, cx),
+                    Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
+                };
+                row(None, name, control)
             });
             div()
                 .when(index > 0, |section| section.mt(px(SECTION_GAP)))
@@ -705,7 +737,131 @@ impl Settings {
                 )
                 .child(group(rows))
         });
-        div().children(sections).into_any_element()
+        let sections: Vec<gpui::Div> = sections.collect();
+        let restore = button("restore-shortcuts", "Restore Defaults").on_click(cx.listener(
+            |settings, _, _, cx| {
+                shell::change_keys(cx, UserKeys::reset_all);
+                // check.sh waits for this line.
+                log!("browser: shortcuts restored");
+                settings.recording = None;
+                settings.refused = None;
+                save_shortcuts(cx);
+                cx.notify();
+            },
+        ));
+        div()
+            .children(sections)
+            .child(div().mt(px(BUTTONS_TOP)).flex().child(restore))
+            .into_any_element()
+    }
+
+    /// `command`'s chip, which records its keys if they can be changed, after why the last keys
+    /// were refused and the way back to its default, if it has others.
+    fn shortcut(&self, command: Command, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
+        let user = shell::user_keys(cx);
+        if !shell::rebindable(command) {
+            let keys = user.label(command).unwrap_or_default();
+            return chip(keys.into(), rgb(DETAIL)).into_any_element();
+        }
+        let recording = self.recording == Some(command);
+        let (keys, color): (SharedString, Rgba) = match user.label(command) {
+            _ if recording => ("Type Keys".into(), accent),
+            Some(keys) => (keys.into(), rgb(TEXT)),
+            None => ("None".into(), rgb(DETAIL)),
+        };
+        let refused = (self.refused.as_ref())
+            .filter(|(refused, _)| *refused == command)
+            .map(|(_, why)| div().text_color(rgb(DETAIL)).child(why.clone()));
+        let restore = user.is_set(command).then(|| {
+            div()
+                .id(SharedString::from(format!("restore-{}", command.name())))
+                .size(px(CHIP_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.))
+                .hover(|restore| restore.bg(rgba(CHIP)))
+                .child("↺")
+                .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
+        });
+        let chip = chip(keys, color)
+            .id(command.name())
+            .when(recording, |chip| chip.border_1().border_color(accent))
+            .hover(|chip| chip.bg(rgba(CHIP_HOVERED)))
+            .on_click(cx.listener(move |settings, _, window, cx| {
+                settings.start_recording(command, window, cx)
+            }));
+        div()
+            .flex()
+            .items_center()
+            .gap(px(CHIP_GAP))
+            .children(refused)
+            .children(restore)
+            .child(chip)
+            .into_any_element()
+    }
+
+    /// Takes the next keys pressed for `command`, or stops if it's taking them already.
+    fn start_recording(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+        self.refused = None;
+        self.recording = match self.recording == Some(command) {
+            true => None,
+            false => {
+                // check.sh waits for this line.
+                log!("browser: shortcut recording {}", command.name());
+                Some(command)
+            }
+        };
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    /// Gives the command being recorded `keystroke`, unless it's escape, which leaves its keys,
+    /// or ⌫, which takes them away. Keys that can't be its stay recording, saying why.
+    fn record(&mut self, keystroke: &Keystroke, cx: &mut Context<Self>) {
+        let Some(command) = self.recording else {
+            return;
+        };
+        cx.stop_propagation();
+        let plain = !keystroke.modifiers.modified();
+        let keys = match keystroke.key.as_str() {
+            "escape" if plain => {
+                // check.sh waits for this line.
+                log!("browser: shortcut recording stopped");
+                self.recording = None;
+                self.refused = None;
+                return cx.notify();
+            }
+            "backspace" if plain => Ok(Vec::new()),
+            _ => shell::recorded(keystroke),
+        };
+        let set = keys.and_then(|keys| shell::change_keys(cx, |user| user.set(command, keys)));
+        match set {
+            Ok(_) => {
+                self.recording = None;
+                self.refused = None;
+                save_shortcuts(cx);
+            }
+            Err(refused) => {
+                let why = refusal(refused);
+                // check.sh waits for this line.
+                log!("browser: shortcut refused {why}");
+                self.refused = Some((command, why.into()));
+            }
+        }
+        cx.notify();
+    }
+
+    /// Gives `command` its default keys back, unless another command keeps them.
+    fn restore(&mut self, command: Command, cx: &mut Context<Self>) {
+        match shell::change_keys(cx, |user| user.reset(command)) {
+            Ok(_) => {
+                self.refused = None;
+                save_shortcuts(cx);
+            }
+            Err(refused) => self.refused = Some((command, refusal(refused).into())),
+        }
+        cx.notify();
     }
 }
 
@@ -816,17 +972,66 @@ fn switch(on: bool, slid: f32, accent: Rgba) -> impl IntoElement {
         )
 }
 
-/// Keys as a chip, as the command bar shows a command's.
-fn chip(keys: SharedString) -> impl IntoElement {
+/// Keys as a chip, as the command bar shows a command's, in `color`.
+fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
     div()
         .h(px(CHIP_HEIGHT))
+        .min_w(px(CHIP_WIDTH))
         .px(px(CHIP_PADDING))
         .flex()
         .items_center()
+        .justify_center()
         .rounded(px(4.))
         .bg(rgba(CHIP))
         .text_size(px(12.))
+        .text_color(color)
         .child(keys)
+}
+
+/// Why keys weren't given to a command, as its row says it.
+fn refusal(refused: Refused) -> String {
+    let holder = match refused {
+        Refused::Plain => return "Add ⌘ or ⌃".into(),
+        Refused::Taken(Holder::System(name)) => name,
+        Refused::Taken(Holder::Command(command)) => command_name(command),
+    };
+    format!("Used by {holder}")
+}
+
+/// `command`'s name in the Shortcuts tab.
+fn command_name(command: Command) -> &'static str {
+    let rows = SHORTCUTS.iter().flat_map(|(_, rows)| rows.iter());
+    let named = rows.filter_map(|(name, keys)| match keys {
+        Keys::Of(each) if *each == command => Some(*name),
+        _ => None,
+    });
+    named.chain(match command {
+        Command::SelectTab(_) => Some("Tabs 1 to 8"),
+        Command::SelectSpace(_) => Some("Spaces 1 to 9"),
+        Command::RecentTabBack => Some("Last Used Tab"),
+        Command::Undo => Some("Undo"),
+        _ => None,
+    })
+    .next()
+    .unwrap_or("another command")
+}
+
+/// Where the user's keys are kept: in the profile directory, beside Chromium's profiles, as the
+/// core keeps no settings of the app's own.
+fn shortcuts_path() -> String {
+    format!("{}/Shortcuts", crate::profile_dir())
+}
+
+/// Reads the keys the user gave the commands.
+pub fn read_shortcuts(cx: &mut App) {
+    let text = std::fs::read_to_string(shortcuts_path()).unwrap_or_default();
+    cx.set_global(UserKeys::parse(&text));
+}
+
+fn save_shortcuts(cx: &App) {
+    if let Err(error) = std::fs::write(shortcuts_path(), shell::user_keys(cx).to_text()) {
+        log!("couldn't save the shortcuts: {error}");
+    }
 }
 
 impl Render for Settings {
@@ -842,12 +1047,16 @@ impl Render for Settings {
                 self.focus_field(&profiles, window, cx);
                 self.profiles(&profiles, cx)
             }
-            Tab::Shortcuts => self.shortcuts(),
+            Tab::Shortcuts => self.shortcuts(accent, cx),
             Tab::Advanced => self.advanced(accent, cx),
         };
         div()
-            .key_context("Settings")
+            // While a command's key is recorded, every key is the recording's, ⌘W too.
+            .when(self.recording.is_none(), |root| root.key_context("Settings"))
             .track_focus(&self.focus)
+            .capture_key_down(cx.listener(|settings, event: &KeyDownEvent, _, cx| {
+                settings.record(&event.keystroke, cx)
+            }))
             .on_action(|_: &CloseSettings, _, cx| hide(cx))
             .size_full()
             .flex()
