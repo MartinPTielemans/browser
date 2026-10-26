@@ -1,16 +1,19 @@
 #ifndef BROWSER_CORE_TAB_H_
 #define BROWSER_CORE_TAB_H_
 
+#include <memory>
 #include <optional>
 #include <string>
 
 #include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
+#include "base/task/cancelable_task_tracker.h"
 #include "base/time/time.h"
 #include "browser_core/public/browser_core.h"
 #include "components/favicon/core/favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
+#include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "third_party/skia/include/core/SkColor.h"
@@ -27,7 +30,8 @@ class Tab : public content::WebContentsObserver,
   // |contents|'s id, given the first time it's asked for.
   static bc_id IdOf(content::WebContents* contents);
   static content::WebContents* FromId(bc_id id);
-  // Whether |id| has its page, which it hasn't once it's unloaded, or put back and not yet shown.
+  // Whether |id| has its page, which it hasn't once it's unloaded, or put back or opened behind and
+  // not yet shown.
   static bool Loaded(bc_id id);
   // The URL of the page |contents| is at, loaded or not, else of the one it's loading.
   static GURL PageUrl(content::WebContents* contents);
@@ -43,6 +47,13 @@ class Tab : public content::WebContentsObserver,
   // For a tab put back without loading: tells the app its page's URL, history and title as they
   // were, and finds its favicon among the profile's.
   void Restored();
+
+  // For a new tab opened behind, as by ⌘-click on a link: |load| waits until the tab is first
+  // shown, and runs then as Chrome would have run it at once. Until then the tab has no page, and
+  // the app hears of the URL and the site's favicon among the profile's.
+  void LoadWhenShown(content::NavigationController::LoadURLParams load);
+  // The load waiting for the tab to be shown, else null.
+  const content::NavigationController::LoadURLParams* waiting() const { return waiting_.get(); }
 
   // Tells the app the tab's state from a task of its own, so a burst of changes is one call, and
   // none comes during the app's call that made them.
@@ -92,6 +103,7 @@ class Tab : public content::WebContentsObserver,
   void DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) override;
   void DidUpdateAudioMutingState(bool muted) override;
   void DidGetUserInteraction(const blink::WebInputEvent& event) override;
+  void OnVisibilityChanged(content::Visibility visibility) override;
   void WebContentsDestroyed() override;
 
   // favicon::FaviconDriverObserver:
@@ -108,6 +120,7 @@ class Tab : public content::WebContentsObserver,
   // Within ReportState, if the favicon the tab shows changed.
   void ReportFavicon(bool loading);
   void ReportTitle();
+  void LoadWaiting();
 
   const bc_id id_;
   std::string name_;
@@ -120,6 +133,8 @@ class Tab : public content::WebContentsObserver,
   base::ScopedObservation<favicon::FaviconDriver, favicon::FaviconDriverObserver>
       favicon_observation_{this};
   base::CallbackListSubscription audible_subscription_;
+  std::unique_ptr<content::NavigationController::LoadURLParams> waiting_;
+  base::CancelableTaskTracker favicon_tracker_;
   base::WeakPtrFactory<Tab> weak_factory_{this};
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();

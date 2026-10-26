@@ -243,6 +243,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id Reopen(bc_id space, size_t index, const SavedTab& saved);
   // |split_with| is the tab whose page opened it to show beside it, or 0.
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with);
+  // Opens the tab |params| asks for, behind, with nothing loaded until it's first shown.
+  void OpenBehind(NavigateParams& params);
   // Shows next_after_closing_, as the tab shown has closed.
   void SelectAfterClosing();
   // Shows no page, as for a Space without tabs.

@@ -71,7 +71,8 @@ int DepthOf(const Space& space, bc_id id) {
 
 }  // namespace
 
-SavedTab SaveTab(content::NavigationController& history) {
+SavedTab SaveTab(content::WebContents& contents) {
+  content::NavigationController& history = contents.GetController();
   SavedTab tab;
   const int current = history.GetCurrentEntryIndex();
   const int pending = history.GetPendingEntryIndex();
@@ -95,6 +96,19 @@ SavedTab SaveTab(content::NavigationController& history) {
     tab.history.push_back(
         sessions::ContentSerializedNavigationBuilder::FromNavigationEntry(0, history.GetPendingEntry()));
   }
+  // One opened behind and not yet shown keeps the link it waits to load, which loads once shown
+  // after a relaunch, as the other tabs put back do.
+  const Tab* waiting = Tab::FromWebContents(&contents);
+  if (tab.history.empty() && waiting && waiting->waiting()) {
+    const content::NavigationController::LoadURLParams& load = *waiting->waiting();
+    sessions::SerializedNavigationEntry& entry = tab.history.emplace_back();
+    entry.set_virtual_url(load.url);
+    entry.set_original_request_url(load.url);
+    entry.set_referrer_url(load.referrer.url);
+    entry.set_referrer_policy(static_cast<int>(load.referrer.policy));
+    entry.set_transition_type(load.transition_type);
+    entry.set_timestamp(base::Time::Now());
+  }
   return tab;
 }
 
@@ -116,7 +130,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
         continue;
       }
       content::WebContents* contents = Tab::FromId(id);
-      SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
+      SavedTab tab = contents ? SaveTab(*contents) : SavedTab();
       if (tab.history.empty()) {
         continue;
       }
@@ -159,7 +173,7 @@ Saved Collect() {
   std::map<bc_id, int> favorites;
   for (bc_id id : Favorites::All()) {
     content::WebContents* contents = Tab::FromId(id);
-    SavedTab tab = contents ? SaveTab(contents->GetController()) : SavedTab();
+    SavedTab tab = contents ? SaveTab(*contents) : SavedTab();
     if (tab.history.empty()) {
       continue;
     }

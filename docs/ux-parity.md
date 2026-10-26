@@ -90,7 +90,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Drops on the list | MVP | files and http(s) open at the gap; never javascript:, data:, file: from text | Dia, Ardia |
 | [ ] | Hover card show | MVP | delay 0.5 s; opacity 100 ms + scale spring 0.92 → 1 (0.25 s, ζ 0.75) | Dia bin |
 | [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses | Dia bin |
-| [ ] | Background tabs | MVP | load when first shown | Dia |
+| [x] | Background tabs | MVP | a link opened behind loads when first shown, with the link's address and the site's icon until then | Dia |
 | [x] | List scrolls to a row | MVP | the least that shows it whole, for a tab opened behind and the tab shown; instant | Dia, Chrome tab strip |
 | [x] | Opener order | MVP | Chrome's TabStripModel rules | Chrome |
 | [x] | ⌘S hide (docked) | MVP | ease-out cubic 110 ms | Arc 1.170.0 rec 120 fps |
