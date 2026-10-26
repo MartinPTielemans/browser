@@ -79,6 +79,15 @@ int Order(const std::string& dir) {
   return number;
 }
 
+// What Chrome keeps about |profile|, such as its name, or null.
+ProfileAttributesEntry* AttributesOf(bc_id profile) {
+  ProfileManager* manager = g_browser_process->profile_manager();
+  const std::string dir = ProfileDir(profile);
+  return manager && !dir.empty()
+             ? manager->GetProfileAttributesStorage().GetProfileAttributesWithPath(PathOf(dir))
+             : nullptr;
+}
+
 }  // namespace
 
 Profile* StartProfile() {
@@ -177,17 +186,22 @@ std::string ProfileDir(bc_id profile) {
 }
 
 std::string ProfileName(bc_id profile) {
-  ProfileManager* manager = g_browser_process->profile_manager();
-  const std::string dir = ProfileDir(profile);
-  ProfileAttributesEntry* entry =
-      manager && !dir.empty()
-          ? manager->GetProfileAttributesStorage().GetProfileAttributesWithPath(PathOf(dir))
-          : nullptr;
+  ProfileAttributesEntry* entry = AttributesOf(profile);
   if (!entry) {
     return std::string();
   }
   // Chrome's name for a profile no one named, "Your Chromium", names the browser, not the profile.
   return entry->IsUsingDefaultName() ? "Default" : base::UTF16ToUTF8(entry->GetLocalProfileName());
+}
+
+bool RenameProfile(bc_id profile, const std::string& name) {
+  ProfileAttributesEntry* entry = AttributesOf(profile);
+  if (!entry || name.empty()) {
+    return false;
+  }
+  entry->SetLocalProfileName(base::UTF8ToUTF16(name), /*is_default_name=*/false);
+  ReportChanged();
+  return true;
 }
 
 bc_id CreateProfile(const std::string& name, base::OnceCallback<void(Profile*)> made) {

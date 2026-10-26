@@ -1231,6 +1231,7 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_profiles(profiles, cx);
         shell.set_spaces(spaces, cx);
     });
+    update_app(settings::refresh);
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
@@ -1239,6 +1240,7 @@ unsafe extern "C" fn favorites_changed(_: *mut c_void) {
         .map(|tab| (tab, unsafe { bc::bc_tab_profile(tab) }))
         .collect();
     update_shell(|shell, cx| shell.set_favorites(tabs, cx));
+    update_app(settings::refresh);
 }
 
 unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {

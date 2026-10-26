@@ -188,8 +188,8 @@ typedef struct bc_host {
   // The Space's tabs changed: one opened, closed, moved, pinned or unpinned. Read them with
   // bc_space_pinned and bc_space_today.
   void (*space_changed)(void* context, bc_id space);
-  // A Space was made, renamed, deleted or given another profile, or a profile was made or deleted.
-  // Read them with bc_spaces and bc_profiles.
+  // A Space was made, renamed, deleted or given another profile, or a profile was made, renamed or
+  // deleted. Read them with bc_spaces and bc_profiles.
   void (*spaces_changed)(void* context);
   // A tab was made a favorite or taken out of them. Read them with bc_favorites.
   void (*favorites_changed)(void* context);
@@ -264,6 +264,10 @@ BC_EXPORT size_t bc_profiles(bc_id* profiles, size_t capacity);
 
 // Copies the profile's name into |name| as bc_space_name does. "Default" for one no one named.
 BC_EXPORT size_t bc_profile_name(bc_id profile, char* name, size_t capacity);
+
+// Names the profile |name|, UTF-8, and returns whether it did: not with an empty name. Then
+// spaces_changed.
+BC_EXPORT bool bc_profile_rename(bc_id profile, const char* name);
 
 // Makes a profile named |name|, UTF-8, and returns it, or 0. It's listed once Chrome has made it,
 // then spaces_changed.

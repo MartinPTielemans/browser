@@ -155,6 +155,10 @@ size_t bc_profile_name(bc_id profile, char* name, size_t capacity) {
   return CopyString(browser_core::ProfileName(profile), name, capacity);
 }
 
+bool bc_profile_rename(bc_id profile, const char* name) {
+  return browser_core::RenameProfile(profile, name ? name : "");
+}
+
 bc_id bc_profile_create(const char* name) {
   return browser_core::CreateProfile(name ? name : "", base::DoNothing());
 }
