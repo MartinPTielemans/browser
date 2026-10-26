@@ -416,13 +416,13 @@ BC_EXPORT bool bc_space_color(bc_id space, uint32_t* color);
 // spaces_changed.
 BC_EXPORT void bc_space_set_color(bc_id space, bool has_color, uint32_t color);
 
-// Copies up to |capacity| bytes of the Space's icon into |icon| as bc_space_name does. The icon is
-// the emoji bc_space_set_icon gave it to show in place of its dot and before its name, UTF-8, or
-// empty.
+// Copies up to |capacity| bytes of the Space's icon into |icon| as bc_space_name does: what
+// bc_space_set_icon gave it, UTF-8, or empty.
 BC_EXPORT size_t bc_space_icon(bc_id space, char* icon, size_t capacity);
 
-// Gives the Space |icon|, an emoji, UTF-8, kept as its name is; empty takes its icon away. Then
-// spaces_changed.
+// Gives the Space |icon|, UTF-8, kept as its name is, for the UI to show in place of its dot and
+// before its name: an emoji, or "glyph:" and the name of one of the UI's glyphs, such as
+// "glyph:star". The core keeps it as it comes; empty takes the icon away. Then spaces_changed.
 BC_EXPORT void bc_space_set_icon(bc_id space, const char* icon);
 
 // Deletes the Space, unless it's the last, and returns whether it will. A window showing it shows

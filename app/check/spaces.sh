@@ -290,30 +290,71 @@ expect '^browser: command rename-space via ui$' "Rename Space in the menu didn't
 expect "^browser: rename space $first\$" "Rename Space in the menu didn't open the name's field"
 send key escape
 expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
-# Change Icon… in the Space's menu puts a field before its name and asks for the character palette,
-# and an emoji committed there is the Space's icon at once, in its dot's place in the switcher.
-# Escape leaves the Space as it was, and the menu offers Remove Icon only once there is an icon.
+# Change Icon… in the Space's menu opens the icon picker under the Space's name, its arrow at the
+# icon's slot, on the Icon tab for a Space with no emoji. It's a child window with the keyboard, so
+# its clicks go to the key window, in points from its top left. Escape closes it with no change,
+# and the menu offers Remove Icon only once there is an icon.
 post rightclick $name_point
 expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
   "a right-click on the Space's name didn't offer Change Icon…"
 send choose Change Icon…
-expect "^browser: change space icon $first\$" \
-  "Change Icon… didn't put a field before the Space's name"
-expect '^browser: character palette shown$' "Change Icon… didn't show the character palette"
-../tools/window-screenshot.sh "$pid" "$out/space-icon-field.png" || fail "no window to capture"
+expect "^browser: icon picker for $first on icon\$" "Change Icon… didn't open the icon picker"
+expect '^browser: icon picker shown$' "the icon picker didn't show"
+at=$(grep '^browser: icon picker at' "$log" | tail -1 | cut -d' ' -f5-)
+# 273 wide, with the arrow's tip 13 in, under the icon's middle at x 26.
+[ "$(echo "$at" | awk '{ print $1, $3, $4 }')" = "13 273 286" ] ||
+  fail "the icon picker opened at $at, not 273 by 286 from x 13"
 send key escape
-expect '^browser: rename cancelled$' "escape in the icon's field didn't cancel"
-none_since '^browser: iconed space' || fail "escape in the icon's field gave the Space an icon"
+expect '^browser: icon picker hidden$' "escape didn't close the icon picker"
+none_since '^browser: iconed space' || fail "escape in the icon picker gave the Space an icon"
 post rightclick $name_point
 expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
   "a right-click on the Space's name offered Remove Icon without an icon"
 send choose Change Icon…
-expect "^browser: change space icon $first\$" \
-  "Change Icon… didn't put a field before the Space's name"
+expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
+../tools/window-screenshot.sh "$pid" "$out/space-icon-picker.png" || fail "no window to capture"
+# A click on a glyph is the Space's icon at once and closes the picker: the bolt, fifth in the first
+# row, the grid's first column 27.75 in and its first row 76.25 down.
+send clickkey 151.75 76.25
+expect "^browser: iconed space $first glyph:bolt\$" \
+  "a click on a glyph didn't become the Space's icon"
+expect '^browser: icon picker hidden$' "a click on a glyph didn't close the icon picker"
+../tools/window-screenshot.sh "$pid" "$out/space-icon.png" || fail "no window to capture"
+# A click on the icon opens the picker too. On its Emoji tab, the left half of Emoji | Icon, the
+# character palette shows, and an emoji committed there is the Space's icon at once.
+send click 23 112
+expect "^browser: icon picker for $first on icon\$" \
+  "a click on the Space's icon didn't open the picker"
+expect '^browser: icon picker shown$' "a click on the Space's icon didn't show the picker"
+send clickkey 92.5 39.5
+expect '^browser: icon picker on emoji$' "a click on Emoji didn't show the Emoji tab"
+expect '^browser: character palette shown$' "the Emoji tab didn't show the character palette"
 send insert 🦊
 expect "^browser: iconed space $first 🦊\$" \
   "an emoji from the palette didn't become the Space's icon"
-../tools/window-screenshot.sh "$pid" "$out/space-icon.png" || fail "no window to capture"
+expect '^browser: icon picker hidden$' "an emoji from the palette didn't close the icon picker"
+../tools/window-screenshot.sh "$pid" "$out/space-emoji.png" || fail "no window to capture"
+# For a Space with an emoji, the picker opens on the Emoji tab, and its trash, after Emoji | Icon,
+# takes the icon away.
+post rightclick $name_point
+expect "^browser: menu shown Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
+Delete Space\$" "a right-click on the Space's name didn't offer Remove Icon"
+send choose Change Icon…
+expect "^browser: icon picker for $first on emoji\$" \
+  "Change Icon… didn't open the picker on the Emoji tab for a Space with an emoji"
+expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
+send clickkey 197 39.5
+expect "^browser: iconed space $first none\$" "the icon picker's trash didn't take the icon away"
+expect '^browser: icon picker hidden$' "the icon picker's trash didn't close it"
+# Remove Icon in the menu does the same.
+post rightclick $name_point
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+  "the Space's menu offered Remove Icon after the trash"
+send choose Change Icon…
+expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
+send clickkey 151.75 76.25
+expect "^browser: iconed space $first glyph:bolt\$" \
+  "a click on a glyph didn't become the Space's icon"
 post rightclick $name_point
 expect "^browser: menu shown Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
 Delete Space\$" "a right-click on the Space's name didn't offer Remove Icon"

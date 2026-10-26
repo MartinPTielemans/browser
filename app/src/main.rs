@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use browser::{command_bar, dialog, log, toast, tooltip};
+use browser::{command_bar, dialog, icon_picker, log, toast, tooltip};
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, Folders, MenuEntry, Page, Shell, Split, WindowButton,
@@ -28,6 +28,10 @@ mod find_bar;
 mod reveal;
 mod settings;
 mod zoom_hud;
+
+/// The host's overlays (platform/mac/host.h).
+const COMMAND_BAR: c_int = 0;
+const ICON_PICKER: c_int = 1;
 
 /// The core's API, generated from core/public/browser_core.h.
 #[allow(non_camel_case_types, dead_code)]
@@ -55,20 +59,23 @@ mod platform {
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_forget_window(ui_view: *mut c_void);
         pub fn host_add_overlay(
+            overlay: c_int,
             overlay_view: *mut c_void,
             radius: f64,
             dismissed: extern "C" fn(),
         );
+        pub fn host_set_overlay_shape(overlay: c_int, corners: *const f64, count: usize);
         pub fn host_show_overlay(
+            overlay: c_int,
             ui_view: *mut c_void,
             centered: bool,
             left: f64,
             top: f64,
             width: f64,
         );
-        pub fn host_set_overlay_height(height: f64);
-        pub fn host_hide_overlay();
-        pub fn host_dismiss_overlay();
+        pub fn host_set_overlay_height(overlay: c_int, height: f64);
+        pub fn host_hide_overlay(overlay: c_int);
+        pub fn host_dismiss_overlay(overlay: c_int);
         pub fn host_add_find_bar(
             ui_view: *mut c_void,
             find_bar_view: *mut c_void,
@@ -607,19 +614,21 @@ impl command_bar::Host for Bar {
 
     fn show(&self, centered: bool, left: f32, top: f32, width: f32) {
         let (left, top, width) = (f64::from(left), f64::from(top), f64::from(width));
-        unsafe { platform::host_show_overlay(front().1, centered, left, top, width) };
+        unsafe {
+            platform::host_show_overlay(COMMAND_BAR, front().1, centered, left, top, width)
+        };
     }
 
     fn set_height(&self, height: f32) {
-        unsafe { platform::host_set_overlay_height(f64::from(height)) };
+        unsafe { platform::host_set_overlay_height(COMMAND_BAR, f64::from(height)) };
     }
 
     fn hide(&self) {
-        unsafe { platform::host_hide_overlay() };
+        unsafe { platform::host_hide_overlay(COMMAND_BAR) };
     }
 
     fn dismiss(&self) {
-        unsafe { platform::host_dismiss_overlay() };
+        unsafe { platform::host_dismiss_overlay(COMMAND_BAR) };
     }
 
 }
@@ -627,6 +636,29 @@ impl command_bar::Host for Bar {
 /// The user left the command bar without choosing anything in it.
 extern "C" fn command_bar_dismissed() {
     update_window(front().0, |shell, cx| shell.command_bar_dismissed(cx));
+}
+
+/// The icon picker's requests, to the host's overlay window, over the window in front.
+struct PickerHost;
+
+impl icon_picker::Host for PickerHost {
+    fn show(&self, left: f32, top: f32) {
+        let (left, top, width) = (left.into(), top.into(), icon_picker::WIDTH.into());
+        unsafe { platform::host_show_overlay(ICON_PICKER, front().1, false, left, top, width) };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_overlay(ICON_PICKER) };
+    }
+
+    fn show_character_palette(&self, window: &mut Window) {
+        window.show_character_palette();
+    }
+}
+
+/// The user left the icon picker without picking.
+extern "C" fn icon_picker_dismissed() {
+    update_app(icon_picker::dismissed);
 }
 
 /// The tooltip's requests, to the host's tooltip window.
@@ -1502,7 +1534,19 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
     {
         let radius = command_bar::RADIUS.into();
-        unsafe { platform::host_add_overlay(view, radius, command_bar_dismissed) };
+        unsafe { platform::host_add_overlay(COMMAND_BAR, view, radius, command_bar_dismissed) };
+    }
+    if let Some(picker) = icon_picker::open(Rc::new(PickerHost), cx)
+        && let Ok(view) = picker.update(cx, |_, window, _| ns_view(window))
+    {
+        let corners: Vec<f64> = icon_picker::corners()
+            .iter()
+            .flat_map(|&(x, y, radius)| [x, y, radius].map(f64::from))
+            .collect();
+        unsafe {
+            platform::host_add_overlay(ICON_PICKER, view, 0., icon_picker_dismissed);
+            platform::host_set_overlay_shape(ICON_PICKER, corners.as_ptr(), corners.len() / 3);
+        }
     }
     if let Some(dialog) = dialog::open(Rc::new(DialogHost), cx)
         && let Ok(view) = dialog.update(cx, |_, window, _| ns_view(window))

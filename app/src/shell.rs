@@ -17,7 +17,10 @@ use gpui::{
     point, prelude::*, px, rgb, rgba, svg,
 };
 
-use crate::text_input::TextInput;
+use crate::{
+    space_icon::{GLYPHS, SpaceIcon},
+    text_input::TextInput,
+};
 
 #[cfg(test)]
 mod agent_spaces;
@@ -206,6 +209,8 @@ const NAME_X: f32 = 41.;
 const SPACE_ICON_SLOT: f32 = 20.;
 const SPACE_ICON_X: f32 = FAVICON_X + FAVICON_SIZE / 2. - SPACE_ICON_SLOT / 2.;
 const SPACE_ICON_TEXT: f32 = EMOJI_SIZE;
+/// A glyph's box: Phosphor's drawings fill 13/16 of theirs, so their ink is the emoji's size.
+const SPACE_GLYPH: f32 = 16.;
 const ROW_PITCH: f32 = 41.;
 const ROW_HEIGHT: f32 = 40.;
 const PLATE_HEIGHT: f32 = 36.;
@@ -574,8 +579,6 @@ enum Naming {
     Folder(u64),
     /// A tab's icon, in a field in its place.
     Icon(u64),
-    /// A Space's icon, in a field before its name.
-    SpaceIcon(u64),
 }
 
 /// The field a Space's name or a tab's title turns into for renaming it, or a tab's icon for
@@ -991,6 +994,12 @@ pub struct Shell {
     background_pressed: bool,
     /// The system's accent colour, as 0xRRGGBB.
     accent_color: u32,
+    /// The Space whose icon picker opens once its name row stops moving, and when it was asked
+    /// for.
+    picker_pending: Option<(u64, Instant)>,
+    /// Where the name row was drawn last, and the frame before.
+    name_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    name_row_before: Option<Bounds<Pixels>>,
 }
 
 impl Shell {
@@ -1101,6 +1110,9 @@ impl Shell {
             circle_exit: None,
             questions: HashMap::new(),
             question_drawn: Rc::default(),
+            picker_pending: None,
+            name_row_drawn: Rc::default(),
+            name_row_before: None,
             switching: None,
             background_pressed: false,
             accent_color,
@@ -1357,8 +1369,7 @@ impl Shell {
         {
             self.form = None;
         }
-        if let Some(Naming::Space(space) | Naming::SpaceIcon(space)) =
-            self.renaming.as_ref().map(|renaming| renaming.naming)
+        if let Some(Naming::Space(space)) = self.renaming.as_ref().map(|renaming| renaming.naming)
             && !self.spaces.iter().any(|each| each.id == space)
         {
             self.renaming = None;
@@ -2029,18 +2040,8 @@ impl Render for Shell {
             if let Naming::Folder(folder) = renaming.naming {
                 log!("browser: rename folder {folder}");
             }
-            let changing_icon = match renaming.naming {
-                Naming::Icon(tab) => {
-                    log!("browser: change icon {tab}");
-                    true
-                }
-                Naming::SpaceIcon(space) => {
-                    log!("browser: change space icon {space}");
-                    true
-                }
-                _ => false,
-            };
-            if changing_icon {
+            if let Naming::Icon(tab) = renaming.naming {
+                log!("browser: change icon {tab}");
                 // A pick from the palette, or a key, is the icon at once, as no ↩ is needed for
                 // one character.
                 let start = renaming.name.read(cx).text().to_string();
@@ -2059,6 +2060,9 @@ impl Render for Shell {
             }
             renaming._blur =
                 Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
+        }
+        if self.picker_pending.is_some() {
+            self.open_icon_picker_when_settled(window, cx);
         }
         if let Some((_, start)) = self.width_motion {
             if settle_progress(start).is_some() {
@@ -2381,7 +2385,7 @@ impl Shell {
             .when(room > 0., |page| page.child(div().flex_none().h(px(room))))
             .child(
                 name_box()
-                    .when(!space.icon.is_empty(), |name| name.child(space_icon(space.icon.clone())))
+                    .children(space_icon(&space.icon))
                     .child(div().truncate().child(space.name.clone())),
             )
             .children(pinned.into_iter().map(row))
@@ -2688,19 +2692,31 @@ fn name_box() -> gpui::Div {
         .text_color(rgba(SPACE_NAME))
 }
 
-/// A Space's icon before its name, in the name row `name_box` makes.
-pub(super) fn space_icon(icon: impl IntoElement) -> gpui::Div {
-    div()
-        .absolute()
-        .left(px(SPACE_ICON_X))
-        .top_0()
-        .h_full()
-        .w(px(SPACE_ICON_SLOT))
-        .flex()
-        .items_center()
-        .justify_center()
-        .text_size(px(SPACE_ICON_TEXT))
-        .child(icon)
+/// A Space's icon before its name, in the name row `name_box` makes, if it has one: its emoji, or
+/// its glyph in the name's colour.
+pub(super) fn space_icon(icon: &str) -> Option<gpui::Div> {
+    let drawn = match SpaceIcon::parse(icon) {
+        SpaceIcon::Dot => return None,
+        SpaceIcon::Emoji(emoji) => SharedString::from(emoji.to_string()).into_any_element(),
+        SpaceIcon::Glyph(index) => svg()
+            .path(GLYPHS[index].1)
+            .size(px(SPACE_GLYPH))
+            .text_color(rgba(SPACE_NAME))
+            .into_any_element(),
+    };
+    Some(
+        div()
+            .absolute()
+            .left(px(SPACE_ICON_X))
+            .top_0()
+            .h_full()
+            .w(px(SPACE_ICON_SLOT))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(SPACE_ICON_TEXT))
+            .child(drawn),
+    )
 }
 
 /// The divider under the pinned tabs: a line, and `clear` at its end while it shows.

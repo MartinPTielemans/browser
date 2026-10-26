@@ -41,25 +41,41 @@ void host_watch_key_window(void (*changed)(void* ui_view));
 // The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
 void host_forget_window(void* ui_view);
 
-// Makes the window of |overlay_view| float over a browser window when shown, for UI that has
-// to draw over the page, translucent over a blur of what's behind it, with a shadow, in a rounded
-// shape of |radius|. It starts hidden. |dismissed| runs, after the event, when the user leaves the
-// overlay without choosing anything in it.
-void host_add_overlay(void* overlay_view, double radius, void (*dismissed)(void));
+// The overlays: the command bar, and the Space's icon picker. One shows at a time.
+#define HOST_COMMAND_BAR 0
+#define HOST_ICON_PICKER 1
+
+// Makes the window of |overlay_view| the |overlay| (HOST_COMMAND_BAR or HOST_ICON_PICKER), which
+// floats over a browser window when shown, for UI that has to draw over the page, translucent over
+// a blur of what's behind it, with a shadow, in a rounded shape of |radius|. It starts hidden.
+// |dismissed| runs, after the event, when the user leaves the overlay without choosing anything in
+// it.
+void host_add_overlay(int overlay, void* overlay_view, double radius, void (*dismissed)(void));
+
+// Gives the overlay's blur and shadow the shape the UI draws when that isn't a rounded rectangle:
+// the polygon through the |count| corners, each three numbers in |corners|: x and y in points from
+// the window's top left, and the radius it's rounded by there.
+void host_set_overlay_shape(int overlay, const double* corners, size_t count);
 
 // Shows the overlay over |ui_view|'s window and gives it the keyboard, |width| points wide: with
 // its top left at |left|, |top| in the window's content and ending at least 8 points inside it, or
-// if |centered|, centred, its top 0.322 of the window's height down.
-void host_show_overlay(void* ui_view, bool centered, double left, double top, double width);
+// if |centered|, centred, its top 0.322 of the window's height down. The other overlay closes, as
+// the user leaving it.
+void host_show_overlay(int overlay,
+                       void* ui_view,
+                       bool centered,
+                       double left,
+                       double top,
+                       double width);
 
 // Makes the overlay |height| points tall, keeping its top edge, and draws it at that size.
-void host_set_overlay_height(double height);
+void host_set_overlay_height(int overlay, double height);
 
 // Hides the overlay. The browser window gets the keyboard back, with the focus where it was.
-void host_hide_overlay(void);
+void host_hide_overlay(int overlay);
 
 // Hides the overlay as the user leaving it, as escape does.
-void host_dismiss_overlay(void);
+void host_dismiss_overlay(int overlay);
 
 // Makes the window of |find_bar_view| the find bar of |ui_view|'s window, floating over it when
 // shown, |right| and |top| points from the top right corner of the window's content. It starts

@@ -4,9 +4,10 @@ use gpui::{Context, MouseButton, MouseDownEvent, div, prelude::*, px, rgba, svg}
 
 use super::{
     FOOTER_HEIGHT, NAV, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLUS_INSET, SPACE_DOT,
-    SPACE_HEIGHT, SPACE_HOVERED, SPACE_ICON_SWITCHER, SPACE_OTHER, SPACE_PITCH, SPACE_SHOWN,
-    SWITCHER_INSET, Shell,
+    SPACE_GLYPH, SPACE_HEIGHT, SPACE_HOVERED, SPACE_ICON_SWITCHER, SPACE_OTHER, SPACE_PITCH,
+    SPACE_SHOWN, SWITCHER_INSET, Shell,
 };
+use crate::space_icon::{GLYPHS, SpaceIcon};
 
 /// How strong a Space's icon draws in the switcher, as its dot would: the Space shown at full
 /// strength, the others dimmed by the dot's own ratio, and a hovered one by the dot's hovered
@@ -49,17 +50,28 @@ impl Shell {
                         shell.space_menu(id, event.position, cx)
                     }),
                 )
-                .child(if space.icon.is_empty() {
-                    div()
+                .child(match SpaceIcon::parse(&space.icon) {
+                    SpaceIcon::Dot => div()
                         .size(px(SPACE_DOT))
                         .rounded_full()
                         .bg(rgba(if shown { SPACE_SHOWN } else { SPACE_OTHER }))
                         .when(!shown, |dot| {
                             dot.group_hover("space", |style| style.bg(rgba(SPACE_HOVERED)))
                         })
-                } else {
+                        .into_any_element(),
+                    // In the dot's colours.
+                    SpaceIcon::Glyph(index) => svg()
+                        .path(GLYPHS[index].1)
+                        .size(px(SPACE_GLYPH))
+                        .text_color(rgba(if shown { SPACE_SHOWN } else { SPACE_OTHER }))
+                        .when(!shown, |glyph| {
+                            glyph.group_hover("space", |style| {
+                                style.text_color(rgba(SPACE_HOVERED))
+                            })
+                        })
+                        .into_any_element(),
                     // The item's box is the dot's, so the strip doesn't move with an icon.
-                    div()
+                    SpaceIcon::Emoji(emoji) => div()
                         .text_size(px(SPACE_ICON_SWITCHER))
                         .opacity(icon_opacity(shown, false))
                         .when(!shown, |icon| {
@@ -67,7 +79,8 @@ impl Shell {
                                 style.opacity(icon_opacity(false, true))
                             })
                         })
-                        .child(space.icon.clone())
+                        .child(emoji.to_string())
+                        .into_any_element(),
                 })
         });
         Some(

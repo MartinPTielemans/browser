@@ -1058,7 +1058,7 @@ impl Shell {
                 name_box()
                     .mt(px(CARD_NAME_TOP))
                     .h(px(CARD_NAME_HEIGHT))
-                    .when(!space.icon.is_empty(), |name| name.child(space_icon(space.icon.clone())))
+                    .children(space_icon(&space.icon))
                     .child(div().truncate().child(space.name.clone())),
             )
             .child(div().children(rows))

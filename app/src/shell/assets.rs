@@ -4,8 +4,8 @@ use std::borrow::Cow;
 
 use gpui::{AssetSource, SharedString};
 
-/// The shell's glyphs, built in. Lucide's (NOTICE), and the loading ring and the window buttons'
-/// glyphs, which are ours.
+/// The shell's glyphs, built in. Lucide's and, for Spaces' icons, Phosphor's (NOTICE), and the
+/// loading ring and the window buttons' glyphs, which are ours.
 pub struct Assets;
 
 const ICONS: &[(&str, &[u8])] = &[
@@ -57,6 +57,125 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/save.svg", include_bytes!("../../assets/icons/save.svg")),
     ("icons/search.svg", include_bytes!("../../assets/icons/search.svg")),
     ("icons/settings.svg", include_bytes!("../../assets/icons/settings.svg")),
+    (
+        "icons/space/airplane-tilt-fill.svg",
+        include_bytes!("../../assets/icons/space/airplane-tilt-fill.svg"),
+    ),
+    ("icons/space/asterisk-bold.svg", include_bytes!("../../assets/icons/space/asterisk-bold.svg")),
+    ("icons/space/bandaids-fill.svg", include_bytes!("../../assets/icons/space/bandaids-fill.svg")),
+    ("icons/space/barbell-fill.svg", include_bytes!("../../assets/icons/space/barbell-fill.svg")),
+    ("icons/space/baseball-fill.svg", include_bytes!("../../assets/icons/space/baseball-fill.svg")),
+    ("icons/space/basket-fill.svg", include_bytes!("../../assets/icons/space/basket-fill.svg")),
+    ("icons/space/bed-fill.svg", include_bytes!("../../assets/icons/space/bed-fill.svg")),
+    ("icons/space/bell-fill.svg", include_bytes!("../../assets/icons/space/bell-fill.svg")),
+    (
+        "icons/space/book-open-fill.svg",
+        include_bytes!("../../assets/icons/space/book-open-fill.svg"),
+    ),
+    (
+        "icons/space/bookmark-simple-fill.svg",
+        include_bytes!("../../assets/icons/space/bookmark-simple-fill.svg"),
+    ),
+    (
+        "icons/space/calendar-dots-fill.svg",
+        include_bytes!("../../assets/icons/space/calendar-dots-fill.svg"),
+    ),
+    ("icons/space/campfire-fill.svg", include_bytes!("../../assets/icons/space/campfire-fill.svg")),
+    (
+        "icons/space/cards-three-fill.svg",
+        include_bytes!("../../assets/icons/space/cards-three-fill.svg"),
+    ),
+    (
+        "icons/space/chat-circle-dots-fill.svg",
+        include_bytes!("../../assets/icons/space/chat-circle-dots-fill.svg"),
+    ),
+    (
+        "icons/space/check-square-fill.svg",
+        include_bytes!("../../assets/icons/space/check-square-fill.svg"),
+    ),
+    ("icons/space/circle-fill.svg", include_bytes!("../../assets/icons/space/circle-fill.svg")),
+    ("icons/space/cloud-bold.svg", include_bytes!("../../assets/icons/space/cloud-bold.svg")),
+    ("icons/space/cloud-fill.svg", include_bytes!("../../assets/icons/space/cloud-fill.svg")),
+    (
+        "icons/space/code-simple-bold.svg",
+        include_bytes!("../../assets/icons/space/code-simple-bold.svg"),
+    ),
+    ("icons/space/copy-fill.svg", include_bytes!("../../assets/icons/space/copy-fill.svg")),
+    ("icons/space/database-fill.svg", include_bytes!("../../assets/icons/space/database-fill.svg")),
+    (
+        "icons/space/dots-nine-bold.svg",
+        include_bytes!("../../assets/icons/space/dots-nine-bold.svg"),
+    ),
+    ("icons/space/egg-fill.svg", include_bytes!("../../assets/icons/space/egg-fill.svg")),
+    (
+        "icons/space/envelope-simple-fill.svg",
+        include_bytes!("../../assets/icons/space/envelope-simple-fill.svg"),
+    ),
+    ("icons/space/file-fill.svg", include_bytes!("../../assets/icons/space/file-fill.svg")),
+    ("icons/space/flag-fill.svg", include_bytes!("../../assets/icons/space/flag-fill.svg")),
+    ("icons/space/folder-fill.svg", include_bytes!("../../assets/icons/space/folder-fill.svg")),
+    (
+        "icons/space/fork-knife-fill.svg",
+        include_bytes!("../../assets/icons/space/fork-knife-fill.svg"),
+    ),
+    ("icons/space/gift-fill.svg", include_bytes!("../../assets/icons/space/gift-fill.svg")),
+    ("icons/space/heart-fill.svg", include_bytes!("../../assets/icons/space/heart-fill.svg")),
+    ("icons/space/leaf-fill.svg", include_bytes!("../../assets/icons/space/leaf-fill.svg")),
+    (
+        "icons/space/lightbulb-fill.svg",
+        include_bytes!("../../assets/icons/space/lightbulb-fill.svg"),
+    ),
+    (
+        "icons/space/lightning-fill.svg",
+        include_bytes!("../../assets/icons/space/lightning-fill.svg"),
+    ),
+    (
+        "icons/space/map-trifold-fill.svg",
+        include_bytes!("../../assets/icons/space/map-trifold-fill.svg"),
+    ),
+    ("icons/space/moon-fill.svg", include_bytes!("../../assets/icons/space/moon-fill.svg")),
+    (
+        "icons/space/music-note-fill.svg",
+        include_bytes!("../../assets/icons/space/music-note-fill.svg"),
+    ),
+    ("icons/space/palette-fill.svg", include_bytes!("../../assets/icons/space/palette-fill.svg")),
+    (
+        "icons/space/paw-print-fill.svg",
+        include_bytes!("../../assets/icons/space/paw-print-fill.svg"),
+    ),
+    ("icons/space/pizza-fill.svg", include_bytes!("../../assets/icons/space/pizza-fill.svg")),
+    ("icons/space/planet-fill.svg", include_bytes!("../../assets/icons/space/planet-fill.svg")),
+    ("icons/space/receipt-fill.svg", include_bytes!("../../assets/icons/space/receipt-fill.svg")),
+    ("icons/space/shapes-fill.svg", include_bytes!("../../assets/icons/space/shapes-fill.svg")),
+    ("icons/space/skull-fill.svg", include_bytes!("../../assets/icons/space/skull-fill.svg")),
+    ("icons/space/square-fill.svg", include_bytes!("../../assets/icons/space/square-fill.svg")),
+    (
+        "icons/space/squares-four-fill.svg",
+        include_bytes!("../../assets/icons/space/squares-four-fill.svg"),
+    ),
+    ("icons/space/stack-fill.svg", include_bytes!("../../assets/icons/space/stack-fill.svg")),
+    ("icons/space/star-fill.svg", include_bytes!("../../assets/icons/space/star-fill.svg")),
+    ("icons/space/sun-fill.svg", include_bytes!("../../assets/icons/space/sun-fill.svg")),
+    (
+        "icons/space/terminal-window-fill.svg",
+        include_bytes!("../../assets/icons/space/terminal-window-fill.svg"),
+    ),
+    (
+        "icons/space/thumbs-up-fill.svg",
+        include_bytes!("../../assets/icons/space/thumbs-up-fill.svg"),
+    ),
+    (
+        "icons/space/train-simple-fill.svg",
+        include_bytes!("../../assets/icons/space/train-simple-fill.svg"),
+    ),
+    ("icons/space/tray-fill.svg", include_bytes!("../../assets/icons/space/tray-fill.svg")),
+    ("icons/space/triangle-fill.svg", include_bytes!("../../assets/icons/space/triangle-fill.svg")),
+    ("icons/space/users-fill.svg", include_bytes!("../../assets/icons/space/users-fill.svg")),
+    (
+        "icons/space/video-camera-fill.svg",
+        include_bytes!("../../assets/icons/space/video-camera-fill.svg"),
+    ),
+    ("icons/space/wrench-fill.svg", include_bytes!("../../assets/icons/space/wrench-fill.svg")),
     ("icons/spaces.svg", include_bytes!("../../assets/icons/spaces.svg")),
     ("icons/sliders-horizontal.svg", include_bytes!("../../assets/icons/sliders-horizontal.svg")),
     (
