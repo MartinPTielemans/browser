@@ -761,9 +761,16 @@ impl Shell {
     /// Copies the selected tab's URL, or a Markdown link to it, without its tracking parameters,
     /// and says so in the toast.
     fn copy_url(&mut self, markdown: bool, cx: &mut Context<Self>) {
+        if let Some((text, toast)) = self.url_to_copy(markdown) {
+            self.copy(&text, toast, cx);
+        }
+    }
+
+    /// The text to copy and the toast to say so with.
+    fn url_to_copy(&self, markdown: bool) -> Option<(String, &'static str)> {
         let url = clean_link(&self.url(self.selected));
         if url.is_empty() {
-            return;
+            return None;
         }
         let (text, toast) = match markdown {
             false => (url.clone(), "Copied URL"),
@@ -772,7 +779,29 @@ impl Shell {
                 (format!("[{title}]({url})"), "Copied URL as Markdown")
             }
         };
-        self.copy(&text, toast, cx);
+        Some((text, toast))
+    }
+
+    /// A click on the URL field's Copy URL button: copies without the toast, since the button
+    /// shows a checkmark in the glyph's place for `COPIED_TIME`.
+    pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
+        // check.sh waits for these lines.
+        log!("browser: command copy-url via sidebar");
+        let Some((text, _)) = self.url_to_copy(false) else {
+            return;
+        };
+        self.browser.copy(&text, cx);
+        log!("browser: copied {text}");
+        self.url_copied = Some(cx.spawn(async move |shell, cx| {
+            cx.background_executor().timer(COPIED_TIME).await;
+            shell
+                .update(cx, |shell, cx| {
+                    shell.url_copied = None;
+                    cx.notify();
+                })
+                .ok();
+        }));
+        cx.notify();
     }
 
     /// Copies `text` and shows `toast`.

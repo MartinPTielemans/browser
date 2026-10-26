@@ -96,6 +96,11 @@ expect '^browser: command copy-url via sidebar$' \
 expect '^browser: copied https://example.org/$' "the URL field's button didn't copy the tab's URL"
 none_since '^browser: command edit-url' ||
   fail "a click on the URL field's button opened the command bar"
+# It says so with a checkmark in its glyph's place for 2 s, and no toast.
+expect '^browser: copy url shows check$' "the URL field's button didn't show a checkmark"
+../tools/window-screenshot.sh "$pid" "$out/url-copied.png" || fail "no window to capture"
+expect '^browser: copy url shows link$' "the URL field's button kept its checkmark"
+none_since '^browser: toast shown' || fail "the URL field's button showed a toast"
 send move $page_point
 expect '^browser: sidebar hovered 0$' "the sidebar didn't see the pointer leave"
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-away.png" || fail "no window to capture"

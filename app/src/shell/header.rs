@@ -101,10 +101,14 @@ impl Shell {
                 .rounded(px(NAV_RADIUS))
                 .block_mouse_except_scroll()
                 .hover(|style| style.bg(rgba(NAV_HOVERED)))
-                .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::CopyUrl, "sidebar", cx)))
+                .on_click(cx.listener(|shell, _, _, cx| shell.copy_url_from_button(cx)))
                 .child(
                     svg()
-                        .path("icons/link.svg")
+                        .path(if self.url_copied.is_some() {
+                            "icons/check.svg"
+                        } else {
+                            "icons/link.svg"
+                        })
                         .size(px(URL_BUTTON_GLYPH))
                         .text_color(rgba(NAV)),
                 )
