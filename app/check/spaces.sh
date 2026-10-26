@@ -67,6 +67,30 @@ send key return
 none_since '^browser: create space' || fail "return while composing named the Space"
 [ "$marked" = none ] || fail "return didn't commit the composition: marked $marked"
 send ime off
+# The form's Choose a Theme row opens the theme picker beside it, a child window with the
+# keyboard, so its clicks go to the key window in points from its top left, its arrow 13 wide.
+# A click in its field is the Space's first colour, where it's clicked, and the window takes it.
+send click 100 299
+expect "^browser: theme picker for $second\$" "the form's Choose a Theme row didn't open the picker"
+expect '^browser: theme picker shown$' "the theme picker didn't show"
+at=$(grep '^browser: theme picker at' "$log" | tail -1 | cut -d' ' -f5-)
+[ "$(echo "$at" | awk '{ print $3, $4 }')" = "370 509" ] ||
+  fail "the theme picker opened at $at, not 370 by 509"
+# Half way from the field's middle to its right edge is red: hue 0 at lightness 0.5.
+red="x=0.5000 y=0.0000 colors=1 intensity=0.810 grain=0.000 appearance=automatic"
+send clickkey 276.5 178.5
+expect "^browser: theme picker set $second $red\$" "a click in the field didn't give a colour"
+expect "^browser: colored space $second ff0000\$" "the field's colour wasn't the Space's colour"
+expect "^browser: themed space $second $red\$" "the core didn't keep the Space's theme"
+# + makes it two colours, the second the first's opposite.
+send clickkey 211.5 316.5
+expect "^browser: themed space $second ${red/colors=1/colors=2}\$" "+ didn't add a second colour"
+../tools/window-screenshot.sh "$pid" "$out/theme-picker.png" || fail "no window to capture"
+send key escape
+expect '^browser: theme picker dismissed$' "escape didn't close the theme picker"
+expect '^browser: theme picker hidden$' "escape didn't hide the theme picker"
+send state
+in_browser AccessKitSubclassOfGPUIView "after the theme picker, in the new Space's form"
 send key return
 expect "^browser: create space $second reading 日本語\$" "return didn't name the Space: $(grep '^browser: create space' "$log" | tail -1)"
 expect "^browser: renamed space $second reading 日本語\$" "the core didn't rename the Space"
@@ -371,6 +395,36 @@ expect "^browser: menu shown Rename Space, Change Icon…, Remove Icon, $colors,
 Delete Space\$" "a right-click on the Space's name didn't offer Remove Icon"
 send choose Remove Icon
 expect "^browser: iconed space $first none\$" "Remove Icon didn't take the Space's icon away"
+# Edit Theme Color… in the Space's menu opens the theme picker too. A swatch is the Space's colour,
+# at its hue and lightness in the field, and the wave's knob dragged left washes the window's
+# colours out, the window following as it goes; the core keeps the theme once it's let go. A click
+# outside the picker closes it.
+post rightclick $name_point
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+  "a right-click on the Space's name didn't offer Edit Theme Color…"
+send choose Edit Theme Color…
+expect "^browser: theme picker for $first\$" "Edit Theme Color… didn't open the theme picker"
+expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
+send clickkey "$(swatch_x 7)" $swatch_y
+blue='x=-0.619[0-9] y=-0.242[0-9] colors=1'
+expect "^browser: theme picker set $first $blue intensity=0.810 " "the blue swatch gave no colour"
+expect "^browser: colored space $first [0-9a-f]*\$" "the swatch didn't colour the Space"
+expect "^browser: themed space $first $blue intensity=0.810 " "the core didn't keep the swatch"
+at=$(grep '^browser: theme picker at' "$log" | tail -1 | cut -d' ' -f5-)
+# The knob's middle is 30 to 231 from the card's left, 13 in, 452 down: 192.8 at 0.81.
+knob=$(echo "$at" | awk '{ print $1 + 13 + 192.8, $2 + 452 }')
+washed=$(echo "$at" | awk '{ print $1 + 13 + 100, $2 + 452 }')
+send press $knob
+send dragto $washed
+send release $washed
+expect "^browser: theme picker set $first $blue intensity=0.34[0-9] " \
+  "the wave's knob dragged left didn't wash the colour out"
+expect "^browser: themed space $first $blue intensity=0.34[0-9] " \
+  "the core didn't keep the theme's intensity"
+../tools/window-screenshot.sh "$pid" "$out/space-theme.png" || fail "no window to capture"
+send click $page_point
+expect '^browser: theme picker hidden$' "a click outside the theme picker didn't close it"
+expect '^browser: theme picker dismissed$' "a click outside the theme picker didn't dismiss it"
 # Deleting a Space with tabs asks first, in a dialog over the window, and a click around it cancels.
 # Return deletes the Space once the dialog has gone. Its tabs close with it, and ⇧⌘T reopens them
 # here.
@@ -448,5 +502,5 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, its colours and Delete; an emoji from the character palette is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
-echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, Edit Theme Color… and Delete; the theme picker, from the form's row and the menu, gives a Space its colours from its field, a swatch, + and the wave, the window taking them as they're made; an emoji from the character palette is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/theme-picker.png, $out/space-theme.png, $out/new-space.png, $out/spaces.png"
