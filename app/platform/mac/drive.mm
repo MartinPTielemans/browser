@@ -45,6 +45,8 @@
 //   dragleave                             takes the drag away, as cancelled
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
+//   minimize                              minimizes the window to the Dock, or brings it back
+//   hide                                  hides the app, as ⌘H does, or brings it back
 //   layout                                logs the frames of the window's views and child
 //                                         windows, and the centres of its close, minimize and
 //                                         zoom buttons
@@ -768,6 +770,26 @@ bool Run(const std::string& line, void (^done)(void)) {
     g_driven = number - 1;
     fprintf(stderr, "browser: drive window %zu\n", number);
     [(__bridge NSWindow*)host_browser_window(g_driven) makeKeyAndOrderFront:nil];
+    done();
+    return true;
+  }
+  // Before the window's lookup, which finds no window out of sight.
+  if (action == "minimize") {
+    NSWindow* driven = (__bridge NSWindow*)host_browser_window(g_driven);
+    if (driven.miniaturized) {
+      [driven deminiaturize:nil];
+    } else {
+      [driven miniaturize:nil];
+    }
+    done();
+    return true;
+  }
+  if (action == "hide") {
+    if (NSApp.hidden) {
+      [NSApp unhide:nil];
+    } else {
+      [NSApp hide:nil];
+    }
     done();
     return true;
   }
