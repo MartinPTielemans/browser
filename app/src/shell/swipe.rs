@@ -623,4 +623,63 @@ mod tests {
         let at = f32::from(tile_at.center().x);
         assert!(at < rest[0] + rest[2] / 2., "the tile isn't coming in");
     }
+
+    /// A window showing Space 1 of two, back from Space 2 as a click on its dot brings it, its
+    /// page sliding in from the left, or, `settled`, with the slide over.
+    fn switched_back(
+        cx: &mut TestAppContext,
+        settled: bool,
+    ) -> (Entity<Shell>, Rc<Recorder>, &mut VisualTestContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = |id| (id, format!("Space {id}").into(), None, 0, "".into(), "".into());
+            shell.set_spaces(vec![space(1), space(2)], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(2, Vec::new(), vec![20], Vec::new(), Folders::default(), cx);
+            shell.set_space(2, cx);
+            shell.set_space(1, cx);
+            if settled && let Some(settle) = &mut shell.settle {
+                settle.start -= Duration::from_secs(1);
+            }
+        });
+        (shell, host, cx)
+    }
+
+    /// Two fingers across the sidebar, `count` events of `dx`, held still past the moves a flick
+    /// is read from, then lifted: the spaces check's slow, short swipe.
+    fn held_swipe(shell: &Entity<Shell>, cx: &mut VisualTestContext, dx: f32, count: usize) {
+        let event = |touch_phase, dx| ScrollEvent {
+            position: point(px(110.), px(500.)),
+            delta: ScrollDelta::Pixels(point(px(dx), px(0.))),
+            touch_phase,
+            ..Default::default()
+        };
+        shell.update_in(cx, |shell, window, cx| {
+            for step in 0..count {
+                let phase = if step == 0 { TouchPhase::Started } else { TouchPhase::Moved };
+                shell.scroll(&event(phase, dx), window, cx);
+            }
+            let held = Instant::now() - Duration::from_millis(1500);
+            for (at, _) in &mut shell.swipe.as_mut().expect("a swipe").samples {
+                *at = (*at).min(held);
+            }
+            shell.scroll(&event(TouchPhase::Ended, 0.), window, cx);
+        });
+    }
+
+    /// Fingers catch a page still sliding in from a switch where it is, so a short swipe back the
+    /// way it came, let go there, lands on the Space it left. Once the page has settled, the same
+    /// swipe is short of halfway and stays.
+    #[gpui::test]
+    fn a_short_swipe_lands_from_where_it_caught_the_page(cx: &mut TestAppContext) {
+        let (shell, host, window) = switched_back(cx, false);
+        held_swipe(&shell, window, -10., 10);
+        assert_eq!(*host.shown.borrow(), [2]);
+
+        let (shell, host, window) = switched_back(cx, true);
+        held_swipe(&shell, window, -10., 10);
+        assert!(host.shown.borrow().is_empty());
+    }
 }
