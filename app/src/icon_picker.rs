@@ -460,10 +460,10 @@ impl IconPicker {
     }
 }
 
-/// The card's outline `inset` inside its edge: each corner moved in along both its sides, and its
-/// radius smaller where it bulges out and larger where it bends in.
-fn inset_corners(inset: f32) -> Vec<(Point<f32>, f32, bool)> {
-    let corners = corners();
+/// The outline through `corners` (x, y and radius, clockwise) `inset` inside it: each corner
+/// moved in along both its sides, and its radius smaller where it bulges out and larger where it
+/// bends in.
+fn inset_corners(corners: &[(f32, f32, f32)], inset: f32) -> Vec<(Point<f32>, f32, bool)> {
     let count = corners.len();
     let at = |index: usize| {
         let (x, y, _) = corners[index % count];
@@ -500,9 +500,15 @@ fn inset_corners(inset: f32) -> Vec<(Point<f32>, f32, bool)> {
         .collect()
 }
 
-/// The card's outline `inset` inside its edge, at `origin`, into `path`.
-fn outline(path: &mut PathBuilder, origin: Point<Pixels>, inset: f32) {
-    let corners = inset_corners(inset);
+/// The outline through `corners`, as `corners()` has them, `inset` inside it, at `origin`, into
+/// `path`: a card's, such as the theme picker's too.
+fn outline(
+    path: &mut PathBuilder,
+    origin: Point<Pixels>,
+    corners: &[(f32, f32, f32)],
+    inset: f32,
+) {
+    let corners = inset_corners(corners, inset);
     let count = corners.len();
     let to = |at: Point<f32>| origin + point(px(at.x), px(at.y));
     for index in 0..count {
@@ -533,6 +539,28 @@ fn outline(path: &mut PathBuilder, origin: Point<Pixels>, inset: f32) {
         }
     }
     path.close();
+}
+
+/// A popover's card through `corners` at `origin`: its fill, and the command bar's edge round it.
+pub(crate) fn paint_card(origin: Point<Pixels>, corners: &[(f32, f32, f32)], window: &mut Window) {
+    let mut fill = PathBuilder::fill();
+    outline(&mut fill, origin, corners, 0.);
+    if let Ok(path) = fill.build() {
+        window.paint_path(path, rgba(FILL));
+    }
+    // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
+    let hairline = 1. / window.scale_factor();
+    // The command bar's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
+    for (inset, width, color) in [
+        (hairline / 2., hairline, command_bar::OUTLINE),
+        (hairline + 0.5, 1., command_bar::EDGE),
+    ] {
+        let mut edge = PathBuilder::stroke(px(width));
+        outline(&mut edge, origin, corners, inset);
+        if let Ok(path) = edge.build() {
+            window.paint_path(path, rgb(color));
+        }
+    }
 }
 
 impl Focusable for IconPicker {
@@ -571,28 +599,9 @@ impl Render for IconPicker {
         let Some(picking) = &self.picking else {
             return root;
         };
-        // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
-        let hairline = 1. / window.scale_factor();
         let card = canvas(
             |_, _, _| {},
-            move |bounds, _, window, _| {
-                let mut fill = PathBuilder::fill();
-                outline(&mut fill, bounds.origin, 0.);
-                if let Ok(path) = fill.build() {
-                    window.paint_path(path, rgba(FILL));
-                }
-                // The command bar's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
-                for (inset, width, color) in [
-                    (hairline / 2., hairline, command_bar::OUTLINE),
-                    (hairline + 0.5, 1., command_bar::EDGE),
-                ] {
-                    let mut edge = PathBuilder::stroke(px(width));
-                    outline(&mut edge, bounds.origin, inset);
-                    if let Ok(path) = edge.build() {
-                        window.paint_path(path, rgb(color));
-                    }
-                }
-            },
+            move |bounds, _, window, _| paint_card(bounds.origin, &corners(), window),
         )
         .absolute()
         .top_0()
