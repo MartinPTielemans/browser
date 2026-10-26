@@ -12,15 +12,15 @@ use gpui::{
 };
 
 use super::{
-    CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, CancelName, Closing,
-    Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_TEXT,
-    HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_RADIUS, Naming,
-    PLATE_HEIGHT, PLATE_INSET, PRESSED, ROW_HEIGHT, Row, SELECTED_UNHOVER, SECONDARY, SEGMENT_END,
-    SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN,
-    SPEAKER_GAP, SPEAKER_SIZE, Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier,
-    divider_box, favicon, folder_icon, name_box, new_tab_label, plate, row_box, row_spring,
-    selected_plate, space_icon, split_plate,
-    swap::{ARROW_DOWN, NONE, folder_glyph},
+    CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE,
+    CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
+    FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV,
+    NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET, ROW_HEIGHT, Row, SELECTED_UNHOVER, SECONDARY,
+    SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON,
+    SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE, Shell, Slot, Swapped, TITLE_END_INSET, clear_label,
+    cubic_bezier, divider_box, favicon, folder_icon, name_box, new_tab_label, plate, row_box,
+    row_spring, scaled::scaled_from_middle, selected_plate, space_icon, split_plate,
+    swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph},
     title,
 };
 use crate::icon_picker;
@@ -86,6 +86,28 @@ impl Shell {
             (Row::Tab(tab), _) => self.depth(tab),
             (Row::NewTab, _) => 0,
         };
+        let plate = content
+            .when(selected, |plate| selected_plate(plate, plate_in, hover.unwrap_or(0.)))
+            .id("plate")
+            .when_some(hover.filter(|_| !selected), |plate, hover| {
+                plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
+            })
+            // Pressed, it has the selected fill at once, as Arc's does, which selects on the press.
+            .when(!selected && dragging != Some(slot), |plate| {
+                // GPUI keeps an element's pressed state only once a listener gives it a hitbox.
+                plate
+                    .on_mouse_down(MouseButton::Left, |_, _, _| {})
+                    .group_active("row", |style| style.bg(rgba(SELECTED)))
+            })
+            // A ghost covers the rows it passes, in the colours its row has in place.
+            .when(ghost, |plate| {
+                let fill = if selected { SELECTED } else { HOVERED };
+                plate.bg(self.window_fill().blend(rgba(fill).into()))
+            });
+        let scale = match row {
+            Row::Tab(tab) => self.press_scale(tab),
+            Row::NewTab => 1.,
+        };
         row_box()
             .pl(px(PLATE_INSET + depth as f32 * FOLDER_INDENT))
             .id(id)
@@ -98,26 +120,7 @@ impl Shell {
                 shell.hover(row, *hovered, cx);
                 shell.hover_tooltip(row, *hovered, cx)
             }))
-            .child(
-                content
-                    .when(selected, |plate| selected_plate(plate, plate_in, hover.unwrap_or(0.)))
-                    .id("plate")
-                    .when_some(hover.filter(|_| !selected), |plate, hover| {
-                        plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
-                    })
-                    .when(!selected && dragging != Some(slot), |plate| {
-                        // GPUI keeps an element's pressed state only once a listener gives it a
-                        // hitbox.
-                        plate
-                            .on_mouse_down(MouseButton::Left, |_, _, _| {})
-                            .group_active("row", |style| style.bg(rgba(PRESSED)))
-                    })
-                    // A ghost covers the rows it passes, in the colours its row has in place.
-                    .when(ghost, |plate| {
-                        let fill = if selected { SELECTED } else { HOVERED };
-                        plate.bg(self.window_fill().blend(rgba(fill).into()))
-                    }),
-            )
+            .child(scaled_from_middle(plate, scale))
     }
 
     /// How full `row`'s hover fill is: full under the pointer or with its menu up, and for the
@@ -224,8 +227,10 @@ impl Shell {
         })
     }
 
-    /// The button that closes `tabs`, which shows under the pointer at a row's end.
+    /// The button that closes `tabs`, which shows under the pointer at a row's end: −, which
+    /// unloads them and keeps the row, on the selected pinned row, else ✕, as Arc's.
     fn close_button(&self, tabs: Vec<u64>, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
+        let glyph = self.close_glyph(tabs[0]);
         div()
             .id(("close", tabs[0]))
             .flex_none()
@@ -237,9 +242,13 @@ impl Shell {
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(16.))
-            .text_color(rgba(SECONDARY))
-            .child("×")
+            .child(self.swaps.glyph(
+                Swapped::Close(tabs[0]),
+                glyph,
+                CLOSE_GLYPH,
+                rgba(SECONDARY).into(),
+            ))
+            // A pinned tab closed unloads, which the core does for the same call.
             .on_click(cx.listener(move |shell, _, _, cx| {
                 cx.stop_propagation();
                 log!("browser: command close-tab via sidebar");
@@ -437,6 +446,30 @@ impl Shell {
     /// Whether a tab's row has a ✕ to show: a pinned tab closed already has nothing to close.
     pub(super) fn closable(&self, tab: u64) -> bool {
         !(self.page(tab).unloaded && self.pinned().contains(&tab))
+    }
+
+    /// The close button's glyph on the row whose first tab is `row`: − on the selected pinned
+    /// row, else ✕.
+    pub(super) fn close_glyph(&self, row: u64) -> &'static str {
+        let selected = self.selected_row() == Row::Tab(row);
+        if selected && self.pinned().contains(&row) { UNLOAD } else { CLOSE }
+    }
+
+    /// Turns the ✕ under the pointer into − as its pinned row becomes the selected one, and back
+    /// as it stops being, from what the rows showed before the selection moved. Others show their
+    /// own at once.
+    pub(super) fn selection_moved(&mut self, before: Row) {
+        let after = self.selected_row();
+        let Some(Row::Tab(row)) = self.hovered else {
+            return;
+        };
+        let moved = before != after && (before == Row::Tab(row) || after == Row::Tab(row));
+        if !moved || !self.pinned().contains(&row) {
+            return;
+        }
+        let to = self.close_glyph(row);
+        let from = if to == UNLOAD { CLOSE } else { UNLOAD };
+        self.swaps.start(Swapped::Close(row), from, to, Instant::now());
     }
 
     fn single_row(
@@ -753,14 +786,15 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use gpui::{Entity, TestAppContext, VisualTestContext};
+    use gpui::{Entity, Modifiers, MouseButton, TestAppContext, VisualTestContext, point, px};
 
     use super::{
         super::{
-            Folders, Row, SELECTED_UNHOVER, Shell, Swapped, commands::bind_keys,
-            drag::detents::shell_with, recorder::Recorder,
+            CLOSE_RIGHT, CLOSE_SIZE, Folders, PLATE_INSET, PRESS_SCALE, PRESS_TIME, ROW_HEIGHT, Row,
+            SELECTED_UNHOVER, Shell, Slot, Swapped, commands::bind_keys, drag::detents::shell_with,
+            recorder::Recorder,
         },
-        LOADING_GAP, LOADING_TURN, Rings,
+        CLOSE, LOADING_GAP, LOADING_TURN, Rings, UNLOAD,
     };
 
     /// Rings begin upright and are half way round half a turn later, together; left undrawn for a
@@ -867,5 +901,149 @@ mod tests {
         assert_eq!(arrow(&shell, cx), (Some(false), true));
         report(&shell, cx, vec![2], 2);
         assert_eq!(arrow(&shell, cx), (Some(true), true));
+    }
+
+    /// A window showing one Space with `pinned` and `today` tabs and `shown`.
+    fn window(
+        cx: &mut TestAppContext,
+        pinned: Vec<u64>,
+        today: Vec<u64>,
+        shown: u64,
+    ) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+            shell.set_space(1, cx);
+            shell.set_tabs(1, pinned, today, Vec::new(), Folders::default(), cx);
+            shell.set_selected(shown, cx);
+        });
+        cx.run_until_parked();
+        (shell, cx, host)
+    }
+
+    /// Where `tab`'s row's close button is in the window, and its row's middle.
+    fn close_button(shell: &Entity<Shell>, cx: &mut VisualTestContext, tab: u64) -> (f32, f32) {
+        shell.read_with(cx, |shell, _| {
+            let top = shell.drawn_list_top() + shell.layout()[&Slot::Tab(tab)];
+            let x = shell.width() - PLATE_INSET - CLOSE_RIGHT - CLOSE_SIZE / 2.;
+            (x, top + ROW_HEIGHT / 2.)
+        })
+    }
+
+    fn move_to(cx: &mut VisualTestContext, (x, y): (f32, f32)) {
+        cx.simulate_mouse_move(point(px(x), px(y)), None, Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    /// The glyph the close button of the row under the pointer shows.
+    fn hovered_glyph(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> Option<&'static str> {
+        shell.read_with(cx, |shell, _| match shell.hovered {
+            Some(Row::Tab(row)) => Some(shell.close_glyph(row)),
+            _ => None,
+        })
+    }
+
+    /// Under the pointer, the selected pinned row's button is −, and a click on it unloads the tab
+    /// with the call that closes one, without showing it again. A pinned row not selected and a
+    /// Today row, selected or not, keep ✕.
+    #[gpui::test]
+    fn the_selected_pinned_row_shows_minus_which_unloads_it(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2, 3], vec![4, 5], 2);
+        let minus = close_button(&shell, cx, 2);
+        move_to(cx, minus);
+        assert!(shell.read_with(cx, |shell, _| shell.hovered == Some(Row::Tab(2))));
+        assert_eq!(hovered_glyph(&shell, cx), Some(UNLOAD));
+
+        host.take();
+        cx.simulate_click(point(px(minus.0), px(minus.1)), Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["close 2"]);
+
+        let pinned = close_button(&shell, cx, 3);
+        move_to(cx, pinned);
+        assert_eq!(hovered_glyph(&shell, cx), Some(CLOSE), "a pinned row not selected");
+        let today = close_button(&shell, cx, 5);
+        move_to(cx, today);
+        assert_eq!(hovered_glyph(&shell, cx), Some(CLOSE), "a Today row");
+        shell.update(cx, |shell, cx| shell.set_selected(5, cx));
+        assert_eq!(hovered_glyph(&shell, cx), Some(CLOSE), "a selected Today row");
+    }
+
+    /// A pinned row selected under the pointer turns its ✕ into −, and back as another row is
+    /// selected. A Today row's ✕ stays still, and a pinned row the pointer isn't on shows its
+    /// glyph at once.
+    #[gpui::test]
+    fn the_cross_turns_into_minus_as_its_pinned_row_is_selected(cx: &mut TestAppContext) {
+        let (shell, cx, _) = window(cx, vec![2, 3], vec![4], 4);
+        let turning = |shell: &Entity<Shell>, cx: &mut VisualTestContext, row| {
+            shell.read_with(cx, |shell, _| shell.swaps.changing(Swapped::Close(row)))
+        };
+        let pinned = close_button(&shell, cx, 2);
+        move_to(cx, pinned);
+        shell.update(cx, |shell, cx| shell.set_selected(2, cx));
+        assert!(turning(&shell, cx, 2));
+        assert_eq!(hovered_glyph(&shell, cx), Some(UNLOAD));
+
+        shell.update(cx, |shell, _| shell.swaps = Default::default());
+        shell.update(cx, |shell, cx| shell.set_selected(4, cx));
+        assert!(turning(&shell, cx, 2), "back to ✕ as it stops being selected");
+        assert_eq!(hovered_glyph(&shell, cx), Some(CLOSE));
+
+        shell.update(cx, |shell, _| shell.swaps = Default::default());
+        shell.update(cx, |shell, cx| shell.set_selected(3, cx));
+        assert!(!turning(&shell, cx, 3), "not under the pointer");
+        let today = close_button(&shell, cx, 4);
+        move_to(cx, today);
+        shell.update(cx, |shell, cx| shell.set_selected(4, cx));
+        assert!(!turning(&shell, cx, 4), "a Today row");
+    }
+
+    /// A pressed row's plate shrinks to PRESS_SCALE over PRESS_TIME while it's held and grows
+    /// back over as long once it's let go. Once it comes away to be dragged, it's full size.
+    #[gpui::test]
+    fn a_pressed_row_shrinks_a_little_until_it_is_let_go(cx: &mut TestAppContext) {
+        let (shell, cx, _) = window(cx, Vec::new(), vec![2, 3], 2);
+        let (x, y) = close_button(&shell, cx, 3);
+        let middle = point(px(x - 100.), px(y));
+        let scale = |shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+            shell.read_with(cx, |shell, _| shell.press_scale(3))
+        };
+        // As if the press were `ago` seconds back, and the release `let_go` seconds back.
+        let back = |shell: &Entity<Shell>, cx: &mut VisualTestContext, ago: f32, let_go: f32| {
+            shell.update(cx, |shell, _| {
+                let held = shell.held_row.as_mut().unwrap();
+                let now = Instant::now();
+                held.pressed = now - Duration::from_secs_f32(ago);
+                held.let_go = held.let_go.map(|_| now - Duration::from_secs_f32(let_go));
+            })
+        };
+        assert_eq!(scale(&shell, cx), 1.);
+        cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        back(&shell, cx, PRESS_TIME / 2., 0.);
+        let half = scale(&shell, cx);
+        assert!(half < 1. && half > PRESS_SCALE, "half way in, {half}");
+        back(&shell, cx, PRESS_TIME * 2., 0.);
+        assert_eq!(scale(&shell, cx), PRESS_SCALE);
+
+        cx.simulate_mouse_up(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        back(&shell, cx, PRESS_TIME * 3., PRESS_TIME / 2.);
+        let out = scale(&shell, cx);
+        assert!(out < 1. && out > PRESS_SCALE, "half way out, {out}");
+        back(&shell, cx, PRESS_TIME * 3., PRESS_TIME);
+        assert_eq!(scale(&shell, cx), 1.);
+
+        cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        back(&shell, cx, PRESS_TIME * 2., 0.);
+        assert_eq!(scale(&shell, cx), PRESS_SCALE);
+        let away = point(middle.x, middle.y + px(30.));
+        cx.simulate_mouse_move(away, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |shell, _| shell.dragging().is_some()));
+        assert_eq!(scale(&shell, cx), 1.);
     }
 }

@@ -81,7 +81,7 @@ use panes::pane_frames;
 use recent_downloads::RecentDownloads;
 use rows::Rings;
 use scaled::scaled;
-use swap::{ARROW_DOWN, Swapped, Swaps};
+use swap::{ARROW_DOWN, Swapped, Swaps, UNLOAD};
 use tile_theme::TileTheme;
 
 /// The docked sidebar's width at first, where the card starts.
@@ -136,6 +136,10 @@ const REVEAL_OVERSHOOT: f32 = 8.;
 const ROW_RESPONSE: f32 = 0.13;
 const ROW_DAMPING: f32 = 0.9;
 const SELECTED_UNHOVER: f32 = 0.17;
+// A pressed row's plate shrinks about its middle while it's held and grows back once it's let go,
+// each way over 70 ms, linear (Arc 1.170 rec at 2×, two presses: 1 pt in at each end).
+const PRESS_SCALE: f32 = 0.99;
+const PRESS_TIME: f32 = 0.07;
 // A pressed row comes away once the pointer has moved this far (ours), and the tiles make room for
 // a dragged tab critically damped, as Arc's do (docs/ux-spec.md › Motion: Favorites room).
 const DRAG_START: f32 = 4.;
@@ -259,9 +263,10 @@ const FOLDER_TITLE_X: f32 = FAVICON_X - PLATE_INSET + FAVICON_SIZE + TITLE_GAP;
 const SPEAKER_DRAWN: f32 = 16.;
 const SPEAKER_SIZE: f32 = 18.;
 const SPEAKER_GAP: f32 = 4.;
-// Arc's close button, 5 inside the plate's right edge.
+// Arc's close button, 5 inside the plate's right edge, and the box its glyph is drawn in.
 const CLOSE_SIZE: f32 = 26.;
 const CLOSE_RIGHT: f32 = 5.;
+const CLOSE_GLYPH: f32 = 14.;
 // A split's row (Arc): a segment per tab, all as wide, each after the first behind a line. Its
 // favicon is 7 pt after the line, its title 10 pt after the favicon, and it ends 5 pt before the
 // next line.
@@ -693,6 +698,13 @@ enum Place {
     List(bool, usize),
 }
 
+/// A row the pointer pressed, when, and when it let go.
+struct HeldRow {
+    tab: u64,
+    pressed: Instant,
+    let_go: Option<Instant>,
+}
+
 /// A tab's row or tile the pointer pressed, which follows the pointer once it has moved far enough.
 /// Over the favorites it's drawn as a tile, and over the list as a row. Or links or files dragged
 /// over the list from the page or another app, which the rows make room for in the same way.
@@ -869,6 +881,8 @@ pub struct Shell {
     menu_row: Option<u64>,
     /// Rows the pointer left, whose hover fill is fading, and since when.
     unhovered: Vec<(Row, Instant)>,
+    /// The row the pointer pressed, for its plate's shrinking and growing back.
+    held_row: Option<HeldRow>,
     /// Rows on their way to their place: how far from it each started, and when.
     slides: HashMap<Slot, (f32, Instant, Curve)>,
     /// The user opened a folder, or closed one, whose rows move once the browser reports it.
@@ -919,9 +933,9 @@ pub struct Shell {
     wheel_paged: Option<Instant>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
-    /// The row and favicon hovered when the rows were last drawn, and whether that row has a ✕,
-    /// for the line check.sh waits for.
-    drawn_hover: (Option<Row>, Option<u64>, bool),
+    /// The row and favicon hovered when the rows were last drawn, and that row's close button:
+    /// "0" for none, "1" for ✕ and "−", for the line check.sh waits for.
+    drawn_hover: (Option<Row>, Option<u64>, &'static str),
     undo: Option<Undo>,
     /// Whether the pointer is over the docked sidebar, which shows Clear and the URL field's button
     /// only then.
@@ -1079,6 +1093,7 @@ impl Shell {
             hovered: None,
             menu_row: None,
             unhovered: Vec::new(),
+            held_row: None,
             slides: HashMap::new(),
             folding: None,
             tile_slides: HashMap::new(),
@@ -1105,7 +1120,7 @@ impl Shell {
             wheel: None,
             wheel_paged: None,
             hovered_favicon: None,
-            drawn_hover: (None, None, false),
+            drawn_hover: (None, None, "0"),
             undo: None,
             sidebar_hovered: false,
             hover_changed: false,
@@ -1713,6 +1728,7 @@ impl Shell {
             ),
             _ => log!("browser: selected {tab}"),
         }
+        let before = self.selected_row();
         self.selected = tab;
         self.show_in_space(tab);
         self.scroll_to_row(tab);
@@ -1723,6 +1739,7 @@ impl Shell {
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
         self.set_new_tab(false, cx);
+        self.selection_moved(before);
         self.adding_pane = None;
         cx.notify();
     }
@@ -2114,9 +2131,15 @@ impl Render for Shell {
         if std::mem::take(&mut self.hover_changed) {
             log!("browser: sidebar hovered {}", self.sidebar_hovered as u8);
         }
-        // As the outline's: the ✕ and the way back show only under the pointer, so a click that
-        // follows a move waits for this line.
-        let close = matches!(self.hovered, Some(Row::Tab(tab)) if self.closable(tab));
+        // As the outline's: the ✕ or −, and the way back, show only under the pointer, so a click
+        // that follows a move waits for this line.
+        let close = match self.hovered {
+            Some(Row::Tab(tab)) if self.closable(tab) => match self.close_glyph(tab) {
+                UNLOAD => "−",
+                _ => "1",
+            },
+            _ => "0",
+        };
         let hover = (self.hovered, self.hovered_favicon, close);
         if hover != self.drawn_hover {
             self.drawn_hover = hover;
@@ -2126,7 +2149,7 @@ impl Render for Shell {
                 None => "none".into(),
             };
             let favicon = hover.1.map_or("none".into(), |tab| tab.to_string());
-            log!("browser: hover {row} close {} favicon {favicon}", close as u8);
+            log!("browser: hover {row} close {close} favicon {favicon}");
         }
         self.step_clear_arrow();
         self.swaps.step(window);
@@ -2222,6 +2245,7 @@ impl Render for Shell {
             window.request_animation_frame();
         }
         self.step_drag_shape(window, cx);
+        self.step_held_row(window);
         self.step_form_going(cx);
         self.step_scroll_edge(window);
         self.step_tools(window);
@@ -2644,6 +2668,7 @@ impl Shell {
             window.request_animation_frame();
         }
         self.step_drag_shape(window, cx);
+        self.step_held_row(window);
         self.step_form_going(cx);
         self.step_scroll_edge(window);
         self.step_tools(window);

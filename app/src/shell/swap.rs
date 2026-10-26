@@ -1,6 +1,6 @@
 //! A glyph changing into another on the same thing, such as reload into stop as the tab's page
-//! starts loading: the old one fades and shrinks a little as the new one fades and grows in (ours:
-//! Arc's isn't recorded), and Lucide's check draws itself along its stroke, as Arc's does.
+//! starts loading: the old one fades and shrinks as the new one fades and grows in, as Arc's do.
+//! Lucide's check draws itself along its stroke, and a row's ✕ turns into −, as Arc's do.
 
 use std::time::{Duration, Instant};
 
@@ -27,6 +27,8 @@ pub(super) enum Swapped {
     CopyUrl,
     /// The arrow before a Space's Clear, while Clear would close its last Today tabs.
     Clear(u64),
+    /// A row's close button, by its first tab: − on the selected pinned row, else ✕.
+    Close(u64),
 }
 
 pub(super) const CHECK: &str = "icons/check.svg";
@@ -34,13 +36,19 @@ pub(super) const LINK: &str = "icons/link.svg";
 pub(super) const ARROW_DOWN: &str = "icons/arrow-down.svg";
 /// No glyph, for one that comes and goes.
 pub(super) const NONE: &str = "";
-// The old glyph leaves over the first 120 ms and the new one comes over the last 120 of 200, both
-// ease-in-out, between full size and 0.8 (ours). A symmetric curve lets a change undone mid-way go
-// back from where it is.
-const SWAP: f32 = 0.2;
-const LEAVE: f32 = 0.12;
-const COME_AT: f32 = SWAP - LEAVE;
+/// The close button's ✕ and −, two bars drawn at an angle rather than a file.
+pub(super) const CLOSE: &str = "close";
+pub(super) const UNLOAD: &str = "unload";
+// Both glyphs move from the same moment, linearly, about the glyph's middle: the old one fades
+// out and shrinks to 0.6 over 70 ms, and the new one fades in over 40 ms and grows from 0.8 over
+// 80 (Arc 1.170 rec at 2×, reload into stop and back).
+const SWAP: f32 = 0.08;
+const LEAVE: f32 = 0.07;
+const COME: f32 = 0.04;
+const SHRUNK: f32 = 0.6;
 const SMALL: f32 = 0.8;
+// The ✕'s bars turn level into − in 110 ms, linearly (Arc 1.170 rec at 2×).
+const TURN: f32 = 0.11;
 // The check draws in 250 ms, ease-in-out (ours), while the link leaves as above.
 const CHECK_DRAW: f32 = 0.25;
 // Lucide's check in its 24 box, from its left end down to its point and up to its right end,
@@ -84,9 +92,10 @@ impl Swaps {
         if let Some(index) = self.0.iter().position(|swap| swap.what == what) {
             let was = self.0.remove(index);
             if (was.from, was.to) == (to, from) {
-                let left = (lasts(was.to) - was.elapsed(now)).max(0.);
-                let back = Duration::from_secs_f32(left * lasts(to) / lasts(was.to));
-                start = now.checked_sub(back).unwrap_or(now);
+                // The glyph coming in leaves from as far as it had come.
+                let left = 1. - arrived(was.to, was.elapsed(now));
+                let back = left * if is_bars(to) { TURN } else { LEAVE };
+                start = now.checked_sub(Duration::from_secs_f32(back)).unwrap_or(now);
             }
         }
         self.0.push(Swap { what, from, to, start });
@@ -162,34 +171,40 @@ impl Swaps {
         color: Hsla,
     ) -> AnyElement {
         let Some(swap) = self.0.iter().find(|swap| swap.what == what && swap.to == path) else {
-            if path == NONE {
-                return div().flex_none().size(px(side)).into_any_element();
-            }
-            return svg().path(path).size(px(side)).text_color(color).into_any_element();
+            return match path {
+                NONE => div().flex_none().size(px(side)).into_any_element(),
+                CLOSE | UNLOAD => bars(bars_angle(path), side, color).into_any_element(),
+                _ => svg().path(path).size(px(side)).text_color(color).into_any_element(),
+            };
         };
         let elapsed = swap.elapsed(Instant::now());
-        let glyph = |path: &'static str, way: f32| {
+        if is_bars(path) {
+            let (from, to) = (bars_angle(swap.from), bars_angle(path));
+            let angle = from + (to - from) * arrived(path, elapsed);
+            return bars(angle, side, color).into_any_element();
+        }
+        let glyph = |path: &'static str, opacity: f32, scale: f32| {
             if path == NONE {
                 return div().into_any_element();
             }
-            let scale = SMALL + (1. - SMALL) * way;
             svg()
                 .absolute()
                 .size_full()
                 .path(path)
-                .text_color(color.opacity(way))
+                .text_color(color.opacity(opacity))
                 .with_transformation(Transformation::scale(size(scale, scale)))
                 .into_any_element()
         };
         let coming = match path {
             CHECK => drawing_check(ease(elapsed / CHECK_DRAW), color).into_any_element(),
-            _ => glyph(path, coming(elapsed)),
+            _ => glyph(path, coming(elapsed), SMALL + (1. - SMALL) * grown(elapsed)),
         };
+        let gone = leaving(elapsed);
         div()
             .relative()
             .flex_none()
             .size(px(side))
-            .child(glyph(swap.from, 1. - leaving(elapsed)))
+            .child(glyph(swap.from, 1. - gone, 1. - (1. - SHRUNK) * gone))
             .child(coming)
             .into_any_element()
     }
@@ -202,17 +217,52 @@ pub(super) fn folder_glyph(open: bool) -> &'static str {
 
 /// How long a change to `to` takes.
 fn lasts(to: &'static str) -> f32 {
-    if to == CHECK { CHECK_DRAW } else { SWAP }
+    match to {
+        CHECK => CHECK_DRAW,
+        _ if is_bars(to) => TURN,
+        _ => SWAP,
+    }
 }
 
 /// How far the old glyph has gone, `elapsed` seconds into its change, 0 to 1.
 fn leaving(elapsed: f32) -> f32 {
-    ease(elapsed / LEAVE)
+    (elapsed / LEAVE).clamp(0., 1.)
 }
 
-/// How far the new glyph has come, 0 to 1.
+/// How far the new glyph has faded in, 0 to 1.
 fn coming(elapsed: f32) -> f32 {
-    ease((elapsed - COME_AT) / LEAVE)
+    (elapsed / COME).clamp(0., 1.)
+}
+
+/// How far the new glyph has grown, 0 to 1.
+fn grown(elapsed: f32) -> f32 {
+    (elapsed / SWAP).clamp(0., 1.)
+}
+
+/// How far a change to `to` has come, `elapsed` seconds in, 0 to 1: the check drawn, the bars
+/// turned, or another glyph faded in.
+fn arrived(to: &'static str, elapsed: f32) -> f32 {
+    match to {
+        CHECK => ease(elapsed / CHECK_DRAW),
+        _ if is_bars(to) => (elapsed / TURN).clamp(0., 1.),
+        _ => coming(elapsed),
+    }
+}
+
+/// Whether `path` is the close button's, drawn as two bars.
+fn is_bars(path: &'static str) -> bool {
+    matches!(path, CLOSE | UNLOAD)
+}
+
+/// The angle the close button's bars stand at from level, either way: ✕'s 45° or −'s 0.
+fn bars_angle(path: &'static str) -> f32 {
+    if path == UNLOAD { 0. } else { 45. }
+}
+
+/// The close button's bars, `side` square, crossing at its middle `angle` degrees from level
+/// either way, from one glyph so they don't darken where they cross (assets::bars).
+fn bars(angle: f32, side: f32, color: Hsla) -> impl IntoElement {
+    svg().path(super::assets::bars_path(angle)).flex_none().size(px(side)).text_color(color)
 }
 
 /// Ease-in-out, exactly 0 and 1 at its ends, which the curve's search only comes near.
@@ -283,7 +333,10 @@ fn drawing_check(way: f32, color: Hsla) -> impl IntoElement {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{Page, SWAP, Swapped, Swaps, check_line, coming, leaving};
+    use super::{
+        CLOSE, COME, LEAVE, Page, SWAP, Swapped, Swaps, TURN, UNLOAD, arrived, check_line, coming,
+        grown, leaving,
+    };
 
     fn near(a: (f32, f32), b: (f32, f32)) -> bool {
         (a.0 - b.0).abs() < 1e-3 && (a.1 - b.1).abs() < 1e-3
@@ -306,14 +359,16 @@ mod tests {
         assert_eq!(check_line(2.), check_line(1.));
     }
 
-    /// The old glyph is wholly there as the change starts and gone before its end, and the new one
-    /// is not there at the start and wholly there at the end.
+    /// Both glyphs move from the start: the new one has faded in before the old one has gone, and
+    /// has grown to full size by the end, as Arc's reload and stop do.
     #[test]
     fn the_old_glyph_leaves_as_the_new_one_comes() {
-        assert_eq!((leaving(0.), coming(0.)), (0., 0.));
-        assert_eq!(leaving(SWAP * 0.7), 1.);
-        assert!(coming(SWAP * 0.5) > 0. && coming(SWAP * 0.5) < 1.);
-        assert_eq!(coming(SWAP), 1.);
+        assert_eq!((leaving(0.), coming(0.), grown(0.)), (0., 0., 0.));
+        let early = SWAP / 8.;
+        assert!(leaving(early) > 0. && coming(early) > 0. && grown(early) > 0.);
+        assert_eq!(coming(COME), 1.);
+        assert!(leaving(COME) < 1. && grown(COME) < 1.);
+        assert_eq!((leaving(LEAVE), grown(SWAP)), (1., 1.));
     }
 
     /// A page starting to load turns the reload of the tab shown into stop, but not a tab behind
@@ -341,18 +396,25 @@ mod tests {
     }
 
     /// Changed back mid-way, a glyph goes back from where it was: the one coming in leaves from
-    /// as far as it had come.
+    /// as far as it had come, and the close button's bars turn back from their angle.
     #[test]
     fn a_change_undone_goes_back_from_where_it_is() {
         let start = Instant::now();
         let mut swaps = Swaps::default();
         swaps.start(Swapped::Library, "a", "b", start);
-        let back = start + Duration::from_secs_f32(SWAP * 0.75);
-        let came = coming(SWAP * 0.75);
+        let back = start + Duration::from_secs_f32(COME / 2.);
+        let came = coming(COME / 2.);
         swaps.start(Swapped::Library, "b", "a", back);
         let swap = &swaps.0[0];
         assert_eq!((swap.from, swap.to), ("b", "a"));
         let gone = leaving(swap.elapsed(back));
         assert!((1. - gone - came).abs() < 1e-3, "it came {came} and is {} there", 1. - gone);
+
+        swaps.start(Swapped::Close(2), CLOSE, UNLOAD, start);
+        let back = start + Duration::from_secs_f32(TURN * 0.3);
+        swaps.start(Swapped::Close(2), UNLOAD, CLOSE, back);
+        let swap = swaps.0.iter().find(|swap| swap.what == Swapped::Close(2)).unwrap();
+        let turned = arrived(CLOSE, swap.elapsed(back));
+        assert!((turned - 0.7).abs() < 1e-3, "it turned 0.3 of the way and is {turned} back");
     }
 }

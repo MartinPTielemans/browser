@@ -6,13 +6,13 @@ use std::{collections::HashMap, time::Instant};
 
 use gpui::{
     Context, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    Point, canvas, point, prelude::*, px,
+    Point, Window, canvas, point, prelude::*, px,
 };
 
 use super::{
-    Closing, Curve, DRAG_START, Drag, FOLDER_INDENT, NAME_HEIGHT, Opened, PLATE_HEIGHT,
-    PLATE_INSET, PLATE_RADIUS, Place, ROW_HEIGHT, ROW_PITCH, Shape, Shell, Slot, TILE_HEIGHT,
-    TILE_RADIUS, slots,
+    Closing, Curve, DRAG_START, Drag, FOLDER_INDENT, HeldRow, NAME_HEIGHT, Opened, PLATE_HEIGHT,
+    PLATE_INSET, PLATE_RADIUS, PRESS_SCALE, PRESS_TIME, Place, ROW_HEIGHT, ROW_PITCH, Shape, Shell,
+    Slot, TILE_HEIGHT, TILE_RADIUS, slots,
 };
 
 /// The tab that links or files dragged in stand for until they're dropped: none, as the core
@@ -177,6 +177,35 @@ impl Shell {
         let pointer = in_sidebar(position, self.sidebar_origin.get());
         let grab = (self.list_y(pointer.y) - top, point(0., 0.));
         self.press(tab, position, Place::List(pinned, index), top, grab);
+        self.held_row = Some(HeldRow { tab, pressed: Instant::now(), let_go: None });
+    }
+
+    /// How small `tab`'s row's plate is drawn: smaller while it's held, growing back from where it
+    /// is once it's let go. Full size while it's dragged, as it has come away, and while the
+    /// sidebar recedes under the Library, whose scale this one can't sit inside.
+    pub(super) fn press_scale(&self, tab: u64) -> f32 {
+        let Some(held) = self.held_row.as_ref().filter(|held| held.tab == tab) else {
+            return 1.;
+        };
+        if self.dragging().is_some() || self.sidebar_scale() != 1. {
+            return 1.;
+        }
+        1. - (1. - PRESS_SCALE) * held.depth(Instant::now())
+    }
+
+    /// Lets the held row go once it has grown back, or has come away, and asks for the next frame
+    /// while it's shrinking or growing.
+    pub(super) fn step_held_row(&mut self, window: &mut Window) {
+        let Some(held) = &self.held_row else {
+            return;
+        };
+        let depth = held.depth(Instant::now());
+        match held.let_go {
+            _ if self.dragging().is_some() => self.held_row = None,
+            Some(_) if depth == 0. => self.held_row = None,
+            None if depth == 1. => {}
+            _ => window.request_animation_frame(),
+        }
     }
 
     /// The pointer pressed `tab`'s tile at `position`, which may start a drag.
@@ -377,6 +406,10 @@ impl Shell {
     /// The pointer let go of a pressed row or tile. A dragged tab goes where it would, and the rows
     /// and tiles settle once the browser has moved it.
     pub(super) fn drop_row(&mut self, cx: &mut Context<Self>) {
+        if let Some(held) = self.held_row.as_mut().filter(|held| held.let_go.is_none()) {
+            held.let_go = Some(Instant::now());
+            cx.notify();
+        }
         if self.drop_over_page(cx) {
             return;
         }
@@ -669,6 +702,20 @@ pub fn dropped_urls<'a>(items: impl IntoIterator<Item = (&'a str, bool)>) -> Vec
 pub(super) fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Point<f32> {
     let at = position - origin;
     point(f32::from(at.x), f32::from(at.y))
+}
+
+impl HeldRow {
+    /// How far the plate has shrunk at `now`, 0 to 1: in while it's held, then back out from as
+    /// far as it got, at the same pace.
+    fn depth(&self, now: Instant) -> f32 {
+        let way = |from: Instant, to: Instant| {
+            (to.saturating_duration_since(from).as_secs_f32() / PRESS_TIME).min(1.)
+        };
+        match self.let_go {
+            None => way(self.pressed, now),
+            Some(let_go) => (way(self.pressed, let_go) - way(let_go, now)).max(0.),
+        }
+    }
 }
 
 #[cfg(test)]

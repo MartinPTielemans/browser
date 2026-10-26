@@ -5,8 +5,36 @@ use std::borrow::Cow;
 use gpui::{AssetSource, SharedString};
 
 /// The shell's glyphs, built in. Lucide's and, for Spaces' icons, Phosphor's (NOTICE), and the
-/// loading ring and the window buttons' glyphs, which are ours.
+/// loading ring, the window buttons' glyphs and the close button's bars, which are ours.
 pub struct Assets;
+
+// The close button's bars, as Arc's: 11.4 pt between the middles of their round ends, 2 wide,
+// crossing in a 14 pt box (Arc 1.170 rec at 2×).
+const BARS: &str = "bars/";
+const BAR_LENGTH: f32 = 11.4;
+const BAR_WIDTH: f32 = 2.;
+const BARS_BOX: f32 = 14.;
+
+/// The close button's bars, crossing `angle` degrees from level either way, to the nearest
+/// degree, so the turn between ✕ and − draws a few dozen glyphs at most.
+pub(super) fn bars_path(angle: f32) -> SharedString {
+    format!("{BARS}{}.svg", angle.round() as i32).into()
+}
+
+/// The bars at `angle` as one path, which the glyph's mask draws once where they cross.
+fn bars_svg(angle: f32) -> String {
+    let (sin, cos) = angle.to_radians().sin_cos();
+    let (x, y) = (BAR_LENGTH / 2. * cos, BAR_LENGTH / 2. * sin);
+    let mid = BARS_BOX / 2.;
+    let (left, right, up, down) = (mid - x, mid + x, mid - y, mid + y);
+    let bar = |from: f32, to: f32| format!("M{left:.2} {from:.2} L{right:.2} {to:.2}");
+    let d = format!("{} {}", bar(up, down), bar(down, up));
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{BARS_BOX}\" height=\"{BARS_BOX}\" \
+         viewBox=\"0 0 {BARS_BOX} {BARS_BOX}\" fill=\"none\" stroke=\"currentColor\" \
+         stroke-width=\"{BAR_WIDTH}\" stroke-linecap=\"round\"><path d=\"{d}\"/></svg>"
+    )
+}
 
 const ICONS: &[(&str, &[u8])] = &[
     ("icons/activity.svg", include_bytes!("../../assets/icons/activity.svg")),
@@ -238,6 +266,10 @@ const ICONS: &[(&str, &[u8])] = &[
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
+        let angle = path.strip_prefix(BARS).and_then(|name| name.strip_suffix(".svg"));
+        if let Some(angle) = angle.and_then(|angle| angle.parse::<f32>().ok()) {
+            return Ok(Some(Cow::Owned(bars_svg(angle).into_bytes())));
+        }
         Ok(ICONS
             .iter()
             .find(|(name, _)| *name == path)
@@ -255,8 +287,23 @@ impl AssetSource for Assets {
 
 #[cfg(test)]
 mod tests {
-    use super::Assets;
+    use super::{Assets, bars_path};
     use gpui::AssetSource;
+
+    /// The ✕ crosses its bars, the − lays them on one line, and both are the glyph one path draws.
+    #[test]
+    fn the_close_bars_turn_from_a_cross_to_a_line() {
+        let load = |angle: f32| {
+            let svg = Assets.load(&bars_path(angle)).unwrap().unwrap();
+            String::from_utf8(svg.into_owned()).unwrap()
+        };
+        assert_eq!(bars_path(44.6), "bars/45.svg");
+        let cross = load(45.);
+        assert!(cross.contains("d=\"M2.97 2.97 L11.03 11.03 M2.97 11.03"), "{cross}");
+        assert_eq!(cross.matches("<path").count(), 1);
+        let line = load(0.);
+        assert!(line.contains("M1.30 7.00 L12.70 7.00 M1.30 7.00 L12.70 7.00"), "{line}");
+    }
 
     /// A glyph that isn't built in draws nothing, with no error to say so.
     #[test]

@@ -1,16 +1,16 @@
 # ⌘D pins the tab shown, from the page and from the UI, at the bottom of the pinned tabs, and unpins
-# it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, or the ✕ under the pointer, unloads
-# a pinned tab and keeps its row, which has no ✕ then, and shows the top Today tab, else the nearest
-# pinned tab still loaded, else no page, as closing the last Today tab does. Shown again, the tab
-# loads. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back
-# there. Launched again, the app brings back the pinned tab pinned and away from its pinned URL,
-# without loading it. Dragging a row moves its tab in the pinned tabs, pins it and unpins it,
-# without showing it, and escape puts it back. New Folder makes a folder under the pinned tabs,
-# which takes the name typed. A row dragged right under it goes in and dragged left comes out, a
-# folder drags as a row, and a click closes and opens it. Launched again, the app brings it back
-# closed, a double-click renames it, and Delete Folder in its menu leaves its tab where it was.
-# Links and files dragged onto the list from the page or another app open as tabs where the pointer
-# lets go, and dragged text that isn't a web link doesn't.
+# it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, or the ✕ under the pointer, which
+# is − on the tab shown, unloads a pinned tab and keeps its row, which has no ✕ then, and shows the
+# top Today tab, else the nearest pinned tab still loaded, else no page, as closing the last Today
+# tab does. Shown again, the tab loads. Away from its pinned URL, ⌘↩ from the page and the UI, and a
+# click on its favicon, go back there. Launched again, the app brings back the pinned tab pinned and
+# away from its pinned URL, without loading it. Dragging a row moves its tab in the pinned tabs,
+# pins it and unpins it, without showing it, and escape puts it back. New Folder makes a folder
+# under the pinned tabs, which takes the name typed. A row dragged right under it goes in and
+# dragged left comes out, a folder drags as a row, and a click closes and opens it. Launched again,
+# the app brings it back closed, a double-click renames it, and Delete Folder in its menu leaves its
+# tab where it was. Links and files dragged onto the list from the page or another app open as tabs
+# where the pointer lets go, and dragged text that isn't a web link doesn't.
 
 # Pinned tabs, from the served page, whose favicon fades once its tab is unloaded.
 serve
@@ -120,6 +120,16 @@ expect "^browser: hover tab $c close 0 favicon none\$" "the unloaded pinned tab'
 send click $(pinned_close 0)
 expect "^browser: selected $c in " "a click where an unloaded pinned tab's ✕ was didn't show the tab"
 none_since '^browser: command close-tab' || fail "an unloaded pinned tab showed its ✕"
+expect "^browser: loaded $c https://example.org/\$" "the pinned tab didn't load once shown"
+# Shown, its ✕ is −, which unloads it too and shows the top Today tab.
+expect "^browser: hover tab $c close − favicon none\$" "the pinned tab shown didn't draw −"
+send click $(pinned_close 0)
+expect '^browser: command close-tab via sidebar$' "a click on a pinned tab's − didn't run Close Tab"
+expect "^browser: page $c unloaded 1\$" "the − didn't unload the pinned tab"
+expect "^browser: selected $b\$" "the − on a pinned tab didn't show the top Today tab"
+[ "$(pinned)" = "$c $a" ] || fail "the − took the pinned tab's row: pinned tabs are \"$(pinned)\""
+send click $(pinned_row 0)
+expect "^browser: selected $c in " "a click on the unloaded pinned tab didn't show it"
 expect "^browser: loaded $c https://example.org/\$" "the pinned tab didn't load once shown"
 
 # Without Today tabs, closing shows the nearest pinned tab still loaded, else no page.
