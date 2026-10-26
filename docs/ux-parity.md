@@ -265,7 +265,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Install, re-enable, new-permission dialog | MVP | ours, Chrome's warnings; store buttons "Add to / Remove from <browser>"; Arc's: measure. In progress: extension install dialog | Dia P§15 |
 | [x] | Remove | MVP | "Remove “<name>”?", Cancel / destructive Remove, from the pinned action's menu; Chrome's page asks with Chrome's dialog *interim* | Dia P§15 |
 | [x] | Keyboard commands | MVP | fire with the page and the UI focused; actions' keys; never reserved keys; suggestions that are ours stay ours; media keys: later | Chrome P§15 |
-| [x] | Site Controls | MVP | 238 wide, radius 17, beak 12.5, tiles 48 × 32 on 8 gaps; Share; the extensions with + and Manage; Chrome's permissions as Arc's rows with More; the lock opens the certificate, … the menu; Boost items: with Boosts; motion *interim* | Arc 1.170.0 cap |
+| [x] | Site Controls | MVP | 238 wide, radius 17, beak 12.5, tiles 48 × 32 on 8 gaps; Share and the two captures; the extensions with + and Manage; Chrome's permissions as Arc's rows with More; the lock opens the certificate, … the menu; Boost items: with Boosts; motion *interim* | Arc 1.170.0 cap |
 
 ## Passwords and autofill
 
@@ -331,11 +331,12 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Capture mode | MVP | ⇧⌘2 from the page and the UI, File and the command bar; grey page (luma × 0.749), 4 pt ring (21,28,47) at radius 6, camera pointer; pill 356 × 67 at radius 18, 35.5 up, 14 pt semibold (71,28,157); built, check `capture` not run yet; glow *interim* | Arc 1.170 cap |
+| [x] | Capture mode | MVP | ⇧⌘2 from the page and the UI, File and the command bar; grey page (luma × 0.749), 4 pt ring (21,28,47) at radius 6, camera pointer; pill 356 × 67 at radius 18, 35.5 up, 14 pt semibold (71,28,157); glow *interim* | Arc 1.170 cap |
 | [ ] | Element under the pointer, click, drag | MVP | the core's hit test, no page JavaScript; click takes the box, drag the rectangle; Esc, ⇧⌘2, a click outside or a resize leaves | Arc 1.170 cap, ours |
-| [ ] | Menu | MVP | 273 wide, radius 7, (18,15,44), at the ring's top left + 10; field, 40 pt rows; Copy, Save…, Send via iMessage…, Retake; Save to Library, Edit and New Easel with their features | Arc 1.170 cap |
-| [ ] | Toast after Copy | MVP | "Screenshot Copied to Clipboard" with Save and Share; time and hover *interim* | Arc 1.170 cap |
-| [ ] | Full page | MVP | the whole page past its view, copied; "Capture in Progress" *interim* | ours |
+| [x] | Menu | MVP | 273 wide, radius 7, (18,15,44), at the ring's top left + 10; field, 40 pt rows; Copy, Save…, Send via iMessage…, Retake; Save to Library, Edit and New Easel with their features | Arc 1.170 cap |
+| [x] | Toast after Copy | MVP | "Screenshot Copied to Clipboard" with Save and Share; time and hover *interim* | Arc 1.170 cap |
+| [x] | Full page | MVP | the whole page past its view, copied; "Capture in Progress" *interim* | ours |
+| [x] | Site Controls' capture tiles | MVP | Capture a Portion of This Page and Capture Full Page after Share, in Arc's order; each closes the panel, then runs its command; glyphs *interim* | Arc 1.170.0 cap |
 
 ## Import
 
