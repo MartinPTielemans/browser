@@ -341,7 +341,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 | Pressed | white 0.065 |
 | Audio | a speaker after the favicon while the page plays sound and for 2 s after (Chrome), crossed out while the tab is muted. A click on it mutes or unmutes the tab, as Mute/Unmute Tab in the command bar does. Arc mutes the tab (Arc 1.170.0 bin: `setWebContentsMuted`, `isTabMuted`); Dia mutes the site in the profile (P§2). Ours: Lucide's volume-2 and volume-x at 16 pt, white 0.6, in an 18 pt square with the ✕'s hover fill, 4 before the title; the crossed-out speaker stays while the tab is muted, playing or not, so a muted tab always shows it; ⇧⌘T and Duplicate Tab keep a tab muted and a quit doesn't. Arc's look and place: measure |
 | Loading | a 12 × 12 ring at width − 8 − 12, only in rows at least 48 wide, hidden under the hover ✕. The track and ring are 1.5 pt lines on a circle inset 1.25. The ring covers 72 % with round caps in the secondary label colour, the track is the same colour at 0.18, and it spins per Motion |
-| Sleeping tab | faded favicon (alpha: measure) |
+| Sleeping tab | favicon at half opacity while unloaded (*interim*; Arc's alpha: measure) |
 | "+ New Tab" row | the first row under the divider, where new tabs open below it (Arc). Label white 0.55 (secondary), plus sign white 0.25 (tertiary); hover as rows (Dia) |
 | New Tab tab's icon | our mark, 16 wide, white 0.28 in dark mode over any row state |
 

@@ -16,20 +16,20 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Base tint | MVP | black 0.4 | Dia 1.50.1 bin |
 | [x] | Space gradient | MVP | colour → HSL L + 0.25, stops 0.36 (neutral 0.12), layer 0.5; system accent colour when the Space has none | Dia 1.50.1 bin |
 | [x] | Card fill | MVP | #121212 0.5, no grain | Dia 1.50.1 bin |
-| [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)` | Dia 1.50.1 cap |
-| [ ] | Inactive, Reduce Transparency, Increase Contrast | MVP | opaque wallpaper-tinted fill (AppKit) | Dia 1.50.1 cap |
+| [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)`. Partly: material 29 and the tint are Dia's, but over black / grey 20 / grey 60 / white the sidebar reads 11 / 19 / 35 / 51 against Dia's 24 / 32 / 45 / 104; light comes with the Appearance menu | Dia 1.50.1 cap |
+| [ ] | Inactive, Reduce Transparency, Increase Contrast | MVP | opaque wallpaper-tinted fill (AppKit). Built: the material follows the window's active state, so AppKit swaps the fill; no capture of an inactive window or either setting yet | Dia 1.50.1 cap |
 | [x] | Card inset | MVP | 10 on every side, docked or hidden; docked, the 10 on the left is inside the sidebar | Arc 1.170.0 ax and cap |
 | [x] | Card radius | MVP | 6, circular, on the card and the page in it | Arc cap |
 | [x] | Traffic lights | MVP | centres (20, 24), (43, 24), (66, 24) | Arc 1.170.0 ax |
 | [x] | Page before first paint | MVP | card colour over the tint, never white, in every page view a tab swaps in | Ardia P§7 |
 | [x] | Window drag regions and double-click action | MVP | empty sidebar, header, card margins; system title-bar action; empty sidebar double-click = new tab | Dia 1.50, Arc (Ardia) P§1 |
-| [ ] | Resize edge | MVP | outer ≈ 3 pt | Dia P§1 |
-| [ ] | New window / closed window | MVP | at its final frame with content / gone at once *interim*; Arc's ⌘N: measure | Dia P§1 |
-| [ ] | Close confirmations | MVP | "Close 3 tabs?" per Space with "Don't ask me again". Arc: measure | Dia P§1 |
+| [ ] | Resize edge | MVP | outer ≈ 3 pt. Partly: the window is a standard resizable one, so the edge is AppKit's; it isn't measured against 3 pt and no check drags it | Dia P§1 |
+| [ ] | New window / closed window | MVP | at its final frame with content / gone at once *interim*; Arc's ⌘N: measure. In progress: ⌘N and ⇧⌘W, multi-window step 2 | Dia P§1 |
+| [ ] | Close confirmations | MVP | "Close 3 tabs?" per Space with "Don't ask me again". Arc: measure. In progress: the multi-window plan asks nothing, since a closed window's tabs stay in their Spaces, *interim* until Arc's is recorded | Dia P§1 |
 | [x] | Page full screen | MVP | sidebar gone; Esc or exitFullscreen restores; tab switch ends it; no stale frame | Dia P§18 |
-| [ ] | Window full screen with the sidebar | MVP | measure | — |
+| [ ] | Window full screen with the sidebar | MVP | built (the sidebar stays docked, the window's buttons come down with it, the command bar opens; window check); Arc's: measure | — |
 | [x] | Toast | MVP | at the window's top right, 46.5 tall, 4.5 and 4 in; medium text with a key's chip; grows from 0.7 on spring 0.32 s / ζ 0.52, fades in over 100 ms, leaves over 70 ms. Text size and fill *interim* | Arc 1.170 rec |
-| [ ] | Toast's other uses | MVP | Copy URL's note and a tab archived by ⌘W: Arc's words and timing, measure | Arc |
+| [ ] | Toast's other uses | MVP | Copy URL's note is built ("Copied URL", 2 s, *interim*); ⌘W's note for an archived tab isn't shown. Arc's words and timing for both: measure | Arc |
 
 ## Sidebar
 
@@ -48,8 +48,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | URL text | MVP | host only, no `www.`; Arc has no Show Full URL | Arc 1.170.0 cap, Dia 1.50.1 bin |
 | [x] | URL on hover | MVP | the field's buttons, not the full URL (Dia shows it) | Arc 1.170.0 cap |
 | [x] | URL field Copy URL button | MVP | 30 × 30, while the pointer is over the sidebar; Site Control Center: later | Arc 1.170.0 cap |
-| [ ] | A page's permission question | MVP | card under the URL field: "<site> wants to", Chrome's phrases, Block / Allow, × dismisses; follows its tab; brings out a hidden sidebar; Arc's look: measure | Chrome |
-| [ ] | Insecure indicator | MVP | Arc: none; Dia and Chrome: a lock-warning glyph | Dia, Chrome P§8, Arc 1.170.0 cap |
+| [x] | A page's permission question | MVP | card under the URL field: "<site> wants to", Chrome's phrases, Block / Allow, × dismisses; follows its tab; brings out a hidden sidebar *interim*; Arc's look: measure | Chrome |
+| [x] | Insecure indicator | MVP | none, as Arc's (Dia and Chrome show a lock-warning glyph); owner to confirm | Dia, Chrome P§8, Arc 1.170.0 cap |
 | [x] | Favorite tile | MVP | 41 tall, 6 apart, inset 8, radius 10 *interim* | Dia 1.50.1 bin + cap; inset ours |
 | [x] | Favorite columns | MVP | as many as fit at ≥ 48, fewer share the row: 3 at 190, 4 at 228 *interim*; Arc's rule: measure | Dia P§2; rule ours |
 | [x] | Favorite resting look | MVP | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
@@ -60,15 +60,15 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Favorites in a tab's menu | MVP | Add to Favorites; the tile's menu: Back to Favorite URL, Duplicate Tab, Remove from Favorites, Close Tab *interim* | ours |
 | [x] | Favorite ⌘W | MVP | unloads, keeps the tile | as pinned tabs |
 | [x] | Drag into, out of and between favorites | MVP | a row over the tiles is a tile at the place nearest its centre, a tile below them a row; tiles make room on the reorder spring *interim* | Arc |
-| [ ] | Row ↔ tile morph while dragging | MVP | plate's size, corners and fill to the tile's on the reorder spring, title out over the first half, favicon to the middle, around the pointer; reverses mid-turn *interim*, Arc's: measure | Arc |
+| [x] | Row ↔ tile morph while dragging | MVP | plate's size, corners and fill to the tile's on the reorder spring, title out over the first half, favicon to the middle, around the pointer; reverses mid-turn *interim*, Arc's: measure | Arc |
 | [x] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
 | [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
-| [ ] | Pinned tab away from its URL | MVP | ↩ on hover, "Back to Pinned URL", ⌘↩ *interim*; Arc's look: measure | Dia 1.53.0 bin |
-| [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25 | Dia cap, Ardia |
+| [x] | Pinned tab away from its URL | MVP | the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL"; a click or ⌘↩ goes back *interim*; Arc's look: measure | Dia 1.53.0 bin |
+| [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25. Not started: multi-window step 4 | Dia cap, Ardia |
 | [x] | Clear divider line | MVP | one device pixel, white 0.15, 18 in from each side; ends 9 before Clear while it shows; centre 25 above the first row's centre | Arc 1.170.0 cap and tokens, Arc (Ardia) |
 | [x] | Clear label and arrow | MVP | sidebar: the word alone, semibold ≈ 10 pt, 29.5 × 15, ends with the titles, 9 after the line; a Library card: an arrow 8 tall, 3 before it | Arc 1.170.0 cap and ax |
 | [x] | Clear on hover | MVP | shows only while the pointer is over the sidebar | Arc 1.170.0 cap |
-| [ ] | Sidebar hover fades | MVP | Clear and the URL field's buttons coming and going with the pointer. Ours: 150 ms ease-out fade. Arc's: measure | Arc |
+| [x] | Sidebar hover fades | MVP | Clear and the URL field's buttons coming and going with the pointer. Ours: 150 ms ease-out fade. Arc's: measure | Arc |
 | [x] | Row pitch / height | MVP | 41 / 40 | Arc 1.170.0 ax |
 | [x] | Row plate | MVP | 36 tall, x 8 to width − 8, radius ≈ 12 | Arc 1.170.0 cap |
 | [x] | Row favicon and title | MVP | favicon 18 at x 17, title at x 43, ending at x 211 with an ellipsis | Arc 1.170.0 ax and cap |
@@ -78,7 +78,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Close ✕ | MVP | on hover, the selected row's too; 26 × 26, 5 inside the plate's right edge | Arc 1.170.0 cap |
 | [x] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
 | [x] | Speaker | MVP | after the favicon while the page plays and 2 s after, crossed out while muted; a click mutes or unmutes the tab, as Arc mutes tabs *interim*; Arc's look: measure | Arc 1.170.0 bin, Dia, Chrome |
-| [ ] | Sleeping tab | MVP | faded favicon (alpha: measure) | Dia |
+| [x] | Sleeping tab | MVP | favicon at half opacity while unloaded, in rows, tiles and splits *interim*; Arc's alpha: measure | Dia |
 | [x] | "+ New Tab" row | MVP | the first row under the divider, where new tabs open below it (Arc); label white 0.55, plus 0.25; hover as rows | Arc, Dia 1.50.1 bin |
 | [x] | Scroll edge | MVP | 1 pt P3 white 0.09 at favorites + 4; fades 100 ms cubic-bezier(0.25, 0.46, 0.45, 0.94) *interim*, Arc's: measure | Dia 1.53.0 bin |
 | [x] | ⌘T's plate | MVP | "+ New Tab" has the selected plate while ⌘T's bar is open, in one frame | Arc 1.170.0 rec 120 fps |
@@ -86,11 +86,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Close tab motion | MVP | the row fades as the rows below slide up over it; spring 0.13 s / ζ 0.9 | Arc 1.170.0 rec 120 fps |
 | [x] | Undo motion | MVP | the tabs Undo brings back fade in in place; spring 0.13 s / ζ 0.9 | Arc 1.170.0 rec 120 fps |
 | [x] | Reorder | MVP | neighbour moves at the centre crossing; critically damped ω ≈ 90 (done 76 ms) *interim* | Dia rec 60 fps |
-| [ ] | Reorder and drop, Arc's | MVP | the neighbours making way and the dropped row settling: measure | Arc |
-| [ ] | Drag to another window / desktop | MVP | moves the live page; new window under the pointer | Dia P§1 |
+| [ ] | Reorder and drop, Arc's | MVP | the neighbours making way and the dropped row settling: built as Dia's Reorder (above); Arc's: measure | Arc |
+| [ ] | Drag to another window / desktop | MVP | moves the live page; new window under the pointer. Not started: multi-window step 7 | Dia P§1 |
 | [x] | Drops on the list | MVP | files and http(s) open at the gap, which opens as for a dragged row *interim*; never javascript:, data:, file: from text; Arc's: measure | Dia, Ardia |
-| [ ] | Hover card show | MVP | delay 0.5 s; opacity 100 ms + scale spring 0.92 → 1 (0.25 s, ζ 0.75) | Dia bin |
-| [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses | Dia bin |
+| [ ] | Hover card show | MVP | delay 0.5 s; opacity 100 ms + scale spring 0.92 → 1 (0.25 s, ζ 0.75). Not started: the spec leaves the hover card undecided (Arc has none recorded) | Dia bin |
+| [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses. Not started, as above | Dia bin |
 | [x] | Background tabs | MVP | a link opened behind loads when first shown, with the link's address and the site's icon until then | Dia |
 | [x] | List scrolls to a row | MVP | the least that shows it whole, for a tab opened behind and the tab shown; instant | Dia, Chrome tab strip |
 | [x] | Opener order | MVP | Chrome's TabStripModel rules | Chrome |
@@ -108,9 +108,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Rename, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
 | [x] | Folders | MVP | in the pinned tabs, indented 16 a level: New Folder…, a click opens and closes, a double-click or the menu renames, Delete Folder keeps the tabs, a drag right or left takes a row in or out, kept over a quit; motion and icon *interim* | Arc ax, cap, menus |
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
-| [ ] | Folder motion and drag | MVP | measure Arc's open and close by a click, and how a dragged row goes into a folder | — |
+| [ ] | Folder motion and drag | MVP | built: a click opens and closes on Group expand, a dragged row goes in or out with the pointer's travel *interim*; Arc's open and close by a click, and how a dragged row goes into a folder: measure | — |
 | [x] | Folder tooltip | MVP | the name after a moment; ours 0.5 s, the system's | Arc cap |
-| [ ] | Favorite tooltip | MVP | the name after a moment; its delay, motion and the move to the next tile: measure | Arc cap |
+| [x] | Favorite tooltip | MVP | the name after 0.5 s, at once from tile to tile, in one frame *interim*; Arc's delay, motion and the move to the next tile: measure | Arc cap |
 | [x] | Collapse All Folders | MVP | a command bar command | Arc cap |
 
 ## Spaces
@@ -124,7 +124,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Switcher footer | MVP | 50 tall; Library 32 at 8 in on the left; + 32 at 8 in on the right, its menu New Space… and New Folder… *interim*, Arc's: measure | Arc 1.170.0 cap, ax |
 | [x] | Switcher band | MVP | 42 in from each side; items 36 × 34 at a 34 pitch; none with one Space; more than fit: narrower *interim*, Arc's: measure | Arc 1.170.0 ax |
 | [x] | Switcher dot | MVP | 8 pt; white 0.50 shown, 0.19 others | Arc 1.170.0 cap |
-| [ ] | Space icons in the switcher | MVP | measure | — |
+| [ ] | Space icons in the switcher | MVP | built: an emoji takes the dot's place in its item, the Space shown at full strength *interim*; Arc's look: measure | — |
 | [x] | Swipe tracking | MVP | −0.5 × horizontal delta; ignores the system swipe setting | Dia 1.50.1 bin |
 | [x] | Rubber band | MVP | `255·(1 − 1/(0.15·x/255 + 1))` | Dia 1.50.1 bin |
 | [x] | Past the first Space, the Library | MVP | fingers move its open, opening past halfway or on a flick; a wheel's tick opens it; back from it the same way. Arc's finger tracking: measure | Arc release notes, Arc 1.x video |
@@ -133,11 +133,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Settle | MVP | critically damped 0.19 s, carrying the velocity; detent haptic | Arc 1.170 rec |
 | [x] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
 | [x] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
-| [ ] | Colour cross-fade | MVP | measure | Ardia |
-| [ ] | Space title, create, colour, icon | MVP | measure | — |
+| [ ] | Colour cross-fade | MVP | built: the gradient is as much of each Space's colour as its page shows, in a swipe and a switch's slide *interim*; Arc's duration: measure | Ardia |
+| [ ] | Space title, create, colour, icon | MVP | built: the Create a Space form (Arc's), a Color submenu and Change Icon… with the system's palette *interim*; Arc's title, colour and icon flows: measure. In progress: Arc's Space icon picker | — |
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks in Arc's dialog if it has tabs | Arc, ours |
 | [x] | Undo delete | MVP | the toast says "Space deleted! Use ⌘Z to undo." for 5 s; ⌘Z brings the Space back where it was, with its tabs, and pages to it | Arc 1.170 rec |
-| [ ] | Undo delete motion | MVP | the switch's slide *interim*; Arc's: measure | Arc |
+| [x] | Undo delete motion | MVP | the switch's slide *interim*; Arc's: measure | Arc |
 | [ ] | Agent Space kind in the data model | MVP | a Space kind owned by an agent | decision 8, roadmap |
 | [ ] | Agent Space UI: switcher mark, confirm card, handoff card, take over, status, activity log, allowed sites with Revoke | 4 | ours to design; confirm times out 5 min, handoff 15 min | decision 8, Ours (prototype) |
 | [ ] | Agent actions never move the user's focus | 4 | no change of Space, tab, focus or cursor | decision 8 |
@@ -149,8 +149,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Panel width | MVP | 766, centred on the window; ⌘L and a click on the field open the same panel | Arc 1.170.0 cap, ax |
 | [x] | Text alignment | MVP | input row 64; glyph 18 pt at 23 in; text ≈ 18 pt at 53 in; hint at the field's end | Arc 1.170.0 ax |
 | [x] | Open | MVP | one frame, as ⌘T's; no grow from the field (Arc's panel isn't anchored to it) | Arc 1.170.0 rec |
-| [ ] | Close | MVP | ⌘T's in one frame, as it opens; ⌘L's: measure | Arc 1.170.0 rec |
-| [ ] | Selection motion | MVP | the selection moving with ↓ and ↑, and the pointer over the rows: measure | Arc |
+| [x] | Close | MVP | ⌘T's in one frame, as it opens; ⌘L's the same *interim*; Arc's ⌘L: measure | Arc 1.170.0 rec |
+| [ ] | Selection motion | MVP | the selection moving with ↓ and ↑, and the pointer over the rows: built with none, the selection moving at once *interim*; Arc's: measure | Arc |
 | [x] | Fill / border / radius | MVP | #191919 at 0.86 over an untinted blur of what's behind; 0.5 pt outline and 1 pt grey edge; radius ≈ 18 | Arc 1.170.0 cap, Dia 1.50.1 bin |
 | [x] | Shadow | MVP | soft, no offset, ≈ 30 pt; drawn at radius 20 and 0.23 black, fitted to Arc's over a light page | Arc 1.170.0 cap |
 | [x] | No scrim | MVP | page undimmed | Dia 1.49 cap |
@@ -165,19 +165,19 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Well-known sites | MVP | built in; fill the rows left under the profile's own, never row 0 | ours |
 | [x] | Site search | MVP | Tab when hinted, Space after the keyword; ⌫ at the start, ⇧Tab or Esc leaves and restores; Arc's look: measure | Chrome O |
 | [x] | Keys | MVP | ↩, ⌘↩ behind with the bar open, ⌥↩ beside, ⇧⌘↩, ⌃↩, ↑↓ and Tab ⇧Tab wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Arc 1.170.0 cap, Chrome, Dia O |
-| [ ] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows | Chrome |
-| [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms) | Ardia P§7 |
+| [ ] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows. Not started: multi-window step 5 | Chrome |
+| [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms). Not started | Ardia P§7 |
 | [x] | Click outside | MVP | closes and still acts | AGENTS.md |
-| [ ] | Switch to Tab rows | MVP | across windows, never the current tab | Dia, O |
+| [ ] | Switch to Tab rows | MVP | across windows, never the current tab. Partly: never the current tab, within the window; across windows waits on multi-window step 5 | Dia, O |
 | [x] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |
 | [x] | Commands | MVP | found by name, with their shortcuts; one whose name starts with what's typed comes first | Arc 1.170.0 cap |
 | [x] | Row icons | MVP | a clock for a page only in history; a favicon for an open tab or a site; a glyph for each command, Lucide's | Arc 1.170.0 cap |
-| [ ] | Empty text | MVP | the Space's open tabs with Switch to Tab, most recently shown first; Arc's recents and commands under them: measure | Arc 1.170.0 cap |
+| [x] | Empty text | MVP | the Space's open tabs with Switch to Tab, most recently shown first; Arc's recents and commands under them: measure | Arc 1.170.0 cap |
 | [x] | Calculator | MVP | the row after the first; ↩ copies the result | Dia P§7 |
 | [x] | Paste and Go | MVP | with Paste and Search, in the command bar field's menu; the clipboard is read only once one is chosen | Dia P§7 |
 | [x] | Clean-link copy | MVP | Copy URL leaves out utm_ parameters and click IDs | Dia P§7 |
 | [x] | Copy URL / as Markdown | MVP | ⇧⌘C / ⌥⇧⌘C; as Quote ⌃⇧⌘C later | Arc 1.170.0 menus |
-| [ ] | Arc's command list and ⌘T over the page | MVP | measure | — |
+| [ ] | Arc's command list and ⌘T over the page | MVP | built: ⌘T's bar opens over the page and lists our commands (Commands above); Arc's full list: measure | — |
 
 ## New tab
 
@@ -189,7 +189,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Panes | MVP | up to 3 side by side or stacked, sharing the card; Arc max: measure | Arc rec, Dia P§6 |
 | [x] | Gap, focus indicator | MVP | 10 pt gap; 2 pt ring inside the focused pane, ≈ 8 pt glow outside | Arc 1.170.0 rec |
-| [ ] | Unfocused dim | MVP | none *interim*; measure | — |
+| [x] | Unfocused dim | MVP | none *interim*; Arc's: measure | — |
 | [x] | Pane sizes | MVP | the gap drags them, a tenth of the card each, 50–200; snap to even within 15; double-click evens; kept after a quit; Arc's: measure | Chrome *interim* |
 | [x] | Keys | MVP | ⌃+ add, ⌃⇧- close pane; ⌃⇧] / ⌃⇧[ focus *interim* | Arc menus, Dia |
 | [x] | Add Split View | MVP | in one frame: page narrows, empty pane, command bar over it 77 in from the card's edge | Arc 1.170.0 rec |
@@ -202,10 +202,10 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Target under the card | MVP | 362 × 600, leaning 43 % toward the pointer, accent ≈ 0.15, dashes 7/7 ≈ 2 pt | Dia rec |
 | [x] | Target timing | MVP | slide ≈ 110 ms, grow ≈ 120 ms, no overshoot | Dia rec |
 | [x] | Drag picture | MVP | tab for 1–2 frames, then 209 × 109.5 window card; ours shows the favicon and title, not the page's image | Dia rec |
-| [ ] | Pane motion | MVP | a dropped tab's pane coming in on its side, the divider dragged, a pane closing: measure | Arc |
-| [ ] | Drop away from a target | MVP | new window grows from the card ≈ 200 ms, takes focus | Dia rec |
+| [ ] | Pane motion | MVP | a dropped tab's pane coming in on its side, the divider dragged, a pane closing: built with a drop showing the split at once and the divider following the pointer *interim*; Arc's: measure | Arc |
+| [ ] | Drop away from a target | MVP | new window grows from the card ≈ 200 ms, takes focus. Not started: multi-window step 7 | Dia rec |
 | [x] | Close pane, Separate | MVP | Close this Split Pane, Separate Page from Split View | Arc menus |
-| [ ] | Expand Current Split | MVP | measure | Arc menus |
+| [ ] | Expand Current Split | MVP | not built; what it does: measure | Arc menus |
 | [x] | Commands | MVP | Flip, Move Pane Left/Right, Separate All, in the command bar | Dia P§6 |
 | [x] | Change Orientation | MVP | the panes stacked top to bottom, kept after a quit; drop targets at the sides *interim* | Dia P§6 |
 
@@ -219,8 +219,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
 | [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit Browser?" with Quit, "Quit, and don't ask again" and Cancel; Dock and logout quits don't | Arc 1.170.0 cap, bin |
-| [ ] | Profiles tab | MVP | measure; ours: a row per profile with its Spaces, rename on a double-click, Delete for an unused one, New Profile | Arc 1.170.0 cap |
-| [ ] | Arc's other tabs | MVP | Links, Icon, Previews: with their features | Arc 1.170.0 cap |
+| [x] | Profiles tab | MVP | ours: a row per profile with its Spaces, rename on a double-click, Delete for an unused one, New Profile *interim*; Arc's: measure | Arc 1.170.0 cap |
+| [ ] | Arc's other tabs | MVP | Links, Icon, Previews: with their features; none built | Arc 1.170.0 cap |
 
 ## Archive
 
@@ -236,46 +236,46 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Archived Tabs | MVP | search on the buttons' row, day headings, rows 56 apart with favicon, title and host; a click reopens the tab | Arc 1.170.0 cap, ax |
 | [x] | Clear Archive | MVP | Archive menu; asks first | Arc 1.170.0 menus |
 | [x] | Library's Spaces | MVP | 480 wide, no search; a card per Space with its sidebar rows at the sidebar's metrics, a brush for its menu, a blue + for a new Space; a click shows the Space | Arc 1.170.0 cap (one Space) |
-| [ ] | Library's other sections | MVP | Downloads done; Media, Easels & Notes as each feature lands | Arc 1.170.0 cap |
-| [ ] | Archive filter, row hover and menu | MVP | measure; ours: the sidebar's hover plate, and a menu of Restore Tab, Copy URL and Delete from Archive | — |
+| [ ] | Library's other sections | MVP | Downloads, Spaces and Archived Tabs done; Media, Easels & Notes as each feature lands | Arc 1.170.0 cap |
+| [x] | Archive filter, row hover and menu | MVP | ours: the sidebar's hover plate, and a menu of Restore Tab, Copy URL and Delete from Archive; Arc's Filter left out *interim*; Arc's: measure | — |
 
 ## Profiles
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Profile holds cookies, history, logins, autofill, extensions | MVP | yes | decision 5 |
-| [ ] | Create, rename, delete, pick for a Space | MVP | measure; ours: Settings › Profiles, the New Space form's Profile row (Arc's) and the Space menu's Profile items | Arc 1.170.0 cap |
-| [ ] | Where a Space shows its profile | MVP | measure | — |
-| [ ] | Incognito ⇧⌘N | MVP | per profile, dark, one session per profile, nothing written | Chrome, Dia |
+| [x] | Create, rename, delete, pick for a Space | MVP | ours: Settings › Profiles, the New Space form's Profile row (Arc's) and the Space menu's Profile items *interim*; Arc's: measure | Arc 1.170.0 cap |
+| [ ] | Where a Space shows its profile | MVP | built: the Space's menu checks it and the form's Profile row names it, nothing in the sidebar *interim*; Arc's: measure | — |
+| [ ] | Incognito ⇧⌘N | MVP | per profile, dark, one session per profile, nothing written. Not started: a private window is a window, so after multi-window step 2 | Chrome, Dia |
 
 ## Extensions
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Pinned actions | MVP | at the URL field's end, 16 pt on a 30 pitch, badges, click, right-click and overflow menu done; Arc placement: measure | Dia 1.52 cap |
-| [ ] | Extensions menu in the menu bar | MVP | per extension, Pin to URL Field and Manage done; Add with install | Dia |
-| [ ] | Popups | MVP | Chrome's, from the action or under the URL field *interim*; 25 × 25 to 800 × 600, shrink and grow; openPopup works; Arc's opening and closing: measure | Chrome |
+| [x] | Pinned actions | MVP | at the URL field's end, 16 pt on a 30 pitch, badges, click, right-click and overflow menu *interim*; Arc placement: measure | Dia 1.52 cap |
+| [ ] | Extensions menu in the menu bar | MVP | per extension, Pin to URL Field and Manage Extensions… done; Add Extension… waits on the install flow. In progress: extension install dialog | Dia |
+| [x] | Popups | MVP | Chrome's, from the action or under the URL field *interim*; 25 × 25 to 800 × 600, shrink and grow; openPopup works; Arc's opening and closing: measure | Chrome |
 | [x] | Action state without polling | MVP | from change notifications and tab switches only | principle 1 |
-| [ ] | Side panel | MVP | card right of the page, header, 320–600 saved | Dia, Ardia |
-| [ ] | Install, re-enable, new-permission dialog | MVP | ours, Chrome's warnings; store buttons "Add to / Remove from <browser>"; Arc's: measure | Dia P§15 |
-| [ ] | Remove | MVP | "Remove “<name>”?", Cancel / destructive Remove; done from the pinned action's menu; Chrome's page asks with Chrome's dialog | Dia P§15 |
+| [ ] | Side panel | MVP | card right of the page, header, 320–600 saved. In progress: side panel | Dia, Ardia |
+| [ ] | Install, re-enable, new-permission dialog | MVP | ours, Chrome's warnings; store buttons "Add to / Remove from <browser>"; Arc's: measure. In progress: extension install dialog | Dia P§15 |
+| [x] | Remove | MVP | "Remove “<name>”?", Cancel / destructive Remove, from the pinned action's menu; Chrome's page asks with Chrome's dialog *interim* | Dia P§15 |
 | [x] | Keyboard commands | MVP | fire with the page and the UI focused; actions' keys; never reserved keys; suggestions that are ours stay ours; media keys: later | Chrome P§15 |
-| [ ] | Site Controls | MVP | Ardia's layout (58 pt cells, 8 gaps, rows of 4, open 150 / close 100 ms); Arc's: measure | Ardia |
+| [ ] | Site Controls | MVP | Ardia's layout (58 pt cells, 8 gaps, rows of 4, open 150 / close 100 ms); Arc's: measure. Not started | Ardia |
 
 ## Passwords and autofill
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Save / update prompt | MVP | page top right; Save / Update with username picker / Never / Not Now; look: measure | Dia P§16 |
-| [ ] | Address and card offers | MVP | same prompt, Chrome's words | Chrome |
-| [ ] | Pending offer on tab switch | MVP | closes | Dia P§16 |
-| [ ] | Fill dropdown | MVP | Chrome's, under the field | Chrome |
-| [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings | Dia |
-| [ ] | Password generation | MVP | Use Strong Password / Choose Your Own | Chrome |
-| [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password | Dia |
-| [ ] | Settings unlock | MVP | one device check, 5 min grace | Chrome |
-| [ ] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows | Chrome |
-| [ ] | No agent path | MVP | agents never read or fill these | decision 8 |
+| [ ] | Save / update prompt | MVP | page top right; Save / Update with username picker / Never / Not Now; look: measure. In progress: passwords save prompt | Dia P§16 |
+| [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
+| [ ] | Pending offer on tab switch | MVP | closes. In progress: passwords save prompt | Dia P§16 |
+| [ ] | Fill dropdown | MVP | Chrome's, under the field. Not started; unverified, it may already show | Chrome |
+| [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started | Dia |
+| [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
+| [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
+| [ ] | Settings unlock | MVP | one device check, 5 min grace. Not started: Chrome's page should do it in a tab, unverified | Chrome |
+| [ ] | Passkey dialogs | MVP | Chrome's, centred over the page, as child windows. Not started: unverified, probably works | Chrome |
+| [ ] | No agent path | MVP | agents never read or fill these. Holds today, since no call returns them and there is no MCP server; ticks with its allowlist test | decision 8 |
 
 ## Downloads
 
@@ -283,9 +283,9 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Library section, ⇧⌘J, View Downloads | MVP | above Archived Tabs; rows as the archive's, with the system's icon, status and bar | Arc 1.170.0 menus, cap |
 | [x] | Row actions | MVP | progress, pause/resume, cancel, open, Show in Finder, Open When Done, keep or delete a held file, Remove from List, Clear List | Dia P§14 |
-| [ ] | Move to Trash, drag out | MVP | to Finder, other apps, the page, the tab list | Dia P§14 |
-| [ ] | Footer button while downloading | MVP | ours: glyph over a 16 × 2 bar; Arc's look: measure | — |
-| [ ] | Fly-in | MVP | ours: 32 → 16 pt icon from under the URL field to the button on a slight arc, 0.45 s on cubic-bezier(0.55, 0, 0.85, 0.4), fading over the last 30 %; Arc's: measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
+| [x] | Move to Trash, drag out | MVP | to Finder, other apps, the page, the tab list | Dia P§14 |
+| [x] | Footer button while downloading | MVP | ours: glyph over a 16 × 2 bar *interim*; Arc's look: measure | — |
+| [x] | Fly-in | MVP | ours: 32 → 16 pt icon from under the URL field to the button on a slight arc, 0.45 s on cubic-bezier(0.55, 0, 0.85, 0.4), fading over the last 30 %; Arc's: measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
 | [x] | Per profile, persisted | MVP | Chrome's history; private never written once private windows land | Dia P§14 |
 | [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |
 
@@ -298,7 +298,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | ⌘F with the page focused | MVP | ours unless the page keeps it | AGENTS.md |
 | [x] | IME in the field | MVP | Japanese works | AGENTS.md |
 | [x] | Bar position, size, contents, no-match state, motion | MVP | 300 × 32, 10 in from the card's top right, radius 6; search, field, count, previous, next, divider, close; NOT FOUND in red; one frame in and out | Arc 1.170.0 rec, cap |
-| [ ] | Bar colour, shadow, glyphs | MVP | Arc's (19,29,50), ours too; Arc's ≈16 pt shadow, ours AppKit's; glyphs: measure | Arc 1.170.0 cap |
+| [x] | Bar colour, shadow, glyphs | MVP | Arc's (19,29,50), ours too; Arc's ≈16 pt shadow, ours AppKit's; glyphs Lucide's *interim*; Arc's glyphs: measure | Arc 1.170.0 cap |
 
 ## Zoom
 
@@ -306,7 +306,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Keys and menu | MVP | ⌘0 / ⌘+ / ⌘-, hidden ⌘=; View › Zoom to Actual Size, Zoom In, Zoom Out; per site, kept | Arc 1.170.0 menus, Chrome |
 | [x] | HUD | MVP | the percent over the card's top right for a moment; nothing in the URL field | Arc 1.170.0 cap |
-| [ ] | HUD look and timing | MVP | Arc's pill, time shown and fade: measure | — |
+| [ ] | HUD look and timing | MVP | Arc's pill, time shown and fade: built as a pill of the window's colour, 1.5 s, a 0.15 s fade *interim*; Arc's: measure | — |
 
 ## DevTools
 
@@ -316,10 +316,10 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Inspect in the page menu | MVP | Chrome's: docks DevTools at the element | Chrome P§23 |
 | [x] | F12 | MVP | opens or closes DevTools, as ⌥⌘I, from the page and the UI; not in the menu | Dia, Chrome P§23 |
 | [x] | Docked in the card | MVP | right, full card height, page on the left; each tab its own; closing gives the page the keyboard | Arc 1.170.0 cap |
-| [ ] | Docked width | MVP | Arc a third of the card; ours Chrome's 555 pt, then the user's, kept per profile | Arc 1.170.0 cap |
+| [x] | Docked width | MVP | Arc a third of the card; ours Chrome's 555 pt, then the user's, kept per profile | Arc 1.170.0 cap |
 | [x] | Undocked | MVP | Chrome's window, from DevTools' Dock side menu; Dia's 640 × 640 first, "Developer Tools - <url>" | Dia P§23, Chrome |
 | [x] | Task Manager | MVP | Chrome's, from Help › Troubleshooting › Open Task Manager as Arc's; ⌘W closes it | Arc 1.170.0 menus, Chrome |
-| [ ] | No agent DevTools or debugging port | MVP | none | decision 8 |
+| [ ] | No agent DevTools or debugging port | MVP | none. Holds today, since nothing opens a debugging port and there is no MCP server; ticks with its allowlist test | decision 8 |
 
 ## Import
 
@@ -355,16 +355,16 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar | Arc (Ardia) |
 | [x] | Every command rebindable | MVP | Settings › Shortcuts | Dia P§22 |
 | [x] | Full table in the spec | MVP | ux-spec.md › Keyboard: every key marked built or with its feature | Dia, Chrome |
-| [ ] | Arc's keys not yet recorded | MVP | Back to Pinned URL and Search Tabs: measure; the rest are its menus' | Arc 1.170.0 menus |
+| [ ] | Arc's keys not yet recorded | MVP | Back to Pinned URL and Search Tabs: Arc's keys: measure; ours are ⌘↩, built, and ⇧⌘A, not built; the rest are its menus' | Arc 1.170.0 menus |
 | [x] | Menu bar | MVP | Arc's menus in Arc's order, with the commands the browser has | Arc 1.170.0 menus |
 | [x] | Edit menu in pages | MVP | Undo, Redo, Cut, Copy, Paste, Select All reach the focused page or field | Arc 1.170.0 menus |
 | [x] | Hide, Hide Others, Minimize | MVP | ⌘H, ⌥⌘H, ⌘M | Arc 1.170.0 menus |
 | [x] | Save Page As, Print | MVP | ⇧⌘S, ⌘P: Chrome's save panel and print preview | Arc 1.170.0 menus |
 | [x] | Clear Cache and Refresh, Clear Cookies and Refresh | MVP | View menu and command bar; the page's site only, then reload | Arc 1.170.0 menus, cap |
 | [x] | Page context menu | MVP | Chrome's, without what the window can't do yet *interim*; its tab dialogs, such as print preview, centred over the page at its top | Chrome |
-| [ ] | Arc's page menu items | MVP | measure | Arc |
+| [ ] | Arc's page menu items | MVP | built: Chrome's menu without what the window can't do *interim*; Arc's items: measure | Arc |
 | [x] | Space list, Rename Space, View History, Services, Essential Keyboard Shortcuts | MVP | Spaces by name with ⌃1–⌃9; ⌘Y opens Chrome's history page; Help opens Settings › Shortcuts | Arc 1.170.0 menus |
-| [ ] | Arc's other menu items | MVP | windows, Developer › Network Inspector and Toggle Developer Mode, Edit Theme…, Change Profile, Manage Spaces…, Help's service items, as each feature lands | Arc 1.170.0 menus |
+| [ ] | Arc's other menu items | MVP | windows, Developer › Network Inspector and Toggle Developer Mode, Edit Theme…, Change Profile, Manage Spaces…, Help's service items, as each feature lands. Partly: the menus Arc has for built features are done; windows wait on the multi-window lane | Arc 1.170.0 menus |
 
 ## Phase 4
 
