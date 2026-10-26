@@ -68,6 +68,7 @@ mod platform {
         pub fn host_hide_reveal();
         pub fn host_detent();
         pub fn host_accent_color() -> u32;
+        pub fn host_reduce_motion() -> bool;
         pub fn host_watch_accent_color(changed: extern "C" fn());
         pub fn host_watch_control(released: extern "C" fn());
         pub fn host_take_drops(
@@ -915,6 +916,10 @@ impl Browser for Engine {
         unsafe { platform::host_accent_color() }
     }
 
+    fn reduce_motion(&self) -> bool {
+        unsafe { platform::host_reduce_motion() }
+    }
+
     fn watch_control(&self, _: &mut App) {
         unsafe { platform::host_watch_control(control_released) };
     }
@@ -1161,6 +1166,9 @@ fn open_window(cx: &mut App) {
     // Transparent, over the window's material.
     let options = WindowOptions {
         window_background: WindowBackgroundAppearance::Transparent,
+        // GPUI holds a window that isn't the key one to 30 fps, and this one isn't while the
+        // command bar or a dialog has the keyboard, as when the New Tab page's intro runs in it.
+        inactive_frame_interval: None,
         ..Default::default()
     };
     let window = cx.open_window(options, |window, cx| {

@@ -691,6 +691,10 @@ impl Browser for Fake {
         0x007aff
     }
 
+    fn reduce_motion(&self) -> bool {
+        false
+    }
+
     // Menus are AppKit's, and the dialog's window is one the app's host lays over the browser
     // window. The preview goes without both.
     fn menu(

@@ -220,6 +220,8 @@ pub trait Browser {
     /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
     /// it changes.
     fn accent_color(&self) -> u32;
+    /// The user asked the system for less motion, so the New Tab page has no intro.
+    fn reduce_motion(&self) -> bool;
     /// Opens the command bar, for a new tab or on `editing`'s URL: out of the URL field at `field`
     /// in the window, or centred over it.
     fn command_bar(
