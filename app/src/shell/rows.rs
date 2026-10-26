@@ -11,9 +11,9 @@ use super::{
     FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName,
     LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
     PRESSED, ROW_FILL, ROW_HEIGHT, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE,
-    SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE, Shell,
-    Slot, clear_label, cubic_bezier, divider_box, favicon, folder_icon, name_box, new_tab_label,
-    plate, row_box, row_spring, selected_plate, split_plate, title,
+    SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
+    TITLE_END_INSET, Shell, Slot, clear_label, cubic_bezier, divider_box, favicon, folder_icon,
+    name_box, new_tab_label, plate, row_box, row_spring, selected_plate, split_plate, title,
 };
 
 impl Shell {
@@ -146,7 +146,7 @@ impl Shell {
                     .h_full()
                     .flex()
                     .items_center()
-                    .pr(px(PLATE_INSET))
+                    .pr(px(TITLE_END_INSET))
                     .child(title(row.title.clone(), false)),
             ))
     }
@@ -171,7 +171,7 @@ impl Shell {
             self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Folder(folder));
         let label = match renaming {
             Some(renaming) => self.naming_field(renaming, cx),
-            None => title(self.folder_name(folder), false).pr(px(PLATE_INSET)),
+            None => title(self.folder_name(folder), false).pr(px(TITLE_END_INSET)),
         };
         let renaming = renaming.is_some();
         self.row(Row::Tab(folder), plate(folder_icon(open), label), cx).when(!renaming, |row| {
@@ -420,7 +420,7 @@ impl Shell {
                 .h_full()
                 .flex()
                 .items_center()
-                .when(!(hovered && closable), |label| label.pr(px(PLATE_INSET)))
+                .when(!(hovered && closable), |label| label.pr(px(TITLE_END_INSET)))
                 .children(self.speaker(tab, cx))
                 .child(title)
                 .when(hovered && closable, |label| label.child(close))

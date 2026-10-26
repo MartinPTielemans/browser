@@ -325,7 +325,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 | Pitch / row height | 41 / 40 |
 | Plate | 36 tall, centred in the row, from x 8 to the width − 8 (from 24 in a folder), radius ≈ 12 |
 | Favicon | 18 × 18 at x 17, vertically centred |
-| Title | at x 43, 14 pt. Fades out at the trailing edge, never an ellipsis (Dia) |
+| Title | at x 43, 14 pt, ending 17 from the sidebar's edge (x 211 at 228) and cut with an ellipsis (Arc 1.170.0 ax and cap). Dia fades it out at the trailing edge instead |
 | Selected | white 0.20 (Arc's p3 (0.98, 0.984, 1)), with no line or shadow in dark mode. Light mode: white 0.85 with a black 0.2 shadow (tokens). White title (Dia) |
 | Hover | white 0.12, and a close button 26 × 26, 5 inside the plate's right edge, that the title truncates before. The selected row shows it too |
 | Pressed | white 0.065 |
@@ -335,7 +335,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 | "+ New Tab" row | the first row under the divider, where new tabs open below it (Arc). Label white 0.55 (secondary), plus sign white 0.25 (tertiary); hover as rows (Dia) |
 | New Tab tab's icon | our mark, 16 wide, white 0.28 in dark mode over any row state |
 
-- Ours: titles are Dia's, white for the selected row and 0.78 for the others, since Arc's aren't measured. The ✕'s square is the subtle fill, white 0.12, at the header buttons' radius 6. A selected or dragged row shows no pressed fill. Titles end in an ellipsis, since GPUI has no mask for the fade.
+- Ours: titles are Dia's, white for the selected row and 0.78 for the others, since Arc's aren't measured. The ✕'s square is the subtle fill, white 0.12, at the header buttons' radius 6. A selected or dragged row shows no pressed fill.
 
 **Behavior**
 
