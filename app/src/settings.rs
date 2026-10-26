@@ -538,7 +538,9 @@ impl Settings {
         self.choosing = true;
         cx.notify();
         cx.spawn(async move |settings, cx| {
-            let picked = show_menu(&items, popup_text(), platform::IN_SETTINGS, chosen);
+            // A menu in Settings shows over Settings' window, not a browser window's view.
+            let ui_view = std::ptr::null_mut();
+            let picked = show_menu(ui_view, &items, popup_text(), platform::IN_SETTINGS, chosen);
             if let Some((title, seconds)) = picked.map(|index| ARCHIVE_AFTER[index]) {
                 // check.sh waits for this line.
                 log!("browser: archive tabs after {title}");
@@ -887,7 +889,7 @@ fn set_haptics(haptics: bool) {
 fn more_settings(cx: &mut App) {
     // check.sh waits for this line.
     log!("browser: more settings");
-    crate::open_tab("chrome://settings");
+    crate::open_tab(crate::front().0, "chrome://settings");
     hide(cx);
 }
 

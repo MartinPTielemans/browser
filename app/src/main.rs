@@ -3,7 +3,7 @@
 //! Chromium owns the application object and the run loop.
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     ffi::{CStr, CString, c_char, c_int, c_void},
     rc::Rc,
     sync::Arc,
@@ -49,32 +49,48 @@ mod platform {
             radius: f64,
             dismissed: extern "C" fn(),
         );
-        pub fn host_show_overlay(centered: bool, left: f64, top: f64, width: f64);
+        pub fn host_show_overlay(
+            ui_view: *mut c_void,
+            centered: bool,
+            left: f64,
+            top: f64,
+            width: f64,
+        );
         pub fn host_set_overlay_height(height: f64);
         pub fn host_hide_overlay();
         pub fn host_dismiss_overlay();
-        pub fn host_add_find_bar(find_bar_view: *mut c_void, right: f64, top: f64);
-        pub fn host_show_find_bar(keyboard: bool);
-        pub fn host_hide_find_bar();
+        pub fn host_add_find_bar(
+            ui_view: *mut c_void,
+            find_bar_view: *mut c_void,
+            right: f64,
+            top: f64,
+        );
+        pub fn host_show_find_bar(ui_view: *mut c_void, keyboard: bool);
+        pub fn host_hide_find_bar(ui_view: *mut c_void);
         pub fn host_add_hud(hud_view: *mut c_void, right: f64, top: f64);
-        pub fn host_set_pane_corner(right: f64, top: f64);
-        pub fn host_show_hud();
+        pub fn host_set_pane_corner(ui_view: *mut c_void, right: f64, top: f64);
+        pub fn host_show_hud(ui_view: *mut c_void);
         pub fn host_hide_hud(seconds: f64);
         pub fn host_add_drop_targets(view: *mut c_void);
-        pub fn host_show_drop_targets();
+        pub fn host_show_drop_targets(ui_view: *mut c_void);
         pub fn host_hide_drop_targets();
         pub fn host_focus(view: *mut c_void);
-        pub fn host_show_window_buttons(shown: bool);
-        pub fn host_press_window_button(button: i32);
-        pub fn host_add_reveal(reveal_view: *mut c_void, pointer_moved: extern "C" fn(x: f64));
-        pub fn host_show_reveal(width: f64);
-        pub fn host_hide_reveal();
+        pub fn host_show_window_buttons(ui_view: *mut c_void, shown: bool);
+        pub fn host_press_window_button(ui_view: *mut c_void, button: i32);
+        pub fn host_add_reveal(
+            ui_view: *mut c_void,
+            reveal_view: *mut c_void,
+            pointer_moved: extern "C" fn(ui_view: *mut c_void, x: f64),
+        );
+        pub fn host_show_reveal(ui_view: *mut c_void, width: f64);
+        pub fn host_hide_reveal(ui_view: *mut c_void);
         pub fn host_detent();
         pub fn host_accent_color() -> u32;
         pub fn host_watch_accent_color(changed: extern "C" fn());
         pub fn host_watch_control(released: extern "C" fn());
         pub fn host_take_drops(
             dragged: extern "C" fn(
+                ui_view: *mut c_void,
                 phase: c_int,
                 x: f64,
                 y: f64,
@@ -87,6 +103,7 @@ mod platform {
         pub fn host_copy(text: *const c_char);
         pub fn host_day_starts(starts: *mut f64);
         pub fn host_menu(
+            ui_view: *mut c_void,
             items: *const host_menu_item,
             count: usize,
             x: f64,
@@ -112,13 +129,13 @@ mod platform {
             count: usize,
         ) -> i32;
         pub fn host_add_dialog(dialog_view: *mut c_void);
-        pub fn host_show_dialog();
+        pub fn host_show_dialog(ui_view: *mut c_void);
         pub fn host_hide_dialog();
         pub fn host_add_toast(toast_view: *mut c_void);
-        pub fn host_show_toast();
+        pub fn host_show_toast(ui_view: *mut c_void);
         pub fn host_hide_toast();
         pub fn host_add_tooltip(tooltip_view: *mut c_void, away: extern "C" fn());
-        pub fn host_show_tooltip(left: f64, top: f64);
+        pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64);
         pub fn host_hide_tooltip();
     }
 
@@ -193,28 +210,91 @@ const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
 
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
 
-thread_local! {
-    // The core calls back into the UI from Chromium's event handling, outside any GPUI update.
-    static UI: RefCell<Option<(AsyncApp, WeakEntity<Shell>, AnyWindowHandle)>> =
-        const { RefCell::new(None) };
-    // GPUI starts inside Chromium's run loop, from a callback, and lives as long as the process.
-    static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
-    // The browser window. There's one so far.
-    static WINDOW: Cell<bc::bc_id> = const { Cell::new(0) };
+/// A browser window: the core's, with the view the UI draws in and the shell drawn there.
+#[derive(Clone)]
+struct BrowserWindow {
+    id: bc::bc_id,
+    ui_view: *mut c_void,
+    shell: WeakEntity<Shell>,
+    handle: AnyWindowHandle,
 }
 
-/// Changes the shell, from a core callback, and returns what the change does, unless there's no
-/// shell.
-fn update_shell<R>(change: impl FnOnce(&mut Shell, &mut Context<Shell>) -> R) -> Option<R> {
-    let ui = UI.with_borrow(|ui| ui.as_ref().map(|(cx, shell, _)| (cx.clone(), shell.clone())));
-    let (cx, shell) = ui?;
+thread_local! {
+    // The core calls back into the UI from Chromium's event handling, outside any GPUI update.
+    static CX: RefCell<Option<AsyncApp>> = const { RefCell::new(None) };
+    // GPUI starts inside Chromium's run loop, from a callback, and lives as long as the process.
+    static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
+    // In the order they opened. There's one so far.
+    static WINDOWS: RefCell<Vec<BrowserWindow>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The core's id and the UI's view of the window that the overlays every window shares show over,
+/// such as the command bar: the first, as there's one so far. 0 and null before it opens.
+fn front() -> (bc::bc_id, *mut c_void) {
+    WINDOWS.with_borrow(|windows| {
+        windows.first().map_or((0, std::ptr::null_mut()), |window| (window.id, window.ui_view))
+    })
+}
+
+/// The window whose UI draws in `ui_view`, or 0.
+fn window_with_view(ui_view: *mut c_void) -> bc::bc_id {
+    WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|window| window.ui_view == ui_view).map_or(0, |window| window.id)
+    })
+}
+
+/// Changes every window's shell, from a core callback about what they all show, such as the
+/// Spaces and their tabs.
+fn update_shells(change: impl Fn(&mut Shell, &mut Context<Shell>)) {
+    let Some(cx) = CX.with_borrow(Clone::clone) else {
+        return;
+    };
+    let shells: Vec<_> =
+        WINDOWS.with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
+    cx.update(|cx| {
+        for shell in shells {
+            shell.update(cx, &change).ok();
+        }
+    });
+}
+
+/// Changes the shell of the window `id`, from a core callback about that window, and returns what
+/// the change does, unless there's no such window.
+fn update_window<R>(
+    id: bc::bc_id,
+    change: impl FnOnce(&mut Shell, &mut Context<Shell>) -> R,
+) -> Option<R> {
+    let shell = WINDOWS.with_borrow(|windows| {
+        windows.iter().find(|window| window.id == id).map(|window| window.shell.clone())
+    })?;
+    let cx = CX.with_borrow(Clone::clone)?;
     cx.update(|cx| shell.update(cx, change).ok())
 }
 
-/// Changes the UI outside the shell, from a core callback.
+/// The window showing `tab`'s page, else the first, such as for a key from a page no shell has
+/// heard is shown yet.
+fn tab_window(tab: u64, cx: &App) -> Option<BrowserWindow> {
+    WINDOWS.with_borrow(|windows| {
+        let shows = |window: &&BrowserWindow| {
+            window.shell.upgrade().is_some_and(|shell| shell.read(cx).shows(tab))
+        };
+        windows.iter().find(shows).or(windows.first()).cloned()
+    })
+}
+
+/// Changes the shell of the window showing `tab`'s page (`tab_window`), from a core callback about
+/// the page, and returns what the change does.
+fn update_tab_window<R>(
+    tab: u64,
+    change: impl FnOnce(&mut Shell, &mut Context<Shell>) -> R,
+) -> Option<R> {
+    let cx = CX.with_borrow(Clone::clone)?;
+    cx.update(|cx| tab_window(tab, cx)?.shell.update(cx, change).ok())
+}
+
+/// Changes the UI outside the shells, from a core callback.
 fn update_app(change: impl FnOnce(&mut App)) {
-    let cx = UI.with_borrow(|ui| ui.as_ref().map(|(cx, _, _)| cx.clone()));
-    if let Some(cx) = cx {
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
         cx.update(change);
     }
 }
@@ -227,10 +307,11 @@ fn ns_view(window: &Window) -> *mut c_void {
     }
 }
 
-/// Shows a menu of `items` at `position` in `place` (`platform::IN_*`), or with the item at `over`
-/// there, and returns the index of the one chosen once it closes. AppKit runs the menu in an event
-/// loop of its own, so this mustn't be called inside a GPUI update.
+/// Shows a menu of `items` at `position` in `place` (`platform::IN_*`) of `ui_view`'s window, or
+/// with the item at `over` there, and returns the index of the one chosen once it closes. AppKit
+/// runs the menu in an event loop of its own, so this mustn't be called inside a GPUI update.
 fn show_menu(
+    ui_view: *mut c_void,
     items: &[MenuEntry],
     position: Point<Pixels>,
     place: i32,
@@ -238,7 +319,9 @@ fn show_menu(
 ) -> Option<usize> {
     let (x, y) = (f64::from(position.x), f64::from(position.y));
     let over = over.map_or(-1, |over| over as i32);
-    pop_up(items, |items, count| unsafe { platform::host_menu(items, count, x, y, place, over) })
+    pop_up(items, |items, count| unsafe {
+        platform::host_menu(ui_view, items, count, x, y, place, over)
+    })
 }
 
 /// Shows a text field's menu of `items` at `position` in `view`, a window's, as show_menu does.
@@ -311,9 +394,10 @@ fn field_menu(
     .detach();
 }
 
-/// Tells the core where the page goes and the radius of its corners (`Shell::page_frame`).
-fn set_page_frame((frame, radius): (Bounds<Pixels>, f32)) {
-    unsafe { bc::bc_window_set_page_frame(WINDOW.get(), rect(frame), f64::from(radius)) };
+/// Tells the core where the window's page goes and the radius of its corners
+/// (`Shell::page_frame`).
+fn set_page_frame(window: bc::bc_id, (frame, radius): (Bounds<Pixels>, f32)) {
+    unsafe { bc::bc_window_set_page_frame(window, rect(frame), f64::from(radius)) };
 }
 
 fn rect(bounds: Bounds<Pixels>) -> bc::bc_rect {
@@ -325,42 +409,42 @@ fn rect(bounds: Bounds<Pixels>) -> bc::bc_rect {
     }
 }
 
-/// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it.
-fn open_tab(url: &str) {
-    let tab = open_tab_behind(url, false);
+/// Opens a tab loading `url` at the top of the Today tabs of the Space `window` shows, and shows
+/// it there.
+fn open_tab(window: bc::bc_id, url: &str) {
+    let tab = open_tab_behind(window, url, false);
     if tab != 0 {
-        unsafe { bc::bc_window_select(WINDOW.get(), tab) };
+        unsafe { bc::bc_window_select(window, tab) };
     }
 }
 
-/// Opens a tab loading `url` at the top of the Space's Today tabs, behind the one shown, or with
-/// `when_shown` loading it only once it's first shown. Returns it, or 0.
-fn open_tab_behind(url: &str, when_shown: bool) -> u64 {
+/// Opens a tab loading `url` at the top of the Today tabs of the Space `window` shows, behind the
+/// one shown, or with `when_shown` loading it only once it's first shown. Returns it, or 0.
+fn open_tab_behind(window: bc::bc_id, url: &str, when_shown: bool) -> u64 {
     match CString::new(url) {
-        Ok(url) => unsafe { bc::bc_tab_open(WINDOW.get(), url.as_ptr(), when_shown) },
+        Ok(url) => unsafe { bc::bc_tab_open(window, url.as_ptr(), when_shown) },
         Err(_) => 0,
     }
 }
 
-/// Puts `tab` in a split view with `with`, on its right, and shows it there. The pane being added
-/// for it, if there is one, gives the split its room first, so it shows at once at its place.
-fn split_tab(tab: u64, with: u64, cx: &mut App) {
+/// Puts `tab` in a split view with `with`, on its right, and shows it in `window`. The pane being
+/// added for it, if there is one, gives the split its room first, so it shows at once at its place.
+fn split_tab(window: bc::bc_id, tab: u64, with: u64, cx: &mut App) {
     shell::pane_added(cx);
-    let window = WINDOW.get();
     unsafe {
         bc::bc_tab_split_with(tab, with, false);
         bc::bc_window_select(window, tab);
     }
 }
 
-/// Opens a tab loading `url` in a split view with `with`, on its right, and shows it there.
-fn open_split(url: &str, with: u64, cx: &mut App) {
+/// Opens a tab loading `url` in a split view with `with`, on its right, and shows it in `window`.
+fn open_split(window: bc::bc_id, url: &str, with: u64, cx: &mut App) {
     let Ok(url) = CString::new(url) else {
         return;
     };
-    let tab = unsafe { bc::bc_tab_open(WINDOW.get(), url.as_ptr(), false) };
+    let tab = unsafe { bc::bc_tab_open(window, url.as_ptr(), false) };
     if tab != 0 {
-        split_tab(tab, with, cx);
+        split_tab(window, tab, with, cx);
     }
 }
 
@@ -389,7 +473,7 @@ struct DialogHost;
 
 impl dialog::Host for DialogHost {
     fn show(&self) {
-        unsafe { platform::host_show_dialog() };
+        unsafe { platform::host_show_dialog(front().1) };
     }
 
     fn hide(&self) {
@@ -402,7 +486,7 @@ struct ToastHost;
 
 impl toast::Host for ToastHost {
     fn show(&self) {
-        unsafe { platform::host_show_toast() };
+        unsafe { platform::host_show_toast(front().1) };
     }
 
     fn hide(&self) {
@@ -410,7 +494,8 @@ impl toast::Host for ToastHost {
     }
 }
 
-/// The command bar's requests, as calls to the core and to the host's overlay window.
+/// The command bar's requests, as calls to the core and to the host's overlay window, for the
+/// window it shows over (`front`).
 struct Bar;
 
 impl command_bar::Host for Bar {
@@ -420,13 +505,13 @@ impl command_bar::Host for Bar {
         };
         let site = site.as_ref().map_or(std::ptr::null(), |site| site.as_ptr());
         if let Ok(text) = CString::new(text) {
-            unsafe { bc::bc_window_suggest(WINDOW.get(), site, text.as_ptr(), complete) };
+            unsafe { bc::bc_window_suggest(front().0, site, text.as_ptr(), complete) };
         }
     }
 
     fn remove_suggestion(&self, url: &str) {
         if let Ok(url) = CString::new(url) {
-            unsafe { bc::bc_window_remove_suggestion(WINDOW.get(), url.as_ptr()) };
+            unsafe { bc::bc_window_remove_suggestion(front().0, url.as_ptr()) };
         }
     }
 
@@ -449,8 +534,8 @@ impl command_bar::Host for Bar {
     fn open_tab(&self, url: &str, behind: bool) {
         match behind {
             // ⌘↩'s tab loads once it's first shown, as a link opened behind does (Dia).
-            true => _ = open_tab_behind(url, true),
-            false => open_tab(url),
+            true => _ = open_tab_behind(front().0, url, true),
+            false => open_tab(front().0, url),
         }
     }
 
@@ -461,15 +546,15 @@ impl command_bar::Host for Bar {
     }
 
     fn select(&self, tab: u64) {
-        unsafe { bc::bc_window_select(WINDOW.get(), tab) };
+        unsafe { bc::bc_window_select(front().0, tab) };
     }
 
     fn split(&self, tab: u64, with: u64, cx: &mut App) {
-        split_tab(tab, with, cx);
+        split_tab(front().0, tab, with, cx);
     }
 
     fn open_split(&self, url: &str, with: u64, cx: &mut App) {
-        open_split(url, with, cx);
+        open_split(front().0, url, with, cx);
     }
 
     fn copy(&self, text: &str, cx: &mut App) {
@@ -478,7 +563,7 @@ impl command_bar::Host for Bar {
 
     fn show(&self, centered: bool, left: f32, top: f32, width: f32) {
         let (left, top, width) = (f64::from(left), f64::from(top), f64::from(width));
-        unsafe { platform::host_show_overlay(centered, left, top, width) };
+        unsafe { platform::host_show_overlay(front().1, centered, left, top, width) };
     }
 
     fn set_height(&self, height: f32) {
@@ -497,7 +582,7 @@ impl command_bar::Host for Bar {
 
 /// The user left the command bar without choosing anything in it.
 extern "C" fn command_bar_dismissed() {
-    update_shell(|shell, cx| shell.command_bar_dismissed(cx));
+    update_window(front().0, |shell, cx| shell.command_bar_dismissed(cx));
 }
 
 /// The tooltip's requests, to the host's tooltip window.
@@ -505,7 +590,7 @@ struct TooltipHost;
 
 impl tooltip::Host for TooltipHost {
     fn show(&self, left: f32, top: f32) {
-        unsafe { platform::host_show_tooltip(left.into(), top.into()) };
+        unsafe { platform::host_show_tooltip(front().1, left.into(), top.into()) };
     }
 
     fn hide(&self) {
@@ -518,15 +603,20 @@ extern "C" fn tooltip_away() {
     update_app(tooltip::dismiss);
 }
 
-/// The shell's requests, as calls to the core. The core reports back once each call has returned.
+/// A window's shell's requests, as calls to the core. The core reports back once each call has
+/// returned.
 struct Engine {
+    /// The window's, in the core.
+    window: bc::bc_id,
+    /// The view the UI draws in, for the host.
+    ui_view: *mut c_void,
     /// GPUI's view, which has the keyboard when the UI does.
     view: *mut c_void,
 }
 
 impl Browser for Engine {
     fn select(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_window_select(WINDOW.get(), tab) };
+        unsafe { bc::bc_window_select(self.window, tab) };
     }
 
     fn close(&self, tab: u64, split: bool, _: &mut App) {
@@ -574,14 +664,17 @@ impl Browser for Engine {
         index: usize,
         _: &mut App,
     ) -> u64 {
-        let tabs = urls.iter().enumerate().map(|(at, url)| (at, open_tab_behind(url, at > 0)));
+        let tabs = urls
+            .iter()
+            .enumerate()
+            .map(|(at, url)| (at, open_tab_behind(self.window, url, at > 0)));
         let tabs: Vec<u64> = tabs.filter(|&(_, tab)| tab != 0).map(|(_, tab)| tab).collect();
         for (at, &tab) in tabs.iter().enumerate() {
             unsafe { bc::bc_tab_move(tab, pinned, folder, index + at) };
         }
         let first = tabs.first().copied().unwrap_or(0);
         if first != 0 {
-            unsafe { bc::bc_window_select(WINDOW.get(), first) };
+            unsafe { bc::bc_window_select(self.window, first) };
         }
         first
     }
@@ -630,13 +723,14 @@ impl Browser for Engine {
     fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
         unsafe {
             bc::bc_tab_split_with(tab, with, left);
-            bc::bc_window_select(WINDOW.get(), tab);
+            bc::bc_window_select(self.window, tab);
         }
     }
 
     fn show_drop_targets(&self, shown: bool, cx: &mut App) {
+        let ui_view = self.ui_view;
         // After the shell's draw, which asks for it.
-        cx.defer(move |cx| drop_targets::show(shown, cx));
+        cx.defer(move |cx| drop_targets::show(shown, ui_view, cx));
     }
 
     fn back_to_pinned_url(&self, tab: u64, _: &mut App) {
@@ -648,23 +742,23 @@ impl Browser for Engine {
     }
 
     fn clear(&self, _: &mut App) {
-        unsafe { bc::bc_window_clear(WINDOW.get()) };
+        unsafe { bc::bc_window_clear(self.window) };
     }
 
     fn undo_clear(&self, _: &mut App) -> usize {
-        unsafe { bc::bc_window_undo_clear(WINDOW.get()) }
+        unsafe { bc::bc_window_undo_clear(self.window) }
     }
 
     fn undo_delete_space(&self, _: &mut App) -> bool {
-        unsafe { bc::bc_window_undo_delete_space(WINDOW.get()) != 0 }
+        unsafe { bc::bc_window_undo_delete_space(self.window) != 0 }
     }
 
     fn reopen_closed_tab(&self, _: &mut App) {
-        unsafe { bc::bc_window_reopen_closed_tab(WINDOW.get()) };
+        unsafe { bc::bc_window_reopen_closed_tab(self.window) };
     }
 
     fn restore_archived(&self, archived: u64, _: &mut App) {
-        unsafe { bc::bc_window_restore_archived(WINDOW.get(), archived) };
+        unsafe { bc::bc_window_restore_archived(self.window, archived) };
     }
 
     fn act_on_download(&self, download: u64, action: DownloadAction, _: &mut App) {
@@ -753,7 +847,7 @@ impl Browser for Engine {
         let percent = unsafe { bc::bc_tab_zoom(tab, step) };
         // check.sh reads this line.
         log!("browser: zoom {tab} {percent}%");
-        zoom_hud::show(tab, percent, cx);
+        zoom_hud::show(tab, percent, self.ui_view, cx);
     }
 
     fn view_source(&self, tab: u64, _: &mut App) {
@@ -781,7 +875,7 @@ impl Browser for Engine {
     }
 
     fn task_manager(&self, _: &mut App) {
-        unsafe { bc::bc_window_task_manager(WINDOW.get()) };
+        unsafe { bc::bc_window_task_manager(self.window) };
     }
 
     fn set_menus(&self, spaces: &[SharedString], extensions: &[Extension], cx: &mut App) {
@@ -792,14 +886,14 @@ impl Browser for Engine {
         let Ok(id) = CString::new(id) else {
             return false;
         };
-        unsafe { bc::bc_window_run_extension(WINDOW.get(), id.as_ptr(), rect(anchor)) }
+        unsafe { bc::bc_window_run_extension(self.window, id.as_ptr(), rect(anchor)) }
     }
 
     fn run_extension_command(&self, id: &str, name: &str, _: &mut App) -> bool {
         let (Ok(id), Ok(name)) = (CString::new(id), CString::new(name)) else {
             return false;
         };
-        unsafe { bc::bc_window_run_extension_command(WINDOW.get(), id.as_ptr(), name.as_ptr()) }
+        unsafe { bc::bc_window_run_extension_command(self.window, id.as_ptr(), name.as_ptr()) }
     }
 
     fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, _: &mut App) {
@@ -816,18 +910,18 @@ impl Browser for Engine {
     }
 
     fn open_extension_options(&self, url: &str, _: &mut App) {
-        open_tab(url);
+        open_tab(self.window, url);
     }
 
     fn manage_extensions(&self, id: Option<&str>, _: &mut App) {
         match id {
-            Some(id) => open_tab(&format!("chrome://extensions/?id={id}")),
-            None => open_tab("chrome://extensions"),
+            Some(id) => open_tab(self.window, &format!("chrome://extensions/?id={id}")),
+            None => open_tab(self.window, "chrome://extensions"),
         }
     }
 
     fn view_history(&self, _: &mut App) {
-        open_tab("chrome://history");
+        open_tab(self.window, "chrome://history");
     }
 
     fn close_other_window(&self, _: &mut App) -> bool {
@@ -835,11 +929,11 @@ impl Browser for Engine {
     }
 
     fn show_space(&self, space: u64, _: &mut App) {
-        unsafe { bc::bc_window_show_space(WINDOW.get(), space) };
+        unsafe { bc::bc_window_show_space(self.window, space) };
     }
 
     fn space_tab(&self, space: u64) -> u64 {
-        unsafe { bc::bc_window_space_tab(WINDOW.get(), space) }
+        unsafe { bc::bc_window_space_tab(self.window, space) }
     }
 
     fn create_space(&self, name: &str, profile: u64, _: &mut App) -> u64 {
@@ -902,9 +996,10 @@ impl Browser for Engine {
     ) {
         // AppKit runs a menu in an event loop of its own until it closes, which GPUI's updates
         // mustn't be inside.
+        let ui_view = self.ui_view;
         cx.spawn(async move |cx| {
             let place = if in_reveal { platform::IN_REVEAL } else { platform::IN_WINDOW };
-            let index = show_menu(&items, position, place, over);
+            let index = show_menu(ui_view, &items, position, place, over);
             cx.update(|cx| chosen(index, cx));
         })
         .detach();
@@ -926,24 +1021,24 @@ impl Browser for Engine {
     }
 
     fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, _: &mut App) {
-        set_page_frame((frame, radius));
+        set_page_frame(self.window, (frame, radius));
     }
 
     fn set_focus_color(&self, color: u32, cx: &mut App) {
         command_bar::set_accent(color, cx);
-        unsafe { bc::bc_window_set_focus_color(WINDOW.get(), color) };
+        unsafe { bc::bc_window_set_focus_color(self.window, color) };
     }
 
     fn set_page_color(&self, color: u32, _: &mut App) {
-        unsafe { bc::bc_window_set_page_color(WINDOW.get(), color) };
+        unsafe { bc::bc_window_set_page_color(self.window, color) };
     }
 
     fn set_pane_corner(&self, right: f32, top: f32, _: &mut App) {
-        unsafe { platform::host_set_pane_corner(right as f64, top as f64) };
+        unsafe { platform::host_set_pane_corner(self.ui_view, right as f64, top as f64) };
     }
 
     fn show_window_buttons(&self, shown: bool, _: &mut App) {
-        unsafe { platform::host_show_window_buttons(shown) };
+        unsafe { platform::host_show_window_buttons(self.ui_view, shown) };
     }
 
     fn press_window_button(&self, button: WindowButton, _: &mut App) {
@@ -952,24 +1047,24 @@ impl Browser for Engine {
             WindowButton::Minimize => 1,
             WindowButton::Zoom => 2,
         };
-        unsafe { platform::host_press_window_button(button) };
+        unsafe { platform::host_press_window_button(self.ui_view, button) };
     }
 
     fn show_reveal(&self, width: f32, _: &mut App) {
-        unsafe { platform::host_show_reveal(width.into()) };
+        unsafe { platform::host_show_reveal(self.ui_view, width.into()) };
     }
 
     fn hide_reveal(&self, _: &mut App) {
-        unsafe { platform::host_hide_reveal() };
+        unsafe { platform::host_hide_reveal(self.ui_view) };
     }
 
     fn saved_sidebar_width(&self) -> Option<f32> {
-        let width = unsafe { bc::bc_window_sidebar_width(WINDOW.get()) };
+        let width = unsafe { bc::bc_window_sidebar_width(self.window) };
         (width > 0.).then_some(width as f32)
     }
 
     fn set_sidebar_width(&self, width: f32, _: &mut App) {
-        unsafe { bc::bc_window_set_sidebar_width(WINDOW.get(), width.into()) };
+        unsafe { bc::bc_window_set_sidebar_width(self.window, width.into()) };
     }
 
     fn detent(&self, _: &mut App) {
@@ -1011,11 +1106,11 @@ impl Browser for Engine {
     }
 
     fn find(&self, tab: u64, cx: &mut App) {
-        find_bar::show(tab, cx);
+        find_bar::show(self.window, tab, cx);
     }
 
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
-        find_bar::find_next(tab, forward, cx);
+        find_bar::find_next(self.window, tab, forward, cx);
     }
 
     fn jump_to_selection(&self, tab: u64, _: &mut App) {
@@ -1102,12 +1197,12 @@ fn keystroke(key: &bc::bc_key) -> String {
 }
 
 /// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't,
-/// on the keys the user has now.
-fn run_page_shortcut(key: *const bc::bc_key, reserved: bool) -> bool {
+/// on the keys the user has now, in the window showing `tab`'s page, which had the key.
+fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> bool {
     let key = unsafe { &*key };
     let keystroke = keystroke(key);
     // Read without an update, as every key the page gets comes here.
-    let cx = UI.with_borrow(|ui| ui.as_ref().map(|(cx, ..)| cx.clone()));
+    let cx = CX.with_borrow(Clone::clone);
     let command = cx.and_then(|cx| {
         cx.try_read_global(|keys: &shell::UserKeys, _| keys.command_for(&keystroke, reserved))
     });
@@ -1118,36 +1213,33 @@ fn run_page_shortcut(key: *const bc::bc_key, reserved: bool) -> bool {
     if command == Command::Undo && key.editing {
         return false;
     }
-    let mut ran = false;
-    update_shell(|shell, cx| ran = shell.run_for_page(command, cx));
-    ran
+    update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
 }
 
 unsafe extern "C" fn tab_key_before_page(
     _: *mut c_void,
-    _: bc::bc_id,
+    tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
     // As in Chrome, the reserved shortcuts come first, then the extensions' keys.
-    run_page_shortcut(key, true) || {
+    run_page_shortcut(tab, key, true) || {
         let keystroke = keystroke(unsafe { &*key });
-        let mut ran = false;
-        update_shell(|shell, cx| ran = shell.run_extension_key(&keystroke, "page", cx));
-        ran
+        update_tab_window(tab, |shell, cx| shell.run_extension_key(&keystroke, "page", cx))
+            .unwrap_or(false)
     }
 }
 
 unsafe extern "C" fn tab_key_unhandled(
     _: *mut c_void,
-    _: bc::bc_id,
+    tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
-    run_page_shortcut(key, false)
+    run_page_shortcut(tab, key, false)
 }
 
-/// Opens the browser window centered on the main display, with `ui_view` filling it under the
-/// page.
-fn open_browser_window(ui_view: *mut c_void) -> bool {
+/// Opens a browser window centered on the main display, with `ui_view` filling it under the page,
+/// and returns its id.
+fn open_browser_window(ui_view: *mut c_void) -> Option<bc::bc_id> {
     let (width, height) = WINDOW_SIZE;
     let (mut x, mut y) = (0., 0.);
     unsafe { platform::host_centered(width, height, &mut x, &mut y) };
@@ -1158,17 +1250,12 @@ fn open_browser_window(ui_view: *mut c_void) -> bool {
         height,
     };
     let window = unsafe { bc::bc_window_open(bounds, ui_view) };
-    if window == 0 {
-        return false;
-    }
-    WINDOW.set(window);
-    true
+    (window != 0).then_some(window)
 }
 
-/// Shows the Spaces as the user left them, else a first Space with the first tab. A page given in
-/// BROWSER_URL opens on top either way.
-fn restore_spaces() {
-    let window = WINDOW.get();
+/// Shows the Spaces as the user left them in `window`, else a first Space with the first tab. A
+/// page given in BROWSER_URL opens on top either way.
+fn restore_spaces(window: bc::bc_id) {
     let start = Instant::now();
     let restored = unsafe { bc::bc_window_restore(window) };
     if restored {
@@ -1181,25 +1268,27 @@ fn restore_spaces() {
         unsafe { bc::bc_window_show_space(window, create_space("Space 1")) };
     }
     match std::env::var("BROWSER_URL") {
-        Ok(url) => open_tab(&url),
-        Err(_) if !restored => open_tab(START_URL),
+        Ok(url) => open_tab(window, &url),
+        Err(_) if !restored => open_tab(window, START_URL),
         Err(_) => {}
     }
 }
 
 extern "C" fn accent_color_changed() {
-    update_shell(|shell, cx| shell.accent_color_changed(cx));
+    update_shells(|shell, cx| shell.accent_color_changed(cx));
 }
 
+// The ⌃Tab walk and the file's drag were the user's in the window in front.
 extern "C" fn control_released() {
-    update_shell(|shell, cx| shell.control_released(cx));
+    update_window(front().0, |shell, cx| shell.control_released(cx));
 }
 
 extern "C" fn file_drag_ended(taken: bool) {
-    update_shell(|shell, cx| shell.file_drag_ended(taken, cx));
+    update_window(front().0, |shell, cx| shell.file_drag_ended(taken, cx));
 }
 
 extern "C" fn dragged(
+    ui_view: *mut c_void,
     phase: c_int,
     x: f64,
     y: f64,
@@ -1216,7 +1305,7 @@ extern "C" fn dragged(
         .collect();
     let urls = shell::dropped_urls(items.iter().map(|(url, file)| (url.as_ref(), *file)));
     let position = point(px(x as f32), px(y as f32));
-    let answer = update_shell(|shell, cx| match phase {
+    let answer = update_window(window_with_view(ui_view), |shell, cx| match phase {
         platform::DRAG_OVER => !urls.is_empty() && shell.drag_in(position, cx),
         platform::DRAG_DROP => shell.drop_in(position, &urls, cx),
         _ => {
@@ -1230,9 +1319,9 @@ extern "C" fn dragged(
 /// Opens the browser window, the shell inside it under the page, and its Spaces.
 fn open_window(cx: &mut App) {
     let ui_view = unsafe { platform::host_ui_view() };
-    if !open_browser_window(ui_view) {
+    let Some(id) = open_browser_window(ui_view) else {
         return;
-    }
+    };
     gpui_macos::open_next_window_in(ui_view);
     // Transparent, over the window's material.
     let options = WindowOptions {
@@ -1242,18 +1331,23 @@ fn open_window(cx: &mut App) {
     let window = cx.open_window(options, |window, cx| {
         let shell = cx.new(|cx| {
             // The page keeps its place in the card as the window resizes.
-            cx.observe_window_bounds(window, |shell: &mut Shell, window, _| {
-                set_page_frame(shell.page_frame(window.viewport_size()))
+            cx.observe_window_bounds(window, move |shell: &mut Shell, window, _| {
+                set_page_frame(id, shell.page_frame(window.viewport_size()))
             })
             .detach();
-            Shell::new(Rc::new(Engine { view: ns_view(window) }), cx)
+            let engine = Engine { window: id, ui_view, view: ns_view(window) };
+            Shell::new(Rc::new(engine), cx)
         });
         window.focus(&shell.focus_handle(cx), cx);
-        UI.set(Some((
-            cx.to_async(),
-            shell.downgrade(),
-            Window::window_handle(window),
-        )));
+        CX.set(Some(cx.to_async()));
+        WINDOWS.with_borrow_mut(|windows| {
+            windows.push(BrowserWindow {
+                id,
+                ui_view,
+                shell: shell.downgrade(),
+                handle: Window::window_handle(window),
+            })
+        });
         // The core read the extensions before there was a shell to take them.
         unsafe { bc::bc_extensions_report() };
         shell
@@ -1262,7 +1356,7 @@ fn open_window(cx: &mut App) {
         Ok(window) => {
             window
                 .update(cx, |shell, window, _| {
-                    set_page_frame(shell.page_frame(window.viewport_size()))
+                    set_page_frame(id, shell.page_frame(window.viewport_size()))
                 })
                 .ok();
             unsafe {
@@ -1296,13 +1390,13 @@ fn open_window(cx: &mut App) {
                 {
                     unsafe { platform::host_add_tooltip(view, tooltip_away) };
                 }
-                find_bar::open(cx);
+                find_bar::open(id, ui_view, cx);
                 zoom_hud::open(shell.clone(), cx);
                 drop_targets::open(shell.clone(), cx);
-                reveal::open(shell, cx);
+                reveal::open(shell, ui_view, cx);
             }
             // Once the page frame is set, so the tab shown loads at its size.
-            restore_spaces();
+            restore_spaces(id);
         }
         Err(error) => {
             log!("couldn't open the window: {error}");
@@ -1321,7 +1415,9 @@ unsafe extern "C" fn started(_: *mut c_void) {
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
         cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
-        cx.on_action(|_: &Minimize, _| unsafe { platform::host_press_window_button(1) });
+        cx.on_action(|_: &Minimize, _| unsafe {
+            platform::host_press_window_button(front().1, 1)
+        });
         cx.bind_keys([
             KeyBinding::new("cmd-h", Hide, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
@@ -1529,11 +1625,11 @@ fn ids(copy: unsafe extern "C" fn(*mut bc::bc_id, usize) -> usize) -> Vec<bc::bc
 }
 
 unsafe extern "C" fn spaces_changed(_: *mut c_void) {
-    let profiles = ids(bc::bc_profiles)
+    let profiles: Vec<_> = ids(bc::bc_profiles)
         .into_iter()
         .map(|profile| (profile, name(bc::bc_profile_name, profile)))
         .collect();
-    let spaces = ids(bc::bc_spaces)
+    let spaces: Vec<_> = ids(bc::bc_spaces)
         .into_iter()
         .map(|space| {
             let mut color = 0;
@@ -1544,19 +1640,19 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
             (space, name_of, has_color.then_some(color), profile, icon)
         })
         .collect();
-    update_shell(|shell, cx| {
-        shell.set_profiles(profiles, cx);
-        shell.set_spaces(spaces, cx);
+    update_shells(|shell, cx| {
+        shell.set_profiles(profiles.clone(), cx);
+        shell.set_spaces(spaces.clone(), cx);
     });
     update_app(settings::refresh);
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
-    let tabs = ids(bc::bc_favorites)
+    let tabs: Vec<_> = ids(bc::bc_favorites)
         .into_iter()
         .map(|tab| (tab, unsafe { bc::bc_tab_profile(tab) }))
         .collect();
-    update_shell(|shell, cx| shell.set_favorites(tabs, cx));
+    update_shells(|shell, cx| shell.set_favorites(tabs.clone(), cx));
     update_app(settings::refresh);
 }
 
@@ -1598,23 +1694,22 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
             folder => _ = folders.parents.insert(row, folder),
         }
     }
-    update_shell(|shell, cx| shell.set_tabs(space, pinned, today, splits, folders, cx));
+    update_shells(|shell, cx| {
+        let (pinned, today) = (pinned.clone(), today.clone());
+        shell.set_tabs(space, pinned, today, splits.clone(), folders.clone(), cx)
+    });
 }
 
 unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space: bc::bc_id) {
-    if window == WINDOW.get() {
-        update_shell(|shell, cx| shell.set_space(space, cx));
-    }
+    update_window(window, |shell, cx| shell.set_space(space, cx));
 }
 
 unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
-    if window == WINDOW.get() {
-        update_shell(|shell, cx| {
-            shell.set_selected(tab, cx);
-            find_bar::tab_shown(tab, cx);
-            zoom_hud::tab_shown(tab, cx);
-        });
-    }
+    update_window(window, |shell, cx| {
+        shell.set_selected(tab, cx);
+        find_bar::tab_shown(window, tab, cx);
+        zoom_hud::tab_shown(tab, cx);
+    });
 }
 
 // check.sh reads these lines. Test pages report what reached them through their title.
@@ -1643,13 +1738,13 @@ unsafe extern "C" fn tab_state_changed(
         muted: state.muted,
         icon: unsafe { CStr::from_ptr(state.icon) }.to_string_lossy().into_owned().into(),
     };
-    update_shell(|shell, cx| shell.set_page(tab, page, cx));
+    update_shells(|shell, cx| shell.set_page(tab, page.clone(), cx));
 }
 
 unsafe extern "C" fn tab_title_changed(_: *mut c_void, tab: bc::bc_id, title: *const c_char) {
     let title = unsafe { CStr::from_ptr(title) }.to_string_lossy().into_owned();
     log!("browser: title {tab} {title}");
-    update_shell(|shell, cx| shell.set_title(tab, title.into(), cx));
+    update_shells(|shell, cx| shell.set_title(tab, title.clone().into(), cx));
 }
 
 unsafe extern "C" fn tab_favicon_changed(
@@ -1663,7 +1758,7 @@ unsafe extern "C" fn tab_favicon_changed(
         Arc::new(Image::from_bytes(ImageFormat::Png, png))
     });
     log!("browser: favicon {tab} {size} bytes");
-    update_shell(|shell, cx| shell.set_favicon(tab, favicon, cx));
+    update_shells(|shell, cx| shell.set_favicon(tab, favicon.clone(), cx));
 }
 
 unsafe extern "C" fn archive_changed(
@@ -1676,7 +1771,7 @@ unsafe extern "C" fn archive_changed(
         false => unsafe { std::slice::from_raw_parts(tabs, count) },
     };
     let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into();
-    let archive = tabs
+    let archive: Vec<_> = tabs
         .iter()
         .map(|tab| Archived {
             id: tab.id,
@@ -1687,7 +1782,7 @@ unsafe extern "C" fn archive_changed(
         .collect();
     // check.sh waits for this line.
     log!("browser: archive {count} tabs");
-    update_shell(|shell, cx| shell.set_archive(archive, cx));
+    update_shells(|shell, cx| shell.set_archive(archive.clone(), cx));
 }
 
 unsafe extern "C" fn downloads_changed(
@@ -1700,7 +1795,7 @@ unsafe extern "C" fn downloads_changed(
         false => unsafe { std::slice::from_raw_parts(downloads, count) },
     };
     let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into();
-    let downloads = downloads
+    let downloads: Vec<_> = downloads
         .iter()
         .map(|download| Download {
             id: download.id,
@@ -1721,7 +1816,7 @@ unsafe extern "C" fn downloads_changed(
             started: download.started,
         })
         .collect();
-    update_shell(|shell, cx| shell.set_downloads(downloads, cx));
+    update_shells(|shell, cx| shell.set_downloads(downloads.clone(), cx));
 }
 
 unsafe extern "C" fn download_icon(
@@ -1734,7 +1829,7 @@ unsafe extern "C" fn download_icon(
         let png = unsafe { std::slice::from_raw_parts(png, size) }.to_vec();
         Arc::new(Image::from_bytes(ImageFormat::Png, png))
     });
-    update_shell(|shell, cx| shell.set_download_icon(download, icon, cx));
+    update_shells(|shell, cx| shell.set_download_icon(download, icon.clone(), cx));
 }
 
 unsafe extern "C" fn extensions_changed(
@@ -1748,7 +1843,7 @@ unsafe extern "C" fn extensions_changed(
         false => unsafe { std::slice::from_raw_parts(extensions, count) },
     };
     let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into();
-    let extensions = extensions
+    let extensions: Vec<_> = extensions
         .iter()
         .map(|extension| Extension {
             id: text(extension.id),
@@ -1777,7 +1872,7 @@ unsafe extern "C" fn extensions_changed(
             .collect(),
         })
         .collect();
-    update_shell(|shell, cx| shell.set_extensions(profile, extensions, cx));
+    update_shells(|shell, cx| shell.set_extensions(profile, extensions.clone(), cx));
 }
 
 unsafe extern "C" fn window_extension_actions(
@@ -1786,9 +1881,6 @@ unsafe extern "C" fn window_extension_actions(
     actions: *const bc::bc_extension_action,
     count: usize,
 ) {
-    if window != WINDOW.get() {
-        return;
-    }
     let actions = match actions.is_null() {
         true => &[][..],
         false => unsafe { std::slice::from_raw_parts(actions, count) },
@@ -1808,7 +1900,7 @@ unsafe extern "C" fn window_extension_actions(
             enabled: action.enabled,
         })
         .collect();
-    update_shell(|shell, cx| shell.set_extension_actions(actions, cx));
+    update_window(window, |shell, cx| shell.set_extension_actions(actions, cx));
 }
 
 unsafe extern "C" fn window_extension_popup(
@@ -1817,7 +1909,7 @@ unsafe extern "C" fn window_extension_popup(
     extension: *const c_char,
 ) {
     let extension = unsafe { CStr::from_ptr(extension) }.to_string_lossy();
-    if window == WINDOW.get() {
+    if WINDOWS.with_borrow(|windows| windows.iter().any(|open| open.id == window)) {
         // check.sh waits for these lines.
         match extension.is_empty() {
             true => log!("browser: extension popup none"),
@@ -1827,9 +1919,7 @@ unsafe extern "C" fn window_extension_popup(
 }
 
 unsafe extern "C" fn window_show_downloads(_: *mut c_void, window: bc::bc_id) {
-    if window == WINDOW.get() {
-        update_shell(|shell, cx| shell.show_downloads(cx));
-    }
+    update_window(window, |shell, cx| shell.show_downloads(cx));
 }
 
 unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *const u8, size: usize) {
@@ -1839,7 +1929,7 @@ unsafe extern "C" fn page_favicon(_: *mut c_void, url: *const c_char, png: *cons
         Arc::new(Image::from_bytes(ImageFormat::Png, png))
     });
     update_app(|cx| command_bar::page_favicon(&url, favicon.clone(), cx));
-    update_shell(|shell, cx| shell.set_page_favicon(url.into(), favicon, cx));
+    update_shells(|shell, cx| shell.set_page_favicon(url.clone().into(), favicon.clone(), cx));
 }
 
 unsafe extern "C" fn tab_opened(
@@ -1908,7 +1998,7 @@ unsafe extern "C" fn tab_permission_asked(
             })
         }
     };
-    update_shell(|shell, cx| shell.set_question(tab, question, cx));
+    update_shells(|shell, cx| shell.set_question(tab, question.clone(), cx));
 }
 
 unsafe extern "C" fn window_suggestions(
@@ -1918,7 +2008,8 @@ unsafe extern "C" fn window_suggestions(
     suggestions: *const bc::bc_suggestion,
     count: usize,
 ) {
-    if window != WINDOW.get() {
+    // The command bar shows over the first window.
+    if window != front().0 {
         return;
     }
     let string = |text: *const c_char| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
@@ -1945,11 +2036,13 @@ unsafe extern "C" fn window_suggestions(
 }
 
 unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, fullscreen: bool) {
-    let ui = UI.with_borrow(|ui| ui.as_ref().map(|(cx, shell, window)| (cx.clone(), shell.clone(), *window)));
-    let Some((cx, shell, window)) = ui else {
+    let Some(cx) = CX.with_borrow(Clone::clone) else {
         return;
     };
     cx.update(|cx| {
+        let Some(BrowserWindow { id, shell, handle, .. }) = tab_window(tab, cx) else {
+            return;
+        };
         // A page leaves full screen as its tab is switched away from or closes, and only one page
         // is full screen at a time.
         let shown = shell.read_with(cx, |shell, _| shell.selected() == tab).unwrap_or(false);
@@ -1957,10 +2050,10 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
             return;
         }
         shell.update(cx, |shell, cx| shell.set_page_fullscreen(fullscreen, cx)).ok();
-        cx.update_window(window, |_, window, cx| {
+        cx.update_window(handle, |_, window, cx| {
             let viewport = window.viewport_size();
             if let Ok(frame) = shell.read_with(cx, |shell, _| shell.page_frame(viewport)) {
-                set_page_frame(frame);
+                set_page_frame(id, frame);
             }
         })
         .ok();

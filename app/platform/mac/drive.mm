@@ -63,15 +63,17 @@
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page: letters add to a composition, space converts it
 //                                         to 日本語, return commits it and escape cancels it
+//   window <n>                            drives the n-th browser window opened, from 1, from
+//                                         now, logging "browser: drive window <n>"
 //
-// Clicks, drags and moves go to the app's window on top at that point of the browser window, such
-// as the sidebar reveal over its edge, scrolls to the browser window, and keys and clickkey to the
-// key window. It logs "browser: drive <n>: <command>" when command n arrives and "browser: drive
-// <n> done, key <window class>, focus <view class>, active <0|1>, marked <location,length|none>"
-// once AppKit has handled its events, "browser: menu tracked <titles>" as a menu opens, such as
-// the page's, and "browser: modal shown <texts and buttons>" as an alert does. A page ignores
-// clicks while the app isn't the active app, and macOS doesn't let a background process make it
-// active.
+// Clicks, drags and moves go to the app's window on top at that point of the browser window
+// driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
+// driven, and keys and clickkey to the key window. It logs "browser: drive <n>: <command>" when
+// command n arrives and "browser: drive <n> done, key <window class>, focus <view class>, active
+// <0|1>, marked <location,length|none>" once AppKit has handled its events, "browser: menu
+// tracked <titles>" as a menu opens, such as the page's, and "browser: modal shown <texts and
+// buttons>" as an alert does. A page ignores clicks while the app isn't the active app, and macOS
+// doesn't let a background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
@@ -143,18 +145,13 @@ NSWindow* g_backdrop;
 // when none of the app's own menus is showing.
 __weak NSMenu* g_tracked;
 
-// The largest visible window: the browser window, not a child window such as a menu, nor the
-// backdrop.
+// The browser window the window command picked, from 0.
+size_t g_driven = 0;
+
+// The browser window driven, once it's on screen.
 NSWindow* MainWindow() {
-  NSWindow* main = nil;
-  for (NSWindow* window in NSApp.windows) {
-    if (window.visible && window != g_backdrop &&
-        (!main || NSWidth(window.frame) * NSHeight(window.frame) >
-                      NSWidth(main.frame) * NSHeight(main.frame))) {
-      main = window;
-    }
-  }
-  return main;
+  NSWindow* window = (__bridge NSWindow*)host_browser_window(g_driven);
+  return window.visible ? window : nil;
 }
 
 void PostMouse(NSWindow* window,
@@ -626,6 +623,16 @@ bool Run(const std::string& line, void (^done)(void)) {
   std::istringstream words(line);
   std::string action;
   words >> action;
+  if (action == "window") {
+    size_t number;
+    if (!(words >> number) || number == 0 || !host_browser_window(number - 1)) {
+      return false;
+    }
+    g_driven = number - 1;
+    fprintf(stderr, "browser: drive window %zu\n", number);
+    done();
+    return true;
+  }
   if (!window) {
     return false;
   }

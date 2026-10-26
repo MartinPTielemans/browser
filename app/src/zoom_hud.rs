@@ -2,7 +2,7 @@
 //! sign of one. As the find bar is, it's a window of its own that the host shows over the browser
 //! window, as its child, and the mouse goes through it to the page.
 
-use std::time::Duration;
+use std::{ffi::c_void, time::Duration};
 
 use browser::log;
 use browser::shell::{self, Shell};
@@ -83,8 +83,9 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
     }
 }
 
-/// Shows `tab`'s zoom, `percent`, for a moment from now.
-pub fn show(tab: u64, percent: i32, cx: &mut App) {
+/// Shows `tab`'s zoom, `percent`, for a moment from now, over the browser window whose UI draws
+/// in `ui_view`.
+pub fn show(tab: u64, percent: i32, ui_view: *mut c_void, cx: &mut App) {
     let Some(window) = cx.try_global::<ZoomHudWindow>().map(|hud| hud.0) else {
         return;
     };
@@ -99,7 +100,7 @@ pub fn show(tab: u64, percent: i32, cx: &mut App) {
             cx.notify();
         })
         .ok();
-    unsafe { platform::host_show_hud() };
+    unsafe { platform::host_show_hud(ui_view) };
 }
 
 /// The window shows `tab`, or no page (0): the HUD goes at once if it showed another tab's zoom.

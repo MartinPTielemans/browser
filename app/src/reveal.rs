@@ -2,6 +2,8 @@
 //! hidden sidebar slides out in is a window of its own, the browser window's child, at its left
 //! edge. The shell draws the panel; this window only holds it.
 
+use std::ffi::c_void;
+
 use browser::log;
 use browser::shell::{SIDEBAR_WIDTH, Shell};
 use gpui::{
@@ -9,7 +11,7 @@ use gpui::{
     WindowBounds, WindowKind, WindowOptions, point, prelude::*, px, size,
 };
 
-use crate::{ns_view, platform, update_shell};
+use crate::{ns_view, platform, update_window, window_with_view};
 
 struct Reveal {
     shell: Entity<Shell>,
@@ -21,9 +23,10 @@ impl Render for Reveal {
     }
 }
 
-/// Opens the reveal's window, hidden. Opening it ahead of time keeps window setup off the path
-/// from the pointer reaching the edge to the panel moving.
-pub fn open(shell: Entity<Shell>, cx: &mut App) {
+/// Opens the reveal's window for the browser window whose UI draws in `ui_view`, hidden. Opening it
+/// ahead of time keeps window setup off the path from the pointer reaching the edge to the panel
+/// moving.
+pub fn open(shell: Entity<Shell>, ui_view: *mut c_void, cx: &mut App) {
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
@@ -61,13 +64,13 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
     match window {
         Ok(window) => {
             if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
-                unsafe { platform::host_add_reveal(view, pointer_moved) };
+                unsafe { platform::host_add_reveal(ui_view, view, pointer_moved) };
             }
         }
         Err(error) => log!("couldn't open the sidebar reveal: {error}"),
     }
 }
 
-extern "C" fn pointer_moved(x: f64) {
-    update_shell(|shell, cx| shell.pointer_at(x as f32, cx));
+extern "C" fn pointer_moved(ui_view: *mut c_void, x: f64) {
+    update_window(window_with_view(ui_view), |shell, cx| shell.pointer_at(x as f32, cx));
 }
