@@ -154,6 +154,9 @@ expect "^browser: title $a visible 0\$" \
 # along the list scroll it, and a wheel's tick across pages once. Held partway, the next Space's
 # page shows beside the first's.
 swipe_point="110 500"
+# Fingers catch a page still sliding in from the dot's switch where it is, from which this swipe
+# would go on past halfway.
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post swipe $swipe_point -10 0 10 1500
 await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
 ../tools/window-screenshot.sh "$pid" "$out/swipe.png" || fail "no window to capture"
