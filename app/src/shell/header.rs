@@ -3,6 +3,8 @@
 
 use std::time::Instant;
 
+use crate::site_controls::{Extension, Place};
+
 use gpui::{
     Bounds, Context, Div, Hsla, MouseButton, Pixels, Stateful, Window, canvas, div, hsla, point,
     prelude::*, px, rgba, size, svg,
@@ -32,8 +34,6 @@ pub(super) enum TipSide {
 /// field's end, and these go before them.
 const SITE_CONTROLS_END: f32 = -1.;
 const TOOL_PITCH: f32 = 28.;
-/// The Site Controls hang this far under the field, as the page's question does.
-const SITE_CONTROLS_GAP: f32 = 6.;
 
 impl Shell {
     /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
@@ -187,27 +187,33 @@ impl Shell {
         }
     }
 
-    /// Opens the Site Controls under the URL field, growing from their button, or with the field
-    /// hidden at the page's top left corner, as an extension's popup is; or closes them.
+    /// Opens the Site Controls under the URL field, hanging from their button, or with the field
+    /// hidden at the page's top left corner, as an extension's popup is; or closes them. They list
+    /// the pinned extensions, which the toolbar has.
     pub(super) fn site_controls(&mut self, cx: &mut Context<Self>) {
         if self.selected == 0 {
             return;
         }
-        let (at, anchor) = match self.url_field_bounds() {
+        let place = match self.url_field_bounds() {
             Some(field) => {
                 let left = field.right() - px(self.site_controls_end() + URL_BUTTON_SIZE);
                 let button = Bounds::new(
                     point(left, field.top() + px(URL_BUTTON_INSET)),
                     size(px(URL_BUTTON_SIZE), px(URL_BUTTON_SIZE)),
                 );
-                (point(field.left(), field.bottom() + px(SITE_CONTROLS_GAP)), button)
+                Place::Button { field, button }
             }
-            None => {
-                let corner = point(px(self.card_left() + PLATE_INSET), px(PLATE_INSET));
-                (corner, Bounds::new(corner, Default::default()))
-            }
+            None => Place::Corner(point(px(self.card_left() + PLATE_INSET), px(PLATE_INSET))),
         };
-        self.browser.site_controls(self.selected, at, anchor, cx);
+        let extensions = (self.extension_actions.iter())
+            .filter(|action| action.enabled)
+            .map(|action| Extension {
+                id: action.id.clone(),
+                title: action.title.clone(),
+                icon: action.icon.clone(),
+            })
+            .collect();
+        self.browser.site_controls(self.selected, place, self.viewport, extensions, cx);
     }
 
     /// A button at the URL field's end, `end` in from it, shown while the pointer is over the

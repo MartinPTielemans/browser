@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use gpui::{App, Bounds, Pixels, Point, SharedString};
+use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
 use super::{
     Answer, BarTab, Browser, DownloadAction, Extension, MenuEntry, browser::WindowButton,
@@ -25,8 +25,8 @@ pub(super) struct Recorder {
     pub(super) menus: RefCell<Vec<Vec<(SharedString, bool)>>>,
     /// The Spaces the menu bar's Spaces menu lists.
     pub(super) menu_spaces: RefCell<Vec<SharedString>>,
-    /// Each time the shell opened the Site Controls: the tab, where, and the button's box.
-    pub(super) site_controls: RefCell<Vec<(u64, Point<Pixels>, Bounds<Pixels>)>>,
+    /// Each time the shell opened the Site Controls: the tab, and where they hang from.
+    pub(super) site_controls: RefCell<Vec<(u64, crate::site_controls::Place)>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
 }
@@ -332,8 +332,15 @@ impl Browser for Recorder {
 
     fn find(&self, _: u64, _: &mut App) {}
 
-    fn site_controls(&self, tab: u64, at: Point<Pixels>, anchor: Bounds<Pixels>, _: &mut App) {
-        self.site_controls.borrow_mut().push((tab, at, anchor));
+    fn site_controls(
+        &self,
+        tab: u64,
+        place: crate::site_controls::Place,
+        _: Size<Pixels>,
+        _: Vec<crate::site_controls::Extension>,
+        _: &mut App,
+    ) {
+        self.site_controls.borrow_mut().push((tab, place));
     }
 
     fn settings(&self, _: &mut App) {}

@@ -12,15 +12,22 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
 #include "browser_core/tab.h"
+#include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/ui/page_info/chrome_page_info_delegate.h"
 #include "chrome/browser/ui/page_info/chrome_page_info_ui_delegate.h"
 #include "components/content_settings/core/browser/permission_settings_registry.h"
+#include "components/content_settings/core/browser/website_settings_info.h"
+#include "components/content_settings/core/browser/website_settings_registry.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/strings/grit/components_branded_strings.h"
 #include "components/strings/grit/components_strings.h"
 #include "components/url_formatter/elide_url.h"
 #include "content/public/browser/media_session.h"
+#include "content/public/browser/navigation_controller.h"
+#include "content/public/browser/navigation_entry.h"
+#include "content/public/browser/ssl_status.h"
 #include "content/public/browser/web_contents.h"
+#include "net/cert/x509_certificate.h"
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
@@ -101,6 +108,19 @@ int PictureInPictureOf(content::WebContents* contents) {
              : BC_PICTURE_IN_PICTURE_NONE;
 }
 
+// The certificate the page shown came with, as Chrome's page info reads it, else null.
+net::X509Certificate* CertificateOf(content::WebContents* contents) {
+  content::NavigationEntry* entry = contents->GetController().GetVisibleEntry();
+  return entry ? entry->GetSSL().certificate.get() : nullptr;
+}
+
+// The registry's name for the type, which the app picks a glyph by.
+const char* KeyOf(ContentSettingsType type) {
+  const content_settings::WebsiteSettingsInfo* info =
+      content_settings::WebsiteSettingsRegistry::GetInstance()->Get(type);
+  return info ? info->name().c_str() : "";
+}
+
 }  // namespace
 
 void SiteControls::Open(bc_id tab) {
@@ -171,6 +191,14 @@ void SiteControls::PictureInPicture(bc_id tab) {
     case BC_PICTURE_IN_PICTURE_EXIT:
       session->ExitPictureInPicture();
       break;
+  }
+}
+
+void SiteControls::ShowCertificate(bc_id tab) {
+  content::WebContents* contents = Tab::FromId(tab);
+  net::X509Certificate* certificate = contents ? CertificateOf(contents) : nullptr;
+  if (certificate) {
+    ShowCertificateViewer(contents, contents->GetTopLevelNativeWindow(), certificate);
   }
 }
 
@@ -259,6 +287,7 @@ void SiteControls::Report() {
     return;
   }
   std::vector<std::string> names;
+  std::vector<std::string> states;
   std::vector<bc_site_permission> permissions;
   bool resettable = false;
   for (const PageInfo::PermissionInfo& permission : permissions_) {
@@ -267,15 +296,19 @@ void SiteControls::Report() {
       continue;
     }
     names.push_back(base::UTF16ToUTF8(PageInfoUI::PermissionTypeToUIString(permission.type)));
+    states.push_back(base::UTF16ToUTF8(
+        PageInfoUI::PermissionStateToUIString(ui_delegate_.get(), permission)));
     permissions.push_back({
         .type = static_cast<int>(permission.type),
         .value = ValueOf(*delegate, permission.setting.value_or(permission.default_setting)),
         .choices = ChoicesFor(*delegate, *ui_delegate_, permission),
+        .key = KeyOf(permission.type),
     });
     resettable |= Resettable(*ui_delegate_, permission);
   }
   for (size_t i = 0; i < permissions.size(); ++i) {
     permissions[i].name = names[i].c_str();
+    permissions[i].state = states[i].c_str();
   }
   const std::string connection = base::UTF16ToUTF8(connection_summary_);
   // Chrome counts every row it lists in its button's words.
@@ -291,6 +324,7 @@ void SiteControls::Report() {
       .count = permissions.size(),
       .reset = reset.c_str(),
       .picture_in_picture = PictureInPictureOf(web_contents()),
+      .certificate = CertificateOf(web_contents()) != nullptr,
   };
   Host().tab_site_controls(Host().context, tab_, &controls);
 }

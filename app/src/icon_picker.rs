@@ -460,10 +460,10 @@ impl IconPicker {
     }
 }
 
-/// The card's outline `inset` inside its edge: each corner moved in along both its sides, and its
-/// radius smaller where it bulges out and larger where it bends in.
-fn inset_corners(inset: f32) -> Vec<(Point<f32>, f32, bool)> {
-    let corners = corners();
+/// The outline of the shape with `corners` (x, y and radius, clockwise) `inset` inside its edge:
+/// each corner moved in along both its sides, and its radius smaller where it bulges out and
+/// larger where it bends in.
+fn inset_corners(corners: &[(f32, f32, f32)], inset: f32) -> Vec<(Point<f32>, f32, bool)> {
     let count = corners.len();
     let at = |index: usize| {
         let (x, y, _) = corners[index % count];
@@ -500,9 +500,15 @@ fn inset_corners(inset: f32) -> Vec<(Point<f32>, f32, bool)> {
         .collect()
 }
 
-/// The card's outline `inset` inside its edge, at `origin`, into `path`.
-fn outline(path: &mut PathBuilder, origin: Point<Pixels>, inset: f32) {
-    let corners = inset_corners(inset);
+/// The outline of the shape with `corners` `inset` inside its edge, at `origin`, into `path`, as
+/// the host's blur and shadow take the shape.
+pub(crate) fn outline(
+    path: &mut PathBuilder,
+    origin: Point<Pixels>,
+    corners: &[(f32, f32, f32)],
+    inset: f32,
+) {
+    let corners = inset_corners(corners, inset);
     let count = corners.len();
     let to = |at: Point<f32>| origin + point(px(at.x), px(at.y));
     for index in 0..count {
@@ -577,7 +583,7 @@ impl Render for IconPicker {
             |_, _, _| {},
             move |bounds, _, window, _| {
                 let mut fill = PathBuilder::fill();
-                outline(&mut fill, bounds.origin, 0.);
+                outline(&mut fill, bounds.origin, &corners(), 0.);
                 if let Ok(path) = fill.build() {
                     window.paint_path(path, rgba(FILL));
                 }
@@ -587,7 +593,7 @@ impl Render for IconPicker {
                     (hairline + 0.5, 1., command_bar::EDGE),
                 ] {
                     let mut edge = PathBuilder::stroke(px(width));
-                    outline(&mut edge, bounds.origin, inset);
+                    outline(&mut edge, bounds.origin, &corners(), inset);
                     if let Ok(path) = edge.build() {
                         window.paint_path(path, rgb(color));
                     }

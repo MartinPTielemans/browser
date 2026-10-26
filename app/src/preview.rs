@@ -16,7 +16,7 @@ use browser::shell::{
 };
 use browser::command_bar::{self, Suggestion};
 use gpui::{
-    App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, TitlebarOptions,
+    App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
 };
 
@@ -626,7 +626,15 @@ impl Browser for Fake {
     // The made-up pages have nothing to find.
     fn find(&self, _: u64, _: &mut App) {}
 
-    fn site_controls(&self, _: u64, _: Point<Pixels>, _: Bounds<Pixels>, _: &mut App) {}
+    fn site_controls(
+        &self,
+        _: u64,
+        _: browser::site_controls::Place,
+        _: Size<Pixels>,
+        _: Vec<browser::site_controls::Extension>,
+        _: &mut App,
+    ) {
+    }
 
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 

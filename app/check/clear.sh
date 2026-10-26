@@ -440,9 +440,12 @@ expect "^browser: page $r asks nothing\$" "Allow didn't take the question down"
 expect "^browser: title $r granted\$" "Allow didn't grant the page"
 
 # The Site Controls list the site's permissions as Chrome's page info does, here the one Allow gave.
-# The panel's top left is at 8 88, under the field; its rows start 83 down it, 32 apart, with their
-# values at their right end and Reset permissions under them.
+# The panel hangs from the button at 206 64: 238 wide from x 87, its beak's tip 9 pt above its body
+# at y 91. With no extension pinned, its first row's middle is at y 262, the rows 43 apart, Reset
+# permissions under them, and the footer's middle 74 below the last row's top.
 controls="^browser: site controls http://localhost:$port: "
+row_y() { echo $((262 + 43 * $1)); }
+footer_y() { echo $((262 - 16 + 43 * ($(listed | wc -l)) + 74)); }
 # The permissions the Site Controls listed last, one a line, in their order.
 listed() {
   grep "$controls" "$log" | tail -1 | sed 's/^[^;]*; //' | tr ',' '\n' | sed 's/^ //'
@@ -461,13 +464,23 @@ none_since '^browser: command edit-url' || fail "a click on Site Controls opened
 ../tools/window-screenshot.sh "$pid" "$out/site-controls.png" || fail "no window to capture"
 # Its value's menu offers Chrome's three, and Block blocks the site at once.
 i=$(listed | grep -n '^Window management ' | cut -d: -f1)
-post click 268 $((88 + 83 + 32 * (i - 1) + 16))
+post click 207 $(row_y $((i - 1)))
 expect '^browser: menu shown Allow (checked), Block, Ask$' \
   "the value of Window management didn't offer Allow, Block and Ask"
 send choose Block
 expect '^browser: site controls set Window management Block$' "Block in the menu didn't run"
 expect "${controls}[^;]*; .*Window management Block" \
   "the Site Controls didn't show Window management as blocked"
+# http has no certificate to show, so the lock doesn't take the click.
+send click 120 $(footer_y)
+none_since '^browser: site controls run certificate' || fail "the lock ran without a certificate"
+# Share closes them and hangs the system's share menu from its tile, at 122 118.
+send click 122 118
+expect '^browser: site controls run share$' "a click on Share didn't run it"
+expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
+expect '^browser: site controls hidden$' "the Site Controls didn't leave for Share"
+send click $site_controls_point
+expect '^browser: site controls settled$' "the Site Controls didn't open after Share"
 # The button again closes them.
 send click $site_controls_point
 expect '^browser: site controls closing (toggle)$' "Site Controls' second click didn't close them"
@@ -497,7 +510,7 @@ expect '^browser: site controls hidden$' "the Site Controls didn't leave after e
 # Reset permissions sets the site back to asking, and a click outside closes them.
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open again"
-send click 28 $((88 + 83 + 32 * $(listed | wc -l) + 6 + 14))
+send click 207 $(row_y $(listed | wc -l))
 expect '^browser: site controls reset$' "Reset permissions didn't run"
 expect "${controls}" "the Site Controls didn't list the permissions again after the reset"
 send click $page_point
@@ -508,6 +521,17 @@ send key a
 asks "http://localhost:$port" "the site reset in Site Controls didn't ask again"
 send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: title $r granted\$" "Allow didn't grant the page after the reset"
+# The footer's … menu is Arc's without Boost's items, and All Site Settings… opens Chrome's for the
+# site.
+send click $site_controls_point
+expect '^browser: site controls settled$' "the Site Controls didn't open for their … menu"
+send click 298 $(footer_y)
+more_menu='Clear Cache, Clear Cookies, Manage Extensions…, Add Extension…, All Site Settings…'
+expect "^browser: menu shown $more_menu\$" "the … menu didn't list Arc's items"
+send choose 'All Site Settings…'
+expect '^browser: site controls run All Site Settings…$' "All Site Settings… didn't run"
+site_settings="chrome://settings/content/siteDetails?site=http%3A%2F%2Flocalhost%3A$port"
+expect "^browser: loaded [0-9]* $site_settings\$" "All Site Settings… didn't open them"
 exec 3>&-
 quit
-echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, and the button, escape and a click outside close them. Windows: $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png"
+echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. Windows: $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png"

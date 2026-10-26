@@ -208,6 +208,10 @@ typedef struct bc_site_permission {
   // The values the user may give it, a bit (1 << value) each. 0 for one that isn't the user's to
   // change, as a policy's or an extension's isn't.
   uint32_t choices;
+  // Chrome's lasting name for it, such as "geolocation", which stays when the types renumber.
+  const char* key;
+  // Chrome's page info's words for its value under its name, such as "Allowed".
+  const char* state;
 } bc_site_permission;
 
 // What the connection to a tab's page is, as the Site Controls' footer says.
@@ -238,6 +242,8 @@ typedef struct bc_site_controls {
   const char* reset;
   // A BC_PICTURE_IN_PICTURE_ value.
   int picture_in_picture;
+  // The page came with a certificate, which bc_tab_show_certificate shows.
+  bool certificate;
 } bc_site_controls;
 
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
@@ -827,6 +833,11 @@ BC_EXPORT void bc_tab_reset_site_permissions(bc_id tab);
 // Takes the tab's playing video into Picture in Picture, or brings it back, as
 // bc_site_controls' picture_in_picture says it can. Then tab_site_controls.
 BC_EXPORT void bc_tab_picture_in_picture(bc_id tab);
+
+// Shows the certificate the tab's page came with in the system's viewer, a sheet on the tab's
+// window on the Mac, as Chrome's page info does. Does nothing for a page with none, as http and
+// the browser's own pages have.
+BC_EXPORT void bc_tab_show_certificate(bc_id tab);
 
 // Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.

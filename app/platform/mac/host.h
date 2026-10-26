@@ -140,10 +140,14 @@ void host_show_dialog(void* ui_view);
 void host_hide_dialog(void);
 
 // Makes the window of |view| the Site Controls', which float over a browser window as its child
-// when shown, with a shadow in the rounded shape the UI draws. It starts hidden. |dismissed| runs,
-// after the event, when the user leaves them: a click outside them, another window taking the
-// keyboard, or switching apps.
+// when shown, translucent over a blur in their shape, with a shadow. It starts hidden. |dismissed|
+// runs, after the event, when the user leaves them: a click outside them, another window taking
+// the keyboard, or switching apps.
 void host_add_site_controls(void* view, void (*dismissed)(void));
+
+// The Site Controls' shape from their window's top left, |count| corners clockwise, each as x, y
+// and the radius it's rounded by, which their blur and shadow take at their next show or height.
+void host_set_site_controls_shape(const double* corners, size_t count);
 
 // Shows the Site Controls over |ui_view|'s window, as the UI draws them now, with the keyboard:
 // |width| by |height| points, their top left at |left|, |top| in the window's content.
@@ -153,8 +157,9 @@ void host_show_site_controls(void* ui_view, double left, double top, double widt
 // size.
 void host_set_site_controls_height(double height);
 
-// The UI drew a frame of the Site Controls' motion, whose shadow follows it.
-void host_site_controls_drew(void);
+// The UI drew a frame of the Site Controls' motion, at |scale| about |x|, |y| from their window's
+// top left and at |opacity|, which their blur and shadow follow.
+void host_site_controls_drew(double scale, double opacity, double x, double y);
 
 // The Site Controls take no more clicks or keys as they leave: the mouse goes through them, and the
 // browser window gets the keyboard back, with the focus where it was, if they had it.
@@ -327,6 +332,16 @@ void host_file_preview(const char* path, uint64_t id,
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);
+
+// Shows the system's share menu for the page at |url| titled |title|, hanging from the frame at
+// |x|, |y|, |width| by |height| points in |ui_view|'s window's content.
+void host_share(void* ui_view,
+                double x,
+                double y,
+                double width,
+                double height,
+                const char* url,
+                const char* title);
 
 // The starts of today, yesterday, this week and last week in the user's calendar and time zone, in
 // milliseconds since the Unix epoch.

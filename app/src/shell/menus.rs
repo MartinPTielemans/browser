@@ -36,7 +36,7 @@ impl MenuEntry {
         }
     }
 
-    pub(super) fn line() -> Self {
+    pub fn line() -> Self {
         MenuEntry::new("", false)
     }
 
