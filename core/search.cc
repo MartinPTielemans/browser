@@ -1,5 +1,7 @@
 #include "browser_core/search.h"
 
+#include <vector>
+
 #include "base/callback_list.h"
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
@@ -50,9 +52,9 @@ void SetUpSearch(Profile* profile) {
   }
   // The engines load from the profile's database, after which the default can change. The service
   // lives as long as the profile, which the core keeps loaded.
-  static base::NoDestructor<base::CallbackListSubscription> loaded;
-  *loaded = engines->RegisterOnLoadedCallback(
-      base::BindOnce(&PickDefaultEngine, base::Unretained(engines)));
+  static base::NoDestructor<std::vector<base::CallbackListSubscription>> loaded;
+  loaded->push_back(engines->RegisterOnLoadedCallback(
+      base::BindOnce(&PickDefaultEngine, base::Unretained(engines))));
   engines->Load();
 }
 

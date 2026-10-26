@@ -50,12 +50,19 @@ GURL Stripped(const GURL& url, const TemplateURLService* engines) {
                                                /*keep_search_intent_params=*/true);
 }
 
-// A tab at |url|, stripped, other than |shown|: a favorite first, which every Space shows, then
-// one in the Space |window| shows. 0 if none.
+// A tab at |url|, stripped, other than |shown|: a favorite first, which every Space of its profile
+// shows, then one in the Space |window| shows. 0 if none.
 bc_id TabAt(const GURL& url, const Window& window, bc_id shown, const TemplateURLService* engines) {
   std::vector<Space*> spaces = Space::All();
   std::ranges::stable_partition(spaces, [&](Space* space) { return space->id() == window.space(); });
-  std::vector<const std::vector<bc_id>*> lists = {&Favorites::All()};
+  // Selecting a favorite of another profile shows a Space of that profile, as selecting a tab of
+  // another Space does.
+  std::vector<bc_id> favorites = Favorites::All();
+  if (const Space* in = Space::FromId(window.space())) {
+    std::ranges::stable_partition(
+        favorites, [&](bc_id tab) { return Favorites::ProfileOf(tab) == in->profile(); });
+  }
+  std::vector<const std::vector<bc_id>*> lists = {&favorites};
   for (Space* space : spaces) {
     lists.push_back(&space->pinned_rows());
     lists.push_back(&space->today());

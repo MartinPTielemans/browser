@@ -3,6 +3,9 @@
 # A Space's colours in its menu, for a Space without one.
 colors="Color › System Accent (checked), Color › Gray, Color › Red, Color › Orange, \
 Color › Yellow, Color › Green, Color › Blue, Color › Pink, Color › Purple"
+# Its profiles, in the one the check starts with, for a Space with tabs and an empty one.
+profile="Profile › Default (checked), Profile › New Profile (disabled)"
+empty_profile="Profile › Default (checked), Profile › New Profile"
 # Points from the window's top-left corner. The sidebar is 228 wide.
 page_point="600 400"
 sidebar_point="100 400"

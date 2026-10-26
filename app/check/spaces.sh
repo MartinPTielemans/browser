@@ -221,7 +221,7 @@ expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 # A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
 name_point="100 112"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
   "a right-click on the Space's name didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
 send choose Rename Space
@@ -241,7 +241,7 @@ none_since '^browser: renamed space' || fail "escape in the name's field renamed
 # Return deletes the Space once the dialog has gone. Its tabs close with it, and ⇧⌘T reopens them
 # here.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog shown Delete “reading 日本語”?$' "Delete Space didn't ask first"
@@ -253,7 +253,7 @@ send state
 [ "$key" = BrowserCoreNSWindow ] || fail "the window didn't get the keyboard back: $key has it"
 none_since '^browser: spaces' || fail "a click around the dialog deleted the Space"
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog settled$' "Delete Space didn't ask again"
@@ -278,7 +278,7 @@ expect "^browser: loaded [0-9]* https://example.com/\$" "the Space came back wit
 expect "^browser: settled space $second\$" "the Space ⌘Z brought back didn't settle"
 # Deleted again, its tab reopens here with ⇧⌘T, and ⌘Z brings back the Space without it.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog shown Delete “reading 日本語”?$' "the Space came back without its name"
@@ -296,7 +296,7 @@ expect "^browser: space $second\( in .*\)\{0,1\}\$" "⌘Z after ⇧⌘T didn't s
 expect '^browser: today $' "⌘Z brought back the tab ⇧⌘T had reopened: Today is \"$(today)\""
 # Empty, it goes without asking, and says so too.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+expect "^browser: menu shown Rename Space, $colors, $empty_profile, Delete Space\$" \
   "a right-click on a dot didn't show its Space's menu"
 send choose Delete Space
 expect "^browser: spaces $first\$" "Delete didn't delete the empty Space"
@@ -304,7 +304,7 @@ none_since '^browser: dialog shown' || fail "deleting an empty Space asked first
 expect "$deleted" "the toast didn't say the empty Space went"
 # The last Space can't go.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, $colors, Delete Space (disabled)\$" \
+expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space (disabled)\$" \
   "the last Space's menu offered Delete"
 send choose Rename Space
 send key escape

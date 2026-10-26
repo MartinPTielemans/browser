@@ -628,8 +628,12 @@ impl Browser for Engine {
         unsafe { bc::bc_window_space_tab(WINDOW.get(), space) }
     }
 
-    fn create_space(&self, name: &str, _: &mut App) -> u64 {
-        create_space(name)
+    fn create_space(&self, name: &str, profile: u64, _: &mut App) -> u64 {
+        let space = create_space(name);
+        if profile != 0 {
+            unsafe { bc::bc_space_set_profile(space, profile) };
+        }
+        space
     }
 
     fn rename_space(&self, space: u64, name: &str, _: &mut App) {
@@ -648,6 +652,19 @@ impl Browser for Engine {
 
     fn set_space_color(&self, space: u64, color: Option<u32>, _: &mut App) {
         unsafe { bc::bc_space_set_color(space, color.is_some(), color.unwrap_or(0)) };
+    }
+
+    fn set_space_profile(&self, space: u64, profile: u64, _: &mut App) {
+        unsafe { bc::bc_space_set_profile(space, profile) };
+    }
+
+    fn create_profile(&self, name: &str, _: &mut App) -> u64 {
+        let name = CString::new(name).unwrap_or_default();
+        unsafe { bc::bc_profile_create(name.as_ptr()) }
+    }
+
+    fn delete_profile(&self, profile: u64, _: &mut App) {
+        unsafe { bc::bc_profile_delete(profile) };
     }
 
     fn menu(
@@ -1186,27 +1203,40 @@ fn name(
     String::from_utf8_lossy(&name).into_owned().into()
 }
 
-unsafe extern "C" fn spaces_changed(_: *mut c_void) {
-    let count = unsafe { bc::bc_spaces(std::ptr::null_mut(), 0) };
+/// The ids the core's `copy` copies.
+fn ids(copy: unsafe extern "C" fn(*mut bc::bc_id, usize) -> usize) -> Vec<bc::bc_id> {
+    let count = unsafe { copy(std::ptr::null_mut(), 0) };
     let mut ids = vec![0; count];
-    let count = unsafe { bc::bc_spaces(ids.as_mut_ptr(), ids.len()) };
+    let count = unsafe { copy(ids.as_mut_ptr(), ids.len()) };
     ids.truncate(count);
-    let spaces = ids
+    ids
+}
+
+unsafe extern "C" fn spaces_changed(_: *mut c_void) {
+    let profiles = ids(bc::bc_profiles)
+        .into_iter()
+        .map(|profile| (profile, name(bc::bc_profile_name, profile)))
+        .collect();
+    let spaces = ids(bc::bc_spaces)
         .into_iter()
         .map(|space| {
             let mut color = 0;
             let has_color = unsafe { bc::bc_space_color(space, &mut color) };
-            (space, name(bc::bc_space_name, space), has_color.then_some(color))
+            let profile = unsafe { bc::bc_space_profile(space) };
+            (space, name(bc::bc_space_name, space), has_color.then_some(color), profile)
         })
         .collect();
-    update_shell(|shell, cx| shell.set_spaces(spaces, cx));
+    update_shell(|shell, cx| {
+        shell.set_profiles(profiles, cx);
+        shell.set_spaces(spaces, cx);
+    });
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
-    let count = unsafe { bc::bc_favorites(std::ptr::null_mut(), 0) };
-    let mut tabs = vec![0; count];
-    let count = unsafe { bc::bc_favorites(tabs.as_mut_ptr(), tabs.len()) };
-    tabs.truncate(count);
+    let tabs = ids(bc::bc_favorites)
+        .into_iter()
+        .map(|tab| (tab, unsafe { bc::bc_tab_profile(tab) }))
+        .collect();
     update_shell(|shell, cx| shell.set_favorites(tabs, cx));
 }
 

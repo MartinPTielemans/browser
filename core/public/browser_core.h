@@ -188,7 +188,8 @@ typedef struct bc_host {
   // The Space's tabs changed: one opened, closed, moved, pinned or unpinned. Read them with
   // bc_space_pinned and bc_space_today.
   void (*space_changed)(void* context, bc_id space);
-  // A Space was made, renamed or deleted. Read them with bc_spaces.
+  // A Space was made, renamed, deleted or given another profile, or a profile was made or deleted.
+  // Read them with bc_spaces and bc_profiles.
   void (*spaces_changed)(void* context);
   // A tab was made a favorite or taken out of them. Read them with bc_favorites.
   void (*favorites_changed)(void* context);
@@ -244,9 +245,33 @@ BC_EXPORT bool bc_window_restore(bc_id window);
 // Closes the window: its pages get their unload handlers, then window_closed.
 BC_EXPORT void bc_window_close(bc_id window);
 
-// Makes an empty Space named |name|, in the default profile, after the others. Any window can show
-// it. Then spaces_changed.
+// Makes an empty Space named |name|, in the profile the core started with, after the others. Any
+// window can show it. Then spaces_changed.
 BC_EXPORT bc_id bc_space_create(const char* name);
+
+// The profile the Space's tabs open in, which its favorites are in.
+BC_EXPORT bc_id bc_space_profile(bc_id space);
+
+// Puts the Space in |profile|, loading it first if it isn't, and returns whether it will: only an
+// empty Space changes, as its tabs' pages are in their profile. A window showing a favorite of the
+// profile it was in shows nothing. Then spaces_changed.
+BC_EXPORT bool bc_space_set_profile(bc_id space, bc_id profile);
+
+// Copies up to |capacity| of the profiles into |profiles| and returns how many there are: the one
+// the core started with, then the others in the order they were made. A profile holds cookies,
+// history, logins and extensions, which the Spaces in it share (decision 5).
+BC_EXPORT size_t bc_profiles(bc_id* profiles, size_t capacity);
+
+// Copies the profile's name into |name| as bc_space_name does. "Default" for one no one named.
+BC_EXPORT size_t bc_profile_name(bc_id profile, char* name, size_t capacity);
+
+// Makes a profile named |name|, UTF-8, and returns it, or 0. It's listed once Chrome has made it,
+// then spaces_changed.
+BC_EXPORT bc_id bc_profile_create(const char* name);
+
+// Deletes the profile, with everything Chrome keeps in it, and returns whether it will. Not one a
+// Space or a favorite is in, the one the core started with or the last. Then spaces_changed.
+BC_EXPORT bool bc_profile_delete(bc_id profile);
 
 // Copies up to |capacity| of the Spaces into |spaces|, in order, and returns how many there are.
 BC_EXPORT size_t bc_spaces(bc_id* spaces, size_t capacity);
@@ -308,8 +333,12 @@ BC_EXPORT void bc_folder_move(bc_id folder, bc_id to, size_t index);
 BC_EXPORT void bc_folder_delete(bc_id folder);
 
 // Copies up to |capacity| of the favorites into |tabs|, left to right, and returns how many there
-// are. They're tabs in no Space, which every Space shows above its own, as Arc shows a profile's.
+// are. They're tabs in no Space, which every Space in their profile shows above its own, as Arc
+// does. Each profile's are in their order among them.
 BC_EXPORT size_t bc_favorites(bc_id* tabs, size_t capacity);
+
+// The profile the tab's page is in, or 0.
+BC_EXPORT bc_id bc_tab_profile(bc_id tab);
 
 // Copies up to |capacity| of the tabs shown with |tab| into |tabs|, left to right or top to
 // bottom, |tab| among them, and returns how many there are: those of its split view, else |tab|
@@ -541,10 +570,10 @@ BC_EXPORT void bc_tab_jump_to_selection(bc_id tab);
 // tab_state_changed.
 BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
 
-// Makes the tab the favorite at |index|, counted without it, else the last. A tab of a Space leaves
-// it and its split view, and its favorite's URL is its pinned URL if it's pinned, else the page
-// it's at. A window showing it keeps showing it. Then favorites_changed, and space_changed and
-// tab_state_changed for a tab of a Space.
+// Makes the tab the favorite at |index| among its profile's, counted without it, else the last of
+// them. A tab of a Space leaves it and its split view, and its favorite's URL is its pinned URL if
+// it's pinned, else the page it's at. A window showing it keeps showing it. Then favorites_changed,
+// and space_changed and tab_state_changed for a tab of a Space.
 BC_EXPORT void bc_tab_move_to_favorites(bc_id tab, size_t index);
 
 // Moves the tab, with the rest of its split view, to |index| in its Space's Today tabs, or in its

@@ -79,7 +79,7 @@ expect '^browser: today [0-9][0-9]*$' "the tab for example.com didn't open in th
 e=$(today)
 expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in the new Space's tab"
 post rightclick 100 112
-expect "^browser: menu shown Rename Space, $colors, Delete Space\$" \
+expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
   "the Space's menu didn't offer its colours"
 send choose Pink
 expect "^browser: colored space $second bf556a\$" "Pink didn't give the Space its colour"

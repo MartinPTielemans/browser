@@ -35,6 +35,8 @@ source_set("browser_core") {
     "platform/window_views.h",
     "popular_sites.cc",
     "popular_sites.h",
+    "profiles.cc",
+    "profiles.h",
     "public/browser_core.h",
     "search.cc",
     "search.h",

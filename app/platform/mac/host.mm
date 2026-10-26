@@ -36,7 +36,9 @@
     }
     // A submenu's items as "Move to Space › Work".
     for (NSMenuItem* inner in item.submenu.itemArray) {
-      add(inner, [NSString stringWithFormat:@"%@ › %@", item.title, inner.title]);
+      if (!inner.separatorItem) {
+        add(inner, [NSString stringWithFormat:@"%@ › %@", item.title, inner.title]);
+      }
     }
   }
   fprintf(stderr, "browser: menu shown %s\n",

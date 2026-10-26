@@ -43,6 +43,8 @@ struct SavedTab {
   int depth = 0;
   // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.
   bool muted = false;
+  // A favorite's profile's directory. A Space's tabs are in the Space's.
+  std::string profile;
 };
 
 // |history|, with the page it's loading if it has no page yet.
@@ -62,6 +64,8 @@ struct SavedFolder {
 struct SavedSpace {
   std::string name;
   std::optional<uint32_t> color;
+  // Its profile's directory, or empty for the profile the core started with.
+  std::string profile;
   // Each top to bottom.
   std::vector<SavedTab> pinned;
   std::vector<SavedFolder> folders;

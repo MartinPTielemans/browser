@@ -139,7 +139,7 @@ fn now() -> f64 {
 struct Fake {
     shell: WeakEntity<Shell>,
     next_id: Cell<u64>,
-    spaces: RefCell<Vec<(u64, SharedString, Option<u32>)>>,
+    spaces: RefCell<Vec<(u64, SharedString, Option<u32>, u64)>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
 }
@@ -272,7 +272,7 @@ impl Browser for Fake {
             favorites.retain(|&id| id != tab);
             favorites.insert(index.min(favorites.len()), tab);
             // The core reports a tab in its new place before it leaves the old.
-            shell.set_favorites(favorites, cx);
+            shell.set_favorites(favorites.into_iter().map(|tab| (tab, 0)).collect(), cx);
             if !favorite {
                 let (mut pinned, mut today) = (shell.pinned().to_vec(), shell.today().to_vec());
                 let mut splits = shell.splits();
@@ -301,7 +301,7 @@ impl Browser for Fake {
             }
             if shell.favorites().contains(&tab) {
                 let favorites = shell.favorites().iter().copied().filter(|&id| id != tab);
-                shell.set_favorites(favorites.collect(), cx);
+                shell.set_favorites(favorites.map(|tab| (tab, 0)).collect(), cx);
             }
         });
     }
@@ -504,10 +504,10 @@ impl Browser for Fake {
         0
     }
 
-    fn create_space(&self, name: &str, cx: &mut App) -> u64 {
+    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
-        self.spaces.borrow_mut().push((space, name.to_string().into(), None));
+        self.spaces.borrow_mut().push((space, name.to_string().into(), None, profile));
         self.report_spaces(cx);
         space
     }
@@ -539,6 +539,20 @@ impl Browser for Fake {
         }
         self.report_spaces(cx);
     }
+
+    fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App) {
+        if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, ..)| *id == space) {
+            entry.3 = profile;
+        }
+        self.report_spaces(cx);
+    }
+
+    // The preview has the one profile.
+    fn create_profile(&self, _: &str, _: &mut App) -> u64 {
+        0
+    }
+
+    fn delete_profile(&self, _: u64, _: &mut App) {}
 
     // The preview's window is GPUI's own, which has the keyboard already.
     fn focus_ui(&self, _: &mut App) {}
@@ -673,9 +687,10 @@ fn main() {
         let window = cx.open_window(options, |window, cx| {
             let shell = cx.new(|cx| {
                 let first_space = TABS.len() as u64 + 1;
-                let spaces: Vec<(u64, SharedString, Option<u32>)> = (first_space..)
+                // The preview's Spaces and favorites are in its one profile, 0.
+                let spaces: Vec<(u64, SharedString, Option<u32>, u64)> = (first_space..)
                     .zip(SPACES)
-                    .map(|(id, (name, color))| (id, name.into(), color))
+                    .map(|(id, (name, color))| (id, name.into(), color, 0))
                     .collect();
                 let first_archived = first_space + SPACES.len() as u64;
                 let archive = (first_archived..)
@@ -713,7 +728,7 @@ fn main() {
                 shell.set_spaces(spaces, cx);
                 shell.set_space(first_space, cx);
                 // The shell forgets what it knows of a tab in no list, so the lists come first.
-                shell.set_favorites(favorites.clone(), cx);
+                shell.set_favorites(favorites.iter().map(|&tab| (tab, 0)).collect(), cx);
                 for (&tab, (title, url)) in favorites.iter().zip(FAVORITES) {
                     shell.set_title(tab, title.into(), cx);
                     shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
