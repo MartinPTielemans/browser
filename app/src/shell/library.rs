@@ -856,7 +856,7 @@ impl Shell {
     fn space_card(&self, space: &Space, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let id = space.id;
         let rows = space.card_lines().into_iter().map(|line| match line {
-            Line::Divider => divider_box(Some(clear_label())).into_any_element(),
+            Line::Divider => divider_box(Some(clear_label(true))).into_any_element(),
             Line::Folder(folder, depth) => {
                 let name = space.folders.folders.get(&folder).map(|(name, _)| name.clone());
                 let name = title(name.unwrap_or_default(), false).pr(px(PLATE_INSET));
