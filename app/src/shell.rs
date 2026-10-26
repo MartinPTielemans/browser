@@ -1935,9 +1935,7 @@ impl Render for Shell {
         let sidebar = sidebar_shown.then(|| {
             let scale = self.sidebar_scale();
             let origin = point(px(width + RECEDE_X), self.viewport.height / 2.);
-            // The Library covers the sidebar up to its edge, which is `cover` before the scale.
-            let edge = self.library_edge() * self.library_width();
-            let cover = f32::from(origin.x) + (edge - f32::from(origin.x)) / scale;
+            let cover = self.sidebar_cut().unwrap_or(0.);
             let sidebar = self.sidebar(cx).left(px(sidebar_left - cover));
             let uncovered = div()
                 .absolute()

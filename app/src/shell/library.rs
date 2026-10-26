@@ -37,9 +37,11 @@ const SIDEBAR_FADE_IN: f32 = 0.13;
 /// middle 128 right of its edge, so it goes down and right at the top and up and right at the
 /// bottom. The Library comes late, from 0.29 of the way, at 0.92 of its width over the way, so
 /// the sidebar is seen receding. That's Arc's at twice the card's speed. Ours is wider, with its
-/// column, so once the sidebar is gone it catches the card up as it stops. (Arc 1.170 at 2×, a
-/// slow swipe open and one closed, the same both ways, in its Spaces section, whose card goes 192
-/// to where the swipe opens it.)
+/// column, so once the sidebar is gone it catches the card up as it stops. Arc's is a sheet that
+/// covers the sidebar up to its edge. Ours has no fill, and cut there the sidebar looks sliced
+/// along a line with nothing on it, so it fades in over the sidebar as the sidebar fades out.
+/// (Arc 1.170 at 2×, a slow swipe open and one closed, the same both ways, in its Spaces section,
+/// whose card goes 192 to where the swipe opens it.)
 const RECEDE_SPAN: f32 = 0.66;
 const RECEDE_SCALE: f32 = 0.076;
 pub(super) const RECEDE_X: f32 = 128.;
@@ -434,6 +436,20 @@ impl Shell {
         }
     }
 
+    /// Where the Library cuts the sidebar off, after a click: at its edge, which comes with the
+    /// card. Receding, the sidebar fades under it uncut.
+    pub(super) fn sidebar_cut(&self) -> Option<f32> {
+        self.clicked_fade().map(|_| self.library_edge() * self.library_width())
+    }
+
+    /// The Library's opacity: whole after a click, and fading in as the sidebar recedes.
+    fn library_opacity(&self) -> f32 {
+        match self.clicked_fade() {
+            Some(_) => 1.,
+            None => receding_library_opacity(self.library_out()),
+        }
+    }
+
     /// Whether fingers, or the settle after them, have the Library where it opens or past, where
     /// it stays with the window's own buttons on its column.
     pub(super) fn library_at_end(&self) -> bool {
@@ -806,6 +822,7 @@ impl Shell {
             .top_0()
             .bottom_0()
             .w(px(width))
+            .opacity(self.library_opacity())
             .child(column)
             .child(edge);
         if spaces {
@@ -1332,6 +1349,11 @@ fn receded_opacity(out: f32) -> f32 {
     (1. - out / RECEDE_SPAN).clamp(0., 1.)
 }
 
+/// The Library's opacity as the sidebar recedes with it `out`: what the sidebar has lost.
+fn receding_library_opacity(out: f32) -> f32 {
+    1. - receded_opacity(out)
+}
+
 /// How far the Library's edge has come (`library_edge`) as the sidebar recedes with it `out`.
 fn receding_edge(out: f32) -> f32 {
     let lagged = |out: f32| LIBRARY_LAG_SPEED * (out - LIBRARY_LAG);
@@ -1376,7 +1398,10 @@ fn of(received: i64, total: i64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{LIBRARY_BAND, Line, Space, library_band, receding_edge};
+    use super::{
+        LIBRARY_BAND, LIBRARY_LAG, Line, RECEDE_SPAN, Space, library_band, receded_opacity,
+        receding_edge, receding_library_opacity as library,
+    };
     use crate::shell::{Folders, Split, rubber_band};
 
     fn space(pinned: &[u64], today: &[u64], folders: Folders, splits: Vec<Split>) -> Space {
@@ -1455,5 +1480,20 @@ mod tests {
             assert!(card < LIBRARY_BAND);
         }
         assert!(library_band(600.) < library_band(2000.));
+    }
+
+    /// Fingers bringing the Library out fade it in over the sidebar as the sidebar fades out, so
+    /// neither is cut: faint as its edge comes, and whole once the sidebar is gone.
+    #[test]
+    fn the_library_fades_in_as_the_sidebar_recedes() {
+        assert!(library(LIBRARY_LAG) < 0.5 && receding_edge(LIBRARY_LAG) == 0.);
+        assert_eq!(library(RECEDE_SPAN), 1.);
+        assert_eq!(receded_opacity(RECEDE_SPAN), 0.);
+        let mut last = 0.;
+        for step in 0..=100 {
+            let out = step as f32 / 100.;
+            assert!(library(out) >= last, "the Library faded back at {out}");
+            last = library(out);
+        }
     }
 }
