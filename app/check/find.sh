@@ -195,7 +195,8 @@ expect '^browser: find bar shown$' "⌘F didn't open the find bar again"
 
 # ⌘0 and ⌘- from the page and the View menu's Zoom In zoom it, for its site, which the profile
 # keeps, so ⌘0 first. The HUD shows the zoom over the card's top right, 8 points under the find
-# bar. A tab shown in its place hides it at once.
+# bar, its pill 16 inside its window, which leaves room for the shadow. A tab shown in its place
+# takes it at once.
 send click $page_point
 send key 0 cmd
 expect '^browser: command actual-size via page$' "⌘0 with the page focused didn't reach the UI"
@@ -206,9 +207,9 @@ expect "^browser: zoom $first 90%\$" "⌘- didn't zoom the page out to 90 %"
 expect '^browser: title [0-9]* zoom 90$' "⌘- didn't zoom the page out"
 expect '^browser: zoom hud shown$' "⌘- didn't show the zoom HUD"
 send layout
-hud=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child .* 80x32$' |
+hud=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child .* 130x80$' |
   sed 's/^browser: layout child //')
-[ "$hud" = "$((content - 100)),60 80x32" ] ||
+[ "$hud" = "$((content - 132)),44 130x80" ] ||
   fail "the zoom HUD is at ${hud:-nowhere} in a window $content wide, under the find bar"
 ../tools/window-screenshot.sh "$pid" "$out/zoom.png" || fail "no window to capture"
 send menu "Zoom In"
