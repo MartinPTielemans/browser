@@ -5,7 +5,9 @@
 # once a check, as later runs type in it too. "x" and "z" each open check.crx, an extension the
 # extensions run puts there, which Chrome installs from. "a" asks to manage windows on all the
 # displays, a permission with no question from macOS, and puts the answer in the title. Keys with
-# ⌘, ⌃ or ⌥ are the browser's. /wait is a page that never comes.
+# ⌘, ⌃ or ⌥ are the browser's. /wait is a page that never comes. login.html is a login form, its
+# username field across the page's top half and its password field across the bottom, that posts
+# to /login, which sends the browser on to welcome.html, as a site that took the login would.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
@@ -33,6 +35,26 @@ onkeydown = e => {
 };
 </script>' > "$out/site/index.html"
 printf 'notes\n' > "$out/site/notes.txt"
+# Its title says "login" once it's drawn, and "filled" once Chrome has filled in a saved password.
+printf '%s' '<title>loading</title>
+<form method="post" action="login">
+<input id=user name=username autocomplete=username
+  style="position:fixed;left:0;top:0;width:100%;height:50%;font:24px system-ui">
+<input id=pass name=password type=password autocomplete=current-password
+  style="position:fixed;left:0;top:50%;width:100%;height:50%;font:24px system-ui">
+<button style="position:fixed;right:0;bottom:0;width:1px;height:1px"></button>
+</form>
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "login"));
+const filled = setInterval(() => {
+  if (pass.matches(":autofill")) {
+    clearInterval(filled);
+    document.title = "filled";
+  }
+}, 100);
+</script>' > "$out/site/login.html"
+printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
+  > "$out/site/welcome.html"
 # The cookie page's title shows the site's cookie and how many times the server has sent its
 # script, which the cache keeps for an hour. "c" in it sets a cookie.
 printf '%s' '<title>loading</title><script src="count.js"></script>
@@ -98,6 +120,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 time.sleep(0.1)
         except OSError:
             pass
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        self.send_response(303)
+        self.send_header("Location", "welcome.html")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
 handler = functools.partial(Handler, directory=sys.argv[1])
 server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)

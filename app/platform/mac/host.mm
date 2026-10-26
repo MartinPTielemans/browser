@@ -249,8 +249,17 @@ struct Browser {
   // when the command bar closes, which isn't the user choosing it.
   bool find_bar_keyboard = false;
 
+  // The offer to save a password: its window and view, its distance from the top right of the
+  // window's content, and whether it has the keyboard, or gets it back, as the find bar does.
+  NSWindow* offer;
+  NSView* offer_view;
+  bool offer_shown = false;
+  double offer_right = 0;
+  double offer_top = 0;
+  bool offer_keyboard = false;
+
   // How far the focused page's top right corner is inside the card's, in a split view, which the
-  // find bar and the HUD keep to.
+  // find bar, the offer and the HUD keep to.
   double page_right = 0;
   double page_top = 0;
 
@@ -496,6 +505,31 @@ void PlaceFindBar(Browser* browser) {
                                      browser->find_bar_right - size.width,
                                  NSMaxY(content) - browser->page_top - browser->find_bar_top -
                                      size.height)];
+}
+
+// 8 points below the find bar while it shows, which would cover it.
+void PlaceOffer(Browser* browser) {
+  NSRect content = [browser->window contentRectForFrameRect:browser->window.frame];
+  NSSize size = browser->offer.frame.size;
+  const double top = browser->find_bar_shown
+                         ? browser->find_bar_top + browser->find_bar.frame.size.height + 8
+                         : browser->offer_top;
+  [browser->offer
+      setFrameOrigin:NSMakePoint(NSMaxX(content) - browser->page_right - browser->offer_right -
+                                     size.width,
+                                 NSMaxY(content) - browser->page_top - top - size.height)];
+}
+
+// The window of |browser| that gets the keyboard back when what had it over the page goes: the find
+// bar or the offer if the user gave it the keyboard, else the browser window.
+NSWindow* KeyWindowOver(Browser* browser) {
+  if (browser->find_bar_shown && browser->find_bar_keyboard) {
+    return browser->find_bar;
+  }
+  if (browser->offer_shown && browser->offer_keyboard) {
+    return browser->offer;
+  }
+  return browser->window;
 }
 
 // Where the UI asked, from the top left of the browser window's content, which a window resized
@@ -1023,7 +1057,8 @@ void host_show_window(void* ui_view) {
   // the click that activates its window.
   constexpr NSEventMask kMouseDown =
       NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown;
-  // The find bar stays open, and a click on its browser window takes the keyboard from it.
+  // The find bar and the offer stay open, and a click on their browser window takes the keyboard
+  // from them.
   static bool watching_clicks = false;
   if (!watching_clicks) {
     watching_clicks = true;
@@ -1035,11 +1070,17 @@ void host_show_window(void* ui_view) {
                                               }
                                               if (event.window == each->window) {
                                                 each->find_bar_keyboard = false;
-                                                if (each->find_bar.keyWindow) {
+                                                each->offer_keyboard = false;
+                                                if (each->find_bar.keyWindow ||
+                                                    each->offer.keyWindow) {
                                                   [each->window makeKeyWindow];
                                                 }
                                               } else if (event.window == each->find_bar) {
                                                 each->find_bar_keyboard = true;
+                                                each->offer_keyboard = false;
+                                              } else if (event.window == each->offer) {
+                                                each->offer_keyboard = true;
+                                                each->find_bar_keyboard = false;
                                               }
                                             }
                                             for (int index = 0;
@@ -1065,6 +1106,9 @@ void host_show_window(void* ui_view) {
                                               usingBlock:^(NSNotification*) {
                                                 if (browser->find_bar_shown) {
                                                   PlaceFindBar(browser);
+                                                }
+                                                if (browser->offer_shown) {
+                                                  PlaceOffer(browser);
                                                 }
                                                 if (g_hud_shown && g_hud_over == browser) {
                                                   PlaceHud();
@@ -1127,9 +1171,9 @@ void host_activate(void* ui_view) {
     [window deminiaturize:nil];
   }
   [window makeKeyAndOrderFront:nil];
-  // Its find bar takes the keyboard back if it had it, as when an overlay over it hides.
-  if (browser->find_bar_shown && browser->find_bar_keyboard) {
-    [browser->find_bar makeKeyWindow];
+  // Its find bar or offer takes the keyboard back if it had it, as when an overlay over it hides.
+  if (NSWindow* over = KeyWindowOver(browser); over != window) {
+    [over makeKeyWindow];
   }
 }
 
@@ -1201,13 +1245,16 @@ void host_forget_window(void* ui_view) {
     browser->reveal_monitor = nil;
   }
   // The entry stays, as the observers made for it hold it and the driver counts windows by it,
-  // but nothing finds it by its window or view again, and they go. The app closes the find bar's
-  // and the reveal's windows.
+  // but nothing finds it by its window or view again, and they go. The app closes the find bar's,
+  // the offer's and the reveal's windows.
   browser->find_bar_shown = false;
+  browser->offer_shown = false;
   browser->window = nil;
   browser->ui_view = nil;
   browser->find_bar = nil;
   browser->find_bar_view = nil;
+  browser->offer = nil;
+  browser->offer_view = nil;
   browser->reveal = nil;
   browser->reveal_view = nil;
 }
@@ -1252,11 +1299,13 @@ void host_add_overlay(int index, void* overlay_view, double radius, void (*dismi
                         host_dismiss_overlay(index);
                       }
                     } else if (index == 0 && !g_dialog_shown && browser &&
-                               browser->find_bar_shown && browser->find_bar_keyboard &&
                                std::none_of(std::begin(g_overlays), std::end(g_overlays),
                                             [](const Overlay& other) { return other.shown; })) {
-                      // The same for the find bar, which the user left only by clicking.
-                      [browser->find_bar makeKeyWindow];
+                      // The same for the find bar and the offer, which the user left only by
+                      // clicking.
+                      if (NSWindow* over = KeyWindowOver(browser); over != window) {
+                        [over makeKeyWindow];
+                      }
                     }
                   }];
 }
@@ -1441,8 +1490,7 @@ void host_hide_overlay(int index) {
   [browser->window removeChildWindow:overlay->window];
   [overlay->window orderOut:nil];
   overlay->shadow.alphaValue = 0;
-  [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
-      makeKeyWindow];
+  [KeyWindowOver(browser) makeKeyWindow];
   fprintf(stderr, "browser: %s hidden\n", overlay->name);
 }
 
@@ -1486,6 +1534,9 @@ void host_show_find_bar(void* ui_view, bool keyboard) {
   }
   NSWindow* find_bar = browser->find_bar;
   browser->find_bar_keyboard = browser->find_bar_keyboard || keyboard;
+  if (keyboard) {
+    browser->offer_keyboard = false;
+  }
   if (browser->find_bar_shown) {
     // Once it's on screen. Until then, it takes the keyboard as it goes on.
     if (keyboard && find_bar.visible) {
@@ -1518,6 +1569,9 @@ void host_show_find_bar(void* ui_view, bool keyboard) {
     } else {
       RaiseOverlays(browser, find_bar);
     }
+    if (browser->offer_shown) {
+      PlaceOffer(browser);
+    }
     if (g_hud_shown && g_hud_over == browser) {
       PlaceHud();
     }
@@ -1538,10 +1592,70 @@ void host_hide_find_bar(void* ui_view) {
   if (had_keyboard) {
     [browser->window makeKeyWindow];
   }
+  if (browser->offer_shown) {
+    PlaceOffer(browser);
+  }
   if (g_hud_shown && g_hud_over == browser) {
     PlaceHud();
   }
   fprintf(stderr, "browser: find bar hidden\n");
+}
+
+void host_add_offer(void* ui_view, void* offer_view, double right, double top) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
+  }
+  browser->offer_view = (__bridge NSView*)offer_view;
+  browser->offer = browser->offer_view.window;
+  browser->offer_right = right;
+  browser->offer_top = top;
+  MakeOverlay(browser->offer);
+  // The UI draws the card's rounded shape, which a borderless window's shadow takes.
+  browser->offer.styleMask = NSWindowStyleMaskBorderless;
+  browser->offer.hasShadow = YES;
+}
+
+void host_show_offer(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser || !browser->offer || !browser->window || browser->offer_shown) {
+    return;
+  }
+  browser->offer_shown = true;
+  NSWindow* offer = browser->offer;
+  // As the find bar does: it goes on screen once it has drawn what it shows now.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!browser->offer_shown) {
+      return;
+    }
+    [browser->offer_view.layer setNeedsDisplay];
+    [browser->offer_view.layer displayIfNeeded];
+    [offer invalidateShadow];
+    PlaceOffer(browser);
+    [browser->window addChildWindow:offer ordered:NSWindowAbove];
+    RaiseOverlays(browser, offer);
+    // The core reports an offer when it comes, which can be while a dialog covers the window.
+    if (g_dialog_shown && g_dialog_over == browser && g_dialog.visible) {
+      [g_dialog orderWindow:NSWindowAbove relativeTo:offer.windowNumber];
+    }
+    fprintf(stderr, "browser: offer shown\n");
+  });
+}
+
+void host_hide_offer(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser || !browser->offer_shown) {
+    return;
+  }
+  browser->offer_shown = false;
+  browser->offer_keyboard = false;
+  const bool had_keyboard = browser->offer.keyWindow;
+  [browser->window removeChildWindow:browser->offer];
+  [browser->offer orderOut:nil];
+  if (had_keyboard) {
+    [browser->window makeKeyWindow];
+  }
+  fprintf(stderr, "browser: offer hidden\n");
 }
 
 void host_set_pane_corner(void* ui_view, double right, double top) {
@@ -1553,6 +1667,9 @@ void host_set_pane_corner(void* ui_view, double right, double top) {
   browser->page_top = top;
   if (browser->find_bar_shown) {
     PlaceFindBar(browser);
+  }
+  if (browser->offer_shown) {
+    PlaceOffer(browser);
   }
   if (g_hud_shown && g_hud_over == browser) {
     PlaceHud();
@@ -1710,8 +1827,7 @@ void host_hide_dialog(void) {
   Browser* browser = g_dialog_over;
   [browser->window removeChildWindow:g_dialog];
   [g_dialog orderOut:nil];
-  [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
-      makeKeyWindow];
+  [KeyWindowOver(browser) makeKeyWindow];
 }
 
 void host_add_site_controls(void* view, void (*dismissed)(void)) {
@@ -1873,8 +1989,7 @@ void host_release_site_controls(void) {
   g_site_controls.ignoresMouseEvents = YES;
   if (g_site_controls.keyWindow) {
     Browser* browser = g_site_controls_over;
-    [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
-        makeKeyWindow];
+    [KeyWindowOver(browser) makeKeyWindow];
   }
   fprintf(stderr, "browser: site controls released\n");
 }
@@ -1991,8 +2106,7 @@ void host_hide_capture(void) {
   }
   [g_capture orderOut:nil];
   if (key) {
-    [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
-        makeKeyWindow];
+    [KeyWindowOver(browser) makeKeyWindow];
   }
   [NSCursor.arrowCursor set];
   fprintf(stderr, "browser: capture hidden\n");
