@@ -45,9 +45,9 @@
 //   dragleave                             takes the drag away, as cancelled
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
-//   layout                                logs the frames of the window's views and child
-//                                         windows, and the centres of its close, minimize and
-//                                         zoom buttons
+//   layout                                logs the frames of the window's views, a hidden one
+//                                         marked so, and child windows, and the centres of its
+//                                         close, minimize and zoom buttons
 //   state                                 nothing, for the done line's report
 //   title                                 logs the key window's title, as "browser: key window
 //                                         titled <title>", such as a window of Chrome's
@@ -554,6 +554,9 @@ void AppendViews(NSMutableString* line, NSView* content, NSView* parent) {
                        NSMinX(frame), NSMinY(frame), NSWidth(frame), NSHeight(frame)];
     if (view.layer.masksToBounds && view.layer.cornerRadius > 0) {
       [line appendFormat:@" radius %.0f", view.layer.cornerRadius];
+    }
+    if (view.hidden) {
+      [line appendString:@" hidden"];
     }
   }
 }

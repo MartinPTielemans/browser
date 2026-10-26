@@ -1,9 +1,9 @@
 #!/bin/sh
-# Runs the app and checks what it does, in eighteen runs that launch it thirty-two times. Each run's
-# file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in that order,
-# and ./check.sh all of them:
+# Runs the app and checks what it does, in nineteen runs that launch it thirty-four times. Each
+# run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in that
+# order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore find pinned clear split
-#   favorites extensions windows private
+#   favorites extensions windows private webkit
 # Every run but load needs Browser to be the active app, and window and find take it full screen
 # for a moment.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
@@ -13,7 +13,7 @@ set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces agents profiles restore find pinned clear split"
-runs="$runs favorites extensions windows private"
+runs="$runs favorites extensions windows private webkit"
 for run in "$@"; do
   case " $runs " in
     *" $run "*) ;;
