@@ -71,6 +71,9 @@ struct ClosedTab {
   // Its place in the Space's Today tabs.
   size_t index = 0;
   SavedTab saved;
+  // A tab of the split view it was in, else 0, and its place in the split, from the left.
+  bc_id split_with = 0;
+  size_t split_index = 0;
 };
 
 // As many as Chrome keeps.
@@ -122,8 +125,14 @@ void KeepClosed(content::WebContents* contents) {
   saved.muted = contents->IsAudioMuted();
   Archive(id, saved.history[saved.current].virtual_url(), Tab::FromWebContents(contents)->Title());
   const size_t index = std::ranges::find(space->today(), id) - space->today().begin();
-  ClosedTabs().push_back(
-      {.id = id, .space = space->id(), .index = index, .saved = std::move(saved)});
+  const std::vector<bc_id> panes = space->Panes(id);
+  const size_t split_index = std::ranges::find(panes, id) - panes.begin();
+  ClosedTabs().push_back({.id = id,
+                          .space = space->id(),
+                          .index = index,
+                          .saved = std::move(saved),
+                          .split_with = panes.size() < 2 ? 0 : panes[split_index == 0 ? 1 : 0],
+                          .split_index = split_index});
   if (ClosedTabs().size() > kMaxClosedTabs) {
     ClosedTabs().erase(ClosedTabs().begin());
   }
@@ -929,6 +938,23 @@ bc_id Window::ReopenClosedTab() {
   }
   const ClosedTab closed = *TakeClosed(ClosedTabs().back().id);
   const bc_id tab = Reopen(closed.space, closed.index, closed.saved);
+  if (!tab) {
+    return 0;
+  }
+  // Tabs that closed with it in its split view, as its row's ✕ closes them, rejoin it as they come
+  // back.
+  for (ClosedTab& other : ClosedTabs()) {
+    if (other.split_with == closed.id) {
+      other.split_with = tab;
+    }
+  }
+  // Back in its split view, at its place, if a tab of it is still open and the split has room.
+  Space* space = Space::Holding(tab);
+  if (space && closed.split_with &&
+      space->Split(tab, closed.split_with, Tab::PageUrl(Tab::FromId(tab)), /*left=*/false)) {
+    space->MoveInSplit(tab, closed.split_index);
+    PanesChanged();
+  }
   Select(tab);
   return tab;
 }
