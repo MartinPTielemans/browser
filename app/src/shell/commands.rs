@@ -830,7 +830,7 @@ impl Shell {
             return None;
         }
         let (text, toast) = match markdown {
-            false => (url.clone(), "Copied URL"),
+            false => (url.clone(), "Copied Current URL"),
             true => {
                 let title = markdown_text(&self.title(self.selected));
                 (format!("[{title}]({url})"), "Copied URL as Markdown")

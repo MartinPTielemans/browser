@@ -16,14 +16,14 @@ use gpui::{
     rgba, size,
 };
 
-use crate::shell::{cubic_bezier, scaled::scaled_from_top, spring};
+use crate::shell::{CARD_INSET, cubic_bezier, scaled::scaled_from_top, spring};
 
-// Arc's, measured at 2× (docs/ux-spec.md › Toast): 46.5 tall, 4.5 in from the window's right edge
-// and 4 down from its top, its text 12.5 in from its left and 13.5 from its right, and a key's
-// chip 8 from the words each side of it.
+// Arc's, measured at 2× (docs/ux-spec.md › Toast): 46.5 tall, 8 inside the card's top right
+// corner, its text 12.5 in from its left and 13.5 from its right, and a key's chip 8 from the words
+// each side of it.
 const HEIGHT: f32 = 46.5;
-const RIGHT: f32 = 4.5;
-const TOP: f32 = 4.;
+const RIGHT: f32 = CARD_INSET + 8.;
+const TOP: f32 = CARD_INSET + 8.;
 const TEXT_LEFT: f32 = 12.5;
 const TEXT_RIGHT: f32 = 13.5;
 const RADIUS: f32 = 10.;
@@ -43,7 +43,7 @@ const SHADE: f32 = 0.78;
 /// Its window, wide enough for the longest toast and tall enough for its shadow, at the browser
 /// window's top right.
 pub const WINDOW_WIDTH: f32 = 420.;
-pub const WINDOW_HEIGHT: f32 = 72.;
+pub const WINDOW_HEIGHT: f32 = 84.;
 /// Arc's motion: it grows from 0.7 of its size about the middle of its top edge on a spring of
 /// 0.32 s and ζ 0.52, fading in over the first 0.1 s, and leaves the way it came over 0.07 s,
 /// speeding up.
