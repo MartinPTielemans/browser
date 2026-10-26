@@ -31,6 +31,7 @@ mod drop_targets;
 mod find_bar;
 mod reveal;
 mod settings;
+mod webkit_tabs;
 
 /// The host's overlays (platform/mac/host.h).
 const COMMAND_BAR: c_int = 0;
@@ -61,6 +62,26 @@ mod platform {
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
+        pub fn host_webkit_start(
+            link: extern "C" fn(u64, *const c_char, c_int) -> bool,
+            key: extern "C" fn(u64, *const c_char, u32, bool) -> bool,
+            focused: extern "C" fn(u64),
+        );
+        pub fn host_webkit_show(
+            tab: u64,
+            profile_path: *const c_char,
+            private_session: bool,
+            url: *const c_char,
+        );
+        pub fn host_webkit_has(tab: u64) -> bool;
+        pub fn host_webkit_go(tab: u64, step: c_int) -> bool;
+        pub fn host_webkit_reload(tab: u64, bypass_cache: bool);
+        pub fn host_webkit_stop(tab: u64);
+        pub fn host_webkit_set_muted(tab: u64, muted: bool);
+        pub fn host_webkit_close(tab: u64);
+        pub fn host_webkit_clear_site(tab: u64, cookies: bool);
+        pub fn host_webkit_end_private(profile_path: *const c_char);
+        pub fn host_webkit_delete_profile(profile_path: *const c_char);
         pub fn host_forget_window(ui_view: *mut c_void);
         pub fn host_add_overlay(
             overlay: c_int,
@@ -1222,19 +1243,31 @@ impl Browser for Engine {
     }
 
     fn go_back(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_go_back(tab) };
+        match webkit_tabs::has(tab) {
+            true => webkit_tabs::go_back(tab),
+            false => unsafe { bc::bc_tab_go_back(tab) },
+        }
     }
 
     fn go_forward(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_go_forward(tab) };
+        match webkit_tabs::has(tab) {
+            true => webkit_tabs::go_forward(tab),
+            false => unsafe { bc::bc_tab_go_forward(tab) },
+        }
     }
 
     fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
-        unsafe { bc::bc_tab_reload(tab, bypass_cache) };
+        match webkit_tabs::has(tab) {
+            true => webkit_tabs::reload(tab, bypass_cache),
+            false => unsafe { bc::bc_tab_reload(tab, bypass_cache) },
+        }
     }
 
     fn clear_site(&self, tab: u64, cookies: bool, _: &mut App) {
-        unsafe { bc::bc_tab_clear_site(tab, cookies) };
+        match webkit_tabs::has(tab) {
+            true => webkit_tabs::clear_site(tab, cookies),
+            false => unsafe { bc::bc_tab_clear_site(tab, cookies) },
+        }
     }
 
     fn answer_permission(&self, tab: u64, answer: shell::Answer, _: &mut App) {
@@ -1247,11 +1280,15 @@ impl Browser for Engine {
     }
 
     fn stop(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_stop(tab) };
+        match webkit_tabs::has(tab) {
+            true => webkit_tabs::stop(tab),
+            false => unsafe { bc::bc_tab_stop(tab) },
+        }
     }
 
+    // What Chromium does to a page, a WebKit tab's doesn't have (decision 9).
     fn zoom(&self, tab: u64, step: i32, cx: &mut App) {
-        if tab == 0 {
+        if tab == 0 || webkit_tabs::has(tab) {
             return;
         }
         let percent = unsafe { bc::bc_tab_zoom(tab, step) };
@@ -1261,25 +1298,25 @@ impl Browser for Engine {
     }
 
     fn view_source(&self, tab: u64, _: &mut App) {
-        if tab != 0 {
+        if tab != 0 && !webkit_tabs::has(tab) {
             unsafe { bc::bc_tab_view_source(tab) };
         }
     }
 
     fn save_page(&self, tab: u64, _: &mut App) {
-        if tab != 0 {
+        if tab != 0 && !webkit_tabs::has(tab) {
             unsafe { bc::bc_tab_save_page(tab) };
         }
     }
 
     fn print(&self, tab: u64, _: &mut App) {
-        if tab != 0 {
+        if tab != 0 && !webkit_tabs::has(tab) {
             unsafe { bc::bc_tab_print(tab) };
         }
     }
 
     fn devtools(&self, tab: u64, what: i32, _: &mut App) {
-        if tab != 0 {
+        if tab != 0 && !webkit_tabs::has(tab) {
             unsafe { bc::bc_tab_devtools(tab, what) };
         }
     }
@@ -1395,7 +1432,10 @@ impl Browser for Engine {
     }
 
     fn delete_profile(&self, profile: u64, _: &mut App) {
-        unsafe { bc::bc_profile_delete(profile) };
+        let webkit_store = webkit_tabs::profile_store(profile);
+        if unsafe { bc::bc_profile_delete(profile) } {
+            webkit_store.as_deref().map(webkit_tabs::profile_deleted);
+        }
     }
 
     fn menu(
@@ -1532,7 +1572,9 @@ impl Browser for Engine {
     }
 
     fn find(&self, tab: u64, cx: &mut App) {
-        find_bar::show(self.window, tab, cx);
+        if !webkit_tabs::has(tab) {
+            find_bar::show(self.window, tab, cx);
+        }
     }
 
     fn site_controls(
@@ -1543,7 +1585,9 @@ impl Browser for Engine {
         extensions: Vec<site_controls::Extension>,
         cx: &mut App,
     ) {
-        site_controls::show(tab, place, window, extensions, cx);
+        if !webkit_tabs::has(tab) {
+            site_controls::show(tab, place, window, extensions, cx);
+        }
     }
 
     fn capture(
@@ -1554,6 +1598,10 @@ impl Browser for Engine {
         full_page: bool,
         cx: &mut App,
     ) {
+        // Chromium can't capture what a WebKit tab shows (decision 9).
+        if webkit_tabs::has(tab) {
+            return;
+        }
         match full_page {
             true => capture::full_page(tab, cx),
             false => capture::start(tab, frame, radius, cx),
@@ -1561,11 +1609,13 @@ impl Browser for Engine {
     }
 
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
-        find_bar::find_next(self.window, tab, forward, cx);
+        if !webkit_tabs::has(tab) {
+            find_bar::find_next(self.window, tab, forward, cx);
+        }
     }
 
     fn jump_to_selection(&self, tab: u64, _: &mut App) {
-        if tab != 0 {
+        if tab != 0 && !webkit_tabs::has(tab) {
             unsafe { bc::bc_tab_jump_to_selection(tab) };
         }
     }
@@ -2266,6 +2316,7 @@ unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
 unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
     // check.sh reads this line.
     log!("browser: private session ended {profile}");
+    webkit_tabs::private_session_ended(profile);
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
@@ -2423,6 +2474,7 @@ unsafe extern "C" fn tab_state_changed(
     state: *const bc::bc_tab_state,
 ) {
     let state = unsafe { &*state };
+    webkit_tabs::state_changed(tab, state);
     let page = Page {
         url: unsafe { CStr::from_ptr(state.url) }
             .to_string_lossy()
@@ -2647,6 +2699,7 @@ unsafe extern "C" fn tab_opened(
 unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
     log!("browser: tab {tab} closed");
     find_bar::forget(tab);
+    webkit_tabs::closed(tab);
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         let executor = cx.foreground_executor().clone();
         executor
@@ -2858,6 +2911,7 @@ fn main() {
     if std::env::var_os("BROWSER_DRIVE").is_some() {
         unsafe { platform::drive_start() };
     }
+    webkit_tabs::start();
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let host = bc::bc_host {
         started: Some(started),
@@ -2892,6 +2946,7 @@ fn main() {
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
+        tab_navigating: Some(webkit_tabs::tab_navigating),
         ..Default::default()
     };
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
