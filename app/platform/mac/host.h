@@ -127,6 +127,30 @@ void host_show_dialog(void* ui_view);
 // was.
 void host_hide_dialog(void);
 
+// Makes the window of |view| the Site Controls', which float over a browser window as its child
+// when shown, with a shadow in the rounded shape the UI draws. It starts hidden. |dismissed| runs,
+// after the event, when the user leaves them: a click outside them, another window taking the
+// keyboard, or switching apps.
+void host_add_site_controls(void* view, void (*dismissed)(void));
+
+// Shows the Site Controls over |ui_view|'s window, as the UI draws them now, with the keyboard:
+// |width| by |height| points, their top left at |left|, |top| in the window's content.
+void host_show_site_controls(void* ui_view, double left, double top, double width, double height);
+
+// Makes the Site Controls |height| points tall, keeping their top edge, and draws them at that
+// size.
+void host_set_site_controls_height(double height);
+
+// The UI drew a frame of the Site Controls' motion, whose shadow follows it.
+void host_site_controls_drew(void);
+
+// The Site Controls take no more clicks or keys as they leave: the mouse goes through them, and the
+// browser window gets the keyboard back, with the focus where it was, if they had it.
+void host_release_site_controls(void);
+
+// Hides the Site Controls once they've left.
+void host_hide_site_controls(void);
+
 // Makes the window of |toast_view| the toast's, which floats over a browser window's top right
 // corner when shown, as its child, and lets the mouse through. It starts hidden.
 void host_add_toast(void* toast_view);

@@ -3,14 +3,14 @@
 //! Chromium owns the application object and the run loop.
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     ffi::{CStr, CString, c_char, c_int, c_void},
     rc::Rc,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use browser::{command_bar, dialog, icon_picker, log, toast, tooltip};
+use browser::{command_bar, dialog, icon_picker, log, site_controls, toast, tooltip};
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, Folders, MenuEntry, Page, Shell, Split, WindowButton,
@@ -148,6 +148,18 @@ mod platform {
         pub fn host_add_dialog(dialog_view: *mut c_void);
         pub fn host_show_dialog(ui_view: *mut c_void);
         pub fn host_hide_dialog();
+        pub fn host_add_site_controls(view: *mut c_void, dismissed: extern "C" fn());
+        pub fn host_show_site_controls(
+            ui_view: *mut c_void,
+            left: f64,
+            top: f64,
+            width: f64,
+            height: f64,
+        );
+        pub fn host_set_site_controls_height(height: f64);
+        pub fn host_site_controls_drew();
+        pub fn host_release_site_controls();
+        pub fn host_hide_site_controls();
         pub fn host_add_toast(toast_view: *mut c_void);
         pub fn host_show_toast(ui_view: *mut c_void);
         pub fn host_hide_toast();
@@ -532,6 +544,83 @@ impl dialog::Host for DialogHost {
     fn hide(&self) {
         unsafe { platform::host_hide_dialog() };
     }
+}
+
+/// The Site Controls' requests, as calls to the core and to the host's window for them, over the
+/// window in front (`front`).
+struct SiteControlsHost {
+    /// The panel's view, for its menus, once its window is open.
+    view: Cell<*mut c_void>,
+}
+
+impl site_controls::Host for SiteControlsHost {
+    fn show(&self, at: Point<Pixels>, size: gpui::Size<Pixels>) {
+        let (left, top) = (f64::from(at.x), f64::from(at.y));
+        let (width, height) = (f64::from(size.width), f64::from(size.height));
+        unsafe { platform::host_show_site_controls(front().1, left, top, width, height) };
+    }
+
+    fn set_height(&self, height: f32) {
+        unsafe { platform::host_set_site_controls_height(f64::from(height)) };
+    }
+
+    fn drew(&self) {
+        unsafe { platform::host_site_controls_drew() };
+    }
+
+    fn release(&self) {
+        unsafe { platform::host_release_site_controls() };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_site_controls() };
+    }
+
+    fn read(&self, tab: u64) {
+        unsafe { bc::bc_tab_site_controls(tab) };
+    }
+
+    fn stop_reading(&self) {
+        unsafe { bc::bc_site_controls_close() };
+    }
+
+    fn set_permission(&self, tab: u64, kind: i32, value: site_controls::Value) {
+        let value = match value {
+            site_controls::Value::Allow => bc::BC_SITE_ALLOW,
+            site_controls::Value::Block => bc::BC_SITE_BLOCK,
+            site_controls::Value::Ask => bc::BC_SITE_ASK,
+        };
+        unsafe { bc::bc_tab_set_site_permission(tab, kind, value as i32) };
+    }
+
+    fn reset_permissions(&self, tab: u64) {
+        unsafe { bc::bc_tab_reset_site_permissions(tab) };
+    }
+
+    fn run(&self, tile: site_controls::Tile, tab: u64, cx: &mut App) {
+        // Copy Clean Link and Find are the shell's commands, which the keys and the command bar
+        // run too.
+        let command = match tile {
+            site_controls::Tile::CopyLink => Command::CopyUrl,
+            site_controls::Tile::Find => Command::Find,
+            site_controls::Tile::PictureInPicture => {
+                unsafe { bc::bc_tab_picture_in_picture(tab) };
+                return;
+            }
+        };
+        if let Some(window) = tab_window(tab, cx) {
+            window.shell.update(cx, |shell, cx| shell.run(command, "site-controls", cx)).ok();
+        }
+    }
+
+    fn menu(&self, items: &[MenuEntry], position: Point<Pixels>) -> Option<usize> {
+        show_field_menu(items, position, self.view.get())
+    }
+}
+
+/// The user left the Site Controls: a click outside them, another window or another app.
+extern "C" fn site_controls_dismissed() {
+    update_app(site_controls::dismissed);
 }
 
 /// The toast's requests, to the host's toast window.
@@ -1190,6 +1279,10 @@ impl Browser for Engine {
         find_bar::show(self.window, tab, cx);
     }
 
+    fn site_controls(&self, tab: u64, at: Point<Pixels>, anchor: Bounds<Pixels>, cx: &mut App) {
+        site_controls::show(tab, at, anchor, cx);
+    }
+
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
         find_bar::find_next(self.window, tab, forward, cx);
     }
@@ -1602,6 +1695,16 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
         && let Ok(view) = toast.update(cx, |_, window, _| ns_view(window))
     {
         unsafe { platform::host_add_toast(view) };
+    }
+    let host = Rc::new(SiteControlsHost { view: Cell::new(std::ptr::null_mut()) });
+    if let Some(panel) = site_controls::open(
+        host.clone(),
+        move |cx| fill(cx).unwrap_or_default(),
+        cx,
+    ) && let Ok(view) = panel.update(cx, |_, window, _| ns_view(window))
+    {
+        host.view.set(view);
+        unsafe { platform::host_add_site_controls(view, site_controls_dismissed) };
     }
     if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
         && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
@@ -2214,10 +2317,66 @@ unsafe extern "C" fn tab_opened(
 }
 
 // Called while Chromium closes the tab, which can be inside a GPUI update that asked for it, so
-// the shell hears of it from space_changed instead.
+// the shell hears of it from space_changed instead, and Site Controls once that update is over.
 unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
     log!("browser: tab {tab} closed");
     find_bar::forget(tab);
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        let executor = cx.foreground_executor().clone();
+        executor.spawn(async move { cx.update(|cx| site_controls::tab_closed(tab, cx)) }).detach();
+    }
+}
+
+unsafe extern "C" fn tab_site_controls(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    controls: *const bc::bc_site_controls,
+) {
+    let controls = unsafe { &*controls };
+    let string = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let value = |value: u32| match value {
+        bc::BC_SITE_ALLOW => site_controls::Value::Allow,
+        bc::BC_SITE_BLOCK => site_controls::Value::Block,
+        _ => site_controls::Value::Ask,
+    };
+    let bit = |each: site_controls::Value| match each {
+        site_controls::Value::Allow => bc::BC_SITE_ALLOW,
+        site_controls::Value::Block => bc::BC_SITE_BLOCK,
+        site_controls::Value::Ask => bc::BC_SITE_ASK,
+    };
+    let permissions = match controls.count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(controls.permissions, count) },
+    };
+    let site = site_controls::Site {
+        site: string(controls.site),
+        connection: match controls.connection as u32 {
+            bc::BC_CONNECTION_SECURE => site_controls::Connection::Secure,
+            bc::BC_CONNECTION_INTERNAL => site_controls::Connection::Internal,
+            _ => site_controls::Connection::NotSecure,
+        },
+        connection_summary: string(controls.connection_summary),
+        permissions: permissions
+            .iter()
+            .map(|permission| site_controls::Permission {
+                kind: permission.type_,
+                name: string(permission.name),
+                value: value(permission.value as u32),
+                choices: (site_controls::Value::ALL.into_iter())
+                    .filter(|&each| permission.choices & (1 << bit(each)) != 0)
+                    .collect(),
+            })
+            .collect(),
+        reset: Some(string(controls.reset)).filter(|reset| !reset.is_empty()),
+        picture_in_picture: match controls.picture_in_picture as u32 {
+            bc::BC_PICTURE_IN_PICTURE_ENTER => site_controls::PictureInPicture::Enter,
+            bc::BC_PICTURE_IN_PICTURE_EXIT => site_controls::PictureInPicture::Exit,
+            _ => site_controls::PictureInPicture::None,
+        },
+    };
+    update_app(|cx| site_controls::changed(tab, site, cx));
 }
 
 unsafe extern "C" fn tab_find_changed(
@@ -2396,6 +2555,7 @@ fn main() {
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         tab_permission_asked: Some(tab_permission_asked),
+        tab_site_controls: Some(tab_site_controls),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),

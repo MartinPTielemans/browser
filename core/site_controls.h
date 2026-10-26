@@ -1,0 +1,73 @@
+#ifndef BROWSER_CORE_SITE_CONTROLS_H_
+#define BROWSER_CORE_SITE_CONTROLS_H_
+
+#include <memory>
+#include <string>
+
+#include "base/memory/weak_ptr.h"
+#include "browser_core/public/browser_core.h"
+#include "components/page_info/page_info.h"
+#include "components/page_info/page_info_ui.h"
+#include "content/public/browser/web_contents_observer.h"
+
+class ChromePageInfoUiDelegate;
+
+namespace browser_core {
+
+// The site of the tab's page as the app's Site Controls show it, in place of Chrome's page info
+// bubble (tab_site_controls): its permissions as Chrome's page info lists them, its connection,
+// and whether it plays a video that can go Picture in Picture. One tab's at a time, while the
+// app's panel shows.
+class SiteControls : public PageInfoUI, public content::WebContentsObserver {
+ public:
+  // See bc_tab_site_controls and the calls after it.
+  static void Open(bc_id tab);
+  static void Close();
+  static void SetPermission(bc_id tab, int type, int value);
+  static void Reset(bc_id tab);
+  static void PictureInPicture(bc_id tab);
+
+  SiteControls(const SiteControls&) = delete;
+  SiteControls& operator=(const SiteControls&) = delete;
+  ~SiteControls() override;
+
+ private:
+  explicit SiteControls(content::WebContents* contents);
+
+  // Reads the site of the page the tab is at now.
+  void Read();
+
+  // PageInfoUI:
+  void SetPermissionInfo(const PermissionInfoList& permission_info_list,
+                         ChosenObjectInfoList chosen_object_info_list) override;
+  void SetIdentityInfo(const IdentityInfo& identity_info) override;
+
+  // content::WebContentsObserver:
+  void PrimaryPageChanged(content::Page& page) override;
+  void MediaStartedPlaying(const MediaPlayerInfo& info, const content::MediaPlayerId& id) override;
+  void MediaStoppedPlaying(const MediaPlayerInfo& info,
+                           const content::MediaPlayerId& id,
+                           MediaStoppedReason reason) override;
+  void MediaPictureInPictureChanged(bool is_picture_in_picture) override;
+  void WebContentsDestroyed() override;
+
+  // Tells the app from a task of its own: PageInfo reports inside the app's calls that change a
+  // permission, and a burst of changes is one call.
+  void Changed();
+  void Report();
+
+  const bc_id tab_;
+  std::unique_ptr<ChromePageInfoUiDelegate> ui_delegate_;
+  // Null for a file or a browser page, which Chrome's page info shows no permissions for.
+  std::unique_ptr<PageInfo> page_info_;
+  PermissionInfoList permissions_;
+  std::string site_;
+  int connection_ = BC_CONNECTION_NOT_SECURE;
+  std::u16string connection_summary_;
+  bool reporting_ = false;
+  base::WeakPtrFactory<SiteControls> weak_factory_{this};
+};
+
+}  // namespace browser_core
+
+#endif  // BROWSER_CORE_SITE_CONTROLS_H_

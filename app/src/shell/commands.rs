@@ -55,6 +55,8 @@ pub enum Command {
     /// Copies a Markdown link to the selected tab: its title, then its URL.
     CopyMarkdownLink,
     Find,
+    /// Opens the Site Controls for the selected tab's site, or closes them.
+    SiteControls,
     FindNext,
     FindPrevious,
     /// Scrolls the page to its selection.
@@ -238,6 +240,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Copy URL", Command::CopyUrl),
     ("Copy URL as Markdown", Command::CopyMarkdownLink),
     ("Find", Command::Find),
+    ("Site Controls", Command::SiteControls),
     ("Go Back", Command::Back),
     ("Go Forward", Command::Forward),
     ("Refresh the Page", Command::Reload),
@@ -439,6 +442,7 @@ impl Command {
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
             Command::Find => "find",
+            Command::SiteControls => "site-controls",
             Command::FindNext => "find-next",
             Command::FindPrevious => "find-previous",
             Command::JumpToSelection => "jump-to-selection",
@@ -709,6 +713,7 @@ impl Shell {
                 return self.show_space_at(space.and_then(|index| index.checked_sub(1)), cx);
             }
             Command::Find => return self.browser.find(self.selected, cx),
+            Command::SiteControls => return self.site_controls(cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),
             Command::FindPrevious => return self.browser.find_next(self.selected, false, cx),
             Command::JumpToSelection => return self.browser.jump_to_selection(self.selected, cx),

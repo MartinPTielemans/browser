@@ -244,6 +244,9 @@ pub trait Browser {
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App);
     /// Opens the tab's find bar with the keyboard.
     fn find(&self, tab: u64, cx: &mut App);
+    /// Opens the Site Controls for the site of the tab's page, or closes them if they show: the
+    /// panel's top left at `at` in the window, growing from `anchor`, the button that opened it.
+    fn site_controls(&self, tab: u64, at: Point<Pixels>, anchor: Bounds<Pixels>, cx: &mut App);
     /// Opens the Settings window, or brings it to the front.
     fn settings(&self, cx: &mut App);
     /// Opens the Settings window on its Shortcuts tab.

@@ -4,7 +4,8 @@
 use std::time::Instant;
 
 use gpui::{
-    Bounds, Context, Hsla, Pixels, Window, div, hsla, point, prelude::*, px, rgba, size, svg,
+    Bounds, Context, Hsla, MouseButton, Pixels, Window, div, hsla, point, prelude::*, px, rgba,
+    size, svg,
 };
 
 use super::{
@@ -14,6 +15,14 @@ use super::{
     URL_FIELD, URL_FIELD_HEIGHT, URL_FIELD_TEXT_X, URL_FIELD_TOP, fade_at, host,
     swap::{CHECK, LINK},
 };
+
+/// Arc's field buttons: Site Control Center 1 pt past the field's end and Copy URL 28 before it,
+/// their plates overlapping by 2 (x 191 and 163 of 228). Pinned extensions' buttons keep the
+/// field's end, and these go before them.
+const SITE_CONTROLS_END: f32 = -1.;
+const TOOL_PITCH: f32 = 28.;
+/// The Site Controls hang this far under the field, as the page's question does.
+const SITE_CONTROLS_GAP: f32 = 6.;
 
 impl Shell {
     /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
@@ -88,25 +97,66 @@ impl Shell {
         })
     }
 
+    /// Where the Site Controls button ends, in from the URL field's end: Arc's place, or before
+    /// the pinned extensions' buttons.
+    fn site_controls_end(&self) -> f32 {
+        let (shown, overflow) = self.shown_actions();
+        match shown + overflow as usize {
+            0 => SITE_CONTROLS_END,
+            places => URL_BUTTON_INSET + places as f32 * URL_BUTTON_SIZE,
+        }
+    }
+
+    /// Opens the Site Controls under the URL field, growing from their button, or with the field
+    /// hidden at the page's top left corner, as an extension's popup is; or closes them.
+    pub(super) fn site_controls(&mut self, cx: &mut Context<Self>) {
+        if self.selected == 0 {
+            return;
+        }
+        let (at, anchor) = match self.url_field_bounds() {
+            Some(field) => {
+                let left = field.right() - px(self.site_controls_end() + URL_BUTTON_SIZE);
+                let button = Bounds::new(
+                    point(left, field.top() + px(URL_BUTTON_INSET)),
+                    size(px(URL_BUTTON_SIZE), px(URL_BUTTON_SIZE)),
+                );
+                (point(field.left(), field.bottom() + px(SITE_CONTROLS_GAP)), button)
+            }
+            None => {
+                let corner = point(px(self.card_left() + PLATE_INSET), px(PLATE_INSET));
+                (corner, Bounds::new(corner, Default::default()))
+            }
+        };
+        self.browser.site_controls(self.selected, at, anchor, cx);
+    }
+
+    /// A button at the URL field's end, `end` in from it, shown while the pointer is over the
+    /// sidebar and taking clicks only then.
+    fn field_tool(&self, id: &'static str, end: f32) -> gpui::Stateful<gpui::Div> {
+        div()
+            .id(id)
+            .opacity(self.tools_opacity())
+            .absolute()
+            .top(px(URL_BUTTON_INSET))
+            .right(px(end))
+            .size(px(URL_BUTTON_SIZE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(NAV_RADIUS))
+    }
+
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
-        // The pinned extensions' actions, at the field's end, and Copy URL before them, where the
-        // host stops short of them.
+        // The pinned extensions' actions, at the field's end, and Copy URL and Site Controls
+        // before them, where the host stops short of them.
         let actions = self.action_buttons(cx);
         let buttons_width = actions.len() as f32 * URL_BUTTON_SIZE;
         let live = self.tools_live();
-        let copy = (self.tools_shown() && !url.is_empty()).then(|| {
-            div()
-                .id("copy-url")
-                .opacity(self.tools_opacity())
-                .absolute()
-                .top(px(URL_BUTTON_INSET))
-                .right(px(URL_BUTTON_INSET + buttons_width))
-                .size(px(URL_BUTTON_SIZE))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(NAV_RADIUS))
+        let tools = self.tools_shown() && !url.is_empty();
+        let end = self.site_controls_end();
+        let copy = tools.then(|| {
+            self.field_tool("copy-url", end + TOOL_PITCH)
                 // Fading out, it takes no click.
                 .when(live, |button| {
                     button
@@ -121,10 +171,33 @@ impl Shell {
                     rgba(NAV).into(),
                 ))
         });
-        let text_end = match copy {
-            Some(_) => URL_BUTTON_INSET + buttons_width + URL_BUTTON_SIZE,
-            None if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
-            None => URL_BUTTON_INSET + buttons_width,
+        let site_controls = tools.then(|| {
+            self.field_tool("site-controls", end)
+                .when(live, |button| {
+                    button
+                        .block_mouse_except_scroll()
+                        .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                        // On the press, as a pop-up button opens: a click while the panel shows
+                        // closes it first, and its press then toggles rather than opens it again.
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|shell, _, _, cx| {
+                                cx.stop_propagation();
+                                shell.run(Command::SiteControls, "sidebar", cx);
+                            }),
+                        )
+                })
+                .child(
+                    svg()
+                        .path("icons/sliders-horizontal.svg")
+                        .size(px(URL_BUTTON_GLYPH))
+                        .text_color(rgba(NAV)),
+                )
+        });
+        let text_end = match tools {
+            true => end + TOOL_PITCH + URL_BUTTON_SIZE,
+            false if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
+            false => URL_BUTTON_INSET + buttons_width,
         };
         div()
             .id("url-field")
@@ -149,6 +222,7 @@ impl Shell {
                 (self.extension_name(&url)).unwrap_or_else(|| host(&url).to_string().into()),
             ))
             .children(copy)
+            .children(site_controls)
             .children(actions)
     }
 
@@ -205,3 +279,6 @@ impl Shell {
 pub(super) fn reload_glyph(loading: bool) -> &'static str {
     if loading { "icons/nav-stop.svg" } else { "icons/nav-reload.svg" }
 }
+
+#[cfg(test)]
+mod tests;

@@ -25,6 +25,8 @@ pub(super) struct Recorder {
     pub(super) menus: RefCell<Vec<Vec<(SharedString, bool)>>>,
     /// The Spaces the menu bar's Spaces menu lists.
     pub(super) menu_spaces: RefCell<Vec<SharedString>>,
+    /// Each time the shell opened the Site Controls: the tab, where, and the button's box.
+    pub(super) site_controls: RefCell<Vec<(u64, Point<Pixels>, Bounds<Pixels>)>>,
 }
 
 impl Recorder {
@@ -304,6 +306,10 @@ impl Browser for Recorder {
     }
 
     fn find(&self, _: u64, _: &mut App) {}
+
+    fn site_controls(&self, tab: u64, at: Point<Pixels>, anchor: Bounds<Pixels>, _: &mut App) {
+        self.site_controls.borrow_mut().push((tab, at, anchor));
+    }
 
     fn settings(&self, _: &mut App) {}
 

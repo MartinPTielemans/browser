@@ -22,6 +22,7 @@
 #include "browser_core/public/browser_core.h"
 #include "browser_core/search.h"
 #include "browser_core/session.h"
+#include "browser_core/site_controls.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -693,6 +694,26 @@ void bc_tab_find_close(bc_id id) {
 
 void bc_tab_answer_permission(bc_id id, int answer) {
   browser_core::PermissionQuestion::Answer(id, answer);
+}
+
+void bc_tab_site_controls(bc_id id) {
+  browser_core::SiteControls::Open(id);
+}
+
+void bc_site_controls_close(void) {
+  browser_core::SiteControls::Close();
+}
+
+void bc_tab_set_site_permission(bc_id id, int type, int value) {
+  browser_core::SiteControls::SetPermission(id, type, value);
+}
+
+void bc_tab_reset_site_permissions(bc_id id) {
+  browser_core::SiteControls::Reset(id);
+}
+
+void bc_tab_picture_in_picture(bc_id id) {
+  browser_core::SiteControls::PictureInPicture(id);
 }
 
 void bc_tab_jump_to_selection(bc_id id) {
