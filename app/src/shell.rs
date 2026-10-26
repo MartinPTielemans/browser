@@ -1606,6 +1606,8 @@ pub struct Shell {
     /// Whether the pointer is over the docked sidebar, which shows Clear and the URL field's button
     /// only then.
     sidebar_hovered: bool,
+    /// The hover changed since the sidebar was last drawn.
+    hover_changed: bool,
     page_fullscreen: bool,
     /// Whether ⌘S has hidden the sidebar.
     sidebar_hidden: bool,
@@ -1727,6 +1729,7 @@ impl Shell {
             hovered_favicon: None,
             undo: None,
             sidebar_hovered: false,
+            hover_changed: false,
             page_fullscreen: false,
             sidebar_hidden: false,
             window_buttons: true,
@@ -4615,8 +4618,7 @@ impl Shell {
     fn sidebar_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
         if hovered != self.sidebar_hovered {
             self.sidebar_hovered = hovered;
-            // check.sh reads this line.
-            log!("browser: sidebar hovered {}", hovered as u8);
+            self.hover_changed = true;
             cx.notify();
         }
     }
@@ -5646,6 +5648,10 @@ impl Render for Shell {
         if std::mem::take(&mut self.outline_changed) {
             let outline = self.shown_space().map(|space| space.outline(0)).unwrap_or_default();
             log!("browser: outline {outline}");
+        }
+        // As the outline's, so a click on Clear, which shows only under the pointer, finds it.
+        if std::mem::take(&mut self.hover_changed) {
+            log!("browser: sidebar hovered {}", self.sidebar_hovered as u8);
         }
         if std::mem::take(&mut self.focus_form)
             && let Some(form) = self.form()
