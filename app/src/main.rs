@@ -10,7 +10,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use browser::{command_bar, dialog, icon_picker, log, site_controls, toast, tooltip, zoom_hud};
+use browser::{
+    command_bar, dialog, icon_picker, log, site_controls, theme_picker, toast, tooltip, zoom_hud,
+};
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, Split,
@@ -32,6 +34,7 @@ mod settings;
 /// The host's overlays (platform/mac/host.h).
 const COMMAND_BAR: c_int = 0;
 const ICON_PICKER: c_int = 1;
+const THEME_PICKER: c_int = 2;
 
 /// The core's API, generated from core/public/browser_core.h.
 #[allow(non_camel_case_types, dead_code)]
@@ -68,6 +71,7 @@ mod platform {
         pub fn host_set_overlay_shape(overlay: c_int, corners: *const f64, count: usize);
         pub fn host_set_overlay_radius(overlay: c_int, radius: f64);
         pub fn host_set_overlay_growth(overlay: c_int, x: f64, y: f64);
+        pub fn host_set_overlay_shrink(overlay: c_int);
         pub fn host_show_overlay(
             overlay: c_int,
             ui_view: *mut c_void,
@@ -220,7 +224,6 @@ mod platform {
         pub control: bool,
         pub parent: i32,
         pub checked: bool,
-        pub swatch: i32,
     }
 }
 
@@ -460,7 +463,6 @@ fn pop_up(
                 control: *control,
                 parent: item.parent.map_or(-1, |parent| parent as i32),
                 checked: item.checked,
-                swatch: item.swatch.map_or(-1, |color| color as i32),
             }
         })
         .collect();
@@ -841,6 +843,33 @@ impl icon_picker::Host for PickerHost {
 /// The user left the icon picker without picking.
 extern "C" fn icon_picker_dismissed() {
     update_app(icon_picker::dismissed);
+}
+
+/// The theme picker's requests, to the host's overlay window, over the window in front.
+struct ThemeHost;
+
+impl theme_picker::Host for ThemeHost {
+    fn show(&self, left: f32, top: f32, corners: &[(f32, f32, f32)]) {
+        let shape: Vec<f64> =
+            corners.iter().flat_map(|&(x, y, radius)| [x, y, radius].map(f64::from)).collect();
+        // The arrow, which it grows in from, moves along its side to point at what opened it.
+        let (x, y, _) = corners[0];
+        let (left, top, width) = (left.into(), top.into(), theme_picker::WIDTH.into());
+        unsafe {
+            platform::host_set_overlay_shape(THEME_PICKER, shape.as_ptr(), shape.len() / 3);
+            platform::host_set_overlay_growth(THEME_PICKER, x.into(), y.into());
+            platform::host_show_overlay(THEME_PICKER, front().1, false, left, top, width);
+        }
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_overlay(THEME_PICKER) };
+    }
+}
+
+/// The user left the theme picker, such as with a click outside it.
+extern "C" fn theme_picker_dismissed() {
+    update_app(theme_picker::dismissed);
 }
 
 /// The tooltip's requests, to the host's tooltip window.
@@ -1838,6 +1867,14 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
             platform::host_set_overlay_shape(ICON_PICKER, corners.as_ptr(), corners.len() / 3);
             let (x, y) = icon_picker::ARROW_TIP;
             platform::host_set_overlay_growth(ICON_PICKER, x.into(), y.into());
+        }
+    }
+    if let Some(picker) = theme_picker::open(Rc::new(ThemeHost), cx)
+        && let Ok(view) = picker.update(cx, |_, window, _| ns_view(window))
+    {
+        unsafe {
+            platform::host_add_overlay(THEME_PICKER, view, 0., theme_picker_dismissed);
+            platform::host_set_overlay_shrink(THEME_PICKER);
         }
     }
     if let Some(dialog) = dialog::open(Rc::new(DialogHost), cx)
