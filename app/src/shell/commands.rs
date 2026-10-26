@@ -8,7 +8,9 @@ use gpui::{
 };
 
 use super::{
-    COPIED_TIME, Section, Shell, Swapped, Undo, clean_link, extensions, keys,
+    COPIED_TIME, Section, Shell, Swapped, Undo,
+    browser::WindowButton,
+    clean_link, extensions, keys,
     swap::{CHECK, LINK},
     user_keys,
 };
@@ -645,6 +647,13 @@ impl Shell {
             }
             Command::ClearCookiesAndRefresh => {
                 return self.browser.clear_site(self.selected, true, cx);
+            }
+            // Escape leaves full screen when there's no load to stop, as the note there says.
+            Command::Stop if self.full_screen && !self.page_fullscreen => {
+                if !self.page(self.selected).loading {
+                    return self.browser.press_window_button(WindowButton::Zoom, cx);
+                }
+                return self.browser.stop(self.selected, cx);
             }
             Command::Stop => return self.browser.stop(self.selected, cx),
             Command::ActualSize => return self.browser.zoom(self.selected, 0, cx),

@@ -24,6 +24,8 @@ use crate::{
 
 #[cfg(test)]
 mod agent_spaces;
+#[cfg(test)]
+mod full_screen;
 mod assets;
 mod browser;
 mod clean_link;
@@ -927,6 +929,8 @@ pub struct Shell {
     /// The hover changed since the sidebar was last drawn.
     hover_changed: bool,
     page_fullscreen: bool,
+    /// Whether the window is full screen, as macOS last told once its transition was over.
+    full_screen: bool,
     /// Whether the window went full screen for the page, so it comes back with it.
     window_for_page: bool,
     /// While the window goes full screen with the page, or back: its content size before. The page
@@ -1106,6 +1110,7 @@ impl Shell {
             sidebar_hovered: false,
             hover_changed: false,
             page_fullscreen: false,
+            full_screen: false,
             window_for_page: false,
             page_held: None,
             sidebar_hidden: false,
@@ -1504,6 +1509,10 @@ impl Shell {
         }
         self.browser.tooltip(None, cx);
         let before = std::mem::replace(&mut self.space, space);
+        // Arc says again how to leave full screen in each Space it shows there.
+        if before != space && self.full_screen && !self.page_fullscreen {
+            self.browser.full_screen_note(true, cx);
+        }
         // A swipe that began in another Space is over, and its momentum with it.
         if self.swipe.as_ref().is_some_and(|swipe| swipe.from != space) {
             self.swipe = None;
@@ -1854,6 +1863,15 @@ impl Shell {
             self.recent_downloads_gone(cx);
         }
         cx.notify();
+    }
+
+    /// The window has gone full screen or left it: going, it says how to leave, as Arc's does,
+    /// unless a page took it there, and leaving takes that away.
+    pub fn set_full_screen(&mut self, entered: bool, cx: &mut Context<Self>) {
+        self.full_screen = entered;
+        if !entered || !self.page_fullscreen {
+            self.browser.full_screen_note(entered, cx);
+        }
     }
 
     /// Deletes the Space, asking first if it has tabs, which close with it.

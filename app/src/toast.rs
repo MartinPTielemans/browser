@@ -52,6 +52,13 @@ const RESPONSE: f32 = 0.32;
 const DAMPING: f32 = 0.52;
 const FADE_IN: f32 = 0.1;
 const LEAVE: f32 = 0.07;
+/// The note a window shows as it goes full screen (Arc 1.170 rec at 2×): 41 tall, 4 from the
+/// window's top and its right edge on the card's, in the toast's look and motion, for 4.8 s.
+const NOTE: &str = "To exit full screen, press ⎋.";
+const NOTE_HEIGHT: f32 = 41.;
+const NOTE_TOP: f32 = 4.;
+const NOTE_RIGHT: f32 = CARD_INSET;
+const NOTE_TIME: Duration = Duration::from_millis(4800);
 
 /// What the toast asks of its window.
 pub trait Host {
@@ -96,6 +103,8 @@ struct Shown {
     /// Once it's leaving: when, and where the motion was.
     leaving: Option<(Instant, Pose)>,
     settled: bool,
+    /// Whether it's the note for full screen, which goes when the window leaves full screen.
+    full_screen: bool,
     _timer: Task<()>,
 }
 
@@ -176,6 +185,36 @@ pub fn open(
 /// Shows `text`, then `key`'s chip and the words after it if there's a key, for `time` from now,
 /// in place of any toast showing.
 pub fn show(text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {
+    present(text, key, time, false, cx);
+}
+
+/// Shows how to leave full screen, as the window has gone full screen or another Space shows in
+/// it, in place of any toast showing.
+pub fn show_full_screen(cx: &mut App) {
+    present(NOTE, None, NOTE_TIME, true, cx);
+}
+
+/// The window has left full screen: the note on how to goes, if it shows.
+pub fn hide_full_screen(cx: &mut App) {
+    let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
+        return;
+    };
+    window
+        .update(cx, |toast, _, cx| {
+            if toast.shown.as_ref().is_some_and(|shown| shown.full_screen) {
+                toast.leave(cx);
+            }
+        })
+        .ok();
+}
+
+fn present(
+    text: &str,
+    key: Option<(&str, &str)>,
+    time: Duration,
+    full_screen: bool,
+    cx: &mut App,
+) {
     let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
         return;
     };
@@ -196,6 +235,7 @@ pub fn show(text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App)
                 shown: shown.and_then(|shown| shown.shown),
                 leaving: None,
                 settled: false,
+                full_screen,
                 _timer: timer,
             });
             toast.host.show();
@@ -209,6 +249,9 @@ impl Toast {
         let Some(shown) = &mut self.shown else {
             return;
         };
+        if shown.leaving.is_some() {
+            return;
+        }
         shown.leaving = Some((Instant::now(), shown.pose()));
         shown._timer = cx.spawn(async move |toast, cx| {
             cx.background_executor().timer(Duration::from_secs_f32(LEAVE)).await;
@@ -238,17 +281,15 @@ pub(crate) fn shadow(color: Hsla, y: f32, blur: f32) -> BoxShadow {
 
 impl Render for Toast {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let root = div()
-            .size_full()
-            .flex()
-            .justify_end()
-            .items_start()
-            .pt(px(TOP))
-            .pr(px(RIGHT))
-            .font_family(".SystemUIFont");
+        let root = div().size_full().flex().justify_end().items_start();
         let Some(shown) = &mut self.shown else {
             return root;
         };
+        let (height, top, right) = match shown.full_screen {
+            true => (NOTE_HEIGHT, NOTE_TOP, NOTE_RIGHT),
+            false => (HEIGHT, TOP, RIGHT),
+        };
+        let root = root.pt(px(top)).pr(px(right)).font_family(".SystemUIFont");
         // AppKit puts the window on screen some frames after it's asked to, and only then does
         // GPUI draw it, so the motion starts there rather than skip its start.
         if shown.shown.is_none() && window.is_visible() {
@@ -265,7 +306,7 @@ impl Render for Toast {
         let fill = (self.fill)(cx);
         let bottom = Hsla { l: fill.l * SHADE, ..fill };
         let toast = div()
-            .h(px(HEIGHT))
+            .h(px(height))
             .pl(px(TEXT_LEFT))
             .pr(px(TEXT_RIGHT))
             .flex()

@@ -214,7 +214,8 @@ Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the 
 - **Several windows.** Every window shows the same Spaces, as in Arc, and a tab's page is live in one window at a time: the one that showed it last. A window's own picks, on a Space switch or a tab closing, pass over pages another window shows. A click on a row whose page another window shows moves the page here, live, and the window it left keeps the row selected over an empty card (*interim* until the frozen frame), where a click on the row brings it back. Closing a window gives its tabs to the window in front before it, live, and that window shows its page again if this one had taken it. Closing the last quits.
 - **Close confirmations** (Dia, P§1). Closing a window with 2 or more tabs, or pressing ⌘W on the last tab, asks "Close 3 tabs?" with a breakdown per Space and "Don't ask me again". Arc's equivalent: measure. Ours: none (*interim* until Arc's is recorded). Spaces are shared, so closing a window closes no tab and loses nothing, and ⌘W archives a tab, which ⇧⌘T brings back (Forgive rather than forbid).
 - **Warn before quitting** (Arc 1.170.0 bin and cap). The Quit menu item and ⌘Q ask "Quit Arc?", with the app's icon and the buttons Quit, "Quit, and don't ask again" and Cancel, unless Settings › General › Warn before quitting is off. The second button turns the setting off. A quit from the Dock or at logout doesn't ask. Ours: "Quit Browser?" in a system alert, on by default as in Arc's capture. With downloads running, Chrome's alert asks after Quit, as Arc's quit asks again for them.
-- **Page full screen** (Dia, P§18). The page fills the window and the sidebar goes away. Esc or the page's `exitFullscreen` brings the layout back. Switching or closing the tab ends full screen. The window enters macOS full screen for the page and leaves it only if it entered for that page. No frame of the transition may show the other layout. Arc's behavior in window full screen (user-initiated): measure.
+- **Page full screen** (Dia, P§18). The page fills the window and the sidebar goes away. Esc or the page's `exitFullscreen` brings the layout back. Switching or closing the tab ends full screen. The window enters macOS full screen for the page and leaves it only if it entered for that page. No frame of the transition may show the other layout.
+- **Window full screen** (Arc 1.170 rec at 2×, four entries). The sidebar stays docked and the card keeps its 10 pt inset; Arc's window changes to its full-screen layout in one frame. Once macOS's transition is over, a note in the toast's look and motion says "To exit full screen, press ⎋.": 41 tall, 4 from the window's top, its right edge on the card's, in the Space's colour, for 4.8 s. Ours says it again for each Space shown in full screen, and ⎋ leaves full screen when there's no load to stop (*interim*: the recording's one Space switch was windowed, so neither is seen in Arc's). Leaving full screen takes it away (*interim*: Arc's stayed). A page's full screen doesn't show it.
 - **Other window commands** (Dia, P§1). Keep Window on Top, Merge All Windows, Move Tab to Window. Moving keeps the live page: no reload, history kept.
 
 ### Sidebar
@@ -926,7 +927,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 | Feature | Motion | Measured | Take |
 |---|---|---|---|
 | Window | ⌘N, a new window | — | 9 |
-| Window | Full screen in and out, sidebar docked | — | 9 |
+| Window | Full screen in and out, sidebar docked | one frame; the note, Motion › Toast | done |
 | Window | The warning on closing a window with tabs, if Arc has one | — | 9 |
 | Window | The dialog that asks before a delete | Motion › Dialog | done |
 | Window | The toast | Motion › Toast | done |

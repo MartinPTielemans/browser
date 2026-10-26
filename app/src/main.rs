@@ -57,6 +57,7 @@ mod platform {
         );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
+        pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_forget_window(ui_view: *mut c_void);
         pub fn host_add_overlay(
             overlay: c_int,
@@ -281,6 +282,11 @@ fn front() -> (bc::bc_id, *mut c_void) {
     WINDOWS.with_borrow(|windows| {
         windows.first().map_or((0, std::ptr::null_mut()), |window| (window.id, window.ui_view))
     })
+}
+
+/// A browser window has gone full screen or left it, once macOS's transition is over.
+extern "C" fn full_screen_changed(ui_view: *mut c_void, entered: bool) {
+    update_window(window_with_view(ui_view), |shell, cx| shell.set_full_screen(entered, cx));
 }
 
 /// The window whose UI draws in `ui_view`, or 0.
@@ -1302,6 +1308,13 @@ impl Browser for Engine {
         toast::show(text, key, time, cx);
     }
 
+    fn full_screen_note(&self, shown: bool, cx: &mut App) {
+        match shown {
+            true => toast::show_full_screen(cx),
+            false => toast::hide_full_screen(cx),
+        }
+    }
+
     fn tooltip(&self, tip: Option<(tooltip::Tip, tooltip::Anchor)>, cx: &mut App) {
         match tip {
             Some((tip, anchor)) => tooltip::hover(tip, anchor, cx),
@@ -1725,6 +1738,7 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
         platform::host_watch_accent_color(accent_color_changed);
         platform::host_take_drops(dragged);
         platform::host_watch_key_window(key_window_changed);
+        platform::host_watch_full_screen(full_screen_changed);
     }
     if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
