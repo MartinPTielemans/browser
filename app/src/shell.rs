@@ -324,6 +324,9 @@ const GRADIENT_ALPHA: f32 = 0.18;
 const NEUTRAL_GRADIENT_ALPHA: f32 = 0.06;
 // A colour under this HSL saturation is neutral (ours: Dia's line isn't measured).
 const NEUTRAL: f32 = 0.1;
+// A private window's layer in the gradient's place: black, darker than any Space and without its
+// colour (ours: Arc's and Dia's private look isn't recorded).
+const PRIVATE_SHADE: f32 = 0.35;
 // The colours a Space's menu offers: Dia's hue families, in its order. Its pink is measured, ≈
 // #BF556A; the others are ours, at the pink's HSL saturation and lightness.
 const SPACE_COLORS: [(&str, u32); 8] = [
@@ -1000,6 +1003,8 @@ pub struct Shell {
     /// Where the name row was drawn last, and the frame before.
     name_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     name_row_before: Option<Bounds<Pixels>>,
+    /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
+    private: bool,
 }
 
 impl Shell {
@@ -1116,7 +1121,42 @@ impl Shell {
             switching: None,
             background_pressed: false,
             accent_color,
+            private: false,
         }
+    }
+
+    /// A private window's shell (docs/ux-spec.md › Profiles › Incognito): it shows `space` alone,
+    /// named `name`, whose tabs are in `profile`'s off-the-record session. It hears nothing of the
+    /// other Spaces, the favorites or the Library, and offers none of them.
+    pub fn private_window(
+        browser: Rc<dyn Browser>,
+        space: u64,
+        name: SharedString,
+        profile: u64,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut shell = Self::new(browser, cx);
+        shell.private = true;
+        shell.space = space;
+        shell.spaces = vec![Space {
+            id: space,
+            name,
+            color: None,
+            icon: SharedString::default(),
+            agent: SharedString::default(),
+            profile,
+            pinned: Vec::new(),
+            today: Vec::new(),
+            splits: Vec::new(),
+            folders: Folders::default(),
+            shown: 0,
+        }];
+        shell
+    }
+
+    /// Whether this is a private window's shell.
+    pub fn private(&self) -> bool {
+        self.private
     }
 
     /// A shell for another window, which starts out knowing what `from` heard from the core about
@@ -1302,6 +1342,9 @@ impl Shell {
         spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString, SharedString)>,
         cx: &mut Context<Self>,
     ) {
+        if self.private {
+            return;
+        }
         // check.sh reads these lines.
         let ids: Vec<String> = spaces.iter().map(|(id, ..)| id.to_string()).collect();
         log!("browser: spaces {}", ids.join(" "));
@@ -1519,6 +1562,9 @@ impl Shell {
 
     /// Every profile's favorites, left to right, each with its profile.
     pub fn set_favorites(&mut self, favorites: Vec<(u64, u64)>, cx: &mut Context<Self>) {
+        if self.private {
+            return;
+        }
         let tiles = self.drawn();
         self.all_favorites = favorites.iter().map(|&(tab, _)| tab).collect();
         self.favorite_profiles = favorites.into_iter().collect();
@@ -2305,8 +2351,8 @@ impl Shell {
         };
         sidebar
             .children(self.new_space_circle())
-            .child(self.library_button(cx))
-            .child(self.plus_button(cx))
+            .children((!self.private).then(|| self.library_button(cx)))
+            .children((!self.private).then(|| self.plus_button(cx)))
             .children(self.switcher(cx))
             .children(self.flying_icon())
             .child(self.press_listener())

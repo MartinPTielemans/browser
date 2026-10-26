@@ -34,6 +34,10 @@ void LoadProfiles(const std::set<std::string>& dirs, base::OnceClosure done);
 void UseProfile(Profile* profile);
 // Lets the profiles go, at quit.
 void ReleaseProfiles();
+// |profile|'s off-the-record profile, made if there's none: the session its private windows
+// share. Chrome destroys it once the last of their Browsers has gone, which ends the session, and
+// then private_session_ended.
+Profile* PrivateProfileOf(Profile* profile);
 
 // The profiles: the one the core started with, then the others in the order they were made.
 std::vector<bc_id> Profiles();

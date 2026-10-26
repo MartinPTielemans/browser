@@ -56,6 +56,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
  public:
   // Returns null once Chromium is quitting.
   static Window* Open(const gfx::Rect& bounds, void* ui_view);
+  // A private window for |profile|'s off-the-record profile, showing a Space of its own
+  // (Space::CreateOffTheRecord). See bc_window_open_private. Null once Chromium is quitting.
+  static Window* OpenPrivate(const gfx::Rect& bounds, void* ui_view, Profile* profile);
   static Window* FromId(bc_id id);
   // Every window, the most recently active first.
   static std::vector<Window*> All();
@@ -121,6 +124,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id space() const { return space_; }
   // The tab the window shows, or 0. In a split view, the one focused.
   bc_id selected() const { return selected_; }
+  // Whether it's a private window, which shows its own Space alone and is never saved.
+  bool off_the_record() const { return off_the_record_; }
+  // Whether its Browsers stay with no tabs left: a private window's does while the window is
+  // open, as it holds the private session, which ends once the profile's last Browser has gone.
+  bool KeepsBrowsers() const;
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
   // pinned tab, else no page, passing over tabs another window shows. With |page| false, no page,
@@ -201,9 +209,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // |contents| focused.
   void Show(content::WebContents* contents, const gfx::Rect& frame);
 
-  // Hands the window's tabs to the window active before it, if there's one, and closes. The last
-  // window asks each Browser to close instead, which runs its pages' unload handlers; a page can
-  // keep it open.
+  // Hands the window's tabs to the regular window active before it, if there's one, and closes. A
+  // private window, and the last regular one, ask each Browser to close instead, which runs their
+  // pages' unload handlers; a page can keep it open.
   void Close();
 
   // From the stand-in, as |browser| goes.
@@ -309,6 +317,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;
+  bool off_the_record_ = false;
   // Another window took the page shown. The tab stays selected, and the window shows no page.
   bool let_go_ = false;
   bool opening_tab_ = false;

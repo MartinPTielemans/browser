@@ -248,7 +248,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Profile holds cookies, history, logins, autofill, extensions | MVP | yes | decision 5 |
 | [x] | Create, rename, delete, pick for a Space | MVP | ours: Settings › Profiles, the New Space form's Profile row (Arc's) and the Space menu's Profile items *interim*; Arc's: measure | Arc 1.170.0 cap |
 | [ ] | Where a Space shows its profile | MVP | built: the Space's menu checks it and the form's Profile row names it, nothing in the sidebar *interim*; Arc's: measure | — |
-| [ ] | Incognito ⇧⌘N | MVP | per profile, dark, one session per profile, nothing written. Not started: a private window is a window, so after multi-window step 2 | Chrome, Dia |
+| [x] | Incognito ⇧⌘N | MVP | per profile, dark, one session per profile, nothing written. Built (private check): a private window of the key window's profile with one unsaved Space of its own, Today tabs only, black 0.35 in the gradient's place *interim*; Arc's and Dia's private window: measure | Chrome, Dia |
 
 ## Extensions
 

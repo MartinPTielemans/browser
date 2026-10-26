@@ -164,12 +164,16 @@ impl Shell {
     /// menus.
     pub(super) fn update_menus(&mut self, cx: &mut Context<Self>) {
         let profile = self.shown_space().map_or(0, |space| space.profile);
+        // A private window lists neither: its one Space isn't one of them, and Chrome keeps
+        // extensions out of a private session.
         let shown: Vec<Extension> = (self.extensions.get(&profile).into_iter().flatten())
-            .filter(|extension| extension.enabled)
+            .filter(|extension| extension.enabled && !self.private)
             .cloned()
             .collect();
-        let spaces: Vec<SharedString> =
-            self.spaces.iter().map(|space| space_menu_label(&space.icon, &space.name)).collect();
+        let spaces: Vec<SharedString> = (self.spaces.iter())
+            .filter(|_| !self.private)
+            .map(|space| space_menu_label(&space.icon, &space.name))
+            .collect();
         if shown == self.menu_extensions && spaces == self.menu_spaces {
             return;
         }

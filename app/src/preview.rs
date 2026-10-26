@@ -813,6 +813,8 @@ impl Browser for Fake {
     // The preview has one window.
     fn new_window(&self, _: &mut App) {}
 
+    fn new_private_window(&self, _: &mut App) {}
+
     fn close_window(&self, cx: &mut App) {
         cx.quit();
     }

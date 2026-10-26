@@ -19,6 +19,8 @@ pub enum Command {
     NewTab,
     /// Opens another window on the same Spaces.
     NewWindow,
+    /// Opens a private window, in the profile's off-the-record session.
+    NewPrivateWindow,
     /// Closes the window, its tabs going to the window in front of the others.
     CloseWindow,
     EditUrl,
@@ -137,6 +139,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-t", Command::NewTab, true),
     ("cmd-w", Command::CloseTab, true),
     ("cmd-n", Command::NewWindow, true),
+    ("shift-cmd-n", Command::NewPrivateWindow, true),
     ("shift-cmd-w", Command::CloseWindow, true),
     ("shift-cmd-t", Command::ReopenClosedTab, true),
     ("cmd-q", Command::Quit, true),
@@ -229,6 +232,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Mute/Unmute Tab", Command::ToggleMute),
     ("Archive Tab", Command::CloseTab),
     ("New Window", Command::NewWindow),
+    ("New Incognito Window", Command::NewPrivateWindow),
     ("Close Window", Command::CloseWindow),
     ("Restore Last Closed Tab", Command::ReopenClosedTab),
     ("Copy URL", Command::CopyUrl),
@@ -414,6 +418,7 @@ impl Command {
         match self {
             Command::NewTab => "new-tab",
             Command::NewWindow => "new-window",
+            Command::NewPrivateWindow => "new-private-window",
             Command::CloseWindow => "close-window",
             Command::EditUrl => "edit-url",
             Command::CloseTab => "close-tab",
@@ -555,6 +560,9 @@ impl Shell {
     pub fn run(&mut self, command: Command, from: &str, cx: &mut Context<Self>) {
         // check.sh waits for these lines.
         log!("browser: command {} via {from}", command.name());
+        if self.private && !private_runs(command) {
+            return;
+        }
         let rows = self.sidebar_rows();
         let position = rows.iter().position(|&row| row == self.row_of(self.selected));
         let count = rows.len();
@@ -588,6 +596,7 @@ impl Shell {
                 return;
             }
             Command::NewWindow => return self.browser.new_window(cx),
+            Command::NewPrivateWindow => return self.browser.new_private_window(cx),
             Command::CloseWindow => {
                 // As ⌘W does, from a window of Chrome's it closes that one.
                 if !self.browser.close_other_window(cx) {
@@ -760,7 +769,10 @@ impl Shell {
             return;
         }
         self.browser.clear(cx);
-        self.undo = Some(Undo::Clear);
+        // A private window's closed tabs are gone for good.
+        if !self.private {
+            self.undo = Some(Undo::Clear);
+        }
         // check.sh reads this line.
         log!("browser: cleared {}", self.clearing.len());
     }
@@ -879,6 +891,9 @@ impl Shell {
 
     /// Whether `command` would do something now, for the command bar to offer it.
     fn offers(&self, command: Command) -> bool {
+        if self.private && !private_runs(command) {
+            return false;
+        }
         let page = self.page(self.selected);
         let space = self.spaces.iter().position(|space| space.id == self.space);
         match command {
@@ -907,6 +922,7 @@ impl Shell {
             Command::NewFolder
             | Command::ReopenClosedTab
             | Command::NewWindow
+            | Command::NewPrivateWindow
             | Command::CloseWindow
             | Command::ToggleSidebar
             | Command::NewSpace
@@ -922,6 +938,31 @@ impl Shell {
             _ => self.selected != 0,
         }
     }
+}
+
+/// Whether a private window runs `command`. It has one Space, unsaved, so nothing that keeps a tab
+/// or shows another Space, and none of what the regular windows keep: the closed tabs, the
+/// Library, the history.
+fn private_runs(command: Command) -> bool {
+    !matches!(
+        command,
+        Command::ReopenClosedTab
+            | Command::TogglePin
+            | Command::NewFolder
+            | Command::CollapseFolders
+            | Command::BackToPinnedUrl
+            | Command::NewSpace
+            | Command::RenameSpace
+            | Command::SelectSpace(_)
+            | Command::NextSpace
+            | Command::PreviousSpace
+            | Command::ViewLibrary
+            | Command::ViewArchive
+            | Command::ClearArchive
+            | Command::ViewDownloads
+            | Command::ViewHistory
+            | Command::ManageExtensions
+    )
 }
 
 /// `text` for a Markdown link's text, with what would end it escaped.
@@ -972,11 +1013,13 @@ mod tests {
         assert_eq!(keys.command_for("cmd-y", true), None);
     }
 
-    /// ⌘N and ⇧⌘W reach the browser before the page, as Chrome's do, so a page can't keep them.
+    /// ⌘N, ⇧⌘N and ⇧⌘W reach the browser before the page, as Chrome's do, so a page can't keep
+    /// them.
     #[test]
     fn window_keys_are_reserved() {
         let keys = UserKeys::default();
         assert_eq!(keys.command_for("cmd-n", true), Some(Command::NewWindow));
+        assert_eq!(keys.command_for("shift-cmd-n", true), Some(Command::NewPrivateWindow));
         assert_eq!(keys.command_for("shift-cmd-w", true), Some(Command::CloseWindow));
     }
 }

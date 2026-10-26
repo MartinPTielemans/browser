@@ -73,7 +73,8 @@ enum Look {
 impl Shell {
     /// Whether `swipe` has pulled the last Space's page far enough to ready a new Space.
     fn pull_ready(&self, swipe: &Swipe) -> bool {
-        let last = self.spaces.last().is_some_and(|last| last.id == swipe.from);
+        // A private window makes none.
+        let last = !self.private && self.spaces.last().is_some_and(|last| last.id == swipe.from);
         last && !swipe.library && self.form.is_none() && self.swiped_to(swipe) <= -NEW_SPACE_READY
     }
 

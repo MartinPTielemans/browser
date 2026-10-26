@@ -79,6 +79,10 @@ impl Shell {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
+        // A private window's Space has nothing to change.
+        if self.private {
+            return;
+        }
         let has_icon = self.spaces.iter().any(|each| each.id == space && !each.icon.is_empty());
         let mut items = space_menu_head(space, has_icon);
         let color_at = items.len();
@@ -364,21 +368,23 @@ impl Shell {
             .map(|space| (space.id, space.name.clone()))
             .collect();
         let pin = MenuEntry::new(if pinned { "Unpin Tab" } else { "Pin Tab" }, true);
-        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
-            (
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = Vec::new();
+        // A private window's tabs stay in it, and are never kept.
+        if !self.private {
+            items.push((
                 pin.shortcut(Command::TogglePin, keys),
                 "toggle-pin",
                 Box::new(move |shell, cx| {
                     let pinned = shell.pinned().contains(&tab);
                     shell.browser.set_pinned(tab, !pinned, cx)
                 }),
-            ),
-            (
+            ));
+            items.push((
                 MenuEntry::new("Add to Favorites", true),
                 "add-to-favorites",
                 Box::new(move |shell, cx| shell.browser.move_to_favorites(tab, usize::MAX, cx)),
-            ),
-        ];
+            ));
+        }
         if pinned {
             items.push((
                 MenuEntry::new("Back to Pinned URL", page.away_from_pinned_url)
@@ -414,11 +420,13 @@ impl Shell {
         }
         // Each other Space, in the switcher's order.
         let move_to = items.len();
-        items.push((
-            MenuEntry::new("Move to Space", !others.is_empty()),
-            "",
-            Box::new(|_, _| {}),
-        ));
+        if !self.private {
+            items.push((
+                MenuEntry::new("Move to Space", !others.is_empty()),
+                "",
+                Box::new(|_, _| {}),
+            ));
+        }
         for (space, name) in others {
             items.push((
                 MenuEntry::new(name, true).under(move_to),

@@ -536,7 +536,8 @@ impl Shell {
 
     /// Opens the Library, or closes it, from wherever the card is, the sidebar fading.
     pub(super) fn set_library(&mut self, open: bool, cx: &mut Context<Self>) {
-        if open == self.library_open || (open && self.page_fullscreen) {
+        // A private window has no Library: what it shows is the regular windows'.
+        if open == self.library_open || (open && (self.page_fullscreen || self.private)) {
             return;
         }
         let speed = self.library_step().map_or(0., |(_, speed)| speed);

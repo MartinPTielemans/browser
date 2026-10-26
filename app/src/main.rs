@@ -236,6 +236,8 @@ struct BrowserWindow {
     handle: AnyWindowHandle,
     /// Its own overlays' windows, such as the find bar's, which close with it.
     children: Vec<AnyWindowHandle>,
+    /// A private window's: it shows a Space of its own, in an off-the-record session.
+    private: bool,
 }
 
 thread_local! {
@@ -1210,9 +1212,25 @@ impl Browser for Engine {
         let id = self.window;
         // Outside the shell's update, as the new window's shell reads this one's.
         cx.defer(move |cx| {
-            let from = WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.id == id).cloned());
+            // From a private window, the Spaces are the regular window's in front.
+            let from = WINDOWS.with_borrow(|windows| {
+                let this = windows.iter().find(|w| w.id == id && !w.private);
+                this.or_else(|| windows.iter().find(|w| !w.private)).cloned()
+            });
             if from.is_some() {
-                open_window(from, cx);
+                open_window(from, None, cx);
+            }
+        });
+    }
+
+    fn new_private_window(&self, cx: &mut App) {
+        let id = self.window;
+        cx.defer(move |cx| {
+            let from = WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.id == id).cloned());
+            // The profile of the Space this window shows, a private one's too.
+            let profile = unsafe { bc::bc_space_profile(bc::bc_window_space(id)) };
+            if from.is_some() && profile != 0 {
+                open_window(from, Some(profile), cx);
             }
         });
     }
@@ -1340,8 +1358,13 @@ unsafe extern "C" fn tab_key_unhandled(
 }
 
 /// Opens a browser window centered on the main display, or cascaded from the one of `after` and as
-/// big, with `ui_view` filling it under the page, and returns its id.
-fn open_browser_window(ui_view: *mut c_void, after: Option<*mut c_void>) -> Option<bc::bc_id> {
+/// big, with `ui_view` filling it under the page, and returns its id. With `private`, a profile,
+/// it's a private window in that profile's off-the-record session.
+fn open_browser_window(
+    ui_view: *mut c_void,
+    after: Option<*mut c_void>,
+    private: Option<bc::bc_id>,
+) -> Option<bc::bc_id> {
     let (mut width, mut height) = WINDOW_SIZE;
     let (mut x, mut y) = (0., 0.);
     match after {
@@ -1356,7 +1379,10 @@ fn open_browser_window(ui_view: *mut c_void, after: Option<*mut c_void>) -> Opti
         width,
         height,
     };
-    let window = unsafe { bc::bc_window_open(bounds, ui_view) };
+    let window = match private {
+        Some(profile) => unsafe { bc::bc_window_open_private(bounds, ui_view, profile) },
+        None => unsafe { bc::bc_window_open(bounds, ui_view) },
+    };
     (window != 0).then_some(window)
 }
 
@@ -1425,13 +1451,17 @@ extern "C" fn dragged(
 
 /// Opens a browser window and the shell inside it under the page. The first opens the overlays
 /// every window shares and the Spaces as the user left them. Another, from `from`, starts with its
-/// shell's state and shows its Space with no page, as ⌘N's window does.
-fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
+/// shell's state and shows its Space with no page, as ⌘N's window does. With `private`, a profile,
+/// it's ⇧⌘N's private window, which shows a Space of its own instead, with no page.
+fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut App) {
     let ui_view = unsafe { platform::host_ui_view() };
-    let Some(id) = open_browser_window(ui_view, from.as_ref().map(|from| from.ui_view)) else {
+    let after = from.as_ref().map(|from| from.ui_view);
+    let Some(id) = open_browser_window(ui_view, after, private) else {
         return;
     };
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
+    // Its Space, which the core made with the window.
+    let private_space = private.map(|profile| (unsafe { bc::bc_window_space(id) }, profile));
     if let Some(from) = &from {
         // The shell reads its sidebar's width from the core as it's made.
         let width = unsafe { bc::bc_window_sidebar_width(from.id) };
@@ -1453,9 +1483,12 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
             })
             .detach();
             let engine = Rc::new(Engine { window: id, ui_view, view: ns_view(window) });
-            match &from_shell {
-                Some(from) => Shell::seeded_from(from, engine, cx),
-                None => Shell::new(engine, cx),
+            match (&from_shell, private_space) {
+                (_, Some((space, profile))) => {
+                    Shell::private_window(engine, space, private_name(profile), profile, cx)
+                }
+                (Some(from), None) => Shell::seeded_from(from, engine, cx),
+                (None, None) => Shell::new(engine, cx),
             }
         });
         window.focus(&shell.focus_handle(cx), cx);
@@ -1470,6 +1503,7 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
                     shell: shell.downgrade(),
                     handle: Window::window_handle(window),
                     children: Vec::new(),
+                    private: private.is_some(),
                 },
             )
         });
@@ -1496,7 +1530,7 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
             set_page_frame(id, shell.page_frame(window.viewport_size()))
         })
         .ok();
-    if let Some(from) = &from {
+    if let Some(from) = from.as_ref().filter(|_| private.is_none()) {
         let space = unsafe { bc::bc_window_space(from.id) };
         unsafe { bc::bc_window_show_space_empty(id, space) };
         // Its Space drawn before it's on screen, rather than once the core's report comes.
@@ -1516,8 +1550,13 @@ fn open_window(from: Option<BrowserWindow>, cx: &mut App) {
             window.children = children;
         }
     });
-    // check.sh reads this line.
+    // check.sh reads these lines.
     log!("browser: window opened {id}");
+    if let Some(profile) = private {
+        log!("browser: private window opened {id} profile {profile}");
+        // The core showed its Space before there was a window to title.
+        title_windows();
+    }
     if from.is_some() {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
         if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
@@ -1594,7 +1633,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
         cx.set_menus(menus(&[], &[]));
-        open_window(None, cx);
+        open_window(None, None, cx);
     });
     APP.set(Some(app));
 }
@@ -1626,6 +1665,7 @@ fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
             vec![
                 item("New Tab…", Command::NewTab),
                 item("New Window", Command::NewWindow),
+                item("New Incognito Window", Command::NewPrivateWindow),
                 item("Restore Last Closed Tab", Command::ReopenClosedTab),
                 MenuItem::separator(),
                 item("Open Command Bar", Command::EditUrl),
@@ -1771,6 +1811,7 @@ unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
         let index = windows.iter().position(|window| window.id == id);
         (index.map(|index| windows.remove(index)), windows.len())
     });
+    let private = window.as_ref().is_some_and(|window| window.private);
     if let Some(window) = window {
         unsafe { platform::host_forget_window(window.ui_view) };
         update_app(|cx| {
@@ -1785,9 +1826,17 @@ unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
         });
     }
     log!("browser: window closed {id}");
-    if left == 0 {
+    // A private window alone doesn't keep the browser: the Spaces' pages closed with the last
+    // regular window, which the next launch brings back, so the private ones close with them.
+    let regular = WINDOWS.with_borrow(|windows| windows.iter().any(|window| !window.private));
+    if left == 0 || (!private && !regular) {
         unsafe { bc::bc_quit() };
     }
+}
+
+unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
+    // check.sh reads this line.
+    log!("browser: private session ended {profile}");
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
@@ -1893,15 +1942,28 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
     });
 }
 
-/// Titles each window with its Space's name, which AppKit lists in the Window menu. The window
-/// doesn't draw its title.
+/// Titles each window with its Space's name, which AppKit lists in the Window menu, and a private
+/// window as private. The window doesn't draw its title.
 fn title_windows() {
-    let windows: Vec<_> =
-        WINDOWS.with_borrow(|windows| windows.iter().map(|w| (w.id, w.ui_view)).collect());
-    for (id, ui_view) in windows {
+    let windows: Vec<_> = WINDOWS
+        .with_borrow(|windows| windows.iter().map(|w| (w.id, w.ui_view, w.private)).collect());
+    for (id, ui_view, private) in windows {
         let space = unsafe { bc::bc_window_space(id) };
-        let title = CString::new(name(bc::bc_space_name, space).as_ref()).unwrap_or_default();
+        let title = match private {
+            true => private_name(unsafe { bc::bc_space_profile(space) }),
+            false => name(bc::bc_space_name, space),
+        };
+        let title = CString::new(title.as_ref()).unwrap_or_default();
         unsafe { platform::host_set_window_title(ui_view, title.as_ptr()) };
+    }
+}
+
+/// A private window's name, in its sidebar and the Window menu: Chrome's, and its profile's while
+/// there's more than one, as each has its own private session.
+fn private_name(profile: bc::bc_id) -> SharedString {
+    match ids(bc::bc_profiles).len() {
+        0 | 1 => "Incognito".into(),
+        _ => format!("Incognito · {}", name(bc::bc_profile_name, profile)).into(),
     }
 }
 
@@ -2311,6 +2373,7 @@ fn main() {
         started: Some(started),
         stopping: Some(stopping),
         window_closed: Some(window_closed),
+        private_session_ended: Some(private_session_ended),
         space_changed: Some(space_changed),
         spaces_changed: Some(spaces_changed),
         favorites_changed: Some(favorites_changed),

@@ -11,6 +11,7 @@
 #include "base/functional/callback.h"
 #include "base/functional/callback_helpers.h"
 #include "base/no_destructor.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
@@ -21,6 +22,7 @@
 #include "browser_core/search.h"
 #include "browser_core/space.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/delete_profile_helper.h"
 #include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
 #include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
@@ -30,6 +32,7 @@
 #include "chrome/browser/profiles/profile_attributes_storage.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
+#include "chrome/browser/profiles/profile_observer.h"
 #include "content/public/browser/web_contents.h"
 
 namespace browser_core {
@@ -69,6 +72,41 @@ void OnLoaded(base::OnceClosure loaded, Profile* profile) {
     UseProfile(profile);
   }
   std::move(loaded).Run();
+}
+
+// Tells the app once a private session ends, as Chrome destroys its off-the-record profile.
+class SessionEnd : public ProfileObserver {
+ public:
+  explicit SessionEnd(Profile* profile) { observation_.Observe(profile); }
+
+  void OnProfileWillBeDestroyed(Profile* profile) override;
+
+ private:
+  base::ScopedObservation<Profile, ProfileObserver> observation_{this};
+};
+
+// The private sessions running, by their off-the-record profile.
+std::map<Profile*, std::unique_ptr<SessionEnd>>& Sessions() {
+  static base::NoDestructor<std::map<Profile*, std::unique_ptr<SessionEnd>>> sessions;
+  return *sessions;
+}
+
+void SessionEnd::OnProfileWillBeDestroyed(Profile* profile) {
+  const bc_id id = ProfileId(DirOf(profile));
+  // Deletes this.
+  Sessions().erase(profile);
+  // A quit ends them all, and the app has stopped hearing.
+  if (browser_shutdown::IsTryingToQuit()) {
+    return;
+  }
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](bc_id profile) {
+                       if (Host().private_session_ended) {
+                         Host().private_session_ended(Host().context, profile);
+                       }
+                     },
+                     id));
 }
 
 // Chrome numbers the directories it makes in order: "Default", then "Profile 1", "Profile 2".
@@ -144,6 +182,14 @@ void UseProfile(Profile* profile) {
 
 void ReleaseProfiles() {
   Used().clear();
+}
+
+Profile* PrivateProfileOf(Profile* profile) {
+  Profile* off_the_record = profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
+  if (off_the_record && !Sessions().contains(off_the_record)) {
+    Sessions()[off_the_record] = std::make_unique<SessionEnd>(off_the_record);
+  }
+  return off_the_record;
 }
 
 std::vector<bc_id> Profiles() {
@@ -244,6 +290,11 @@ bool DeleteProfile(bc_id profile) {
     }
   }
   if (!Favorites::Of(dir).empty()) {
+    return false;
+  }
+  // Nor while a private window of it is open.
+  if (Profile* loaded = ProfileFor(dir);
+      DirOf(loaded) == dir && loaded->HasPrimaryOTRProfile()) {
     return false;
   }
   // Let go first: Chrome deletes it once it's unloaded.

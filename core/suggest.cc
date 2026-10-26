@@ -51,13 +51,19 @@ GURL Stripped(const GURL& url, const TemplateURLService* engines) {
 }
 
 // A tab at |url|, stripped, other than |shown|: a favorite first, which every Space of its profile
-// shows, then one in the Space |window| shows. 0 if none.
+// shows, then one in the Space |window| shows. A private window's own tabs alone, as it shows no
+// other. 0 if none.
 bc_id TabAt(const GURL& url, const Window& window, bc_id shown, const TemplateURLService* engines) {
   std::vector<Space*> spaces = Space::All();
   std::ranges::stable_partition(spaces, [&](Space* space) { return space->id() == window.space(); });
   // Selecting a favorite of another profile shows a Space of that profile, as selecting a tab of
   // another Space does.
   std::vector<bc_id> favorites = Favorites::All();
+  if (window.off_the_record()) {
+    Space* own = Space::FromId(window.space());
+    spaces = own ? std::vector<Space*>{own} : std::vector<Space*>();
+    favorites.clear();
+  }
   if (const Space* in = Space::FromId(window.space())) {
     std::ranges::stable_partition(
         favorites, [&](bc_id tab) { return Favorites::ProfileOf(tab) == in->profile(); });
