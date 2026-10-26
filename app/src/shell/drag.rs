@@ -317,6 +317,11 @@ impl Shell {
             drag.depth = depth;
             drag.shape.turn(over_favorites, Instant::now());
         }
+        // Links dragged in have no place before their first, which they didn't pass a row to get.
+        let entered = incoming && to == Place::List(false, usize::MAX);
+        if (place != to || depth != kept_depth) && !entered {
+            self.drag_detent(cx);
+        }
         if place != to {
             // The rows and tiles that make room, or no longer need to, start from where they're
             // drawn.
@@ -344,6 +349,14 @@ impl Shell {
             self.move_tiles(tiles, Curve::Reorder);
         }
         cx.notify();
+    }
+
+    /// A click on the trackpad, as the dragged row passes another or goes into a folder: one for
+    /// each change of where it would drop, as Arc's does (docs/ux-spec.md › Reorder).
+    fn drag_detent(&self, cx: &mut Context<Self>) {
+        // check.sh counts these lines.
+        log!("browser: detent");
+        self.browser.detent(cx);
     }
 
     /// The pointer let go of a pressed row or tile. A dragged tab goes where it would, and the rows
@@ -642,6 +655,9 @@ pub(super) fn in_sidebar(position: Point<Pixels>, origin: Point<Pixels>) -> Poin
     let at = position - origin;
     point(f32::from(at.x), f32::from(at.y))
 }
+
+#[cfg(test)]
+mod detents;
 
 #[cfg(test)]
 mod tests {
