@@ -72,7 +72,8 @@ void host_set_overlay_growth(int overlay, double x, double y);
 // Shows the overlay over |ui_view|'s window and gives it the keyboard, |width| points wide: with
 // its top left at |left|, |top| in the window's content and ending at least 8 points inside it, or
 // if |centered|, centred across it with its top |top| points above its middle. The other overlay
-// closes, as the user leaving it. Shown there already, it moves to the new place.
+// closes, as the user leaving it. Shown there already, it moves to the new place. Keys typed
+// before it has the keyboard go to it once it does.
 void host_show_overlay(int overlay,
                        void* ui_view,
                        bool centered,
@@ -89,13 +90,18 @@ void host_hide_overlay(int overlay);
 // Hides the overlay as the user leaving it, as escape does.
 void host_dismiss_overlay(int overlay);
 
+// Holds the keys typed from now until the command bar or the find bar takes the keyboard, and then
+// gives them to it, or for 400 ms at most: for a shortcut that opens one but reaches the page
+// first, which may keep it. Showing either bar with the keyboard holds them by itself.
+void host_hold_keys(void);
+
 // Makes the window of |find_bar_view| the find bar of |ui_view|'s window, floating over it when
 // shown, |right| and |top| points from the top right corner of the window's content. It starts
 // hidden.
 void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top);
 
-// Shows |ui_view|'s find bar, and gives it the keyboard if |keyboard|. Unlike the command bar, it
-// stays when the user clicks the page, which takes the keyboard.
+// Shows |ui_view|'s find bar, and gives it the keyboard if |keyboard|, with the keys typed until
+// then. Unlike the command bar, it stays when the user clicks the page, which takes the keyboard.
 void host_show_find_bar(void* ui_view, bool keyboard);
 
 // Hides |ui_view|'s find bar. If it had the keyboard, its browser window gets it back.

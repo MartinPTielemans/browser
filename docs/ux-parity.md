@@ -170,7 +170,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Site search | MVP | Tab when hinted, Space after the keyword; ⌫ at the start, ⇧Tab or Esc leaves and restores; Arc's look: measure | Chrome O |
 | [x] | Keys | MVP | ↩, ⌘↩ behind with the bar open, ⌥↩ beside, ⇧⌘↩, ⌃↩, ↑↓ and Tab ⇧Tab wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Arc 1.170.0 cap, Chrome, Dia O |
 | [ ] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows. Not started: multi-window step 5 | Chrome |
-| [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms). Not started | Ardia P§7 |
+| [x] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms), with every key typed and a composition, from the page or the UI; a page that keeps the shortcut gets them after. The checks type, never paste | Ardia P§7 |
 | [x] | Click outside | MVP | closes and still acts | AGENTS.md |
 | [ ] | Switch to Tab rows | MVP | across windows, never the current tab. Partly: never the current tab, within the window; across windows waits on multi-window step 5 | Dia, O |
 | [x] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |

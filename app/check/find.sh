@@ -1,6 +1,7 @@
-# ⌘F opens the find bar over the page with the keyboard. Typing finds in the page, with "n/m", once
-# Japanese input has committed, and return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through
-# the matches, from the bar and from the page. A text the page doesn't have shows NOT FOUND. A click
+# ⌘F opens the find bar over the page with the keyboard, and what's typed right after it lands
+# there. Typing finds in the page, with "n/m", once Japanese input has committed, and return,
+# shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and from the
+# page. A text the page doesn't have shows NOT FOUND. A click
 # on the page leaves the bar open, and the bar keeps its place through a resize and full screen.
 # Each tab has its own find, which a new tab starts from the text found last; escape and the bar's
 # close button close it, and so does another page. ⌘J from the page and Edit › Find › Jump to
@@ -62,13 +63,17 @@ check_find_bar() {
     fail "$1: the find bar is at ${child:-nowhere} in a window $content wide"
 }
 
-send key f cmd
+# What's typed right after ⌘F, with no wait, lands in the bar, though the page has ⌘F first and the
+# keys come before the bar has the keyboard. All of it in the bar is none of it in the page.
+post key f cmd
+send type apple
 expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
 expect '^browser: find bar shown$' "⌘F didn't open the find bar"
+expect '^browser: held [0-9]* key events for GPUIPanel$' \
+  "the keys typed right after ⌘F didn't wait for the find bar"
+expect_find "$first" "open 1 of 3 apple" "typing right after ⌘F didn't find in the page"
 send state
 in_find_bar "after ⌘F"
-send type apple
-expect_find "$first" "open 1 of 3 apple" "typing in the find bar didn't find in the page"
 send key return
 expect_find "$first" "open 2 of 3 apple" "return didn't go to the next match"
 send key return shift
@@ -317,4 +322,4 @@ in_browser RenderWidgetHostViewCocoa "after ⌘W closed the Task Manager"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png"
+echo "ok: ⌘F opens the find bar from the page with the keyboard, what's typed right after it lands there, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png"
