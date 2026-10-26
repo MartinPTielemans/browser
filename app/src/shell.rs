@@ -463,6 +463,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("shift-cmd-s", Command::SavePage, false),
     ("cmd-p", Command::Print, false),
     ("alt-cmd-i", Command::DevTools, false),
+    ("f12", Command::DevTools, false),
     ("alt-cmd-c", Command::InspectElements, false),
     ("alt-cmd-j", Command::JavaScriptConsole, false),
     ("cmd-s", Command::ToggleSidebar, false),

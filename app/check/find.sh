@@ -6,7 +6,7 @@
 # close button close it, and so does another page. ⌘0 and ⌘- from the page and the View menu's Zoom
 # In zoom the page, and the zoom HUD shows the percent under the find bar for a moment, and goes at
 # once when another tab shows. ⌥⌘I from the page docks DevTools in the card, filling it, with the
-# page on its left, through a resize, and ⌥⌘I again closes them and gives the page the keyboard.
+# page on its left, through a resize, and F12 closes them and gives the page the keyboard.
 # View › Developer's JavaScript Console opens them, a tab without them shows its page across the
 # card, and View Source opens the page's source in a tab under it.
 
@@ -251,12 +251,12 @@ check_docked "after ⌥⌘I"
 send resize 1100 700
 await_views 2 "after a resize"
 check_docked "after a resize"
-# ⌥⌘I again closes them, and the page has the keyboard.
-send key i cmd alt
-expect '^browser: command devtools via page$' "⌥⌘I again didn't reach the UI"
-await_views 1 "after ⌥⌘I again"
+# F12 closes them, as Dia's and Chrome's does, and the page has the keyboard.
+send key f12
+expect '^browser: command devtools via page$' "F12 with the page focused didn't reach the UI"
+await_views 1 "after F12"
 send state
-in_browser RenderWidgetHostViewCocoa "after ⌥⌘I closed DevTools"
+in_browser RenderWidgetHostViewCocoa "after F12 closed DevTools"
 send menu "JavaScript Console"
 expect '^browser: command javascript-console via ui$' \
   "the View menu's JavaScript Console didn't reach the UI"
@@ -278,4 +278,4 @@ expect "^browser: today $second $first $source\$" "the source's tab isn't under 
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, ⌥⌘I closes them and the page gets the keyboard back, and View Source opens a tab under the page. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png"
+echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png"

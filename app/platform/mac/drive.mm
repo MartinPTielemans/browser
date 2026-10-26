@@ -17,8 +17,9 @@
 //   move <x> <y>                          moves the pointer to (x, y), without a button down
 //   key <key> [cmd] [shift] [alt] [ctrl]  <key> is a lowercase letter, a digit, ".", "-", "+",
 //                                         "[", "]", return, escape, tab, space, backspace,
-//                                         delete (forward), pageup, pagedown, up, down, left or
-//                                         right. "+" is on "-"'s key, as on a Danish keyboard
+//                                         delete (forward), pageup, pagedown, up, down, left,
+//                                         right or f12. "+" is on "-"'s key, as on a Danish
+//                                         keyboard
 //   flags [cmd] [shift] [alt] [ctrl]      the modifiers held from now, as a modifier key going
 //                                         down or up; key holds them only for its own key
 //   type <text>                           lowercase letters, dots and spaces
@@ -79,10 +80,10 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
     {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43}, {"delete", 117},
     {"pageup", 116}, {"pagedown", 121}, {"/", 44}, {"?", 44}, {"=", 24}, {"&", 26}, {"_", 27},
-    {":", 41},
+    {":", 41}, {"f12", 111},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey, and for
-// the others NSDeleteFunctionKey, NSPageUpFunctionKey and NSPageDownFunctionKey.
+// the others NSDeleteFunctionKey, NSPageUpFunctionKey, NSPageDownFunctionKey and NSF12FunctionKey.
 const std::map<std::string, std::string> kCharacters = {
     {"return", "\r"},
     {"tab", "\t"},
@@ -96,6 +97,7 @@ const std::map<std::string, std::string> kCharacters = {
     {"delete", "\xEF\x9C\xA8"},
     {"pageup", "\xEF\x9C\xAC"},
     {"pagedown", "\xEF\x9C\xAD"},
+    {"f12", "\xEF\x9C\x8F"},
 };
 
 // Marks the end of a command's events. AppKit handles events in the order they were posted.
@@ -224,7 +226,7 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
   // keys.
   if (key == "up" || key == "down" || key == "left" || key == "right") {
     flags |= NSEventModifierFlagFunction | NSEventModifierFlagNumericPad;
-  } else if (key == "delete" || key == "pageup" || key == "pagedown") {
+  } else if (key == "delete" || key == "pageup" || key == "pagedown" || key == "f12") {
     flags |= NSEventModifierFlagFunction;
   }
   for (NSEventType type : {NSEventTypeKeyDown, NSEventTypeKeyUp}) {

@@ -320,7 +320,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 |---|---|---|---|---|
 | [x] | Keys and menu | MVP | ⌥⌘I, ⌥⌘J, ⌥⌘C, ⌥⌘U, from the page, DevTools and the UI; View › Developer | Arc 1.170.0 menus |
 | [x] | Inspect in the page menu | MVP | Chrome's: docks DevTools at the element | Chrome P§23 |
-| [ ] | F12 | MVP | Dia's and Chrome's | Dia, Chrome P§23 |
+| [x] | F12 | MVP | opens or closes DevTools, as ⌥⌘I, from the page and the UI; not in the menu | Dia, Chrome P§23 |
 | [x] | Docked in the card | MVP | right, full card height, page on the left; each tab its own; closing gives the page the keyboard | Arc 1.170.0 cap |
 | [ ] | Docked width | MVP | Arc a third of the card; ours Chrome's 555 pt, then the user's, kept per profile | Arc 1.170.0 cap |
 | [x] | Undocked | MVP | Chrome's window, from DevTools' Dock side menu; Dia's 640 × 640 first, "Developer Tools - <url>" | Dia P§23, Chrome |
