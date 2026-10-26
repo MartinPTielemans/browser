@@ -618,6 +618,19 @@ fn keystroke_label(keystroke: &str) -> String {
     label + &key
 }
 
+/// Copies `text`, a sum's result chosen in the command bar, once the bar has gone, and says so in
+/// the toast.
+pub fn copy_from_bar(text: &str, cx: &mut App) {
+    if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
+        shell
+            .update(cx, |shell, cx| {
+                shell.command_bar_dismissed(cx);
+                shell.copy(text, &format!("Copied {text}"), cx);
+            })
+            .ok();
+    }
+}
+
 /// Runs `command`, whose row in the command bar was chosen, once the bar has gone.
 pub fn run_from_bar(command: Command, cx: &mut App) {
     if let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) {
@@ -2546,7 +2559,12 @@ impl Shell {
                 (format!("[{title}]({url})"), "Copied URL as Markdown")
             }
         };
-        self.browser.copy(&text, cx);
+        self.copy(&text, toast, cx);
+    }
+
+    /// Copies `text` and shows `toast`.
+    fn copy(&mut self, text: &str, toast: &str, cx: &mut Context<Self>) {
+        self.browser.copy(text, cx);
         // check.sh reads this line.
         eprintln!("browser: copied {text}");
         self.browser.toast(toast, None, COPIED_TIME, cx);

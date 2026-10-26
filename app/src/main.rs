@@ -366,6 +366,10 @@ impl command_bar::Host for Bar {
         open_split(url, with, cx);
     }
 
+    fn copy(&self, text: &str, cx: &mut App) {
+        shell::copy_from_bar(text, cx);
+    }
+
     fn show(&self, centered: bool, left: f32, top: f32, width: f32) {
         let (left, top, width) = (f64::from(left), f64::from(top), f64::from(width));
         unsafe { platform::host_show_overlay(centered, left, top, width) };
@@ -1399,8 +1403,7 @@ unsafe extern "C" fn window_suggestions(
             tab: suggestion.tab,
             completion: string(suggestion.completion),
             removable: suggestion.removable,
-            command: None,
-            shortcut: None,
+            ..command_bar::Suggestion::default()
         })
         .collect();
     let text = string(text);

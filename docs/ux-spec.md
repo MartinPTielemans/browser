@@ -497,6 +497,8 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 - Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia).
 - History rows can be removed with a hover ✕ or ⇧⌦, and the selection moves to the next row (Chrome; Dia has the ✕).
 - Bookmarks, a calculator (↩ copies the result) and commands are also rows (Dia).
+- **Calculator** (Dia, as Ardia has it). A sum typed, such as "12*7" or "(1+2)^3", shows its result as the row after the first: "= 84". ↩ on it copies "84", closes the bar and says "Copied 84" in the toast.
+  - Ours (*interim*): + − × ÷ ^ (or * / **) and parentheses, with . as the decimal point; 12 significant digits, so 0.1+0.2 is 0.3. A date such as 2026-10-26 isn't a sum. Dia's units, functions and its row's look: measure.
 - **Commands** (Arc 1.170.0 cap). "clear" lists Clear Today with a ⇧⌘K chip at the row's right, then the search row, then Clear Cache and Refresh, Collapse All Folders and Clear Archive, so a name matches by its letters in order, not only its start. The field's icon becomes the command's.
   - Ours (*interim*):
     - A command matches when its name starts with what's typed, then when a word of it does, then when what's typed has its letters in order from a word's start. It takes two letters or more.

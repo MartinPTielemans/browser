@@ -58,6 +58,10 @@ impl Host for Recorder {
         self.record(format!("open {url} beside {with}"));
     }
 
+    fn copy(&self, text: &str, _: &mut App) {
+        self.record(format!("copy {text}"));
+    }
+
     fn show(&self, _: bool, _: f32, _: f32, _: f32) {}
 
     fn set_height(&self, _: f32) {}
@@ -132,8 +136,7 @@ fn page(url: &str) -> Suggestion {
         tab: 0,
         completion: String::new(),
         removable: true,
-        command: None,
-        shortcut: None,
+        ..Suggestion::default()
     }
 }
 
@@ -287,4 +290,14 @@ fn shift_delete_takes_a_page_out_of_history(cx: &mut TestAppContext) {
     bar.suggest("ex", vec![searching("ex"), page("https://b.test/")]);
     bar.keys("enter");
     assert_eq!(bar.calls(), ["open https://b.test/", "hide"]);
+}
+
+#[gpui::test]
+fn a_sum_comes_after_the_first_row_and_return_on_it_copies_its_result(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("12*7");
+    bar.suggest("12*7", vec![searching("12*7"), page("https://a.test/12*7")]);
+    // The search stays first, as the core put it, and the sum's result is the row after it.
+    bar.keys("down enter");
+    assert_eq!(bar.calls(), ["hide", "copy 84"]);
 }
