@@ -121,6 +121,9 @@ expect '^browser: copied \[Example Domain](https://example.org/)$' \
 
 # Clear and the URL field's button fade in while the pointer is over the sidebar, and out when it
 # leaves. The button copies the URL, and doesn't open the command bar as the rest of the field does.
+# The click before put the pointer over the sidebar, so it goes to the page first.
+send move $page_point
+expect '^browser: sidebar hovered 0$' "the sidebar didn't see the pointer leave it"
 send move $sidebar_point
 expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over it"
 expect '^browser: sidebar tools shown$' "Clear and the URL field's button didn't fade in"
@@ -515,6 +518,9 @@ asks "http://localhost:$port" "another site's question didn't come"
 send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Allow didn't take the question down"
 expect "^browser: title $r granted\$" "Allow didn't grant the page"
+# The click on Allow tells the sidebar the pointer is over it, uncovered as the question closes.
+expect '^browser: sidebar tools shown$' \
+  "Clear and the URL field's buttons didn't fade in under the pointer once the question closed"
 
 # The Site Controls list the site's permissions as Chrome's page info does, here the one Allow gave.
 # The panel hangs from the button at 206 64: 238 wide from x 87, its beak's tip 9 pt above its body
@@ -556,6 +562,9 @@ send click 122 118
 expect '^browser: site controls run share$' "a click on Share didn't run it"
 expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave for Share"
+# The pointer was over their window, so the sidebar saw it leave: the way back is a move, as a hand's.
+send move $site_controls_point
+expect '^browser: sidebar tools shown$' "the URL field's buttons didn't show under the pointer again"
 send click $site_controls_point
 expect '^browser: site controls settled$' "the Site Controls didn't open after Share"
 # The button again closes them.

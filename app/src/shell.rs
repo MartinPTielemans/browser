@@ -2243,7 +2243,10 @@ impl Shell {
     }
 
     /// The pointer's moves anywhere in the window, for whether it's over the sidebar, whose rows
-    /// and buttons keep it from the sidebar's own hover.
+    /// and buttons keep it from the sidebar's own hover. A press says where the pointer is as a
+    /// move does: one that arrives with no move before it, such as the first after the window
+    /// became active, would otherwise leave the sidebar unaware of the pointer when what it
+    /// pressed, a permission question, closes and uncovers it.
     fn hover_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
@@ -2254,6 +2257,13 @@ impl Shell {
                     if phase == DispatchPhase::Capture {
                         let over = bounds.contains(&event.position);
                         moved.update(cx, |shell, cx| shell.sidebar_hover(over, cx)).ok();
+                    }
+                });
+                let pressed = shell.clone();
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture {
+                        let over = bounds.contains(&event.position);
+                        pressed.update(cx, |shell, cx| shell.sidebar_hover(over, cx)).ok();
                     }
                 });
                 window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {

@@ -133,6 +133,26 @@ fn clear_says_what_it_does(cx: &mut TestAppContext) {
     assert!(host.take().iter().any(|call| call == "tooltip none"));
 }
 
+/// A press in the sidebar with no move before it, as the check's click on a permission question's
+/// Allow, tells the sidebar the pointer is over it, so Clear and the URL field's buttons show once
+/// the question closes, and a move to the page hides them.
+#[gpui::test]
+fn a_press_with_no_move_before_it_puts_the_pointer_over_the_sidebar(cx: &mut TestAppContext) {
+    let (shell, cx, _host) = drawn_shell(cx);
+    let tools = |shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+        cx.run_until_parked();
+        shell.read_with(cx, |shell, _| (shell.sidebar_hovered, shell.tools_shown()))
+    };
+    assert_eq!(tools(&shell, cx), (false, false));
+    cx.simulate_click(point(px(100.), px(300.)), Modifiers::none());
+    assert_eq!(tools(&shell, cx), (true, true));
+    cx.simulate_mouse_move(point(px(600.), px(400.)), None, Modifiers::none());
+    assert!(!tools(&shell, cx).0);
+    // A press on the page leaves the sidebar's hover where it is.
+    cx.simulate_click(point(px(600.), px(400.)), Modifiers::none());
+    assert!(!tools(&shell, cx).0);
+}
+
 /// A click on the URL field opens the command bar over the field, as Arc's does, and ⌘L centred.
 /// With the sidebar hidden there's no field, and the bar is centred (*interim*).
 #[gpui::test]
