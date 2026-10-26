@@ -223,6 +223,8 @@ const NAME_X: f32 = 41.;
 // and sat below its middle.
 const SPACE_ICON_SLOT: f32 = 20.;
 const SPACE_ICON_X: f32 = FAVICON_X + FAVICON_SIZE / 2. - SPACE_ICON_SLOT / 2.;
+// The sidebar's icon takes clicks on Arc's frame, which lights with the header's plate (ours).
+const SPACE_ICON_PLATE: f32 = 26.;
 const SPACE_ICON_TEXT: f32 = EMOJI_SIZE;
 /// A glyph's box: Phosphor's drawings fill 13/16 of theirs, so their ink is the emoji's size.
 const SPACE_GLYPH: f32 = 16.;
