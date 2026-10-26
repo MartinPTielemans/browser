@@ -78,15 +78,33 @@ impl Shell {
     }
 
     /// Shows the Space the form was opened from and deletes the form's.
-    fn cancel_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(form) = self.form.take_if(|form| form.space == self.space) else {
-            return;
-        };
+    pub(super) fn cancel_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(form) = self.close_form(window, cx) {
+            self.browser.delete_space(form.space, cx);
+        }
+    }
+
+    /// Shows the Space the form was opened from, and returns the form, whose Space is left for
+    /// the caller to delete.
+    pub(super) fn close_form(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<SpaceForm> {
+        let form = self.form.take_if(|form| form.space == self.space)?;
         log!("browser: cancel space {}", form.space);
         self.show_space(form.from, cx);
-        self.browser.delete_space(form.space, cx);
         window.focus(&self.focus_handle, cx);
         cx.notify();
+        Some(form)
+    }
+
+    /// The form shown, or the one a swipe cancelled, and where its page is while fingers or a
+    /// settle move it off its place.
+    pub(super) fn paged_form(&self) -> Option<(&SpaceForm, f32)> {
+        let form = self.form().or(self.form_going.as_ref())?;
+        let (_, x) = self.pages().into_iter().find(|&(space, _)| space == form.space)?;
+        (x != 0.).then_some((form, x))
     }
 
     /// The Create a Space form, in place of the URL field and the Space's tabs, and as it leaves,

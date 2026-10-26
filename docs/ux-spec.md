@@ -427,7 +427,8 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
   - The first move decides the axis: across if it's more across than along. Momentum after a page swipe is ignored, and a wheel tick counts as 10 pt, so one tick pages.
   - The window shows the new Space when the fingers lift, not while they move. Until then the page beside shows that Space's rows as they will show, with the tab it would show selected, and takes no input.
   - A dot click, ⌃1–⌃9 and ⌥⌘←/→ slide the new Space's page in from its side on the Space settle curve, pushing the old one out.
-  - The detent is AppKit's alignment haptic. Swipes don't page while the Create a Space form, a rename or a row drag is up.
+  - The detent is AppKit's alignment haptic. Swipes don't page while a rename or a row drag is up, or while the Create a Space form is up in a Space not shown.
+  - On the Create a Space form, fingers going back page to the Space it was made from, as to the Space before, whichever Space that is. The form goes as a page does, without the URL field and the favorites, which show with that Space once it's in. Let go on a flick back or past halfway, it's Cancel: the form's page goes out as that Space settles, and the new Space is deleted once it's out, so the window's colour crosses from its own. Let go short, the form settles back. Going on, the form rubber-bands and readies no new Space. A wheel's tick back is Cancel, with its slide. Arc's swipe off its form isn't recorded.
 - The window tint cross-fades between the two Spaces' colours during a swipe (Ardia; Dia and Arc durations: measure).
   - Ours (*interim*): the gradient is as much of each Space's colour as its page shows, during a swipe and while a switch's pages slide.
 - Measure in Arc: the Space title, icon and colour flows, the menus the form's Profile and Choose a Theme rows open, and how a Space shows its profile.

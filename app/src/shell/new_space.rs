@@ -74,7 +74,7 @@ impl Shell {
     /// Whether `swipe` has pulled the last Space's page far enough to ready a new Space.
     fn pull_ready(&self, swipe: &Swipe) -> bool {
         let last = self.spaces.last().is_some_and(|last| last.id == swipe.from);
-        last && !swipe.library && self.swiped_to(swipe) <= -NEW_SPACE_READY
+        last && !swipe.library && self.form.is_none() && self.swiped_to(swipe) <= -NEW_SPACE_READY
     }
 
     /// Readies a new Space as the fingers' pull reaches it and lets it go as they go back, with a
@@ -136,7 +136,7 @@ impl Shell {
     /// The last Space and how far past its place its page is, while fingers or its settle have
     /// it there.
     fn pulled(&self) -> Option<(u64, f32)> {
-        if self.form().is_some() {
+        if self.form().is_some() || self.form_going.is_some() {
             return None;
         }
         let (space, x) = *self.pages().first()?;

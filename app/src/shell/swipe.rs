@@ -10,7 +10,7 @@ use gpui::{
 
 use super::{
     SCROLL_EDGE, SCROLL_EDGE_FADE, SWIPE_FLICK, SWIPE_HISTORY, SWIPE_TRACKING,
-    Settle, Shell, Swipe, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at, rubber_band,
+    Settle, Shell, Space, Swipe, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at, rubber_band,
     library::library_band,
 };
 
@@ -26,11 +26,7 @@ impl Shell {
             (None, Some(settle)) => (settle.space, settle.offset().unwrap_or(0.), settle.beside),
             (None, None) => return vec![(self.space, self.held_page().unwrap_or(0.))],
         };
-        let beside = beside.or_else(|| {
-            let index = self.spaces.iter().position(|other| other.id == space)?;
-            let index = if x > 0. { index.checked_sub(1)? } else { index + 1 };
-            self.spaces.get(index).map(|other| other.id)
-        });
+        let beside = beside.or_else(|| self.beside(space, x));
         let mut pages = vec![(space, x)];
         if x != 0.
             && let Some(beside) = beside
@@ -96,23 +92,29 @@ impl Shell {
         }
     }
 
-    /// The Space whose page is nearest its place while `from`'s is at `x`: it or a neighbour.
+    /// The Space whose page comes in beside `space`'s while that's at `x` (`beside`).
+    fn beside(&self, space: u64, x: f32) -> Option<u64> {
+        let form = self.form.as_ref().map(|form| (form.space, form.from));
+        beside(&self.spaces, form, space, x)
+    }
+
+    /// The Space whose page is nearest its place while `from`'s is at `x` (`nearest`).
     fn nearest(&self, from: u64, x: f32) -> Option<u64> {
-        let index = self.spaces.iter().position(|space| space.id == from)? as f32;
-        let index = index - (x / self.width()).round().clamp(-1., 1.);
-        let index = index.clamp(0., self.spaces.len().saturating_sub(1) as f32) as usize;
-        self.spaces.get(index).map(|space| space.id)
+        let form = self.form.as_ref().map(|form| (form.space, form.from));
+        nearest(&self.spaces, form, from, x, self.width())
     }
 
     /// Fingers or a wheel over the sidebar. Across it they page between Spaces, and along it they
     /// scroll the list. Returns whether paging took the event.
-    fn scroll(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
-        if self.form.is_some() || self.renaming.is_some() || self.drag.is_some() {
+    fn scroll(&mut self, event: &ScrollEvent, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        // The form pages back to the Space it was made from, but not while another Space shows.
+        let form_hidden = self.form.is_some() && self.form().is_none();
+        if form_hidden || self.renaming.is_some() || self.drag.is_some() {
             return false;
         }
         let delta = match event.delta {
             ScrollDelta::Pixels(delta) => delta.map(f32::from),
-            ScrollDelta::Lines(lines) => return self.wheel(lines, cx),
+            ScrollDelta::Lines(lines) => return self.wheel(lines, window, cx),
         };
         match event.touch_phase {
             TouchPhase::Started => {
@@ -128,7 +130,7 @@ impl Shell {
                     turned: None,
                 });
             }
-            TouchPhase::Ended | TouchPhase::Cancelled => return self.release(cx),
+            TouchPhase::Ended | TouchPhase::Cancelled => return self.release(window, cx),
             TouchPhase::Moved => {}
         }
         let Some(mut swipe) = self.swipe.take() else {
@@ -193,8 +195,9 @@ impl Shell {
     }
 
     /// The fingers lifted. The pages settle on the next Space in the direction of a flick, else
-    /// on the one nearest its place, keeping the release's speed if it's heading there.
-    fn release(&mut self, cx: &mut Context<Self>) -> bool {
+    /// on the one nearest its place, keeping the release's speed if it's heading there. Off the
+    /// form, that's Cancel, its page going out as the Space it was made from settles.
+    fn release(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(swipe) = self.swipe.take().filter(|swipe| swipe.across == Some(true)) else {
             return false;
         };
@@ -220,19 +223,18 @@ impl Shell {
             self.make_pulled_space(x, cx);
             return true;
         }
-        let toward = if velocity.abs() >= SWIPE_FLICK {
-            velocity.signum() * self.width()
-        } else {
-            x
-        };
+        let toward = heading(x, velocity, self.width());
         let Some(space) = self.nearest(swipe.from, toward) else {
             return true;
         };
-        let index = |id| self.spaces.iter().position(|other| other.id == id).unwrap_or(0) as f32;
-        let from = x + (index(space) - index(swipe.from)) * self.width();
+        let from = if space == swipe.from { x } else { x - toward.signum() * self.width() };
         let velocity = if velocity * from < 0. { velocity } else { 0. };
-        self.settle = Some(Settle { space, beside: None, from, velocity, start: now });
-        if space != self.space {
+        let cancel = space != swipe.from && self.form().is_some();
+        let beside = cancel.then_some(swipe.from);
+        self.settle = Some(Settle { space, beside, from, velocity, start: now });
+        if cancel {
+            self.form_going = self.close_form(window, cx);
+        } else if space != self.space {
             // check.sh waits for this line.
             log!("browser: command select-space via swipe");
             self.show_space(space, cx);
@@ -242,8 +244,8 @@ impl Shell {
     }
 
     /// A wheel's ticks across the sidebar page once per burst, then rest. Past the first Space they
-    /// open the Library, and back they close it.
-    fn wheel(&mut self, lines: Point<f32>, cx: &mut Context<Self>) -> bool {
+    /// open the Library, and back they close it. Back off the form they cancel it.
+    fn wheel(&mut self, lines: Point<f32>, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if lines.x.abs() <= lines.y.abs() {
             return false;
         }
@@ -268,6 +270,10 @@ impl Shell {
                 && let Some(space) = self.nearest(self.space, sum.signum() * self.width())
                 && space != self.space
             {
+                if self.form().is_some() {
+                    self.cancel_space(window, cx);
+                    return true;
+                }
                 // check.sh waits for this line.
                 log!("browser: command select-space via wheel");
                 self.show_space(space, cx);
@@ -289,7 +295,7 @@ impl Shell {
         canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
-                window.on_mouse_event(move |event: &ScrollEvent, phase, _, cx| {
+                window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
                     if phase != DispatchPhase::Capture {
                         return;
                     }
@@ -298,7 +304,7 @@ impl Shell {
                             true => event.position.x < px(shell.card_left() + shell.card_push()),
                             false => bounds.contains(&event.position),
                         };
-                        (over || shell.swipe.is_some()) && shell.scroll(event, cx)
+                        (over || shell.swipe.is_some()) && shell.scroll(event, window, cx)
                     });
                     if took.unwrap_or(false) {
                         cx.stop_propagation();
@@ -350,5 +356,88 @@ impl Shell {
                 .bg(rgba(SCROLL_EDGE))
                 .opacity(shown)
         })
+    }
+}
+
+/// The Space in `spaces` whose page comes in beside `space`'s while that's at `x`: the one before
+/// it for `x` right of its place, else the one after. The form's, `(space, from)`, comes in from
+/// the Space it was made from, before it, and has none after.
+fn beside(spaces: &[Space], form: Option<(u64, u64)>, space: u64, x: f32) -> Option<u64> {
+    if let Some((_, from)) = form.filter(|&(form, _)| form == space) {
+        let made_from = spaces.iter().any(|other| other.id == from);
+        return (x > 0. && made_from).then_some(from);
+    }
+    let index = spaces.iter().position(|other| other.id == space)?;
+    let index = if x > 0. { index.checked_sub(1)? } else { index + 1 };
+    spaces.get(index).map(|other| other.id)
+}
+
+/// The Space whose page is nearest its place while `from`'s is at `x`, pages `width` wide: it or
+/// the one beside.
+fn nearest(
+    spaces: &[Space],
+    form: Option<(u64, u64)>,
+    from: u64,
+    x: f32,
+    width: f32,
+) -> Option<u64> {
+    spaces.iter().find(|space| space.id == from)?;
+    match (x / width).abs() >= 0.5 {
+        true => beside(spaces, form, from, x).or(Some(from)),
+        false => Some(from),
+    }
+}
+
+/// Where a page let go at `x`, going at `velocity` a second, heads: a page `width` that way on a
+/// flick, else where it is.
+fn heading(x: f32, velocity: f32, width: f32) -> f32 {
+    if velocity.abs() >= SWIPE_FLICK { velocity.signum() * width } else { x }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{heading, nearest};
+    use crate::shell::{Folders, Space};
+
+    fn spaces(ids: &[u64]) -> Vec<Space> {
+        let space = |&id| Space {
+            id,
+            name: format!("Space {id}").into(),
+            color: None,
+            profile: 0,
+            pinned: Vec::new(),
+            today: Vec::new(),
+            splits: Vec::new(),
+            folders: Folders::default(),
+            shown: 0,
+        };
+        ids.iter().map(space).collect()
+    }
+
+    /// Where fingers let go of a page at `x` going at `velocity` land it, with Space 4's form
+    /// made from Space 1, pages 200 wide.
+    fn lands(from: u64, x: f32, velocity: f32) -> Option<u64> {
+        let spaces = spaces(&[1, 2, 3, 4]);
+        nearest(&spaces, Some((4, 1)), from, heading(x, velocity, 200.), 200.)
+    }
+
+    /// Back off the form, fingers land on the Space it was made from, not the one before it, past
+    /// halfway or on a flick; short of that, and going on past it, they land back on the form.
+    #[test]
+    fn a_swipe_back_off_the_form_lands_where_it_was_made() {
+        assert_eq!(lands(4, 120., 0.), Some(1));
+        assert_eq!(lands(4, 20., 300.), Some(1));
+        assert_eq!(lands(4, 60., 0.), Some(4));
+        assert_eq!(lands(4, -30., -300.), Some(4));
+        assert_eq!(lands(4, 120., -300.), Some(4));
+    }
+
+    /// Other Spaces page to their neighbours as before, and not past the first and last.
+    #[test]
+    fn other_spaces_land_beside_them() {
+        assert_eq!(lands(2, 120., 0.), Some(1));
+        assert_eq!(lands(2, -120., 0.), Some(3));
+        assert_eq!(lands(3, -20., -300.), Some(4));
+        assert_eq!(lands(1, 120., 0.), Some(1));
     }
 }
