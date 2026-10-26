@@ -2532,6 +2532,11 @@ impl Shell {
                 }
             }
         }
+        // Hidden, its window still draws as the shell changes, and its list shares the docked
+        // sidebar's scroll handle: drawn short there, it would scroll the docked list.
+        if !self.reveal_shown() {
+            return div().into_any_element();
+        }
         if self.list_moving() {
             window.request_animation_frame();
         }

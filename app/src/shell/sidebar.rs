@@ -364,3 +364,54 @@ pub(super) fn window_buttons_at(
         sidebar: moving && !window,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{
+        Bounds, Context, Entity, Render, TestAppContext, Window, WindowBounds, WindowOptions,
+        point, prelude::*, px, size,
+    };
+
+    use super::super::{Folders, SIDEBAR_WIDTH, Shell, recorder::Recorder};
+
+    /// The reveal's window, which draws the shell's panel, as the app's does.
+    struct Reveal(Entity<Shell>);
+
+    impl Render for Reveal {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            self.0.update(cx, |shell, cx| shell.render_reveal(window, cx))
+        }
+    }
+
+    /// The hidden reveal's small window, drawing after the browser window's, leaves the docked
+    /// list's scroll alone: a tab shown that fits in the browser window scrolls nothing.
+    #[gpui::test]
+    fn a_hidden_reveal_leaves_the_docked_list_unscrolled(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host, cx));
+        let reveal = shell.clone();
+        cx.update(|_, cx| {
+            let bounds = Bounds::new(point(px(0.), px(0.)), size(px(SIDEBAR_WIDTH), px(228.)));
+            let options = WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                show: false,
+                ..Default::default()
+            };
+            cx.open_window(options, |_, cx| cx.new(|_| Reveal(reveal))).unwrap();
+        });
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+            shell.set_space(1, cx);
+        });
+        cx.run_until_parked();
+        // Tab 4's row fits in the browser window but is past the bottom of the reveal's list.
+        let offset = shell.update(cx, |shell, cx| {
+            shell.set_tabs(1, Vec::new(), vec![2, 3, 4], Vec::new(), Folders::default(), cx);
+            shell.set_selected(4, cx);
+            shell.list_scroll.offset().y
+        });
+        assert_eq!(offset, px(0.));
+    }
+}
