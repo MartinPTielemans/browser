@@ -87,6 +87,26 @@ impl Shell {
         first && !self.sidebar_hidden && !self.page_fullscreen && !self.private
     }
 
+    /// Fingers from the second Space that have brought the first all the way in carry on into the
+    /// Library beside it, in the same swipe, as Arc's do (Arc 1.170 rec, three Spaces): the first
+    /// Space shows, and the swipe goes on as if it began there.
+    fn carry_into_library(&mut self, swipe: &mut Swipe, cx: &mut Context<Self>) {
+        let width = self.width();
+        let Some(first) = self.spaces.first().map(|space| space.id) else {
+            return;
+        };
+        let second = self.spaces.get(1).is_some_and(|space| space.id == swipe.from);
+        let carries = second && !swipe.library && swipe.way >= width && self.form.is_none();
+        if !carries || !self.library_beside(first) {
+            return;
+        }
+        (swipe.from, swipe.nearest, swipe.way) = (first, first, swipe.way - width);
+        for (_, x) in &mut swipe.samples {
+            *x -= width;
+        }
+        self.show_space(first, cx);
+    }
+
     /// How far out a swipe has taken the Library (`library_out`), while it moves the Library.
     pub(super) fn library_swiped(&self, swipe: &Swipe) -> Option<f32> {
         if swipe.across != Some(true) {
@@ -172,6 +192,7 @@ impl Shell {
             let was_near = library_near(self, &swipe);
             let was_past = past_end(self, &swipe);
             swipe.way += SWIPE_TRACKING * delta.x;
+            self.carry_into_library(&mut swipe, cx);
             if !was_past && past_end(self, &swipe) {
                 // check.sh waits for this line.
                 log!("browser: library past its end");
@@ -413,10 +434,13 @@ fn heading(x: f32, velocity: f32, width: f32) -> f32 {
 mod tests {
     use std::rc::Rc;
 
-    use gpui::{ScrollDelta, ScrollEvent, TestAppContext, TouchPhase, point, px};
+    use gpui::{
+        Context, Entity, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase, VisualTestContext,
+        Window, point, px,
+    };
 
     use super::{heading, nearest};
-    use crate::shell::{Folders, Shell, Space, recorder::Recorder};
+    use crate::shell::{Folders, SWIPE_TRACKING, Shell, Space, recorder::Recorder};
 
     fn spaces(ids: &[u64]) -> Vec<Space> {
         let space = |&id| Space {
@@ -462,32 +486,79 @@ mod tests {
         assert_eq!(lands(1, 120., 0.), Some(1));
     }
 
-    /// Fingers taking the Library back land on the first Space, which it sits left of, though it
-    /// was opened from the second.
-    #[gpui::test]
-    fn a_swipe_back_from_the_library_lands_on_the_first_space(cx: &mut TestAppContext) {
+    /// A window showing Space `shown` of three, as the core leaves it.
+    fn three_spaces(
+        cx: &mut TestAppContext,
+        shown: u64,
+    ) -> (Entity<Shell>, Rc<Recorder>, &mut VisualTestContext) {
         let host = Rc::new(Recorder::default());
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
         shell.update(cx, |shell, cx| {
             let space = |id: u64| (id, format!("Space {id}").into(), None, 1, "".into(), "".into());
             shell.set_spaces(vec![space(1), space(2), space(3)], cx);
-            shell.set_space(2, cx);
-            shell.set_library(true, cx);
-            // At rest, open.
-            shell.library_motion = None;
+            shell.set_space(shown, cx);
         });
         cx.run_until_parked();
+        (shell, host, cx)
+    }
+
+    /// Two fingers across the sidebar, down, moved `way` of the page's way in one go, and up.
+    fn swipe(shell: &mut Shell, way: f32, window: &mut Window, cx: &mut Context<Shell>) {
         let fingers = |touch_phase, x| ScrollEvent {
             delta: ScrollDelta::Pixels(point(px(x), px(0.))),
             touch_phase,
             ..Default::default()
         };
+        use TouchPhase::{Ended, Moved, Started};
+        for (phase, x) in [(Started, 0.), (Moved, way / SWIPE_TRACKING), (Ended, 0.)] {
+            shell.scroll(&fingers(phase, x), window, cx);
+        }
+    }
+
+    /// Fingers taking the Library back land on the first Space, which it sits left of, though it
+    /// was opened from the second.
+    #[gpui::test]
+    fn a_swipe_back_from_the_library_lands_on_the_first_space(cx: &mut TestAppContext) {
+        let (shell, host, cx) = three_spaces(cx, 2);
+        shell.update(cx, |shell, cx| {
+            shell.set_library(true, cx);
+            // At rest, open.
+            shell.library_motion = None;
+        });
+        cx.run_until_parked();
         shell.update_in(cx, |shell, window, cx| {
-            use TouchPhase::{Ended, Moved, Started};
-            for (phase, x) in [(Started, 0.), (Moved, -800.), (Ended, 0.)] {
-                shell.scroll(&fingers(phase, x), window, cx);
-            }
+            swipe(shell, -400., window, cx);
             assert!(!shell.library_open, "the swipe left the Library open");
+        });
+        assert_eq!(*host.shown.borrow(), [1]);
+    }
+
+    /// One long swipe from the second of three Spaces brings the first all the way in and carries
+    /// on into the Library beside it, as Arc's does, without the fingers letting go between.
+    #[gpui::test]
+    fn one_swipe_from_the_second_space_carries_on_into_the_library(cx: &mut TestAppContext) {
+        let (shell, host, cx) = three_spaces(cx, 2);
+        shell.update_in(cx, |shell, window, cx| {
+            let way = shell.width() + 0.8 * shell.library_width();
+            swipe(shell, way, window, cx);
+            assert!(shell.library_open, "the swipe stopped at the first Space");
+        });
+        assert_eq!(*host.shown.borrow(), [1]);
+    }
+
+    /// Fingers let go once the first Space is in land on it with the Library closed, and the next
+    /// swipe from there brings the Library out.
+    #[gpui::test]
+    fn a_swipe_let_go_on_the_first_space_leaves_the_library_to_the_next(
+        cx: &mut TestAppContext,
+    ) {
+        let (shell, host, cx) = three_spaces(cx, 2);
+        shell.update_in(cx, |shell, window, cx| {
+            swipe(shell, 0.9 * shell.width(), window, cx);
+            assert!(!shell.library_open, "the Library came out with the first Space");
+            shell.set_space(1, cx);
+            swipe(shell, 0.9 * shell.library_width(), window, cx);
+            assert!(shell.library_open, "the next swipe left the Library closed");
         });
         assert_eq!(*host.shown.borrow(), [1]);
     }

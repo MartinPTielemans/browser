@@ -1520,8 +1520,9 @@ impl Shell {
         }
         // A Space shown some other way slides in from its side, pushing the one before out. One a
         // swipe settles on is moving already, one a pull made shows where it is, and one shown as
-        // the Library moves shows in its place under it.
-        let in_place = self.pulled_space_shown(space) || self.library_moving();
+        // the Library moves, or as fingers carry on from it into the Library, shows in its place.
+        let carried = self.swipe.as_ref().is_some_and(|swipe| swipe.from == space);
+        let in_place = self.pulled_space_shown(space) || self.library_moving() || carried;
         let index = |id| self.spaces.iter().position(|other| other.id == id);
         let width = self.width();
         if !self.settle.as_ref().is_some_and(|settle| settle.space == space)
@@ -2284,7 +2285,7 @@ impl Render for Shell {
         let buttons = self.library_buttons() && !window.is_fullscreen();
         let library = library.then(|| self.library_panel(buttons, cx));
         // The Spaces section's cards slide in over the receding sidebar, as Arc's do; the other
-        // sections fade in under it, its buttons receding over them.
+        // sections slide in under it, cut where they reach, its buttons receding over them.
         let (under, over) = match self.section {
             Section::Spaces => (None, library),
             _ => (library, None),
@@ -2299,7 +2300,7 @@ impl Render for Shell {
         let sidebar = sidebar_shown.then(|| {
             let scale = self.sidebar_scale();
             let origin = point(px(width + RECEDE_X), self.viewport.height / 2.);
-            let cover = self.sidebar_cut().unwrap_or(0.);
+            let cover = self.sidebar_cut();
             let sidebar = self.sidebar(cx).left(px(sidebar_left - cover));
             let uncovered = div()
                 .absolute()
