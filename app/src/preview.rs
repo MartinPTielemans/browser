@@ -5,6 +5,7 @@
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -41,13 +42,81 @@ const TABS: [(&str, &str); 5] = [
     ("", "https://example.com/"),
 ];
 
-// The favorites, which every Space shows above its tabs.
-const FAVORITES: [(&str, &str); 4] = [
-    ("Gmail", "https://mail.google.com/"),
-    ("Calendar", "https://calendar.google.com/"),
-    ("GitHub", "https://github.com/"),
-    ("YouTube", "https://www.youtube.com/"),
+// The favorites, which every Space shows above its tabs, with made-up icons that theme a selected
+// tile each way (docs/ux-spec.md › Favorites): colourful twice, one colour, white, and none.
+// PREVIEW_FAVORITE=<index> shows one selected.
+const FAVORITES: [(&str, &str, Icon); 6] = [
+    ("Gmail", "https://mail.google.com/", Icon::Envelope),
+    ("Calendar", "https://calendar.google.com/", Icon::Blocks),
+    ("GitHub", "https://github.com/", Icon::Disc([0.12, 0.13, 0.16])),
+    ("YouTube", "https://www.youtube.com/", Icon::Play),
+    ("Notes", "https://notes.example/", Icon::Disc([1., 1., 1.])),
+    ("Sketch", "https://sketch.example/", Icon::None),
 ];
+
+#[derive(Clone, Copy)]
+enum Icon {
+    /// A red tile with a white band.
+    Envelope,
+    /// Four blocks of different colours, with room around them.
+    Blocks,
+    /// A circle of one colour on nothing.
+    Disc([f32; 3]),
+    /// A red rounded tile with a white triangle.
+    Play,
+    /// No favicon at all, which draws a globe.
+    None,
+}
+
+impl Icon {
+    /// The icon as a 32 px PNG, as Chromium hands the UI a favicon.
+    fn png(self) -> Option<Vec<u8>> {
+        const SIDE: u32 = 32;
+        let rounded = |x: f32, y: f32, edge: f32, radius: f32| {
+            let inner = 15.5 - edge - radius;
+            let (dx, dy) = ((x - 15.5).abs() - inner, (y - 15.5).abs() - inner);
+            dx.max(0.).hypot(dy.max(0.)) <= radius && x.min(y) >= edge && x.max(y) <= 31. - edge
+        };
+        let pixel = |x: u32, y: u32| -> [f32; 4] {
+            let (fx, fy) = (x as f32, y as f32);
+            match self {
+                Icon::Envelope if rounded(fx, fy, 2., 5.) => {
+                    if (12.0..=19.0).contains(&fy) && (7.0..=24.0).contains(&fx) {
+                        [1., 1., 1., 1.]
+                    } else {
+                        [0.86, 0.2, 0.18, 1.]
+                    }
+                }
+                Icon::Blocks if (4.0..=27.0).contains(&fx) && (4.0..=27.0).contains(&fy) => {
+                    match (fx > 15., fy > 15.) {
+                        (false, false) => [0.26, 0.52, 0.96, 1.],
+                        (true, false) => [0.98, 0.74, 0.02, 1.],
+                        (false, true) => [0.2, 0.66, 0.33, 1.],
+                        (true, true) => [0.92, 0.26, 0.21, 1.],
+                    }
+                }
+                Icon::Disc(colour) if (fx - 15.5).hypot(fy - 15.5) <= 13. => {
+                    [colour[0], colour[1], colour[2], 1.]
+                }
+                Icon::Play if rounded(fx, fy, 1., 8.) => {
+                    // Right of x = 12, between the lines from (12, 9) and (12, 22) to (23, 15.5).
+                    let inside = fx >= 12. && (fy - 15.5).abs() <= 6.5 * (23. - fx) / 11.;
+                    if inside { [1., 1., 1., 1.] } else { [0.9, 0.1, 0.1, 1.] }
+                }
+                _ => [0.; 4],
+            }
+        };
+        if matches!(self, Icon::None) {
+            return None;
+        }
+        let image = image::RgbaImage::from_fn(SIDE, SIDE, |x, y| {
+            image::Rgba(pixel(x, y).map(|c| (c * 255.).round() as u8))
+        });
+        let mut png = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut png, image::ImageFormat::Png).ok()?;
+        Some(png.into_inner())
+    }
+}
 
 // The archive: tabs closed hours and days ago, newest first.
 const ARCHIVE: [(&str, &str, f64); 6] = [
@@ -779,9 +848,13 @@ fn main() {
                 shell.set_space(first_space, cx);
                 // The shell forgets what it knows of a tab in no list, so the lists come first.
                 shell.set_favorites(favorites.iter().map(|&tab| (tab, 0)).collect(), cx);
-                for (&tab, (title, url)) in favorites.iter().zip(FAVORITES) {
+                for (&tab, (title, url, icon)) in favorites.iter().zip(FAVORITES) {
                     shell.set_title(tab, title.into(), cx);
                     shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
+                    let favicon = icon.png().map(|png| {
+                        Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png))
+                    });
+                    shell.set_favicon(tab, favicon, cx);
                 }
                 for (index, (title, url)) in TABS.iter().enumerate() {
                     let tab = index as u64 + 1;
@@ -812,7 +885,11 @@ fn main() {
                     ..Split::default()
                 };
                 shell.set_tabs(first_space, pinned, today, vec![split], folders, cx);
-                shell.set_selected(1, cx);
+                let favorite = std::env::var("PREVIEW_FAVORITE").ok().and_then(|n| n.parse().ok());
+                match favorite.and_then(|n: usize| favorites.get(n)) {
+                    Some(&tab) => shell.set_selected(tab, cx),
+                    None => shell.set_selected(1, cx),
+                }
                 shell
             });
             window.focus(&shell.focus_handle(cx), cx);

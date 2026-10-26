@@ -53,7 +53,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Favorite tile | MVP | 41 tall, 6 apart, inset 8, radius 10 *interim* | Dia 1.50.1 bin + cap; inset ours |
 | [x] | Favorite columns | MVP | as many as fit at ≥ 48, fewer share the row: 3 at 190, 4 at 228 *interim*; Arc's rule: measure | Dia P§2; rule ours |
 | [x] | Favorite resting look | MVP | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
-| [ ] | Favorite selection theming | MVP | colourful (≥ 0.055): blur 5 at 22 %, 3 pt ring; one colour: mean fill, white template, soft-light ring; near-white: black fill, white 0.30 ring | Dia 1.50.1 bin |
+| [x] | Favorite selection theming | MVP | colourful (≥ 0.055): blur 5 at 22 %, 3 pt ring; one colour: mean fill, white template, soft-light ring; near-white: black fill, white 0.30 ring; emoji icons not yet | Dia 1.50.1 bin |
 | [x] | Favorites fixed while the list scrolls | MVP | yes | Dia |
 | [x] | Tall favorites block | MVP | scrolls with the list above 40 % of the sidebar | Ardia |
 | [x] | Favorite double-click | MVP | back to the favorite's URL | Dia P§2 |

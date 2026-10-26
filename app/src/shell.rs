@@ -3,7 +3,7 @@
 //! it and asks the browser for changes, so the engine stays the one place tabs live.
 
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     rc::Rc,
     sync::Arc,
@@ -40,6 +40,7 @@ mod sidebar;
 mod space_form;
 mod split_targets;
 mod swipe;
+mod tile_theme;
 
 pub use assets::Assets;
 pub use browser::{Browser, Folders, Page, Split, WindowButton};
@@ -62,6 +63,7 @@ use library::{LIBRARY_WIDTH, RECEDE_X, Section};
 use menus::MenuAction;
 use panes::pane_frames;
 use scaled::scaled;
+use tile_theme::TileTheme;
 
 /// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
@@ -317,13 +319,14 @@ const SCROLL_EDGE: u32 = 0xffffff17;
 const CLEAR: u32 = 0xffffff73;
 // A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 const SLEEPING_FAVICON: f32 = 0.5;
-// A favorite's tile: white 0.10 with a white 0.14 edge at rest (Dia), and the one shown white 0.20
-// with Dia's default selection ring, white 0.45, until tiles are themed by their icons. Under the
-// pointer it's white 0.15 (ours: Dia's isn't measured).
+// A favorite's tile: white 0.10 with a white 0.14 edge at rest (Dia), and under the pointer white
+// 0.15 (ours: Dia's isn't measured). The one shown is themed by its icon (tile_theme.rs), and
+// black with Dia's default selection ring, white 0.45, where the icon gives no theme.
 const TILE: f32 = 0.1;
 const TILE_EDGE: u32 = 0xffff_ff24;
 const TILE_HOVERED: f32 = 0.15;
 const TILE_RING: u32 = 0xffff_ff73;
+const TILE_UNTHEMED: u32 = 0x0000_00ff;
 // The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
 // forward with nowhere to go, over a hover plate of white 0.077.
 const NAV: u32 = 0xffffff99;
@@ -378,6 +381,9 @@ struct Tab {
     page: Page,
     /// None for a page without one.
     favicon: Option<Arc<Image>>,
+    /// What the favicon (by its id) themes the tile with when the tab is a favorite shown, made
+    /// the first time that's drawn.
+    theme: RefCell<Option<(u64, Option<Rc<TileTheme>>)>>,
 }
 
 struct Space {
