@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
 #import <objc/runtime.h>
 
@@ -1601,6 +1602,82 @@ bool host_drag_file(const char* path, void (*ended)(bool taken)) {
   source = [[HostFileDragSource alloc] init];
   source.ended = ended;
   return [view beginDraggingSessionWithItems:@[ item ] event:event source:source] != nil;
+}
+
+// |image| as a PNG, or nil.
+static NSData* PNGOf(CGImageRef image) {
+  NSMutableData* png = [NSMutableData data];
+  CGImageDestinationRef destination = CGImageDestinationCreateWithData(
+      (__bridge CFMutableDataRef)png, CFSTR("public.png"), 1, nullptr);
+  if (!destination) {
+    return nil;
+  }
+  CGImageDestinationAddImage(destination, image, nullptr);
+  bool written = CGImageDestinationFinalize(destination);
+  CFRelease(destination);
+  return written ? png : nil;
+}
+
+void host_file_preview(const char* path, uint64_t id,
+                       void (*done)(uint64_t id, const uint8_t* png, size_t size, double width,
+                                    double height, bool image)) {
+  NSString* file = @(path);
+  // A photo's thumbnail reads and decodes its file, which can take a while for a large one.
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    NSData* thumbnail = nil;
+    size_t width = 0, height = 0;
+    CGImageSourceRef source =
+        CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:file], nullptr);
+    if (source) {
+      NSDictionary* options = @{
+        (__bridge NSString*)kCGImageSourceCreateThumbnailFromImageAlways : @YES,
+        (__bridge NSString*)kCGImageSourceCreateThumbnailWithTransform : @YES,
+        (__bridge NSString*)kCGImageSourceThumbnailMaxPixelSize : @96,
+      };
+      CGImageRef image = CGImageSourceGetCount(source) > 0
+                             ? CGImageSourceCreateThumbnailAtIndex(
+                                   source, 0, (__bridge CFDictionaryRef)options)
+                             : nullptr;
+      if (image) {
+        thumbnail = PNGOf(image);
+        width = CGImageGetWidth(image);
+        height = CGImageGetHeight(image);
+        CGImageRelease(image);
+      }
+      CFRelease(source);
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (thumbnail) {
+        done(id, static_cast<const uint8_t*>(thumbnail.bytes), thumbnail.length, width, height,
+             true);
+        return;
+      }
+      if (![NSFileManager.defaultManager fileExistsAtPath:file]) {
+        done(id, nullptr, 0, 0, 0, false);
+        return;
+      }
+      // The icon at 26 points on a 2× display, drawn as Finder draws it.
+      const NSInteger side = 52;
+      NSBitmapImageRep* bitmap =
+          [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
+                                                  pixelsWide:side
+                                                  pixelsHigh:side
+                                               bitsPerSample:8
+                                             samplesPerPixel:4
+                                                    hasAlpha:YES
+                                                    isPlanar:NO
+                                              colorSpaceName:NSDeviceRGBColorSpace
+                                                 bytesPerRow:0
+                                                bitsPerPixel:0];
+      [NSGraphicsContext saveGraphicsState];
+      NSGraphicsContext.currentContext =
+          [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
+      [[NSWorkspace.sharedWorkspace iconForFile:file] drawInRect:NSMakeRect(0, 0, side, side)];
+      [NSGraphicsContext restoreGraphicsState];
+      NSData* png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+      done(id, static_cast<const uint8_t*>(png.bytes), png.length, side, side, false);
+    });
+  });
 }
 
 void host_copy(const char* text) {

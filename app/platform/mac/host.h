@@ -303,6 +303,15 @@ bool host_trash(const char* path);
 // it. Returns false, and never calls |ended|, if it didn't start, as when there's no file there.
 bool host_drag_file(const char* path, void (*ended)(bool taken));
 
+// Looks up a preview of the file at |path|, a full path in UTF-8, off the main thread: for an
+// image, a thumbnail at most 96 pixels on its longer side, its aspect kept, else the system's icon
+// for the file, 52 pixels square. Then calls |done| on the main thread with |id|, the preview as a
+// PNG |size| bytes long, |width| by |height| pixels, and whether it's an image's thumbnail, or with
+// a null |png| if there's no file there.
+void host_file_preview(const char* path, uint64_t id,
+                       void (*done)(uint64_t id, const uint8_t* png, size_t size, double width,
+                                    double height, bool image));
+
 // Puts |text| on the clipboard. A driven run puts it on a pasteboard of its own instead, so checks
 // never touch the user's clipboard.
 void host_copy(const char* text);

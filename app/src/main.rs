@@ -13,7 +13,8 @@ use std::{
 use browser::{command_bar, dialog, icon_picker, log, site_controls, toast, tooltip};
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    ExtensionAction, ExtensionCommand, Folders, MenuEntry, Page, Shell, Split, WindowButton,
+    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, Split,
+    WindowButton,
 };
 use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, Undo};
 use gpui::{
@@ -117,6 +118,18 @@ mod platform {
         );
         pub fn host_trash(path: *const c_char) -> bool;
         pub fn host_drag_file(path: *const c_char, ended: extern "C" fn(taken: bool)) -> bool;
+        pub fn host_file_preview(
+            path: *const c_char,
+            id: u64,
+            done: extern "C" fn(
+                id: u64,
+                png: *const u8,
+                size: usize,
+                width: f64,
+                height: f64,
+                image: bool,
+            ),
+        );
         pub fn host_copy(text: *const c_char);
         pub fn host_day_starts(starts: *mut f64);
         pub fn host_menu(
@@ -949,6 +962,12 @@ impl Browser for Engine {
         unsafe { bc::bc_download_icon(download) };
     }
 
+    fn file_preview(&self, download: u64, path: &str, _: &mut App) {
+        if let Ok(path) = CString::new(path) {
+            unsafe { platform::host_file_preview(path.as_ptr(), download, file_preview) };
+        }
+    }
+
     fn trash(&self, path: &str, _: &mut App) -> bool {
         CString::new(path).is_ok_and(|path| unsafe { platform::host_trash(path.as_ptr()) })
     }
@@ -1507,6 +1526,22 @@ extern "C" fn accent_color_changed() {
 // The ⌃Tab walk and the file's drag were the user's in the window in front.
 extern "C" fn control_released() {
     update_window(front().0, |shell, cx| shell.control_released(cx));
+}
+
+extern "C" fn file_preview(
+    download: u64,
+    png: *const u8,
+    size: usize,
+    width: f64,
+    height: f64,
+    image: bool,
+) {
+    let preview = (!png.is_null()).then(|| {
+        let png = unsafe { std::slice::from_raw_parts(png, size) }.to_vec();
+        let png = Arc::new(Image::from_bytes(ImageFormat::Png, png));
+        FilePreview { image: png, width: width as f32, height: height as f32, photo: image }
+    });
+    update_shells(|shell, cx| shell.set_download_preview(download, preview.clone(), cx));
 }
 
 extern "C" fn file_drag_ended(taken: bool) {

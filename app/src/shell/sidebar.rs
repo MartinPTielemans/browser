@@ -146,6 +146,7 @@ impl Shell {
         let from = self.card_left();
         self.sidebar_hidden = !self.sidebar_hidden;
         self.sidebar_motion = Some((from, Instant::now()));
+        self.recent_downloads_gone(cx);
         cx.notify();
     }
 
@@ -264,7 +265,12 @@ impl Shell {
     /// The window's look, opaque, halfway down: what covers the rows it passes over, and the find
     /// bar's colour.
     pub fn window_fill(&self) -> Hsla {
-        Hsla::from(rgb(MATERIAL_STAND_IN)).blend(self.gradient_color(0.5))
+        self.window_fill_at(0.5)
+    }
+
+    /// The window's look, opaque, `y` of the way down.
+    pub(super) fn window_fill_at(&self, y: f32) -> Hsla {
+        Hsla::from(rgb(MATERIAL_STAND_IN)).blend(self.gradient_color(y))
     }
 
     /// The pointer is at `x` in the browser window: kept at its left edge it brings the hidden
@@ -314,6 +320,9 @@ impl Shell {
         self.revealed = revealed;
         if revealed {
             self.browser.show_reveal(REVEAL_INSET + self.width() + REVEAL_OVERSHOOT, cx);
+        } else {
+            // The panel takes them away, and the pointer it had.
+            self.recent_downloads_gone(cx);
         }
         cx.notify();
     }
@@ -324,6 +333,7 @@ impl Shell {
             self.revealed = false;
             self.reveal_motion = None;
             self.browser.hide_reveal(cx);
+            self.recent_downloads_gone(cx);
         }
     }
 

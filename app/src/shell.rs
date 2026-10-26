@@ -41,6 +41,7 @@ mod naming;
 mod new_space;
 mod panes;
 mod permission;
+mod recent_downloads;
 #[cfg(test)]
 mod recorder;
 mod rows;
@@ -68,12 +69,14 @@ pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menus::{MenuEntry, new_profile_name};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
+pub use recent_downloads::FilePreview;
 use clean_link::clean_link;
 use commands::ShellHandle;
 use fly_in::Flight;
 use library::{RECEDE_X, Section};
 use menus::MenuAction;
 use panes::pane_frames;
+use recent_downloads::RecentDownloads;
 use rows::Rings;
 use scaled::scaled;
 use swap::{ARROW_DOWN, Swapped, Swaps};
@@ -963,6 +966,11 @@ pub struct Shell {
     /// The download whose row the left button last pressed, where, and whether the press became
     /// the system's drag of its file.
     download_press: Option<(u64, Point<Pixels>, bool)>,
+    /// The drag of a download's file from the Library closed it, to come back if nothing takes it.
+    library_dragged: bool,
+    /// The previews asked for the recent downloads' files, and the rows over the Library button.
+    download_previews: HashMap<u64, Option<FilePreview>>,
+    recent_downloads: RecentDownloads,
     /// Every download a report has listed, whether one has come, and the new download's icon on its
     /// way to the Library button.
     downloads_seen: HashSet<u64>,
@@ -1102,6 +1110,9 @@ impl Shell {
             downloads: Vec::new(),
             download_icons: HashMap::new(),
             download_press: None,
+            library_dragged: false,
+            download_previews: HashMap::new(),
+            recent_downloads: RecentDownloads::default(),
             downloads_seen: HashSet::new(),
             downloads_read: false,
             flight: None,
@@ -1182,6 +1193,7 @@ impl Shell {
         shell.page_favicons = from.page_favicons.clone();
         shell.downloads = from.downloads.clone();
         shell.download_icons = from.download_icons.clone();
+        shell.download_previews = from.download_previews.clone();
         shell.downloads_seen = from.downloads_seen.clone();
         shell.downloads_read = from.downloads_read;
         shell.extensions = from.extensions.clone();
@@ -1806,6 +1818,7 @@ impl Shell {
         if fullscreen {
             self.conceal_now(cx);
             self.close_library_now();
+            self.recent_downloads_gone(cx);
         }
         cx.notify();
     }
@@ -2135,6 +2148,7 @@ impl Render for Shell {
         self.step_library(window, cx);
         self.step_new_space(window);
         self.step_flight(window);
+        self.step_recent_downloads(window);
         if let Some((_, left)) = &self.leaving_form {
             if left.elapsed().as_secs_f32() < FORM_LEAVE_TITLE + FORM_LEAVE {
                 window.request_animation_frame();
@@ -2354,6 +2368,7 @@ impl Shell {
         };
         sidebar
             .children(self.new_space_circle())
+            .children(self.recent_download_rows(cx))
             .children((!self.private).then(|| self.library_button(cx)))
             .children((!self.private).then(|| self.plus_button(cx)))
             .children(self.switcher(cx))

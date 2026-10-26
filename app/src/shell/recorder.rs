@@ -132,6 +132,10 @@ impl Browser for Recorder {
 
     fn download_icon(&self, _: u64, _: &mut App) {}
 
+    fn file_preview(&self, download: u64, _: &str, _: &mut App) {
+        self.record(format!("file preview {download}"))
+    }
+
     fn trash(&self, _: &str, _: &mut App) -> bool {
         Default::default()
     }

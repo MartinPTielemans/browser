@@ -39,6 +39,7 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=Browser={arg}");
     }
     println!("cargo:rustc-link-lib=framework=Cocoa");
+    println!("cargo:rustc-link-lib=framework=ImageIO");
     println!("cargo:rerun-if-changed=platform");
     println!("cargo:rerun-if-changed={}", header.display());
 }
