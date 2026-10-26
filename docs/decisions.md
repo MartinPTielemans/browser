@@ -17,6 +17,12 @@ Not raw Chromium and not all of Helium.
 - De-Googling Chromium is continuous work across hundreds of call sites and every release. ungoogled-chromium has done it for a decade.
 - Helium is a product on top of ungoogled-chromium. Ardia built on Helium and needs about 15 skipped patches, about 10 patches that undo Helium, and a guard stage to keep that working (`docs/engine-build.md` in mantrakp04/ardia). We cherry-pick from Helium instead.
 - One fewer upstream means Chromium security fixes reach us sooner.
+- The Chrome Web Store is the one Google service we bring back, since Chrome's extensions are a requirement (decision 1) and ungoogled-chromium breaks installing and updating them from the store. `engine/patches/ours/chromium-extensions-web-store.patch` restores them. The browser talks to Google's store directly, not through a proxy as Helium does. That happens on three occasions, and with no store extension installed only the first:
+  - The store's own page, chromewebstore.google.com, gets Chrome's install API and sees the installed extensions, as in Chrome.
+  - An install the user confirms fetches the extension's icon from the address the page gives, Google's image host. It then downloads the extension from clients2.google.com, which redirects to clients2.googleusercontent.com. The download carries the profile's cookies and the store page as referrer, as in Chrome.
+  - Installed store extensions are checked for updates at clients2.google.com, soon after launch and every 5 hours (±20%) after. The check sends each one's id and version, and the browser's OS, architecture, version and language, without cookies or usage pings. An update downloads from clients2.googleusercontent.com.
+
+  Nothing else of Google's comes back: no Safe Browsing, sync, metrics or component updater.
 
 Revisit if cherry-picking from Helium costs more per release than taking its whole series would.
 
