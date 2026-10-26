@@ -285,17 +285,29 @@ send key r cmd
 expect '^browser: loaded [0-9]* ' "⌘R didn't load the crashed page again"
 send click $page_point
 
-# ⌘Q asks first. Cancel keeps the browser running, and Quit, and Don't Ask Again quits.
+# ⌘Q asks first, in the dialog over the window. Escape keeps the browser running, and Quit, and
+# Don't Ask Again quits. That button is at the card's bottom left, 29 in from its left and bottom
+# edges; the card is centred, 450 wide and, with no detail, 172 tall.
+send layout
+content=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+  sed 's/^browser: layout content \([0-9]*x[0-9]*\),.*/\1/')
+width=${content%x*}
+height=${content#*x}
 post key q cmd
 expect '^browser: command quit via page$' "⌘Q with the page focused didn't reach the UI"
-expect '^browser: alert shown Quit Browser?$' "⌘Q didn't ask before quitting"
-send choose Cancel
+expect '^browser: dialog shown Quit Browser?$' "⌘Q didn't ask before quitting"
+expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/quit.png" || fail "no window to capture"
+send key escape
+expect '^browser: dialog cancelled$' "escape didn't cancel quitting"
+expect '^browser: dialog hidden$' "the dialog asking to quit didn't go"
 post key q cmd
-expect '^browser: alert shown Quit Browser?$' "⌘Q didn't ask again after Cancel"
+expect '^browser: dialog shown Quit Browser?$' "⌘Q didn't ask again after Cancel"
+expect '^browser: dialog settled$' "the dialog asking to quit didn't settle again"
 # It's the driver's last command: the app doesn't report it done.
-post choose Quit, and don’t ask again
+post click $((width / 2 - 225 + 29 + 40)) $((height / 2 - 86 + 1 + 38 + 22 + 46 + 18))
 exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first, and Cancel keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"

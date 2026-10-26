@@ -101,12 +101,13 @@ none_since() {
 detents() {
   grep -c '^browser: detent$' "$log" || true
 }
-# ⌘Q, and Quit in the alert that asks first. Quit is the driver's last command: the app doesn't
-# report it done.
+# ⌘Q, and return for Quit in the dialog that asks first, once it has the keyboard. Quit is the
+# driver's last command: the app doesn't report it done.
 quit_by_key() {
   post key q cmd
-  expect '^browser: alert shown Quit Browser?$' "⌘Q didn't ask before quitting"
-  post choose Quit
+  expect '^browser: dialog shown Quit Browser?$' "⌘Q didn't ask before quitting"
+  expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
+  post key return
   exec 3>&-
 }
 # Chrome's browser window has the keyboard, with focus on $1.
