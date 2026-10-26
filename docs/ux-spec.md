@@ -224,7 +224,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | URL field height, radius, fill, font | 36 tall, 8 in from the sidebar's sides, radius 12, white 0.10. The text is 13 pt system regular in white 0.60, its glyphs from x 21.5; ours draws the same glyphs at the same place | Arc 1.170.0 cap |
 | URL field text | the host alone, `www.` dropped: iana.org for https://www.iana.org/. Arc's View menu has no Show Full URL; Dia's (off by default) adds the path, query and fragment, with no trailing "/". Ours: Arc's | Arc 1.170.0 cap, Dia 1.50.1 bin, D›URL bar |
 | Hovering the URL | Arc: the field's buttons, not the full URL (Arc 1.170.0 cap). Dia: the full URL, host bright and path dim (Dia 1.49 cap). Ours: Arc's | Arc 1.170.0 cap |
-| Field buttons | Copy Current URL and Site Control Center, 30 × 30 at x 163 and 191 of 228, while the pointer is over the sidebar | Arc 1.170.0 cap |
+| Field buttons | Copy Current URL and Site Control Center, 30 × 30 at x 163 and 191 of 228, while the pointer is over the sidebar. Ours: Copy URL fades with Clear (› Clear divider, *interim*) | Arc 1.170.0 cap |
 | Insecure page / zoom not 100 % | a lock-warning glyph / a magnifier (+ or −) that opens − / + / Reset. Arc: no warning glyph, and nothing for zoom but the HUD (› Zoom) | Dia and Chrome, P§8; Arc 1.170.0 cap |
 | Downloads button (reference) | Dia: centre (166, 26) at 190 pt, in the header. Arc: measure | Dia, D›Sidebar |
 
@@ -320,7 +320,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 
 - Today tabs are the Space's unpinned tabs. They are archived (see Archive).
 - The divider shows with the section while the Space has Today tabs. It has no hover state.
-- Clear shows only while the pointer is over the sidebar (Arc 1.170.0 cap). Ours: it shows and hides at once, since Arc's fade isn't recorded. The reveal's panel, which shows only under the pointer, always shows it.
+- Clear shows only while the pointer is over the sidebar (Arc 1.170.0 cap). Ours, *interim* until Arc's fade is recorded: it fades in and out over 150 ms on the scroll edge's ease-out curve, takes clicks only while shown or fading in, and a reversal starts from the opacity it had. The reveal's panel, which shows only under the pointer, always shows it, with no fade.
 - The line is one device pixel of white 0.15 (Arc's separator token; the capture reads 0.14–0.16), 18 pt in from each side of the sidebar (Arc 1.170.0 cap). While Clear shows, it ends 9 pt before the word. Its centre is 25 pt above the centre of the first Today row.
 - In the sidebar Arc's Clear is the word alone: the captures with the sidebar hovered show it 29.5 × 15 (ax), with nothing between it and the line's end 9 pt before it. On a card in the Library's Spaces section it has an arrow down 8 pt tall, 9 pt after the line and 3 pt before the word (Arc 1.170.0 cap). The label is semibold, with a cap height 0.75 of the tab titles' (≈ 10 pt beside 13 pt titles), and it ends where the titles end.
 - The button's tooltip is "Clear unpinned tabs in this space". The menu item is Clear Unpinned Tabs (⇧⌘K). The command bar finds it by "close unpinned tabs", "clear tabs" and "clear today".

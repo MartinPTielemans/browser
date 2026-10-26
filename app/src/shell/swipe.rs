@@ -10,7 +10,7 @@ use gpui::{
 
 use super::{
     SCROLL_EDGE, SCROLL_EDGE_FADE, SWIPE_FLICK, SWIPE_HISTORY, SWIPE_TRACKING,
-    Settle, Shell, Swipe, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, cubic_bezier, rubber_band,
+    Settle, Shell, Swipe, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at, rubber_band,
 };
 
 impl Shell {
@@ -308,8 +308,7 @@ impl Shell {
     fn scroll_edge(&self) -> f32 {
         let to = if self.scrolled { 1. } else { 0. };
         self.scroll_edge_fade.map_or(to, |(start, from)| {
-            let t = (start.elapsed().as_secs_f32() / SCROLL_EDGE_FADE).min(1.);
-            from + (to - from) * cubic_bezier(0.25, 0.46, 0.45, 0.94, t)
+            fade_at(from, to, start.elapsed().as_secs_f32(), SCROLL_EDGE_FADE)
         })
     }
 

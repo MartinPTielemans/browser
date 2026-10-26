@@ -85,10 +85,11 @@ expect '^browser: command copy-markdown-link via ui$' "⌥⇧⌘C with the UI fo
 expect '^browser: copied \[Example Domain](https://example.org/)$' \
   "⌥⇧⌘C didn't copy a Markdown link to the tab"
 
-# Clear and the URL field's button show only while the pointer is over the sidebar. The button
-# copies the URL, and doesn't open the command bar as the rest of the field does.
+# Clear and the URL field's button fade in while the pointer is over the sidebar, and out when it
+# leaves. The button copies the URL, and doesn't open the command bar as the rest of the field does.
 send move $sidebar_point
 expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over it"
+expect '^browser: sidebar tools shown$' "Clear and the URL field's button didn't fade in"
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-hovered.png" || fail "no window to capture"
 send click $copy_point
 expect '^browser: command copy-url via sidebar$' \
@@ -103,6 +104,7 @@ expect '^browser: copy url shows link$' "the URL field's button kept its checkma
 none_since '^browser: toast shown' || fail "the URL field's button showed a toast"
 send move $page_point
 expect '^browser: sidebar hovered 0$' "the sidebar didn't see the pointer leave"
+expect '^browser: sidebar tools hidden$' "Clear and the URL field's button didn't fade out"
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-away.png" || fail "no window to capture"
 
 # ⇧⌘K with the page focused closes the Today tabs but the one shown, here the middle of three,
@@ -137,6 +139,7 @@ none_since '^browser: loaded' || fail "Undo loaded a page"
 # The divider's Clear, under the pointer.
 send move $clear_point
 expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over Clear"
+expect '^browser: sidebar tools shown$' "Clear didn't fade in under the pointer"
 send click $clear_point
 expect '^browser: command clear via sidebar$' "a click on Clear didn't run it"
 expect '^browser: cleared 2$' "Clear on the divider didn't close the two tabs not shown"
