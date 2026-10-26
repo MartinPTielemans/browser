@@ -71,3 +71,4 @@ Recordings could settle these. Until then, the calls listed in each PR stand.
 - Whether Arc's dialog and form colours follow the Space's theme or are fixed.
 - How Cancel looks under the pointer, and whether a click outside the dialog cancels it.
 - What Arc does under Reduce Motion.
+- Where Arc shows pinned extensions, and whether only under the pointer.

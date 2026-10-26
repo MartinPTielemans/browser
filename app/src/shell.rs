@@ -31,7 +31,10 @@ mod new_space;
 pub(crate) mod scaled;
 mod split_targets;
 
-pub use extensions::{Extension, menu_item as extension_menu_item};
+pub use extensions::{
+    Extension, ExtensionAction, menu_item as extension_menu_item,
+    pin_menu_item as extension_pin_menu_item,
+};
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 use clean_link::clean_link;
 use library::{LIBRARY_WIDTH, RECEDE_X, Section};
@@ -1074,8 +1077,11 @@ pub trait Browser {
     /// Runs extension `id`'s action on the tab shown, its popup hanging from `anchor` in the
     /// window, and returns whether the extension is turned on in the tab's profile.
     fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, cx: &mut App) -> bool;
-    /// Opens Chrome's extensions page in a new tab, and shows it.
-    fn manage_extensions(&self, cx: &mut App);
+    /// Pins extension `id`'s action in `profile`, or unpins it.
+    fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, cx: &mut App);
+    /// Opens Chrome's extensions page in a new tab, at extension `id`'s details if there's one,
+    /// and shows it.
+    fn manage_extensions(&self, id: Option<&str>, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
@@ -1638,6 +1644,8 @@ pub struct Shell {
     /// Each profile's extensions, and those the menu bar lists, the shown Space's turned on.
     extensions: HashMap<u64, Vec<Extension>>,
     menu_extensions: Vec<Extension>,
+    /// The pinned actions the window shows, for its tab shown.
+    extension_actions: Vec<ExtensionAction>,
     /// The Library's section shown last, which it opens on.
     section: Section,
     /// The Library, from when it opens until it has closed.
@@ -1734,6 +1742,7 @@ impl Shell {
             download_icons: HashMap::new(),
             extensions: HashMap::new(),
             menu_extensions: Vec::new(),
+            extension_actions: Vec::new(),
             section: Section::Archive,
             library: None,
             library_open: false,
@@ -2758,7 +2767,7 @@ impl Shell {
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::TaskManager => return self.browser.task_manager(cx),
-            Command::ManageExtensions => return self.browser.manage_extensions(cx),
+            Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
             Command::Settings => return self.browser.settings(cx),
             Command::Quit => return self.browser.quit(cx),
             Command::AddSplit => return self.add_pane(cx),
@@ -4526,13 +4535,16 @@ impl Shell {
 
     fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
-        // Copy URL, at the field's end, where the host stops short of it.
+        // The pinned extensions' actions, at the field's end, and Copy URL before them, where the
+        // host stops short of them.
+        let actions = self.action_buttons(cx);
+        let buttons_width = actions.len() as f32 * URL_BUTTON_SIZE;
         let copy = (self.tools_shown() && !url.is_empty()).then(|| {
             div()
                 .id("copy-url")
                 .absolute()
                 .top(px(URL_BUTTON_INSET))
-                .right(px(URL_BUTTON_INSET))
+                .right(px(URL_BUTTON_INSET + buttons_width))
                 .size(px(URL_BUTTON_SIZE))
                 .flex()
                 .items_center()
@@ -4549,8 +4561,9 @@ impl Shell {
                 )
         });
         let text_end = match copy {
-            Some(_) => URL_BUTTON_INSET + URL_BUTTON_SIZE,
-            None => URL_FIELD_TEXT_X - PLATE_INSET,
+            Some(_) => URL_BUTTON_INSET + buttons_width + URL_BUTTON_SIZE,
+            None if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
+            None => URL_BUTTON_INSET + buttons_width,
         };
         div()
             .id("url-field")
@@ -4573,6 +4586,7 @@ impl Shell {
                 (self.extension_name(&url)).unwrap_or_else(|| host(&url).to_string().into()),
             ))
             .children(copy)
+            .children(actions)
     }
 
     /// Whether the sidebar shows Clear and the URL field's button, which it does while the pointer

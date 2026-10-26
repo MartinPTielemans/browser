@@ -119,7 +119,25 @@ typedef struct bc_extension {
   const char* name;
   // Whether it's turned on. A turned-off extension's action doesn't run.
   bool enabled;
+  // Whether its action is pinned, for the windows to show (bc_extension_set_pinned).
+  bool pinned;
 } bc_extension;
+
+// An extension's action as a window shows it, for the tab it shows.
+typedef struct bc_extension_action {
+  const char* id;
+  // What its button's tooltip says: the title the extension gave the tab, or else its name.
+  const char* title;
+  // Its icon for the tab, a PNG at twice its 16-point size.
+  const uint8_t* icon;
+  size_t icon_size;
+  // The text of its badge over the icon's bottom, often "", and the badge's colour, 0xAARRGGBB,
+  // or 0 for Chrome's.
+  const char* badge;
+  uint32_t badge_color;
+  // Whether it acts on the tab. An action that doesn't shows dimmed, as in Chrome.
+  bool enabled;
+} bc_extension_action;
 
 // Where a download is.
 #define BC_DOWNLOAD_RUNNING 0
@@ -230,8 +248,8 @@ typedef struct bc_host {
   // finish. In place of Chrome's downloads page, which the window never opens.
   void (*window_show_downloads)(void* context, bc_id window);
   // The profile's extensions changed, or were first read: one was added, removed, turned on or
-  // off, or bc_extensions_report asked. |extensions| is all of them that Chrome's extensions page
-  // lists, by name.
+  // off, pinned or unpinned, or bc_extensions_report asked. |extensions| is all of them that
+  // Chrome's extensions page lists, by name.
   void (*extensions_changed)(void* context,
                              bc_id profile,
                              const bc_extension* extensions,
@@ -240,6 +258,12 @@ typedef struct bc_host {
   // shown went, and |extension| is "". Chrome's popup goes when it loses the keyboard, when the
   // window shows another tab, or when its page closes it.
   void (*window_extension_popup)(void* context, bc_id window, const char* extension);
+  // The actions the window shows changed: those pinned in the profile of the tab it shows, in
+  // their order, as they are for that tab. Once the tab shown changes, if they're different for it.
+  void (*window_extension_actions)(void* context,
+                                   bc_id window,
+                                   const bc_extension_action* actions,
+                                   size_t count);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -472,6 +496,10 @@ BC_EXPORT bc_id bc_window_restore_archived(bc_id window, bc_id archived);
 // window, or its action.onClicked fires. Returns false if it didn't run: the window shows no tab,
 // or the extension isn't turned on in the tab's profile. Then window_extension_popup, for a popup.
 BC_EXPORT bool bc_window_run_extension(bc_id window, const char* id, bc_rect anchor);
+
+// Pins the extension's action in the profile, after the others, or unpins it, as Chrome's
+// extensions menu does. Then extensions_changed and window_extension_actions.
+BC_EXPORT void bc_extension_set_pinned(bc_id profile, const char* id, bool pinned);
 
 // Tells the app again of the extensions of each profile the core uses, since the first reports may
 // come before it can take them. Then extensions_changed, for each.

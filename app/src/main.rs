@@ -12,8 +12,8 @@ use std::{
 
 use browser::{command_bar, dialog, log, toast};
 use browser::shell::{
-    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension, Folders,
-    MenuEntry, Page, Shell, Split, WindowButton,
+    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension,
+    ExtensionAction, Folders, MenuEntry, Page, Shell, Split, WindowButton,
 };
 use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
@@ -642,8 +642,17 @@ impl Browser for Engine {
         unsafe { bc::bc_window_run_extension(WINDOW.get(), id.as_ptr(), rect(anchor)) }
     }
 
-    fn manage_extensions(&self, _: &mut App) {
-        open_tab("chrome://extensions");
+    fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, _: &mut App) {
+        if let Ok(id) = CString::new(id) {
+            unsafe { bc::bc_extension_set_pinned(profile, id.as_ptr(), pinned) };
+        }
+    }
+
+    fn manage_extensions(&self, id: Option<&str>, _: &mut App) {
+        match id {
+            Some(id) => open_tab(&format!("chrome://extensions/?id={id}")),
+            None => open_tab("chrome://extensions"),
+        }
     }
 
     fn close_other_window(&self, _: &mut App) -> bool {
@@ -1199,6 +1208,10 @@ fn menus(extensions: &[Extension]) -> Vec<Menu> {
             "Extensions",
             (extensions.iter().map(shell::extension_menu_item))
                 .chain((!extensions.is_empty()).then(MenuItem::separator))
+                .chain((!extensions.is_empty()).then(|| {
+                    let pins = extensions.iter().map(shell::extension_pin_menu_item).collect();
+                    MenuItem::submenu(menu("Pin to URL Field", pins))
+                }))
                 .chain([item("Manage Extensions…", Command::ManageExtensions)])
                 .collect(),
         ),
@@ -1474,9 +1487,41 @@ unsafe extern "C" fn extensions_changed(
             id: text(extension.id),
             name: text(extension.name),
             enabled: extension.enabled,
+            pinned: extension.pinned,
         })
         .collect();
     update_shell(|shell, cx| shell.set_extensions(profile, extensions, cx));
+}
+
+unsafe extern "C" fn window_extension_actions(
+    _: *mut c_void,
+    window: bc::bc_id,
+    actions: *const bc::bc_extension_action,
+    count: usize,
+) {
+    if window != WINDOW.get() {
+        return;
+    }
+    let actions = match actions.is_null() {
+        true => &[][..],
+        false => unsafe { std::slice::from_raw_parts(actions, count) },
+    };
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into();
+    let actions = actions
+        .iter()
+        .map(|action| ExtensionAction {
+            id: text(action.id),
+            title: text(action.title),
+            icon: (!action.icon.is_null()).then(|| {
+                let png = unsafe { std::slice::from_raw_parts(action.icon, action.icon_size) };
+                Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec()))
+            }),
+            badge: text(action.badge),
+            badge_color: action.badge_color,
+            enabled: action.enabled,
+        })
+        .collect();
+    update_shell(|shell, cx| shell.set_extension_actions(actions, cx));
 }
 
 unsafe extern "C" fn window_extension_popup(
@@ -1650,6 +1695,7 @@ fn main() {
         window_show_downloads: Some(window_show_downloads),
         extensions_changed: Some(extensions_changed),
         window_extension_popup: Some(window_extension_popup),
+        window_extension_actions: Some(window_extension_actions),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
         window_suggestions: Some(window_suggestions),

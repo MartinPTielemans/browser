@@ -46,6 +46,7 @@ class WidgetDelegate;
 namespace browser_core {
 
 class Suggestions;
+class WindowActions;
 
 // One native window: the app's UI, the page it shows over that, and a Browser per profile holding
 // the window's tabs (decision 3). Closing it closes its Browsers, and it goes once they have.
@@ -290,6 +291,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;
   // Where the app last asked an extension's popup to hang from.
   views::ViewTracker popup_anchor_;
+  // The extension actions it shows, made with its first tab.
+  std::unique_ptr<WindowActions> actions_;
   base::WeakPtrFactory<Window> weak_factory_{this};
 };
 
