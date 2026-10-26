@@ -226,7 +226,7 @@ impl Toast {
     }
 }
 
-fn shadow(color: Hsla, y: f32, blur: f32) -> BoxShadow {
+pub(crate) fn shadow(color: Hsla, y: f32, blur: f32) -> BoxShadow {
     BoxShadow {
         color,
         offset: point(px(0.), px(y)),

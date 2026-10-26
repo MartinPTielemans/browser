@@ -106,6 +106,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Tooltip in | none: full opacity in one frame | any tooltip | Arc 1.170 rec at 2×, View Library, 2 rests |
 | Tooltip out | ease-out, 270 ms: 0.56 at 83 ms, 0.23 at 167 ms, 0.05 at 242 ms | same | same |
 | Toast | in: from 0.7 its size about the middle of its top edge, spring 0.32 s / ζ 0.52 (1.04 at its peak, ≈ 160 ms in), fading in linearly over 100 ms; out: back to 0.7 and transparent over 70 ms, ease-in | the toast at the window's top right | Arc 1.170 rec at 2×, two Spaces deleted |
+| Zoom HUD | in: from 0.4 its size about the middle of its top edge over 180 ms, ease-out (0.74 at 40 ms, 0.97 at 117 ms), fading in over 100 ms; a change: down to 0.45 over 85 ms, ease-in-out, the old percent fading with it, then back over 150 ms, ease-out, with the new one; out: back to 0.4 and transparent over 70 ms, ease-in | the zoom HUD | Arc 1.170 rec at 2×, five zooms and a tab switch |
 | Folder open | ease-out, `cubic-bezier(0, 0, 0.58, 1)`, 200 ms, with no overshoot: 38 % in 50 ms, 69 % in 100 ms | the rows under a folder making room as a click opens it | Arc 1.170 rec at 2×, 1 run, 246 pt |
 | Folder close | critically damped, ω ≈ 25 rad/s, from rest: halfway in 69 ms, within 1 % by about 240 ms | the rows under a folder closing up as a click closes it | Arc 1.170 rec at 2×, 1 run, 246 pt |
 | Spinner | 0 → −2π (clockwise), 1.88 s, linear, repeating | tab loading | Dia 1.50.1 bin |
@@ -758,8 +759,8 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
 ### Zoom
 
 - **Keys.** ⌘0, ⌘+ and ⌘- in the View menu, as Arc's Zoom to Actual Size, Zoom In and Zoom Out, and ⌘= as Chrome's hidden second ⌘+. Chrome's levels, for the page's whole site, which the profile keeps.
-- **Arc's HUD** (Arc 1.170.0 cap). A zoom shows its percent ("125%", "100%") in a child window over the card: the text's right edge 20 pt in from the card's, its middle 29.5 below the card's top. The URL field shows nothing.
-- Ours: the percent in 14 pt medium on a pill of the window's colour, 32 tall, radius 6, with AppKit's shadow, its right edge 10 in from the card's as the find bar's, and 8 pt under the find bar while that's open. The mouse goes through it. It stays 1.5 s after the last zoom, then fades out over 0.15 s, and goes at once when another tab shows. Arc's pill, timing and fade aren't recorded.
+- **HUD** (Arc 1.170 rec at 2×, five zooms and a tab switch). A zoom shows its percent ("125%", "100%") on a pill in a child window over the card, in the toast's style: 41.5 tall, 8 inside the card's top right corner, the percent 14 pt medium and 16 in from the pill's right, the window's colour darkening down it, the toast's rim and shadow. The URL field shows nothing. Ours is 8 pt under the find bar while that's open, and the mouse goes through it.
+- **Timing.** It stays after the last zoom until another tab shows, which takes it at once. Arc's stayed 4.9 s before a tab switch took it, so ours stays 5 s (*interim*: how long Arc's stays alone isn't recorded). Motion › Zoom HUD.
 
 ### DevTools
 
@@ -957,7 +958,8 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 | Split view | A tab dropped away from the targets, its new window | — (ours: Dia's) | 4 |
 | Library | Opening and closing | Motion › Library push, Library fade | done |
 | Library | The archive's Filter, a row's hover and its menu | — | 5 |
-| Pop-ups | Copy URL's note; the zoom pop-up; a tab archived by ⌘W | — | 6 |
+| Pop-ups | Copy URL's note; the zoom pop-up | Motion › Toast, Zoom HUD | done |
+| Pop-ups | A tab archived by ⌘W | — | 6 |
 | Pop-ups | The find bar | one frame | done |
 | Downloads | A download flying in, and the footer while it runs | — | 7 |
 | DevTools | Opening, docked | two steps, no motion | done |

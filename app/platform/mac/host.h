@@ -99,16 +99,16 @@ void host_hide_find_bar(void* ui_view);
 void host_set_pane_corner(void* ui_view, double right, double top);
 
 // Makes the window of |hud_view| float over a browser window when shown, |right| and |top| points
-// from the top right corner of the window's content, for the zoom HUD. It starts hidden, and the
-// mouse goes through it.
-void host_add_hud(void* hud_view, double right, double top);
+// from the top right corner of the window's content, for the zoom HUD, which draws its pill
+// |margin| inside the window. It starts hidden, and the mouse goes through it.
+void host_add_hud(void* hud_view, double right, double top, double margin);
 
 // Shows the HUD over |ui_view|'s window as the UI draws it now, again for a change, until
 // host_hide_hud.
 void host_show_hud(void* ui_view);
 
-// Fades the HUD out over |seconds|.
-void host_hide_hud(double seconds);
+// Hides the HUD, once it has drawn its way out.
+void host_hide_hud(void);
 
 // Makes the window of |view| float over a browser window's content when shown, covering it, for
 // the split view's drop targets over the page. It starts hidden, and the mouse goes through it.

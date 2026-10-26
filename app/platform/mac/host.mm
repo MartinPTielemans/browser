@@ -374,6 +374,7 @@ NSView* g_hud_view;
 bool g_hud_shown = false;
 double g_hud_right;
 double g_hud_top;
+double g_hud_margin;
 unsigned g_hud_changes = 0;
 
 // The drop targets' window and view, and the browser they show over.
@@ -592,7 +593,8 @@ void PlaceHud() {
   NSRect content = [browser->window contentRectForFrameRect:browser->window.frame];
   NSSize size = g_hud.frame.size;
   const double top = browser->find_bar_shown
-                         ? browser->find_bar_top + browser->find_bar.frame.size.height + 8
+                         ? browser->find_bar_top + browser->find_bar.frame.size.height + 8 -
+                               g_hud_margin
                          : g_hud_top;
   [g_hud setFrameOrigin:NSMakePoint(
                             NSMaxX(content) - browser->page_right - g_hud_right - size.width,
@@ -773,7 +775,7 @@ void host_forget_window(void* ui_view) {
     host_hide_tooltip(0);
   }
   if (g_hud_shown && g_hud_over == browser) {
-    host_hide_hud(0);
+    host_hide_hud();
   }
   if (g_drop_targets_shown && g_drop_targets_over == browser) {
     host_hide_drop_targets();
@@ -1110,14 +1112,16 @@ void host_set_pane_corner(void* ui_view, double right, double top) {
   }
 }
 
-void host_add_hud(void* hud_view, double right, double top) {
+void host_add_hud(void* hud_view, double right, double top, double margin) {
   g_hud_view = (__bridge NSView*)hud_view;
   g_hud = g_hud_view.window;
   g_hud_right = right;
   g_hud_top = top;
+  g_hud_margin = margin;
   MakeOverlay(g_hud);
   g_hud.styleMask = NSWindowStyleMaskBorderless;
-  g_hud.hasShadow = YES;
+  // The HUD draws its pill's shadow, which grows and shrinks with it.
+  g_hud.hasShadow = NO;
   g_hud.ignoresMouseEvents = YES;
 }
 
@@ -1136,15 +1140,7 @@ void host_show_hud(void* ui_view) {
     }
     [g_hud_view.layer setNeedsDisplay];
     [g_hud_view.layer displayIfNeeded];
-    [g_hud invalidateShadow];
     PlaceHud();
-    // Stops a fade.
-    [NSAnimationContext
-        runAnimationGroup:^(NSAnimationContext* context) {
-          context.duration = 0;
-          g_hud.animator.alphaValue = 1;
-        }
-        completionHandler:nil];
     if (g_hud.parentWindow != browser->window) {
       [g_hud.parentWindow removeChildWindow:g_hud];
       [browser->window addChildWindow:g_hud ordered:NSWindowAbove];
@@ -1157,25 +1153,16 @@ void host_show_hud(void* ui_view) {
   });
 }
 
-void host_hide_hud(double seconds) {
+void host_hide_hud() {
   if (!g_hud_shown) {
     return;
   }
   g_hud_shown = false;
-  const unsigned change = ++g_hud_changes;
-  [NSAnimationContext
-      runAnimationGroup:^(NSAnimationContext* context) {
-        context.duration = seconds;
-        g_hud.animator.alphaValue = 0;
-      }
-      completionHandler:^{
-        if (change != g_hud_changes) {
-          return;
-        }
-        [g_hud.parentWindow removeChildWindow:g_hud];
-        [g_hud orderOut:nil];
-        fprintf(stderr, "browser: zoom hud hidden\n");
-      }];
+  // Cancels a show still waiting for the HUD to draw.
+  ++g_hud_changes;
+  [g_hud.parentWindow removeChildWindow:g_hud];
+  [g_hud orderOut:nil];
+  fprintf(stderr, "browser: zoom hud hidden\n");
 }
 
 void host_add_drop_targets(void* view) {

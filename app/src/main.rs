@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use browser::{command_bar, dialog, icon_picker, log, site_controls, toast, tooltip};
+use browser::{command_bar, dialog, icon_picker, log, site_controls, toast, tooltip, zoom_hud};
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, Split,
@@ -28,7 +28,6 @@ mod drop_targets;
 mod find_bar;
 mod reveal;
 mod settings;
-mod zoom_hud;
 
 /// The host's overlays (platform/mac/host.h).
 const COMMAND_BAR: c_int = 0;
@@ -86,10 +85,10 @@ mod platform {
         );
         pub fn host_show_find_bar(ui_view: *mut c_void, keyboard: bool);
         pub fn host_hide_find_bar(ui_view: *mut c_void);
-        pub fn host_add_hud(hud_view: *mut c_void, right: f64, top: f64);
+        pub fn host_add_hud(hud_view: *mut c_void, right: f64, top: f64, margin: f64);
         pub fn host_set_pane_corner(ui_view: *mut c_void, right: f64, top: f64);
         pub fn host_show_hud(ui_view: *mut c_void);
-        pub fn host_hide_hud(seconds: f64);
+        pub fn host_hide_hud();
         pub fn host_add_drop_targets(view: *mut c_void);
         pub fn host_show_drop_targets(ui_view: *mut c_void);
         pub fn host_hide_drop_targets();
@@ -650,6 +649,26 @@ impl toast::Host for ToastHost {
     }
 }
 
+/// The zoom HUD's requests, to the host's HUD window, over the browser window it names.
+struct HudHost;
+
+impl zoom_hud::Host for HudHost {
+    fn show(&self, shell: &WeakEntity<Shell>) {
+        let ui_view = WINDOWS.with_borrow(|windows| {
+            let mut windows = windows.iter();
+            let window = windows.find(|window| window.shell.entity_id() == shell.entity_id());
+            window.map(|window| window.ui_view)
+        });
+        if let Some(ui_view) = ui_view {
+            unsafe { platform::host_show_hud(ui_view) };
+        }
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_hud() };
+    }
+}
+
 /// The command bar's requests, as calls to the core and to the host's overlay window, for the
 /// window it shows over (`front`).
 struct Bar;
@@ -1036,7 +1055,7 @@ impl Browser for Engine {
         let percent = unsafe { bc::bc_tab_zoom(tab, step) };
         // check.sh reads this line.
         log!("browser: zoom {tab} {percent}%");
-        zoom_hud::show(tab, percent, self.ui_view, cx);
+        zoom_hud::show(tab, percent, shell_with_view(self.ui_view), cx);
     }
 
     fn view_source(&self, tab: u64, _: &mut App) {
@@ -1755,7 +1774,13 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
     {
         unsafe { platform::host_add_tooltip(view, tooltip_away) };
     }
-    zoom_hud::open(cx);
+    if let Some(hud) = zoom_hud::open(Rc::new(HudHost), cx)
+        && let Ok(view) = hud.update(cx, |_, window, _| ns_view(window))
+    {
+        let (right, top) = (zoom_hud::WINDOW_RIGHT, zoom_hud::WINDOW_TOP);
+        let margin = f64::from(zoom_hud::MARGIN);
+        unsafe { platform::host_add_hud(view, f64::from(right), f64::from(top), margin) };
+    }
     drop_targets::open(cx);
     // Once the page frame is set, so the tab shown loads at its size.
     restore_spaces(id);
