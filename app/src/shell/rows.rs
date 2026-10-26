@@ -397,11 +397,15 @@ impl Shell {
         })
     }
 
+    /// Whether a tab's row has a ✕ to show: a pinned tab closed already has nothing to close.
+    pub(super) fn closable(&self, tab: u64) -> bool {
+        !(self.page(tab).unloaded && self.pinned().contains(&tab))
+    }
+
     fn single_row(&self, tab: u64, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let page = self.page(tab);
         let loading = page.loading;
-        // A pinned tab closed already has nothing to close.
-        let closable = !(page.unloaded && self.pinned().contains(&tab));
+        let closable = self.closable(tab);
         let hovered = self.hovered == Some(Row::Tab(tab));
         // Away from its pinned URL, a pinned tab's favicon is a way back.
         let away = page.away_from_pinned_url;

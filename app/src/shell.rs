@@ -745,6 +745,9 @@ pub struct Shell {
     wheel_paged: Option<Instant>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
+    /// The row and favicon hovered when the rows were last drawn, and whether that row has a ✕,
+    /// for the line check.sh waits for.
+    drawn_hover: (Option<Row>, Option<u64>, bool),
     undo: Option<Undo>,
     /// Whether the pointer is over the docked sidebar, which shows Clear and the URL field's button
     /// only then.
@@ -877,6 +880,7 @@ impl Shell {
             wheel: None,
             wheel_paged: None,
             hovered_favicon: None,
+            drawn_hover: (None, None, false),
             undo: None,
             sidebar_hovered: false,
             hover_changed: false,
@@ -1655,6 +1659,20 @@ impl Render for Shell {
         // As the outline's, so a click on Clear, which shows only under the pointer, finds it.
         if std::mem::take(&mut self.hover_changed) {
             log!("browser: sidebar hovered {}", self.sidebar_hovered as u8);
+        }
+        // As the outline's: the ✕ and the way back show only under the pointer, so a click that
+        // follows a move waits for this line.
+        let close = matches!(self.hovered, Some(Row::Tab(tab)) if self.closable(tab));
+        let hover = (self.hovered, self.hovered_favicon, close);
+        if hover != self.drawn_hover {
+            self.drawn_hover = hover;
+            let row = match hover.0 {
+                Some(Row::Tab(tab)) => format!("tab {tab}"),
+                Some(Row::NewTab) => "new".into(),
+                None => "none".into(),
+            };
+            let favicon = hover.1.map_or("none".into(), |tab| tab.to_string());
+            log!("browser: hover {row} close {} favicon {favicon}", close as u8);
         }
         if std::mem::take(&mut self.focus_form)
             && let Some(form) = self.form()
