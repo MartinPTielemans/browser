@@ -569,6 +569,19 @@ impl Browser for Fake {
         });
     }
 
+    fn set_split_shares(&self, tab: u64, shares: Option<&[f64]>, cx: &mut App) {
+        let shares = shares.map_or_else(Vec::new, <[f64]>::to_vec);
+        self.later(cx, move |shell, cx| {
+            let mut splits = shell.splits();
+            for split in splits.iter_mut().filter(|split| split.tabs.contains(&tab)) {
+                split.shares = shares.clone();
+            }
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let folders = shell.folders();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
 
     // The targets' window is the app's, over the page, which the preview has neither of.
@@ -729,7 +742,7 @@ fn main() {
                 let today = (3..=TABS.len() as u64).collect();
                 let split = Split {
                     tabs: vec![TABS.len() as u64 - 1, TABS.len() as u64],
-                    stacked: false,
+                    ..Split::default()
                 };
                 shell.set_tabs(first_space, pinned, today, vec![split], folders, cx);
                 shell.set_selected(1, cx);

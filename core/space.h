@@ -117,6 +117,13 @@ class Space {
   // Stacks |tab|'s split's tabs top to bottom, or puts them side by side. False, doing nothing, if
   // it's in no split.
   bool SetStacked(bc_id tab, bool stacked);
+  // The share of its length each of |tab|'s split's tabs takes, in their order, adding up to 1, or
+  // none while they're even, as a split starts and goes back to whenever a tab joins or leaves it.
+  std::vector<double> Shares(bc_id tab) const;
+  // Gives |tab|'s split's tabs |shares| of its length, in their order, scaled to add up to 1, or
+  // makes them even if there are none. False, doing nothing, if it's in no split or |shares| aren't
+  // one above 0 for each of its tabs.
+  bool SetShares(bc_id tab, std::vector<double> shares);
 
   // The lowest pinned tab still |loaded|, else 0: the one to show once no Today tab is left.
   bc_id LastLoadedPinned(base::FunctionRef<bool(bc_id)> loaded) const;
@@ -140,6 +147,8 @@ class Space {
     // In their order, as they are in their list.
     std::vector<bc_id> tabs;
     bool stacked = false;
+    // Each tab's share of its length, or none while they're even.
+    std::vector<double> shares;
   };
 
   // The split holding |tab|, or splits_.end().

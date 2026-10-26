@@ -335,6 +335,17 @@ BC_EXPORT bool bc_tab_split_stacked(bc_id tab);
 // doing nothing, if |tab| is in no split view. Then space_changed.
 BC_EXPORT bool bc_tab_set_split_stacked(bc_id tab, bool stacked);
 
+// The share of its split view's width, or height stacked, that |tab|'s page takes with the 10 pt
+// gap after it, so a split's shares add up to 1. They start even, and are again whenever a tab
+// joins or leaves the split. 0 if |tab| is in no split view.
+BC_EXPORT double bc_tab_split_share(bc_id tab);
+
+// Gives the pages of |tab|'s split view |shares|, |count| of them in its order, scaled to add up
+// to 1, or even shares if |shares| is null: a window showing it lays it out so. Returns false,
+// doing nothing, if |tab| is in no split view, or |shares| aren't one above 0 for each page. Then
+// space_changed.
+BC_EXPORT bool bc_tab_set_split_shares(bc_id tab, const double* shares, size_t count);
+
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
 // window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
 // Today tab, else its top pinned tab, else no page. Then window_space_shown and window_selected.

@@ -471,6 +471,13 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_set_split_stacked(tab, stacked) };
     }
 
+    fn set_split_shares(&self, tab: u64, shares: Option<&[f64]>, _: &mut App) {
+        let (shares, count) = shares.map_or((std::ptr::null(), 0), |shares| {
+            (shares.as_ptr(), shares.len())
+        });
+        unsafe { bc::bc_tab_set_split_shares(tab, shares, count) };
+    }
+
     fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
         unsafe {
             bc::bc_tab_split_with(tab, with, left);
@@ -1209,7 +1216,15 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
         let count = unsafe { bc::bc_tab_split(tab, split.as_mut_ptr(), split.len()) };
         if count > 1 && split[0] == tab {
             let tabs = split[..count.min(split.len())].to_vec();
-            splits.push(Split { tabs, stacked: unsafe { bc::bc_tab_split_stacked(tab) } });
+            let shares: Vec<f64> =
+                tabs.iter().map(|&tab| unsafe { bc::bc_tab_split_share(tab) }).collect();
+            // Even shares are the core's integer split, which the shell draws the same way.
+            let even = shares.iter().all(|&share| share == shares[0]);
+            splits.push(Split {
+                tabs,
+                stacked: unsafe { bc::bc_tab_split_stacked(tab) },
+                shares: if even { Vec::new() } else { shares },
+            });
         }
     }
     let mut folders = Folders::default();

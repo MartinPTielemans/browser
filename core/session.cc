@@ -122,6 +122,10 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
       }
       tab.split = above && std::ranges::contains(space.Panes(id), above);
       tab.stacked = tab.split && space.Stacked(id);
+      if (std::vector<double> shares = space.Shares(id); !shares.empty()) {
+        std::vector<bc_id> panes = space.Panes(id);
+        tab.share = shares[std::ranges::find(panes, id) - panes.begin()];
+      }
       above = id;
       tab.pinned_url = space.PinnedUrl(id);
       tab.name = Tab::FromWebContents(contents)->name();
@@ -203,6 +207,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       }
       if (tab.stacked) {
         dict.Set("stacked", true);
+      }
+      if (tab.share) {
+        dict.Set("share", tab.share);
       }
       if (tab.depth) {
         dict.Set("depth", tab.depth);
@@ -291,6 +298,7 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   }
   tab.split = dict->FindBool("split").value_or(false);
   tab.stacked = tab.split && dict->FindBool("stacked").value_or(false);
+  tab.share = dict->FindDouble("share").value_or(0);
   tab.depth = std::max(dict->FindInt("depth").value_or(0), 0);
   return tab;
 }
@@ -581,10 +589,21 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
   }
   for (auto [tabs, ids] : {std::pair(&saved_space.pinned, &pinned_ids),
                            std::pair(&saved_space.today, &today_ids)}) {
-    for (size_t j = 1; j < ids->size(); ++j) {
-      if ((*tabs)[j].split && (*ids)[j] && (*ids)[j - 1] &&
-          space->Split((*ids)[j], (*ids)[j - 1], GURL()) && (*tabs)[j].stacked) {
+    // The shares of the split being remade, which it takes once its last tab is in it.
+    std::vector<double> shares;
+    for (size_t j = 0; j < ids->size(); ++j) {
+      const SavedTab& tab = (*tabs)[j];
+      if (!tab.split || j == 0) {
+        shares.clear();
+      } else if ((*ids)[j] && (*ids)[j - 1] && space->Split((*ids)[j], (*ids)[j - 1], GURL()) &&
+                 tab.stacked) {
         space->SetStacked((*ids)[j], true);
+      }
+      if ((*ids)[j]) {
+        shares.push_back(tab.share);
+      }
+      if (tab.split && (*ids)[j] && (j + 1 == ids->size() || !(*tabs)[j + 1].split)) {
+        space->SetShares((*ids)[j], shares);
       }
     }
   }
