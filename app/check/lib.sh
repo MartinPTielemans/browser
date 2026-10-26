@@ -1,8 +1,10 @@
 # What the runs share. check.sh sources it, then each run's file.
 
-# A Space's colours in its menu, for a Space without one.
-colors="Color › System Accent (checked), Color › Gray, Color › Red, Color › Orange, \
-Color › Yellow, Color › Green, Color › Blue, Color › Pink, Color › Purple"
+# A Space's theme in its menu: the theme picker.
+colors="Edit Theme Color…"
+# Where the theme picker's swatches are, from its top left: 13 for its arrow, then a 29.5 pitch.
+swatch_y=380
+swatch_x() { echo "$1" | awk '{ print 13 + 60.5 + 29.5 * $1 }'; }
 # Its profiles, in the one the check starts with, for a Space with tabs and an empty one.
 profile="Profile › Default (checked), Profile › New Profile (disabled)"
 empty_profile="Profile › Default (checked), Profile › New Profile"

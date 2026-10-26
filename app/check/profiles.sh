@@ -79,13 +79,14 @@ work=$(sed -n 's/^browser: create profile \([0-9]*\) .*/\1/p' "$log" | tail -1)
 expect "^browser: added profile $work Profile 2\$" "the new profile wasn't listed"
 expect "^browser: profiled space $second $work\$" "the form's Space didn't go into the new profile"
 expect '^browser: favorites $' "the new profile's Space showed the first profile's favorite"
-post click 100 299
-expect '^browser: menu shown System Accent (checked), Gray, ' \
-  "the form's Choose a Theme row didn't show the colours"
-send choose Green
-expect "^browser: colored space $second 55bf81\$" "Green in the form didn't colour the Space"
+send click 100 299
+expect "^browser: theme picker for $second\$" "the form's Choose a Theme row didn't open the picker"
+expect '^browser: theme picker shown$' "the form's Choose a Theme row didn't show the picker"
+send clickkey "$(swatch_x 6)" $swatch_y
+expect "^browser: colored space $second [0-9a-f]*\$" "the green swatch didn't colour the Space"
 ../tools/window-screenshot.sh "$pid" "$out/profile-form.png" || fail "no window to capture"
-green=$(echo "$colors" | sed 's/ (checked)//; s/Green/Green (checked)/')
+send key escape
+expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
 send type work
 send key return
 expect "^browser: create space $second work\$" "return didn't name the Space"
@@ -96,7 +97,7 @@ expect '^browser: space form gone$' "the form didn't leave after return"
 name_point="100 112"
 tiled_name="100 159"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $green, Profile › Default, \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, Profile › Default, \
 Profile › Profile 2 (checked), Profile › New Profile, Delete Space\$" \
   "the empty Space's menu didn't offer its profiles"
 ../tools/window-screenshot.sh "$pid" "$out/profile-menu.png" || fail "no window to capture"
@@ -104,7 +105,7 @@ send choose Default
 expect "^browser: profiled space $second $default\$" "Default didn't take the Space back"
 expect "^browser: favorites $a\$" "the first profile's favorite didn't show in its Space again"
 post rightclick $tiled_name
-expect "^browser: menu shown Rename Space, Change Icon…, $green, Profile › Default (checked), \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, Profile › Default (checked), \
 Profile › Profile 2, Profile › New Profile, Profile › Delete “Profile 2”, Delete Space\$" \
   "the menu didn't offer the unused profile back"
 send choose Profile 2
@@ -122,7 +123,7 @@ expect "^browser: title $b cookie none\$" \
 ../tools/window-screenshot.sh "$pid" "$out/profile-space.png" || fail "no window to capture"
 # Its menu, with a tab, can't change its profile.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $green, Profile › Default (disabled), \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, Profile › Default (disabled), \
 Profile › Profile 2 (checked), Profile › New Profile (disabled), Delete Space\$" \
   "the menu of a Space with a tab offered another profile"
 send choose Profile 2
