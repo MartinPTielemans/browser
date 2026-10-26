@@ -233,7 +233,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Library | MVP | slides in from its width to the left as it pushes the card to 417 at its width, on spring 0.245 s / ζ 0.92; the sidebar fades out in 33 ms, and back in over 130 ms from 80 ms; column of sections, back button; ⇧⌘L, View Library, footer button | Arc 1.170.0 cap, ax, rec; Arc 1.x video |
 | [x] | Archived Tabs | MVP | search on the buttons' row, day headings, rows 56 apart with favicon, title and host; a click reopens the tab | Arc 1.170.0 cap, ax |
 | [x] | Clear Archive | MVP | Archive menu; asks first | Arc 1.170.0 menus |
-| [ ] | Library's other sections | MVP | Downloads done; Media, Easels & Notes, Spaces as each feature lands | Arc 1.170.0 cap |
+| [x] | Library's Spaces | MVP | 480 wide, no search; a card per Space with its sidebar rows at the sidebar's metrics, a brush for its menu, a blue + for a new Space; a click shows the Space | Arc 1.170.0 cap (one Space) |
+| [ ] | Library's other sections | MVP | Downloads done; Media, Easels & Notes as each feature lands | Arc 1.170.0 cap |
 | [ ] | Archive filter, row hover and menu | MVP | measure; ours: the sidebar's hover plate, and a menu of Restore Tab, Copy URL and Delete from Archive | — |
 
 ## Profiles

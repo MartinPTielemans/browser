@@ -59,7 +59,7 @@ pub use panes::page_frame;
 pub use permission::{Answer, Question};
 use clean_link::clean_link;
 use commands::ShellHandle;
-use library::{LIBRARY_WIDTH, RECEDE_X, Section};
+use library::{RECEDE_X, Section};
 use menus::MenuAction;
 use panes::pane_frames;
 use scaled::scaled;
@@ -810,6 +810,8 @@ pub struct Shell {
     /// The Library, from when it opens until it has closed.
     library: Option<library::Library>,
     library_open: bool,
+    /// While the Library's width goes to another section's: the width it left, and when.
+    library_resize: Option<(f32, Instant)>,
     /// While the card moves for the Library on its own: how far out it started (`library_out`),
     /// how fast, and when.
     library_motion: Option<(f32, f32, Instant)>,
@@ -913,6 +915,7 @@ impl Shell {
             section: Section::Archive,
             library: None,
             library_open: false,
+            library_resize: None,
             library_motion: None,
             sidebar_fade: None,
             circle_exit: None,
@@ -1817,7 +1820,7 @@ impl Render for Shell {
             let scale = self.sidebar_scale();
             let origin = point(px(width + RECEDE_X), self.viewport.height / 2.);
             // The Library covers the sidebar up to its edge, which is `cover` before the scale.
-            let edge = self.library_edge() * LIBRARY_WIDTH;
+            let edge = self.library_edge() * self.library_width();
             let cover = f32::from(origin.x) + (edge - f32::from(origin.x)) / scale;
             let sidebar = self.sidebar(cx).left(px(sidebar_left - cover));
             let uncovered = div()

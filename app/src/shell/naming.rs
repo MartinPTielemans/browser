@@ -19,6 +19,8 @@ impl Shell {
         };
         let name = name.clone();
         self.show_space(space, cx);
+        // The field is in the sidebar, which the Library covers.
+        self.set_library(false, cx);
         // The form names a Space it made.
         if self.form.as_ref().is_some_and(|form| form.space == space) {
             return;
