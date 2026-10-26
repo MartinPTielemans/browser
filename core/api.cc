@@ -533,10 +533,11 @@ void bc_window_remove_suggestion(bc_id window_id, const char* url) {
   }
 }
 
-bc_id bc_tab_open(bc_id window_id, const char* url) {
+bc_id bc_tab_open(bc_id window_id, const char* url, bool when_shown) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   Profile* profile = window ? ProfileOf(*window) : nullptr;
-  content::WebContents* contents = window && profile ? window->OpenTab(profile, GURL(url)) : nullptr;
+  content::WebContents* contents =
+      window && profile ? window->OpenTab(profile, GURL(url), when_shown) : nullptr;
   if (!contents) {
     return 0;
   }

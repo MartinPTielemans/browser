@@ -281,17 +281,17 @@ fn rect(bounds: Bounds<Pixels>) -> bc::bc_rect {
 
 /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it.
 fn open_tab(url: &str) {
-    let tab = open_tab_behind(url);
+    let tab = open_tab_behind(url, false);
     if tab != 0 {
         unsafe { bc::bc_window_select(WINDOW.get(), tab) };
     }
 }
 
-/// Opens a tab loading `url` at the top of the Space's Today tabs, behind the one shown. Returns
-/// it, or 0.
-fn open_tab_behind(url: &str) -> u64 {
+/// Opens a tab loading `url` at the top of the Space's Today tabs, behind the one shown, or with
+/// `when_shown` loading it only once it's first shown. Returns it, or 0.
+fn open_tab_behind(url: &str, when_shown: bool) -> u64 {
     match CString::new(url) {
-        Ok(url) => unsafe { bc::bc_tab_open(WINDOW.get(), url.as_ptr()) },
+        Ok(url) => unsafe { bc::bc_tab_open(WINDOW.get(), url.as_ptr(), when_shown) },
         Err(_) => 0,
     }
 }
@@ -312,7 +312,7 @@ fn open_split(url: &str, with: u64, cx: &mut App) {
     let Ok(url) = CString::new(url) else {
         return;
     };
-    let tab = unsafe { bc::bc_tab_open(WINDOW.get(), url.as_ptr()) };
+    let tab = unsafe { bc::bc_tab_open(WINDOW.get(), url.as_ptr(), false) };
     if tab != 0 {
         split_tab(tab, with, cx);
     }
@@ -396,7 +396,8 @@ impl command_bar::Host for Bar {
 
     fn open_tab(&self, url: &str, behind: bool) {
         match behind {
-            true => _ = open_tab_behind(url),
+            // ⌘↩'s tab loads once it's first shown, as a link opened behind does (Dia).
+            true => _ = open_tab_behind(url, true),
             false => open_tab(url),
         }
     }

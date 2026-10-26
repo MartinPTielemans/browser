@@ -607,9 +607,10 @@ BC_EXPORT void bc_window_suggest(bc_id window, const char* keyword, const char* 
 BC_EXPORT void bc_window_remove_suggestion(bc_id window, const char* url);
 
 // Opens a tab in the window, loading |url|, in the default profile, at the top of the Today tabs of
-// the Space it shows. It isn't shown until bc_window_select or bc_tab_show. Returns 0 if the window
-// is closing or gone.
-BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url);
+// the Space it shows. It isn't shown until bc_window_select or bc_tab_show. With |when_shown|, an
+// http(s) |url| loads only once the tab is first shown, as a link a page opens behind does. Returns
+// 0 if the window is closing or gone.
+BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url, bool when_shown);
 
 // Copies up to |capacity| bytes of the URL Chrome's address bar goes to for |text| typed in it into
 // |url|, UTF-8 and ending in a NUL, and returns the URL's length without it: the page |text| names,

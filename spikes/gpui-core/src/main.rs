@@ -251,7 +251,7 @@ fn open_browser_window(ui_view: *mut c_void) -> Option<bc::bc_id> {
         return None;
     }
     let url = start_url();
-    TAB.set(unsafe { bc::bc_tab_open(window, url.as_ptr()) });
+    TAB.set(unsafe { bc::bc_tab_open(window, url.as_ptr(), false) });
     Some(window)
 }
 
@@ -385,7 +385,7 @@ unsafe extern "C" fn tab_opened(
     let old = TAB.replace(tab);
     show_page_again();
     if old != 0 {
-        unsafe { bc::bc_tab_close(old) };
+        unsafe { bc::bc_tab_close(old, false) };
     }
 }
 
