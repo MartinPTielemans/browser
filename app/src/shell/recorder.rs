@@ -285,4 +285,8 @@ impl Browser for Recorder {
     fn jump_to_selection(&self, _: u64, _: &mut App) {}
 
     fn quit(&self, _: &mut App) {}
+
+    fn new_window(&self, _: &mut App) {}
+
+    fn close_window(&self, _: &mut App) {}
 }
