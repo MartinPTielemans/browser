@@ -188,6 +188,8 @@ const NEW_FOLDER: &str = "New Folder";
 pub const PLATE_RADIUS: f32 = 12.;
 const FAVICON_X: f32 = 17.;
 const FAVICON_SIZE: f32 = 18.;
+// Arc's titles end as far from the sidebar's edge as its favicons start.
+const TITLE_END_INSET: f32 = FAVICON_X - PLATE_INSET;
 // The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot
 // rather than scaled up soft.
 const FAVICON_DRAWN: f32 = 16.;
@@ -1957,7 +1959,7 @@ impl Shell {
         let row = |tab: u64| {
             let row = row_box().pl(px(PLATE_INSET + space.depth(tab) as f32 * FOLDER_INDENT));
             if let Some((name, open)) = space.folders.folders.get(&tab) {
-                let name = title(name.clone(), false).pr(px(PLATE_INSET));
+                let name = title(name.clone(), false).pr(px(TITLE_END_INSET));
                 return row.child(plate(folder_icon(*open), name));
             }
             let panes = space.panes(tab);
@@ -1975,7 +1977,7 @@ impl Shell {
                 .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
                 .child(self.tab_icon(tab));
             row.child(
-                plate(icon, title(self.title(tab), tab == selected).pr(px(PLATE_INSET)))
+                plate(icon, title(self.title(tab), tab == selected).pr(px(TITLE_END_INSET)))
                     .when(tab == selected, |plate| selected_plate(plate, 1.)),
             )
         };
@@ -2271,7 +2273,7 @@ fn name_box() -> gpui::Div {
         .flex()
         .items_center()
         .pl(px(NAME_X))
-        .pr(px(PLATE_INSET))
+        .pr(px(FAVICON_X))
         .text_size(px(13.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgba(SPACE_NAME))
@@ -2279,7 +2281,8 @@ fn name_box() -> gpui::Div {
 
 /// The divider under the pinned tabs: a line, and `clear` at its end while it shows.
 fn divider_box(clear: Option<impl IntoElement>) -> gpui::Div {
-    let right = if clear.is_some() { 2. * PLATE_INSET } else { DIVIDER_X };
+    // Clear ends where the titles do, 17 in from the edge.
+    let right = if clear.is_some() { FAVICON_X } else { DIVIDER_X };
     div().flex_none().h(px(DIVIDER_HEIGHT)).child(
         div()
             .absolute()

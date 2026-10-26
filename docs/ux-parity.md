@@ -71,7 +71,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Sidebar hover fades | MVP | Clear and the URL field's buttons coming and going with the pointer: measure | Arc |
 | [x] | Row pitch / height | MVP | 41 / 40 | Arc 1.170.0 ax |
 | [x] | Row plate | MVP | 36 tall, x 8 to width − 8, radius ≈ 12 | Arc 1.170.0 cap |
-| [ ] | Row favicon and title | MVP | favicon 18 at x 17, title at x 43; the title's trailing fade (ours: an ellipsis) | Arc 1.170.0 ax |
+| [x] | Row favicon and title | MVP | favicon 18 at x 17, title at x 43, ending at x 211 with an ellipsis | Arc 1.170.0 ax and cap |
 | [x] | Row states | MVP | selected white 0.20, hover 0.12, pressed 0.065; no line or shadow in dark mode; unselected none | Arc 1.170.0 tokens and cap |
 | [x] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
 | [x] | Row fill change | MVP | 300 ms ease-out, as the hover fill leaves *interim*; Arc's: measure | Dia 1.50.1 bin |
