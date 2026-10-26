@@ -265,10 +265,12 @@ impl Shell {
         let (pinned, today): (Vec<u64>, Vec<u64>) = (others(pinned), others(today));
         let favorites = self.favorites.iter().filter(|&&other| other != tab).count();
         let folder = self.is_folder(tab);
+        // A favorite stays one in an agent's Space, which it can't move into.
+        let kept = self.favorites.contains(&tab) && self.agents_space_shown();
         let over_favorites = !incoming
             && !folder
             && self.panes(tab).len() == 1
-            && pointer.y < self.list_top_with(favorites + 1) - self.tiles_scrolled();
+            && (kept || pointer.y < self.list_top_with(favorites + 1) - self.tiles_scrolled());
         let mut depth = 0;
         let (place, layout, span) = if over_favorites {
             let centre = pointer - grab.1;

@@ -9,6 +9,7 @@
 #include "base/functional/callback_forward.h"
 #include "base/time/time.h"
 #include "browser_core/public/browser_core.h"
+#include "browser_core/space.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "url/gurl.h"
 
@@ -20,7 +21,6 @@ class WebContents;
 
 namespace browser_core {
 
-class Space;
 class Window;
 
 // A tab's history, as the session file keeps it.
@@ -70,6 +70,9 @@ struct SavedSpace {
   std::string icon;
   // Its profile's directory, or empty for the profile the core started with.
   std::string profile;
+  // The agent it belongs to, or none for the user's own, as every Space saved before agents had
+  // Spaces is.
+  std::optional<Space::Agent> agent;
   // Each top to bottom.
   std::vector<SavedTab> pinned;
   std::vector<SavedFolder> folders;

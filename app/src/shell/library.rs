@@ -1615,6 +1615,7 @@ mod tests {
             color: None,
             icon: Default::default(),
             profile: 0,
+            agent: Default::default(),
             pinned: pinned.to_vec(),
             today: today.to_vec(),
             splits,

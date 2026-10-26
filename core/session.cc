@@ -118,6 +118,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
   to.color = space.color();
   to.icon = space.icon();
   to.profile = space.profile();
+  to.agent = space.agent();
   int index = 0;
   for (auto [ids, tabs] : {std::pair(&space.pinned_rows(), &to.pinned),
                            std::pair(&space.today(), &to.today)}) {
@@ -278,6 +279,10 @@ std::optional<std::string> ToJson(const Saved& saved) {
     if (!space.profile.empty()) {
       dict.Set("profile", space.profile);
     }
+    if (space.agent) {
+      dict.Set("agent",
+               base::DictValue().Set("id", space.agent->id).Set("name", space.agent->name));
+    }
     spaces.Append(std::move(dict));
   }
   base::DictValue root;
@@ -389,6 +394,13 @@ std::optional<Saved> Read(const base::FilePath& path) {
     }
     if (const std::string* profile = space->FindString("profile")) {
       to.profile = *profile;
+    }
+    // One whose agent can't be read is the user's, out of every agent's reach.
+    const base::DictValue* agent = space->FindDict("agent");
+    const std::string* agent_id = agent ? agent->FindString("id") : nullptr;
+    const std::string* agent_name = agent ? agent->FindString("name") : nullptr;
+    if (agent_id && !agent_id->empty() && agent_name) {
+      to.agent = Space::Agent{.id = *agent_id, .name = *agent_name};
     }
     const int shown = space->FindInt("shown").value_or(-1);
     const int shown_favorite = space->FindInt("shown_favorite").value_or(-1);
@@ -606,7 +618,7 @@ bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
 }  // namespace
 
 Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
-  Space* space = Space::Create(saved_space.name, id);
+  Space* space = Space::Create(saved_space.name, id, saved_space.agent);
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetProfile(DirOf(profile));

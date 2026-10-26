@@ -217,7 +217,7 @@ fn now() -> f64 {
 struct Fake {
     shell: WeakEntity<Shell>,
     next_id: Cell<u64>,
-    spaces: RefCell<Vec<(u64, SharedString, Option<u32>, u64, SharedString)>>,
+    spaces: RefCell<Vec<(u64, SharedString, Option<u32>, u64, SharedString, SharedString)>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
 }
@@ -643,7 +643,7 @@ impl Browser for Fake {
     fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
-        let entry = (space, name.to_string().into(), None, profile, SharedString::default());
+        let entry = (space, name.to_string().into(), None, profile, "".into(), "".into());
         self.spaces.borrow_mut().push(entry);
         self.report_spaces(cx);
         space
@@ -981,11 +981,11 @@ fn main() {
             let shell = cx.new(|cx| {
                 let first_space = TABS.len() as u64 + 1;
                 // The preview's Spaces and favorites are in its one profile, 0.
-                let spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString)> =
+                let spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString, SharedString)> =
                     (first_space..)
                         .zip(SPACES)
                         .map(|(id, (name, color))| {
-                            (id, name.into(), color, 0, SharedString::default())
+                            (id, name.into(), color, 0, "".into(), "".into())
                         })
                         .collect();
                 let first_archived = first_space + SPACES.len() as u64;

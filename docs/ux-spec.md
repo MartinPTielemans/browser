@@ -466,12 +466,13 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 **Agent Space** (ours: decision 8 and the `prototypes/arcish` reference). The kind exists in the Phase 3 data model; its UI comes in Phase 4. Neither Arc nor Dia has a reference, so the layout values are ours to set.
 
 - It is a Space whose tabs an agent opens. It shows in the switcher with its own mark and in the sidebar like any Space.
+- A Space is the user's or one agent's, by the id and name the agent's client gives, from when it's made, and it's saved and comes back so. New Space always makes the user's. The user can't turn an agent's Space into their own; they keep its work by moving its tabs to a Space of theirs.
 - Agent actions never change the user's selected Space or tab, the keyboard focus or the cursor. Agent tabs never come to the front.
 - **Confirmations.** A card in the sidebar offers Allow, Deny or Always allow on <site>. The Space lists always-allowed sites, each with Revoke. A confirmation times out after 5 minutes (prototype).
 - **Handoff.** At a sign-in, 2FA prompt or CAPTCHA, the tab pauses and a card reads "<agent> needs you", with Show tab and Hand back. It times out after 15 minutes (prototype).
 - **Take over / Hand back.** The Space has the button; while the user drives, the agent's actions pause.
 - **Status and activity.** The status line reads "Waiting for you" or "Waiting for your OK". The activity log in the Space lists actions newest first.
-- Dragging one of the user's tabs onto an Agent Space gives the agent that tab.
+- Dragging one of the user's tabs onto an Agent Space gives the agent that tab, once that drag ships with its activity-log entry. Until then no tab moves into one: Move to Space leaves Agent Spaces out, and a favorite stays a favorite in one.
 
 ### Command bar
 

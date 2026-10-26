@@ -307,7 +307,7 @@ impl Shell {
                 Box::new(move |shell, cx| shell.browser.duplicate(tab, cx)),
             ),
             (
-                MenuEntry::new("Remove from Favorites", true),
+                MenuEntry::new("Remove from Favorites", !self.agents_space_shown()),
                 "remove-from-favorites",
                 // To the top of Today.
                 Box::new(move |shell, cx| shell.browser.move_tab(tab, false, 0, 0, cx)),
@@ -355,10 +355,11 @@ impl Shell {
         let panes = self.panes(tab);
         let last = panes[panes.len() - 1];
         let below = self.today().iter().skip_while(|&&id| id != last).count() > 1;
+        // The user's: none moves into an agent's.
         let others: Vec<(u64, SharedString)> = self
             .spaces
             .iter()
-            .filter(|space| space.id != self.space)
+            .filter(|space| space.id != self.space && space.agent.is_empty())
             .map(|space| (space.id, space.name.clone()))
             .collect();
         let pin = MenuEntry::new(if pinned { "Unpin Tab" } else { "Pin Tab" }, true);

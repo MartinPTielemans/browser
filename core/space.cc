@@ -41,11 +41,11 @@ void ReportSpacesChanged() {
 }  // namespace
 
 // static
-Space* Space::Create(std::string name, bc_id id) {
+Space* Space::Create(std::string name, bc_id id, std::optional<Agent> agent) {
   if (!id) {
     id = NewId();
   }
-  Space* space = new Space(id, std::move(name));
+  Space* space = new Space(id, std::move(name), std::move(agent));
   Spaces()[id] = base::WrapUnique(space);
   ReportSpacesChanged();
   return space;
@@ -93,7 +93,14 @@ Space* Space::HoldingFolder(bc_id folder) {
   return nullptr;
 }
 
-Space::Space(bc_id id, std::string name) : id_(id), name_(std::move(name)) {}
+// static
+bool Space::AgentMayAct(const std::string& agent, bc_id tab) {
+  const Space* space = Holding(tab);
+  return space && space->agent() && space->agent()->id == agent;
+}
+
+Space::Space(bc_id id, std::string name, std::optional<Agent> agent)
+    : id_(id), agent_(std::move(agent)), name_(std::move(name)) {}
 
 bool Space::Has(bc_id tab) const {
   return IsPinned(tab) || std::ranges::contains(today_, tab);

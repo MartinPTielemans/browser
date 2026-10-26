@@ -19,6 +19,8 @@ use gpui::{
 
 use crate::text_input::TextInput;
 
+#[cfg(test)]
+mod agent_spaces;
 mod assets;
 mod browser;
 mod clean_link;
@@ -459,6 +461,8 @@ struct Space {
     icon: SharedString,
     /// The profile its tabs open in, whose favorites it shows.
     profile: u64,
+    /// The name of the agent it belongs to, or empty for the user's own. It never changes.
+    agent: SharedString,
     /// Its pinned tabs and folders and its Today tabs, each top to bottom.
     pinned: Vec<u64>,
     today: Vec<u64>,
@@ -1279,10 +1283,11 @@ impl Shell {
         }
     }
 
-    /// The Spaces, by id, name, colour, profile and icon, in the switcher's order.
+    /// The Spaces, by id, name, colour, profile, icon and the name of the agent each belongs to,
+    /// empty for the user's own, in the switcher's order.
     pub fn set_spaces(
         &mut self,
-        spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString)>,
+        spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString, SharedString)>,
         cx: &mut Context<Self>,
     ) {
         // check.sh reads these lines.
@@ -1291,9 +1296,12 @@ impl Shell {
         let mut old = std::mem::take(&mut self.spaces);
         self.spaces = spaces
             .into_iter()
-            .map(|(id, name, color, profile, icon)| {
+            .map(|(id, name, color, profile, icon, agent)| {
                 let Some(space) = old.iter_mut().find(|space| space.id == id) else {
                     log!("browser: added space {id} {name}");
+                    if !agent.is_empty() {
+                        log!("browser: agent space {id} {agent}");
+                    }
                     if let Some(color) = color {
                         log!("browser: colored space {id} {color:06x}");
                     }
@@ -1307,6 +1315,7 @@ impl Shell {
                         color,
                         icon,
                         profile,
+                        agent,
                         pinned: Vec::new(),
                         today: Vec::new(),
                         splits: Vec::new(),
@@ -1334,6 +1343,7 @@ impl Shell {
                     color,
                     icon,
                     profile,
+                    agent,
                     pinned: std::mem::take(&mut space.pinned),
                     today: std::mem::take(&mut space.today),
                     splits: std::mem::take(&mut space.splits),
@@ -1776,6 +1786,12 @@ impl Shell {
 
     fn shown_space(&self) -> Option<&Space> {
         self.spaces.iter().find(|space| space.id == self.space)
+    }
+
+    /// Whether the Space shown is an agent's, which no tab moves into, as the browser keeps the
+    /// user's tabs out of its reach.
+    fn agents_space_shown(&self) -> bool {
+        self.shown_space().is_some_and(|space| !space.agent.is_empty())
     }
 
     fn show_space_at(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
@@ -2969,6 +2985,7 @@ mod tests {
             color: None,
             icon: Default::default(),
             profile: 0,
+            agent: Default::default(),
             pinned: pinned.to_vec(),
             today: today.to_vec(),
             splits: Vec::new(),

@@ -139,7 +139,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks in Arc's dialog if it has tabs | Arc, ours |
 | [x] | Undo delete | MVP | the toast says "Space deleted! Use ⌘Z to undo." for 5 s; ⌘Z brings the Space back where it was, with its tabs, and pages to it | Arc 1.170 rec |
 | [x] | Undo delete motion | MVP | the switch's slide *interim*; Arc's: measure | Arc |
-| [ ] | Agent Space kind in the data model | MVP | a Space kind owned by an agent | decision 8, roadmap |
+| [x] | Agent Space kind in the data model | MVP | a Space is the user's or an agent's (the id and name its client gives) from when it's made, saved with the Spaces; no tab moves into an agent's; New Space makes the user's | decision 8, roadmap |
 | [ ] | Agent Space UI: switcher mark, confirm card, handoff card, take over, status, activity log, allowed sites with Revoke | 4 | ours to design; confirm times out 5 min, handoff 15 min | decision 8, Ours (prototype) |
 | [ ] | Agent actions never move the user's focus | 4 | no change of Space, tab, focus or cursor | decision 8 |
 

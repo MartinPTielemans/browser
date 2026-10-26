@@ -138,6 +138,31 @@ bc_id bc_space_create(const char* name) {
   return space->id();
 }
 
+bc_id bc_space_create_for_agent(const char* name, const char* agent, const char* agent_name) {
+  if (!agent || !*agent || !agent_name || !*agent_name) {
+    return 0;
+  }
+  browser_core::Space* space = browser_core::Space::Create(
+      name ? name : "", 0, browser_core::Space::Agent{.id = agent, .name = agent_name});
+  space->SetProfile(browser_core::DirOf(browser_core::StartProfile()));
+  return space->id();
+}
+
+size_t bc_space_agent(bc_id id, char* agent, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return CopyString(space && space->agent() ? space->agent()->id : std::string(), agent, capacity);
+}
+
+size_t bc_space_agent_name(bc_id id, char* name, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return CopyString(space && space->agent() ? space->agent()->name : std::string(), name,
+                    capacity);
+}
+
+bool bc_agent_may_act(const char* agent, bc_id tab) {
+  return agent && *agent && browser_core::Space::AgentMayAct(agent, tab);
+}
+
 bc_id bc_space_profile(bc_id id) {
   browser_core::Space* space = browser_core::Space::FromId(id);
   return space ? browser_core::ProfileId(space->profile()) : 0;

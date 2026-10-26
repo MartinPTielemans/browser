@@ -519,7 +519,9 @@ void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
   tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   Window* window = in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
   Space* shown = window ? Space::FromId(window->space_) : nullptr;
-  if (!shown || !Favorites::Has(tab) || Favorites::ProfileOf(tab) != shown->profile()) {
+  // A favorite is the user's, so it doesn't move into an agent's Space.
+  if (!shown || shown->agent() || !Favorites::Has(tab) ||
+      Favorites::ProfileOf(tab) != shown->profile()) {
     return;
   }
   // In the Space before it leaves the favorites, as above.
@@ -589,7 +591,8 @@ void Window::CloseBelow(bc_id tab) {
 void Window::MoveToSpace(bc_id tab, bc_id space) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  if (!from || !to || from == to || DeletingSpaces().contains(space)) {
+  // No tab moves into an agent's Space, which would put it in the agent's reach.
+  if (!from || !to || from == to || to->agent() || DeletingSpaces().contains(space)) {
     return;
   }
   // A page can't take its cookies and logins to another profile, so it opens there again.
