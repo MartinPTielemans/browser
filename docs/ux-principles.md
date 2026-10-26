@@ -30,7 +30,7 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 
 ## A change shows that it happened
 
-- **Seen.** A click on Copy URL turns its link into a check that draws itself from its left end, down, then up (Sidebar › URL field, the owner's look at Arc). Clear shows no toast: the rows leaving say what it did.
+- **Seen.** A click on Copy URL turns its link into a check that draws itself from its left end, down, then up (Sidebar › URL field, the owner's look at Arc). Reload shrinks away as stop comes, in 80 ms, and the selected pinned row's ✕ lies down into −, in 110 ms (Motion). Clear shows no toast: the rows leaving say what it did.
 - **Reading.** A glyph that swaps in one frame is easy to miss, and a click that seems to do nothing gets clicked again. Motion on the thing clicked says it worked, where the eye already is, with nothing to read.
 - **Applies.** A glyph that changes on the same thing moves into the new one (Motion › Glyph change). One that differs because something else is shown, such as another tab, shows at once: nothing changed, and a switch stays instant.
 
@@ -83,7 +83,7 @@ Recordings could settle these. Until then, the calls listed in each PR stand.
 - Whether Arc's dialog and form colours follow the Space's theme or are fixed.
 - Whether a click outside the dialog cancels it.
 - What Arc does under Reduce Motion.
-- How Arc's glyphs other than Copy URL's check change, such as reload into stop.
+- Whether Arc's glyphs other than reload and stop change as those do, and how − turns back into ✕.
 - Where Arc shows pinned extensions, and whether only under the pointer.
 - How Arc asks about a page's permission request, such as for the camera: where it hangs, how it looks, and whether a hidden sidebar comes out for it. Ours hangs under the URL field, as Chrome's hangs under its address bar.
 - Where Arc's command bar opens for a click on the URL field while the sidebar is hidden and revealed. Ours opens centred as the reveal's panel makes way.

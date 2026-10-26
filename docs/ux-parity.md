@@ -73,10 +73,11 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Row pitch / height | MVP | 41 / 40 | Arc 1.170.0 ax |
 | [x] | Row plate | MVP | 36 tall, x 8 to width − 8, radius ≈ 12 | Arc 1.170.0 cap |
 | [x] | Row favicon and title | MVP | favicon 18 at x 17, title at x 43, ending at x 211 with an ellipsis | Arc 1.170.0 ax and cap |
-| [x] | Row states | MVP | selected white 0.20 (0.36 under the pointer, Arc 1.170 rec), hover 0.12, pressed 0.065; no line or shadow in dark mode; unselected none | Arc 1.170.0 tokens and cap |
+| [x] | Row states | MVP | selected white 0.20 (0.36 under the pointer, Arc 1.170 rec), hover 0.12; pressed takes the selected fill, as the press selects; no line or shadow in dark mode; unselected none | Arc 1.170.0 tokens and cap, Arc 1.170 rec |
+| [x] | Row press | MVP | the plate shrinks to 0.99 over 70 ms, linearly; ours grows back the same way and selects on the release *interim* | Arc 1.170 rec |
 | [x] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
 | [x] | Row hover | MVP | the fill comes and goes in one frame; only the selected row eases back from its hover (white 0.36) to its fill over ≈ 170 ms | Arc 1.170 rec |
-| [x] | Close ✕ | MVP | on hover, the selected row's too; 26 × 26, 5 inside the plate's right edge | Arc 1.170.0 cap |
+| [x] | Close ✕ | MVP | on hover, the selected row's too; 26 × 26, 5 inside the plate's right edge; two bars 11.4 × 2, white 0.6; − on the selected pinned row, which unloads it, the bars turning level over 110 ms | Arc 1.170.0 cap, Arc 1.170 rec |
 | [x] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
 | [x] | Speaker | MVP | after the favicon while the page plays and 2 s after, crossed out while muted; a click mutes or unmutes the tab, as Arc mutes tabs *interim*; Arc's look: measure | Arc 1.170.0 bin, Dia, Chrome |
 | [x] | Sleeping tab | MVP | favicon at half opacity while unloaded, in rows, tiles and splits *interim*; Arc's alpha: measure | Dia |
