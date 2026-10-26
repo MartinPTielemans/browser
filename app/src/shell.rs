@@ -193,13 +193,16 @@ const TILE_RADIUS: f32 = 10.;
 const TALL_FAVORITES: f32 = 0.4;
 // The Space's name, over its tabs.
 const NAME_HEIGHT: f32 = 44.;
+// Arc's name starts at 41, 2 pt before its titles at 43 (ax): measured, so it stays off the tab
+// column.
 const NAME_X: f32 = 41.;
-// A Space's icon before its name, at Arc's x 13 (docs/ux-spec.md; ours: its size and look are
-// *interim*, as Arc's isn't recorded). The name stays at 41 with or without one, so none moves
-// when a Space gets one. The emoji is a tab's size, so it sits on the name's cap height as a tab's
-// does on its title; bigger, it outweighed the name and sat below its middle.
-const SPACE_ICON_X: f32 = 13.;
+// A Space's icon before its name. Arc's frame is 26 wide at x 13, centred on its favicons' (ax),
+// so ours is centred there too; its size and look are *interim*, as Arc's isn't recorded. The name
+// stays at 41 with or without one, so none moves when a Space gets one. The emoji is a tab's size,
+// so it sits on the name's cap height as a tab's does on its title; bigger, it outweighed the name
+// and sat below its middle.
 const SPACE_ICON_SLOT: f32 = 20.;
+const SPACE_ICON_X: f32 = FAVICON_X + FAVICON_SIZE / 2. - SPACE_ICON_SLOT / 2.;
 const SPACE_ICON_TEXT: f32 = EMOJI_SIZE;
 const ROW_PITCH: f32 = 41.;
 const ROW_HEIGHT: f32 = 40.;
