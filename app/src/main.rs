@@ -873,6 +873,11 @@ impl Browser for Engine {
         unsafe { bc::bc_space_set_color(space, color.is_some(), color.unwrap_or(0)) };
     }
 
+    fn set_space_icon(&self, space: u64, icon: &str, _: &mut App) {
+        let icon = CString::new(icon).unwrap_or_default();
+        unsafe { bc::bc_space_set_icon(space, icon.as_ptr()) };
+    }
+
     fn set_space_profile(&self, space: u64, profile: u64, _: &mut App) {
         unsafe { bc::bc_space_set_profile(space, profile) };
     }
@@ -1502,7 +1507,7 @@ unsafe extern "C" fn stopping(_: *mut c_void) {
     log!("browser: stopping");
 }
 
-/// A Space's or a folder's name, which `copy` copies as bc_space_name does.
+/// A Space's or a folder's name, or a Space's icon, which `copy` copies as bc_space_name does.
 fn name(
     copy: unsafe extern "C" fn(bc::bc_id, *mut c_char, usize) -> usize,
     id: u64,
@@ -1534,7 +1539,9 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
             let mut color = 0;
             let has_color = unsafe { bc::bc_space_color(space, &mut color) };
             let profile = unsafe { bc::bc_space_profile(space) };
-            (space, name(bc::bc_space_name, space), has_color.then_some(color), profile)
+            let name_of = name(bc::bc_space_name, space);
+            let icon = name(bc::bc_space_icon, space);
+            (space, name_of, has_color.then_some(color), profile, icon)
         })
         .collect();
     update_shell(|shell, cx| {

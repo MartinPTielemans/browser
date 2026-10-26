@@ -8,13 +8,14 @@
 # shows with it. Return with no name does nothing, New Space from the footer's + shows a form
 # already open, and Cancel, or two fingers back, deletes its Space and goes back to the Space it
 # was made from; fingers going on rubber-band the form. A right-click on the Space's name or a
-# dot shows Rename Space, its colours and Delete Space. Rename, the Spaces menu's too, and a
-# double-click on the name, turn it into a field, where a right-click shows the field's menu,
-# return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog
-# that a click around cancels and return confirms, and the Space goes once the dialog has, which a
-# toast says. ⌘Z brings it back where it was, with its name and tabs. Its tabs close with it and
-# reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last Space can't be
-# deleted. The Spaces menu lists the Spaces, and its names show them.
+# dot shows Rename Space, Change Icon…, its colours and Delete Space; an emoji committed after
+# Change Icon… is the Space's icon, in its dot's place, until Remove Icon. Rename, the Spaces
+# menu's too, and a double-click on the name, turn it into a field, where a right-click shows the
+# field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs,
+# in a dialog that a click around cancels and return confirms, and the Space goes once the dialog
+# has, which a toast says. ⌘Z brings it back where it was, with its name and tabs. Its tabs close
+# with it and reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last Space
+# can't be deleted. The Spaces menu lists the Spaces, and its names show them.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last.
 page='data:text/html,<title>loading</title>
@@ -261,7 +262,7 @@ expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 # A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
 name_point="100 112"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
   "a right-click on the Space's name didn't show its menu"
 ../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
 send choose Rename Space
@@ -289,11 +290,40 @@ expect '^browser: command rename-space via ui$' "Rename Space in the menu didn't
 expect "^browser: rename space $first\$" "Rename Space in the menu didn't open the name's field"
 send key escape
 expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
+# Change Icon… in the Space's menu puts a field before its name and asks for the character palette,
+# and an emoji committed there is the Space's icon at once, in its dot's place in the switcher.
+# Escape leaves the Space as it was, and the menu offers Remove Icon only once there is an icon.
+post rightclick $name_point
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+  "a right-click on the Space's name didn't offer Change Icon…"
+send choose Change Icon…
+expect "^browser: change space icon $first\$" \
+  "Change Icon… didn't put a field before the Space's name"
+expect '^browser: character palette shown$' "Change Icon… didn't show the character palette"
+../tools/window-screenshot.sh "$pid" "$out/space-icon-field.png" || fail "no window to capture"
+send key escape
+expect '^browser: rename cancelled$' "escape in the icon's field didn't cancel"
+none_since '^browser: iconed space' || fail "escape in the icon's field gave the Space an icon"
+post rightclick $name_point
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
+  "a right-click on the Space's name offered Remove Icon without an icon"
+send choose Change Icon…
+expect "^browser: change space icon $first\$" \
+  "Change Icon… didn't put a field before the Space's name"
+send insert 🦊
+expect "^browser: iconed space $first 🦊\$" \
+  "an emoji from the palette didn't become the Space's icon"
+../tools/window-screenshot.sh "$pid" "$out/space-icon.png" || fail "no window to capture"
+post rightclick $name_point
+expect "^browser: menu shown Rename Space, Change Icon…, Remove Icon, $colors, $profile, \
+Delete Space\$" "a right-click on the Space's name didn't offer Remove Icon"
+send choose Remove Icon
+expect "^browser: iconed space $first none\$" "Remove Icon didn't take the Space's icon away"
 # Deleting a Space with tabs asks first, in a dialog over the window, and a click around it cancels.
 # Return deletes the Space once the dialog has gone. Its tabs close with it, and ⇧⌘T reopens them
 # here.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog shown Delete “reading 日本語”?$' "Delete Space didn't ask first"
@@ -305,7 +335,7 @@ send state
 [ "$key" = BrowserCoreNSWindow ] || fail "the window didn't get the keyboard back: $key has it"
 none_since '^browser: spaces' || fail "a click around the dialog deleted the Space"
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog settled$' "Delete Space didn't ask again"
@@ -330,7 +360,7 @@ expect "^browser: loaded [0-9]* https://example.com/\$" "the Space came back wit
 expect "^browser: settled space $second\$" "the Space ⌘Z brought back didn't settle"
 # Deleted again, its tab reopens here with ⇧⌘T, and ⌘Z brings back the Space without it.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog shown Delete “reading 日本語”?$' "the Space came back without its name"
@@ -341,14 +371,15 @@ expect "^browser: today $a\$" "the Space shown didn't come back: Today is \"$(to
 send key t cmd shift
 expect '^browser: command reopen-closed-tab via ui$' "⇧⌘T didn't reach the UI"
 expect "^browser: today [0-9]* $a\$" "⇧⌘T didn't reopen the deleted Space's tab here: Today is \"$(today)\""
-expect "^browser: loaded $(today | cut -d' ' -f1) https://example.com/\$" "the reopened tab didn't load its page"
+expect "^browser: loaded $(today | cut -d' ' -f1) https://example.com/\$" \
+  "the reopened tab didn't load its page"
 send key z cmd
 expect "^browser: spaces $first $second\$" "⌘Z after ⇧⌘T didn't bring the Space back"
 expect "^browser: space $second\( in .*\)\{0,1\}\$" "⌘Z after ⇧⌘T didn't show the Space"
 expect '^browser: today $' "⌘Z brought back the tab ⇧⌘T had reopened: Today is \"$(today)\""
 # Empty, it goes without asking, and says so too.
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, $colors, $empty_profile, Delete Space\$" \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $empty_profile, Delete Space\$" \
   "a right-click on a dot didn't show its Space's menu"
 send choose Delete Space
 expect "^browser: spaces $first\$" "Delete didn't delete the empty Space"
@@ -356,7 +387,8 @@ none_since '^browser: dialog shown' || fail "deleting an empty Space asked first
 expect "$deleted" "the toast didn't say the empty Space went"
 # The last Space can't go.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space (disabled)\$" \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, \
+Delete Space (disabled)\$" \
   "the last Space's menu offered Delete"
 send choose Rename Space
 send key escape
@@ -364,5 +396,5 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, its colours and Delete; an emoji from the character palette is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"

@@ -211,6 +211,17 @@ void bc_space_set_color(bc_id id, bool has_color, uint32_t color) {
   }
 }
 
+size_t bc_space_icon(bc_id id, char* icon, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return space ? CopyString(space->icon(), icon, capacity) : 0;
+}
+
+void bc_space_set_icon(bc_id id, const char* icon) {
+  if (browser_core::Space* space = browser_core::Space::FromId(id)) {
+    space->SetIcon(icon ? icon : "");
+  }
+}
+
 bool bc_space_delete(bc_id id) {
   return browser_core::Window::DeleteSpace(id);
 }

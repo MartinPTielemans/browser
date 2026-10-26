@@ -66,6 +66,8 @@ struct SavedFolder {
 struct SavedSpace {
   std::string name;
   std::optional<uint32_t> color;
+  // The emoji the user gave it, if any.
+  std::string icon;
   // Its profile's directory, or empty for the profile the core started with.
   std::string profile;
   // Each top to bottom.

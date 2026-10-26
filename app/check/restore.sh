@@ -1,10 +1,11 @@
 # Launched again after ⌘Q, and again after its window's close button, the app brings back the
-# Spaces: their names and colours, their tabs with each tab's history, the tab each showed and the
-# Space it showed, and the sidebar's width. Only a tab shown loads; the others show their titles and
-# favicons. A tab named with a double-click on its row, where escape cancels, keeps its name over
-# its page's title, and Rename Tab in its menu with no name gives the title back. An emoji from the
-# character palette, after Change Icon…, takes its favicon's place until Remove Icon, as a Japanese
-# conversion's first character does once it's committed. A tab closed before the quit stays closed,
+# Spaces: their names, colours and icons, their tabs with each tab's history, the tab each showed
+# and the Space it showed, and the sidebar's width. Only a tab shown loads; the others show their
+# titles and favicons. A tab named with a double-click on its row, where escape cancels, keeps its
+# name over its page's title, and Rename Tab in its menu with no name gives the title back. An
+# emoji from the character palette, after Change Icon…, takes its favicon's place until Remove
+# Icon, as a Japanese conversion's first character does once it's committed. A Space's icon, from
+# the same palette, comes back too. A tab closed before the quit stays closed,
 # in the archive, from which the Library reopens it at its page. A page's downloads go in the
 # check's folder, a new one's icon flies into the Library button, none of those a relaunch reads
 # does, and ⇧⌘J opens the Library on Downloads, which lists them. With one running, ⌘Q
@@ -68,7 +69,8 @@ expect_page example.org 1 0 "after loading another"
 history_key left back page
 expect_page example.com 1 1 "after going back"
 history_key left back page
-expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "tab a didn't go back to the first page"
+expect "^browser: page $a back 0 forward 1 loading 0 $site\$" \
+  "tab a didn't go back to the first page"
 open_from_bar example.net
 c=$tab
 open_from_bar example.org
@@ -88,11 +90,25 @@ expect '^browser: today [0-9][0-9]*$' "the tab for example.com didn't open in th
 e=$(today)
 expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in the new Space's tab"
 post rightclick 100 112
-expect "^browser: menu shown Rename Space, $colors, $profile, Delete Space\$" \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
   "the Space's menu didn't offer its colours"
 send choose Pink
 expect "^browser: colored space $second bf556a\$" "Pink didn't give the Space its colour"
 ../tools/window-screenshot.sh "$pid" "$out/space-color.png" || fail "no window to capture"
+# Change Icon… in the Space's menu gives it an emoji from the character palette, which a relaunch
+# brings back.
+pink=${colors/ (checked)/}
+post rightclick 100 112
+expect "^browser: menu shown Rename Space, Change Icon…, ${pink/Pink/Pink (checked)}, $profile, \
+Delete Space\$" "the Space's menu didn't offer Change Icon…"
+send choose Change Icon…
+expect "^browser: change space icon $second\$" \
+  "Change Icon… didn't put a field before the Space's name"
+expect '^browser: character palette shown$' "Change Icon… didn't show the character palette"
+send insert 🌱
+expect "^browser: iconed space $second 🌱\$" \
+  "an emoji from the palette didn't become the Space's icon"
+../tools/window-screenshot.sh "$pid" "$out/space-icon.png" || fail "no window to capture"
 send key 1 ctrl
 expect "^browser: space $first in " "⌃1 didn't show the first Space"
 expect_tabs "$c $a" "$c" "back in the first Space"
@@ -163,6 +179,8 @@ grep -q "^browser: added space $first Space 1\$" "$log" || fail "the first Space
 grep -q "^browser: added space $second reading list\$" "$log" || fail "the second Space came back without its name"
 grep -q "^browser: colored space $second bf556a\$" "$log" ||
   fail "the second Space came back without its colour"
+grep -q "^browser: iconed space $second 🌱\$" "$log" ||
+  fail "the second Space came back without its icon"
 await "^browser: space $first\$" || fail "the relaunch didn't show the first Space"
 # Without the tab closed before the quit.
 await '^browser: today [0-9]* [0-9]*$' || fail "the first Space didn't come back with its two tabs"
@@ -380,5 +398,5 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"

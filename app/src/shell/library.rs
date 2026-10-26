@@ -16,7 +16,7 @@ use super::{
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry,
     NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
     Shell, Space, UNSELECTED_TITLE, clean_link, clear_label, divider_box, favicon, folder_icon,
-    host, name_box, plate, row_box, spring_to, split_plate, title,
+    host, name_box, plate, row_box, space_icon, spring_to, split_plate, title,
 };
 use crate::text_input::TextInput;
 
@@ -1022,6 +1022,7 @@ impl Shell {
                 name_box()
                     .mt(px(CARD_NAME_TOP))
                     .h(px(CARD_NAME_HEIGHT))
+                    .when(!space.icon.is_empty(), |name| name.child(space_icon(space.icon.clone())))
                     .child(div().truncate().child(space.name.clone())),
             )
             .child(div().children(rows))
@@ -1550,6 +1551,7 @@ mod tests {
             id: 1,
             name: "Space 1".into(),
             color: None,
+            icon: Default::default(),
             profile: 0,
             pinned: pinned.to_vec(),
             today: today.to_vec(),

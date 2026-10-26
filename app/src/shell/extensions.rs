@@ -13,7 +13,7 @@ use gpui::{
 use super::{
     MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
     ShellHandle, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X,
-    URL_FIELD_TOP, UserKeys, user_keys,
+    URL_FIELD_TOP, UserKeys, menus::space_menu_label, user_keys,
 };
 
 /// The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -169,7 +169,7 @@ impl Shell {
             .cloned()
             .collect();
         let spaces: Vec<SharedString> =
-            self.spaces.iter().map(|space| space.name.clone()).collect();
+            self.spaces.iter().map(|space| space_menu_label(&space.icon, &space.name)).collect();
         if shown == self.menu_extensions && spaces == self.menu_spaces {
             return;
         }

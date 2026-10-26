@@ -163,6 +163,9 @@ pub trait Browser {
     fn delete_space(&self, space: u64, cx: &mut App) -> bool;
     /// Gives a Space a colour, 0xRRGGBB, or none, for the system's accent colour.
     fn set_space_color(&self, space: u64, color: Option<u32>, cx: &mut App);
+    /// Gives a Space `icon`, an emoji, to show in place of its dot and before its name, or takes
+    /// its icon away for an empty one.
+    fn set_space_icon(&self, space: u64, icon: &str, cx: &mut App);
     /// Puts an empty Space in `profile`.
     fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
     /// Makes a profile named `name`, and returns it. It's listed once it's made.

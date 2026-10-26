@@ -147,6 +147,11 @@ void Space::SetColor(std::optional<uint32_t> color) {
   ReportSpacesChanged();
 }
 
+void Space::SetIcon(std::string icon) {
+  icon_ = std::move(icon);
+  ReportSpacesChanged();
+}
+
 void Space::SetProfile(std::string profile) {
   profile_ = std::move(profile);
   ReportSpacesChanged();

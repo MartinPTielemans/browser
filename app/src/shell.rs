@@ -186,9 +186,15 @@ const TILE_RADIUS: f32 = 10.;
 // Favorites taller than this much of the window scroll with the list instead of staying put
 // (Ardia), so they never leave the rows too little room.
 const TALL_FAVORITES: f32 = 0.4;
-// The Space's name, over its tabs. Arc puts its icon at x 13, and Spaces have none yet.
+// The Space's name, over its tabs.
 const NAME_HEIGHT: f32 = 44.;
 const NAME_X: f32 = 41.;
+// A Space's icon before its name, at Arc's x 13 (docs/ux-spec.md; ours: its size and look are
+// *interim*, as Arc's isn't recorded). The name stays at 41 with or without one, so none moves
+// when a Space gets one. The emoji's text size makes its glyph about the slot's size.
+const SPACE_ICON_X: f32 = 13.;
+const SPACE_ICON_SLOT: f32 = 20.;
+const SPACE_ICON_TEXT: f32 = 15.;
 const ROW_PITCH: f32 = 41.;
 const ROW_HEIGHT: f32 = 40.;
 const PLATE_HEIGHT: f32 = 36.;
@@ -255,6 +261,9 @@ const PLUS_INSET: f32 = 8.;
 const SPACE_PITCH: f32 = 34.;
 const SPACE_HEIGHT: f32 = 34.;
 const SPACE_DOT: f32 = 8.;
+// A Space's icon in the switcher takes its dot's place in the same item. Its glyph is 16 pt, a
+// favicon's size (ours, *interim*).
+const SPACE_ICON_SWITCHER: f32 = EMOJI_SIZE;
 // The Create a Space form, in Arc's places and type, without its illustration and subtitle, which
 // are Arc's art and copy. The field moves up into the subtitle's place, Arc's 35 pt under the text
 // above it. Distances to the buttons are from the window's bottom.
@@ -403,6 +412,8 @@ struct Space {
     name: SharedString,
     /// 0xRRGGBB, if it has one.
     color: Option<u32>,
+    /// The emoji it shows in place of its dot and before its name, or empty.
+    icon: SharedString,
     /// The profile its tabs open in, whose favorites it shows.
     profile: u64,
     /// Its pinned tabs and folders and its Today tabs, each top to bottom.
@@ -509,6 +520,8 @@ enum Naming {
     Folder(u64),
     /// A tab's icon, in a field in its place.
     Icon(u64),
+    /// A Space's icon, in a field before its name.
+    SpaceIcon(u64),
 }
 
 /// The field a Space's name or a tab's title turns into for renaming it, or a tab's icon for
@@ -879,7 +892,7 @@ pub struct Shell {
     /// Each profile's extensions, and those the menu bar lists, the shown Space's turned on.
     extensions: HashMap<u64, Vec<Extension>>,
     menu_extensions: Vec<Extension>,
-    /// The names of the Spaces the menu bar lists.
+    /// The names of the Spaces the menu bar lists, each after its icon if it has one.
     menu_spaces: Vec<SharedString>,
     /// The pinned actions the window shows, for its tab shown.
     extension_actions: Vec<ExtensionAction>,
@@ -1148,10 +1161,10 @@ impl Shell {
         }
     }
 
-    /// The Spaces, by id, name, colour and profile, in the switcher's order.
+    /// The Spaces, by id, name, colour, profile and icon, in the switcher's order.
     pub fn set_spaces(
         &mut self,
-        spaces: Vec<(u64, SharedString, Option<u32>, u64)>,
+        spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString)>,
         cx: &mut Context<Self>,
     ) {
         // check.sh reads these lines.
@@ -1160,17 +1173,21 @@ impl Shell {
         let mut old = std::mem::take(&mut self.spaces);
         self.spaces = spaces
             .into_iter()
-            .map(|(id, name, color, profile)| {
+            .map(|(id, name, color, profile, icon)| {
                 let Some(space) = old.iter_mut().find(|space| space.id == id) else {
                     log!("browser: added space {id} {name}");
                     if let Some(color) = color {
                         log!("browser: colored space {id} {color:06x}");
+                    }
+                    if !icon.is_empty() {
+                        log!("browser: iconed space {id} {icon}");
                     }
                     log!("browser: profiled space {id} {profile}");
                     return Space {
                         id,
                         name,
                         color,
+                        icon,
                         profile,
                         pinned: Vec::new(),
                         today: Vec::new(),
@@ -1186,6 +1203,10 @@ impl Shell {
                     let color = color.map_or("none".to_string(), |color| format!("{color:06x}"));
                     log!("browser: colored space {id} {color}");
                 }
+                if space.icon != icon {
+                    let shown = if icon.is_empty() { "none" } else { icon.as_ref() };
+                    log!("browser: iconed space {id} {shown}");
+                }
                 if space.profile != profile {
                     log!("browser: profiled space {id} {profile}");
                 }
@@ -1193,6 +1214,7 @@ impl Shell {
                     id,
                     name,
                     color,
+                    icon,
                     profile,
                     pinned: std::mem::take(&mut space.pinned),
                     today: std::mem::take(&mut space.today),
@@ -1207,7 +1229,8 @@ impl Shell {
         {
             self.form = None;
         }
-        if let Some(Naming::Space(space)) = self.renaming.as_ref().map(|renaming| renaming.naming)
+        if let Some(Naming::Space(space) | Naming::SpaceIcon(space)) =
+            self.renaming.as_ref().map(|renaming| renaming.naming)
             && !self.spaces.iter().any(|each| each.id == space)
         {
             self.renaming = None;
@@ -1830,8 +1853,18 @@ impl Render for Shell {
             if let Naming::Folder(folder) = renaming.naming {
                 log!("browser: rename folder {folder}");
             }
-            if let Naming::Icon(tab) = renaming.naming {
-                log!("browser: change icon {tab}");
+            let changing_icon = match renaming.naming {
+                Naming::Icon(tab) => {
+                    log!("browser: change icon {tab}");
+                    true
+                }
+                Naming::SpaceIcon(space) => {
+                    log!("browser: change space icon {space}");
+                    true
+                }
+                _ => false,
+            };
+            if changing_icon {
                 // A pick from the palette, or a key, is the icon at once, as no ↩ is needed for
                 // one character.
                 let start = renaming.name.read(cx).text().to_string();
@@ -2167,7 +2200,11 @@ impl Shell {
             .flex()
             .flex_col()
             .when(room > 0., |page| page.child(div().flex_none().h(px(room))))
-            .child(name_box().child(div().truncate().child(space.name.clone())))
+            .child(
+                name_box()
+                    .when(!space.icon.is_empty(), |name| name.child(space_icon(space.icon.clone())))
+                    .child(div().truncate().child(space.name.clone())),
+            )
             .children(pinned.into_iter().map(row))
             .when(!today.is_empty(), |page| {
                 let clear =
@@ -2467,6 +2504,21 @@ fn name_box() -> gpui::Div {
         .text_size(px(13.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgba(SPACE_NAME))
+}
+
+/// A Space's icon before its name, in the name row `name_box` makes.
+pub(super) fn space_icon(icon: impl IntoElement) -> gpui::Div {
+    div()
+        .absolute()
+        .left(px(SPACE_ICON_X))
+        .top_0()
+        .h_full()
+        .w(px(SPACE_ICON_SLOT))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(SPACE_ICON_TEXT))
+        .child(icon)
 }
 
 /// The divider under the pinned tabs: a line, and `clear` at its end while it shows.

@@ -70,22 +70,20 @@ pub fn new_profile_name(names: &[SharedString]) -> String {
 }
 
 impl Shell {
-    /// The menu a right-click on a Space's name or dot shows (Arc), with its colour (ours).
+    /// The menu a right-click on a Space's name or dot shows (Arc), with its colour and icon
+    /// (ours).
     pub(super) fn space_menu(
         &mut self,
         space: u64,
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let mut items: Vec<(MenuEntry, MenuAction)> = vec![
-            (
-                MenuEntry::new("Rename Space", true),
-                Box::new(move |shell, cx| shell.rename_space(space, cx)),
-            ),
-            (MenuEntry::new("Color", true), Box::new(|_, _| {})),
-        ];
+        let has_icon = self.spaces.iter().any(|each| each.id == space && !each.icon.is_empty());
+        let mut items = space_menu_head(space, has_icon);
+        let color_at = items.len();
+        items.push((MenuEntry::new("Color", true), Box::new(|_, _| {})));
         let colors = self.color_items(space);
-        items.extend(colors.into_iter().map(|(entry, action)| (entry.under(1), action)));
+        items.extend(colors.into_iter().map(|(entry, action)| (entry.under(color_at), action)));
         let at = items.len();
         items.push((MenuEntry::new("Profile", true), Box::new(|_, _| {})));
         let mut profiles = self.profile_items(space);
@@ -465,6 +463,36 @@ impl Shell {
     }
 }
 
+/// The top of a Space's menu, above its colours: Rename Space, Change Icon…, and Remove Icon once
+/// it has one.
+fn space_menu_head(space: u64, has_icon: bool) -> Vec<(MenuEntry, MenuAction)> {
+    let mut items: Vec<(MenuEntry, MenuAction)> = vec![
+        (
+            MenuEntry::new("Rename Space", true),
+            Box::new(move |shell, cx| shell.rename_space(space, cx)),
+        ),
+        (
+            MenuEntry::new("Change Icon…", true),
+            Box::new(move |shell, cx| shell.change_space_icon(space, cx)),
+        ),
+    ];
+    if has_icon {
+        items.push((
+            MenuEntry::new("Remove Icon", true),
+            Box::new(move |shell, cx| shell.browser.set_space_icon(space, "", cx)),
+        ));
+    }
+    items
+}
+
+/// A Space's item in the menu bar: its name, after its icon if it has one.
+pub(super) fn space_menu_label(icon: &str, name: &str) -> SharedString {
+    match icon.is_empty() {
+        true => name.to_string().into(),
+        false => format!("{icon} {name}").into(),
+    }
+}
+
 /// The menu item that gives a tab back its favicon.
 pub(super) fn remove_icon(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
     (
@@ -472,4 +500,29 @@ pub(super) fn remove_icon(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
         "remove-icon",
         Box::new(move |shell, cx| shell.browser.set_icon(tab, "", cx)),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{space_menu_head, space_menu_label};
+
+    fn titles(has_icon: bool) -> Vec<String> {
+        let items = space_menu_head(1, has_icon);
+        items.into_iter().map(|(entry, _)| entry.title.to_string()).collect()
+    }
+
+    /// A Space's menu offers Change Icon… always and Remove Icon only once it has an icon, after
+    /// Rename, as a tab's menu does.
+    #[test]
+    fn remove_icon_is_offered_once_the_space_has_one() {
+        assert_eq!(titles(false), ["Rename Space", "Change Icon…"]);
+        assert_eq!(titles(true), ["Rename Space", "Change Icon…", "Remove Icon"]);
+    }
+
+    /// The menu bar lists a Space by its name, after its icon if it has one.
+    #[test]
+    fn the_menu_bar_names_a_space_after_its_icon() {
+        assert_eq!(space_menu_label("", "Work"), "Work");
+        assert_eq!(space_menu_label("🙂", "Work"), "🙂 Work");
+    }
 }
