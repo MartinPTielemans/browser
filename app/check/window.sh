@@ -378,12 +378,16 @@ check_layout "after a double-click on the sidebar's edge"
 # check VM's screen is the check's to capture.
 material="not measured outside a check VM"
 if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
-  # Gray is neutral, so its gradient is faint and known: stops at 0.06, from grey 138 at the top
-  # to 138 + 0.25 · 255 at the bottom.
+  # The theme picker's field is black at its middle, and black is neutral, so its gradient is
+  # faint and known: stops at 0.06, from black at the top to 0.25 · 255 at the bottom.
   post rightclick 100 112
   expect '^browser: menu shown Rename Space' "a right-click on the Space's name showed no menu"
-  send choose Gray
-  expect '^browser: colored space [0-9]* 8a8a8a$' "Gray in the Space's menu didn't colour the Space"
+  send choose Edit Theme Color…
+  expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
+  send clickkey 191.5 178.5
+  expect '^browser: colored space [0-9]* 000000$' "the field's middle didn't colour the Space black"
+  send key escape
+  expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
   send move $page_point
   [ "$active" = 1 ] || fail "the app isn't active, so the window shows AppKit's inactive fill"
   srgb="/System/Library/ColorSync/Profiles/sRGB Profile.icc"
@@ -407,7 +411,7 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
     # Dia's composite there: 0.94 of its tinted material, then 0.06 of the gradient, 450 pt down.
     # The material alone is ours under our tint of black 0.25, to tune the tint by.
     line=$(echo "${pair#*:} $place $sidebar $backdrop" | awk -v level="$level" '{
-      gradient = 0.06 * (138 + 63.75 * 450 / $5)
+      gradient = 0.06 * 63.75 * 450 / $5
       dia = 0.94 * 0.6 * $1 + gradient
       ours = ($8 + $9 + $10) / 3
       seen = ($11 + $12 + $13) / 3
