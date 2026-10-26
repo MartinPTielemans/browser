@@ -17,6 +17,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/search.h"
@@ -642,6 +643,10 @@ void bc_tab_find_close(bc_id id) {
           contents ? browser_core::FindInPage::FromWebContents(contents) : nullptr) {
     find->Close();
   }
+}
+
+void bc_tab_answer_permission(bc_id id, int answer) {
+  browser_core::PermissionQuestion::Answer(id, answer);
 }
 
 void bc_tab_jump_to_selection(bc_id id) {

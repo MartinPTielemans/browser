@@ -462,6 +462,9 @@ impl Browser for Fake {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
+    // The made-up pages ask nothing.
+    fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
+
     fn stop(&self, _: u64, _: &mut App) {}
 
     fn zoom(&self, _: u64, _: i32, _: &mut App) {}

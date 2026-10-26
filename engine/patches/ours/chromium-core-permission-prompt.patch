@@ -1,0 +1,38 @@
+Lets the core ask about a page's permission requests with the app's prompt
+(//browser_core/hooks.h), in place of Chrome's bubbles, which hang from a toolbar
+the core's windows don't have.
+
+--- a/chrome/browser/ui/views/permissions/permission_prompt_factory.cc
++++ b/chrome/browser/ui/views/permissions/permission_prompt_factory.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/views/permissions/permission_prompt_factory.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -44,6 +45,11 @@
+ #include "chrome/browser/web_applications/os_integration/mac/web_app_shortcut_mac.h"
+ #endif
+ 
++// browser_core: the core's windows ask with the app's prompt (//browser_core/hooks.h).
++std::unique_ptr<permissions::PermissionPrompt> (*g_browser_core_permission_prompt)(
++    content::WebContents* web_contents,
++    permissions::PermissionPrompt::Delegate* delegate) = nullptr;
++
+ namespace {
+ 
+ BrowserWindowInterface* GetBrowser(content::WebContents* web_contents) {
+@@ -290,6 +296,11 @@
+ std::unique_ptr<permissions::PermissionPrompt> CreatePermissionPrompt(
+     content::WebContents* web_contents,
+     permissions::PermissionPrompt::Delegate* delegate) {
++  if (g_browser_core_permission_prompt) {
++    // browser_core: the app asks, in place of Chrome's bubbles.
++    return g_browser_core_permission_prompt(web_contents, delegate);
++  }
++
+   if (delegate->ShouldDropCurrentRequestIfCannotShowQuietly() &&
+       IsFullScreenMode(web_contents)) {
+     return nullptr;

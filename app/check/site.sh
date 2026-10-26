@@ -2,7 +2,9 @@
 # page's text field, along its bottom, puts what's in it in the title, and an unseen link in its
 # top-left 40 points goes to a text file. "d" typed in the page downloads a file, "s" one that
 # takes longer than the run to come, and "k" opens the cookie page, once a check, as later runs
-# type in it too. /wait is a page that never comes.
+# type in it too. "a" asks to manage windows on all the displays, a permission with no question
+# from macOS, and puts the answer in the title. Keys with ⌘, ⌃ or ⌥ are the browser's. /wait is a
+# page that never comes.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
@@ -13,6 +15,14 @@ printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
 onkeydown = e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) {
+    return;
+  }
+  if (e.key == "a" && e.target == document.body) {
+    document.title = "asking";
+    getScreenDetails().then(
+      () => document.title = "granted", error => document.title = "refused " + error.name);
+  }
   const link = e.target == document.body && document.getElementById(e.key);
   if (link && !localStorage[e.key]) {
     localStorage[e.key] = 1;

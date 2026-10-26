@@ -34,7 +34,8 @@ saved="$HOME/Library/Caches/browser-app/Spaces.json"
 # DevTools open where the profile last had them, so an undocked try would leave them in a window.
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its
-# extensions pinned.
+# extensions pinned. The profile keeps the clear run's answers to its sites' questions, and how
+# often it dismissed them, for sites whose ports a later run may get.
 prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
 mkdir -p "$(dirname "$prefs")" "$out/downloads"
 python3 -I -c '
@@ -46,6 +47,9 @@ if os.path.exists(sys.argv[1]):
 prefs.setdefault("devtools", {}).setdefault("preferences", {})["currentDockState"] = "\"right\""
 prefs.setdefault("download", {}).update(default_directory=sys.argv[2], prompt_for_download=False)
 prefs.setdefault("extensions", {})["pinned_extensions"] = []
+exceptions = prefs.get("profile", {}).get("content_settings", {}).get("exceptions", {})
+for kind in ("window_placement", "permission_autoblocking_data"):
+    exceptions.pop(kind, None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"

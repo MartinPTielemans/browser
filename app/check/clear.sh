@@ -12,7 +12,8 @@
 # pushes the page right at its width, and its back button closes it. A right-click on an archived
 # tab shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out. A click on
 # one reopens it at the top of Today with its history, and Clear Archive asks, then empties the
-# archive.
+# archive. A page's question about a permission shows under the URL field while its tab is shown,
+# bringing out a hidden sidebar, and its ×, Block and Allow answer it.
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 serve
@@ -337,6 +338,60 @@ expect "^browser: loaded $r ${site}.utm_source=check&id=1&fbclid=2\$" \
 send key c cmd shift
 expect "^browser: copied ${site}.id=1\$" \
   "⇧⌘C copied the URL with its tracking parameters: $(grep '^browser: copied' "$log" | tail -1)"
+
+# A page's question about a permission shows under the URL field, as Chrome's hangs under its
+# address bar. Another tab takes it down, and coming back brings it again. With the sidebar hidden,
+# a question brings it out and keeps it out until it's answered. × dismisses it, and the site may
+# ask again; Block refuses, and the site's next ask is refused without one; Allow grants.
+# asks <site> <what>: the page asks, and the card is drawn at $qx $qy, $qw by $qh inside its edge.
+asks() {
+  expect "^browser: page $r asks $1 to Manage windows on all your displays\$" "$2"
+  expect "^browser: question $r at " "the page's question wasn't drawn"
+  send layout
+  read -r qx qy qw qh <<EOF
+$(grep "^browser: question $r at " "$log" | tail -1 | cut -d' ' -f5-)
+EOF
+}
+send click $page_point
+send key a
+asks "${site%/}" "the page's question didn't come"
+../tools/window-screenshot.sh "$pid" "$out/question.png" || fail "no window to capture"
+open_from_bar example.net
+expect "^browser: page $r asks nothing\$" "showing another tab didn't take the page's question down"
+switch "$(($(pinned | wc -w) + 2)) cmd" "$r"
+asks "${site%/}" "showing the asking tab again didn't bring its question back"
+send click $((qx + qw - 18)) $((qy + 18))
+expect "^browser: page $r asks nothing\$" "× didn't take the question down"
+expect "^browser: title $r refused NotAllowedError\$" "× didn't refuse the page"
+send key s cmd
+expect '^browser: sidebar hidden$' "⌘S didn't hide the sidebar"
+send click $page_point
+send key a
+expect '^browser: reveal shown$' "the page's question didn't bring the hidden sidebar out"
+asks "${site%/}" "the site couldn't ask again after ×"
+send move 600 400
+none_since '^browser: reveal hidden$' || fail "the pointer leaving sent the question away"
+../tools/window-screenshot.sh "$pid" "$out/question-reveal.png" || fail "no window to capture"
+send click $((qx + qw / 4)) $((qy + qh - 26))
+expect "^browser: page $r asks nothing\$" "Block didn't take the question down"
+expect "^browser: title $r refused NotAllowedError\$" "Block didn't refuse the page"
+send move 600 400
+expect '^browser: reveal hidden$' "the pointer leaving didn't send the sidebar away once answered"
+send key s cmd
+expect '^browser: sidebar shown$' "⌘S didn't bring the sidebar back"
+send click $page_point
+send key a
+expect "^browser: title $r refused NotAllowedError\$" "the blocked site's next ask wasn't refused"
+none_since "^browser: page $r asks http" || fail "the blocked site asked again"
+# The page by its file's name, which no other run's history would complete it past.
+go_from_bar "localhost:$port/index.html"
+expect "^browser: loaded $r http://localhost:$port/index.html\$" "localhost didn't load in the tab"
+send click $page_point
+send key a
+asks "http://localhost:$port" "another site's question didn't come"
+send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
+expect "^browser: page $r asks nothing\$" "Allow didn't take the question down"
+expect "^browser: title $r granted\$" "Allow didn't grant the page"
 exec 3>&-
 quit
-echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png"
+echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png"
