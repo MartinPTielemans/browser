@@ -748,11 +748,14 @@ impl Shell {
         self.select(tab, cx);
     }
 
-    /// Clears the Space shown, but the tab shown. Its rows go in one frame, with no toast (Arc).
+    /// Clears the Space shown, but the tab shown, unless that's all there is to clear. Its rows go
+    /// in one frame, with no toast (Arc).
     fn clear(&mut self, cx: &mut Context<Self>) {
         // A split view shown stays whole.
         let shown = self.panes(self.selected);
-        self.clearing = self.today().iter().copied().filter(|tab| !shown.contains(tab)).collect();
+        let last = self.clears_last();
+        let today = self.today().iter().copied();
+        self.clearing = today.filter(|tab| last || !shown.contains(tab)).collect();
         if self.clearing.is_empty() {
             return;
         }

@@ -36,6 +36,8 @@ mod naming;
 mod new_space;
 mod panes;
 mod permission;
+#[cfg(test)]
+mod recorder;
 mod rows;
 pub(crate) mod scaled;
 mod sidebar;
@@ -69,7 +71,7 @@ use menus::MenuAction;
 use panes::pane_frames;
 use rows::Rings;
 use scaled::scaled;
-use swap::{Swapped, Swaps};
+use swap::{ARROW_DOWN, Swapped, Swaps};
 use tile_theme::TileTheme;
 
 /// The docked sidebar's width at first, where the card starts.
@@ -247,12 +249,16 @@ const DIVIDER_X: f32 = 18.;
 const DIVIDER_HEIGHT: f32 = 15.;
 const DIVIDER_LINE_Y: f32 = DIVIDER_HEIGHT - (25. - ROW_HEIGHT / 2.);
 const DIVIDER_GAP: f32 = 9.;
-// The arrow before Clear on a Library card, 8 pt tall and 3 pt before the word (Arc). Lucide's
-// arrow-down spans 14 of its 24.
+// The arrow before Clear while it would close the last Today tabs, 8 pt tall and 3 pt before the
+// word (Arc). Lucide's arrow-down spans 14 of its 24 each way.
 const CLEAR_ARROW: f32 = 8. * 24. / 14.;
 const CLEAR_ARROW_INSET: f32 = CLEAR_ARROW * 5. / 24.;
 const CLEAR_GAP: f32 = 3.;
+const CLEAR_ARROW_ROOM: f32 = CLEAR_ARROW - 2. * CLEAR_ARROW_INSET + CLEAR_GAP;
 const CLEAR_HEIGHT: f32 = 20.;
+// Clear's plate under the pointer hangs 5 pt past the word each way, as the header's past its
+// glyphs (ours: Arc's isn't measured).
+const CLEAR_PLATE_OUT: f32 = 5.;
 // How long the toast after a copy shows (ours: Arc's isn't measured), and after a Space is deleted
 // (Arc).
 const COPIED_TIME: Duration = Duration::from_secs(2);
@@ -491,6 +497,13 @@ impl Space {
 
     fn depth(&self, row: u64) -> usize {
         self.holders(row).count()
+    }
+
+    /// Whether `shown` and its split are all of its Today tabs, so Clear has nothing else to close
+    /// and closes them too, which an arrow before it says (Arc).
+    fn clears_last(&self, shown: u64) -> bool {
+        let shown = self.panes(shown);
+        !self.today.is_empty() && self.today.iter().all(|tab| shown.contains(tab))
     }
 
     /// Its pinned tabs and folders as check.sh reads them: each folder followed by `+` if it's
@@ -893,6 +906,9 @@ pub struct Shell {
     url_copied: Option<Task<()>>,
     /// What the button showed when last drawn, for the lines check.sh waits for.
     drawn_copied: &'static str,
+    /// The Space shown at the last draw, and whether its Clear had the arrow, while it had a
+    /// Clear divider.
+    drawn_arrow: Option<(u64, bool)>,
     /// The glyphs changing into others.
     swaps: Swaps,
     /// The window's content size at the last draw, and the frame and corner radius the page was
@@ -1034,6 +1050,7 @@ impl Shell {
             reveal_wait: None,
             url_copied: None,
             drawn_copied: "shows link",
+            drawn_arrow: None,
             swaps: Swaps::default(),
             viewport: Size::default(),
             scale: 1.,
@@ -1946,6 +1963,7 @@ impl Render for Shell {
             let favicon = hover.1.map_or("none".into(), |tab| tab.to_string());
             log!("browser: hover {row} close {} favicon {favicon}", close as u8);
         }
+        self.step_clear_arrow();
         self.swaps.step(window);
         // As the outline's, so a capture of the URL field's button shows the glyph it logged.
         let copied = match (self.url_copied.is_some(), self.swaps.changing(Swapped::CopyUrl)) {
@@ -2336,8 +2354,9 @@ impl Shell {
             )
             .children(pinned.into_iter().map(row))
             .when(!today.is_empty(), |page| {
-                let clear =
-                    self.tools_shown().then(|| clear_label(false).opacity(self.tools_opacity()));
+                let clear = self.tools_shown().then(|| {
+                    still_clear(space.clears_last(space.shown)).opacity(self.tools_opacity())
+                });
                 page.child(divider_box(self.hairline(), clear))
             })
             .child(row_box().child(plate(plus, new_tab)))
@@ -2670,25 +2689,43 @@ fn divider_box(line: Pixels, clear: Option<impl IntoElement>) -> gpui::Div {
     )
 }
 
-/// The divider's Clear: the word, after an arrow down on a Library card, as in Arc. Arc's sidebar
-/// shows the word alone.
-fn clear_label(arrow: bool) -> gpui::Div {
-    let inset = if arrow { CLEAR_ARROW_INSET } else { 0. };
-    let arrow = arrow.then(|| {
-        svg().path("icons/arrow-down.svg").size(px(CLEAR_ARROW)).text_color(rgba(CLEAR))
-    });
+/// The divider's Clear: the word, after `arrow` while it would close the last Today tabs (Arc).
+/// The word stays at the titles' end, and the arrow's room opens `room` of the way before it, which
+/// moves the line's end, so nothing jumps as the arrow comes and goes. It hangs out by its plate's
+/// margin, which takes its clicks, and the word keeps its place.
+fn clear_label(arrow: AnyElement, room: f32) -> gpui::Div {
     div()
         .flex_none()
-        .ml(px(DIVIDER_GAP - inset))
+        .ml(px(DIVIDER_GAP - CLEAR_PLATE_OUT))
+        .mr(px(-CLEAR_PLATE_OUT))
+        .px(px(CLEAR_PLATE_OUT))
         .h_full()
         .flex()
         .items_center()
-        .gap(px(CLEAR_GAP - inset))
+        .rounded(px(NAV_RADIUS))
         .text_size(px(10.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgba(CLEAR))
-        .children(arrow)
+        .child(
+            div().relative().flex_none().h_full().w(px(room * CLEAR_ARROW_ROOM)).child(
+                div()
+                    .absolute()
+                    .top(px((CLEAR_HEIGHT - CLEAR_ARROW) / 2.))
+                    .right(px(CLEAR_GAP - CLEAR_ARROW_INSET))
+                    .child(arrow),
+            ),
+        )
         .child("Clear")
+}
+
+/// Clear, with the arrow while `arrow`, where it doesn't change on the button: a Space's page
+/// beside the one shown, and a Library card.
+fn still_clear(arrow: bool) -> gpui::Div {
+    let glyph = match arrow {
+        true => svg().path(ARROW_DOWN).size(px(CLEAR_ARROW)).text_color(rgba(CLEAR)),
+        false => return clear_label(div().into_any_element(), 0.),
+    };
+    clear_label(glyph.into_any_element(), 1.)
 }
 
 /// "+ New Tab": its plus and its label.

@@ -441,11 +441,13 @@ impl Browser for Fake {
         });
     }
 
-    // As the core does, without the undo.
+    // As the core does, without the undo or split views.
     fn clear(&self, cx: &mut App) {
         self.later(cx, |shell, cx| {
             let selected = shell.selected();
-            let today = shell.today().iter().copied().filter(|&tab| tab == selected).collect();
+            let all = shell.today().to_vec();
+            let today = if all == [selected] { Vec::new() } else { all };
+            let today = today.into_iter().filter(|&tab| tab == selected).collect();
             set_today(shell, today, cx);
         });
     }

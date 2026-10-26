@@ -69,9 +69,10 @@ pub trait Browser {
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     /// Mutes `tab`, or unmutes it.
     fn set_muted(&self, tab: u64, muted: bool, cx: &mut App);
-    /// Closes the Today tabs of the Space shown, but the one shown.
+    /// Closes the Today tabs of the Space shown, but the one shown, unless it shows them all.
     fn clear(&self, cx: &mut App);
-    /// Brings back the tabs the last clear closed, and returns how many.
+    /// Brings back the tabs the last clear closed, showing the one shown it closed, and returns
+    /// how many.
     fn undo_clear(&self, cx: &mut App) -> usize;
     /// Brings back the Space deleted last, and shows it. Returns whether it did.
     fn undo_delete_space(&self, cx: &mut App) -> bool;

@@ -12,14 +12,16 @@ use gpui::{
 };
 
 use super::{
-    CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, CancelName, Closing, Command, DIVIDER, EMOJI_SIZE,
-    FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName,
-    LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
-    PRESSED, ROW_FILL, ROW_HEIGHT, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE,
-    SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
-    Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
-    folder_icon, name_box, new_tab_label, plate, row_box, row_spring, selected_plate, space_icon,
-    split_plate, swap::folder_glyph, title,
+    CLEAR, CLEAR_ARROW, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, CancelName, Closing, Command,
+    DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_TEXT, HOVERED,
+    KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_HOVERED, NAV_RADIUS, Naming,
+    PLATE_HEIGHT, PLATE_INSET, PRESSED, ROW_FILL, ROW_HEIGHT, Row, SECONDARY, SEGMENT_END,
+    SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN,
+    SPEAKER_GAP, SPEAKER_SIZE, Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier,
+    divider_box, favicon, folder_icon, name_box, new_tab_label, plate, row_box, row_spring,
+    selected_plate, space_icon, split_plate,
+    swap::{ARROW_DOWN, NONE, folder_glyph},
+    title,
 };
 
 impl Shell {
@@ -563,14 +565,54 @@ impl Shell {
     pub(super) fn divider(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let live = self.tools_live();
         let clear = self.tools_shown().then(|| {
-            // Fading out, it takes no click.
-            clear_label(false).id("clear").opacity(self.tools_opacity()).when(live, |clear| {
-                clear.block_mouse_except_scroll().on_click(
-                    cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)),
-                )
+            let arrow = if self.clears_last() { ARROW_DOWN } else { NONE };
+            let what = Swapped::Clear(self.space);
+            let room = self.swaps.toward(what, ARROW_DOWN);
+            let room = room.unwrap_or(if arrow == NONE { 0. } else { 1. });
+            let glyph = self.swaps.glyph(what, arrow, CLEAR_ARROW, rgba(CLEAR).into());
+            // Fading out, it takes no click and doesn't light up.
+            let clear = clear_label(glyph, room).id("clear").opacity(self.tools_opacity());
+            clear.when(live, |clear| {
+                clear
+                    .block_mouse_except_scroll()
+                    .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                    // check.sh waits for this line.
+                    .on_hover(|hovered, _, _| log!("browser: clear hovered {}", *hovered as u8))
+                    .on_click(
+                        cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)),
+                    )
             })
         });
         divider_box(self.hairline(), clear).top(px(self.slide(Slot::Divider)))
+    }
+
+    /// Whether the Space shown shows only its Today tabs, which Clear then closes.
+    pub(super) fn clears_last(&self) -> bool {
+        self.shown_space().is_some_and(|space| space.clears_last(self.selected))
+    }
+
+    /// Starts the arrow coming or going as Clear starts or stops closing the last Today tabs, on
+    /// the divider drawn before. Another Space's, or a divider just drawn, has its own at once.
+    pub(super) fn step_clear_arrow(&mut self) {
+        let arrow = (!self.today().is_empty()).then(|| (self.space, self.clears_last()));
+        if arrow == self.drawn_arrow {
+            return;
+        }
+        if let Some((space, is)) = arrow {
+            match self.drawn_arrow {
+                Some((was_in, was)) if was_in == space => {
+                    let glyph = |arrow: bool| if arrow { ARROW_DOWN } else { NONE };
+                    self.swaps.start(Swapped::Clear(space), glyph(was), glyph(is), Instant::now());
+                }
+                _ => self.swaps.end(Swapped::Clear(space)),
+            }
+        }
+        let shows = |arrow: Option<(u64, bool)>| arrow.is_some_and(|(_, shows)| shows);
+        if shows(arrow) != shows(self.drawn_arrow) {
+            // check.sh waits for this line.
+            log!("browser: clear arrow {}", shows(arrow) as u8);
+        }
+        self.drawn_arrow = arrow;
     }
 
     pub(super) fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -669,9 +711,17 @@ pub(super) fn emoji(icon: SharedString) -> AnyElement {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::{
+        rc::Rc,
+        time::{Duration, Instant},
+    };
 
-    use super::{LOADING_GAP, LOADING_TURN, Rings};
+    use gpui::{Entity, TestAppContext, VisualTestContext};
+
+    use super::{
+        super::{Folders, Shell, Swapped, commands::bind_keys, recorder::Recorder},
+        LOADING_GAP, LOADING_TURN, Rings,
+    };
 
     /// Rings begin upright and are half way round half a turn later, together; left undrawn for a
     /// while they start upright again, and with reduced motion they never turn.
@@ -690,5 +740,65 @@ mod tests {
         rings.since.set(Some(Instant::now() - LOADING_TURN / 2));
         rings.still.set(true);
         assert_eq!(rings.turn(), 0.);
+    }
+
+    /// The window, showing a Space whose Today tabs the core reports as `today`, with `shown`.
+    fn report(shell: &Entity<Shell>, cx: &mut VisualTestContext, today: Vec<u64>, shown: u64) {
+        shell.update(cx, |shell, cx| {
+            shell.set_tabs(1, Vec::new(), today, Vec::new(), Folders::default(), cx);
+            shell.set_selected(shown, cx);
+        });
+        cx.run_until_parked();
+    }
+
+    /// Whether the window drew Clear with its arrow, without it, or no Clear, and whether the
+    /// arrow was coming or going.
+    fn arrow(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> (Option<bool>, bool) {
+        shell.read_with(cx, |shell, _| {
+            let drawn = shell.drawn_arrow.map(|(_, arrow)| arrow);
+            (drawn, shell.swaps.changing(Swapped::Clear(1)))
+        })
+    }
+
+    /// With two Today tabs, Clear keeps the one shown and has no arrow. Once one is left, the arrow
+    /// comes before Clear, and Clear closes that one too. ⌘Z brings it back with its arrow, shown
+    /// at once on the divider drawn again, and a second tab takes it away until it closes.
+    #[gpui::test]
+    fn clear_shows_its_arrow_when_one_today_tab_is_left(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(bind_keys);
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into())], cx);
+            shell.set_space(1, cx);
+        });
+        // The keys reach the shell as they do with the UI focused.
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        report(&shell, cx, vec![2, 3], 2);
+        assert_eq!(arrow(&shell, cx), (Some(false), false));
+
+        cx.simulate_keystrokes("shift-cmd-k");
+        assert!(host.take().contains(&"clear".to_string()));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.clearing.clone()), vec![3]);
+        report(&shell, cx, vec![2], 2);
+        assert_eq!(arrow(&shell, cx), (Some(true), true), "the arrow comes on the same Clear");
+
+        cx.simulate_keystrokes("shift-cmd-k");
+        assert!(host.take().contains(&"clear".to_string()));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.clearing.clone()), vec![2]);
+        report(&shell, cx, Vec::new(), 0);
+        assert_eq!(arrow(&shell, cx).0, None);
+
+        cx.simulate_keystrokes("cmd-z");
+        assert!(host.take().contains(&"undo clear".to_string()));
+        report(&shell, cx, vec![2], 2);
+        assert_eq!(arrow(&shell, cx), (Some(true), false), "a divider drawn again has it at once");
+
+        // A tab that opens takes it away again, on the same Clear, and closing it brings it back.
+        report(&shell, cx, vec![4, 2], 4);
+        assert_eq!(arrow(&shell, cx), (Some(false), true));
+        report(&shell, cx, vec![2], 2);
+        assert_eq!(arrow(&shell, cx), (Some(true), true));
     }
 }

@@ -514,12 +514,15 @@ BC_EXPORT void bc_window_set_page_color(bc_id window, uint32_t color);
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
 // Clears the Space the window shows: closes its Today tabs but those any window shows, as
-// bc_tab_close does, for bc_window_undo_clear to bring back. Returns how many tabs it closed.
+// bc_tab_close does, for bc_window_undo_clear to bring back. While it shows every Today tab, a tab
+// alone or a split that is all of Today, it closes those too, and the window shows the tab the
+// close rule picks. Returns how many tabs it closed.
 BC_EXPORT size_t bc_window_clear(bc_id window);
 
 // Brings back the tabs the window's last bc_window_clear closed, at their places in their Space's
 // Today tabs and unloaded. Once only, and not those bc_window_reopen_closed_tab brought back. Then
-// space_changed. Returns how many it brought back.
+// space_changed. If the clear closed the tab shown, it shows that tab again, with its split, and
+// its Space, then window_selected. Returns how many it brought back.
 BC_EXPORT size_t bc_window_undo_clear(bc_id window);
 
 // Brings back the Space bc_space_delete deleted last, with its id at its place among the Spaces,
