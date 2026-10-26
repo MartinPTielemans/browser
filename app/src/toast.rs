@@ -165,7 +165,7 @@ pub fn open(
             Some(window)
         }
         Err(error) => {
-            eprintln!("couldn't open the toast's window: {error}");
+            log!("couldn't open the toast's window: {error}");
             None
         }
     }
@@ -181,7 +181,7 @@ pub fn show(text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App)
         .update(cx, |toast, _, cx| {
             // check.sh reads this line.
             let words = key.map_or(String::new(), |(key, rest)| format!(" {key} {rest}"));
-            eprintln!("browser: toast shown {text}{words}");
+            log!("browser: toast shown {text}{words}");
             let timer = cx.spawn(async move |toast, cx| {
                 cx.background_executor().timer(time).await;
                 toast.update(cx, |toast, cx| toast.leave(cx)).ok();
@@ -215,7 +215,7 @@ impl Toast {
                     toast.shown = None;
                     toast.host.hide();
                     // check.sh reads this line.
-                    eprintln!("browser: toast hidden");
+                    log!("browser: toast hidden");
                     cx.notify();
                 })
                 .ok();
@@ -257,7 +257,7 @@ impl Render for Toast {
         } else if !shown.settled {
             shown.settled = true;
             // check.sh reads this line.
-            eprintln!("browser: toast settled");
+            log!("browser: toast settled");
         }
         let pose = shown.pose();
         let fill = (self.fill)(cx);

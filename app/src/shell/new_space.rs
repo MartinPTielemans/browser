@@ -87,7 +87,7 @@ impl Shell {
         swipe.ready = ready;
         swipe.turned = Some(Instant::now());
         // check.sh waits for these lines.
-        eprintln!("browser: new space {}", if ready { "ready" } else { "unready" });
+        log!("browser: new space {}", if ready { "ready" } else { "unready" });
         self.browser.detent(cx);
     }
 

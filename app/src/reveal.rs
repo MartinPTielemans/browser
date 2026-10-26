@@ -2,6 +2,7 @@
 //! hidden sidebar slides out in is a window of its own, the browser window's child, at its left
 //! edge. The shell draws the panel; this window only holds it.
 
+use browser::log;
 use browser::shell::{SIDEBAR_WIDTH, Shell};
 use gpui::{
     App, Bounds, Context, Entity, TitlebarOptions, Window, WindowBackgroundAppearance,
@@ -63,7 +64,7 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
                 unsafe { platform::host_add_reveal(view, pointer_moved) };
             }
         }
-        Err(error) => eprintln!("couldn't open the sidebar reveal: {error}"),
+        Err(error) => log!("couldn't open the sidebar reveal: {error}"),
     }
 }
 

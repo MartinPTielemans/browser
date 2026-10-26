@@ -227,7 +227,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
             Some(window)
         }
         Err(error) => {
-            eprintln!("couldn't open the command bar: {error}");
+            log!("couldn't open the command bar: {error}");
             None
         }
     }
@@ -313,7 +313,7 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                     tab => format!("{} tab {tab}", row.url),
                 })
                 .collect();
-            eprintln!(
+            log!(
                 "browser: command bar suggestions \"{text}\" in {:.1} ms: {}",
                 bar.asked_at.elapsed().as_secs_f64() * 1000.,
                 urls.join(", ")
@@ -329,7 +329,7 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
 fn with_calculation(text: &str, mut rows: Vec<Suggestion>) -> Vec<Suggestion> {
     if let Some(result) = calculator::calculate(text) {
         // check.sh reads this line.
-        eprintln!("browser: command bar calculates \"{text}\": {result}");
+        log!("browser: command bar calculates \"{text}\": {result}");
         let row = Suggestion {
             text: format!("= {result}").into(),
             result: Some(result.into()),
@@ -393,7 +393,7 @@ impl CommandBar {
         }
         self.completion = completion;
         // check.sh reads this line.
-        eprintln!(
+        log!(
             "browser: command bar completes \"{}\" with \"{}\"",
             self.asked, self.completion
         );
@@ -438,7 +438,7 @@ impl CommandBar {
         }
         // check.sh reads these lines.
         let names: Vec<&str> = commands.iter().map(|command| command.name.as_ref()).collect();
-        eprintln!("browser: command bar commands \"{text}\": {}", names.join(", "));
+        log!("browser: command bar commands \"{text}\": {}", names.join(", "));
         let first = commands[0].strong && rows.first().is_none_or(|row| row.completion.is_empty());
         let mut commands = commands.into_iter().map(Suggestion::from);
         let mut rows = rows.into_iter();
@@ -500,7 +500,7 @@ impl CommandBar {
             return;
         }
         // check.sh reads these lines.
-        eprintln!("browser: command bar typed {text}");
+        log!("browser: command bar typed {text}");
         if self.chosen().is_some() {
             self.take(self.selected, cx);
             return;
@@ -514,7 +514,7 @@ impl CommandBar {
     /// Shows `url` where the bar shows the page chosen, and closes the bar.
     fn go_to(&self, url: &str, cx: &mut App) {
         // check.sh reads this line.
-        eprintln!("browser: command bar go {url}");
+        log!("browser: command bar go {url}");
         self.show_page(url, cx);
         self.host.hide();
     }
@@ -536,7 +536,7 @@ impl CommandBar {
         };
         if let Some(url) = url {
             // check.sh reads this line.
-            eprintln!("browser: command bar behind {url}");
+            log!("browser: command bar behind {url}");
             self.host.open_tab(&url, true);
         }
     }
@@ -566,7 +566,7 @@ impl CommandBar {
             return;
         };
         // check.sh reads this line.
-        eprintln!("browser: command bar removes {}", row.url);
+        log!("browser: command bar removes {}", row.url);
         self.host.remove_suggestion(&row.url);
     }
 
@@ -600,14 +600,14 @@ impl CommandBar {
         };
         if let Some(result) = &row.result {
             // check.sh reads this line.
-            eprintln!("browser: command bar copies {result}");
+            log!("browser: command bar copies {result}");
             self.host.hide();
             self.host.copy(result, cx);
             return;
         }
         // check.sh reads these lines.
         if let Some(command) = row.command {
-            eprintln!("browser: command bar runs {}", row.text);
+            log!("browser: command bar runs {}", row.text);
             self.host.hide();
             shell::run_from_bar(command, cx);
             return;
@@ -615,11 +615,11 @@ impl CommandBar {
         match (row.tab, self.target) {
             (0, _) => return self.go_to(&row.url, cx),
             (tab, Target::Beside(with)) => {
-                eprintln!("browser: command bar split with tab {tab}");
+                log!("browser: command bar split with tab {tab}");
                 self.host.split(tab, with, cx);
             }
             (tab, _) => {
-                eprintln!("browser: command bar switch to tab {tab}");
+                log!("browser: command bar switch to tab {tab}");
                 self.host.select(tab);
             }
         }
@@ -644,7 +644,7 @@ impl CommandBar {
         let row = &self.rows[self.selected];
         let named = row.command.is_some() || row.result.is_some();
         let name = if named { row.text.as_ref() } else { row.url.as_str() };
-        eprintln!("browser: command bar selected {name}");
+        log!("browser: command bar selected {name}");
         self.update_completion(window, cx);
         cx.notify();
     }
@@ -697,7 +697,7 @@ impl CommandBar {
 impl Render for CommandBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // check.sh reads these lines.
-        eprintln!("browser: command bar drew \"{}\"", self.input.read(cx).text());
+        log!("browser: command bar drew \"{}\"", self.input.read(cx).text());
         let rows: Vec<_> = self
             .rows
             .iter()

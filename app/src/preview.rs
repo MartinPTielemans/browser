@@ -8,6 +8,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use browser::log;
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
     Page, Shell, WindowButton,
@@ -727,7 +728,7 @@ fn main() {
             }
             Ok(_) => {}
             Err(error) => {
-                eprintln!("couldn't open the window: {error}");
+                log!("couldn't open the window: {error}");
                 cx.quit();
             }
         }

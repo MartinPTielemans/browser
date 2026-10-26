@@ -6,6 +6,7 @@
 use std::{cell::RefCell, collections::HashMap, ffi::CString};
 
 use browser::{
+    log,
     shell::{self, Shell},
     text_input::TextInput,
 };
@@ -139,7 +140,7 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
                 cx.set_global(FindBarWindow(window));
             }
         }
-        Err(error) => eprintln!("couldn't open the find bar: {error}"),
+        Err(error) => log!("couldn't open the find bar: {error}"),
     }
 }
 
@@ -218,12 +219,12 @@ pub fn tab_shown(tab: u64, cx: &mut App) {
 pub fn changed(tab: u64, find: Find, cx: &mut App) {
     // check.sh reads these lines.
     if find.open {
-        eprintln!(
+        log!(
             "browser: find {tab} open {} of {} {}",
             find.selected, find.matches, find.text
         );
     } else {
-        eprintln!("browser: find {tab} closed");
+        log!("browser: find {tab} closed");
     }
     let open = find.open;
     FINDS.with_borrow_mut(|finds| finds.insert(tab, find));
@@ -341,7 +342,7 @@ impl Render for FindBar {
             None => (String::new(), None),
         };
         // check.sh reads these lines.
-        eprintln!(
+        log!(
             "browser: find bar drew \"{}\" {status}",
             self.input.read(cx).text()
         );

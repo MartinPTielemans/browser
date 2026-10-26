@@ -232,11 +232,11 @@ impl Shell {
             let before = self.downloads.iter().find(|each| each.id == download.id);
             if before.is_none_or(|before| before.state != download.state) {
                 let state = download.state.name();
-                eprintln!("browser: download {} {state} {}", download.id, download.name);
+                log!("browser: download {} {state} {}", download.id, download.name);
             }
         }
         if downloads.len() != self.downloads.len() {
-            eprintln!("browser: downloads {}", downloads.len());
+            log!("browser: downloads {}", downloads.len());
         }
         self.download_icons.retain(|id, _| downloads.iter().any(|each| each.id == *id));
         self.downloads = downloads;
@@ -422,7 +422,7 @@ impl Shell {
             _search: observe,
         });
         // check.sh waits for this line.
-        eprintln!("browser: library section {}", section.name());
+        log!("browser: library section {}", section.name());
         self.filter(true, cx);
     }
 
@@ -459,9 +459,9 @@ impl Shell {
         self.sidebar_fade = None;
         // check.sh waits for these lines.
         if self.library_open {
-            eprintln!("browser: library shown");
+            log!("browser: library shown");
         } else {
-            eprintln!("browser: library hidden");
+            log!("browser: library hidden");
             self.library = None;
         }
     }
@@ -512,7 +512,7 @@ impl Shell {
     /// Opens the archived tab `id` at the top of the Space's Today tabs and closes the Library.
     fn restore_archived(&mut self, id: u64, cx: &mut Context<Self>) {
         // check.sh waits for this line.
-        eprintln!("browser: restore archived {id}");
+        log!("browser: restore archived {id}");
         self.browser.restore_archived(id, cx);
         self.set_library(false, cx);
     }
@@ -945,7 +945,7 @@ impl Shell {
                 shell
                     .update(cx, |shell, cx| match chosen {
                         Some(at) if at == clear => {
-                            eprintln!("browser: command clear-downloads via download menu");
+                            log!("browser: command clear-downloads via download menu");
                             shell.browser.clear_downloads(cx);
                         }
                         Some(at) => {
@@ -969,7 +969,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         // check.sh waits for this line.
-        eprintln!("browser: download {id} {action:?} via {source}");
+        log!("browser: download {id} {action:?} via {source}");
         self.browser.act_on_download(id, action, cx);
     }
 
