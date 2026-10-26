@@ -42,7 +42,8 @@ typedef struct bc_key {
   bool editing;
 } bc_key;
 
-// Where a tab's page is: what the URL field, back, forward and reload show.
+// Where a tab's page is, and its sound: what the URL field, back, forward, reload and the tab's
+// speaker show.
 typedef struct bc_tab_state {
   // The URL the tab shows: the one it's going to if the user asked for it, else its page's.
   const char* url;
@@ -57,6 +58,10 @@ typedef struct bc_tab_state {
   // The tab is pinned or a favorite, and its page isn't the one it was pinned or made a favorite
   // at. bc_tab_back_to_pinned_url goes back there.
   bool away_from_pinned_url;
+  // The page is playing sound, muted or not, or was in the last 2 s, as Chrome's speaker shows.
+  bool audible;
+  // The tab's sound is muted, by bc_tab_set_muted or an extension.
+  bool muted;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -526,6 +531,10 @@ BC_EXPORT bc_id bc_tab_duplicate(bc_id tab);
 // Names the tab, which shows |name| for its title from then on, kept across a quit, a reopen and a
 // duplicate; an empty name gives it back its page's title. Then tab_title_changed.
 BC_EXPORT void bc_tab_rename(bc_id tab, const char* name);
+
+// Mutes or unmutes the tab, whatever page it's at. Duplicating it and ⇧⌘T keep it muted; a quit
+// doesn't. Then tab_state_changed.
+BC_EXPORT void bc_tab_set_muted(bc_id tab, bool muted);
 
 // Closes the Today tabs below the tab, each as bc_tab_close does, bottom up. A window showing one
 // shows the tab first. Then tab_closed for each, and space_changed.

@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 
+#include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
@@ -57,6 +58,9 @@ class Tab : public content::WebContentsObserver,
   // Its name, else its page's title.
   std::string Title();
 
+  // Mutes or unmutes the tab, as Chrome's speaker button does.
+  void SetMuted(bool muted);
+
   // The colour the tab's page shows until it draws its first frame, opaque. Each page view the tab
   // swaps in takes it too, which Chrome's views do on their own only off the Mac.
   void SetPageColor(SkColor color);
@@ -82,6 +86,7 @@ class Tab : public content::WebContentsObserver,
   void RenderViewReady() override;
   void TitleWasSet(content::NavigationEntry* entry) override;
   void DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) override;
+  void DidUpdateAudioMutingState(bool muted) override;
   void DidGetUserInteraction(const blink::WebInputEvent& event) override;
   void WebContentsDestroyed() override;
 
@@ -92,6 +97,9 @@ class Tab : public content::WebContentsObserver,
                         bool icon_url_changed,
                         const gfx::Image& image) override;
 
+  // Tells the app the tab's state from a task of its own, as StateChanged does, for a change the
+  // session doesn't keep.
+  void ReportStateSoon();
   void ReportState();
   // Within ReportState, if the favicon the tab shows changed.
   void ReportFavicon(bool loading);
@@ -106,6 +114,7 @@ class Tab : public content::WebContentsObserver,
   gfx::Image favicon_;
   base::ScopedObservation<favicon::FaviconDriver, favicon::FaviconDriverObserver>
       favicon_observation_{this};
+  base::CallbackListSubscription audible_subscription_;
   base::WeakPtrFactory<Tab> weak_factory_{this};
 
   WEB_CONTENTS_USER_DATA_KEY_DECL();

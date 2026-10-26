@@ -38,6 +38,8 @@ struct SavedTab {
   bool split = false;
   // How many folders it's in, among the pinned tabs.
   int depth = 0;
+  // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.
+  bool muted = false;
 };
 
 // |history|, with the page it's loading if it has no page yet.

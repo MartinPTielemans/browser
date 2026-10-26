@@ -13,6 +13,8 @@
 #include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/window.h"
+#include "chrome/browser/ui/recently_audible_helper.h"
+#include "chrome/browser/ui/tabs/tab_muted_utils.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
@@ -57,6 +59,12 @@ Tab::Tab(content::WebContents* contents)
   // Chrome's tab helpers make the driver as the tab is made, before anything asks for its id.
   if (auto* driver = favicon::ContentFaviconDriver::FromWebContents(contents)) {
     favicon_observation_.Observe(driver);
+  }
+  // It keeps a tab audible 2 s after its sound stops, so the speaker doesn't flicker between
+  // sounds.
+  if (auto* audible = RecentlyAudibleHelper::FromWebContents(contents)) {
+    audible_subscription_ = audible->RegisterRecentlyAudibleChangedCallback(
+        base::IgnoreArgs<bool>(base::BindRepeating(&Tab::ReportStateSoon, base::Unretained(this))));
   }
   // A tab is often made with its first page already on its way, before anything observes it, so
   // the app hears it's loading now rather than once the page commits.
@@ -103,6 +111,11 @@ void Tab::Restored() {
   }
 }
 
+void Tab::SetMuted(bool muted) {
+  // The reason extensions read, as for Chrome's speaker button.
+  SetTabAudioMuted(web_contents(), muted, TabMutedReason::kAudioIndicator, std::string());
+}
+
 void Tab::DidStartNavigation(content::NavigationHandle* navigation) {
   if (navigation->IsInPrimaryMainFrame()) {
     StateChanged();
@@ -129,6 +142,10 @@ void Tab::NavigationEntriesDeleted() {
 
 void Tab::StateChanged() {
   SessionChanged();
+  ReportStateSoon();
+}
+
+void Tab::ReportStateSoon() {
   if (state_report_posted_) {
     return;
   }
@@ -148,6 +165,7 @@ void Tab::ReportState() {
   const std::string url = web_contents()->GetVisibleURL().spec();
   const Space* space = Space::Holding(id_);
   const GURL pinned_url = space ? space->PinnedUrl(id_) : Favorites::Url(id_);
+  const RecentlyAudibleHelper* audible = RecentlyAudibleHelper::FromWebContents(web_contents());
   const bc_tab_state state = {
       .url = url.c_str(),
       .can_go_back = history.CanGoBack(),
@@ -155,6 +173,8 @@ void Tab::ReportState() {
       .loading = web_contents()->ShouldShowLoadingUI(),
       .unloaded = history.NeedsReload(),
       .away_from_pinned_url = pinned_url.is_valid() && PageUrl(web_contents()) != pinned_url,
+      .audible = audible && audible->WasRecentlyAudible(),
+      .muted = web_contents()->IsAudioMuted(),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   ReportFavicon(state.loading);
@@ -266,6 +286,10 @@ void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause
                        }
                      },
                      id_, entered_fullscreen));
+}
+
+void Tab::DidUpdateAudioMutingState(bool muted) {
+  ReportStateSoon();
 }
 
 void Tab::WebContentsDestroyed() {

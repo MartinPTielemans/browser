@@ -6,17 +6,35 @@
 # the tab shown before, and with ⌃ held goes on back through the tabs in the order they were shown,
 # and ⌃⇧Tab the other way, until ⌃ goes up or a click. A tab a page opens goes under it and closing
 # it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing the last
-# tab leaves the Space empty, where ⌘T still works. There ⇧⌦ takes a page out of history, ⇧⌘↩
-# searches for what was typed, and ↩ on a sum's row copies its result. The command bar's tests, in
-# src/command_bar/tests.rs, have the rest of its keys. Reports how long switches take.
+# tab leaves the Space empty, where ⌘T still works. Mute/Unmute Tab mutes a tab, its row shows a
+# speaker while it plays, crossed out while it's muted, and a click on it unmutes the tab. There ⇧⌦
+# takes a page out of history, ⇧⌘↩ searches for what was typed, and ↩ on a sum's row copies its
+# result. The command bar's tests, in src/command_bar/tests.rs, have the rest of its keys. Reports
+# how long switches take.
 
-# A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new
-# tab does. The app asks Chrome to trace its tab switches, timed as Chrome times its own: from the
-# tab strip's change to the first frame shown. The trace is written as the app quits. In a handler
-# attribute a bare open() is document.open(), which would blank the page instead.
+# A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
+# does, and p in it plays a quiet tone until x. The app asks Chrome to trace its tab switches, timed
+# as Chrome times its own: from the tab strip's change to the first frame shown. The trace is
+# written as the app quits. In a handler attribute a bare open() is document.open(), which would
+# blank the page instead.
 page='data:text/html,<title>loading</title>
 <button onclick=window.open() style="font:24px system-ui">Open a tab</button>
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+let sound;
+onkeydown = e => {
+  if (e.key == "p") {
+    sound = new AudioContext();
+    const tone = sound.createOscillator();
+    const gain = sound.createGain();
+    gain.gain.value = 0.002;
+    tone.connect(gain).connect(sound.destination);
+    tone.start();
+    document.title = "playing";
+  }
+  if (e.key == "x") sound.close();
+};
+</script>'
 log="$out/tabs.log"
 trace="$PWD/$out/trace.json"
 step=0
@@ -37,6 +55,22 @@ if [ "$active" != 1 ]; then
   echo "skip: tabs. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
+# Mute/Unmute Tab mutes the tab, and its row shows the speaker crossed out. The page plays only
+# once it's muted, so the run makes no sound, and Chrome counts its sound for 2 s after it stops.
+# A click on the speaker unmutes the tab, and the speaker goes.
+bar_command toggle-mute "Mute/Unmute Tab" mute
+expect "^browser: page $a audible 0 muted 1\$" "Mute/Unmute Tab didn't mute the tab"
+send click $page_point
+send key p
+expect "^browser: title $a playing\$" "p in the page didn't play its sound"
+expect "^browser: page $a audible 1 muted 1\$" "the muted tab's sound didn't show"
+../tools/window-screenshot.sh "$pid" "$out/muted.png" || fail "no window to capture"
+send key x
+expect "^browser: page $a audible 0 muted 1\$" "the tab's sound didn't stop"
+# The speaker is after the favicon, at the title's x, 43.
+send click 52 $(row 0 | cut -d' ' -f2)
+expect '^browser: command toggle-mute via sidebar$' "a click on the speaker didn't reach the UI"
+expect "^browser: page $a audible 0 muted 0\$" "a click on the speaker didn't unmute the tab"
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -247,6 +281,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ↩ on a sum's row copies its result, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
+echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ↩ on a sum's row copies its result, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/empty.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/empty.png"

@@ -427,6 +427,13 @@ impl Browser for Fake {
     // The made-up pages have no history to go through.
     fn back_to_pinned_url(&self, _: u64, _: &mut App) {}
 
+    fn set_muted(&self, tab: u64, muted: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let page = Page { muted, ..shell.page(tab) };
+            shell.set_page(tab, page, cx);
+        });
+    }
+
     fn go_back(&self, _: u64, _: &mut App) {}
 
     fn go_forward(&self, _: u64, _: &mut App) {}
@@ -684,11 +691,12 @@ fn main() {
                         url: (*url).into(),
                         // The first tab has been somewhere before, so back shows bright, and it's
                         // pinned somewhere else. The second is a pinned tab closed, and the third
-                        // is still loading.
+                        // is still loading and plays sound.
                         can_go_back: index == 0,
                         away_from_pinned_url: index == 0,
                         unloaded: index == 1,
                         loading: index == 2,
+                        audible: index == 2,
                         ..Default::default()
                     };
                     shell.set_page(tab, page, cx);
