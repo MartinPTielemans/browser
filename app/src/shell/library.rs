@@ -376,12 +376,20 @@ impl Shell {
         let (from, to) = (running(&self.downloads), running(&downloads));
         self.swaps.start(Swapped::Library, from, to, Instant::now());
         self.download_icons.retain(|id, _| downloads.iter().any(|each| each.id == *id));
+        let bar = bar_drawn(&self.downloads);
+        let flying = self.flight.as_ref().map(|flight| flight.id);
         self.fly_new_download(&downloads, cx);
         self.downloads = downloads;
         if self.section == Section::Downloads {
             self.filter(true, cx);
         }
-        cx.notify();
+        // A download changes about twice a second, and shows only in its list, the footer's bar
+        // and the icon flying in.
+        let listed = self.library.is_some() && self.section == Section::Downloads;
+        let flying = self.flight.as_ref().map(|flight| flight.id) != flying;
+        if listed || flying || bar_drawn(&self.downloads) != bar {
+            cx.notify();
+        }
     }
 
     /// The icon `Browser::download_icon` asked for.
@@ -1447,11 +1455,8 @@ impl Shell {
     /// The footer's button that opens the Library, at its left (Arc). While downloads run, it shows
     /// the downloads' glyph over a bar of how far they've got, and opens the Library on them.
     pub(super) fn library_button(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let running = self.downloads.iter().filter(|each| each.state == DownloadState::Running);
-        let (received, total) = running.fold((0, 0), |(received, total), each| {
-            (received + each.received.min(each.total.max(0)), total + each.total.max(0))
-        });
-        let downloading = self.downloads.iter().any(|each| each.state == DownloadState::Running);
+        let progress = downloads_progress(&self.downloads);
+        let downloading = progress.is_some();
         let glyph = library_glyph(downloading);
         div()
             .id("library")
@@ -1471,8 +1476,7 @@ impl Shell {
             }))
             .child(self.swaps.glyph(Swapped::Library, glyph, 16., rgba(NAV).into()))
             .when(downloading, |button| {
-                // A download of a size not yet known shows an empty bar.
-                let done = if total > 0 { received as f32 / total as f32 } else { 0. };
+                let done = progress.unwrap_or(0.);
                 button.child(
                     div()
                         .absolute()
@@ -1492,6 +1496,24 @@ impl Shell {
                 )
             })
     }
+}
+
+/// How far the running downloads have got in all, 0 to 1, or none while none runs. One of a size
+/// not yet known counts for nothing, so its bar stays empty.
+fn downloads_progress(downloads: &[Download]) -> Option<f32> {
+    let mut running = downloads.iter().filter(|each| each.state == DownloadState::Running);
+    let first = running.next()?;
+    let running = std::iter::once(first).chain(running);
+    let (received, total) = running.fold((0, 0), |(received, total), each| {
+        (received + each.received.min(each.total.max(0)), total + each.total.max(0))
+    });
+    Some(if total > 0 { received as f32 / total as f32 } else { 0. })
+}
+
+/// What the footer's button draws of `downloads`: its bar's length in quarter points, if it has
+/// one. Smaller steps don't show.
+fn bar_drawn(downloads: &[Download]) -> Option<u32> {
+    downloads_progress(downloads).map(|done| (done * BUTTON_PROGRESS_WIDTH * 4.).round() as u32)
 }
 
 /// A row of a Space's card, `depth` folders in.
@@ -1566,8 +1588,8 @@ fn of(received: i64, total: i64) -> String {
 mod tests {
     use super::{
         Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, LIBRARY_LAG, Line,
-        RECEDE_SPAN, Space, download_menu_items, library_band, receded_opacity, receding_edge,
-        panel_at_rest, receding_library_opacity as library,
+        RECEDE_SPAN, Space, bar_drawn, download_menu_items, downloads_progress, library_band,
+        panel_at_rest, receded_opacity, receding_edge, receding_library_opacity as library,
     };
     use crate::shell::sidebar::window_buttons_at;
     use crate::shell::{Folders, Split, rubber_band};
@@ -1771,5 +1793,35 @@ mod tests {
             assert!(!trashes(state, true));
         }
         assert!(!trashes(Done, true));
+    }
+
+    fn running(received: i64, total: i64) -> Download {
+        Download { received, total, ..download(DownloadState::Running, false) }
+    }
+
+    /// The footer's bar is all the running downloads' progress together, and only they have one.
+    #[test]
+    fn the_footer_bar_follows_the_running_downloads() {
+        let done = download(DownloadState::Done, false);
+        assert_eq!(downloads_progress(&[done.clone()]), None);
+        assert_eq!(downloads_progress(&[]), None);
+        assert_eq!(downloads_progress(&[running(50, 100), done.clone()]), Some(0.5));
+        assert_eq!(downloads_progress(&[running(50, 100), running(0, 100)]), Some(0.25));
+        // A size not yet known shows an empty bar, and a download is never past its end.
+        assert_eq!(downloads_progress(&[running(7, 0)]), Some(0.));
+        assert_eq!(downloads_progress(&[running(300, 100)]), Some(1.));
+    }
+
+    /// A download's report that moves the bar less than it can draw is not worth a frame, while
+    /// one that finishes it, or starts another, is.
+    #[test]
+    fn the_bar_draws_a_frame_only_when_it_moves() {
+        let gigabyte = 1_000_000_000;
+        let bar = |received| bar_drawn(&[running(received, gigabyte)]);
+        assert_eq!(bar(1_000), bar(2_000));
+        assert_ne!(bar(0), bar(gigabyte / 4));
+        assert_eq!(bar(gigabyte), Some(64));
+        assert_eq!(bar_drawn(&[download(DownloadState::Done, false)]), None);
+        assert_ne!(bar_drawn(&[running(0, 0)]), None);
     }
 }

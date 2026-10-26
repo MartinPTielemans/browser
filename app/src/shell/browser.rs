@@ -262,7 +262,7 @@ pub enum WindowButton {
 }
 
 /// Where a tab's page is, as the browser reports it.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Page {
     pub url: SharedString,
     pub can_go_back: bool,

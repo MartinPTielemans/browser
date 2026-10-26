@@ -1,8 +1,13 @@
 //! The list's rows: a tab's, a split view's and a folder's, the Space's name, and the
 //! divider with Clear and New Tab.
 
+use std::{
+    cell::Cell,
+    time::{Duration, Instant},
+};
+
 use gpui::{
-    Animation, AnimationExt, AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent,
+    AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent,
     SharedString, Transformation, div, percentage, prelude::*, px, rgb, rgba, svg,
 };
 
@@ -330,7 +335,7 @@ impl Shell {
             .child(icon)
             .child(title(self.title(tab), focused))
             .when(page.loading && width >= LOADING_ROW_MIN, |segment| {
-                segment.child(loading_ring(tab))
+                segment.child(self.loading_ring())
             })
     }
 
@@ -442,7 +447,7 @@ impl Shell {
                 .children(self.speaker(tab, cx))
                 .child(title)
                 .when(hovered && closable, |label| label.child(close))
-                .when(!hovered && loading, |label| label.child(loading_ring(tab))),
+                .when(!hovered && loading, |label| label.child(self.loading_ring())),
         };
         let renaming = renaming.is_some();
         let icon = match back {
@@ -586,19 +591,71 @@ pub(super) fn speaker_glyph(muted: bool) -> &'static str {
     if muted { "icons/volume-x.svg" } else { "icons/volume-2.svg" }
 }
 
-/// A loading tab's ring, at the row's trailing edge, turning.
-pub(super) fn loading_ring(tab: u64) -> impl IntoElement {
-    svg()
-        .path("icons/loading.svg")
-        .flex_none()
-        .ml(px(4.))
-        .size(px(LOADING_SIZE))
-        .text_color(rgba(SECONDARY))
-        .with_animation(
-            ("loading", tab),
-            Animation::new(LOADING_TURN).repeat(),
-            |ring, turn| ring.with_transformation(Transformation::rotate(percentage(turn))),
-        )
+// How often the rings are drawn. GPUI can't redraw only a ring, so each frame is the whole shell
+// again; 30 ms lands on every second display frame at 60 Hz and every fourth at 120.
+const LOADING_FRAME: Duration = Duration::from_millis(30);
+// Rings left undrawn this long start upright again.
+const LOADING_GAP: Duration = Duration::from_millis(200);
+
+/// The loading rings' clock: every ring turns with it, and one timer redraws them all while one
+/// is drawn, where an animation for each would ask for the shell at every display frame.
+#[derive(Default)]
+pub(super) struct Rings {
+    /// When the turn began that the rings are on, and when a ring was last drawn.
+    since: Cell<Option<Instant>>,
+    last: Cell<Option<Instant>>,
+    /// The frame being built draws a ring, and a timer is out to draw the next.
+    drawn: Cell<bool>,
+    pending: Cell<bool>,
+    /// Motion is reduced, so the rings stand still.
+    still: Cell<bool>,
+}
+
+impl Rings {
+    /// How far through its turn a ring drawn now is, 0 to 1.
+    fn turn(&self) -> f32 {
+        self.drawn.set(true);
+        if self.still.get() {
+            return 0.;
+        }
+        let now = Instant::now();
+        if self.last.replace(Some(now)).is_none_or(|last| now.duration_since(last) > LOADING_GAP) {
+            self.since.set(Some(now));
+        }
+        let since = self.since.get().unwrap_or(now);
+        (now.duration_since(since).as_secs_f32() / LOADING_TURN.as_secs_f32()).fract()
+    }
+
+    /// Once a frame is built: if it drew a ring, draws the next in a moment.
+    pub(super) fn arm(&self, cx: &mut Context<Shell>) {
+        self.still.set(cx.reduce_motion());
+        if !self.drawn.take() || self.still.get() || self.pending.replace(true) {
+            return;
+        }
+        cx.spawn(async move |shell, cx| {
+            cx.background_executor().timer(LOADING_FRAME).await;
+            shell
+                .update(cx, |shell, cx| {
+                    shell.rings.pending.set(false);
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+}
+
+impl Shell {
+    /// A loading tab's ring, at the row's trailing edge, turning.
+    fn loading_ring(&self) -> impl IntoElement + use<> {
+        svg()
+            .path("icons/loading.svg")
+            .flex_none()
+            .ml(px(4.))
+            .size(px(LOADING_SIZE))
+            .text_color(rgba(SECONDARY))
+            .with_transformation(Transformation::rotate(percentage(self.rings.turn())))
+    }
 }
 
 /// An emoji in a favicon's place.
@@ -608,4 +665,30 @@ pub(super) fn emoji(icon: SharedString) -> AnyElement {
         .line_height(px(FAVICON_SIZE))
         .child(icon)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::{LOADING_GAP, LOADING_TURN, Rings};
+
+    /// Rings begin upright and are half way round half a turn later, together; left undrawn for a
+    /// while they start upright again, and with reduced motion they never turn.
+    #[test]
+    fn the_rings_turn_together_and_start_upright() {
+        let rings = Rings::default();
+        assert!(rings.turn() < 0.01);
+        rings.since.set(Some(Instant::now() - LOADING_TURN / 2));
+        let (first, second) = (rings.turn(), rings.turn());
+        assert!((0.49..0.52).contains(&first), "half a turn in, {first}");
+        assert!((first..first + 0.01).contains(&second));
+
+        rings.last.set(Some(Instant::now() - LOADING_GAP - Duration::from_millis(1)));
+        assert!(rings.turn() < 0.01, "undrawn for a while, it starts over");
+
+        rings.since.set(Some(Instant::now() - LOADING_TURN / 2));
+        rings.still.set(true);
+        assert_eq!(rings.turn(), 0.);
+    }
 }

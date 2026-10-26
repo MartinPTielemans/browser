@@ -67,6 +67,7 @@ use fly_in::Flight;
 use library::{RECEDE_X, Section};
 use menus::MenuAction;
 use panes::pane_frames;
+use rows::Rings;
 use scaled::scaled;
 use swap::{Swapped, Swaps};
 use tile_theme::TileTheme;
@@ -408,6 +409,29 @@ struct Tab {
     /// What the favicon (by its id) themes the tile with when the tab is a favorite shown, made
     /// the first time that's drawn.
     theme: RefCell<Option<(u64, Option<Rc<TileTheme>>)>>,
+}
+
+impl Tab {
+    /// Keeps what the core reported, and says whether it differs from what was kept.
+    fn keep_title(&mut self, title: SharedString) -> bool {
+        replace(&mut self.title, title)
+    }
+
+    fn keep_favicon(&mut self, favicon: Option<Arc<Image>>) -> bool {
+        replace(&mut self.favicon, favicon)
+    }
+
+    fn keep_page(&mut self, page: Page) -> bool {
+        replace(&mut self.page, page)
+    }
+}
+
+fn replace<T: PartialEq>(kept: &mut T, value: T) -> bool {
+    let changed = *kept != value;
+    if changed {
+        *kept = value;
+    }
+    changed
 }
 
 #[derive(Clone)]
@@ -770,6 +794,8 @@ pub struct Shell {
     profiles: Vec<(u64, SharedString)>,
     /// The tabs of every Space, and the favorites.
     tabs: HashMap<u64, Tab>,
+    /// The loading rings' clock.
+    rings: Rings,
     selected: u64,
     /// Tabs of every Space, shown most recently first.
     recent: Vec<u64>,
@@ -958,6 +984,7 @@ impl Shell {
             favorite_profiles: HashMap::new(),
             profiles: Vec::new(),
             tabs: HashMap::new(),
+            rings: Rings::default(),
             recent: Vec::new(),
             walked: None,
             selected: 0,
@@ -1601,14 +1628,24 @@ impl Shell {
         self.shown(self.selected);
     }
 
+    // The core reports a tab's title, favicon and state whenever Chromium touches them, often with
+    // what it already has, and for tabs nobody sees. Each is kept, but only a change that shows
+    // draws a frame.
     pub fn set_title(&mut self, tab: u64, title: SharedString, cx: &mut Context<Self>) {
-        self.tabs.entry(tab).or_default().title = title;
-        cx.notify();
+        let changed = self.tabs.entry(tab).or_default().keep_title(title);
+        self.tab_changed(tab, changed, cx);
     }
 
     pub fn set_favicon(&mut self, tab: u64, favicon: Option<Arc<Image>>, cx: &mut Context<Self>) {
-        self.tabs.entry(tab).or_default().favicon = favicon;
-        cx.notify();
+        let changed = self.tabs.entry(tab).or_default().keep_favicon(favicon);
+        self.tab_changed(tab, changed, cx);
+    }
+
+    fn tab_changed(&self, tab: u64, changed: bool, cx: &mut Context<Self>) {
+        let (selected, space) = (self.selected, self.shown_space());
+        if changed && tab_drawn(tab, selected, &self.favorites, space, self.library.is_some()) {
+            cx.notify();
+        }
     }
 
     pub fn set_page(&mut self, tab: u64, page: Page, cx: &mut Context<Self>) {
@@ -1637,8 +1674,8 @@ impl Shell {
             log!("browser: page {tab} icon {icon}");
         }
         self.swaps.page_changed(tab, self.selected, &entry.page, &page, Instant::now());
-        entry.page = page;
-        cx.notify();
+        let changed = entry.keep_page(page);
+        self.tab_changed(tab, changed, cx);
     }
 
     /// Shows the page full screen, or back. The window goes full screen with it unless it already
@@ -2095,6 +2132,7 @@ impl Render for Shell {
             && self.sidebar_motion.is_none()
             && self.library.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
+        self.rings.arm(cx);
         div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
@@ -2394,7 +2432,7 @@ impl Shell {
         self.step_scroll_edge(window);
         self.step_tools(window);
         let left = REVEAL_INSET - (REVEAL_INSET + self.width()) * (1. - self.reveal_out());
-        div()
+        let panel = div()
             .size_full()
             .font_family(".SystemUIFont")
             // A double-click below the rows opens a new tab, as in the docked sidebar.
@@ -2422,7 +2460,9 @@ impl Shell {
                     .child(self.sidebar(cx).left_0())
                     .child(self.scroll_listener(false, cx)),
             )
-            .into_any_element()
+            .into_any_element();
+        self.rings.arm(cx);
+        panel
     }
 
     /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
@@ -2747,6 +2787,22 @@ pub(crate) fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
     at((low + high) / 2., y1, y2)
 }
 
+/// Whether a change to `tab` can show in the window: it's among the favorites or the Space's
+/// rows, it's the page the toolbar names, or the Library is open and lists tabs. Another Space's
+/// tab shows only as that Space slides in, which draws at every step.
+fn tab_drawn(
+    tab: u64,
+    selected: u64,
+    favorites: &[u64],
+    space: Option<&Space>,
+    library: bool,
+) -> bool {
+    library
+        || tab == selected
+        || favorites.contains(&tab)
+        || space.is_some_and(|space| space.pinned.contains(&tab) || space.today.contains(&tab))
+}
+
 /// The URL field's text for `url`: its host without "www." (Arc), or the URL itself if it has none.
 fn host(url: &str) -> &str {
     // A data: URL can hold "://" further in, after characters no scheme has.
@@ -2791,7 +2847,11 @@ fn file_name(url: &str) -> Option<String> {
 mod tests {
     use std::time::{Duration, Instant};
 
-    use super::{Shape, fade_at, file_name};
+    use std::sync::Arc;
+
+    use gpui::{Image, ImageFormat};
+
+    use super::{Folders, Page, Shape, Space, Tab, fade_at, file_name, tab_drawn};
 
     /// A fade reversed partway starts from the opacity it had, so nothing jumps, and ends at the
     /// other end.
@@ -2814,6 +2874,64 @@ mod tests {
         assert_eq!(file_name("file:///tmp/100%.txt").unwrap(), "100%.txt");
         assert_eq!(file_name("file:///Users/someone/"), None);
         assert_eq!(file_name("https://example.com/notes.txt"), None);
+    }
+
+    fn png(bytes: &[u8]) -> Option<Arc<Image>> {
+        Some(Arc::new(Image::from_bytes(ImageFormat::Png, bytes.to_vec())))
+    }
+
+    /// A report that says what the shell already has changes nothing, so it draws no frame, even
+    /// for a favicon the core encoded again into a new image.
+    #[test]
+    fn a_repeated_report_changes_nothing() {
+        let mut tab = Tab::default();
+        assert!(tab.keep_title("Inbox".into()));
+        assert!(!tab.keep_title("Inbox".into()));
+        assert!(tab.keep_title("Inbox (1)".into()));
+
+        assert!(tab.keep_favicon(png(b"one")));
+        assert!(!tab.keep_favicon(png(b"one")));
+        assert!(tab.keep_favicon(png(b"two")));
+        assert!(tab.keep_favicon(None));
+        assert!(!tab.keep_favicon(None));
+
+        let page = Page { url: "https://example.com/".into(), ..Page::default() };
+        assert!(tab.keep_page(page.clone()));
+        assert!(!tab.keep_page(page.clone()));
+        assert!(tab.keep_page(Page { loading: true, ..page.clone() }));
+        assert!(tab.keep_page(Page { audible: true, loading: true, ..page.clone() }));
+        assert!(tab.keep_page(Page { icon: "🔥".into(), ..page }));
+    }
+
+    fn space(pinned: &[u64], today: &[u64]) -> Space {
+        Space {
+            id: 1,
+            name: "Space 1".into(),
+            color: None,
+            icon: Default::default(),
+            profile: 0,
+            pinned: pinned.to_vec(),
+            today: today.to_vec(),
+            splits: Vec::new(),
+            folders: Folders::default(),
+            shown: 0,
+        }
+    }
+
+    /// What the window draws of a tab is in the Space shown's rows, the favorites and the
+    /// toolbar, or in the Library's lists; another Space's tab, shown nowhere, is not drawn.
+    #[test]
+    fn only_a_tab_that_shows_is_drawn() {
+        let shown = space(&[1, 2], &[3]);
+        let drawn = |tab, library| tab_drawn(tab, 3, &[9], Some(&shown), library);
+        for tab in [1, 2, 3, 9] {
+            assert!(drawn(tab, false), "tab {tab} shows");
+        }
+        assert!(!drawn(4, false), "a tab of another Space shows nowhere");
+        assert!(drawn(4, true), "the Library lists the tabs of every Space");
+        // The page the toolbar names, before the Space lists it, and with no Space shown.
+        assert!(tab_drawn(5, 5, &[], Some(&shown), false));
+        assert!(!tab_drawn(5, 3, &[], None, false));
     }
 
     /// A row turning into a tile is partway there 20 ms in, and turned for good once the spring
