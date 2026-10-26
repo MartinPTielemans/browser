@@ -42,6 +42,8 @@ bc_id ProfileId(const std::string& dir);
 std::string ProfileDir(bc_id profile);
 // "Default" for one Chrome named itself.
 std::string ProfileName(bc_id profile);
+// Names |profile| |name|, unless |name| is empty.
+bool RenameProfile(bc_id profile, const std::string& name);
 // Makes a profile named |name| and loads it, then runs |made| with it, or null if Chrome couldn't.
 // Returns its id, or 0.
 bc_id CreateProfile(const std::string& name, base::OnceCallback<void(Profile*)> made);

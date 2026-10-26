@@ -3,14 +3,17 @@
 //! Settings). It opens on ⌘, and hides when closed, keeping its place and its tab until the
 //! browser quits.
 
+use std::ffi::CString;
 use std::time::Instant;
 
 use browser::log;
-use browser::shell::{self, Command, MenuEntry};
+use browser::shell::{self, CancelName, Command, KeepName, MenuEntry};
+use browser::text_input::TextInput;
 use gpui::{
-    AnyElement, App, Bounds, Context, FocusHandle, FontWeight, Global, MouseButton, Rgba,
-    SharedString, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions,
-    actions, div, point, prelude::*, px, rgb, rgba, size, svg,
+    AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
+    MouseButton, MouseDownEvent, Rgba, SharedString, Subscription, TitlebarOptions, Window,
+    WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div, point, prelude::*, px, rgb,
+    rgba, size, svg,
 };
 
 use crate::{bc, ns_view, platform, show_menu};
@@ -68,6 +71,8 @@ const HEADER_GAP: f32 = 8.;
 const SECTION_GAP: f32 = 20.;
 const CHIP_HEIGHT: f32 = 20.;
 const CHIP_PADDING: f32 = 6.;
+/// Ours, for the Profiles tab: rows as tall as a button's, so they're even with and without one.
+const PROFILE_ROW: f32 = 40.;
 
 const BAR: u32 = 0x282a2a;
 const BAR_LINE: u32 = 0x303131;
@@ -86,6 +91,9 @@ const KNOB: u32 = 0xe1e2e2;
 /// The knob over the accent colour, which tints it.
 const KNOB_ON: u32 = 0xe1ebfe;
 const HAPTICS_TILE: u32 = 0x3f8ff7;
+const PROFILE_TILE: u32 = 0x8e8e93;
+/// A row's detail, such as a profile's Spaces, in the toolbar's grey.
+const DETAIL: u32 = 0x9e9f9f;
 const CHIP: u32 = 0xffff_ff14;
 
 /// What Arc offers for how long a Today tab waits unseen before it's archived, in seconds.
@@ -99,16 +107,18 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
     General,
+    Profiles,
     Shortcuts,
     Advanced,
 }
 
 impl Tab {
-    const ALL: [Tab; 3] = [Tab::General, Tab::Shortcuts, Tab::Advanced];
+    const ALL: [Tab; 4] = [Tab::General, Tab::Profiles, Tab::Shortcuts, Tab::Advanced];
 
     fn name(self) -> &'static str {
         match self {
             Tab::General => "General",
+            Tab::Profiles => "Profiles",
             Tab::Shortcuts => "Shortcuts",
             Tab::Advanced => "Advanced",
         }
@@ -117,6 +127,7 @@ impl Tab {
     fn icon(self) -> &'static str {
         match self {
             Tab::General => "icons/settings.svg",
+            Tab::Profiles => "icons/user.svg",
             Tab::Shortcuts => "icons/keyboard.svg",
             Tab::Advanced => "icons/sliders-horizontal.svg",
         }
@@ -218,6 +229,45 @@ pub struct Settings {
     switched: Option<(&'static str, Instant)>,
     /// Whether the archive's pop-up menu is open, when its button shows pressed.
     choosing: bool,
+    /// The profile whose name is in a field for renaming.
+    renaming: Option<Renaming>,
+    /// Whether the field takes the keyboard once its row is drawn.
+    focus_renaming: bool,
+}
+
+struct Renaming {
+    profile: u64,
+    name: Entity<TextInput>,
+    /// Keeps the name once the field loses the keyboard, as the sidebar's renaming does.
+    _blur: Option<Subscription>,
+}
+
+/// A profile as the Profiles tab lists it.
+struct Profile {
+    id: u64,
+    name: SharedString,
+    spaces: usize,
+    /// As the core has it: not the one it started with, nor one a Space or a favorite is in.
+    deletable: bool,
+}
+
+/// The profiles, the one the browser started with first.
+fn profiles() -> Vec<Profile> {
+    let in_space = |space| unsafe { bc::bc_space_profile(space) };
+    let spaces: Vec<u64> = crate::ids(bc::bc_spaces).into_iter().map(in_space).collect();
+    let of_tab = |tab| unsafe { bc::bc_tab_profile(tab) };
+    let favorites: Vec<u64> = crate::ids(bc::bc_favorites).into_iter().map(of_tab).collect();
+    (crate::ids(bc::bc_profiles).into_iter().enumerate())
+        .map(|(index, id)| {
+            let count = spaces.iter().filter(|&&each| each == id).count();
+            Profile {
+                id,
+                name: crate::name(bc::bc_profile_name, id),
+                spaces: count,
+                deletable: index > 0 && count == 0 && !favorites.contains(&id),
+            }
+        })
+        .collect()
 }
 
 struct SettingsWindow(WindowHandle<Settings>);
@@ -273,6 +323,8 @@ fn open(cx: &mut App) {
                 focus: cx.focus_handle(),
                 switched: None,
                 choosing: false,
+                renaming: None,
+                focus_renaming: false,
             }
         })
     });
@@ -287,6 +339,13 @@ fn open(cx: &mut App) {
     }
 }
 
+/// Shows what changed in the core, such as a profile made, renamed or deleted, if it's open.
+pub fn refresh(cx: &mut App) {
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        window.update(cx, |_, _, cx| cx.notify()).ok();
+    }
+}
+
 fn hide(_: &mut App) {
     // check.sh waits for this line.
     log!("browser: settings hidden");
@@ -298,6 +357,7 @@ impl Settings {
         if tab == self.tab {
             return;
         }
+        self.keep_name(window, cx);
         // check.sh waits for this line.
         log!("browser: settings tab {}", tab.name());
         self.tab = tab;
@@ -452,20 +512,137 @@ impl Settings {
         .detach();
     }
 
+    /// A row for each profile, with how many Spaces are in it and Delete for one nothing is in, and
+    /// New Profile under them. A double-click on a profile's name renames it, as on a Space's.
+    fn profiles(&self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
+        let rows = profiles.iter().map(|profile| {
+            let (id, name) = (profile.id, profile.name.clone());
+            let label = match &self.renaming {
+                Some(renaming) if renaming.profile == id => div()
+                    .flex_1()
+                    .min_w_0()
+                    .key_context("Naming")
+                    .on_action(cx.listener(|settings, _: &KeepName, window, cx| {
+                        settings.keep_name(window, cx)
+                    }))
+                    .on_action(cx.listener(|settings, _: &CancelName, window, cx| {
+                        settings.cancel_name(window, cx)
+                    }))
+                    .child(renaming.name.clone()),
+                _ => div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |settings, event: &MouseDownEvent, _, cx| {
+                            if event.click_count == 2 {
+                                settings.rename(id, name.clone(), cx);
+                            }
+                        }),
+                    )
+                    .child(profile.name.clone()),
+            };
+            let spaces: SharedString = match profile.spaces {
+                0 => "No Spaces".into(),
+                1 => "1 Space".into(),
+                count => format!("{count} Spaces").into(),
+            };
+            let name = profile.name.clone();
+            let delete = profile.deletable.then(|| {
+                button(("delete-profile", id), "Delete").on_click(
+                    cx.listener(move |settings, _, _, cx| settings.delete(id, name.clone(), cx)),
+                )
+            });
+            div()
+                .h(px(PROFILE_ROW))
+                .px(px(PADDING))
+                .flex()
+                .items_center()
+                .child(tile("icons/user.svg", PROFILE_TILE))
+                .child(label)
+                .child(div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(spaces))
+                .children(delete.map(|delete| delete.ml(px(PADDING))))
+        });
+        let new = button("new-profile", "New Profile")
+            .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
+        div()
+            .child(group(rows))
+            .child(div().mt(px(BUTTONS_TOP)).flex().child(new))
+            .into_any_element()
+    }
+
+    /// Shows the profile's name in a field, all selected, to type a new one over.
+    fn rename(&mut self, profile: u64, name: SharedString, cx: &mut Context<Self>) {
+        let name = cx.new(|cx| {
+            TextInput::new("Profile name", cx)
+                .placeholder_color(rgb(DETAIL))
+                .caret_color(rgb(TEXT))
+                .with_text(name)
+        });
+        self.renaming = Some(Renaming {
+            profile,
+            name,
+            _blur: None,
+        });
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
+    /// Names the profile what the field holds, unless it's empty, and closes the field.
+    fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(renaming) = self.renaming.take() else {
+            return;
+        };
+        let name = renaming.name.read(cx).text().trim().to_string();
+        if !name.is_empty() {
+            let name = CString::new(name).unwrap_or_default();
+            unsafe { bc::bc_profile_rename(renaming.profile, name.as_ptr()) };
+        }
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn cancel_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.renaming.take().is_some() {
+            // check.sh waits for this line.
+            log!("browser: rename cancelled");
+            window.focus(&self.focus, cx);
+            cx.notify();
+        }
+    }
+
+    /// Makes a profile, named as Chrome numbers them, with its name in a field once it's listed,
+    /// to name it at once, as Finder's New Folder does.
+    fn new_profile(&mut self, cx: &mut Context<Self>) {
+        let names: Vec<SharedString> = profiles().into_iter().map(|profile| profile.name).collect();
+        let name = shell::new_profile_name(&names);
+        let c_name = CString::new(name.as_str()).unwrap_or_default();
+        let profile = unsafe { bc::bc_profile_create(c_name.as_ptr()) };
+        // check.sh waits for this line.
+        log!("browser: create profile {profile} {name}");
+        if profile != 0 {
+            self.rename(profile, name.into(), cx);
+        }
+    }
+
+    /// Deletes the profile once the user confirms, in an alert, as the window has no room for the
+    /// browser window's dialog.
+    fn delete(&mut self, profile: u64, name: SharedString, cx: &mut Context<Self>) {
+        cx.spawn(async move |_, _| {
+            let message = format!("Delete “{name}”?");
+            let detail = "Its history, cookies and logins go with it.";
+            if crate::ask(&message, detail, &["Delete", "Cancel"]) == 0 {
+                unsafe { bc::bc_profile_delete(profile) };
+            }
+        })
+        .detach();
+    }
+
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
-        let more = div()
-            .id("more-settings")
-            .h(px(CONTROL_HEIGHT))
-            .px(px(CONTROL_PADDING))
-            .flex()
-            .items_center()
-            .rounded(px(CONTROL_RADIUS))
-            .bg(rgb(CONTROL))
-            .active(|button| button.bg(rgb(CONTROL_PRESSED)))
-            .on_click(|_, _, cx| more_settings(cx))
-            .child("More Settings…");
+        let more = button("more-settings", "More Settings…").on_click(|_, _, cx| more_settings(cx));
         div()
             .child(group([row(
                 Some(("icons/vibrate.svg", HAPTICS_TILE)),
@@ -474,6 +651,25 @@ impl Settings {
             )]))
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
+    }
+
+    /// Gives the renaming field the keyboard once its profile is listed, which a new one is once
+    /// Chrome has made it.
+    fn focus_field(&mut self, profiles: &[Profile], window: &mut Window, cx: &mut Context<Self>) {
+        let Some(renaming) = &mut self.renaming else {
+            return;
+        };
+        if !profiles.iter().any(|profile| profile.id == renaming.profile)
+            || !std::mem::take(&mut self.focus_renaming)
+        {
+            return;
+        }
+        let field = renaming.name.focus_handle(cx);
+        window.focus(&field, cx);
+        // check.sh waits for this line, which says the field has the keyboard.
+        log!("browser: rename profile {}", renaming.profile);
+        renaming._blur =
+            Some(cx.on_blur(&field, window, |settings, window, cx| settings.keep_name(window, cx)));
     }
 
     fn shortcuts(&self) -> AnyElement {
@@ -552,20 +748,38 @@ fn row(icon: Option<(&'static str, u32)>, name: &'static str, control: AnyElemen
         .py(px(PADDING))
         .flex()
         .items_center()
-        .children(icon.map(|(glyph, color)| {
-            div()
-                .flex_none()
-                .size(px(TILE))
-                .mr(px(TILE_GAP))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(TILE_RADIUS))
-                .bg(rgb(color))
-                .child(svg().path(glyph).size(px(TILE_GLYPH)).text_color(rgb(0xffffff)))
-        }))
+        .children(icon.map(|(glyph, color)| tile(glyph, color)))
         .child(div().flex_1().min_w_0().truncate().child(name))
         .child(div().flex_none().ml(px(PADDING)).child(control))
+}
+
+/// A row's icon: a white glyph on a tile of colour.
+fn tile(glyph: &'static str, color: u32) -> gpui::Div {
+    div()
+        .flex_none()
+        .size(px(TILE))
+        .mr(px(TILE_GAP))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(TILE_RADIUS))
+        .bg(rgb(color))
+        .child(svg().path(glyph).size(px(TILE_GLYPH)).text_color(rgb(0xffffff)))
+}
+
+/// A push button, darker while pressed.
+fn button(id: impl Into<gpui::ElementId>, title: &'static str) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(CONTROL_HEIGHT))
+        .px(px(CONTROL_PADDING))
+        .flex()
+        .items_center()
+        .rounded(px(CONTROL_RADIUS))
+        .bg(rgb(CONTROL))
+        .active(|button| button.bg(rgb(CONTROL_PRESSED)))
+        .child(title)
 }
 
 /// A switch, on or off, with its knob `slid` of the way to that side.
@@ -611,6 +825,11 @@ impl Render for Settings {
         }
         let content = match self.tab {
             Tab::General => self.general(accent, cx),
+            Tab::Profiles => {
+                let profiles = profiles();
+                self.focus_field(&profiles, window, cx);
+                self.profiles(&profiles, cx)
+            }
             Tab::Shortcuts => self.shortcuts(),
             Tab::Advanced => self.advanced(accent, cx),
         };

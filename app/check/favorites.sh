@@ -132,7 +132,7 @@ expect '^browser: menu shown 12 hours (default) (checked), 24 hours, 7 days, 30 
   "a click on Archive tabs after didn't show the times, with 12 hours chosen"
 send choose 24 hours
 expect '^browser: archive tabs after 24 hours$' "choosing 24 hours in Settings didn't set it"
-send clickkey 398 60
+send clickkey 430 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics off$' "a click on the haptics switch didn't turn them off"
@@ -231,7 +231,7 @@ expect '^browser: menu shown 12 hours (default), 24 hours (checked), 7 days, 30 
   "Settings didn't keep 24 hours across the quit"
 send choose "12 hours (default)"
 expect '^browser: archive tabs after 12 hours (default)$' "choosing 12 hours didn't set it"
-send clickkey 398 60
+send clickkey 430 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"

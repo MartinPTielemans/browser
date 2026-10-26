@@ -10,6 +10,7 @@
 //   doubleclick <x> <y>                   two left clicks, the second with a click count of 2
 //   rightclick <x> <y>                    a right click
 //   clickkey <x> <y>                      a left click in the key window, such as the command bar
+//   doubleclickkey <x> <y>                two left clicks in the key window, as doubleclick
 //   drag <x> <y> <x2> <y2>                presses at (x, y), moves to (x2, y2) and lets go
 //   press <x> <y>                         presses at (x, y), for a drag in steps
 //   dragto <x> <y>                        moves the pointer pressed to (x, y)
@@ -510,6 +511,16 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     Click(NSApp.keyWindow, x, y, 1);
+    done();
+    return true;
+  }
+  if (action == "doubleclickkey") {
+    double x, y;
+    if (!NSApp.keyWindow || !(words >> x >> y)) {
+      return false;
+    }
+    Click(NSApp.keyWindow, x, y, 1);
+    Click(NSApp.keyWindow, x, y, 2);
     done();
     return true;
   }

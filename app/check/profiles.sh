@@ -3,7 +3,8 @@
 # cookies. While it's empty the Space's menu moves it between profiles, and with a tab it keeps its
 # own. The first Space keeps its cookie and its favorite, which shows only in the Spaces of its
 # profile, and a new Space made from a Space is in that Space's profile. After a relaunch each Space
-# is in its profile still. Deleting the Space leaves the profile unused, and Delete in the menu
+# is in its profile still. Settings › Profiles renames a profile, which the Space menu then shows,
+# and makes and deletes one. Deleting the Space leaves its profile unused, and Delete in the menu
 # deletes it once the user confirms.
 
 # The cookie page's title shows its site's cookies, and "c" sets one. It's on localhost, as
@@ -170,6 +171,53 @@ expect "^browser: space $second in " "⌃2 didn't show the second Space"
 expect '^browser: favorites $' "the second Space showed the first profile's favorite"
 b=$(today)
 expect "^browser: title $b cookie none\$" "the second Space's tab came back in the first profile"
+# Settings › Profiles lists the profiles, a row each from 129, 41 apart, and New Profile under
+# them. A double-click on a name puts it in a field, where escape leaves it and return keeps a new
+# one.
+send menu Settings…
+expect '^browser: settings shown ' "Settings… didn't show Settings"
+send clickkey 305 60
+expect '^browser: settings tab Profiles$' "a click on Profiles didn't show its tab"
+send doubleclickkey 130 170
+expect "^browser: rename profile $work\$" "a double-click on Profile 2 didn't put it in a field"
+send type personal
+send key escape
+expect '^browser: rename cancelled$' "escape didn't cancel the renaming"
+none_since '^browser: renamed profile' || fail "escape renamed the profile"
+send doubleclickkey 130 170
+expect "^browser: rename profile $work\$" "the second double-click didn't put it in a field"
+send type personal
+send key return
+expect "^browser: renamed profile $work personal\$" "return didn't rename the profile"
+# New Profile makes one, with its name in a field, which takes Japanese input. Its Delete asks
+# first, and Cancel keeps it.
+send clickkey 100 214
+expect '^browser: create profile [0-9]* Profile 3$' "New Profile didn't make a profile"
+spare=$(sed -n 's/^browser: create profile \([0-9]*\) .*/\1/p' "$log" | tail -1)
+expect "^browser: rename profile $spare\$" "the new profile's name didn't take the keyboard"
+send type spare
+send key space
+send ime on
+send type nihongo
+send key space
+[ "$marked" = 6,3 ] || fail "the profile's field didn't take the conversion: marked $marked"
+../tools/window-screenshot.sh "$pid" "$out/settings-profile-name.png" || fail "no window to capture"
+send key return
+send ime off
+send key return
+expect "^browser: renamed profile $spare spare 日本語\$" \
+  "the new profile wasn't named: $(grep '^browser: renamed profile' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/settings-profiles.png" || fail "no window to capture"
+post clickkey 578 211
+expect '^browser: alert shown Delete “spare 日本語”?$' "Delete in Settings didn't ask first"
+send choose Cancel
+none_since '^browser: removed profile' || fail "Cancel deleted the profile"
+post clickkey 578 211
+expect '^browser: alert shown Delete “spare 日本語”?$' "Delete in Settings didn't ask again"
+send choose Delete
+expect "^browser: removed profile $spare spare 日本語\$" "Delete in Settings didn't delete it"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 # Deleted, the Space leaves its profile unused, which the first Space's menu then deletes, once the
 # user confirms.
 post rightclick $name_point
@@ -183,15 +231,15 @@ expect "^browser: space $first\( in .*\)\{0,1\}\$" "deleting the second Space di
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post rightclick $tiled_name
 expect "^browser: menu shown Rename Space, $colors, Profile › Default (checked), \
-Profile › Profile 2, Profile › New Profile, Profile › Delete “Profile 2”, \
+Profile › personal, Profile › New Profile, Profile › Delete “personal”, \
 Delete Space (disabled)\$" \
-  "the menu didn't offer to delete the unused profile"
-post choose Delete “Profile 2”
-expect '^browser: dialog shown Delete “Profile 2”?$' "Delete didn't ask before deleting the profile"
+  "the menu didn't offer to delete the unused profile by the name Settings gave it"
+post choose Delete “personal”
+expect '^browser: dialog shown Delete “personal”?$' "Delete didn't ask before deleting the profile"
 expect '^browser: dialog settled$' "the dialog didn't settle"
 ../tools/window-screenshot.sh "$pid" "$out/profile-delete.png" || fail "no window to capture"
 send key return
-expect "^browser: removed profile $work Profile 2\$" "the profile wasn't deleted"
+expect "^browser: removed profile $work personal\$" "the profile wasn't deleted"
 exec 3>&-
 quit
-echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-delete.png"
+echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"

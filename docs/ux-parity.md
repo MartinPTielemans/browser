@@ -229,7 +229,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Advanced › More Settings… | MVP | opens Chromium's settings in a tab | Arc 1.170.0 cap |
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
 | [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit Browser?" with Quit, "Quit, and don't ask again" and Cancel; Dock and logout quits don't | Arc 1.170.0 cap, bin |
-| [ ] | Arc's other tabs | MVP | Profiles, Links, Icon, Previews: with their features | Arc 1.170.0 cap |
+| [ ] | Profiles tab | MVP | measure; ours: a row per profile with its Spaces, rename on a double-click, Delete for an unused one, New Profile | Arc 1.170.0 cap |
+| [ ] | Arc's other tabs | MVP | Links, Icon, Previews: with their features | Arc 1.170.0 cap |
 
 ## Archive
 
@@ -252,7 +253,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Profile holds cookies, history, logins, autofill, extensions | MVP | yes | decision 5 |
-| [ ] | Create, rename, delete, pick for a Space | MVP | measure; ours: the New Space form's Profile row (Arc's) and the Space menu's Profile items, rename to do | Arc 1.170.0 cap |
+| [ ] | Create, rename, delete, pick for a Space | MVP | measure; ours: Settings › Profiles, the New Space form's Profile row (Arc's) and the Space menu's Profile items | Arc 1.170.0 cap |
 | [ ] | Where a Space shows its profile | MVP | measure | — |
 | [ ] | Incognito ⇧⌘N | MVP | per profile, dark, one session per profile, nothing written | Chrome, Dia |
 

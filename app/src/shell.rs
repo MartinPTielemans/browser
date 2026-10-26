@@ -833,6 +833,14 @@ struct ShellHandle(WeakEntity<Shell>);
 
 impl Global for ShellHandle {}
 
+/// A new profile's name as Chrome numbers them, "Profile 2" after the first, that `names` hasn't.
+pub fn new_profile_name(names: &[SharedString]) -> String {
+    (names.len() + 1..)
+        .map(|number| format!("Profile {number}"))
+        .find(|name| !names.iter().any(|each| each == name))
+        .unwrap_or_default()
+}
+
 /// The key context at the root of the browser's windows, where its shortcuts apply. GPUI ranks a
 /// binding with no context above every other, so without one the shortcuts would take keys a
 /// focused field binds for itself, such as escape and ⌘←.
@@ -3116,11 +3124,8 @@ impl Shell {
 
     /// Makes a profile, named as Chrome numbers them, and puts the empty Space in it.
     fn new_profile(&mut self, space: u64, cx: &mut Context<Self>) {
-        let taken = |name: &str| self.profiles.iter().any(|(_, each)| each == name);
-        let name = (self.profiles.len() + 1..)
-            .map(|number| format!("Profile {number}"))
-            .find(|name| !taken(name))
-            .unwrap_or_default();
+        let names: Vec<SharedString> = self.profiles.iter().map(|(_, name)| name.clone()).collect();
+        let name = new_profile_name(&names);
         let profile = self.browser.create_profile(&name, cx);
         // check.sh waits for this line.
         log!("browser: create profile {profile} {name}");
