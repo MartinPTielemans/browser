@@ -27,9 +27,10 @@ void* host_ui_view(void);
 void host_show_window(void* ui_view);
 
 // Makes the window of |overlay_view| float over the browser window when shown, for UI that has
-// to draw over the page. It starts hidden. |dismissed| runs, after the event, when the user leaves
-// the overlay without choosing anything in it.
-void host_add_overlay(void* overlay_view, void (*dismissed)(void));
+// to draw over the page, translucent over a blur of what's behind it, with a shadow, in a rounded
+// shape of |radius|. It starts hidden. |dismissed| runs, after the event, when the user leaves the
+// overlay without choosing anything in it.
+void host_add_overlay(void* overlay_view, double radius, void (*dismissed)(void));
 
 // Shows the overlay and gives it the keyboard, |width| points wide: with its top left at |left|,
 // |top| in the browser window's content and ending at least 8 points inside it, or if |centered|,

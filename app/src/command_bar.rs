@@ -9,10 +9,10 @@
 use std::{collections::HashMap, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, Focusable, Global, Hsla, Image, KeyBinding, Pixels,
-    ScrollHandle, SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, actions, div, img, point, prelude::*, px, rgb, rgba,
-    size, svg,
+    AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, Hsla, Image,
+    KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
+    img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{
@@ -61,13 +61,14 @@ const INPUT_TEXT_X: f32 = 53.;
 /// The hint after the input ends this far from the panel's side, 11 after the field.
 const HINT_END: f32 = 22.;
 const HINT_GAP: f32 = 11.;
-const RADIUS: f32 = 18.;
+/// The panel's corners, which the host's blur and shadow take too.
+pub const RADIUS: f32 = 18.;
 /// How far down the browser window the panel's top is, as Arc's is at y 305.5 of 949.
 pub const TOP: f32 = 0.322;
 /// Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
 const BESIDE_END: f32 = 70.;
-// Dia's dark panel (docs/ux-spec.md › Colour tokens), under Arc's edge and line.
-const FILL: u32 = 0x2d2d2d;
+/// Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
+const FILL: u32 = 0x1919_19db;
 const OUTLINE: u32 = 0x040404;
 const EDGE: u32 = 0x59595d;
 const LINE_COLOR: u32 = 0xffff_ff1a;
@@ -120,6 +121,18 @@ enum Kind {
     Sum,
 }
 
+/// What a row shows for its icon.
+#[derive(Debug, PartialEq)]
+enum Icon {
+    /// Its page's favicon, with a globe until it comes or if it has none.
+    Favicon,
+    Glyph(&'static str),
+    None,
+}
+
+/// The glyph a command shares with the others no Lucide icon plainly names.
+const COMMAND_GLYPH: &str = "icons/command.svg";
+
 impl Suggestion {
     fn kind(&self) -> Kind {
         match (&self.command, &self.result, self.search) {
@@ -130,8 +143,63 @@ impl Suggestion {
         }
     }
 
-    fn is_page(&self) -> bool {
-        matches!(self.kind(), Kind::Page)
+    /// Arc's: a page only in the profile's history has a clock, and an open tab or a well-known
+    /// site its favicon. Each command has its own glyph.
+    fn icon(&self) -> Icon {
+        match self.kind() {
+            Kind::Page if self.tab == 0 && self.removable => Icon::Glyph("icons/clock.svg"),
+            Kind::Page => Icon::Favicon,
+            Kind::Search => Icon::Glyph("icons/search.svg"),
+            Kind::Command => Icon::Glyph(self.command.map_or(COMMAND_GLYPH, command_glyph)),
+            Kind::Sum => Icon::None,
+        }
+    }
+}
+
+/// A command's glyph: the Lucide icon that plainly names what it does, else the shared one.
+fn command_glyph(command: shell::Command) -> &'static str {
+    use shell::Command;
+    match command {
+        Command::Clear => "icons/brush-cleaning.svg",
+        Command::ClearCacheAndRefresh => "icons/trash.svg",
+        Command::ClearCookiesAndRefresh => "icons/cookie.svg",
+        Command::ClearArchive | Command::CloseTab | Command::ViewArchive => "icons/archive.svg",
+        Command::CollapseFolders => "icons/fold-vertical.svg",
+        Command::NewFolder => "icons/folder-plus.svg",
+        Command::TogglePin => "icons/pin.svg",
+        Command::ToggleMute => "icons/volume-2.svg",
+        Command::ReopenClosedTab => "icons/undo-2.svg",
+        Command::CopyUrl | Command::CopyMarkdownLink => "icons/link.svg",
+        Command::Find => "icons/text-search.svg",
+        Command::Back => "icons/arrow-left.svg",
+        Command::Forward => "icons/arrow-right.svg",
+        Command::Reload | Command::ForceReload => "icons/rotate-cw.svg",
+        Command::Stop => "icons/x.svg",
+        Command::ZoomIn => "icons/zoom-in.svg",
+        Command::ZoomOut => "icons/zoom-out.svg",
+        Command::FlipSplit => "icons/arrow-left-right.svg",
+        Command::ToggleSidebar => "icons/panel-left.svg",
+        Command::SavePage => "icons/save.svg",
+        Command::Print => "icons/printer.svg",
+        Command::ViewSource => "icons/code.svg",
+        Command::InspectElements => "icons/square-mouse-pointer.svg",
+        Command::JavaScriptConsole => "icons/terminal.svg",
+        Command::ManageExtensions => "icons/puzzle.svg",
+        Command::RenameSpace => "icons/pencil.svg",
+        Command::NextTab => "icons/arrow-down.svg",
+        Command::PreviousTab => "icons/arrow-up.svg",
+        Command::ViewLibrary => "icons/library.svg",
+        Command::ViewDownloads => "icons/arrow-down-to-line.svg",
+        Command::ViewHistory => "icons/rotate-ccw-clock.svg",
+        Command::Settings => "icons/settings.svg",
+        Command::KeyboardShortcuts => "icons/keyboard.svg",
+        _ => COMMAND_GLYPH,
+    }
+}
+
+impl From<shell::BarTab> for Suggestion {
+    fn from(tab: shell::BarTab) -> Self {
+        Suggestion { url: tab.url.to_string(), text: tab.title, tab: tab.tab, ..Default::default() }
     }
 }
 
@@ -227,6 +295,8 @@ pub struct CommandBar {
     site: Option<Site>,
     /// The rows' favicons by page, asked for as they first show. None until one comes.
     favicons: HashMap<String, Option<Arc<Image>>>,
+    /// The Space's tabs it lists before anything is typed.
+    tabs: Vec<shell::BarTab>,
     scroll: ScrollHandle,
 }
 
@@ -321,6 +391,7 @@ pub fn open_at(
                 selected: 0,
                 site: None,
                 favicons: HashMap::new(),
+                tabs: Vec::new(),
                 scroll: ScrollHandle::new(),
             }
         })
@@ -337,14 +408,17 @@ pub fn open_at(
     }
 }
 
-/// Shows the command bar with the keyboard: empty for a new tab, or on `editing`'s URL, selected.
-/// It suggests nothing until the text is edited, as Chrome's address bar. It's centred over the
-/// browser window whatever opened it, as Arc's is for ⌘L and a click on the URL field too, and it
-/// shows at once.
-pub fn show(editing: Option<(u64, SharedString)>, cx: &mut App) {
+/// Shows the command bar with the keyboard: empty for a new tab, listing `tabs`, or on `editing`'s
+/// URL, selected. It suggests nothing for the URL until the text is edited, as Chrome's address
+/// bar, and lists `tabs` again once the text is empty. It's centred over the browser window
+/// whatever opened it, as Arc's is for ⌘L and a click on the URL field too, and it shows at once.
+pub fn show(editing: Option<(u64, SharedString)>, tabs: Vec<shell::BarTab>, cx: &mut App) {
     let target = editing.as_ref().map_or(Target::NewTab, |&(tab, _)| Target::Tab(tab));
     let text = editing.map(|(_, url)| url).unwrap_or_default();
-    if let Some(host) = reset(target, text, cx) {
+    // check.sh reads this line.
+    let ids: Vec<String> = tabs.iter().map(|tab| tab.tab.to_string()).collect();
+    log!("browser: command bar tabs {}", ids.join(" "));
+    if let Some(host) = reset(target, text, tabs, cx) {
         host.show(true, 0., 0., WIDTH);
     }
 }
@@ -353,7 +427,7 @@ pub fn show(editing: Option<(u64, SharedString)>, cx: &mut App) {
 /// a page to show there beside `with`. It's centred over the pane, as far into the card as it
 /// needs to be, and as far down the pane as it opens down the window for a new tab.
 pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
-    if let Some(host) = reset(Target::Beside(with), SharedString::default(), cx) {
+    if let Some(host) = reset(Target::Beside(with), SharedString::default(), Vec::new(), cx) {
         let left = pane.center().x - px(WIDTH / 2.);
         let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
         let top = (card.top() + card.bottom()) * TOP + (pane.top() - card.top());
@@ -361,20 +435,35 @@ pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mu
     }
 }
 
-/// Puts the bar to `target` with `text` in its input. Returns its host, or none if there's no bar.
-fn reset(target: Target, text: SharedString, cx: &mut App) -> Option<Rc<dyn Host>> {
+/// Puts the bar to `target` with `text` in its input, and `tabs` to list while it's empty. Returns
+/// its host, or none if there's no bar.
+fn reset(
+    target: Target,
+    text: SharedString,
+    tabs: Vec<shell::BarTab>,
+    cx: &mut App,
+) -> Option<Rc<dyn Host>> {
     let window = cx.try_global::<CommandBarWindow>()?.0;
     window
         .update(cx, |bar, window, cx| {
             bar.target = target;
-            // Favicons change over time, and a long session shouldn't keep every one it saw.
+            // Favicons change over time, and a long session shouldn't keep every one it saw. The
+            // tabs' are the ones their rows show.
             bar.favicons.clear();
+            for tab in &tabs {
+                if let Some(favicon) = &tab.favicon {
+                    bar.favicons.insert(tab.url.to_string(), Some(favicon.clone()));
+                }
+            }
+            bar.tabs = tabs;
             bar.site_left(cx);
             bar.asked = text.to_string();
             bar.complete = false;
             bar.completion.clear();
             bar.before = (text.len(), 0);
-            bar.set_rows(String::new(), Vec::new(), window, cx);
+            // The tabs show at once, in the frame the bar opens with.
+            let rows = if text.is_empty() { bar.tab_rows() } else { Vec::new() };
+            bar.set_rows(String::new(), rows, window, cx);
             bar.input.update(cx, |input, cx| input.reset(text, window, cx));
             // The last query's suggestions are of no use now.
             bar.host.suggest(None, "", false);
@@ -438,9 +527,10 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                 bar.asked_at.elapsed().as_secs_f64() * 1000.,
                 urls.join(", ")
             );
-            // A site search lists only its searches.
+            // A site search lists only its searches, and nothing typed lists the Space's tabs.
             let mut rows = match bar.site {
                 Some(_) => rows,
+                None if text.is_empty() => bar.tab_rows(),
                 None => with_calculation(&text, bar.with_commands(&text, rows, cx)),
             };
             // The core doesn't say which are searches, so they're the rows that go where a search
@@ -729,7 +819,7 @@ impl CommandBar {
         self.suggested = text;
         self.host.set_height(height(self.rows.len()));
         self.scroll.scroll_to_item(self.selected);
-        for row in self.rows.iter().filter(|row| row.is_page()) {
+        for row in self.rows.iter().filter(|row| row.icon() == Icon::Favicon) {
             if !self.favicons.contains_key(&row.url) {
                 self.favicons.insert(row.url.clone(), None);
                 self.host.page_favicon(&row.url);
@@ -757,17 +847,17 @@ impl CommandBar {
 
     fn go(&mut self, _: &Go, _: &mut Window, cx: &mut Context<Self>) {
         let text = self.input.read(cx).text().trim().to_string();
-        if text.is_empty() {
-            return;
+        if !text.is_empty() {
+            // check.sh reads these lines.
+            log!("browser: command bar typed {text}");
         }
-        // check.sh reads these lines.
-        log!("browser: command bar typed {text}");
+        // Before anything is typed, that's one of the Space's tabs.
         if self.chosen().is_some() {
             self.take(self.selected, cx);
             return;
         }
         // Before the suggestions for what's typed come, ↩ goes where the first of them will.
-        if let Some(url) = self.typed_url(&text) {
+        if let Some(url) = self.typed_url(&text).filter(|_| !text.is_empty()) {
             self.go_to(&url, cx);
         }
     }
@@ -938,14 +1028,13 @@ impl CommandBar {
         }
     }
 
-    /// `row`'s icon, `size` square, in `color` where it's a glyph: its page's favicon, else a
-    /// globe.
+    /// `row`'s icon, `size` square, in `color` where it's a glyph.
     fn glyph(&self, row: &Suggestion, size: f32, color: Hsla) -> Option<AnyElement> {
         let glyph = move |path: &'static str| {
             svg().path(path).size(px(size)).flex_none().text_color(color).into_any_element()
         };
-        Some(match row.kind() {
-            Kind::Page => match self.favicons.get(&row.url).cloned().flatten() {
+        Some(match row.icon() {
+            Icon::Favicon => match self.favicons.get(&row.url).cloned().flatten() {
                 // GPUI decodes the favicon off the main thread, and draws nothing until it has.
                 Some(favicon) => img(favicon)
                     .size(px(size))
@@ -954,16 +1043,22 @@ impl CommandBar {
                     .into_any_element(),
                 None => glyph("icons/globe.svg"),
             },
-            Kind::Search => glyph("icons/search.svg"),
-            Kind::Command => glyph("icons/command.svg"),
-            Kind::Sum => return None,
+            Icon::Glyph(path) => glyph(path),
+            Icon::None => return None,
         })
     }
 
-    /// The input's icon: the search glyph, or the selected row's, as Arc's becomes its favicon.
+    /// The Space's tabs, as rows, which the bar lists before anything is typed.
+    fn tab_rows(&self) -> Vec<Suggestion> {
+        self.tabs.iter().cloned().map(Suggestion::from).collect()
+    }
+
+    /// The input's icon: the search glyph, or once something is typed, the selected row's, as
+    /// Arc's becomes its favicon.
     fn input_icon(&self) -> AnyElement {
         let color = rgb(0xffffff).into();
-        match self.chosen().and_then(|row| self.glyph(row, INPUT_ICON, color)) {
+        let row = self.chosen().filter(|_| !self.asked.is_empty());
+        match row.and_then(|row| self.glyph(row, INPUT_ICON, color)) {
             Some(icon) => icon,
             None => svg()
                 .path("icons/search.svg")
@@ -1167,8 +1262,10 @@ impl Render for CommandBar {
                 .size_full()
                 .overflow_hidden()
                 .rounded(px(RADIUS))
-                .bg(rgb(FILL))
+                .bg(rgba(FILL))
                 .text_color(rgb(0xffffff))
+                // Arc's text is medium, by its strokes at 2× (Arc 1.170.0 cap).
+                .font_weight(FontWeight::MEDIUM)
                 .text_size(px(14.))
                 .child(
                     div()

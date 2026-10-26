@@ -1,6 +1,7 @@
 # A tab opened from the command bar goes at the top of the Space's Today tabs and shows. The command
-# bar suggests pages from history as it's typed in, growing to fit them, with the tabs already at
-# them, never the one shown, and well-known sites under them. ↩ or a click on a tab's row shows that
+# bar lists the Space's other tabs before anything is typed, those shown last first, and suggests
+# pages from history as it's typed in, growing to fit them, with the tabs already at them, never
+# the one shown, and well-known sites under them. ↩ or a click on a tab's row shows that
 # tab without opening one. Typing at the end completes the text to the first row's page, and ↩ goes
 # there. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs. ⌃Tab, with the page or the UI focused, shows
 # the tab shown before, and with ⌃ held goes on back through the tabs in the order they were shown,
@@ -162,9 +163,17 @@ at=$(grep '^browser: command bar at' "$log" | tail -1 | cut -d' ' -f5-)
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 
-# Well-known sites fill the rows under the profile's own, never first, so ↩ still searches.
+# Before anything is typed, the bar lists the Space's other tabs, as Arc's does: those shown most
+# recently first, then the rest, such as favorites never shown.
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+listed=$(grep '^browser: command bar tabs' "$log" | tail -1 | sed 's/^[^:]*: command bar tabs *//')
+case "$listed" in
+  "$b $a" | "$b $a "*) ;;
+  *) fail "the command bar listed tabs \"$listed\" before anything was typed, not $b then $a" ;;
+esac
+../tools/window-screenshot.sh "$pid" "$out/listed.png" || fail "no window to capture"
+# Well-known sites fill the rows under the profile's own, never first, so ↩ still searches.
 send type g
 expect '^browser: command bar suggestions "g" in [0-9.]* ms: https://duckduckgo.com/?q=g, .*https://www.google.com/, https://mail.google.com/' \
   "the command bar didn't suggest well-known sites under the search: $(suggestions | tr '\n' ' ')"
@@ -365,6 +374,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
+echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png"

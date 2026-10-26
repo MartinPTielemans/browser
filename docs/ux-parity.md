@@ -151,10 +151,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Open | MVP | one frame, as ⌘T's; no grow from the field (Arc's panel isn't anchored to it) | Arc 1.170.0 rec |
 | [ ] | Close | MVP | ⌘T's in one frame, as it opens; ⌘L's: measure | Arc 1.170.0 rec |
 | [ ] | Selection motion | MVP | the selection moving with ↓ and ↑, and the pointer over the rows: measure | Arc |
-| [ ] | Fill / border / radius | MVP | #2D2D2D / #FEFFFF (Arc's is translucent: not built); 0.5 pt outline and 1 pt grey edge; radius ≈ 18 | Dia 1.50.1 bin, Arc 1.170.0 cap |
-| [ ] | Shadow | MVP | ≈ 30 pt (Arc cap); ours is the system's window shadow | Arc 1.170.0 cap |
+| [x] | Fill / border / radius | MVP | #191919 at 0.86 over an untinted blur of what's behind; 0.5 pt outline and 1 pt grey edge; radius ≈ 18 | Arc 1.170.0 cap, Dia 1.50.1 bin |
+| [x] | Shadow | MVP | soft, no offset, ≈ 30 pt; drawn at radius 20 and 0.23 black, fitted to Arc's over a light page | Arc 1.170.0 cap |
 | [x] | No scrim | MVP | page undimmed | Dia 1.49 cap |
-| [x] | Rows | MVP | input 64; rows 50 (five shown, then scroll); favicon at + 16, title 14 pt at + 43; " — url" dim; Switch to Tab and an arrow tile | Arc 1.170.0 cap, ax |
+| [x] | Rows | MVP | input 64; rows 50 (five shown, then scroll); favicon at + 16, title 14 pt medium at + 43; " — url" dim; Switch to Tab and an arrow tile | Arc 1.170.0 cap, ax |
 | [x] | Selected row | MVP | the accent, radius ≈ 6.5, inset 2; icon on a white tile | Arc 1.170.0 cap |
 | [x] | Bottom row | MVP | none: no Go pill, no AI chip or mic; the site-search hint is at the field's end | Arc 1.170.0 ax |
 | [x] | Colours | MVP | placeholder white 0.53, secondary rgba(239,244,255,0.6), caret #4A77D4, selection rgba(120,125,134,0.7) | Dia asset catalogs |
@@ -171,6 +171,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Switch to Tab rows | MVP | across windows, never the current tab | Dia, O |
 | [x] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |
 | [x] | Commands | MVP | found by name, with their shortcuts; one whose name starts with what's typed comes first | Arc 1.170.0 cap |
+| [x] | Row icons | MVP | a clock for a page only in history; a favicon for an open tab or a site; a glyph for each command, Lucide's | Arc 1.170.0 cap |
+| [ ] | Empty text | MVP | the Space's open tabs with Switch to Tab, most recently shown first; Arc's recents and commands under them: measure | Arc 1.170.0 cap |
 | [x] | Calculator | MVP | the row after the first; ↩ copies the result | Dia P§7 |
 | [x] | Paste and Go | MVP | with Paste and Search, in the command bar field's menu; the clipboard is read only once one is chosen | Dia P§7 |
 | [x] | Clean-link copy | MVP | Copy URL leaves out utm_ parameters and click IDs | Dia P§7 |

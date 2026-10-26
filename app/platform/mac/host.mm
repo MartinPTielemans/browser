@@ -141,6 +141,43 @@ bool (*g_dragged)(int, double, double, const host_dragged*, size_t);
 
 namespace {
 
+// Takes the tint and the extra saturation off |layer| and the layers in it, leaving the blur, as
+// GPUI's blurred window background does (crates/gpui_macos/src/window.rs).
+void StripTint(CALayer* layer) {
+  layer.backgroundColor = nil;
+  if ([layer.className isEqualToString:@"CAChameleonLayer"]) {
+    layer.hidden = YES;
+    return;
+  }
+  NSPredicate* saturating = [NSPredicate predicateWithBlock:^BOOL(id filter, NSDictionary*) {
+    return ![[filter description] containsString:@"Saturat"];
+  }];
+  if (layer.filters) {
+    layer.filters = [layer.filters filteredArrayUsingPredicate:saturating];
+  }
+  for (CALayer* sublayer in layer.sublayers) {
+    StripTint(sublayer);
+  }
+}
+
+}  // namespace
+
+// What's behind the window, blurred, without the material's tint, for the command bar's fill to
+// tint (docs/ux-spec.md › Command bar). With Reduce Transparency, AppKit's opaque fill stays.
+@interface HostBlurView : NSVisualEffectView
+@end
+
+@implementation HostBlurView
+- (void)updateLayer {
+  [super updateLayer];
+  if (!NSWorkspace.sharedWorkspace.accessibilityDisplayShouldReduceTransparency) {
+    StripTint(self.layer);
+  }
+}
+@end
+
+namespace {
+
 // A round swatch of |color|, 0xRRGGBB in sRGB, for a menu item.
 NSImage* Swatch(int32_t color) {
   NSColor* fill = [NSColor colorWithSRGBRed:((color >> 16) & 0xff) / 255.0
@@ -165,6 +202,22 @@ NSWindow* g_overlay;
 NSView* g_overlay_view;
 bool g_overlay_shown = false;
 void (*g_overlay_dismissed)(void);
+double g_overlay_radius;
+
+// The command bar's shadow, Arc's: soft and even on every side (Arc 1.170.0 cap over a light page,
+// fitted to a Gaussian). It's a window of its own under the bar's that the mouse goes through, so a
+// click on it lands on the browser window and closes the bar as any click outside it does, and the
+// bar's window keeps the bar's frame.
+NSWindow* g_overlay_shadow;
+CALayer* g_overlay_shadow_layer;
+CAShapeLayer* g_overlay_shadow_mask;
+// The shadow's window goes on screen with the bar's first show and stays, shown and hidden by its
+// alpha after that, since putting a window on screen cost each ⌘T about 4 ms.
+bool g_overlay_shadow_ordered;
+constexpr double kOverlayShadowRadius = 20;
+constexpr float kOverlayShadowOpacity = 0.23;
+// Past this, three times the blur, the shadow is nothing.
+constexpr double kOverlayShadowReach = 3 * kOverlayShadowRadius;
 
 // The dialog's window and view.
 NSWindow* g_dialog;
@@ -302,6 +355,35 @@ void PlaceTooltip() {
                                         NSMaxY(content) - g_tooltip_top - size.height)];
 }
 
+// Around the command bar by the shadow's reach, with the bar's shape cut out of it, since what's
+// under the translucent bar shows through it.
+void PlaceOverlayShadow() {
+  const NSRect bar = g_overlay.frame;
+  const NSRect frame = NSInsetRect(bar, -kOverlayShadowReach, -kOverlayShadowReach);
+  if (NSEqualRects(frame, g_overlay_shadow.frame)) {
+    return;
+  }
+  [g_overlay_shadow setFrame:frame display:NO];
+  const CGRect bounds = CGRectMake(0, 0, NSWidth(frame), NSHeight(frame));
+  CGPathRef shape = CGPathCreateWithRoundedRect(
+      CGRectInset(bounds, kOverlayShadowReach, kOverlayShadowReach), g_overlay_radius,
+      g_overlay_radius, nullptr);
+  CGMutablePathRef outside = CGPathCreateMutable();
+  CGPathAddRect(outside, nullptr, bounds);
+  CGPathAddPath(outside, nullptr, shape);
+  // At once, not animated to the new size.
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  g_overlay_shadow_layer.superlayer.frame = bounds;
+  g_overlay_shadow_layer.frame = bounds;
+  g_overlay_shadow_layer.shadowPath = shape;
+  g_overlay_shadow_mask.frame = bounds;
+  g_overlay_shadow_mask.path = outside;
+  [CATransaction commit];
+  CGPathRelease(outside);
+  CGPathRelease(shape);
+}
+
 // 8 points below the find bar while it shows, where the HUD would cover it.
 void PlaceHud() {
   NSRect content = [g_window contentRectForFrameRect:g_window.frame];
@@ -397,15 +479,58 @@ void host_show_window(void* ui_view) {
                                               }];
 }
 
-void host_add_overlay(void* overlay_view, void (*dismissed)(void)) {
+void host_add_overlay(void* overlay_view, double radius, void (*dismissed)(void)) {
   g_overlay_view = (__bridge NSView*)overlay_view;
   g_overlay_dismissed = dismissed;
+  g_overlay_radius = radius;
   g_overlay = g_overlay_view.window;
   MakeOverlay(g_overlay);
-  // The UI draws the bar's rounded shape. A titled window would draw its edge and shadow at the
-  // window's full size; a borderless one's shadow takes the shape drawn.
+  // The UI draws the bar's rounded shape, translucent, over the blur, and the shadow is its own
+  // window. A titled window would draw its edge at the window's full size.
   g_overlay.styleMask = NSWindowStyleMaskBorderless;
-  g_overlay.hasShadow = YES;
+  g_overlay.hasShadow = NO;
+  // Under the UI's view, in the bar's shape, so nothing shows outside its corners.
+  HostBlurView* blur = [[HostBlurView alloc] initWithFrame:g_overlay_view.frame];
+  blur.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  blur.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+  blur.material = NSVisualEffectMaterialUnderWindowBackground;
+  blur.state = NSVisualEffectStateActive;
+  NSImage* mask = [NSImage imageWithSize:NSMakeSize(2 * radius + 1, 2 * radius + 1)
+                                 flipped:NO
+                          drawingHandler:^BOOL(NSRect rect) {
+                            [NSColor.blackColor setFill];
+                            [[NSBezierPath bezierPathWithRoundedRect:rect
+                                                             xRadius:radius
+                                                             yRadius:radius] fill];
+                            return YES;
+                          }];
+  mask.capInsets = NSEdgeInsetsMake(radius, radius, radius, radius);
+  mask.resizingMode = NSImageResizingModeStretch;
+  blur.maskImage = mask;
+  [g_overlay_view.superview addSubview:blur positioned:NSWindowBelow relativeTo:g_overlay_view];
+  g_overlay_shadow = [[NSWindow alloc] initWithContentRect:NSZeroRect
+                                                 styleMask:NSWindowStyleMaskBorderless
+                                                   backing:NSBackingStoreBuffered
+                                                     defer:YES];
+  g_overlay_shadow.releasedWhenClosed = NO;
+  g_overlay_shadow.opaque = NO;
+  g_overlay_shadow.backgroundColor = NSColor.clearColor;
+  g_overlay_shadow.hasShadow = NO;
+  g_overlay_shadow.ignoresMouseEvents = YES;
+  NSView* shadow_view = g_overlay_shadow.contentView;
+  shadow_view.wantsLayer = YES;
+  // The mask is on a layer holding the shadow's, since a layer's own mask doesn't cut its shadow.
+  CALayer* holder = [CALayer layer];
+  g_overlay_shadow_mask = [CAShapeLayer layer];
+  g_overlay_shadow_mask.fillRule = kCAFillRuleEvenOdd;
+  holder.mask = g_overlay_shadow_mask;
+  g_overlay_shadow_layer = [CALayer layer];
+  g_overlay_shadow_layer.shadowColor = NSColor.blackColor.CGColor;
+  g_overlay_shadow_layer.shadowOpacity = kOverlayShadowOpacity;
+  g_overlay_shadow_layer.shadowRadius = kOverlayShadowRadius;
+  g_overlay_shadow_layer.shadowOffset = CGSizeZero;
+  [holder addSublayer:g_overlay_shadow_layer];
+  [shadow_view.layer addSublayer:holder];
   // The window grows and shrinks from its top with the rows. Until the frame at the new size lands,
   // the last one stays as drawn at the top; scaled to the window, it stretched or squashed them.
   g_overlay_view.layer.contentsGravity = kCAGravityTopLeft;
@@ -470,6 +595,12 @@ void host_show_overlay(bool centered, double left, double top, double width) {
     [g_overlay setFrame:frame display:NO];
     [g_overlay_view.layer setNeedsDisplay];
     [g_overlay_view.layer displayIfNeeded];
+    PlaceOverlayShadow();
+    g_overlay_shadow.alphaValue = 1;
+    if (!g_overlay_shadow_ordered) {
+      g_overlay_shadow_ordered = true;
+      [g_window addChildWindow:g_overlay_shadow ordered:NSWindowAbove];
+    }
     [g_window addChildWindow:g_overlay ordered:NSWindowAbove];
     [g_overlay makeKeyAndOrderFront:nil];
     // check.sh reads these lines.
@@ -492,7 +623,7 @@ void host_set_overlay_height(double height) {
                 display:NO];
     [g_overlay_view.layer setNeedsDisplay];
     [g_overlay_view.layer displayIfNeeded];
-    [g_overlay invalidateShadow];
+    PlaceOverlayShadow();
     fprintf(stderr, "browser: command bar height %g\n", height);
   });
 }
@@ -504,6 +635,7 @@ void host_hide_overlay(void) {
   g_overlay_shown = false;
   [g_window removeChildWindow:g_overlay];
   [g_overlay orderOut:nil];
+  g_overlay_shadow.alphaValue = 0;
   [g_find_bar_shown && g_find_bar_keyboard ? g_find_bar : g_window makeKeyWindow];
   fprintf(stderr, "browser: command bar hidden\n");
 }

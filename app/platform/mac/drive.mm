@@ -217,12 +217,17 @@ void Convert(NSWindow* from, NSWindow* to, double* x, double* y) {
 }
 
 // The window of the app's that the pointer at (x, y) in |browser| is over, as the window server
-// picks it: the top one there, such as the sidebar reveal over the browser window's edge.
+// picks it: the top one there, such as the sidebar reveal over the browser window's edge. A window
+// that clicks pass through, such as the command bar's shadow, is skipped, as the server skips it.
 NSWindow* WindowAt(NSWindow* browser, double x, double y) {
   NSPoint screen = [browser convertPointToScreen:NSMakePoint(x, NSHeight(browser.frame) - y)];
-  NSInteger number = [NSWindow windowNumberAtPoint:screen belowWindowWithWindowNumber:0];
-  for (NSWindow* window in NSApp.windows) {
-    if (window.visible && window.windowNumber == number) {
+  NSInteger number = 0;
+  while ((number = [NSWindow windowNumberAtPoint:screen belowWindowWithWindowNumber:number])) {
+    NSWindow* window = [NSApp windowWithWindowNumber:number];
+    if (!window || !window.visible) {
+      break;
+    }
+    if (!window.ignoresMouseEvents) {
       return window;
     }
   }
@@ -536,6 +541,10 @@ void Layout(NSWindow* window) {
   // Child windows, such as the find bar: from the content's top-left corner, and their size.
   NSRect bounds = [window contentRectForFrameRect:window.frame];
   for (NSWindow* child in window.childWindows) {
+    // The command bar's shadow stays a child while the bar is hidden, at alpha 0, showing nothing.
+    if (child.alphaValue == 0) {
+      continue;
+    }
     NSRect frame = child.frame;
     [line appendFormat:@"\nbrowser: layout child %.0f,%.0f %.0fx%.0f",
                        NSMinX(frame) - NSMinX(bounds), NSMaxY(bounds) - NSMaxY(frame),

@@ -1,7 +1,11 @@
 //! The browser's commands: their names, their keys and where the command bar offers
 //! them, and what each does, run from a key, a menu, the command bar or the page.
 
-use gpui::{Action, App, Context, Global, KeyBinding, MenuItem, SharedString, WeakEntity, actions};
+use std::sync::Arc;
+
+use gpui::{
+    Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
+};
 
 use super::{COPIED_TIME, Section, Shell, Undo, clean_link, extensions, keys, user_keys};
 
@@ -269,6 +273,18 @@ pub struct BarCommand {
     /// Whether its name starts with what's typed, three letters or more, which puts it above
     /// the core's suggestions.
     pub strong: bool,
+}
+
+/// The most tabs the command bar lists before anything is typed (ours: Arc's limit isn't measured).
+const BAR_TABS_SHOWN: usize = 10;
+
+/// One of the Space's tabs, which the command bar lists before anything is typed.
+#[derive(Clone)]
+pub struct BarTab {
+    pub tab: u64,
+    pub title: SharedString,
+    pub url: SharedString,
+    pub favicon: Option<Arc<Image>>,
 }
 
 /// The commands that do something now whose names match `typed`, best first, as Arc's bar
@@ -542,12 +558,12 @@ impl Shell {
         let target = match command {
             Command::NewTab => {
                 self.set_new_tab(true, cx);
-                return self.browser.command_bar(None, cx);
+                return self.browser.command_bar(None, self.bar_tabs(), cx);
             }
             Command::EditUrl => {
                 self.set_new_tab(false, cx);
                 let editing = (self.selected != 0).then(|| (self.selected, self.url(self.selected)));
-                return self.browser.command_bar(editing, cx);
+                return self.browser.command_bar(editing, self.bar_tabs(), cx);
             }
             Command::CloseTab => {
                 // From a window of Chrome's, such as its Task Manager, ⌘W closes that window, as in
@@ -800,6 +816,36 @@ impl Shell {
         // check.sh reads this line.
         log!("browser: copied {text}");
         self.browser.toast(toast, None, COPIED_TIME, cx);
+    }
+
+    /// The tabs the command bar lists before anything is typed, as Arc's does: the favorites and
+    /// the Space's pinned and Today tabs, those shown most recently first, then the rest in the
+    /// sidebar's order. It leaves out the tab shown and what shows with it, as its suggestions do.
+    fn bar_tabs(&self) -> Vec<BarTab> {
+        let mut tabs = self.favorites.clone();
+        if let Some(space) = self.shown_space() {
+            tabs.extend(space.pinned.iter().filter(|&&row| !space.is_folder(row)));
+            tabs.extend(&space.today);
+        }
+        let shown = self.panes(self.selected);
+        let recent = self.recent.iter().copied().filter(|tab| tabs.contains(tab));
+        let mut order: Vec<u64> = recent.collect();
+        for tab in tabs {
+            if !order.contains(&tab) {
+                order.push(tab);
+            }
+        }
+        order
+            .into_iter()
+            .filter(|tab| !shown.contains(tab) && !self.url(*tab).is_empty())
+            .take(BAR_TABS_SHOWN)
+            .map(|tab| BarTab {
+                tab,
+                title: self.title(tab),
+                url: self.url(tab),
+                favicon: self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()),
+            })
+            .collect()
     }
 
     /// Whether `command` would do something now, for the command bar to offer it.
