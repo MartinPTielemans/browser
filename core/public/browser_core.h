@@ -227,6 +227,17 @@ typedef struct bc_host {
   // The tab's find in page changed: its find bar opened or closed, its text changed, or the page
   // counted matches or selected another.
   void (*tab_find_changed)(void* context, bc_id tab, const bc_find_state* state);
+  // The tab's page asks to use something, such as the camera: |site| is who asks, as the user
+  // should see it, and |permissions| what it asks for, |count| of them, each a phrase that follows
+  // "wants to", such as "Use your camera". Ask the user while the tab is shown, and answer with
+  // bc_tab_answer_permission. It comes again with |count| 0 once the question has gone: answered,
+  // or the tab went to another page, closed or was no longer shown. Chrome keeps the request of a
+  // tab no longer shown, and it comes again once the tab is.
+  void (*tab_permission_asked)(void* context,
+                               bc_id tab,
+                               const char* site,
+                               const char* const* permissions,
+                               size_t count);
   // The window's suggestions for |text|, the text bc_window_suggest was last given, after its
   // keyword and a space if it had one, best first. The first goes where Chrome's address bar goes
   // for what was typed. They come again as more are found.
@@ -665,6 +676,18 @@ BC_EXPORT void bc_tab_find(bc_id tab, const char* text, bool forward);
 // Closes the tab's find bar. The highlights go, and the selected match stays selected. Then
 // tab_find_changed.
 BC_EXPORT void bc_tab_find_close(bc_id tab);
+
+// Answers to the question tab_permission_asked put: the site may, now and whenever it asks again;
+// it may not, now or again; or not now, and it may ask again.
+#define BC_PERMISSION_ALLOW 0
+#define BC_PERMISSION_BLOCK 1
+#define BC_PERMISSION_DISMISS 2
+
+// Answers the tab's page's question with |answer|, a BC_PERMISSION_ answer, if it's still asking.
+// The profile keeps an allow or a block for the site, which Chrome's site settings list and
+// change. Then tab_permission_asked. The user's: agents get none, as an answer can give a site the
+// camera or where the user is.
+BC_EXPORT void bc_tab_answer_permission(bc_id tab, int answer);
 
 // Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.

@@ -636,6 +636,15 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_clear_site(tab, cookies) };
     }
 
+    fn answer_permission(&self, tab: u64, answer: shell::Answer, _: &mut App) {
+        let answer = match answer {
+            shell::Answer::Allow => bc::BC_PERMISSION_ALLOW,
+            shell::Answer::Block => bc::BC_PERMISSION_BLOCK,
+            shell::Answer::Dismiss => bc::BC_PERMISSION_DISMISS,
+        };
+        unsafe { bc::bc_tab_answer_permission(tab, answer as i32) };
+    }
+
     fn stop(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_stop(tab) };
     }
@@ -1688,6 +1697,40 @@ unsafe extern "C" fn tab_find_changed(
     update_app(|cx| find_bar::changed(tab, find, cx));
 }
 
+unsafe extern "C" fn tab_permission_asked(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    site: *const c_char,
+    permissions: *const *const c_char,
+    count: usize,
+) {
+    let string = |text: *const c_char| {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned()
+    };
+    let permissions: Vec<String> = match count {
+        0 => Vec::new(),
+        _ => unsafe { std::slice::from_raw_parts(permissions, count) }
+            .iter()
+            .map(|permission| string(*permission))
+            .collect(),
+    };
+    let question = match count {
+        0 => {
+            log!("browser: page {tab} asks nothing");
+            None
+        }
+        _ => {
+            let site = string(site);
+            log!("browser: page {tab} asks {site} to {}", permissions.join("; "));
+            Some(shell::Question {
+                site: site.into(),
+                permissions: permissions.into_iter().map(Into::into).collect(),
+            })
+        }
+    };
+    update_shell(|shell, cx| shell.set_question(tab, question, cx));
+}
+
 unsafe extern "C" fn window_suggestions(
     _: *mut c_void,
     window: bc::bc_id,
@@ -1797,6 +1840,7 @@ fn main() {
         window_extension_actions: Some(window_extension_actions),
         tab_fullscreen_changed: Some(tab_fullscreen_changed),
         tab_find_changed: Some(tab_find_changed),
+        tab_permission_asked: Some(tab_permission_asked),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),

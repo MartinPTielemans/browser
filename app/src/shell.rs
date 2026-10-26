@@ -29,6 +29,7 @@ mod clean_link;
 mod extensions;
 mod library;
 mod new_space;
+mod permission;
 pub(crate) mod scaled;
 mod split_targets;
 
@@ -37,6 +38,7 @@ pub use extensions::{
     pin_menu_item as extension_pin_menu_item,
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
+pub use permission::{Answer, Question};
 use clean_link::clean_link;
 use library::{LIBRARY_WIDTH, RECEDE_X, Section};
 use scaled::scaled;
@@ -1065,6 +1067,8 @@ pub trait Browser {
     /// Deletes the cookies, or else the cache, the profile keeps for the site of the tab's page,
     /// then reloads it.
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
+    /// Answers what the tab's page asks (Shell::set_question), if it still asks.
+    fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
     fn stop(&self, tab: u64, cx: &mut App);
     /// Zooms the tab's page in (1), out (-1) or to 100 % (0), for its site.
     fn zoom(&self, tab: u64, step: i32, cx: &mut App);
@@ -1689,6 +1693,10 @@ pub struct Shell {
     sidebar_fade: Option<(f32, Instant)>,
     /// While the circle goes back after a pull made a Space.
     circle_exit: Option<new_space::CircleExit>,
+    /// What the tabs' pages ask, such as for the camera: only shown tabs ask.
+    questions: HashMap<u64, Question>,
+    /// Where the question's card was drawn last, which the log says when it changes.
+    question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -1782,6 +1790,8 @@ impl Shell {
             library_motion: None,
             sidebar_fade: None,
             circle_exit: None,
+            questions: HashMap::new(),
+            question_drawn: Rc::default(),
             switching: None,
             background_pressed: false,
             accent_color,
@@ -2266,7 +2276,8 @@ impl Shell {
         // window or display.
         if !(0. ..CARD_INSET).contains(&x) {
             self.reveal_wait = None;
-            if x > REVEAL_INSET + self.width() + REVEAL_HOLD {
+            // The page's question keeps it out until it's answered.
+            if x > REVEAL_INSET + self.width() + REVEAL_HOLD && self.question().is_none() {
                 self.set_revealed(false, cx);
             }
         } else if !self.revealed && self.reveal_wait.is_none() {
@@ -6068,7 +6079,8 @@ impl Shell {
                 .child(self.space_pages(cx))
                 // Over the pages, which they scroll with when they're tall.
                 .children(self.tiles(cx))
-                .children(self.dragged_tile(cx)),
+                .children(self.dragged_tile(cx))
+                .children(self.question_card(cx)),
         };
         sidebar
             .children(self.new_space_circle())

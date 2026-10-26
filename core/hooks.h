@@ -3,6 +3,10 @@
 #ifndef BROWSER_CORE_HOOKS_H_
 #define BROWSER_CORE_HOOKS_H_
 
+#include <memory>
+
+#include "components/permissions/permission_prompt.h"
+
 // chrome/browser/ui/browser.cc: a Browser may be made with a window the core supplies, which has
 // none of Chrome's views, and the app has its own main menu. Chrome's files that expect Chrome's
 // read it too.
@@ -34,5 +38,12 @@ extern void (*g_browser_core_update_devtools)(BrowserWindowInterface* browser,
 // menu the items |browser|'s window can't do, once Chrome has filled it in.
 extern void (*g_browser_core_trim_page_menu)(BrowserWindowInterface* browser,
                                              ui::SimpleMenuModel& menu);
+
+// chrome/browser/ui/views/permissions/permission_prompt_factory.cc: the prompt for a page's
+// permission request, in place of Chrome's, whose bubbles hang from a toolbar the core's windows
+// don't have. Null shows none, and Chrome takes the request as ignored.
+extern std::unique_ptr<permissions::PermissionPrompt> (*g_browser_core_permission_prompt)(
+    content::WebContents* contents,
+    permissions::PermissionPrompt::Delegate* delegate);
 
 #endif  // BROWSER_CORE_HOOKS_H_

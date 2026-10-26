@@ -229,6 +229,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Downloads button (reference) | Dia: centre (166, 26) at 190 pt, in the header. Arc: measure | Dia, D›Sidebar |
 
 - Ours (*interim* until Site Control Center is built): Copy URL takes Site Control Center's place, 3 pt inside the field's end rather than Arc's 1 pt past it, with Lucide's link glyph at 14 pt, the header's glyph colour and hover plate. The host truncates before it.
+- **A page's question** (Chrome's rules; the look is ours, *interim* until Arc's is measured). When a page asks for a permission, such as the camera or managing windows, a card hangs under the URL field, where Chrome's bubble hangs under its address bar: 6 under the field, as wide, radius 12, in the window's fill with a white 0.10 edge and a shadow. It reads "<site> wants to" in 13 pt medium white, Chrome's phrase for each thing asked in the dialog's detail colour, then Block and Allow side by side, 28 tall, on the URL field's plate; × at its top right dismisses it. The site is Chrome's, with the scheme shown unless it's https. Block and Allow are kept for the site, in Chrome's site settings until Site Controls lists them; × keeps nothing, and the site may ask again. The card stays with its tab: another tab takes it down, and coming back brings it again. With the sidebar hidden, a question brings it out and keeps it out until it's answered. Chrome's quiet prompt, for sites that ask too much, shows nothing. Agents can't answer: an answer could give a site the camera or where the user is.
 - **Copy URL** (Arc 1.170.0 menus). ⇧⌘C copies the tab's URL, and ⌥⇧⌘C a Markdown link, `[title](url)`. Arc also has Copy URL as Quote (⌃⇧⌘C). Ours: the title's brackets are escaped, the URL is copied as it is (Dia strips trackers), and the toast (Shared rules › Toast) says "Copied URL" or "Copied URL as Markdown" for 2 s, since Arc's feedback isn't recorded.
 
 **Width**
@@ -941,6 +942,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
     - a tab playing audio, and one with a long title;
     - a pinned tab a link took away from its URL, at rest and hovered, and record what takes it back;
     - favorites, 2, 5 and 8 of them, at the default width, 8 at the narrowest and widest, and selected with colourful, one-colour and white icons.
+    - a local test page asking to manage windows (no macOS prompt), with the sidebar docked and hidden.
 
     Answer: does ⌘↩ take a pinned tab back to its URL?
 

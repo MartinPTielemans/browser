@@ -48,6 +48,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | URL text | MVP | host only, no `www.`; Arc has no Show Full URL | Arc 1.170.0 cap, Dia 1.50.1 bin |
 | [x] | URL on hover | MVP | the field's buttons, not the full URL (Dia shows it) | Arc 1.170.0 cap |
 | [x] | URL field Copy URL button | MVP | 30 × 30, while the pointer is over the sidebar; Site Control Center: later | Arc 1.170.0 cap |
+| [ ] | A page's permission question | MVP | card under the URL field: "<site> wants to", Chrome's phrases, Block / Allow, × dismisses; follows its tab; brings out a hidden sidebar; Arc's look: measure | Chrome |
 | [ ] | Insecure indicator | MVP | Arc: none; Dia and Chrome: a lock-warning glyph | Dia, Chrome P§8, Arc 1.170.0 cap |
 | [x] | Favorite tile | MVP | 41 tall, 6 apart, inset 8, radius 10 *interim* | Dia 1.50.1 bin + cap; inset ours |
 | [x] | Favorite columns | MVP | as many as fit at ≥ 48, fewer share the row: 3 at 190, 4 at 228 *interim*; Arc's rule: measure | Dia P§2; rule ours |
