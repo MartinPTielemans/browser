@@ -19,23 +19,24 @@ void drive_start(void);
 // top-left corner.
 void host_centered(double width, double height, double* x, double* y);
 
-// Makes the view the UI draws in, for bc_window_open, which sizes it to fill the window.
+// Makes the view the UI draws in, for bc_window_open, which sizes it to fill the window. The
+// functions below that take a |ui_view| act on the browser window it's in.
 void* host_ui_view(void);
 
 // Shows the window holding |ui_view| in front, with its title bar over the UI, and makes the
 // app the active one.
 void host_show_window(void* ui_view);
 
-// Makes the window of |overlay_view| float over the browser window when shown, for UI that has
+// Makes the window of |overlay_view| float over a browser window when shown, for UI that has
 // to draw over the page, translucent over a blur of what's behind it, with a shadow, in a rounded
 // shape of |radius|. It starts hidden. |dismissed| runs, after the event, when the user leaves the
 // overlay without choosing anything in it.
 void host_add_overlay(void* overlay_view, double radius, void (*dismissed)(void));
 
-// Shows the overlay and gives it the keyboard, |width| points wide: with its top left at |left|,
-// |top| in the browser window's content and ending at least 8 points inside it, or if |centered|,
-// centred, its top 0.322 of the window's height down.
-void host_show_overlay(bool centered, double left, double top, double width);
+// Shows the overlay over |ui_view|'s window and gives it the keyboard, |width| points wide: with
+// its top left at |left|, |top| in the window's content and ending at least 8 points inside it, or
+// if |centered|, centred, its top 0.322 of the window's height down.
+void host_show_overlay(void* ui_view, bool centered, double left, double top, double width);
 
 // Makes the overlay |height| points tall, keeping its top edge, and draws it at that size.
 void host_set_overlay_height(double height);
@@ -46,73 +47,74 @@ void host_hide_overlay(void);
 // Hides the overlay as the user leaving it, as escape does.
 void host_dismiss_overlay(void);
 
-// Makes the window of |find_bar_view| float over the browser window when shown, |right| and |top|
-// points from the top right corner of the window's content, for the find bar. It starts hidden.
-void host_add_find_bar(void* find_bar_view, double right, double top);
+// Makes the window of |find_bar_view| the find bar of |ui_view|'s window, floating over it when
+// shown, |right| and |top| points from the top right corner of the window's content. It starts
+// hidden.
+void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top);
 
-// Shows the find bar, and gives it the keyboard if |keyboard|. Unlike the command bar, it stays
-// when the user clicks the page, which takes the keyboard.
-void host_show_find_bar(bool keyboard);
+// Shows |ui_view|'s find bar, and gives it the keyboard if |keyboard|. Unlike the command bar, it
+// stays when the user clicks the page, which takes the keyboard.
+void host_show_find_bar(void* ui_view, bool keyboard);
 
-// Hides the find bar. If it had the keyboard, the browser window gets it back.
-void host_hide_find_bar(void);
+// Hides |ui_view|'s find bar. If it had the keyboard, its browser window gets it back.
+void host_hide_find_bar(void* ui_view);
 
-// Moves the find bar and the HUD |right| points further in from the window's right edge and |top|
-// points further down, to the focused page's top right corner when a split view's focused page
-// isn't the top right one.
-void host_set_pane_corner(double right, double top);
+// Moves |ui_view|'s find bar and the HUD over it |right| points further in from the window's right
+// edge and |top| points further down, to the focused page's top right corner when a split view's
+// focused page isn't the top right one.
+void host_set_pane_corner(void* ui_view, double right, double top);
 
-// Makes the window of |hud_view| float over the browser window when shown, |right| and |top| points
+// Makes the window of |hud_view| float over a browser window when shown, |right| and |top| points
 // from the top right corner of the window's content, for the zoom HUD. It starts hidden, and the
 // mouse goes through it.
 void host_add_hud(void* hud_view, double right, double top);
 
-// Shows the HUD as the UI draws it now, again for a change, until host_hide_hud.
-void host_show_hud(void);
+// Shows the HUD over |ui_view|'s window as the UI draws it now, again for a change, until
+// host_hide_hud.
+void host_show_hud(void* ui_view);
 
 // Fades the HUD out over |seconds|.
 void host_hide_hud(double seconds);
 
-// Makes the window of |view| float over the browser window's content when shown, covering it, for
+// Makes the window of |view| float over a browser window's content when shown, covering it, for
 // the split view's drop targets over the page. It starts hidden, and the mouse goes through it.
 void host_add_drop_targets(void* view);
 
-// Shows the drop targets' window as the UI draws it now, at the browser window's content.
-void host_show_drop_targets(void);
+// Shows the drop targets' window as the UI draws it now, at the content of |ui_view|'s window.
+void host_show_drop_targets(void* ui_view);
 
 // Hides the drop targets' window.
 void host_hide_drop_targets(void);
 
-// Makes the window of |dialog_view| the dialog's, which covers the browser window when shown, with
+// Makes the window of |dialog_view| the dialog's, which covers a browser window when shown, with
 // the keyboard until it's hidden. It starts hidden.
 void host_add_dialog(void* dialog_view);
 
-// Shows the dialog's window over the browser window, as the UI draws it now, with the keyboard.
-void host_show_dialog(void);
+// Shows the dialog's window over |ui_view|'s window, as the UI draws it now, with the keyboard.
+void host_show_dialog(void* ui_view);
 
 // Hides the dialog's window. The browser window gets the keyboard back, with the focus where it
 // was.
 void host_hide_dialog(void);
 
-// Makes the window of |toast_view| the toast's, which floats over the browser window's top right
+// Makes the window of |toast_view| the toast's, which floats over a browser window's top right
 // corner when shown, as its child, and lets the mouse through. It starts hidden.
 void host_add_toast(void* toast_view);
 
-// Shows the toast's window, as the UI draws it now.
-void host_show_toast(void);
+// Shows the toast's window over |ui_view|'s window, as the UI draws it now.
+void host_show_toast(void* ui_view);
 
 // Hides the toast's window.
 void host_hide_toast(void);
 
-// Makes the window of |tooltip_view| the tooltip's, which floats over the browser window as its
+// Makes the window of |tooltip_view| the tooltip's, which floats over a browser window as its
 // child when shown, and lets the mouse through and never takes the keyboard. It starts hidden.
-// |away| is called when the browser window stops being key or the app stops being active, which
-// hide it.
+// |away| is called when that window stops being key or the app stops being active, which hide it.
 void host_add_tooltip(void* tooltip_view, void (*away)(void));
 
 // Shows the tooltip's window as the UI draws it now, or moves it, with its top left at
-// (|left|, |top|) points in the browser window's content, kept inside the window.
-void host_show_tooltip(double left, double top);
+// (|left|, |top|) points in the content of |ui_view|'s window, kept inside the window.
+void host_show_tooltip(void* ui_view, double left, double top);
 
 // Hides the tooltip's window.
 void host_hide_tooltip(void);
@@ -143,12 +145,18 @@ typedef struct {
 #define HOST_IN_REVEAL 1
 #define HOST_IN_SETTINGS 2
 
-// Shows a menu of the |count| |items| at |x|, |y|, in points from the top-left of the browser
-// window's content, the reveal panel's or the Settings window's (|in|), as a right-click there
+// Shows a menu of the |count| |items| at |x|, |y|, in points from the top-left of the content of
+// |ui_view|'s window, its reveal panel's or the Settings window's (|in|), as a right-click there
 // does. With |over| an item's index, that item's title goes at |x|, |y| instead, as a pop-up
 // button shows its menu over its own title. Returns the index of the one chosen once it closes,
 // or -1.
-int host_menu(const host_menu_item* items, size_t count, double x, double y, int in, int over);
+int host_menu(void* ui_view,
+              const host_menu_item* items,
+              size_t count,
+              double x,
+              double y,
+              int in,
+              int over);
 
 // Shows a menu as host_menu does, at |x|, |y| in points from the top-left of |view|, a window's
 // content, such as a text field's context menu in whichever window has the field.
@@ -159,33 +167,35 @@ int host_menu_in(const host_menu_item* items, size_t count, double x, double y, 
 // closes.
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count);
 
-// Shows the browser window's close, minimize and zoom buttons, or hides them, as Arc does while its
-// sidebar is hidden.
-void host_show_window_buttons(bool shown);
+// Shows the close, minimize and zoom buttons of |ui_view|'s window, or hides them, as Arc does
+// while its sidebar is hidden.
+void host_show_window_buttons(void* ui_view, bool shown);
 
-// Does what a click on the browser window's close (0), minimize (1) or zoom (2) button does.
-void host_press_window_button(int button);
+// Does what a click on the close (0), minimize (1) or zoom (2) button of |ui_view|'s window does.
+void host_press_window_button(void* ui_view, int button);
 
-// Makes the window of |reveal_view| the sidebar reveal's, which shows over the browser window's
-// left edge without taking the keyboard. It starts hidden. While it shows, |pointer_moved| hears
-// where the pointer is across the browser window's content, in points from its left edge, as it
-// moves anywhere in the app's windows, and an x past them all when the app stops being the
+// Makes the window of |reveal_view| the sidebar reveal of |ui_view|'s window, which shows over its
+// left edge without taking the keyboard. It starts hidden. While it shows, |pointer_moved| hears,
+// with |ui_view|, where the pointer is across the window's content, in points from its left edge,
+// as it moves anywhere in the app's windows, and an x past them all when the app stops being the
 // active one.
-void host_add_reveal(void* reveal_view, void (*pointer_moved)(double x));
+void host_add_reveal(void* ui_view,
+                     void* reveal_view,
+                     void (*pointer_moved)(void* ui_view, double x));
 
-// Shows the reveal's window, |width| points wide from the browser window's left edge and as tall
-// as its content, or makes it that wide if it shows.
-void host_show_reveal(double width);
+// Shows |ui_view|'s reveal window, |width| points wide from its browser window's left edge and as
+// tall as its content, or makes it that wide if it shows.
+void host_show_reveal(void* ui_view, double width);
 
-// Hides the reveal's window.
-void host_hide_reveal(void);
+// Hides |ui_view|'s reveal window.
+void host_hide_reveal(void* ui_view);
 
 // Makes the window of |settings_view| the Settings window: a standard one, dark, that can show
 // over the browser window in full screen. It starts hidden.
 void host_add_settings(void* settings_view);
 
 // Shows the Settings window, as the UI draws it now, in front and with the keyboard. The first
-// time, it's centred over the browser window, on its display.
+// time, it's centred over the browser window in front, on its display.
 void host_show_settings(void);
 
 // Hides the Settings window, which keeps its place for the next host_show_settings.
@@ -220,12 +230,13 @@ typedef struct {
 // What host_take_drops hears of a drag.
 enum { HOST_DRAG_OVER, HOST_DRAG_LEFT, HOST_DRAG_DROP };
 
-// Hands drags over the UI's view, from the page or another app, to |dragged|: HOST_DRAG_OVER as
-// the pointer comes or moves to (x, y), in points from the view's top-left corner, HOST_DRAG_LEFT
-// once it leaves or the drag ends elsewhere, and HOST_DRAG_DROP as it's let go there. |items| are
-// what the drag carries. |dragged| returns whether a drop there opens any of them, or opened them.
-void host_take_drops(bool (*dragged)(int phase, double x, double y, const host_dragged* items,
-                                     size_t count));
+// Hands drags over the UI's views, from the page or another app, to |dragged| with the view:
+// HOST_DRAG_OVER as the pointer comes or moves to (x, y), in points from the view's top-left
+// corner, HOST_DRAG_LEFT once it leaves or the drag ends elsewhere, and HOST_DRAG_DROP as it's let
+// go there. |items| are what the drag carries. |dragged| returns whether a drop there opens any of
+// them, or opened them.
+void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y,
+                                     const host_dragged* items, size_t count));
 
 // Moves the file at |path|, a full path in UTF-8, to the system's Trash, and says whether it's gone
 // from there, as it is if it was gone already.
@@ -248,6 +259,10 @@ void host_day_starts(double starts[4]);
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);
+
+// For the test driver: the NSWindow of the browser window whose view host_ui_view made |index|th,
+// from 0, once it's shown, else null.
+void* host_browser_window(size_t index);
 
 #ifdef __cplusplus
 }

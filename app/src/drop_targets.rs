@@ -3,6 +3,8 @@
 //! the host shows over the browser window, as its child, and the mouse goes through it, so the
 //! drag goes on in the browser window.
 
+use std::ffi::c_void;
+
 use browser::log;
 use browser::shell::Shell;
 use gpui::{
@@ -55,14 +57,15 @@ pub fn open(shell: Entity<Shell>, cx: &mut App) {
     }
 }
 
-/// Shows the targets' window, drawing it again for the drag's move, or hides it.
-pub fn show(shown: bool, cx: &mut App) {
+/// Shows the targets' window over the browser window whose UI draws in `ui_view`, drawing it
+/// again for the drag's move, or hides it.
+pub fn show(shown: bool, ui_view: *mut c_void, cx: &mut App) {
     let Some(window) = cx.try_global::<DropTargetsWindow>().map(|targets| targets.0) else {
         return;
     };
     if shown {
         window.update(cx, |_, _, cx| cx.notify()).ok();
-        unsafe { platform::host_show_drop_targets() };
+        unsafe { platform::host_show_drop_targets(ui_view) };
     } else {
         unsafe { platform::host_hide_drop_targets() };
     }

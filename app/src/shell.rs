@@ -397,7 +397,7 @@ enum Undo {
     DeleteSpace,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Tab {
     title: SharedString,
     page: Page,
@@ -408,6 +408,7 @@ struct Tab {
     theme: RefCell<Option<(u64, Option<Rc<TileTheme>>)>>,
 }
 
+#[derive(Clone)]
 struct Space {
     id: u64,
     name: SharedString,
@@ -1030,6 +1031,33 @@ impl Shell {
         }
     }
 
+    /// A shell for another window, which starts out knowing what `from` heard from the core about
+    /// every window: the Spaces, their tabs, the Library and the extensions. What's this window's,
+    /// such as the Space shown, it hears for itself.
+    pub fn seeded_from(
+        from: &Entity<Shell>,
+        browser: Rc<dyn Browser>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let mut shell = Self::new(browser, cx);
+        let from = from.read(cx);
+        shell.spaces = from.spaces.clone();
+        shell.tabs = from.tabs.clone();
+        shell.favorites = from.favorites.clone();
+        shell.all_favorites = from.all_favorites.clone();
+        shell.favorite_profiles = from.favorite_profiles.clone();
+        shell.profiles = from.profiles.clone();
+        shell.archive = from.archive.clone();
+        shell.page_favicons = from.page_favicons.clone();
+        shell.downloads = from.downloads.clone();
+        shell.download_icons = from.download_icons.clone();
+        shell.downloads_seen = from.downloads_seen.clone();
+        shell.downloads_read = from.downloads_read;
+        shell.extensions = from.extensions.clone();
+        shell.questions = from.questions.clone();
+        shell
+    }
+
     /// The pinned tabs of the Space shown.
     pub fn pinned(&self) -> &[u64] {
         self.shown_space().map_or(&[], |space| &space.pinned)
@@ -1144,6 +1172,11 @@ impl Shell {
 
     pub fn selected(&self) -> u64 {
         self.selected
+    }
+
+    /// Whether the window shows `tab`'s page: the tab shown, or a page beside it in its split view.
+    pub fn shows(&self, tab: u64) -> bool {
+        self.selected != 0 && self.panes(self.selected).contains(&tab)
     }
 
     /// Where the card's left edge is: past the sidebar, or at the inset once ⌘S has hidden it,

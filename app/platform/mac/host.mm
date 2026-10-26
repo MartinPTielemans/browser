@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <initializer_list>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -51,7 +52,7 @@
 
 namespace {
 // The UI's, which hears the drags over its view.
-bool (*g_dragged)(int, double, double, const host_dragged*, size_t);
+bool (*g_dragged)(void*, int, double, double, const host_dragged*, size_t);
 }  // namespace
 
 // The source of a file host_drag_file drags, which offers a copy wherever it's let go.
@@ -104,7 +105,8 @@ bool (*g_dragged)(int, double, double, const host_dragged*, size_t);
   for (size_t i = 0; i < _urls.size(); i++) {
     items.push_back({_urls[i].c_str(), _files[i]});
   }
-  return g_dragged(phase, point.x, NSHeight(self.bounds) - point.y, items.data(), items.size());
+  return g_dragged((__bridge void*)self, phase, point.x, NSHeight(self.bounds) - point.y,
+                   items.data(), items.size());
 }
 
 - (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
@@ -213,11 +215,72 @@ NSImage* Swatch(int32_t color) {
                  }];
 }
 
-// The browser window, once shown, and the view the UI draws in.
-NSWindow* g_window;
-NSView* g_ui_view;
+// A browser window, once shown, the view the UI draws in, and the windows over it that are its
+// own. The others show over one browser window at a time, the one they're asked to.
+struct Browser {
+  NSWindow* window;
+  NSView* ui_view;
 
-// The command bar's window and view.
+  // The find bar's window and view, and its distance from the top right of the window's content.
+  NSWindow* find_bar;
+  NSView* find_bar_view;
+  bool find_bar_shown = false;
+  double find_bar_right = 0;
+  double find_bar_top = 0;
+  // The find bar has the keyboard, or gets it back once the command bar closes: it took it opening
+  // or from a click, and the user hasn't clicked the browser window since. AppKit also makes it key
+  // when the command bar closes, which isn't the user choosing it.
+  bool find_bar_keyboard = false;
+
+  // How far the focused page's top right corner is inside the card's, in a split view, which the
+  // find bar and the HUD keep to.
+  double page_right = 0;
+  double page_top = 0;
+
+  // The sidebar reveal's window and view, the shell's handler for the pointer, the window's width,
+  // and while it shows, the monitor that hands the handler the pointer.
+  NSWindow* reveal;
+  NSView* reveal_view;
+  void (*reveal_pointer)(void* ui_view, double x);
+  double reveal_width = 0;
+  id reveal_monitor;
+};
+
+// In the order their views were made. Each is allocated alone, so the pointers stay put.
+std::vector<std::unique_ptr<Browser>> g_browsers;
+
+// The browser whose UI draws in |ui_view|, or null.
+Browser* BrowserWithView(void* ui_view) {
+  for (auto& browser : g_browsers) {
+    if ((__bridge void*)browser->ui_view == ui_view) {
+      return browser.get();
+    }
+  }
+  return nullptr;
+}
+
+// The browser whose window is |window|, or null.
+Browser* BrowserOf(NSWindow* window) {
+  for (auto& browser : g_browsers) {
+    if (window && browser->window == window) {
+      return browser.get();
+    }
+  }
+  return nullptr;
+}
+
+// The browser window in front, else the first.
+Browser* FrontBrowser() {
+  for (NSWindow* window in NSApp.orderedWindows) {
+    if (Browser* browser = BrowserOf(window)) {
+      return browser;
+    }
+  }
+  return g_browsers.empty() ? nullptr : g_browsers.front().get();
+}
+
+// The command bar's window and view, and the browser it shows over.
+Browser* g_overlay_over;
 NSWindow* g_overlay;
 NSView* g_overlay_view;
 bool g_overlay_shown = false;
@@ -231,25 +294,27 @@ double g_overlay_radius;
 NSWindow* g_overlay_shadow;
 CALayer* g_overlay_shadow_layer;
 CAShapeLayer* g_overlay_shadow_mask;
-// The shadow's window goes on screen with the bar's first show and stays, shown and hidden by its
-// alpha after that, since putting a window on screen cost each ⌘T about 4 ms.
-bool g_overlay_shadow_ordered;
+// The shadow's window goes on screen with the bar's first show over a browser window and stays
+// there, shown and hidden by its alpha, since putting a window on screen cost each ⌘T about 4 ms.
 constexpr double kOverlayShadowRadius = 20;
 constexpr float kOverlayShadowOpacity = 0.23;
 // Past this, three times the blur, the shadow is nothing.
 constexpr double kOverlayShadowReach = 3 * kOverlayShadowRadius;
 
-// The dialog's window and view.
+// The dialog's window and view, and the browser it shows over.
+Browser* g_dialog_over;
 NSWindow* g_dialog;
 NSView* g_dialog_view;
 bool g_dialog_shown = false;
 
-// The toast's window and view.
+// The toast's window and view, and the browser it shows over.
+Browser* g_toast_over;
 NSWindow* g_toast;
 NSView* g_toast_view;
 bool g_toast_shown = false;
 
-// The tooltip's window and view, and where its top left goes in the browser window.
+// The tooltip's window and view, the browser it shows over, and where its top left goes there.
+Browser* g_tooltip_over;
 NSWindow* g_tooltip;
 NSView* g_tooltip_view;
 bool g_tooltip_shown = false;
@@ -257,20 +322,10 @@ double g_tooltip_left = 0;
 double g_tooltip_top = 0;
 void (*g_tooltip_away)(void);
 
-// The find bar's window and view, and its distance from the top right of the browser window's
-// content.
-NSWindow* g_find_bar;
-NSView* g_find_bar_view;
-bool g_find_bar_shown = false;
-double g_find_bar_right;
-double g_find_bar_top;
-// The find bar has the keyboard, or gets it back once the command bar closes: it took it opening
-// or from a click, and the user hasn't clicked the browser window since. AppKit also makes it key
-// when the command bar closes, which isn't the user choosing it.
-bool g_find_bar_keyboard = false;
-
-// The zoom HUD's window and view, its distance from the top right of the browser window's content,
-// and a count of its shows and hides, so one posted before another doesn't undo it.
+// The zoom HUD's window and view, the browser it shows over, its distance from the top right of
+// that window's content, and a count of its shows and hides, so one posted before another doesn't
+// undo it.
+Browser* g_hud_over;
 NSWindow* g_hud;
 NSView* g_hud_view;
 bool g_hud_shown = false;
@@ -278,23 +333,11 @@ double g_hud_right;
 double g_hud_top;
 unsigned g_hud_changes = 0;
 
-// The drop targets' window and view.
+// The drop targets' window and view, and the browser they show over.
+Browser* g_drop_targets_over;
 NSWindow* g_drop_targets;
 NSView* g_drop_targets_view;
 bool g_drop_targets_shown = false;
-
-// How far the focused page's top right corner is inside the card's, in a split view, which the
-// find bar and the HUD keep to.
-double g_page_right = 0;
-double g_page_top = 0;
-
-// The sidebar reveal's window and view, the shell's handler for the pointer, the window's width,
-// and while it shows, the monitor that hands the handler the pointer.
-NSWindow* g_reveal;
-NSView* g_reveal_view;
-void (*g_reveal_pointer)(double x);
-double g_reveal_width;
-id g_reveal_monitor;
 
 // The Settings window and its view, whether it's to show, and whether it has, after which it keeps
 // the place the user left it in.
@@ -350,25 +393,27 @@ void MakeOverlay(NSWindow* window) {
                   method_getTypeEncoding(class_getInstanceMethod(NSWindow.class, constrain)));
 }
 
-void PlaceFindBar() {
-  NSRect content = [g_window contentRectForFrameRect:g_window.frame];
-  NSSize size = g_find_bar.frame.size;
-  [g_find_bar setFrameOrigin:NSMakePoint(NSMaxX(content) - g_page_right - g_find_bar_right -
-                                             size.width,
-                                         NSMaxY(content) - g_page_top - g_find_bar_top -
-                                             size.height)];
+void PlaceFindBar(Browser* browser) {
+  NSRect content = [browser->window contentRectForFrameRect:browser->window.frame];
+  NSSize size = browser->find_bar.frame.size;
+  [browser->find_bar
+      setFrameOrigin:NSMakePoint(NSMaxX(content) - browser->page_right -
+                                     browser->find_bar_right - size.width,
+                                 NSMaxY(content) - browser->page_top - browser->find_bar_top -
+                                     size.height)];
 }
 
 // At the browser window's top right corner, where the toast draws itself.
 void PlaceToast() {
-  NSRect frame = g_window.frame;
+  NSRect frame = g_toast_over->window.frame;
   NSSize size = g_toast.frame.size;
   [g_toast setFrameOrigin:NSMakePoint(NSMaxX(frame) - size.width, NSMaxY(frame) - size.height)];
 }
 
 // Where the UI asked, kept inside the browser window's width.
 void PlaceTooltip() {
-  NSRect content = [g_window contentRectForFrameRect:g_window.frame];
+  NSWindow* window = g_tooltip_over->window;
+  NSRect content = [window contentRectForFrameRect:window.frame];
   NSSize size = g_tooltip.frame.size;
   double left = fmin(g_tooltip_left, NSWidth(content) - size.width);
   [g_tooltip setFrameOrigin:NSMakePoint(NSMinX(content) + fmax(left, 0),
@@ -406,21 +451,24 @@ void PlaceOverlayShadow() {
 
 // 8 points below the find bar while it shows, where the HUD would cover it.
 void PlaceHud() {
-  NSRect content = [g_window contentRectForFrameRect:g_window.frame];
+  Browser* browser = g_hud_over;
+  NSRect content = [browser->window contentRectForFrameRect:browser->window.frame];
   NSSize size = g_hud.frame.size;
-  const double top =
-      g_find_bar_shown ? g_find_bar_top + g_find_bar.frame.size.height + 8 : g_hud_top;
-  [g_hud setFrameOrigin:NSMakePoint(NSMaxX(content) - g_page_right - g_hud_right - size.width,
-                                    NSMaxY(content) - g_page_top - top - size.height)];
+  const double top = browser->find_bar_shown
+                         ? browser->find_bar_top + browser->find_bar.frame.size.height + 8
+                         : g_hud_top;
+  [g_hud setFrameOrigin:NSMakePoint(
+                            NSMaxX(content) - browser->page_right - g_hud_right - size.width,
+                            NSMaxY(content) - browser->page_top - top - size.height)];
 }
 
 // At the browser window's left edge and as tall as its content, so a point is at the same place in
 // both windows.
-void PlaceReveal() {
-  NSRect content = [g_window contentRectForFrameRect:g_window.frame];
-  [g_reveal setFrame:NSMakeRect(NSMinX(content), NSMinY(content), g_reveal_width,
-                                NSHeight(content))
-             display:NO];
+void PlaceReveal(Browser* browser) {
+  NSRect content = [browser->window contentRectForFrameRect:browser->window.frame];
+  [browser->reveal setFrame:NSMakeRect(NSMinX(content), NSMinY(content), browser->reveal_width,
+                                       NSHeight(content))
+                    display:NO];
 }
 
 }  // namespace
@@ -434,17 +482,25 @@ void host_centered(double width, double height, double* x, double* y) {
 }
 
 void* host_ui_view(void) {
-  // Retained by the window the core puts it in.
-  return (__bridge_retained void*)[[HostUIView alloc] initWithFrame:NSZeroRect];
+  auto browser = std::make_unique<Browser>();
+  browser->ui_view = [[HostUIView alloc] initWithFrame:NSZeroRect];
+  g_browsers.push_back(std::move(browser));
+  // Kept by its browser, and by the window the core puts it in.
+  return (__bridge void*)g_browsers.back()->ui_view;
 }
 
 void host_show_window(void* ui_view) {
-  g_ui_view = (__bridge NSView*)ui_view;
-  g_window = g_ui_view.window;
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
+  }
+  NSView* view = browser->ui_view;
+  NSWindow* window = view.window;
+  browser->window = window;
   // Dia's window material (docs/ux-spec.md › Window material): what's behind the window, blurred,
   // under the UI, which tints it. AppKit swaps it for an opaque fill while the window is inactive,
   // and with Reduce Transparency or Increase Contrast.
-  NSVisualEffectView* material = [[NSVisualEffectView alloc] initWithFrame:g_ui_view.bounds];
+  NSVisualEffectView* material = [[NSVisualEffectView alloc] initWithFrame:view.bounds];
   material.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   material.blendingMode = NSVisualEffectBlendingModeBehindWindow;
   // Dia's dark material, which AppKit doesn't name.
@@ -453,8 +509,8 @@ void host_show_window(void* ui_view) {
   material.emphasized = YES;
   material.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
   // Under the UI's view, since the core keeps only the UI's and the page's views in its own.
-  [g_ui_view addSubview:material positioned:NSWindowBelow relativeTo:nil];
-  [g_window makeKeyAndOrderFront:nil];
+  [view addSubview:material positioned:NSWindowBelow relativeTo:nil];
+  [window makeKeyAndOrderFront:nil];
   [NSApp activateIgnoringOtherApps:YES];
 
   // A click outside the command bar closes it first, so the click lands the way it would with
@@ -462,38 +518,47 @@ void host_show_window(void* ui_view) {
   // the click that activates its window.
   constexpr NSEventMask kMouseDown =
       NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown;
-  // The find bar stays open, and a click on the browser window takes the keyboard from it.
-  [NSEvent addLocalMonitorForEventsMatchingMask:kMouseDown
-                                        handler:^NSEvent*(NSEvent* event) {
-                                          if (event.window == g_window) {
-                                            g_find_bar_keyboard = false;
-                                            if (g_find_bar.keyWindow) {
-                                              [g_window makeKeyWindow];
+  // The find bar stays open, and a click on its browser window takes the keyboard from it.
+  static bool watching_clicks = false;
+  if (!watching_clicks) {
+    watching_clicks = true;
+    [NSEvent addLocalMonitorForEventsMatchingMask:kMouseDown
+                                          handler:^NSEvent*(NSEvent* event) {
+                                            for (auto& each : g_browsers) {
+                                              if (!event.window) {
+                                                break;
+                                              }
+                                              if (event.window == each->window) {
+                                                each->find_bar_keyboard = false;
+                                                if (each->find_bar.keyWindow) {
+                                                  [each->window makeKeyWindow];
+                                                }
+                                              } else if (event.window == each->find_bar) {
+                                                each->find_bar_keyboard = true;
+                                              }
                                             }
-                                          } else if (event.window == g_find_bar) {
-                                            g_find_bar_keyboard = true;
-                                          }
-                                          if (event.window != g_overlay) {
-                                            host_dismiss_overlay();
-                                          }
-                                          return event;
-                                        }];
+                                            if (event.window != g_overlay) {
+                                              host_dismiss_overlay();
+                                            }
+                                            return event;
+                                          }];
+  }
   // A window resizes from its top left corner as often as its bottom right, and AppKit moves a
   // child window only with its parent's bottom left.
   [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidResizeNotification
-                                                  object:g_window
+                                                  object:window
                                                    queue:nil
                                               usingBlock:^(NSNotification*) {
-                                                if (g_find_bar_shown) {
-                                                  PlaceFindBar();
+                                                if (browser->find_bar_shown) {
+                                                  PlaceFindBar(browser);
                                                 }
-                                                if (g_hud_shown) {
+                                                if (g_hud_shown && g_hud_over == browser) {
                                                   PlaceHud();
                                                 }
-                                                if (g_dialog_shown) {
-                                                  [g_dialog setFrame:g_window.frame display:YES];
+                                                if (g_dialog_shown && g_dialog_over == browser) {
+                                                  [g_dialog setFrame:window.frame display:YES];
                                                 }
-                                                if (g_toast_shown) {
+                                                if (g_toast_shown && g_toast_over == browser) {
                                                   PlaceToast();
                                                 }
                                               }];
@@ -570,37 +635,42 @@ void host_add_overlay(void* overlay_view, double radius, void (*dismissed)(void)
                        queue:nil
                   usingBlock:^(NSNotification* notification) {
                     NSWindow* window = notification.object;
+                    Browser* browser = BrowserOf(window);
                     if (g_overlay_shown && window != g_overlay) {
-                      if (window == g_window) {
+                      if (browser == g_overlay_over) {
                         [g_overlay makeKeyWindow];
                       } else {
                         host_dismiss_overlay();
                       }
-                    } else if (!g_overlay_shown && !g_dialog_shown && window == g_window &&
-                               g_find_bar_shown && g_find_bar_keyboard) {
+                    } else if (!g_overlay_shown && !g_dialog_shown && browser &&
+                               browser->find_bar_shown && browser->find_bar_keyboard) {
                       // The same for the find bar, which the user left only by clicking.
-                      [g_find_bar makeKeyWindow];
+                      [browser->find_bar makeKeyWindow];
                     }
                   }];
 }
 
-void host_show_overlay(bool centered, double left, double top, double width) {
-  if (!g_overlay || !g_window) {
+void host_show_overlay(void* ui_view, bool centered, double left, double top, double width) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_overlay || !browser || !browser->window) {
     return;
   }
-  if (g_overlay_shown) {
+  if (g_overlay_shown && g_overlay_over == browser) {
     [g_overlay makeKeyAndOrderFront:nil];
     return;
   }
+  host_hide_overlay();
   g_overlay_shown = true;
+  g_overlay_over = browser;
   // The window still holds what it drew when it last closed, such as the previous query. It goes
   // on screen once the UI has drawn it as it is now, which can't happen while the UI is still
   // handling the shortcut that opened it.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_overlay_shown) {
+    if (!g_overlay_shown || g_overlay_over != browser) {
       return;
     }
-    NSRect content = [g_window contentRectForFrameRect:g_window.frame];
+    NSWindow* window = browser->window;
+    NSRect content = [window contentRectForFrameRect:window.frame];
     const double height = NSHeight(g_overlay.frame);
     NSRect frame;
     if (centered) {
@@ -617,11 +687,11 @@ void host_show_overlay(bool centered, double left, double top, double width) {
     [g_overlay_view.layer displayIfNeeded];
     PlaceOverlayShadow();
     g_overlay_shadow.alphaValue = 1;
-    if (!g_overlay_shadow_ordered) {
-      g_overlay_shadow_ordered = true;
-      [g_window addChildWindow:g_overlay_shadow ordered:NSWindowAbove];
+    if (g_overlay_shadow.parentWindow != window) {
+      [g_overlay_shadow.parentWindow removeChildWindow:g_overlay_shadow];
+      [window addChildWindow:g_overlay_shadow ordered:NSWindowAbove];
     }
-    [g_window addChildWindow:g_overlay ordered:NSWindowAbove];
+    [window addChildWindow:g_overlay ordered:NSWindowAbove];
     [g_overlay makeKeyAndOrderFront:nil];
     // check.sh reads these lines.
     fprintf(stderr, "browser: command bar at %g %g %g %g\n",
@@ -653,10 +723,12 @@ void host_hide_overlay(void) {
     return;
   }
   g_overlay_shown = false;
-  [g_window removeChildWindow:g_overlay];
+  Browser* browser = g_overlay_over;
+  [browser->window removeChildWindow:g_overlay];
   [g_overlay orderOut:nil];
   g_overlay_shadow.alphaValue = 0;
-  [g_find_bar_shown && g_find_bar_keyboard ? g_find_bar : g_window makeKeyWindow];
+  [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
+      makeKeyWindow];
   fprintf(stderr, "browser: command bar hidden\n");
 }
 
@@ -673,78 +745,89 @@ void host_dismiss_overlay(void) {
   }
 }
 
-void host_add_find_bar(void* find_bar_view, double right, double top) {
-  g_find_bar_view = (__bridge NSView*)find_bar_view;
-  g_find_bar = g_find_bar_view.window;
-  g_find_bar_right = right;
-  g_find_bar_top = top;
-  MakeOverlay(g_find_bar);
+void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
+  }
+  browser->find_bar_view = (__bridge NSView*)find_bar_view;
+  browser->find_bar = browser->find_bar_view.window;
+  browser->find_bar_right = right;
+  browser->find_bar_top = top;
+  MakeOverlay(browser->find_bar);
   // The UI draws the bar's rounded shape, which a borderless window's shadow takes.
-  g_find_bar.styleMask = NSWindowStyleMaskBorderless;
-  g_find_bar.hasShadow = YES;
+  browser->find_bar.styleMask = NSWindowStyleMaskBorderless;
+  browser->find_bar.hasShadow = YES;
 }
 
-void host_show_find_bar(bool keyboard) {
-  if (!g_find_bar || !g_window) {
+void host_show_find_bar(void* ui_view, bool keyboard) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser || !browser->find_bar || !browser->window) {
     return;
   }
-  g_find_bar_keyboard = g_find_bar_keyboard || keyboard;
-  if (g_find_bar_shown) {
+  NSWindow* find_bar = browser->find_bar;
+  browser->find_bar_keyboard = browser->find_bar_keyboard || keyboard;
+  if (browser->find_bar_shown) {
     // Once it's on screen. Until then, it takes the keyboard as it goes on.
-    if (keyboard && g_find_bar.visible) {
-      [g_find_bar makeKeyAndOrderFront:nil];
+    if (keyboard && find_bar.visible) {
+      [find_bar makeKeyAndOrderFront:nil];
     }
     return;
   }
-  g_find_bar_shown = true;
+  browser->find_bar_shown = true;
   // As the command bar does: it goes on screen once it has drawn what it shows now.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_find_bar_shown) {
+    if (!browser->find_bar_shown) {
       return;
     }
-    [g_find_bar_view.layer setNeedsDisplay];
-    [g_find_bar_view.layer displayIfNeeded];
-    [g_find_bar invalidateShadow];
-    PlaceFindBar();
-    [g_window addChildWindow:g_find_bar ordered:NSWindowAbove];
-    if (g_find_bar_keyboard) {
+    [browser->find_bar_view.layer setNeedsDisplay];
+    [browser->find_bar_view.layer displayIfNeeded];
+    [find_bar invalidateShadow];
+    PlaceFindBar(browser);
+    [browser->window addChildWindow:find_bar ordered:NSWindowAbove];
+    if (browser->find_bar_keyboard) {
       // From the command bar too, which closes.
-      [g_find_bar makeKeyAndOrderFront:nil];
-    } else if (g_overlay_shown) {
-      [g_overlay orderWindow:NSWindowAbove relativeTo:g_find_bar.windowNumber];
+      [find_bar makeKeyAndOrderFront:nil];
+    } else if (g_overlay_shown && g_overlay_over == browser) {
+      [g_overlay orderWindow:NSWindowAbove relativeTo:find_bar.windowNumber];
     }
-    if (g_hud_shown) {
+    if (g_hud_shown && g_hud_over == browser) {
       PlaceHud();
     }
     fprintf(stderr, "browser: find bar shown\n");
   });
 }
 
-void host_hide_find_bar(void) {
-  if (!g_find_bar_shown) {
+void host_hide_find_bar(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser || !browser->find_bar_shown) {
     return;
   }
-  g_find_bar_shown = false;
-  g_find_bar_keyboard = false;
-  const bool had_keyboard = g_find_bar.keyWindow;
-  [g_window removeChildWindow:g_find_bar];
-  [g_find_bar orderOut:nil];
+  browser->find_bar_shown = false;
+  browser->find_bar_keyboard = false;
+  const bool had_keyboard = browser->find_bar.keyWindow;
+  [browser->window removeChildWindow:browser->find_bar];
+  [browser->find_bar orderOut:nil];
   if (had_keyboard) {
-    [g_window makeKeyWindow];
+    [browser->window makeKeyWindow];
   }
-  if (g_hud_shown) {
+  if (g_hud_shown && g_hud_over == browser) {
     PlaceHud();
   }
   fprintf(stderr, "browser: find bar hidden\n");
 }
 
-void host_set_pane_corner(double right, double top) {
-  g_page_right = right;
-  g_page_top = top;
-  if (g_find_bar_shown) {
-    PlaceFindBar();
+void host_set_pane_corner(void* ui_view, double right, double top) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
   }
-  if (g_hud_shown) {
+  browser->page_right = right;
+  browser->page_top = top;
+  if (browser->find_bar_shown) {
+    PlaceFindBar(browser);
+  }
+  if (g_hud_shown && g_hud_over == browser) {
     PlaceHud();
   }
 }
@@ -760,11 +843,13 @@ void host_add_hud(void* hud_view, double right, double top) {
   g_hud.ignoresMouseEvents = YES;
 }
 
-void host_show_hud(void) {
-  if (!g_hud || !g_window) {
+void host_show_hud(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_hud || !browser || !browser->window) {
     return;
   }
   g_hud_shown = true;
+  g_hud_over = browser;
   const unsigned change = ++g_hud_changes;
   // As the find bar does, once it has drawn what it shows now, which may be narrower than before.
   dispatch_async(dispatch_get_main_queue(), ^{
@@ -782,11 +867,12 @@ void host_show_hud(void) {
           g_hud.animator.alphaValue = 1;
         }
         completionHandler:nil];
-    if (!g_hud.parentWindow) {
-      [g_window addChildWindow:g_hud ordered:NSWindowAbove];
+    if (g_hud.parentWindow != browser->window) {
+      [g_hud.parentWindow removeChildWindow:g_hud];
+      [browser->window addChildWindow:g_hud ordered:NSWindowAbove];
     }
-    if (g_find_bar_shown) {
-      [g_hud orderWindow:NSWindowAbove relativeTo:g_find_bar.windowNumber];
+    if (browser->find_bar_shown) {
+      [g_hud orderWindow:NSWindowAbove relativeTo:browser->find_bar.windowNumber];
     }
     if (g_overlay_shown) {
       [g_overlay orderWindow:NSWindowAbove relativeTo:g_hud.windowNumber];
@@ -810,7 +896,7 @@ void host_hide_hud(double seconds) {
         if (change != g_hud_changes) {
           return;
         }
-        [g_window removeChildWindow:g_hud];
+        [g_hud.parentWindow removeChildWindow:g_hud];
         [g_hud orderOut:nil];
         fprintf(stderr, "browser: zoom hud hidden\n");
       }];
@@ -825,21 +911,31 @@ void host_add_drop_targets(void* view) {
   g_drop_targets.ignoresMouseEvents = YES;
 }
 
-void host_show_drop_targets(void) {
-  if (!g_drop_targets || !g_window || g_drop_targets_shown) {
+void host_show_drop_targets(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_drop_targets || !browser || !browser->window) {
+    return;
+  }
+  if (g_drop_targets_shown && g_drop_targets_over != browser) {
+    host_hide_drop_targets();
+  }
+  if (g_drop_targets_shown) {
     return;
   }
   g_drop_targets_shown = true;
+  g_drop_targets_over = browser;
   // After the UI's update that asked, since the window draws here: at the content's frame, before
   // it shows, since it keeps the last frame it drew.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_drop_targets_shown || g_drop_targets.parentWindow) {
+    if (!g_drop_targets_shown || g_drop_targets_over != browser ||
+        g_drop_targets.parentWindow) {
       return;
     }
-    [g_drop_targets setFrame:[g_window contentRectForFrameRect:g_window.frame] display:NO];
+    NSWindow* window = browser->window;
+    [g_drop_targets setFrame:[window contentRectForFrameRect:window.frame] display:NO];
     [g_drop_targets_view.layer setNeedsDisplay];
     [g_drop_targets_view.layer displayIfNeeded];
-    [g_window addChildWindow:g_drop_targets ordered:NSWindowAbove];
+    [window addChildWindow:g_drop_targets ordered:NSWindowAbove];
     fprintf(stderr, "browser: drop targets shown\n");
   });
 }
@@ -849,7 +945,7 @@ void host_hide_drop_targets(void) {
   if (!g_drop_targets.parentWindow) {
     return;
   }
-  [g_window removeChildWindow:g_drop_targets];
+  [g_drop_targets.parentWindow removeChildWindow:g_drop_targets];
   [g_drop_targets orderOut:nil];
   fprintf(stderr, "browser: drop targets hidden\n");
 }
@@ -874,21 +970,23 @@ void host_add_dialog(void* dialog_view) {
                                               }];
 }
 
-void host_show_dialog(void) {
-  if (!g_dialog || !g_window || g_dialog_shown) {
+void host_show_dialog(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_dialog || !browser || !browser->window || g_dialog_shown) {
     return;
   }
   g_dialog_shown = true;
+  g_dialog_over = browser;
   // After the UI's update that asked, since the window draws here: at the browser window's frame,
   // before it shows, since it keeps the last frame it drew.
   dispatch_async(dispatch_get_main_queue(), ^{
     if (!g_dialog_shown) {
       return;
     }
-    [g_dialog setFrame:g_window.frame display:NO];
+    [g_dialog setFrame:browser->window.frame display:NO];
     [g_dialog_view.layer setNeedsDisplay];
     [g_dialog_view.layer displayIfNeeded];
-    [g_window addChildWindow:g_dialog ordered:NSWindowAbove];
+    [browser->window addChildWindow:g_dialog ordered:NSWindowAbove];
     [g_dialog makeKeyAndOrderFront:nil];
     fprintf(stderr, "browser: dialog window shown\n");
   });
@@ -899,9 +997,11 @@ void host_hide_dialog(void) {
     return;
   }
   g_dialog_shown = false;
-  [g_window removeChildWindow:g_dialog];
+  Browser* browser = g_dialog_over;
+  [browser->window removeChildWindow:g_dialog];
   [g_dialog orderOut:nil];
-  [g_find_bar_shown && g_find_bar_keyboard ? g_find_bar : g_window makeKeyWindow];
+  [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
+      makeKeyWindow];
 }
 
 void host_add_toast(void* toast_view) {
@@ -914,21 +1014,29 @@ void host_add_toast(void* toast_view) {
   g_toast.ignoresMouseEvents = YES;
 }
 
-void host_show_toast(void) {
-  if (!g_toast || !g_window || g_toast_shown) {
+void host_show_toast(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_toast || !browser || !browser->window) {
+    return;
+  }
+  if (g_toast_shown && g_toast_over != browser) {
+    host_hide_toast();
+  }
+  if (g_toast_shown) {
     return;
   }
   g_toast_shown = true;
+  g_toast_over = browser;
   // After the UI's update that asked, since the window draws here, before it shows, since it
   // keeps the last frame it drew.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_toast_shown) {
+    if (!g_toast_shown || g_toast_over != browser) {
       return;
     }
     PlaceToast();
     [g_toast_view.layer setNeedsDisplay];
     [g_toast_view.layer displayIfNeeded];
-    [g_window addChildWindow:g_toast ordered:NSWindowAbove];
+    [browser->window addChildWindow:g_toast ordered:NSWindowAbove];
     if (g_overlay_shown) {
       [g_overlay orderWindow:NSWindowAbove relativeTo:g_toast.windowNumber];
     }
@@ -941,7 +1049,7 @@ void host_hide_toast(void) {
     return;
   }
   g_toast_shown = false;
-  [g_window removeChildWindow:g_toast];
+  [g_toast_over->window removeChildWindow:g_toast];
   [g_toast orderOut:nil];
 }
 
@@ -962,27 +1070,36 @@ void host_add_tooltip(void* tooltip_view, void (*away)(void)) {
     }
   };
   [center addObserverForName:NSWindowDidResignKeyNotification
-                      object:g_window
+                      object:nil
                        queue:nil
-                  usingBlock:left_window];
+                  usingBlock:^(NSNotification* notification) {
+                    if (g_tooltip_shown && notification.object == g_tooltip_over->window) {
+                      left_window(notification);
+                    }
+                  }];
   [center addObserverForName:NSApplicationDidResignActiveNotification
                       object:nil
                        queue:nil
                   usingBlock:left_window];
 }
 
-void host_show_tooltip(double left, double top) {
-  if (!g_tooltip || !g_window) {
+void host_show_tooltip(void* ui_view, double left, double top) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_tooltip || !browser || !browser->window) {
     return;
+  }
+  if (g_tooltip_shown && g_tooltip_over != browser) {
+    host_hide_tooltip();
   }
   g_tooltip_left = left;
   g_tooltip_top = top;
   bool shown = g_tooltip_shown;
   g_tooltip_shown = true;
+  g_tooltip_over = browser;
   // After the UI's update that asked, since the window draws here, before it shows or moves, since
   // it keeps the last frame it drew, the last name.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_tooltip_shown) {
+    if (!g_tooltip_shown || g_tooltip_over != browser) {
       return;
     }
     PlaceTooltip();
@@ -991,7 +1108,7 @@ void host_show_tooltip(double left, double top) {
     if (shown) {
       return;
     }
-    [g_window addChildWindow:g_tooltip ordered:NSWindowAbove];
+    [browser->window addChildWindow:g_tooltip ordered:NSWindowAbove];
     if (g_overlay_shown) {
       [g_overlay orderWindow:NSWindowAbove relativeTo:g_tooltip.windowNumber];
     }
@@ -1003,14 +1120,18 @@ void host_hide_tooltip(void) {
     return;
   }
   g_tooltip_shown = false;
-  [g_window removeChildWindow:g_tooltip];
+  [g_tooltip_over->window removeChildWindow:g_tooltip];
   [g_tooltip orderOut:nil];
 }
 
-void host_show_window_buttons(bool shown) {
+void host_show_window_buttons(void* ui_view, bool shown) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
+  }
   for (NSWindowButton button :
        {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
-    [g_window standardWindowButton:button].hidden = !shown;
+    [browser->window standardWindowButton:button].hidden = !shown;
   }
 }
 
@@ -1053,8 +1174,8 @@ void ControlReleased() {
   });
 }
 
-void host_take_drops(bool (*dragged)(int phase, double x, double y, const host_dragged* items,
-                                     size_t count)) {
+void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y,
+                                     const host_dragged* items, size_t count)) {
   g_dragged = dragged;
 }
 
@@ -1097,19 +1218,21 @@ bool host_drag_file(const char* path, void (*ended)(bool taken)) {
   static HostFileDragSource* source;
   NSString* file = @(path);
   NSEvent* event = NSApp.currentEvent;
-  if (!g_ui_view || event.type != NSEventTypeLeftMouseDragged || event.window != g_window ||
+  Browser* browser = BrowserOf(event.window);
+  if (!browser || event.type != NSEventTypeLeftMouseDragged ||
       ![NSFileManager.defaultManager fileExistsAtPath:file]) {
     return false;
   }
+  NSView* view = browser->ui_view;
   NSDraggingItem* item =
       [[NSDraggingItem alloc] initWithPasteboardWriter:[NSURL fileURLWithPath:file]];
   // The file's icon under the pointer, 32 points square, as Finder drags one.
-  NSPoint point = [g_ui_view convertPoint:event.locationInWindow fromView:nil];
+  NSPoint point = [view convertPoint:event.locationInWindow fromView:nil];
   [item setDraggingFrame:NSMakeRect(point.x - 16, point.y - 16, 32, 32)
                 contents:[NSWorkspace.sharedWorkspace iconForFile:file]];
   source = [[HostFileDragSource alloc] init];
   source.ended = ended;
-  return [g_ui_view beginDraggingSessionWithItems:@[ item ] event:event source:source] != nil;
+  return [view beginDraggingSessionWithItems:@[ item ] event:event source:source] != nil;
 }
 
 void host_copy(const char* text) {
@@ -1137,38 +1260,50 @@ void host_day_starts(double starts[4]) {
   }
 }
 
-void host_press_window_button(int button) {
+void host_press_window_button(void* ui_view, int button) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
+  }
+  NSWindow* window = browser->window;
   // After the UI's update that asked, since closing or going full screen calls back into it.
   dispatch_async(dispatch_get_main_queue(), ^{
     switch (button) {
       case 0:
-        [g_window performClose:nil];
+        [window performClose:nil];
         break;
       case 1:
-        [g_window miniaturize:nil];
+        [window miniaturize:nil];
         break;
       default:
         // What a click on the green button does.
-        [g_window toggleFullScreen:nil];
+        [window toggleFullScreen:nil];
     }
   });
 }
 
-void host_add_reveal(void* reveal_view, void (*pointer_moved)(double x)) {
-  g_reveal_view = (__bridge NSView*)reveal_view;
-  g_reveal = g_reveal_view.window;
-  g_reveal_pointer = pointer_moved;
-  MakeOverlay(g_reveal);
+void host_add_reveal(void* ui_view,
+                     void* reveal_view,
+                     void (*pointer_moved)(void* ui_view, double x)) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return;
+  }
+  browser->reveal_view = (__bridge NSView*)reveal_view;
+  NSWindow* reveal = browser->reveal_view.window;
+  browser->reveal = reveal;
+  browser->reveal_pointer = pointer_moved;
+  MakeOverlay(reveal);
   // A click in the panel leaves the keyboard where it was, in the page or the browser window.
-  ((NSPanel*)g_reveal).becomesKeyOnlyIfNeeded = YES;
-  g_reveal.hasShadow = NO;
+  ((NSPanel*)reveal).becomesKeyOnlyIfNeeded = YES;
+  reveal.hasShadow = NO;
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
   [center addObserverForName:NSWindowDidResizeNotification
-                      object:g_window
+                      object:browser->window
                        queue:nil
                   usingBlock:^(NSNotification*) {
-                    if (g_reveal_monitor) {
-                      PlaceReveal();
+                    if (browser->reveal_monitor) {
+                      PlaceReveal(browser);
                     }
                   }];
   // The pointer can't be in the panel's hold zone in an app that isn't the active one.
@@ -1176,53 +1311,56 @@ void host_add_reveal(void* reveal_view, void (*pointer_moved)(double x)) {
                       object:nil
                        queue:nil
                   usingBlock:^(NSNotification*) {
-                    if (g_reveal_monitor) {
-                      g_reveal_pointer(INFINITY);
+                    if (browser->reveal_monitor) {
+                      browser->reveal_pointer(ui_view, INFINITY);
                     }
                   }];
 }
 
-void host_show_reveal(double width) {
+void host_show_reveal(void* ui_view, double width) {
+  Browser* browser = BrowserWithView(ui_view);
   // After the UI's update that asked: the window draws as it goes on screen and as it resizes.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_reveal || !g_window) {
+    if (!browser || !browser->reveal || !browser->window) {
       return;
     }
-    g_reveal_width = width;
-    if (g_reveal_monitor) {
-      PlaceReveal();
+    browser->reveal_width = width;
+    if (browser->reveal_monitor) {
+      PlaceReveal(browser);
       return;
     }
     // As the command bar does, it goes on screen once it has drawn what it shows now.
-    PlaceReveal();
-    [g_reveal_view.layer setNeedsDisplay];
-    [g_reveal_view.layer displayIfNeeded];
-    [g_window addChildWindow:g_reveal ordered:NSWindowAbove];
+    PlaceReveal(browser);
+    [browser->reveal_view.layer setNeedsDisplay];
+    [browser->reveal_view.layer displayIfNeeded];
+    [browser->window addChildWindow:browser->reveal ordered:NSWindowAbove];
     // The page's view takes the pointer's moves while it's over the page, so the panel's view
     // doesn't hear them leave.
-    g_reveal_monitor = [NSEvent
+    browser->reveal_monitor = [NSEvent
         addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged
                                      handler:^NSEvent*(NSEvent* event) {
                                        NSPoint at = event.locationInWindow;
                                        if (event.window) {
                                          at = [event.window convertPointToScreen:at];
                                        }
-                                       g_reveal_pointer([g_window convertPointFromScreen:at].x);
+                                       at = [browser->window convertPointFromScreen:at];
+                                       browser->reveal_pointer(ui_view, at.x);
                                        return event;
                                      }];
     fprintf(stderr, "browser: reveal window shown\n");
   });
 }
 
-void host_hide_reveal(void) {
+void host_hide_reveal(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_reveal_monitor) {
+    if (!browser || !browser->reveal_monitor) {
       return;
     }
-    [NSEvent removeMonitor:g_reveal_monitor];
-    g_reveal_monitor = nil;
-    [g_window removeChildWindow:g_reveal];
-    [g_reveal orderOut:nil];
+    [NSEvent removeMonitor:browser->reveal_monitor];
+    browser->reveal_monitor = nil;
+    [browser->window removeChildWindow:browser->reveal];
+    [browser->reveal orderOut:nil];
   });
 }
 
@@ -1304,12 +1442,23 @@ int ShowMenu(const host_menu_item* items,
 
 }  // namespace
 
-int host_menu(const host_menu_item* items, size_t count, double x, double y, int in, int over) {
-  NSView* panel = in == HOST_IN_REVEAL     ? g_reveal_view
-                  : in == HOST_IN_SETTINGS ? g_settings_view
-                                           : nil;
-  return ShowMenu(items, count, x, y, panel ?: g_window.contentView,
-                  panel ? @[ panel ] : g_ui_view.subviews, over);
+int host_menu(void* ui_view,
+              const host_menu_item* items,
+              size_t count,
+              double x,
+              double y,
+              int in,
+              int over) {
+  if (in == HOST_IN_SETTINGS) {
+    return ShowMenu(items, count, x, y, g_settings_view, @[ g_settings_view ], over);
+  }
+  Browser* browser = BrowserWithView(ui_view);
+  if (!browser) {
+    return -1;
+  }
+  NSView* panel = in == HOST_IN_REVEAL ? browser->reveal_view : nil;
+  return ShowMenu(items, count, x, y, panel ?: browser->window.contentView,
+                  panel ? @[ panel ] : browser->ui_view.subviews, over);
 }
 
 int host_menu_in(const host_menu_item* items, size_t count, double x, double y, void* view) {
@@ -1345,10 +1494,12 @@ void host_show_settings(void) {
     }
     if (!g_settings_placed) {
       g_settings_placed = true;
-      NSRect visible = (g_window.screen ?: WindowScreen()).visibleFrame;
+      Browser* front = FrontBrowser();
+      NSWindow* window = front ? front->window : nil;
+      NSRect visible = (window.screen ?: WindowScreen()).visibleFrame;
       NSSize size = g_settings.frame.size;
-      double x = NSMidX(g_window.frame) - size.width / 2;
-      double y = NSMidY(g_window.frame) - size.height / 2;
+      double x = NSMidX(window.frame) - size.width / 2;
+      double y = NSMidY(window.frame) - size.height / 2;
       x = fmax(NSMinX(visible), fmin(x, NSMaxX(visible) - size.width));
       y = fmax(NSMinY(visible), fmin(y, NSMaxY(visible) - size.height));
       [g_settings setFrameOrigin:NSMakePoint(x, y)];
@@ -1369,7 +1520,7 @@ void host_hide_settings(void) {
 bool host_close_other_window(void) {
   NSWindow* key = NSApp.keyWindow;
   // The browser window, the windows over it and Settings take ⌘W themselves.
-  if (!key || key == g_window || key == g_settings || key.parentWindow ||
+  if (!key || BrowserOf(key) || key == g_settings || key.parentWindow ||
       !(key.styleMask & NSWindowStyleMaskClosable)) {
     return false;
   }
@@ -1389,6 +1540,10 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   NSModalResponse response = [alert runModal];
   g_alert = nil;
   return static_cast<int>(response - NSAlertFirstButtonReturn);
+}
+
+void* host_browser_window(size_t index) {
+  return index < g_browsers.size() ? (__bridge void*)g_browsers[index]->window : nullptr;
 }
 
 bool host_choose(const char* title) {

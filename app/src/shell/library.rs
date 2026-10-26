@@ -157,6 +157,7 @@ const BUTTON_PROGRESS_BOTTOM: f32 = 4.;
 const HEADINGS: [&str; 5] = ["Today", "Yesterday", "Earlier This Week", "Last Week", "Older"];
 
 /// A tab in the archive, as the browser reports it.
+#[derive(Clone)]
 pub struct Archived {
     pub id: u64,
     pub url: SharedString,

@@ -1,9 +1,9 @@
 //! The find bar, over the top right of the page. GPUI can't draw over the page's native view, so
-//! the bar is a window of its own that the host shows over the browser window, as its child,
+//! each browser window's bar is a window of its own that the host shows over it, as its child,
 //! while the tab shown has find in page open. The core keeps each tab's find; the bar shows the
 //! shown tab's.
 
-use std::{cell::RefCell, collections::HashMap, ffi::CString};
+use std::{cell::RefCell, collections::HashMap, ffi::CString, ffi::c_void};
 
 use browser::{
     log,
@@ -70,6 +70,8 @@ thread_local! {
 }
 
 pub struct FindBar {
+    /// The UI's view of the browser window the bar is over.
+    ui_view: *mut c_void,
     input: Entity<TextInput>,
     /// The tab the window shows, whose find this bar is.
     tab: u64,
@@ -78,22 +80,28 @@ pub struct FindBar {
     searched: String,
 }
 
-struct FindBarWindow(WindowHandle<FindBar>);
+/// Each browser window's bar, by the core's id of the window.
+#[derive(Default)]
+struct FindBars(HashMap<bc::bc_id, WindowHandle<FindBar>>);
 
-impl Global for FindBarWindow {}
+impl Global for FindBars {}
 
-/// Opens the find bar's window, hidden, over the browser window, ahead of time as the command bar
-/// does.
-pub fn open(cx: &mut App) {
-    cx.bind_keys([
-        KeyBinding::new("enter", FindNext, Some("FindBar")),
-        KeyBinding::new("shift-enter", FindPrevious, Some("FindBar")),
-        // The browser's ⌘G, ⇧⌘G and ⌘F, for the bar while it has the keyboard.
-        KeyBinding::new("cmd-g", FindNext, Some("FindBar")),
-        KeyBinding::new("shift-cmd-g", FindPrevious, Some("FindBar")),
-        KeyBinding::new("cmd-f", SelectAll, Some("FindBar")),
-        KeyBinding::new("escape", Close, Some("FindBar")),
-    ]);
+/// Opens the find bar's window for the browser window `browser`, whose UI draws in `ui_view`,
+/// hidden, ahead of time as the command bar does.
+pub fn open(browser: bc::bc_id, ui_view: *mut c_void, cx: &mut App) {
+    // The keys are bound once, for every window's bar.
+    if !cx.has_global::<FindBars>() {
+        cx.bind_keys([
+            KeyBinding::new("enter", FindNext, Some("FindBar")),
+            KeyBinding::new("shift-enter", FindPrevious, Some("FindBar")),
+            // The browser's ⌘G, ⇧⌘G and ⌘F, for the bar while it has the keyboard.
+            KeyBinding::new("cmd-g", FindNext, Some("FindBar")),
+            KeyBinding::new("shift-cmd-g", FindPrevious, Some("FindBar")),
+            KeyBinding::new("cmd-f", SelectAll, Some("FindBar")),
+            KeyBinding::new("escape", Close, Some("FindBar")),
+        ]);
+        cx.set_global(FindBars::default());
+    }
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
@@ -126,6 +134,7 @@ pub fn open(cx: &mut App) {
             cx.observe(&input, |bar: &mut FindBar, _, cx| bar.edited(cx))
                 .detach();
             FindBar {
+                ui_view,
                 input,
                 tab: 0,
                 searched: String::new(),
@@ -135,21 +144,24 @@ pub fn open(cx: &mut App) {
     match window {
         Ok(window) => {
             if let Ok(view) = window.update(cx, |_, window, _| crate::ns_view(window)) {
-                unsafe { platform::host_add_find_bar(view, f64::from(RIGHT), f64::from(TOP)) };
-                cx.set_global(FindBarWindow(window));
+                let (right, top) = (f64::from(RIGHT), f64::from(TOP));
+                unsafe { platform::host_add_find_bar(ui_view, view, right, top) };
+                cx.global_mut::<FindBars>().0.insert(browser, window);
             }
         }
         Err(error) => log!("couldn't open the find bar: {error}"),
     }
 }
 
-fn window(cx: &App) -> Option<WindowHandle<FindBar>> {
-    cx.try_global::<FindBarWindow>().map(|bar| bar.0)
+/// The bar over the browser window `browser`.
+fn window(browser: bc::bc_id, cx: &App) -> Option<WindowHandle<FindBar>> {
+    cx.try_global::<FindBars>().and_then(|bars| bars.0.get(&browser).copied())
 }
 
-/// Opens `tab`'s find bar, or selects its text if it's open, and gives it the keyboard.
-pub fn show(tab: u64, cx: &mut App) {
-    let Some(window) = window(cx).filter(|_| tab != 0) else {
+/// Opens `tab`'s find bar over the browser window `browser`, or selects its text if it's open, and
+/// gives it the keyboard.
+pub fn show(browser: bc::bc_id, tab: u64, cx: &mut App) {
+    let Some(window) = window(browser, cx).filter(|_| tab != 0) else {
         return;
     };
     let text = open_find(tab);
@@ -158,25 +170,27 @@ pub fn show(tab: u64, cx: &mut App) {
         find.open = true;
         find.text = text.clone();
     });
-    window
+    let ui_view = window
         .update(cx, |bar, window, cx| {
             bar.tab = tab;
             bar.searched = text.clone();
             bar.input
                 .update(cx, |input, cx| input.reset(text.into(), window, cx));
-        })
-        .ok();
-    unsafe { platform::host_show_find_bar(true) };
+            bar.ui_view
+        });
+    if let Ok(ui_view) = ui_view {
+        unsafe { platform::host_show_find_bar(ui_view, true) };
+    }
 }
 
-/// Goes to `tab`'s next match, or the one before, opening its find bar if it's closed, as Chrome's
-/// ⌘G does.
-pub fn find_next(tab: u64, forward: bool, cx: &mut App) {
+/// Goes to `tab`'s next match, or the one before, opening its find bar over the browser window
+/// `browser` if it's closed, as Chrome's ⌘G does.
+pub fn find_next(browser: bc::bc_id, tab: u64, forward: bool, cx: &mut App) {
     let open = FINDS.with_borrow(|finds| finds.get(&tab).is_some_and(|find| find.open));
     if !open {
-        show(tab, cx);
+        show(browser, tab, cx);
     }
-    if let Some(bar) = window(cx).and_then(|window| window.read(cx).ok()) {
+    if let Some(bar) = window(browser, cx).and_then(|window| window.read(cx).ok()) {
         let text = bar.input.read(cx).text();
         if !text.is_empty() {
             find(tab, text, forward);
@@ -184,16 +198,17 @@ pub fn find_next(tab: u64, forward: bool, cx: &mut App) {
     }
 }
 
-/// The window shows `tab`, or no page (0): the bar shows its find if that's open.
-pub fn tab_shown(tab: u64, cx: &mut App) {
-    let Some(window) = window(cx) else {
+/// The browser window `browser` shows `tab`, or no page (0): its bar shows the tab's find if
+/// that's open.
+pub fn tab_shown(browser: bc::bc_id, tab: u64, cx: &mut App) {
+    let Some(window) = window(browser, cx) else {
         return;
     };
     let find = FINDS.with_borrow(|finds| finds.get(&tab).filter(|find| find.open).cloned());
     let changed = window
         .update(cx, |bar, window, cx| {
             if bar.tab == tab {
-                return false;
+                return None;
             }
             bar.tab = tab;
             if let Some(find) = &find {
@@ -203,13 +218,14 @@ pub fn tab_shown(tab: u64, cx: &mut App) {
                 });
             }
             cx.notify();
-            true
+            Some(bar.ui_view)
         })
-        .unwrap_or(false);
-    if changed {
+        .ok()
+        .flatten();
+    if let Some(ui_view) = changed {
         match find {
-            Some(_) => unsafe { platform::host_show_find_bar(false) },
-            None => unsafe { platform::host_hide_find_bar() },
+            Some(_) => unsafe { platform::host_show_find_bar(ui_view, false) },
+            None => unsafe { platform::host_hide_find_bar(ui_view) },
         }
     }
 }
@@ -227,19 +243,24 @@ pub fn changed(tab: u64, find: Find, cx: &mut App) {
     }
     let open = find.open;
     FINDS.with_borrow_mut(|finds| finds.insert(tab, find));
-    let shown = window(cx)
-        .and_then(|window| {
-            window
-                .update(cx, |bar, _, cx| {
-                    cx.notify();
-                    bar.tab == tab
-                })
-                .ok()
-        })
-        .unwrap_or(false);
-    // A tab going to another page closes its find bar.
-    if shown && !open {
-        unsafe { platform::host_hide_find_bar() };
+    let windows: Vec<_> = match cx.try_global::<FindBars>() {
+        Some(bars) => bars.0.values().copied().collect(),
+        None => Vec::new(),
+    };
+    for window in windows {
+        let shown = window
+            .update(cx, |bar, _, cx| {
+                cx.notify();
+                (bar.tab == tab).then_some(bar.ui_view)
+            })
+            .ok()
+            .flatten();
+        // A tab going to another page closes its find bar.
+        if let Some(ui_view) = shown
+            && !open
+        {
+            unsafe { platform::host_hide_find_bar(ui_view) };
+        }
     }
 }
 
@@ -299,7 +320,7 @@ impl FindBar {
                 find.open = false;
             }
         });
-        unsafe { platform::host_hide_find_bar() };
+        unsafe { platform::host_hide_find_bar(self.ui_view) };
     }
 
     /// What the page found for the text, once it has looked: which match of how many, or none.
