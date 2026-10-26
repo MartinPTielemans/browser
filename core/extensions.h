@@ -90,6 +90,13 @@ bool RunExtension(bc_id window,
                   const std::string& id,
                   views::View* anchor);
 
+// Runs extension |id|'s keyboard command |name| on |contents|, the tab a window shows, as its key
+// does in Chrome: it's granted the tab, and its commands.onCommand hears the name and the tab.
+// Returns false if the extension isn't turned on in the tab's profile or isn't listening.
+bool RunExtensionCommand(content::WebContents* contents,
+                         const std::string& id,
+                         const std::string& name);
+
 }  // namespace browser_core
 
 #endif  // BROWSER_CORE_EXTENSIONS_H_

@@ -12,10 +12,15 @@
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
 #include "base/scoped_observation.h"
+#include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/values.h"
 #include "browser_core/host.h"
 #include "browser_core/profiles.h"
+#include "chrome/browser/extensions/commands/command_service.h"
 #include "chrome/browser/extensions/extension_action_runner.h"
+#include "chrome/browser/extensions/extension_tab_util.h"
 #include "chrome/browser/extensions/extension_view_host.h"
 #include "chrome/browser/extensions/extension_view_host_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -23,6 +28,7 @@
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "content/public/browser/web_contents.h"
+#include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_action.h"
 #include "extensions/browser/extension_action_icon_factory.h"
 #include "extensions/browser/extension_action_manager.h"
@@ -30,25 +36,126 @@
 #include "extensions/browser/extension_host_observer.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
+#include "extensions/browser/permissions/active_tab_permission_granter.h"
 #include "extensions/browser/ui_util.h"
+#include "extensions/common/api/commands/commands_handler.h"
+#include "extensions/common/api/extension_action/action_info.h"
+#include "extensions/common/command.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/mojom/context_type.mojom.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
 #include "ui/views/bubble/bubble_anchor.h"
+#include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/views/bubble/bubble_border.h"
 
 namespace browser_core {
 
 namespace {
 
+constexpr char kOnCommand[] = "commands.onCommand";
+
+// The key a command's |code| is, as bc_key names one, or "" for a media key, which no window's
+// keys are.
+std::string KeyName(ui::KeyboardCode code) {
+  if ((code >= ui::VKEY_A && code <= ui::VKEY_Z) || (code >= ui::VKEY_0 && code <= ui::VKEY_9)) {
+    return std::string(1, base::ToLowerASCII(static_cast<char>(code)));
+  }
+  switch (code) {
+    case ui::VKEY_OEM_COMMA:
+      return ",";
+    case ui::VKEY_OEM_PERIOD:
+      return ".";
+    case ui::VKEY_SPACE:
+      return " ";
+    case ui::VKEY_HOME:
+      return "Home";
+    case ui::VKEY_END:
+      return "End";
+    case ui::VKEY_PRIOR:
+      return "PageUp";
+    case ui::VKEY_NEXT:
+      return "PageDown";
+    case ui::VKEY_INSERT:
+      return "Insert";
+    case ui::VKEY_DELETE:
+      return "Delete";
+    case ui::VKEY_UP:
+      return "ArrowUp";
+    case ui::VKEY_DOWN:
+      return "ArrowDown";
+    case ui::VKEY_LEFT:
+      return "ArrowLeft";
+    case ui::VKEY_RIGHT:
+      return "ArrowRight";
+    default:
+      return "";
+  }
+}
+
+// One of an extension's commands as the app is told of it, owning its strings.
+struct KeyedCommand {
+  std::string name;
+  std::string description;
+  std::string key;
+  uint32_t modifiers;
+  bool suggested;
+};
+
+// |extension|'s commands that have a key, its action's first. Global ones too: the window runs
+// them while it's in front, as Chrome's do.
+std::vector<KeyedCommand> KeyedCommands(Profile* profile, const extensions::Extension& extension) {
+  std::vector<KeyedCommand> keyed;
+  // |suggested| is the key the manifest gives |command|, if it gives one.
+  auto add = [&keyed](const ui::Command& command, const ui::Accelerator* suggested) {
+    const ui::Accelerator& accelerator = command.accelerator();
+    std::string key = KeyName(accelerator.key_code());
+    if (key.empty()) {
+      return;
+    }
+    const uint32_t modifiers = (accelerator.IsShiftDown() ? BC_MODIFIER_SHIFT : 0) |
+                               (accelerator.IsCtrlDown() ? BC_MODIFIER_CONTROL : 0) |
+                               (accelerator.IsAltDown() ? BC_MODIFIER_ALT : 0) |
+                               (accelerator.IsCmdDown() ? BC_MODIFIER_META : 0);
+    keyed.push_back({command.command_name(), base::UTF16ToUTF8(command.description()),
+                     std::move(key), modifiers, suggested && *suggested == accelerator});
+  };
+  extensions::CommandService* service = extensions::CommandService::Get(profile);
+  const extensions::ActionInfo* action = extensions::ActionInfo::GetExtensionActionInfo(&extension);
+  extensions::Command command;
+  if (action && service->GetExtensionActionCommand(extension.id(), action->type,
+                                                   extensions::CommandService::ACTIVE, &command,
+                                                   nullptr)) {
+    using Type = extensions::ActionInfo::Type;
+    const extensions::Command* manifest =
+        action->type == Type::kAction ? extensions::CommandsInfo::GetActionCommand(&extension)
+        : action->type == Type::kBrowser
+            ? extensions::CommandsInfo::GetBrowserActionCommand(&extension)
+            : extensions::CommandsInfo::GetPageActionCommand(&extension);
+    add(command, manifest ? &manifest->accelerator() : nullptr);
+  }
+  ui::CommandMap named;
+  service->GetNamedCommands(extension.id(), extensions::CommandService::ACTIVE,
+                            extensions::CommandService::ANY_SCOPE, &named);
+  const ui::CommandMap* manifest = extensions::CommandsInfo::GetNamedCommands(&extension);
+  for (const auto& [name, each] : named) {
+    const auto suggested = manifest ? manifest->find(name) : ui::CommandMap::const_iterator();
+    add(each, manifest && suggested != manifest->end() ? &suggested->second.accelerator()
+                                                       : nullptr);
+  }
+  return keyed;
+}
+
 // Tells the app of one profile's extensions, once after each call that changed them.
 class ProfileExtensions : public extensions::ExtensionRegistryObserver,
-                          public ToolbarActionsModel::Observer {
+                          public ToolbarActionsModel::Observer,
+                          public extensions::CommandService::Observer {
  public:
   explicit ProfileExtensions(Profile* profile) : profile_(profile) {
     observation_.Observe(extensions::ExtensionRegistry::Get(profile));
     pinned_observation_.Observe(ToolbarActionsModel::Get(profile));
+    commands_observation_.Observe(extensions::CommandService::Get(profile));
     Changed();
   }
 
@@ -93,6 +200,17 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
   void OnToolbarPinnedActionsChanged() override { Changed(); }
   void OnToolbarActionsModelShutdown() override { pinned_observation_.Reset(); }
 
+  // extensions::CommandService::Observer, for the commands' keys:
+  void OnExtensionCommandAdded(const extensions::ExtensionId& id,
+                               const std::string& command) override {
+    Changed();
+  }
+  void OnExtensionCommandRemoved(const extensions::ExtensionId& id,
+                                 const std::string& command) override {
+    Changed();
+  }
+  void OnCommandServiceDestroying() override { commands_observation_.Reset(); }
+
   void Report() {
     report_posted_ = false;
     if (!Host().extensions_changed || !observation_.IsObserving()) {
@@ -110,13 +228,24 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
       return extension->name();
     });
     ToolbarActionsModel* model = pinned_observation_.GetSource();
+    std::vector<std::vector<KeyedCommand>> keyed;
+    std::vector<std::vector<bc_extension_command>> commands;
+    keyed.reserve(listed.size());
+    commands.reserve(listed.size());
     std::vector<bc_extension> extensions;
     extensions.reserve(listed.size());
     for (const scoped_refptr<const extensions::Extension>& extension : listed) {
+      std::vector<bc_extension_command>& told = commands.emplace_back();
+      for (const KeyedCommand& command : keyed.emplace_back(KeyedCommands(profile_, *extension))) {
+        told.push_back({command.name.c_str(), command.description.c_str(), command.key.c_str(),
+                        command.modifiers, command.suggested});
+      }
       extensions.push_back({.id = extension->id().c_str(),
                             .name = extension->name().c_str(),
                             .enabled = registry->enabled_extensions().Contains(extension->id()),
-                            .pinned = model && model->IsActionPinned(extension->id())});
+                            .pinned = model && model->IsActionPinned(extension->id()),
+                            .commands = told.data(),
+                            .command_count = told.size()});
     }
     Host().extensions_changed(Host().context, ProfileId(DirOf(profile_)), extensions.data(),
                               extensions.size());
@@ -127,6 +256,8 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
       observation_{this};
   base::ScopedObservation<ToolbarActionsModel, ToolbarActionsModel::Observer> pinned_observation_{
       this};
+  base::ScopedObservation<extensions::CommandService, extensions::CommandService::Observer>
+      commands_observation_{this};
   bool report_posted_ = false;
   base::WeakPtrFactory<ProfileExtensions> weak_factory_{this};
 };
@@ -369,6 +500,36 @@ bool RunExtension(bc_id window,
       browser, std::move(host), views::BubbleAnchor(anchor), views::BubbleBorder::TOP_LEFT,
       PopupShowAction::kShow,
       base::BindOnce([](extensions::ExtensionHost* host) { ThePopup().Shown(host); }));
+  return true;
+}
+
+bool RunExtensionCommand(content::WebContents* contents,
+                         const std::string& id,
+                         const std::string& name) {
+  Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
+  const extensions::Extension* extension =
+      extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(id);
+  extensions::EventRouter* router = extensions::EventRouter::Get(profile);
+  if (!extension || !router->ExtensionHasEventListener(id, kOnCommand)) {
+    return false;
+  }
+  // Granted first, so the extension can act on the tab as it hears the command.
+  if (auto* granter = extensions::ActiveTabPermissionGranter::FromWebContents(contents)) {
+    granter->GrantIfRequested(extension);
+  }
+  base::ListValue args;
+  args.Append(name);
+  // The commands API is only for the extension's privileged contexts.
+  args.Append(extensions::ExtensionTabUtil::CreateTabObject(
+                  contents,
+                  extensions::ExtensionTabUtil::GetScrubTabBehavior(
+                      extension, extensions::mojom::ContextType::kPrivilegedExtension, contents),
+                  extension)
+                  .ToValue());
+  auto event = std::make_unique<extensions::Event>(extensions::events::COMMANDS_ON_COMMAND,
+                                                   kOnCommand, std::move(args), profile);
+  event->user_gesture = extensions::EventRouter::UserGestureState::kEnabled;
+  router->DispatchEventToExtension(id, std::move(event));
   return true;
 }
 

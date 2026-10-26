@@ -166,6 +166,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Runs extension |id|'s action on the tab the window shows, its popup hanging from |anchor|. See
   // bc_window_run_extension.
   bool RunExtension(const std::string& id, const gfx::Rect& anchor);
+  // Runs extension |id|'s keyboard command |name| on the tab the window shows. See
+  // bc_window_run_extension_command.
+  bool RunExtensionCommand(const std::string& id, const std::string& name);
   // Opens a copy of |tab|, one of this window's, with its history: under it in Today, or at the
   // top of Today for a pinned tab, where a pinned tab's links open, and in the Space the window
   // shows for a favorite. Shows it, and its page loads. Returns its id, or 0.

@@ -13,7 +13,7 @@ use std::{
 use browser::{command_bar, dialog, log, toast};
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    ExtensionAction, Folders, MenuEntry, Page, Shell, Split, WindowButton,
+    ExtensionAction, ExtensionCommand, Folders, MenuEntry, Page, Shell, Split, WindowButton,
 };
 use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
@@ -642,6 +642,13 @@ impl Browser for Engine {
         unsafe { bc::bc_window_run_extension(WINDOW.get(), id.as_ptr(), rect(anchor)) }
     }
 
+    fn run_extension_command(&self, id: &str, name: &str, _: &mut App) -> bool {
+        let (Ok(id), Ok(name)) = (CString::new(id), CString::new(name)) else {
+            return false;
+        };
+        unsafe { bc::bc_window_run_extension_command(WINDOW.get(), id.as_ptr(), name.as_ptr()) }
+    }
+
     fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, _: &mut App) {
         if let Ok(id) = CString::new(id) {
             unsafe { bc::bc_extension_set_pinned(profile, id.as_ptr(), pinned) };
@@ -903,6 +910,7 @@ fn keystroke(key: &bc::bc_key) -> String {
         "ArrowUp" => "up".to_string(),
         "ArrowLeft" => "left".to_string(),
         "ArrowRight" => "right".to_string(),
+        " " => "space".to_string(),
         name => name.to_lowercase(),
     };
     keystroke + &key
@@ -928,7 +936,13 @@ unsafe extern "C" fn tab_key_before_page(
     _: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
-    run_page_shortcut(key, true)
+    // As in Chrome, the reserved shortcuts come first, then the extensions' keys.
+    run_page_shortcut(key, true) || {
+        let keystroke = keystroke(unsafe { &*key });
+        let mut ran = false;
+        update_shell(|shell, cx| ran = shell.run_extension_key(&keystroke, "page", cx));
+        ran
+    }
 }
 
 unsafe extern "C" fn tab_key_unhandled(
@@ -1488,6 +1502,25 @@ unsafe extern "C" fn extensions_changed(
             name: text(extension.name),
             enabled: extension.enabled,
             pinned: extension.pinned,
+            commands: match extension.commands.is_null() {
+                true => &[][..],
+                false => unsafe {
+                    std::slice::from_raw_parts(extension.commands, extension.command_count)
+                },
+            }
+            .iter()
+            .map(|command| ExtensionCommand {
+                name: text(command.name),
+                description: text(command.description),
+                keystroke: keystroke(&bc::bc_key {
+                    key: command.key,
+                    modifiers: command.modifiers,
+                    editing: false,
+                })
+                .into(),
+                suggested: command.suggested,
+            })
+            .collect(),
         })
         .collect();
     update_shell(|shell, cx| shell.set_extensions(profile, extensions, cx));

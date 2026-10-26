@@ -32,7 +32,7 @@ pub(crate) mod scaled;
 mod split_targets;
 
 pub use extensions::{
-    Extension, ExtensionAction, menu_item as extension_menu_item,
+    Extension, ExtensionAction, ExtensionCommand, menu_item as extension_menu_item,
     pin_menu_item as extension_pin_menu_item,
 };
 pub use library::{Archived, Download, DownloadAction, DownloadState};
@@ -1078,6 +1078,9 @@ pub trait Browser {
     /// Runs extension `id`'s action on the tab shown, its popup hanging from `anchor` in the
     /// window, and returns whether the extension is turned on in the tab's profile.
     fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, cx: &mut App) -> bool;
+    /// Runs extension `id`'s keyboard command `name` on the tab shown, and returns whether the
+    /// extension is turned on in the tab's profile and listening.
+    fn run_extension_command(&self, id: &str, name: &str, cx: &mut App) -> bool;
     /// Pins extension `id`'s action in `profile`, or unpins it.
     fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, cx: &mut App);
     /// Opens Chrome's extensions page in a new tab, at extension `id`'s details if there's one,

@@ -1,18 +1,19 @@
 //! The extensions of the shown Space's profile: the menu bar's Extensions menu lists and runs them,
-//! as their toolbar buttons do in Chrome, and the pinned ones' actions show at the URL field's end
-//! (docs/ux-spec.md › Extensions).
+//! as their toolbar buttons do in Chrome, the pinned ones' actions show at the URL field's end, and
+//! their keyboard commands run from the page and the UI (docs/ux-spec.md › Extensions).
 
 use std::sync::Arc;
 
 use gpui::{
-    Action, AnyElement, App, Bounds, Context, FontWeight, Image, MenuItem, MouseButton,
+    Action, AnyElement, App, Bounds, Context, FontWeight, Image, Keystroke, MenuItem, MouseButton,
     MouseDownEvent, Pixels, Point, SharedString, div, img, point, prelude::*, px, rgb, rgba, size,
     svg,
 };
 
 use super::{
-    MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell, ShellHandle,
-    URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X, URL_FIELD_TOP,
+    Command, MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
+    ShellHandle, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X,
+    URL_FIELD_TOP,
 };
 
 /// The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -34,6 +35,19 @@ pub struct Extension {
     pub enabled: bool,
     /// Its action shows at the URL field's end.
     pub pinned: bool,
+    pub commands: Vec<ExtensionCommand>,
+}
+
+/// One of an extension's keyboard commands that has a key.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ExtensionCommand {
+    /// Its name in the manifest, or "_execute_action" for its action.
+    pub name: SharedString,
+    pub description: SharedString,
+    /// Its key, as the browser's shortcuts write them: "shift-cmd-y".
+    pub keystroke: SharedString,
+    /// The key is the one the extension suggested, not one the user set.
+    pub suggested: bool,
 }
 
 /// A pinned extension's action as the window shows it, for the tab shown.
@@ -69,6 +83,21 @@ pub fn pin_menu_item(extension: &Extension) -> MenuItem {
 }
 
 pub(super) fn bind(cx: &mut App) {
+    // While the UI has the keyboard. The page hands its keys over before it sees them.
+    cx.intercept_keystrokes(|event, _, cx| {
+        if crate::dialog::asking(cx) {
+            return;
+        }
+        let Some(shell) = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone()) else {
+            return;
+        };
+        let keystroke = keystroke_text(&event.keystroke);
+        let ran = shell.update(cx, |shell, cx| shell.run_extension_key(&keystroke, "ui", cx));
+        if ran.unwrap_or(false) {
+            cx.stop_propagation();
+        }
+    })
+    .detach();
     cx.on_action(|run: &RunExtension, cx| {
         if crate::dialog::asking(cx) {
             return;
@@ -101,6 +130,15 @@ impl Shell {
         let pinned = extensions.iter().filter(|extension| extension.pinned);
         let pinned: Vec<&str> = pinned.map(|extension| extension.id.as_ref()).collect();
         log!("browser: pinned extensions {profile} {}", pinned.join(" "));
+        for extension in extensions.iter().filter(|extension| !extension.commands.is_empty()) {
+            let keys: Vec<String> = (extension.commands.iter())
+                .map(|command| {
+                    let suggested = if command.suggested { " suggested" } else { "" };
+                    format!("{}={}{suggested}", command.name, command.keystroke)
+                })
+                .collect();
+            log!("browser: extension keys {} {}", extension.id, keys.join(", "));
+        }
         self.extensions.insert(profile, extensions);
         self.update_extensions_menu(cx);
     }
@@ -168,6 +206,35 @@ impl Shell {
         let ran = self.browser.run_extension(id, anchor, cx);
         // check.sh waits for this line.
         log!("browser: run extension {id} {}", if ran { "ran" } else { "refused" });
+    }
+
+    /// Runs the keyboard command that `keystroke` is in the shown Space's profile, if there's one,
+    /// and says whether it ran: an action runs as a click on its button does, and another command
+    /// runs if its extension is listening.
+    pub fn run_extension_key(
+        &mut self,
+        keystroke: &str,
+        via: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let profile = self.shown_space().map_or(0, |space| space.profile);
+        let extensions = self.extensions.get(&profile).map_or(&[][..], Vec::as_slice);
+        let Some((id, name)) = (command_for(keystroke, extensions))
+            .map(|(extension, command)| (extension.id.clone(), command.name.clone()))
+        else {
+            return false;
+        };
+        let ran = match name.as_ref() {
+            "_execute_action" => {
+                self.run_extension(&id, cx);
+                true
+            }
+            name => self.browser.run_extension_command(&id, name, cx),
+        };
+        // check.sh waits for this line.
+        let result = if ran { "ran" } else { "refused" };
+        log!("browser: extension command {id} {name} {result} via {via}");
+        ran
     }
 
     /// Pins the extension's action in the shown Space's profile, or unpins it.
@@ -325,6 +392,41 @@ impl Shell {
     }
 }
 
+/// The command `keystroke` runs among the turned-on `extensions`', as Chrome gives them keys: never
+/// one of the browser's reserved shortcuts, and one of its others only if the user set it, as a
+/// suggested key that's taken isn't given.
+fn command_for<'a>(
+    keystroke: &str,
+    extensions: &'a [Extension],
+) -> Option<(&'a Extension, &'a ExtensionCommand)> {
+    if Command::for_keystroke(keystroke, true).is_some() {
+        return None;
+    }
+    let ours = Command::for_keystroke(keystroke, false).is_some();
+    extensions.iter().filter(|extension| extension.enabled).find_map(|extension| {
+        (extension.commands.iter())
+            .find(|command| command.keystroke == keystroke && !(ours && command.suggested))
+            .map(|command| (extension, command))
+    })
+}
+
+/// `keystroke` as the browser's shortcuts write it, with the modifiers in their order.
+fn keystroke_text(keystroke: &Keystroke) -> String {
+    let modifiers = &keystroke.modifiers;
+    let mut text = String::new();
+    for (held, name) in [
+        (modifiers.control, "ctrl-"),
+        (modifiers.alt, "alt-"),
+        (modifiers.shift, "shift-"),
+        (modifiers.platform, "cmd-"),
+    ] {
+        if held {
+            text.push_str(name);
+        }
+    }
+    text + &keystroke.key
+}
+
 /// How many of `count` actions show in `places`, and whether the overflow button takes the last
 /// place, for the rest.
 fn fit_actions(places: usize, count: usize) -> (usize, bool) {
@@ -336,7 +438,44 @@ fn fit_actions(places: usize, count: usize) -> (usize, bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::fit_actions;
+    use super::{Extension, ExtensionCommand, command_for, fit_actions};
+
+    fn extension(id: &str, enabled: bool, commands: &[(&str, &str, bool)]) -> Extension {
+        Extension {
+            id: id.to_string().into(),
+            name: id.to_string().into(),
+            enabled,
+            pinned: false,
+            commands: (commands.iter())
+                .map(|&(name, keystroke, suggested)| ExtensionCommand {
+                    name: name.to_string().into(),
+                    description: Default::default(),
+                    keystroke: keystroke.to_string().into(),
+                    suggested,
+                })
+                .collect(),
+        }
+    }
+
+    /// A key the user set wins over the browser's, except a reserved one, and a key an extension
+    /// suggested never takes one of the browser's.
+    #[test]
+    fn extension_keys_give_way_to_the_browsers_as_in_chrome() {
+        let extensions = [
+            extension("off", false, &[("hello", "shift-cmd-y", false)]),
+            extension("a", true, &[("hello", "shift-cmd-y", true), ("tab", "cmd-t", false)]),
+            extension("b", true, &[("library", "shift-cmd-l", true), ("side", "cmd-s", false)]),
+        ];
+        let run = |keystroke| {
+            command_for(keystroke, &extensions)
+                .map(|(extension, command)| format!("{} {}", extension.id, command.name))
+        };
+        assert_eq!(run("shift-cmd-y").as_deref(), Some("a hello"));
+        assert_eq!(run("cmd-t"), None);
+        assert_eq!(run("shift-cmd-l"), None);
+        assert_eq!(run("cmd-s").as_deref(), Some("b side"));
+        assert_eq!(run("alt-shift-p"), None);
+    }
 
     /// Every pinned action has a place to be run from: its own, or the overflow button's.
     #[test]

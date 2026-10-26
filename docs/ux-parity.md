@@ -268,7 +268,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Side panel | MVP | card right of the page, header, 320–600 saved | Dia, Ardia |
 | [ ] | Install, re-enable, new-permission dialog | MVP | ours, Chrome's warnings; store buttons "Add to / Remove from <browser>"; Arc's: measure | Dia P§15 |
 | [ ] | Remove | MVP | "Remove “<name>”?", Cancel / destructive Remove | Dia P§15 |
-| [ ] | Keyboard commands | MVP | fire with the page focused; never reserved keys; clashing suggestions not assigned | Chrome P§15 |
+| [x] | Keyboard commands | MVP | fire with the page and the UI focused; actions' keys; never reserved keys; suggestions that are ours stay ours; media keys: later | Chrome P§15 |
 | [ ] | Site Controls | MVP | Ardia's layout (58 pt cells, 8 gaps, rows of 4, open 150 / close 100 ms); Arc's: measure | Ardia |
 
 ## Passwords and autofill
