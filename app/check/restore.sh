@@ -100,15 +100,24 @@ e=$(today)
 expect "^browser: loaded $e https://example.com/\$" "example.com didn't load in the new Space's tab"
 post rightclick 100 112
 expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
-  "the Space's menu didn't offer its colours"
-send choose Pink
-expect "^browser: colored space $second bf556a\$" "Pink didn't give the Space its colour"
+  "the Space's menu didn't offer its theme"
+# The theme picker's pink swatch, and + for a second colour, which a relaunch brings back.
+send choose Edit Theme Color…
+expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
+send clickkey "$(swatch_x 1)" $swatch_y
+expect "^browser: colored space $second [0-9a-f]*\$" "the pink swatch didn't colour the Space"
+color=$(grep "^browser: colored space $second " "$log" | tail -1 | cut -d' ' -f5)
+send clickkey 211.5 316.5
+expect "^browser: themed space $second x=[-0-9.]* y=[-0-9.]* colors=2 " \
+  "+ didn't give the Space a second colour"
+theme=$(grep "^browser: themed space $second " "$log" | tail -1 | cut -d' ' -f5-)
+send key escape
+expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
 ../tools/window-screenshot.sh "$pid" "$out/space-color.png" || fail "no window to capture"
 # Change Icon… in the Space's menu gives it an emoji from the icon picker's Emoji tab, found by a
 # search and picked with ↩, which a relaunch brings back.
-pink=${colors/ (checked)/}
 post rightclick 100 112
-expect "^browser: menu shown Rename Space, Change Icon…, ${pink/Pink/Pink (checked)}, $profile, \
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, \
 Delete Space\$" "the Space's menu didn't offer Change Icon…"
 send choose Change Icon…
 expect "^browser: icon picker for $second on icon\$" "Change Icon… didn't open the icon picker"
@@ -202,8 +211,10 @@ first=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f3)
 second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
 grep -q "^browser: added space $first Space 1\$" "$log" || fail "the first Space came back without its name"
 grep -q "^browser: added space $second reading list\$" "$log" || fail "the second Space came back without its name"
-grep -q "^browser: colored space $second bf556a\$" "$log" ||
+grep -q "^browser: colored space $second $color\$" "$log" ||
   fail "the second Space came back without its colour"
+grep -qF "browser: themed space $second $theme" "$log" ||
+  fail "the second Space came back without its theme"
 grep -q "^browser: iconed space $second 🌱\$" "$log" ||
   fail "the second Space came back without its icon"
 await "^browser: space $first\$" || fail "the relaunch didn't show the first Space"
@@ -477,6 +488,6 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, themes, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png, $out/tab-icon-picker.png,"
 echo "  $out/recent-downloads.png"
