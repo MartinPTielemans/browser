@@ -176,6 +176,10 @@ void host_show_settings(void);
 // Hides the Settings window, which keeps its place for the next host_show_settings.
 void host_hide_settings(void);
 
+// Closes the window with the keyboard if it's one of Chrome's with a close button, such as its
+// Task Manager or DevTools undocked, as ⌘W does in Chrome, and says whether it did.
+bool host_close_other_window(void);
+
 // A detent on the trackpad, as a swipe's nearest Space changes.
 void host_detent(void);
 

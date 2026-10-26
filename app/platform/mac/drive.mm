@@ -36,6 +36,8 @@
 //                                         windows, and the centres of its close, minimize and
 //                                         zoom buttons
 //   state                                 nothing, for the done line's report
+//   title                                 logs the key window's title, as "browser: key window
+//                                         titled <title>", such as a window of Chrome's
 //   backdrop <grey>|off                   a window of the driver's in <grey> (0–255) behind the
 //                                         browser window and 100 points past its edges, for the
 //                                         window's material to blur something known
@@ -653,6 +655,11 @@ bool Run(const std::string& line, void (^done)(void)) {
     return true;
   }
   if (action == "state") {
+    done();
+    return true;
+  }
+  if (action == "title") {
+    fprintf(stderr, "browser: key window titled %s\n", NSApp.keyWindow.title.UTF8String ?: "");
     done();
     return true;
   }

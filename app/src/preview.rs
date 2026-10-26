@@ -454,6 +454,12 @@ impl Browser for Fake {
 
     fn devtools(&self, _: u64, _: i32, _: &mut App) {}
 
+    fn task_manager(&self, _: &mut App) {}
+
+    fn close_other_window(&self, _: &mut App) -> bool {
+        false
+    }
+
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,

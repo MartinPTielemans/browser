@@ -8,7 +8,8 @@
 # once when another tab shows. ⌥⌘I from the page docks DevTools in the card, filling it, with the
 # page on its left, through a resize, and F12 closes them and gives the page the keyboard.
 # View › Developer's JavaScript Console opens them, a tab without them shows its page across the
-# card, and View Source opens the page's source in a tab under it.
+# card, and View Source opens the page's source in a tab under it. Help › Troubleshooting's Open
+# Task Manager opens Chrome's, with the keyboard, and ⌘W there closes it, not the tab.
 
 # Find in page, and zoom. The test page has three apples and one 日本語, and puts its zoom in its
 # title as it changes.
@@ -275,7 +276,19 @@ expect '^browser: page [0-9]* .* view-source:https://example.org/$' \
   "View Source didn't open the page's source"
 source=$(grep '^browser: page [0-9]* .* view-source:' "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: today $second $first $source\$" "the source's tab isn't under the page's"
+# Chrome's Task Manager, from the menu as Arc's, is a window of its own, which ⌘W closes as in
+# Chrome, giving the browser window the keyboard back with its tabs.
+send menu "Open Task Manager"
+expect '^browser: command task-manager via ui$' "Open Task Manager didn't reach the UI"
+send title
+expect '^browser: key window titled Task Manager' "Open Task Manager didn't show Chrome's"
+../tools/window-screenshot.sh "$pid" "$out/task-manager.png" || fail "no window to capture"
+send key w cmd
+expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't reach the UI"
+send state
+in_browser RenderWidgetHostViewCocoa "after ⌘W closed the Task Manager"
+[ "$(today)" = "$second $first $source" ] || fail "⌘W in the Task Manager closed a tab"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png"
+echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png"

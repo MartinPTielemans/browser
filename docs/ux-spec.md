@@ -175,13 +175,14 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 
 Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the same command as its key and shows that key.
 
-- **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Window, as Arc's App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help. Extensions and Help come with their features.
+- **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Window and Help, as Arc's App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help. Extensions comes with its feature.
 - **File.** New Tab…, Restore Last Closed Tab, Open Command Bar, Archive Tab (⌘W), then Save Page As (⇧⌘S) and Print (⌘P), as Arc's. Save Page As shows Chrome's save panel and Print its print preview, over the page. Arc's window, profile, Note, Easel, Share and Capture items come with their features.
 - **Archive.** Go Back, Go Forward, View Archive and Clear Archive, as Arc's. Arc's View History (⌘Y) comes with history.
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu.
 - **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
 - **View.** Show/Hide Sidebar, then Stop Loading, Refresh the Page, Force Refresh the Page, Clear Cookies and Refresh and Clear Cache and Refresh, then the split view items, zoom and Developer, as Arc's. The two Clear items, also in the command bar, delete the profile's cookies or cache for the page's site, its registrable domain or IP address, then load the page again, the cache's bypassing the cache. Pages that aren't http(s) have no site, so the command bar leaves the items out and they do nothing (*interim*: what Arc clears beyond the site isn't measured).
 - **Window.** Minimize Window (⌘M), then View Library (⇧⌘L) and View Downloads (⇧⌘J). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above them, and Enter Full Screen to View.
+- **Help.** Troubleshooting › Open Task Manager, as Arc's, where Chrome has Window › Task Manager. AppKit adds its search field. Arc's other Help items come with their features.
 - **Page menu** (*interim* until Arc's is captured). A right-click on the page shows Chrome's context menu, as Arc's does, with Chrome's items working as in Chrome: a link opens in a tab under the page, Save As and Save Link As show the save panel, Print shows print preview and Inspect docks DevTools at the element. Open Link in Split View opens the link in a pane on the right, as ⌥⇧-click does. It leaves out the items for what the browser doesn't have yet, Open Link in New Window and in Incognito Window, and those whose UI is a bubble on Chrome's toolbar or its side panel: Cast, Open in Reading Mode, Listen to This Page, QR Code and Translate. Each comes back with its feature.
 - **Tab dialogs**, such as print preview, Chrome's, as in Chrome's window: centred over the page, with their top at the page's, and gone while another tab shows.
 - **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Archive Tab (⌘W), Refresh the Page, Force Refresh the Page, Go Back, Go Forward, Zoom to Actual Size, Zoom In, Zoom Out, and View › Developer's View Source, Developer Tools, Inspect Elements and JavaScript Console.
@@ -715,7 +716,7 @@ Chrome's DevTools (Dia, P§23), docked in the card as Arc's.
 - **Docking.** As Chrome's window does it: DevTools fill the card, and the page goes where they leave it, rounded at the card's corners it reaches. Each tab has its own; a tab without them shows its page across the card. Closing them gives the page the keyboard back. DevTools' own menu docks them on another side, where the page goes the same way.
 - Ours: Chrome's width, 555 pt the first time, then wherever the user drags the divider, which DevTools keep per profile. Arc's third may be the capture's saved width.
 - **Undocked.** DevTools' Dock side menu undocks them into Chrome's own window, which takes the keyboard, and docks them again. Dia's is titled "Developer Tools - <url>", opens where it was last left, and is 640 × 640 the first time.
-- **Task Manager.** Window › Task Manager opens Chrome's.
+- **Task Manager.** Help › Troubleshooting › Open Task Manager, and Open Task Manager in the command bar, open Chrome's in a window of its own, with the page shown selected. As in Chrome, ⌘W closes it, as it closes any window of Chrome's that has the keyboard, and the tab the browser window shows stays.
 - **Agents.** DevTools are for the user. Agents get no DevTools and no remote-debugging port (decision 8).
 
 ### Import from Arc and Chrome

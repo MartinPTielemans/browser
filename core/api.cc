@@ -615,6 +615,14 @@ void bc_tab_save_page(bc_id id) {
   }
 }
 
+void bc_window_task_manager(bc_id window_id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  content::WebContents* contents = window ? browser_core::Tab::FromId(window->selected()) : nullptr;
+  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  // Chrome's selects its Browser's active tab, the one the window shows.
+  chrome::OpenTaskManager(tab ? tab->GetBrowserWindowInterface() : nullptr);
+}
+
 bc_id bc_tab_duplicate(bc_id id) {
   content::WebContents* contents = browser_core::Tab::FromId(id);
   tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;

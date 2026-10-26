@@ -583,6 +583,10 @@ BC_EXPORT void bc_tab_print(bc_id tab);
 // user's: agents get none.
 BC_EXPORT void bc_tab_save_page(bc_id tab);
 
+// Opens Chrome's Task Manager, or brings it to the front, with the page |window| shows selected in
+// it. The user's: agents get none.
+BC_EXPORT void bc_window_task_manager(bc_id window);
+
 // Closes the tab: its page gets its unload handlers, which may keep it open, then tab_closed, and
 // a Today tab goes in the archive. The window stays open without it. A pinned tab stays in its
 // Space instead, and a favorite in the favorites, and only its page goes: a window showing it
