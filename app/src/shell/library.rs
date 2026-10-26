@@ -53,9 +53,9 @@ const LIBRARY_LAG_SPEED: f32 = 0.92;
 /// band on a short pull, so it gives, and half as far on a long one, so it pulls back.
 const LIBRARY_BAND: f32 = 80.;
 const LIBRARY_BAND_STIFFNESS: f32 = 0.25;
-/// How near where it opens the Library counts as there, for the window's buttons, so the settle
-/// back from past it doesn't hide them as it dips under.
-const LIBRARY_END_SLACK: f32 = 0.01;
+/// How near, in points, the Library's panel counts as at rest where it opens, for the window's
+/// buttons: half a pixel at 2×, so their swap from the panel's copy can't be seen.
+const LIBRARY_REST_SLACK: f32 = 0.25;
 
 /// The column of sections, and the line at its edge.
 const COLUMN_WIDTH: f32 = 112.;
@@ -511,10 +511,11 @@ impl Shell {
         }
     }
 
-    /// Whether fingers, or the settle after them, have the Library where it opens or past, where
-    /// it gives, with the window's own buttons on its column.
-    pub(super) fn library_at_end(&self) -> bool {
-        self.clicked_fade().is_none() && self.library_out() >= 1. - LIBRARY_END_SLACK
+    /// Whether the Library's panel is at rest where it opens, or past it with the card, to within
+    /// a pixel's half. Its column, and the window's buttons on it, then sit where the window's
+    /// own do.
+    pub(super) fn library_at_rest(&self) -> bool {
+        panel_at_rest(self.library_edge(), self.library_width())
     }
 
     /// Opens the Library, or closes it, from wherever the card is, the sidebar fading.
@@ -768,7 +769,11 @@ impl Shell {
     }
 
     /// The Library, where the sidebar was.
-    pub(super) fn library_panel(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    pub(super) fn library_panel(
+        &self,
+        buttons: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let Some(library) = &self.library else {
             return div();
         };
@@ -813,7 +818,10 @@ impl Shell {
             .items_center()
             .pl(px(SECTION_X + past))
             .child(sections)
-            .child(back);
+            .child(back)
+            // Where the window's own sit, so they slide in with the panel, and stay put on the
+            // column when fingers take it past its end.
+            .children(buttons.then(|| self.window_buttons(cx)));
         let edge = div()
             .absolute()
             .left(px(COLUMN_WIDTH))
@@ -1496,6 +1504,12 @@ fn receding_library_opacity(out: f32) -> f32 {
     1. - receded_opacity(out)
 }
 
+/// Whether the Library's panel, `width` wide with its edge `edge` of the way (`library_edge`), is
+/// at rest, to within `LIBRARY_REST_SLACK`.
+fn panel_at_rest(edge: f32, width: f32) -> bool {
+    (1. - edge) * width < LIBRARY_REST_SLACK
+}
+
 /// How far the Library's edge has come (`library_edge`) as the sidebar recedes with it `out`.
 fn receding_edge(out: f32) -> f32 {
     let lagged = |out: f32| LIBRARY_LAG_SPEED * (out - LIBRARY_LAG);
@@ -1543,8 +1557,9 @@ mod tests {
     use super::{
         Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, LIBRARY_LAG, Line,
         RECEDE_SPAN, Space, download_menu_items, library_band, receded_opacity, receding_edge,
-        receding_library_opacity as library,
+        panel_at_rest, receding_library_opacity as library,
     };
+    use crate::shell::sidebar::window_buttons_at;
     use crate::shell::{Folders, Split, rubber_band};
 
     fn space(pinned: &[u64], today: &[u64], folders: Folders, splits: Vec<Split>) -> Space {
@@ -1637,6 +1652,75 @@ mod tests {
             assert!(library(out) >= last, "the Library faded back at {out}");
             last = library(out);
         }
+    }
+
+    /// How the window's buttons are drawn with the Library `out` of the way (`library_out`),
+    /// moving, as (its own, the panel's copy, the sidebar's copy).
+    fn buttons(open: bool, out: f32, docked: bool) -> (bool, bool, bool) {
+        let at_rest = panel_at_rest(receding_edge(out), 417.);
+        let drawn = window_buttons_at(open, true, at_rest, docked);
+        (drawn.window, drawn.library, drawn.sidebar)
+    }
+
+    /// Opening, the panel's copy slides in with it and the window's own take over once the panel
+    /// has stopped, within a pixel's half of where its copy was, and stay.
+    #[test]
+    fn the_windows_buttons_slide_in_with_the_library_and_take_over_at_rest() {
+        let mut real = false;
+        for step in 0..=1200 {
+            let out = step as f32 / 1000.;
+            let (window, panel, sidebar) = buttons(true, out, true);
+            assert!(!(window && (panel || sidebar)), "drawn twice at {out}");
+            assert!(window || panel, "missing at {out}");
+            assert!(!real || window, "the window's own went again at {out}");
+            if window && !real {
+                let offset = (1. - receding_edge(out)) * 417.;
+                assert!(offset < 0.25, "swapped {offset} pt from the copy's place");
+            }
+            real |= window;
+        }
+        assert!(real);
+    }
+
+    /// Closing is the same the other way, whether the sidebar is docked or hidden, and the sidebar
+    /// draws its copy only once the window's own have gone.
+    #[test]
+    fn the_windows_buttons_leave_with_the_library() {
+        for docked in [true, false] {
+            let mut gone = false;
+            for step in (0..=1200).rev() {
+                let out = step as f32 / 1000.;
+                let (window, panel, sidebar) = buttons(false, out, docked);
+                assert!(!(window && (panel || sidebar)), "drawn twice at {out}");
+                assert!(window || panel, "missing at {out}");
+                assert!(!(gone && window), "the window's own came back at {out}");
+                gone |= !window;
+            }
+            assert!(gone);
+        }
+    }
+
+    /// Fingers let go short of halfway take the Library back: the window's own never show, and the
+    /// copies are all there is.
+    #[test]
+    fn a_swipe_let_go_short_keeps_the_windows_own_buttons_away() {
+        for step in 0..=500 {
+            let (window, panel, sidebar) = buttons(false, step as f32 / 1000., true);
+            assert!(!window && panel && sidebar, "at {step}");
+        }
+    }
+
+    /// At rest the window's own show over the open Library and the docked sidebar, and with
+    /// neither, nobody draws any.
+    #[test]
+    fn the_windows_buttons_at_rest() {
+        let rest = |open, docked| window_buttons_at(open, false, true, docked);
+        assert!(rest(true, false).window && !rest(true, false).library);
+        assert!(rest(false, true).window && !rest(false, true).library);
+        let none = rest(false, false);
+        assert!(!none.window && !none.library && !none.sidebar);
+        // Taken past where it opens, the panel is still at rest, its column under them.
+        assert!(panel_at_rest(1., 417.) && !panel_at_rest(receding_edge(0.99), 417.));
     }
 
     fn download(state: DownloadState, held: bool) -> Download {

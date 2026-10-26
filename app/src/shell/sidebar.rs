@@ -149,14 +149,28 @@ impl Shell {
         cx.notify();
     }
 
-    /// Whether the window's own buttons show: over the docked sidebar at rest and over the open
-    /// Library, as in Arc. The sidebar hides them as it goes and they come back once it's in, and
-    /// while the Library moves short of where it opens the sidebar draws them, receding with it.
+    /// Whether the window's own buttons show (`window_buttons_at`).
     pub(super) fn window_buttons_shown(&self) -> bool {
-        if self.library_moving() && !self.library_at_end() {
-            return false;
-        }
-        self.library_open || (!self.sidebar_hidden && self.sidebar_motion.is_none())
+        self.window_buttons_drawn().window
+    }
+
+    /// Whether the Library's panel draws the window's buttons, on its column.
+    pub(super) fn library_buttons(&self) -> bool {
+        self.window_buttons_drawn().library
+    }
+
+    /// Whether the sidebar draws the window's buttons, receding with it under the Library.
+    pub(super) fn sidebar_buttons(&self) -> bool {
+        self.window_buttons_drawn().sidebar
+    }
+
+    fn window_buttons_drawn(&self) -> WindowButtons {
+        window_buttons_at(
+            self.library_open,
+            self.library_moving(),
+            self.library_at_rest(),
+            !self.sidebar_hidden && self.sidebar_motion.is_none(),
+        )
     }
 
     /// Docks the sidebar the reveal has out, in one frame (Arc), and returns whether it was out.
@@ -316,5 +330,34 @@ impl Shell {
             self.hover_changed = true;
             cx.notify();
         }
+    }
+}
+
+/// Which of the window's buttons are drawn: its own, or a copy in the Library's panel or in the
+/// sidebar.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct WindowButtons {
+    pub window: bool,
+    pub library: bool,
+    pub sidebar: bool,
+}
+
+/// Where the window's buttons are drawn, given whether the Library is `open` or on its way there
+/// and whether it's `moving`, whether its panel is `at_rest` where it opens, and whether the
+/// sidebar is `docked`. Its own show over the docked sidebar at rest and over the open Library, as
+/// in Arc. While the Library moves they show only once its panel is at rest, where the panel's
+/// copy was, so the swap can't be seen. The sidebar hides them as it goes, and they come back
+/// once it's in. Short of that, the sidebar's copy recedes with it and the panel's slides in.
+pub(super) fn window_buttons_at(
+    open: bool,
+    moving: bool,
+    at_rest: bool,
+    docked: bool,
+) -> WindowButtons {
+    let window = if moving { at_rest && (open || docked) } else { open || docked };
+    WindowButtons {
+        window,
+        library: (open || moving) && !window,
+        sidebar: moving && !window,
     }
 }

@@ -2012,7 +2012,9 @@ impl Render for Shell {
         }
         // The Library slides in from the left with the card's edge, over the sidebar receding.
         let library = self.library.is_some() && !self.page_fullscreen;
-        let library = library.then(|| self.library_panel(cx));
+        // Full screen has no window buttons, so the panel draws none.
+        let buttons = self.library_buttons() && !window.is_fullscreen();
+        let library = library.then(|| self.library_panel(buttons, cx));
         // The sidebar leaves with the card's edge, all of it by the time the edge stops.
         let width = self.width();
         let sidebar_left = (card_left - width) * width / (width - CARD_INSET);
@@ -2035,7 +2037,7 @@ impl Render for Shell {
                 .child(sidebar.child(self.hover_listener(cx)));
             // Its buttons recede with it, over the Library, as the window's do in Arc. Full screen
             // has none.
-            let buttons = self.library_moving() && !window.is_fullscreen();
+            let buttons = self.sidebar_buttons() && !window.is_fullscreen();
             let buttons = buttons.then(|| self.window_buttons(cx));
             let receding = div().absolute().size_full().opacity(opacity);
             scaled(receding.child(uncovered).children(buttons), scale, origin)
