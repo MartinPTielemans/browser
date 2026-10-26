@@ -21,7 +21,8 @@ page='data:text/html;charset=utf-8,<title>loading</title>
 <p style="font:24px system-ui;margin-top:3000px">far</p>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
-const unzoomed = devicePixelRatio;
+let unzoomed = devicePixelRatio;
+onclick = () => { unzoomed = devicePixelRatio; };
 onresize = () => document.title = "zoom " + Math.round(100 * devicePixelRatio / unzoomed);
 onscroll = () => document.title = "scrolled " + Math.round(scrollY);
 </script>'
@@ -206,6 +207,8 @@ send click $page_point
 send key 0 cmd
 expect '^browser: command actual-size via page$' "⌘0 with the page focused didn't reach the UI"
 expect "^browser: zoom $first 100%\$" "⌘0 didn't zoom the page to 100 %"
+# The page may have loaded zoomed, by a failed run, so it takes its baseline from a click at 100 %.
+send click $page_point
 send key - cmd
 expect '^browser: command zoom-out via page$' "⌘- with the page focused didn't reach the UI"
 expect "^browser: zoom $first 90%\$" "⌘- didn't zoom the page out to 90 %"
