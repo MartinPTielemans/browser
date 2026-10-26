@@ -103,6 +103,8 @@ send layout
 size=$(grep '^browser: layout content' "$log" | tail -1 |
   sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
 send resize 1000 340
+# The list scrolls as far as the last frame drawn has it.
+expect '^browser: drawn at 1000x340$' "the window didn't draw at its new size"
 send scroll 100 200 10 5
 expect '^browser: scroll edge shown$' "the list scrolled past its top didn't show its edge"
 ../tools/window-screenshot.sh "$pid" "$out/scroll-edge.png" || fail "no window to capture"
@@ -121,6 +123,7 @@ expect '^browser: scroll edge shown$' "the list scrolled to a row didn't show it
 switch "2 cmd" "$c"
 none_since '^browser: list scrolled' || fail "showing a tab in view scrolled the list"
 send resize $size
+expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
 # ⌘, from the page opens Settings on General. Its switch turns the warning before quitting off, the
 # menu of its pop-up button sets how long Today tabs wait for the archive, the switch on its
 # Advanced tab turns the haptics off, and ⌘W hides it.
