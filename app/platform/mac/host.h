@@ -324,6 +324,63 @@ void host_copy(const char* text);
 // milliseconds since the Unix epoch.
 void host_day_starts(double starts[4]);
 
+// WebKit tabs (webkit.mm): tabs whose page plays protected video, which a WKWebView shows in place
+// of Chromium's page (docs/decisions.md, decision 9). A tab has at most one.
+
+// Where a link in a WebKit tab opens.
+#define HOST_LINK_HERE 0
+#define HOST_LINK_NEW_TAB 1
+#define HOST_LINK_BEHIND 2
+
+// Starts WebKit tabs, with what they ask of the app. |link| is a link to |url| in |tab|'s page,
+// opening |where|; it returns whether the app opens it, else the page goes there itself. |key| is
+// a key the page has with ⌘ or ⌃, as bc_key names one, before the page gets it if |reserved|, else
+// once the page didn't keep it; it returns whether the app took it. |focused| runs, after the
+// event, when |tab|'s page takes the keyboard.
+void host_webkit_start(bool (*link)(uint64_t tab, const char* url, int where),
+                       bool (*key)(uint64_t tab,
+                                   const char* key,
+                                   uint32_t modifiers,
+                                   bool reserved),
+                       void (*focused)(uint64_t tab));
+
+// Shows |url| in |tab|'s WebKit page, making it if the tab has none, and gives the core its view
+// (bc_tab_set_native_page). Its cookies and the rest are kept for the profile in |profile_path|,
+// the profile's directory, or forgotten with its private session if |private_session|.
+void host_webkit_show(uint64_t tab,
+                      const char* profile_path,
+                      bool private_session,
+                      const char* url);
+
+// Whether |tab| has a WebKit page.
+bool host_webkit_has(uint64_t tab);
+
+// Goes |step| pages back (-1) or forward (1) in |tab|'s WebKit page, and says whether it could.
+bool host_webkit_go(uint64_t tab, int step);
+
+// Reloads |tab|'s WebKit page, from the network if |bypass_cache|.
+void host_webkit_reload(uint64_t tab, bool bypass_cache);
+
+// Stops |tab|'s WebKit page loading.
+void host_webkit_stop(uint64_t tab);
+
+// Mutes or unmutes |tab|'s WebKit page.
+void host_webkit_set_muted(uint64_t tab, bool muted);
+
+// Closes |tab|'s WebKit page, if it has one, without telling the core, which has let go of it or
+// is told by the caller.
+void host_webkit_close(uint64_t tab);
+
+// Deletes what WebKit keeps of the site of |tab|'s page: its cache, storage and, if |cookies|, its
+// cookies, then reloads the page.
+void host_webkit_clear_site(uint64_t tab, bool cookies);
+
+// Forgets the private session of the profile in |profile_path|, after its last private window.
+void host_webkit_end_private(const char* profile_path);
+
+// Deletes what WebKit keeps for the profile in |profile_path|, which is being deleted.
+void host_webkit_delete_profile(const char* profile_path);
+
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);
