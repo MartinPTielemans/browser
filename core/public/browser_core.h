@@ -376,6 +376,12 @@ typedef struct bc_host {
                        size_t size,
                        int width,
                        int height);
+  // A load of |url|, http(s), in the tab's page is starting, or was redirected there: one the user
+  // typed, a link's, or the first of a tab put back or opened behind, once it's shown. Not a
+  // page's frames. Return true to stop it, for the app to show that page itself with
+  // bc_tab_set_native_page, once this returns. Returning false for a tab the app shows itself
+  // gives it back to Chromium, which loads |url|.
+  bool (*tab_navigating)(void* context, bc_id tab, const char* url);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -442,7 +448,8 @@ BC_EXPORT size_t bc_space_agent(bc_id space, char* agent, size_t capacity);
 BC_EXPORT size_t bc_space_agent_name(bc_id space, char* name, size_t capacity);
 
 // Whether the agent with the id |agent| may act on |tab|: only if the tab is in that agent's own
-// Space.
+// Space, and Chromium shows its page. Not one the app shows itself (bc_tab_set_native_page), as
+// protected video plays in WebKit, outside the rules the core enforces (decision 9).
 BC_EXPORT bool bc_agent_may_act(const char* agent, bc_id tab);
 
 // The profile the Space's tabs open in, which its favorites are in.
@@ -460,6 +467,11 @@ BC_EXPORT size_t bc_profiles(bc_id* profiles, size_t capacity);
 
 // Copies the profile's name into |name| as bc_space_name does. "Default" for one no one named.
 BC_EXPORT size_t bc_profile_name(bc_id profile, char* name, size_t capacity);
+
+// Copies the name of the profile's directory into |dir| as bc_space_name does, such as "Default"
+// or "Profile 1": what the app keeps its own data of the profile under, as it stays the same while
+// the profile is renamed. Empty for no such profile.
+BC_EXPORT size_t bc_profile_dir(bc_id profile, char* dir, size_t capacity);
 
 // Names the profile |name|, UTF-8, and returns whether it did: not with an empty name. Then
 // spaces_changed.
@@ -774,6 +786,40 @@ BC_EXPORT size_t bc_search_url(const char* keyword, const char* text, char* url,
 // its distance from the window's edges as the window resizes, and takes the keyboard if that page
 // had it. For a window that shows no Space; one that does uses bc_window_select.
 BC_EXPORT void bc_tab_show(bc_id tab, bc_rect frame);
+
+// What the app's own view of a tab's page shows (bc_tab_set_native_page).
+typedef struct bc_native_page_state {
+  const char* url;
+  const char* title;
+  bool can_go_back;
+  bool can_go_forward;
+  bool loading;
+  // It's playing sound, muted or not.
+  bool audible;
+  // Its favicon, as tab_favicon_changed gives one, or null and 0 while it has none.
+  const uint8_t* favicon;
+  size_t favicon_size;
+} bc_native_page_state;
+
+// Shows |view|, the app's own view of the tab's page, wherever the core would show the tab's
+// page: at its place in a split view, as the window resizes, and taken out while the window shows
+// another tab. For a page Chromium can't play, as protected video on the Mac plays in WebKit
+// (decision 9). |view| is an NSView on the Mac, which the app keeps; the core gives it the
+// keyboard as it would the page. The tab's page stays unloaded in Chromium, its URL, title and
+// favicon come from bc_tab_set_native_page_state, which the session keeps, and agents may not act
+// on it. The core lets go of |view| as it unloads the tab, as when the user closes a pinned tab:
+// the tab reports unloaded, the app can let go of |view| too, and once the tab is shown again its
+// URL loads with tab_navigating. Null gives the tab back to Chromium, showing the page it had under
+// the app's, as one whose link opened the app's: the tab's state can go back to it while the app's
+// view can't go back. Else it has no page until bc_tab_navigate. Then tab_state_changed.
+BC_EXPORT void bc_tab_set_native_page(bc_id tab, void* view);
+
+// What the app's own view of the tab's page shows, for a tab bc_tab_set_native_page gave one.
+// Then tab_state_changed, and tab_title_changed and tab_favicon_changed for what changed.
+BC_EXPORT void bc_tab_set_native_page_state(bc_id tab, const bc_native_page_state* state);
+
+// Whether the tab is a private window's, in an off-the-record session.
+BC_EXPORT bool bc_tab_private(bc_id tab);
 
 // Loads |url| in the tab.
 BC_EXPORT void bc_tab_navigate(bc_id tab, const char* url);

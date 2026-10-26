@@ -88,12 +88,21 @@ Tab::~Tab() {
 // static
 bool Tab::Loaded(bc_id id) {
   content::WebContents* contents = FromId(id);
-  return contents && !contents->GetController().NeedsReload() &&
-         !FromWebContents(contents)->waiting_;
+  if (!contents) {
+    return false;
+  }
+  const Tab* tab = FromWebContents(contents);
+  if (tab->native_) {
+    return static_cast<bool>(tab->native_->view);
+  }
+  return !contents->GetController().NeedsReload() && !tab->waiting_;
 }
 
 // static
 GURL Tab::PageUrl(content::WebContents* contents) {
+  if (const Tab* tab = FromWebContents(contents); tab && tab->native_) {
+    return tab->native_->url;
+  }
   if (const Tab* tab = FromWebContents(contents); tab && tab->waiting_) {
     return tab->waiting_->url;
   }
@@ -103,6 +112,17 @@ GURL Tab::PageUrl(content::WebContents* contents) {
 }
 
 void Tab::Unload() {
+  if (native_) {
+    if (native_->view) {
+      // The app lets go of its view as it hears the tab is unloaded, and shows the page again
+      // through tab_navigating once the tab is shown and this load starts.
+      native_->view = gfx::NativeView();
+      waiting_ = std::make_unique<content::NavigationController::LoadURLParams>(native_->url);
+      Window::PageViewChanged(id_);
+      StateChanged();
+    }
+    return;
+  }
   if (waiting_ || web_contents()->GetController().NeedsReload()) {
     return;
   }
@@ -162,6 +182,56 @@ void Tab::SetMuted(bool muted) {
   SetTabAudioMuted(web_contents(), muted, TabMutedReason::kAudioIndicator, std::string());
 }
 
+void Tab::SetNativePage(gfx::NativeView view) {
+  if (!view && !native_) {
+    return;
+  }
+  if (!view) {
+    native_.reset();
+  } else if (!native_) {
+    // What the tab showed, until the app's view says what it shows.
+    NativePage page = {.url = PageUrl(web_contents()), .title = PageTitle()};
+    native_ = std::move(page);
+  }
+  if (native_) {
+    native_->view = view;
+    waiting_.reset();
+  }
+  // So the favicon of a page Chromium loads in it again is reported, even if it's the one before.
+  favicon_ = gfx::Image();
+  Window::PageViewChanged(id_);
+  StateChanged();
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Tab::ReportTitle, weak_factory_.GetWeakPtr()));
+}
+
+void Tab::SetNativePageState(const bc_native_page_state& state) {
+  if (!native_) {
+    return;
+  }
+  const std::string title = state.title ? state.title : "";
+  const bool title_changed = title != native_->title;
+  native_->url = GURL(state.url ? state.url : "");
+  native_->title = title;
+  native_->can_go_back = state.can_go_back;
+  native_->can_go_forward = state.can_go_forward;
+  native_->loading = state.loading;
+  native_->audible = state.audible;
+  std::vector<uint8_t> favicon;
+  if (state.favicon) {
+    favicon.assign(state.favicon, state.favicon + state.favicon_size);
+  }
+  if (favicon != native_->favicon) {
+    native_->favicon = std::move(favicon);
+    native_->favicon_changed = true;
+  }
+  StateChanged();
+  if (title_changed) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&Tab::ReportTitle, weak_factory_.GetWeakPtr()));
+  }
+}
+
 void Tab::DidStartNavigation(content::NavigationHandle* navigation) {
   if (navigation->IsInPrimaryMainFrame()) {
     StateChanged();
@@ -209,11 +279,14 @@ void Tab::ReportState() {
   // The visible URL is the one Chrome's location bar shows: one a page starts loading by itself
   // shows only once it commits, so a page can't put another site's URL over its own. One waiting
   // to load is the link the user opened.
-  const std::string url = (waiting_ ? waiting_->url : web_contents()->GetVisibleURL()).spec();
+  const std::string url = (native_    ? native_->url
+                           : waiting_ ? waiting_->url
+                                      : web_contents()->GetVisibleURL())
+                              .spec();
   const Space* space = Space::Holding(id_);
   const GURL pinned_url = space ? space->PinnedUrl(id_) : Favorites::Url(id_);
   const RecentlyAudibleHelper* audible = RecentlyAudibleHelper::FromWebContents(web_contents());
-  const bc_tab_state state = {
+  bc_tab_state state = {
       .url = url.c_str(),
       .can_go_back = history.CanGoBack(),
       .can_go_forward = history.CanGoForward(),
@@ -224,12 +297,33 @@ void Tab::ReportState() {
       .muted = web_contents()->IsAudioMuted(),
       .icon = icon_.c_str(),
   };
+  // Its mute is still the page's, which the app's view follows. Back from the app's first page
+  // goes to the page Chromium still has under it, as when a link there opened the app's.
+  if (native_) {
+    content::NavigationEntry* under = history.GetLastCommittedEntry();
+    state.can_go_back =
+        native_->can_go_back || (under && !under->IsInitialEntry() &&
+                                 web_contents()->GetPrimaryMainFrame()->IsRenderFrameLive());
+    state.can_go_forward = native_->can_go_forward;
+    state.loading = native_->loading;
+    state.unloaded = !native_->view;
+    state.audible = native_->audible;
+  }
   Host().tab_state_changed(Host().context, id_, &state);
   ReportFavicon(state.loading);
 }
 
 void Tab::ReportFavicon(bool loading) {
   if (!Host().tab_favicon_changed) {
+    return;
+  }
+  if (native_) {
+    if (native_->favicon_changed) {
+      native_->favicon_changed = false;
+      const std::vector<uint8_t>& png = native_->favicon;
+      Host().tab_favicon_changed(Host().context, id_, png.empty() ? nullptr : png.data(),
+                                 png.size());
+    }
     return;
   }
   content::NavigationEntry* entry = web_contents()->GetController().GetLastCommittedEntry();
@@ -310,7 +404,11 @@ void Tab::SetIcon(const std::string& icon) {
 }
 
 std::string Tab::Title() {
-  return name_.empty() ? base::UTF16ToUTF8(web_contents()->GetTitle()) : name_;
+  return name_.empty() ? PageTitle() : name_;
+}
+
+std::string Tab::PageTitle() {
+  return native_ ? native_->title : base::UTF16ToUTF8(web_contents()->GetTitle());
 }
 
 void Tab::ReportTitle() {

@@ -291,4 +291,24 @@ bool KeyboardForPage(views::Widget* widget) {
   return true;
 }
 
+gfx::NativeView NativeViewOf(void* view) {
+  return gfx::NativeView((__bridge NSView*)view);
+}
+
+void FocusNativePage(views::Widget* widget, gfx::NativeView view) {
+  NSWindow* window = widget->GetNativeWindow().GetNativeNSWindow();
+  NSMutableArray<NSView*>* views = [NSMutableArray arrayWithObject:view.GetNativeNSView()];
+  while (views.count) {
+    NSView* next = views.firstObject;
+    [views removeObjectAtIndex:0];
+    if (next.acceptsFirstResponder) {
+      if (window.firstResponder != next) {
+        [window makeFirstResponder:next];
+      }
+      return;
+    }
+    [views addObjectsFromArray:next.subviews];
+  }
+}
+
 }  // namespace browser_core::platform

@@ -36,6 +36,8 @@ source_set("browser_core") {
     "host.h",
     "main_delegate.cc",
     "main_delegate.h",
+    "native_page.cc",
+    "native_page.h",
     "permission_question.cc",
     "permission_question.h",
     "platform/window_views.h",
