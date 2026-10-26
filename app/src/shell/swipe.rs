@@ -427,6 +427,7 @@ mod tests {
             id,
             name: format!("Space {id}").into(),
             color: None,
+            theme: None,
             icon: Default::default(),
             profile: 0,
             agent: Default::default(),
@@ -474,7 +475,9 @@ mod tests {
         let host = Rc::new(Recorder::default());
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
         shell.update(cx, |shell, cx| {
-            let space = |id: u64| (id, format!("Space {id}").into(), None, 1, "".into(), "".into());
+            let space = |id: u64| {
+                (id, format!("Space {id}").into(), None, 1, "".into(), "".into(), "".into())
+            };
             shell.set_spaces(vec![space(1), space(2), space(3)], cx);
             shell.set_space(shown, cx);
         });

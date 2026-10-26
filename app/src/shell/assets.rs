@@ -106,6 +106,8 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/maximize.svg", include_bytes!("../../assets/icons/maximize.svg")),
     ("icons/megaphone.svg", include_bytes!("../../assets/icons/megaphone.svg")),
     ("icons/mic.svg", include_bytes!("../../assets/icons/mic.svg")),
+    ("icons/minus.svg", include_bytes!("../../assets/icons/minus.svg")),
+    ("icons/moon-star.svg", include_bytes!("../../assets/icons/moon-star.svg")),
     ("icons/mouse-pointer-2.svg", include_bytes!("../../assets/icons/mouse-pointer-2.svg")),
     ("icons/nav-back.svg", include_bytes!("../../assets/icons/nav-back.svg")),
     ("icons/nav-forward.svg", include_bytes!("../../assets/icons/nav-forward.svg")),
@@ -255,7 +257,9 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/share.svg", include_bytes!("../../assets/icons/share.svg")),
     ("icons/spaces.svg", include_bytes!("../../assets/icons/spaces.svg")),
     ("icons/sliders-horizontal.svg", include_bytes!("../../assets/icons/sliders-horizontal.svg")),
+    ("icons/sparkles.svg", include_bytes!("../../assets/icons/sparkles.svg")),
     ("icons/speaker.svg", include_bytes!("../../assets/icons/speaker.svg")),
+    ("icons/sun.svg", include_bytes!("../../assets/icons/sun.svg")),
     (
         "icons/square-mouse-pointer.svg",
         include_bytes!("../../assets/icons/square-mouse-pointer.svg"),

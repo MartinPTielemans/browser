@@ -436,6 +436,8 @@ impl Browser for Recorder {
         self.edit(format!("space icon {space} {icon}"));
     }
 
+    fn set_space_theme(&self, _: u64, _: &str, _: &mut App) {}
+
     fn set_space_profile(&self, _: u64, _: u64, _: &mut App) {}
 
     fn create_profile(&self, _: &str, _: &mut App) -> u64 {
