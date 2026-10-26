@@ -105,12 +105,12 @@ const PANE_SNAP: f32 = 15.;
 // and Sidebar show).
 const SIDEBAR_HIDE: f32 = 0.11;
 const SIDEBAR_SHOW: f32 = 0.1;
-// The sidebar's edge drags its width between Ardia's limits (docs/ux-spec.md › Sidebar › Width),
-// rubber-banding past them as the Space pages do. Let go past one, it settles there as they settle,
-// and a double-click on the edge settles it back at the width it starts at. The edge is the margin
-// right of the rows.
-const SIDEBAR_MIN: f32 = 160.;
-const SIDEBAR_MAX: f32 = 400.;
+// The sidebar's edge drags its width between Arc's limits, stopping at them, and dragged on past
+// the narrowest it hides the sidebar (docs/ux-spec.md › Sidebar › Width). A double-click on the
+// edge settles it back, as the Space pages settle, at the width it starts at. The edge is the
+// margin right of the rows.
+const SIDEBAR_MIN: f32 = 164.;
+const SIDEBAR_MAX: f32 = 500.;
 const SIDEBAR_EDGE: f32 = 6.;
 
 // The sidebar reveal (docs/ux-spec.md › Sidebar reveal): the hidden sidebar slides over the page as
@@ -927,7 +927,7 @@ pub struct Shell {
     /// The docked sidebar's width, at rest.
     sidebar_width: f32,
     /// While the sidebar's edge is dragged: how far right of the edge the pointer pressed it, and
-    /// the width the pointer has it at, before the rubber band.
+    /// the width the pointer has it at, before it's held between the limits.
     resize: Option<(f32, f32)>,
     /// While the gap before a split view's page is dragged: that page's index, and how far past
     /// its start the pointer pressed the gap.

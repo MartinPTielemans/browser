@@ -13,7 +13,7 @@ use super::{
     CARD_INSET, GRADIENT_ALPHA, MATERIAL_STAND_IN, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, PRIVATE_SHADE,
     REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
     REVEAL_OUT_RESPONSE, REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX,
-    SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Shell, rubber_band, settle_progress, spring,
+    SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Shell, settle_progress, spring,
 };
 
 impl Shell {
@@ -21,7 +21,7 @@ impl Shell {
     /// way to where it rests.
     pub(super) fn width(&self) -> f32 {
         if let Some((_, way)) = self.resize {
-            return rubber_band(way, SIDEBAR_MIN, SIDEBAR_MAX).round();
+            return way.clamp(SIDEBAR_MIN, SIDEBAR_MAX).round();
         }
         let Some((from, start)) = self.width_motion else {
             return self.sidebar_width;
@@ -93,17 +93,29 @@ impl Shell {
         cx.notify();
     }
 
+    /// The pointer dragging the edge is at `x`. Past half the narrowest width, as AppKit's split
+    /// view collapses a pane, the sidebar hides in one frame and keeps the width it had (Arc).
     fn drag_edge(&mut self, x: f32, cx: &mut Context<Self>) {
-        if let Some((grab, _)) = self.resize {
+        let Some((grab, _)) = self.resize else {
+            return;
+        };
+        if x - grab >= SIDEBAR_MIN / 2. {
             self.resize = Some((grab, x - grab));
-            cx.notify();
+            return cx.notify();
         }
+        self.resize = None;
+        self.sidebar_hidden = true;
+        self.sidebar_motion = None;
+        self.recent_downloads_gone(cx);
+        // check.sh waits for this line.
+        log!("browser: sidebar hidden");
+        cx.notify();
     }
 
     fn let_go_edge(&mut self, cx: &mut Context<Self>) {
         if let Some((_, way)) = self.resize.take() {
-            let from = rubber_band(way, SIDEBAR_MIN, SIDEBAR_MAX).round();
-            self.set_width(from, way.clamp(SIDEBAR_MIN, SIDEBAR_MAX), cx);
+            let width = way.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+            self.set_width(width, width, cx);
         }
     }
 
@@ -380,11 +392,14 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::{
-        Bounds, Context, Entity, Render, TestAppContext, Window, WindowBounds, WindowOptions,
-        point, prelude::*, px, size,
+        Bounds, Context, Entity, MouseButton, MouseDownEvent, Render, TestAppContext, Window,
+        WindowBounds, WindowOptions, point, prelude::*, px, size,
     };
 
-    use super::super::{Folders, SIDEBAR_WIDTH, Shell, recorder::Recorder};
+    use super::super::{
+        Folders, SIDEBAR_MAX, SIDEBAR_MIN, SIDEBAR_WIDTH, Shell, drag::detents::shell_with,
+        recorder::Recorder,
+    };
 
     /// The reveal's window, which draws the shell's panel, as the app's does.
     struct Reveal(Entity<Shell>);
@@ -423,5 +438,59 @@ mod tests {
             shell.list_scroll.offset().y
         });
         assert_eq!(offset, px(0.));
+    }
+
+    /// Presses the sidebar's edge where it's drawn, and drags it to `to`, a list of x's.
+    fn drag_edge(shell: &Entity<Shell>, cx: &mut TestAppContext, to: &[f32]) {
+        shell.update(cx, |shell, cx| {
+            let at = shell.width() - 3.;
+            let event = MouseDownEvent {
+                button: MouseButton::Left,
+                position: point(px(at), px(300.)),
+                modifiers: Default::default(),
+                click_count: 1,
+                first_mouse: false,
+            };
+            shell.press_edge(&event, cx);
+            for &x in to {
+                shell.drag_edge(x - 3., cx);
+            }
+        });
+    }
+
+    /// The edge drags the width between Arc's limits and stops at them, and let go, the width is
+    /// where it stopped, with nothing left to settle.
+    #[gpui::test]
+    fn the_width_stops_at_arcs_limits(cx: &mut TestAppContext) {
+        let (shell, _) = shell_with(cx, &[], &[1], Folders::default());
+        drag_edge(&shell, cx, &[300., 900.]);
+        assert_eq!(shell.read_with(cx, |shell, _| shell.width()), SIDEBAR_MAX);
+        shell.update(cx, |shell, cx| shell.let_go_edge(cx));
+        let (width, settling) = shell.read_with(cx, |shell, _| {
+            (shell.sidebar_width, shell.width_motion.is_some())
+        });
+        assert_eq!((width, settling), (SIDEBAR_MAX, false));
+        // Short of hiding, the narrowest it goes is the limit.
+        drag_edge(&shell, cx, &[SIDEBAR_MIN - 20.]);
+        assert_eq!(shell.read_with(cx, |shell, _| shell.width()), SIDEBAR_MIN);
+        shell.update(cx, |shell, cx| shell.let_go_edge(cx));
+        assert_eq!(shell.read_with(cx, |shell, _| shell.sidebar_width), SIDEBAR_MIN);
+    }
+
+    /// Dragged on past half the narrowest width, the sidebar hides at once and keeps the width it
+    /// had, which ⌘S brings back; letting go then changes nothing.
+    #[gpui::test]
+    fn dragged_past_its_narrowest_the_sidebar_hides(cx: &mut TestAppContext) {
+        let (shell, _) = shell_with(cx, &[], &[1], Folders::default());
+        drag_edge(&shell, cx, &[200., SIDEBAR_MIN, SIDEBAR_MIN / 2. + 1.]);
+        assert!(!shell.read_with(cx, |shell, _| shell.sidebar_hidden));
+        drag_edge(&shell, cx, &[SIDEBAR_MIN / 2. - 1.]);
+        let (hidden, moving) =
+            shell.read_with(cx, |shell, _| (shell.sidebar_hidden, shell.sidebar_motion.is_some()));
+        assert_eq!((hidden, moving), (true, false));
+        shell.update(cx, |shell, cx| shell.let_go_edge(cx));
+        let (hidden, width) =
+            shell.read_with(cx, |shell, _| (shell.sidebar_hidden, shell.sidebar_width));
+        assert_eq!((hidden, width), (true, SIDEBAR_WIDTH));
     }
 }

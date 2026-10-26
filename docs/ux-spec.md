@@ -244,10 +244,10 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Item | Value | Source |
 |---|---|---|
 | Default | 228 on a fresh install, at 1280 × 800 and at 1512 × 949. Dia's is 190 | Arc 1.170.0 ax and preferences, Dia 1.50.1 bin |
-| Minimum / maximum | measure. Ardia uses 160 / 400. Dragging past a limit rubber-bands | Dia, P§4 |
+| Minimum / maximum | 164 / 500. The width stops at each, and dragged on past the minimum the sidebar hides in one frame and keeps the width it had | Arc 1.170 rec |
 | Persistence | kept per window; double-click on the handle resets it | Dia, P§4 |
 
-- Ours: 228 at first, and 160 to 400 (*interim* until Arc's limits are measured). The handle is the 6 pt margin right of the rows, with the left-right resize cursor, or the left or right one at a limit. Past a limit the width rubber-bands on the Space pages' curve and, let go, settles at the limit on their spring, as does a double-click's reset to 228. The core saves the width with the Spaces. A header button shows while its plate ends at least 5 pt inside the sidebar, so reload goes under 227 and forward under 193.
+- Ours: 228 at first. The recording starts at 260, but that is the owner's width, not Arc's default, which the fresh install's 228 is. The handle is the 6 pt margin right of the rows, with the left-right resize cursor, or the left or right one at a limit. The width stops at 164 and 500. Arc's hide happens off the recording's pointer, so ours hides once the pointer is past half the minimum, where AppKit's split view collapses a pane (*interim*), and the sidebar comes back at its width from before the drag, as Arc's reveal did. Arc's width came back a few points from past the maximum in one take; that small bounce isn't built. A double-click resets it to 228 on the Space pages' spring. The core saves the width with the Spaces. A header button shows while its plate ends at least 5 pt inside the sidebar, so reload goes under 227 and forward under 193.
 
 **Sections, top to bottom.** Header, URL field, favorites, then the Space's pinned tabs, the Clear divider, the Today tabs and "+ New Tab". The footer holds the Space switcher (Arc structure). The Space's name sits at x 41, 2 before the titles (Arc 1.170.0 ax); measure what the footer holds. The favorites stay put while the list scrolls. A favorites block taller than 40 % of the sidebar scrolls with the list instead (Ardia).
 
@@ -936,7 +936,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 | Sidebar | A folder closed and opened by a click | Motion › Folder open, Folder close | done |
 | Sidebar | Clear and the URL field's buttons, with the pointer coming onto the sidebar and leaving | — | 1 |
 | Sidebar | A favorite's tooltip, moving to the next favorite | Motion › Tooltip in, out (the move isn't recorded) | 1 |
-| Sidebar | The width dragged past each limit and let go; a double-click on the edge | — (ours: the Space pages' rubber band and spring) | 1 |
+| Sidebar | The width dragged past each limit and let go; a double-click on the edge | Arc 1.170 rec: stops at 164 and 500, hides past the minimum in one frame; done but the bounce at the maximum. The double-click: — (ours: the Space pages' spring) | 1 |
 | Sidebar | A tab loading | — (ours: Dia's Spinner) | 1 |
 | Sidebar | The scroll edge under the favorites | — (ours: Dia's Scroll edge) | 1 |
 | Spaces | A swipe tracking the fingers, let go, and settling | Motion › Space settle | done |
