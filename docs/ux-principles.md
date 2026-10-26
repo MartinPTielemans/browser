@@ -78,3 +78,4 @@ Recordings could settle these. Until then, the calls listed in each PR stand.
 - How Cancel looks under the pointer, and whether a click outside the dialog cancels it.
 - What Arc does under Reduce Motion.
 - Where Arc shows pinned extensions, and whether only under the pointer.
+- What Arc does with more favorites than its sidebar has room for. Ours scroll with the list once they're taller than 40 % of the window, as Ardia's do.

@@ -150,6 +150,9 @@ const TILE_HEIGHT: f32 = 41.;
 const TILE_GAP: f32 = 6.;
 const TILE_MIN: f32 = 48.;
 const TILE_RADIUS: f32 = 10.;
+// Favorites taller than this much of the window scroll with the list instead of staying put
+// (Ardia), so they never leave the rows too little room.
+const TALL_FAVORITES: f32 = 0.4;
 // The Space's name, over its tabs. Arc puts its icon at x 13, and Spaces have none yet.
 const NAME_HEIGHT: f32 = 44.;
 const NAME_X: f32 = 41.;
@@ -1596,6 +1599,8 @@ pub struct Shell {
     /// went past or back, from how far in it was then.
     scrolled: bool,
     scroll_edge_fade: Option<(Instant, f32)>,
+    /// Whether the tiles scrolled with the list in the last frame.
+    tiles_scrolled_last: bool,
     /// Tabs' new rows, which the rows sliding down to make room come out from beneath.
     opened: Option<Opened>,
     closing: Vec<Closing>,
@@ -1730,6 +1735,7 @@ impl Shell {
             sidebar_origin: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
+            tiles_scrolled_last: false,
             opened: None,
             closing: Vec::new(),
             clearing: Vec::new(),
@@ -3711,7 +3717,7 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let below_rows = at.x < px(self.card_left()) && at.y >= px(self.list_top());
+        let below_rows = at.x < px(self.card_left()) && at.y >= px(self.under_tiles());
         let sidebar = !self.page_fullscreen && self.library.is_none() && self.form().is_none();
         if sidebar && below_rows {
             self.run(Command::NewTab, "sidebar", cx);
@@ -3830,6 +3836,7 @@ impl Shell {
         let Some(&top) = self.layout().get(&Slot::Tab(self.row_of(tab))) else {
             return;
         };
+        let top = top + self.tiles_room();
         let height = f32::from(self.list_scroll.bounds().size.height);
         let offset = self.list_scroll.offset();
         let scrolled = -f32::from(offset.y);
@@ -3881,7 +3888,7 @@ impl Shell {
             return;
         };
         let pointer = in_sidebar(position, self.sidebar_origin.get());
-        let centre = point(left + width / 2., LIST_TOP + top + TILE_HEIGHT / 2.);
+        let centre = point(left + width / 2., self.tiles_top() + top + TILE_HEIGHT / 2.);
         // Its row, over the list, is centred on the pointer.
         let grab = (ROW_HEIGHT / 2., pointer - centre);
         self.press(tab, position, Place::Favorite(index), 0., grab);
@@ -3952,7 +3959,7 @@ impl Shell {
         let folder = self.is_folder(tab);
         let over_favorites = !folder
             && self.panes(tab).len() == 1
-            && pointer.y < self.list_top_with(favorites + 1);
+            && pointer.y < self.list_top_with(favorites + 1) - self.tiles_scrolled();
         let mut depth = 0;
         let (place, layout, span) = if over_favorites {
             let centre = pointer - grab.1;
@@ -3960,7 +3967,7 @@ impl Shell {
             let distance = |index: &usize| {
                 let [left, top, width] = places[*index];
                 let x = left + width / 2. - centre.x;
-                let y = LIST_TOP + top + TILE_HEIGHT / 2. - centre.y;
+                let y = self.tiles_top() + top + TILE_HEIGHT / 2. - centre.y;
                 x * x + y * y
             };
             let index = (0..places.len()).min_by(|a, b| distance(a).total_cmp(&distance(b)));
@@ -4788,14 +4795,14 @@ impl Shell {
         })
     }
 
-    /// The edge across the sidebar 4 under the favorites, or the URL field without them, while
-    /// the rows go under it (Dia).
+    /// The edge across the sidebar 4 under the favorites, or the URL field without them or while
+    /// they scroll with the list, while the rows go under it (Dia).
     fn scroll_edge_line(&self) -> Option<impl IntoElement + use<>> {
         let shown = self.scroll_edge();
         (shown > 0.).then(|| {
             div()
                 .absolute()
-                .top(px(self.drawn_list_top() - 2.))
+                .top(px(self.pages_top() - 2.))
                 .left_0()
                 .w(px(self.width()))
                 .h(px(1.))
@@ -4805,21 +4812,32 @@ impl Shell {
     }
 
     /// The favorites' tiles under the URL field, which stay put while the Spaces' pages move under
-    /// them, and slide to their places as tiles come, go and make room for a dragged tab.
+    /// them, and slide to their places as tiles come, go and make room for a dragged tab. Taller
+    /// than TALL_FAVORITES of the window, they scroll with the list, under the URL field.
     fn tiles(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let drawn = self.drawn_tiles();
         let dragged = self.tile_ghost().map(|(tab, _)| tab);
+        let scrolled = self.tiles_scrolled();
         let tiles: Vec<_> = self
             .tile_tabs()
             .into_iter()
             .filter(|&tab| Some(tab) != dragged)
             .map(|tab| {
                 let [left, top, width] = drawn[&tab];
-                self.tile(tab, cx).absolute().left(px(left)).top(px(top)).w(px(width))
+                let tile = self.tile(tab, cx).absolute().left(px(left));
+                tile.top(px(top - scrolled)).w(px(width))
             })
             .collect();
         (!tiles.is_empty()).then(|| {
-            div().absolute().top(px(LIST_TOP)).left_0().w(px(self.width())).children(tiles)
+            div()
+                .absolute()
+                .top(px(LIST_TOP))
+                .left_0()
+                .w(px(self.width()))
+                .when(self.tiles_scroll(), |tiles| {
+                    tiles.bottom(px(FOOTER_HEIGHT)).overflow_hidden()
+                })
+                .children(tiles)
         })
     }
 
@@ -4827,7 +4845,8 @@ impl Shell {
     /// sidebar.
     fn dragged_tile(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let (tab, [left, top, width]) = self.tile_ghost()?;
-        Some(self.tile(tab, cx).absolute().left(px(left)).top(px(LIST_TOP + top)).w(px(width)))
+        let tile = self.tile(tab, cx).absolute().left(px(left));
+        Some(tile.top(px(self.tiles_top() + top)).w(px(width)))
     }
 
     /// The tiles in their order: the favorites, with a dragged tab out of its place, and in the
@@ -4886,7 +4905,7 @@ impl Shell {
         }
         let width = self.tile_places(self.tile_tabs().len()).first()?[2];
         let centre = drag.pointer - drag.grab.1;
-        let top = centre.y - LIST_TOP - TILE_HEIGHT / 2.;
+        let top = centre.y - self.tiles_top() - TILE_HEIGHT / 2.;
         Some((drag.tab, [centre.x - width / 2., top, width]))
     }
 
@@ -4930,6 +4949,41 @@ impl Shell {
             + self.list_slide.map_or(0., |(from, start, curve)| {
                 curve.at(start.elapsed().as_secs_f32()).map_or(0., |done| from * (1. - done))
             })
+    }
+
+    /// Whether the tiles scroll with the list, as they do while they're taller than
+    /// TALL_FAVORITES of the window.
+    fn tiles_scroll(&self) -> bool {
+        self.list_top() - LIST_TOP > TALL_FAVORITES * f32::from(self.viewport.height)
+    }
+
+    /// How far the tiles have gone up with the list.
+    fn tiles_scrolled(&self) -> f32 {
+        match self.tiles_scroll() {
+            true => -f32::from(self.list_scroll.offset().y),
+            false => 0.,
+        }
+    }
+
+    /// Where the tiles' top is drawn.
+    fn tiles_top(&self) -> f32 {
+        LIST_TOP - self.tiles_scrolled()
+    }
+
+    /// Where the Space's pages are drawn from: under the tiles, or under the URL field while the
+    /// tiles scroll with them.
+    fn pages_top(&self) -> f32 {
+        if self.tiles_scroll() { LIST_TOP } else { self.drawn_list_top() }
+    }
+
+    /// Where the sidebar under the tiles starts, as they're drawn.
+    fn under_tiles(&self) -> f32 {
+        (self.list_top() - self.tiles_scrolled()).max(LIST_TOP)
+    }
+
+    /// The room a page leaves above its rows for the tiles that scroll with it.
+    fn tiles_room(&self) -> f32 {
+        self.drawn_list_top() - self.pages_top()
     }
 
     /// A favorite's tile: its favicon on a plate, which the tab shown has filled and ringed. A
@@ -5002,11 +5056,11 @@ impl Shell {
 
     /// A closed tab's row where it was, without the selected fill it may have had, fading as the
     /// rows below slide over it.
-    fn closing_row(&self, row: &Closing) -> impl IntoElement + use<> {
+    fn closing_row(&self, row: &Closing, room: f32) -> impl IntoElement + use<> {
         let done = row_spring(row.start.elapsed().as_secs_f32()).unwrap_or(1.);
         div()
             .absolute()
-            .top(px(row.top))
+            .top(px(room + row.top))
             .left_0()
             .w(px(self.width()))
             .h(px(ROW_HEIGHT))
@@ -5834,6 +5888,14 @@ impl Render for Shell {
         }
         // The page is laid out at every step, as in Arc.
         self.viewport = window.viewport_size();
+        if self.tiles_scroll() != self.tiles_scrolled_last {
+            self.tiles_scrolled_last = !self.tiles_scrolled_last;
+            // check.sh waits for these lines.
+            match self.tiles_scrolled_last {
+                true => log!("browser: tiles scroll with the list"),
+                false => log!("browser: tiles stay put"),
+            }
+        }
         self.lay_out_page(cx);
         let card_left = self.card_left();
         let focus_color = self.shown_space().and_then(|space| space.color);
@@ -5995,9 +6057,10 @@ impl Shell {
             }
             (None, None) => sidebar
                 .child(self.url_field(cx))
-                .children(self.tiles(cx))
                 .children(self.scroll_edge_line())
                 .child(self.space_pages(cx))
+                // Over the pages, which they scroll with when they're tall.
+                .children(self.tiles(cx))
                 .children(self.dragged_tile(cx)),
         };
         sidebar
@@ -6032,7 +6095,7 @@ impl Shell {
         }
         div()
             .absolute()
-            .top(px(self.drawn_list_top()))
+            .top(px(self.pages_top()))
             .left_0()
             .w(px(self.width()))
             .bottom(px(FOOTER_HEIGHT))
@@ -6071,10 +6134,12 @@ impl Shell {
         };
         let (plus, new_tab) = new_tab_label();
         let (pinned, today) = space.rows();
+        let room = self.tiles_room();
         div()
             .size_full()
             .flex()
             .flex_col()
+            .when(room > 0., |page| page.child(div().flex_none().h(px(room))))
             .child(name_box().child(div().truncate().child(space.name.clone())))
             .children(pinned.into_iter().map(row))
             .when(!today.is_empty(), |page| {
@@ -6085,9 +6150,11 @@ impl Shell {
     }
 
     /// The Space's name, its pinned tabs, the divider, New Tab and its Today tabs, under the URL
-    /// field. Closed tabs' rows fade under the rest, and while rows slide down to make room for a
-    /// tab's new row, they come out from beneath it.
+    /// field, after room for the tiles when they scroll with it. Closed tabs' rows fade under the
+    /// rest, and while rows slide down to make room for a tab's new row, they come out from
+    /// beneath it.
     fn list(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let room = self.tiles_room();
         let mut rows = vec![(None, self.name_row(cx).into_any_element())];
         let (pinned, today) = self.rows();
         for tab in pinned {
@@ -6108,7 +6175,8 @@ impl Shell {
         let dragged = self.drag.as_ref().filter(|drag| drag.moving && drag.over_page.is_none());
         let dragged = dragged.filter(|drag| matches!(drag.to, Place::List(..))).map(|drag| {
             let row = self.tab_row(drag.tab, cx);
-            div().absolute().top(px(self.drag_at(drag))).left_0().w(px(self.width())).child(row)
+            let top = room + self.drag_at(drag);
+            div().absolute().top(px(top)).left_0().w(px(self.width())).child(row)
         });
         let under = self
             .opened
@@ -6127,7 +6195,8 @@ impl Shell {
             .track_scroll(&self.list_scroll)
             // Fingers across the list page between Spaces instead.
             .restrict_scroll_to_axis()
-            .children(self.closing.iter().map(|row| self.closing_row(row)))
+            .when(room > 0., |list| list.child(div().flex_none().h(px(room))))
+            .children(self.closing.iter().map(|row| self.closing_row(row, room)))
             .children(rows.into_iter().map(|(_, row)| row))
             .when(!under.is_empty(), |list| {
                 list.child(div().flex_none().flex().flex_col().overflow_hidden().children(under))
@@ -6174,7 +6243,7 @@ impl Shell {
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|shell, event: &MouseUpEvent, _, cx| {
-                    let below_rows = event.position.y >= px(REVEAL_INSET + shell.list_top());
+                    let below_rows = event.position.y >= px(REVEAL_INSET + shell.under_tiles());
                     if event.click_count == 2 && below_rows && shell.form().is_none() {
                         shell.run(Command::NewTab, "sidebar", cx);
                     }

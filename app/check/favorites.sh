@@ -6,10 +6,11 @@
 # again, the app brings the favorite back, shown, and Remove from Favorites in its menu puts it at
 # the top of Today. Today rows dragged onto the tiles become favorites where they're dropped, a tile
 # dragged across the other goes before it, one dragged into the list goes there, and escape puts a
-# dragged tile back. ⌘, from the page and the UI opens Settings, where switches turn the warning
-# before quitting and the haptics off and the menu of a pop-up button sets how long Today tabs wait
-# for the archive, and all three stay after the quit, when ⌘Q quits without asking. ⌘W and the
-# window's close button hide it, and More Settings… opens Chromium's settings in a tab.
+# dragged tile back. Tiles taller than 40 % of the window scroll with the list. ⌘, from the page and
+# the UI opens Settings, where switches turn the warning before quitting and the haptics off and the
+# menu of a pop-up button sets how long Today tabs wait for the archive, and all three stay after
+# the quit, when ⌘Q quits without asking. ⌘W and the window's close button hide it, and More
+# Settings… opens Chromium's settings in a tab.
 
 # Favorites, from the served page with example.org above it.
 serve
@@ -222,6 +223,39 @@ expect '^browser: command stop via ' "escape during a tile's drag didn't reach t
 send release 100 300
 none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it"
 [ "$(favorites)" = "$a" ] || fail "a tile's drag escape put back moved it: \"$(favorites)\""
+# Three tiles in the sidebar at its narrowest take two rows, 94 points, more than 40 % of a window
+# 220 tall, so they scroll with the list, under the URL field (Ardia).
+send drag $(tiled_row 0) 200 112
+expect "^browser: dragged $x to favorites 1\$" "a row dragged right of the tile didn't go there"
+expect '^browser: tiles settled$' "the tiles didn't settle after the second drop"
+send drag $(tiled_row 0) 200 112
+expect "^browser: dragged $y to favorites 2\$" "a row dragged right of the tiles didn't go last"
+expect "^browser: favorites $a $x $y\$" "the tiles aren't three: the favorites are \"$(favorites)\""
+expect '^browser: tiles settled$' "the tiles didn't settle after the third drop"
+send drag 225 400 20 400
+expect '^browser: sidebar width 160$' "dragging the sidebar's edge didn't narrow it to 160"
+send layout
+size=$(grep '^browser: layout content' "$log" | tail -1 |
+  sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+send resize 1000 220
+expect '^browser: tiles scroll with the list$' \
+  "two rows of tiles in a window 220 tall didn't scroll with the list"
+../tools/window-screenshot.sh "$pid" "$out/tiles-tall.png" || fail "no window to capture"
+# Scrolled 40, the tiles went up 40 with the rows, and the first tile's place holds the third's.
+send scroll 100 150 20 2
+expect '^browser: scroll edge shown$' "the list scrolled with the tiles didn't show its edge"
+../tools/window-screenshot.sh "$pid" "$out/tiles-scrolled.png" || fail "no window to capture"
+send click 40 117
+expect '^browser: command select via favorite$' "a click on the scrolled tiles didn't reach one"
+expect "^browser: selected $y\( in .*\)\{0,1\}\$" \
+  "the third tile isn't 40 up with the list: a click there didn't show its favorite"
+send scroll 100 150 -20 2
+expect '^browser: scroll edge hidden$' "the list back at its top didn't hide its edge"
+send resize $size
+expect '^browser: tiles stay put$' "the tiles in a window back at its height still scroll"
+send doubleclick 157 400
+expect '^browser: sidebar width 228$' \
+  "a double-click on the sidebar's edge didn't put its width back"
 # Settings kept the time, the haptics and the warning across the quit. ⌘, from the UI opens it,
 # its close button hides it, and More Settings… opens Chromium's settings in a tab.
 send click $sidebar_point
@@ -254,4 +288,4 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: alert shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-up sets the archive's time, all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/settings.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-up sets the archive's time, all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
