@@ -217,7 +217,7 @@ fn now() -> f64 {
 struct Fake {
     shell: WeakEntity<Shell>,
     next_id: Cell<u64>,
-    spaces: RefCell<Vec<(u64, SharedString, Option<u32>, u64)>>,
+    spaces: RefCell<Vec<(u64, SharedString, Option<u32>, u64, SharedString)>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
 }
@@ -641,7 +641,8 @@ impl Browser for Fake {
     fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
-        self.spaces.borrow_mut().push((space, name.to_string().into(), None, profile));
+        let entry = (space, name.to_string().into(), None, profile, SharedString::default());
+        self.spaces.borrow_mut().push(entry);
         self.report_spaces(cx);
         space
     }
@@ -670,6 +671,13 @@ impl Browser for Fake {
     fn set_space_color(&self, space: u64, color: Option<u32>, cx: &mut App) {
         if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, ..)| *id == space) {
             entry.2 = color;
+        }
+        self.report_spaces(cx);
+    }
+
+    fn set_space_icon(&self, space: u64, icon: &str, cx: &mut App) {
+        if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, ..)| *id == space) {
+            entry.4 = icon.to_string().into();
         }
         self.report_spaces(cx);
     }
@@ -964,10 +972,13 @@ fn main() {
             let shell = cx.new(|cx| {
                 let first_space = TABS.len() as u64 + 1;
                 // The preview's Spaces and favorites are in its one profile, 0.
-                let spaces: Vec<(u64, SharedString, Option<u32>, u64)> = (first_space..)
-                    .zip(SPACES)
-                    .map(|(id, (name, color))| (id, name.into(), color, 0))
-                    .collect();
+                let spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString)> =
+                    (first_space..)
+                        .zip(SPACES)
+                        .map(|(id, (name, color))| {
+                            (id, name.into(), color, 0, SharedString::default())
+                        })
+                        .collect();
                 let first_archived = first_space + SPACES.len() as u64;
                 let archive = (first_archived..)
                     .zip(ARCHIVE)

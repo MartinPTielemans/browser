@@ -404,6 +404,7 @@ mod tests {
             id,
             name: format!("Space {id}").into(),
             color: None,
+            icon: Default::default(),
             profile: 0,
             pinned: Vec::new(),
             today: Vec::new(),

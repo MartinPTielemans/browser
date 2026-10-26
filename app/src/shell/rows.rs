@@ -12,8 +12,9 @@ use super::{
     LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
     PRESSED, ROW_FILL, ROW_HEIGHT, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE,
     SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
-    TITLE_END_INSET, Shell, Slot, clear_label, cubic_bezier, divider_box, favicon, folder_icon,
-    name_box, new_tab_label, plate, row_box, row_spring, selected_plate, split_plate, title,
+    Shell, Slot, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon, folder_icon,
+    name_box, new_tab_label, plate, row_box, row_spring, selected_plate, space_icon, split_plate,
+    title,
 };
 
 impl Shell {
@@ -497,7 +498,19 @@ impl Shell {
 
     pub(super) fn name_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let space = self.space;
-        let row = name_box().id("space-name").block_mouse_except_scroll();
+        // Its icon, or the field changing it, before its name.
+        let changing =
+            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::SpaceIcon(space));
+        let icon = match changing {
+            Some(changing) => Some(space_icon(self.space_icon_field(changing, cx))),
+            None => (self.shown_space())
+                .filter(|each| !each.icon.is_empty())
+                .map(|each| space_icon(each.icon.clone())),
+        };
+        let row = name_box()
+            .id("space-name")
+            .block_mouse_except_scroll()
+            .when_some(icon, |row, icon| row.child(icon));
         if let Some(renaming) =
             self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Space(space))
         {
