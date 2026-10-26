@@ -71,9 +71,11 @@ struct ClosedTab {
   // Its place in the Space's Today tabs.
   size_t index = 0;
   SavedTab saved;
-  // A tab of the split view it was in, else 0, and its place in the split, from the left.
+  // A tab of the split view it was in, else 0, its place in the split, and whether the split was
+  // stacked.
   bc_id split_with = 0;
   size_t split_index = 0;
+  bool stacked = false;
 };
 
 // As many as Chrome keeps.
@@ -132,7 +134,8 @@ void KeepClosed(content::WebContents* contents) {
                           .index = index,
                           .saved = std::move(saved),
                           .split_with = panes.size() < 2 ? 0 : panes[split_index == 0 ? 1 : 0],
-                          .split_index = split_index});
+                          .split_index = split_index,
+                          .stacked = space->Stacked(id)});
   if (ClosedTabs().size() > kMaxClosedTabs) {
     ClosedTabs().erase(ClosedTabs().begin());
   }
@@ -238,6 +241,8 @@ void Window::PanesChanged() {
     if (selected && (space ? space->Panes(selected) : std::vector<bc_id>{selected}) !=
                         window->panes_) {
       window->Select(selected);
+    } else if (space && space->Stacked(selected) != window->stacked_) {
+      window->LayOutPage();
     }
   }
 }
@@ -700,6 +705,8 @@ void Window::LayOutPage() {
   if (shown_ && shown_->IsFullscreen()) {
     shown = {shown_.get()};
   }
+  Space* space = panes_.empty() ? nullptr : Space::Holding(panes_.front());
+  stacked_ = space && space->Stacked(panes_.front());
   std::vector<platform::Pane> panes;
   size_t focused = 0;
   const int count = static_cast<int>(shown.size());
@@ -712,13 +719,15 @@ void Window::LayOutPage() {
       tab->SetPageColor(SkColorSetRGB(*page_color_ >> 16, *page_color_ >> 8 & 0xff,
                                       *page_color_ & 0xff));
     }
-    // Side by side, each as wide as the others.
-    const int span = page_frame_.width() + kSplitGap;
-    const int left = page_frame_.x() + span * i / count;
-    const int right = page_frame_.x() + span * (i + 1) / count - kSplitGap;
+    // Side by side, each as wide as the others, or stacked, each as tall.
+    const int start = stacked_ ? page_frame_.y() : page_frame_.x();
+    const int span = (stacked_ ? page_frame_.height() : page_frame_.width()) + kSplitGap;
+    const int from = start + span * i / count;
+    const int to = start + span * (i + 1) / count - kSplitGap;
     platform::Pane& pane = panes.emplace_back(
         contents->GetNativeView(),
-        gfx::Rect(left, page_frame_.y(), right - left, page_frame_.height()));
+        stacked_ ? gfx::Rect(page_frame_.x(), from, page_frame_.width(), to - from)
+                 : gfx::Rect(from, page_frame_.y(), to - from, page_frame_.height()));
     DevToolsContentsResizingStrategy strategy;
     if (content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy)) {
       // As Chrome's window does: DevTools fill the frame, and the page goes where they leave it.
@@ -879,8 +888,9 @@ size_t Window::UndoClear() {
     if (id) {
       ++reopened;
       // Back in its split, if the tab beside it came back too.
-      if (Space* space = Space::Holding(id); space && cleared.split && above) {
-        space->Split(id, above, GURL());
+      if (Space* space = Space::Holding(id);
+          space && cleared.split && above && space->Split(id, above, GURL()) && tab->stacked) {
+        space->SetStacked(id, true);
       }
     }
     above = id;
@@ -949,9 +959,14 @@ bc_id Window::ReopenClosedTab() {
   }
   // Back in its split view, at its place, if a tab of it is still open and the split has room.
   Space* space = Space::Holding(tab);
+  const bool remade = space && space->Panes(closed.split_with).size() == 1;
   if (space && closed.split_with &&
       space->Split(tab, closed.split_with, Tab::PageUrl(Tab::FromId(tab)), /*left=*/false)) {
     space->MoveInSplit(tab, closed.split_index);
+    // A split it remakes is as it was. One still open keeps how it's shown now.
+    if (remade && closed.stacked) {
+      space->SetStacked(tab, true);
+    }
     PanesChanged();
   }
   Select(tab);

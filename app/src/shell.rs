@@ -399,6 +399,8 @@ pub enum Command {
     SeparateSplit,
     /// Puts the split view's pages in the opposite order.
     FlipSplit,
+    /// Stacks the split view's pages top to bottom, or puts them back side by side.
+    ChangeOrientation,
     /// Swaps the split view's focused page with the one on its left, or on its right.
     MovePaneLeft,
     MovePaneRight,
@@ -520,6 +522,7 @@ const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Separate Page from Split View", Command::SeparatePane),
     // Dia's (docs/ux-spec.md › Split view).
     ("Flip Split View", Command::FlipSplit),
+    ("Change Orientation", Command::ChangeOrientation),
     ("Move Pane Left", Command::MovePaneLeft),
     ("Move Pane Right", Command::MovePaneRight),
     ("Separate All Pages", Command::SeparateSplit),
@@ -778,6 +781,7 @@ impl Command {
             Command::SeparatePane => "separate-pane",
             Command::SeparateSplit => "separate-split",
             Command::FlipSplit => "flip-split",
+            Command::ChangeOrientation => "change-orientation",
             Command::MovePaneLeft => "move-pane-left",
             Command::MovePaneRight => "move-pane-right",
             Command::NextPane => "next-pane",
@@ -952,8 +956,10 @@ pub trait Browser {
     fn delete_folder(&self, folder: u64, cx: &mut App);
     /// Takes `tab` out of its split view.
     fn separate(&self, tab: u64, cx: &mut App);
-    /// Moves `tab` to `index` in its split view, counted from the left.
+    /// Moves `tab` to `index` in its split view, counted from the left or the top.
     fn move_in_split(&self, tab: u64, index: usize, cx: &mut App);
+    /// Stacks the pages of `tab`'s split view top to bottom, or puts them side by side.
+    fn set_split_stacked(&self, tab: u64, stacked: bool, cx: &mut App);
     /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
     /// shows it there.
     fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
@@ -1049,9 +1055,9 @@ pub trait Browser {
     fn set_focus_color(&self, color: u32, cx: &mut App);
     /// What the window's pages show until their first frame, 0xRRGGBB.
     fn set_page_color(&self, color: u32, cx: &mut App);
-    /// Keeps the find bar and the zoom HUD `right` points further in from the window's right
-    /// edge, at the corner of a split view's focused page.
-    fn set_page_right(&self, right: f32, cx: &mut App);
+    /// Keeps the find bar and the zoom HUD at the top right corner of a split view's focused page,
+    /// `right` points further in from the window's right edge and `top` further down.
+    fn set_pane_corner(&self, right: f32, top: f32, cx: &mut App);
     /// Shows the window's close, minimize and zoom buttons, or hides them.
     fn show_window_buttons(&self, shown: bool, cx: &mut App);
     /// Does what a click on the window's close, minimize or zoom button does.
@@ -1137,6 +1143,14 @@ struct Tab {
     favicon: Option<Arc<Image>>,
 }
 
+/// A split view: its tabs in their order, which sit together in their list as one row, shown side
+/// by side, else stacked top to bottom.
+#[derive(Clone, Default)]
+pub struct Split {
+    pub tabs: Vec<u64>,
+    pub stacked: bool,
+}
+
 /// A Space's folders in its pinned tabs. What's in each follows it there.
 #[derive(Clone, Default)]
 pub struct Folders {
@@ -1154,8 +1168,7 @@ struct Space {
     /// Its pinned tabs and folders and its Today tabs, each top to bottom.
     pinned: Vec<u64>,
     today: Vec<u64>,
-    /// Its split views, each its tabs left to right, which sit together in their list as one row.
-    splits: Vec<Vec<u64>>,
+    splits: Vec<Split>,
     folders: Folders,
     /// The tab it shows, or showed last.
     shown: u64,
@@ -1165,7 +1178,7 @@ impl Space {
     /// The tabs and folders of its pinned rows and its Today rows: each split's first stands for
     /// the split, and what's in a closed folder has none, but the tab shown's (Arc).
     fn rows(&self) -> (Vec<u64>, Vec<u64>) {
-        let later = |tab: &u64| self.splits.iter().any(|split| split[1..].contains(tab));
+        let later = |tab: &u64| self.splits.iter().any(|split| split.tabs[1..].contains(tab));
         let rows = |tabs: &[u64]| tabs.iter().copied().filter(|tab| !later(tab)).collect();
         let shown = self.panes(self.shown)[0];
         let rows_shown = |row: &u64| !self.shut(*row) || *row == shown;
@@ -1217,8 +1230,13 @@ impl Space {
 
     /// The tabs shown with `tab`, left to right: its split's, else `tab` alone.
     fn panes(&self, tab: u64) -> Vec<u64> {
-        let split = self.splits.iter().find(|split| split.contains(&tab));
-        split.cloned().unwrap_or_else(|| vec![tab])
+        let split = self.splits.iter().find(|split| split.tabs.contains(&tab));
+        split.map_or_else(|| vec![tab], |split| split.tabs.clone())
+    }
+
+    /// Whether `tab`'s split view is stacked.
+    fn stacked(&self, tab: u64) -> bool {
+        self.splits.iter().any(|split| split.stacked && split.tabs.contains(&tab))
     }
 
     /// Where its rows are in the list, from its top.
@@ -1511,8 +1529,8 @@ pub struct Shell {
     page_color: Option<u32>,
     /// The window over the page that draws the drop targets shows.
     drop_targets_shown: bool,
-    /// How far in from the page frame's right edge the focused page's ends, as last given.
-    page_right: f32,
+    /// How far in from the page frame's top right corner the focused page's is, as last given.
+    pane_corner: (f32, f32),
     /// Every Space's archived tabs, newest first, and the favicons asked for their URLs.
     archive: Vec<Archived>,
     page_favicons: HashMap<SharedString, Option<Arc<Image>>>,
@@ -1604,7 +1622,7 @@ impl Shell {
             focus_color: None,
             page_color: None,
             drop_targets_shown: false,
-            page_right: 0.,
+            pane_corner: (0., 0.),
             archive: Vec::new(),
             page_favicons: HashMap::new(),
             downloads: Vec::new(),
@@ -1631,8 +1649,8 @@ impl Shell {
         self.shown_space().map_or(&[], |space| &space.today)
     }
 
-    /// The split views of the Space shown, each its tabs left to right.
-    pub fn splits(&self) -> Vec<Vec<u64>> {
+    /// The split views of the Space shown.
+    pub fn splits(&self) -> Vec<Split> {
         self.shown_space().map_or_else(Vec::new, |space| space.splits.clone())
     }
 
@@ -1651,9 +1669,14 @@ impl Shell {
         self.shown_space().map_or_else(|| slots(&[], &[]), Space::slots)
     }
 
-    /// The tabs shown with `tab` in the Space shown, left to right: its split's, else `tab` alone.
+    /// The tabs shown with `tab` in the Space shown, in their order: its split's, else `tab` alone.
     fn panes(&self, tab: u64) -> Vec<u64> {
         self.shown_space().map_or_else(|| vec![tab], |space| space.panes(tab))
+    }
+
+    /// Whether `tab`'s split view in the Space shown is stacked.
+    fn stacked(&self, tab: u64) -> bool {
+        self.shown_space().is_some_and(|space| space.stacked(tab))
     }
 
     /// The tab whose row is `tab`'s: its split's first.
@@ -1699,9 +1722,10 @@ impl Shell {
         let card_left = self.card_left();
         let frame = page_frame(viewport, card_left, self.card_push());
         let radius = if card_left == 0. { 0. } else { CARD_RADIUS };
-        match self.adding_pane.map(|with| self.panes(with).len()) {
-            Some(count) => {
-                let last = pane_frames(frame, count + 1)[count - 1];
+        match self.adding_pane {
+            Some(with) => {
+                let count = self.panes(with).len();
+                let last = pane_frames(frame, count + 1, self.stacked(with))[count - 1];
                 (Bounds::from_corners(frame.origin, last.bottom_right()), radius)
             }
             None => (frame, radius),
@@ -2134,7 +2158,7 @@ impl Shell {
         space: u64,
         pinned: Vec<u64>,
         today: Vec<u64>,
-        splits: Vec<Vec<u64>>,
+        splits: Vec<Split>,
         folders: Folders,
         cx: &mut Context<Self>,
     ) {
@@ -2233,7 +2257,9 @@ impl Shell {
         log!("browser: pinned {}", ids(self.pinned()));
         log!("browser: today {}", ids(self.today()));
         let splits = self.shown_space().map_or_else(Vec::new, |space| {
-            space.splits.iter().map(|split| ids(split).replace(' ', "+")).collect()
+            // A stacked split's tabs are joined with a slash.
+            let join = |split: &Split| if split.stacked { "/" } else { "+" };
+            space.splits.iter().map(|split| ids(&split.tabs).replace(' ', join(split))).collect()
         });
         log!("browser: splits {}", splits.join(" "));
         self.outline_changed = true;
@@ -2470,6 +2496,10 @@ impl Shell {
                 }
                 return;
             }
+            Command::ChangeOrientation => {
+                let stacked = self.stacked(self.selected);
+                return self.browser.set_split_stacked(self.selected, !stacked, cx);
+            }
             Command::MovePaneLeft | Command::MovePaneRight => {
                 let panes = self.panes(self.selected);
                 let at = panes.iter().position(|&tab| tab == self.selected).unwrap_or_default();
@@ -2521,7 +2551,7 @@ impl Shell {
         self.adding_pane = Some(with);
         self.lay_out_page(cx);
         let card = page_frame(self.viewport, self.card_left(), self.card_push());
-        let pane = pane_frames(card, count + 1)[count];
+        let pane = pane_frames(card, count + 1, self.stacked(with))[count];
         self.browser.split_bar(with, pane, card, cx);
         cx.notify();
     }
@@ -3045,7 +3075,8 @@ impl Shell {
             Command::CloseSplitPane
             | Command::SeparatePane
             | Command::SeparateSplit
-            | Command::FlipSplit => self.panes(self.selected).len() > 1,
+            | Command::FlipSplit
+            | Command::ChangeOrientation => self.panes(self.selected).len() > 1,
             Command::MovePaneLeft => self.panes(self.selected).first() != Some(&self.selected),
             Command::MovePaneRight => self.panes(self.selected).last() != Some(&self.selected),
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {
@@ -5148,11 +5179,12 @@ impl Render for Shell {
         let (frame, _) = self.page_frame(self.viewport);
         let panes = self.panes(self.selected);
         let focused = panes.iter().position(|&pane| pane == self.selected).unwrap_or(0);
-        let pane = pane_frames(frame, panes.len())[focused];
-        let page_right = f32::from(frame.right() - pane.right());
-        if self.page_right != page_right {
-            self.page_right = page_right;
-            self.browser.set_page_right(page_right, cx);
+        let pane = pane_frames(frame, panes.len(), self.stacked(self.selected))[focused];
+        let pane_corner =
+            (f32::from(frame.right() - pane.right()), f32::from(pane.top() - frame.top()));
+        if self.pane_corner != pane_corner {
+            self.pane_corner = pane_corner;
+            self.browser.set_pane_corner(pane_corner.0, pane_corner.1, cx);
         }
         let window_buttons = self.window_buttons_shown();
         if window_buttons != self.window_buttons {
@@ -5252,7 +5284,7 @@ impl Shell {
             inset: false,
         };
         let split = panes.len() > 1;
-        let mut cards: Vec<_> = pane_frames(frame, panes.len())
+        let mut cards: Vec<_> = pane_frames(frame, panes.len(), self.stacked(self.selected))
             .into_iter()
             .zip(&panes)
             .map(|(bounds, &tab)| {
@@ -5263,7 +5295,7 @@ impl Shell {
         if let Some(with) = self.adding_pane {
             let count = self.panes(with).len() + 1;
             let full = page_frame(self.viewport, self.card_left(), self.card_push());
-            cards.push(card(pane_frames(full, count)[count - 1]));
+            cards.push(card(pane_frames(full, count, self.stacked(with))[count - 1]));
         }
         cards
     }
@@ -5569,17 +5601,23 @@ pub fn page_frame(viewport: Size<Pixels>, card_left: f32, push: f32) -> Bounds<P
     )
 }
 
-/// The pages of a split view of `count` in `frame`, left to right, where the core puts them: side
-/// by side, SPLIT_GAP apart, each as wide as the others to the point.
-fn pane_frames(frame: Bounds<Pixels>, count: usize) -> Vec<Bounds<Pixels>> {
-    let (x, span) = (f32::from(frame.origin.x), f32::from(frame.size.width) + SPLIT_GAP);
-    let edge = |index: usize| x + (span * index as f32 / count as f32).floor();
+/// The pages of a split view of `count` in `frame`, in their order, where the core puts them:
+/// SPLIT_GAP apart, side by side, each as wide as the others to the point, or stacked, each as
+/// tall.
+fn pane_frames(frame: Bounds<Pixels>, count: usize, stacked: bool) -> Vec<Bounds<Pixels>> {
+    let (start, length) = match stacked {
+        true => (frame.origin.y, frame.size.height),
+        false => (frame.origin.x, frame.size.width),
+    };
+    let span = f32::from(length) + SPLIT_GAP;
+    let edge = |index: usize| f32::from(start) + (span * index as f32 / count as f32).floor();
     (0..count)
         .map(|index| {
-            Bounds::from_corners(
-                point(px(edge(index)), frame.top()),
-                point(px(edge(index + 1) - SPLIT_GAP), frame.bottom()),
-            )
+            let (from, to) = (px(edge(index)), px(edge(index + 1) - SPLIT_GAP));
+            match stacked {
+                true => Bounds::from_corners(point(frame.left(), from), point(frame.right(), to)),
+                false => Bounds::from_corners(point(from, frame.top()), point(to, frame.bottom())),
+            }
         })
         .collect()
 }

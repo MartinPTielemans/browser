@@ -4,13 +4,15 @@
 # URL typed in the command bar opens in the pane, focused. The panes share the card 10 apart, the
 # focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one
 # row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a
-# segment focuses its pane. Launched again, the app brings the split back with both pages. Separate
-# Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, and
-# ⌘W closes the focused pane, leaving the page beside it alone, which ⇧⌘T puts back. The ✕ on a
-# split's row closes all its panes, and the window shows the tab above them. ⇧⌘T brings them back
-# together. A row dragged onto the page brings a target to each of the card's sides, which go when
-# it's back over the sidebar, and let go on the left one, the tab joins the page shown on its left.
-# The command bar's Flip Split View, Move Pane Right and Separate All Pages reorder and end a split.
+# segment focuses its pane. Change Orientation stacks the panes, with the find bar at the focused
+# one's corner. Launched again, the app brings the split back stacked with both pages, and Change
+# Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩
+# in the command bar opens a URL beside the page, and ⌘W closes the focused pane, leaving the page
+# beside it alone, which ⇧⌘T puts back. The ✕ on a split's row closes all its panes, and the window
+# shows the tab above them. ⇧⌘T brings them back together. A row dragged onto the page brings a
+# target to each of the card's sides, which go when it's back over the sidebar, and let go on the
+# left one, the tab joins the page shown on its left. The command bar's Flip Split View, Move Pane
+# Right and Separate All Pages reorder and end a split.
 
 # Split view, from the served page with example.org beside it.
 serve
@@ -144,25 +146,58 @@ expect "^browser: panes $a $b\$" "⌘2 didn't show both panes"
 send click 170 $(row 1 | cut -d' ' -f2)
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" \
   "a click on the split's right segment didn't focus it"
+# Change Orientation stacks the panes top to bottom, 10 apart, each as tall as the other, the ring
+# on the focused one, and the find bar goes to its top right corner. The driver's frames count
+# from the bottom.
+tall=$(((h + 10) / 2))
+top="$x,$((y + h - tall + 10)) ${w}x$((tall - 10))"
+bottom="$x,$y ${w}x$((h - tall))"
+stacked="WebContentsViewCocoa $top WebContentsViewCocoa $bottom"
+bar_command change-orientation "Change Orientation" "change orientation"
+expect "^browser: splits $a/$b\$" "Change Orientation didn't stack the split: \"$(splits)\""
+read_pages
+[ "$pages" = "$stacked BrowserCoreFocusRing $bottom" ] ||
+  fail "the panes aren't stacked with the ring on the bottom one: $pages"
+send key f cmd
+expect '^browser: find bar shown$' "⌘F in the bottom pane didn't show the find bar"
+send layout
+child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child' |
+  sed 's/^browser: layout child //')
+content=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout content' |
+  sed 's/^browser: layout content \([0-9]*\)x.*/\1/')
+[ "$child" = "$((content - 320)),$((20 + tall)) 300x32" ] ||
+  fail "the find bar is at ${child:-nowhere}, not at the bottom pane's corner"
+../tools/window-screenshot.sh "$pid" "$out/split-stacked.png" || fail "no window to capture"
+send key escape
+expect '^browser: find bar hidden$' "escape didn't close the find bar"
 exec 3>&-
 quit
 
-# Launched again, the split comes back with both its pages, and the pane focused last focused.
+# Launched again, the split comes back stacked with both its pages, and the pane focused last
+# focused. Change Orientation puts them side by side again.
 log="$out/split-restored.log"
 step=0
 BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the split"
-await '^browser: splits [0-9][0-9]*+[0-9][0-9]*$' || fail "the split didn't come back"
-a=$(splits | cut -d+ -f1)
-b=$(splits | cut -d+ -f2)
+await '^browser: splits [0-9][0-9]*/[0-9][0-9]*$' || fail "the split didn't come back stacked"
+a=$(splits | cut -d/ -f1)
+b=$(splits | cut -d/ -f2)
 # The tab above the split, whose ID the relaunch may have changed too.
 c=$(today | cut -d' ' -f1)
 await "^browser: selected $b\$" || fail "the relaunch didn't focus the pane focused last"
 await "^browser: panes $a $b\$" || fail "the relaunch didn't show both panes"
-await "^browser: loaded $a $site\$" || fail "the split's left page didn't load"
-await "^browser: loaded $b https://example.org/\$" || fail "the split's right page didn't load"
+await "^browser: loaded $a $site\$" || fail "the split's top page didn't load"
+await "^browser: loaded $b https://example.org/\$" || fail "the split's bottom page didn't load"
+read_pages
+[ "$pages" = "$stacked BrowserCoreFocusRing $bottom" ] ||
+  fail "the relaunch didn't show the panes stacked: $pages"
+bar_command change-orientation "Change Orientation" "change orientation"
+expect "^browser: splits $a+$b\$" "Change Orientation didn't put the panes side by side again"
+read_pages
+[ "$pages" = "$two BrowserCoreFocusRing $right" ] ||
+  fail "the panes aren't side by side again with the ring on the right one: $pages"
 send click $((x + w - 100)) 400
 # Separate Page from Split View shows the focused pane alone.
 send menu Separate Page from Split View
@@ -249,4 +284,4 @@ expect "^browser: panes $c\$" "Separate All Pages didn't show the focused page a
 expect "^browser: today.* $c $a\( \|\$\)" "Separate All Pages lost the pages' order: $(today)"
 exec 3>&-
 quit
-echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page and ⌥-click on \"+ New Tab\" do it too. ⌥⇧- and ⌥⌘-click on a link and the link menu's Open Link in Split View open it in a pane on the right. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The split comes back after a quit with both pages. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. Windows: $out/split.png, $out/split-left.png, $out/split-targets.png"
+echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page and ⌥-click on \"+ New Tab\" do it too. ⌥⇧- and ⌥⌘-click on a link and the link menu's Open Link in Split View open it in a pane on the right. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. Change Orientation stacks the panes, with the find bar at the focused one's corner, and the split comes back stacked after a quit with both pages, until Change Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. Windows: $out/split.png, $out/split-left.png, $out/split-stacked.png, $out/split-targets.png"

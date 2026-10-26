@@ -251,12 +251,12 @@ pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>,
 
 /// Shows the command bar, empty, over `pane`, a split view's new pane in the card at `card`, for
 /// a page to show there beside `with`. It's centred over the pane, as far into the card as it
-/// needs to be, and as far down the window as it opens for a new tab.
+/// needs to be, and as far down the pane as it opens down the window for a new tab.
 pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
     if let Some(host) = reset(Target::Beside(with), SharedString::default(), None, cx) {
         let left = pane.center().x - px(WIDTH / 2.);
         let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
-        let top = (card.top() + card.bottom()) / 5.;
+        let top = (card.top() + card.bottom()) / 5. + (pane.top() - card.top());
         host.show(false, left.into(), top.into(), WIDTH);
     }
 }

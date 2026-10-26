@@ -305,9 +305,10 @@ BC_EXPORT void bc_folder_delete(bc_id folder);
 // are. They're tabs in no Space, which every Space shows above its own, as Arc shows a profile's.
 BC_EXPORT size_t bc_favorites(bc_id* tabs, size_t capacity);
 
-// Copies up to |capacity| of the tabs shown with |tab| into |tabs|, left to right, |tab| among
-// them, and returns how many there are: those of its split view, else |tab| alone. 0 for a tab in
-// no Space. A split's tabs sit together in their list, in this order, as one row.
+// Copies up to |capacity| of the tabs shown with |tab| into |tabs|, left to right or top to
+// bottom, |tab| among them, and returns how many there are: those of its split view, else |tab|
+// alone. 0 for a tab in no Space. A split's tabs sit together in their list, in this order, as one
+// row.
 BC_EXPORT size_t bc_tab_split(bc_id tab, bc_id* tabs, size_t capacity);
 
 // Puts |tab| in a split view with |with|, at its left end if |left|, else its right end, making
@@ -326,6 +327,14 @@ BC_EXPORT void bc_tab_separate(bc_id tab);
 // is past its end. Then space_changed.
 BC_EXPORT bool bc_tab_move_in_split(bc_id tab, size_t index);
 
+// Whether |tab|'s split view shows its pages stacked, top to bottom, rather than side by side.
+BC_EXPORT bool bc_tab_split_stacked(bc_id tab);
+
+// Stacks the pages of |tab|'s split view top to bottom, or puts them side by side: a window
+// showing it shows them so, in the same order. A split view starts side by side. Returns false,
+// doing nothing, if |tab| is in no split view. Then space_changed.
+BC_EXPORT bool bc_tab_set_split_stacked(bc_id tab, bool stacked);
+
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
 // window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
 // Today tab, else its top pinned tab, else no page. Then window_space_shown and window_selected.
@@ -342,8 +351,8 @@ BC_EXPORT bc_id bc_window_space_tab(bc_id window, bc_id space);
 
 // Where the window shows its tab's page, in the window, and the radius of the page's corners, 0 for
 // square ones. Set it again when the layout changes; the page keeps its distance from the window's
-// edges as the window resizes. A split view's pages share it, side by side, 10 apart, each as wide
-// as the others.
+// edges as the window resizes. A split view's pages share it, 10 apart, each as wide as the others
+// side by side, or as tall stacked.
 BC_EXPORT void bc_window_set_page_frame(bc_id window, bc_rect frame, double corner_radius);
 
 // The colour of the ring inside the edge of the focused page of a split view, 0xRRGGBB.

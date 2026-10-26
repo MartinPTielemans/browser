@@ -107,9 +107,10 @@ NSWindow* g_drop_targets;
 NSView* g_drop_targets_view;
 bool g_drop_targets_shown = false;
 
-// How far the focused page's right edge is inside the card's, in a split view, which the find bar
-// and the HUD keep to.
+// How far the focused page's top right corner is inside the card's, in a split view, which the
+// find bar and the HUD keep to.
 double g_page_right = 0;
+double g_page_top = 0;
 
 // The sidebar reveal's window and view, the shell's handler for the pointer, the window's width,
 // and while it shows, the monitor that hands the handler the pointer.
@@ -168,7 +169,8 @@ void PlaceFindBar() {
   NSSize size = g_find_bar.frame.size;
   [g_find_bar setFrameOrigin:NSMakePoint(NSMaxX(content) - g_page_right - g_find_bar_right -
                                              size.width,
-                                         NSMaxY(content) - g_find_bar_top - size.height)];
+                                         NSMaxY(content) - g_page_top - g_find_bar_top -
+                                             size.height)];
 }
 
 // At the browser window's top right corner, where the toast draws itself.
@@ -185,7 +187,7 @@ void PlaceHud() {
   const double top =
       g_find_bar_shown ? g_find_bar_top + g_find_bar.frame.size.height + 8 : g_hud_top;
   [g_hud setFrameOrigin:NSMakePoint(NSMaxX(content) - g_page_right - g_hud_right - size.width,
-                                    NSMaxY(content) - top - size.height)];
+                                    NSMaxY(content) - g_page_top - top - size.height)];
 }
 
 // At the browser window's left edge and as tall as its content, so a point is at the same place in
@@ -467,8 +469,9 @@ void host_hide_find_bar(void) {
   fprintf(stderr, "browser: find bar hidden\n");
 }
 
-void host_set_page_right(double right) {
+void host_set_pane_corner(double right, double top) {
   g_page_right = right;
+  g_page_top = top;
   if (g_find_bar_shown) {
     PlaceFindBar();
   }
