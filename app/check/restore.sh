@@ -2,13 +2,15 @@
 # Spaces: their names and colours, their tabs with each tab's history, the tab each showed and the
 # Space it showed, and the sidebar's width. Only a tab shown loads; the others show their titles and
 # favicons. A tab named with a double-click on its row, where escape cancels, keeps its name over
-# its page's title, and Rename Tab in its menu with no name gives the title back. A tab closed
-# before the quit stays closed, in the archive, from which the Library reopens it at its page. A
-# page's downloads go in the check's folder, and ⇧⌘J opens the Library on Downloads, which lists
-# them. With one running, ⌘Q asks first: Continue Downloading shows the Library's Downloads, and
-# Quit quits, cancelling it. After the relaunch, Remove from List and Clear List take them off the
-# list and keep their files. A SIGTERM, which macOS sends at logout and restart, keeps a tab opened
-# just before it. Reports how long putting them back takes.
+# its page's title, and Rename Tab in its menu with no name gives the title back. An emoji from the
+# character palette, after Change Icon…, takes its favicon's place until Remove Icon, as a Japanese
+# conversion's first character does once it's committed. A tab closed before the quit stays closed,
+# in the archive, from which the Library reopens it at its page. A page's downloads go in the
+# check's folder, and ⇧⌘J opens the Library on Downloads, which lists them. With one running, ⌘Q
+# asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
+# After the relaunch, Remove from List and Clear List take them off the list and keep their files. A
+# SIGTERM, which macOS sends at logout and restart, keeps a tab opened just before it. Reports how
+# long putting them back takes.
 # With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long goes in
 # the archive, counting the time across a quit, and the tab shown stays.
 
@@ -104,6 +106,18 @@ send type news
 ../tools/window-screenshot.sh "$pid" "$out/rename-tab.png" || fail "no window to capture"
 send key return
 expect "^browser: title $c news\$" "return didn't name the tab"
+# Change Icon… in its menu puts a field in its favicon's place and asks for the character palette,
+# and an emoji the palette commits there is the tab's icon at once.
+post rightclick $(row 0)
+expect '^browser: menu shown .*Rename Tab, Change Icon…, Duplicate Tab' \
+  "a right-click on the tab's row didn't offer Change Icon…"
+send choose Change Icon…
+expect "^browser: change icon $c\$" "Change Icon… didn't put a field in the tab's icon's place"
+expect '^browser: character palette shown$' "Change Icon… didn't show the character palette"
+../tools/window-screenshot.sh "$pid" "$out/tab-icon-field.png" || fail "no window to capture"
+send insert 🦊
+expect "^browser: page $c icon 🦊\$" "an emoji from the palette didn't become the tab's icon"
+../tools/window-screenshot.sh "$pid" "$out/tab-icon.png" || fail "no window to capture"
 # With a download running, Quit in the alert ⌘Q shows asks again, in Chrome's. Continue Downloading
 # keeps the browser running and shows the Library's Downloads, and Quit quits, cancelling it.
 post key q cmd
@@ -152,6 +166,7 @@ await "^browser: loaded $c https://example.net/\$" || fail "the tab shown didn't
 await "^browser: title $c news\$" || fail "the tab came back without its name"
 grep -q "^browser: title $c Example Domain\$" "$log" &&
   fail "the tab's page's title took its name's place"
+await "^browser: page $c icon 🦊\$" || fail "the tab came back without its icon"
 await "^browser: page $a back 0 forward 1 loading 0 $site\$" ||
   fail "tab a didn't come back at its page with history: $(grep "^browser: page $a" "$log" | tail -1)"
 await "^browser: title $a ready\$" || fail "tab a didn't come back with its title"
@@ -179,7 +194,7 @@ if [ "$active" != 1 ]; then
 fi
 # Rename Tab in its menu, with the name taken out, gives the tab back its page's title.
 post rightclick $(row 0)
-menu="Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space › reading list, Close Tab, Close Tabs Below"
+menu="Pin Tab, Add to Favorites, Rename Tab, Change Icon…, Remove Icon, Duplicate Tab, Move to Space › reading list, Close Tab, Close Tabs Below"
 expect "^browser: menu shown $menu\$" \
   "a right-click on the renamed tab's row didn't offer Rename Tab"
 send choose Rename Tab
@@ -188,6 +203,24 @@ send key backspace
 send key return
 expect "^browser: title $c Example Domain\$" \
   "taking the name out didn't give the tab back its page's title"
+# A composition isn't the icon until it's committed, and then its first character is.
+post rightclick $(row 0)
+expect "^browser: menu shown $menu\$" "a right-click on the tab's row didn't offer Remove Icon"
+send choose Change Icon…
+expect "^browser: change icon $c\$" "Change Icon… didn't put a field in the tab's icon's place"
+send ime on
+send type nihongo
+send key space
+[ "$marked" != none ] || fail "the icon's field didn't take the conversion"
+none_since "^browser: page $c icon " || fail "a composition became the tab's icon"
+send key return
+expect "^browser: page $c icon 日\$" "the committed conversion's first character isn't the icon"
+send ime off
+# Remove Icon gives it back its favicon.
+post rightclick $(row 0)
+expect "^browser: menu shown $menu\$" "a right-click on the tab's row didn't offer Remove Icon"
+send choose Remove Icon
+expect "^browser: page $c icon none\$" "Remove Icon didn't give the tab back its favicon"
 send click $page_point
 # The tab closed before the quit reopens from the Library at the top of Today, at its page. ⌘W
 # archives it again.
@@ -299,5 +332,5 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"

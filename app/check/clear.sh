@@ -5,13 +5,14 @@
 # over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider,
 # close the Space's Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI
 # brings them back in place, unloaded, unless the page's text field has the keyboard, when ⌘Z is its
-# own. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history and
-# muted if it was, and after a Clear, ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a
-# row shows its tab's menu, whose Duplicate Tab, Close Tabs Below and Unpin Tab work. ⌘W archives a
-# Today tab. ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right
-# at its width, and its back button closes it. A right-click on an archived tab shows its menu,
-# whose Copy URL copies its URL and Delete from Archive takes it out. A click on one reopens it at
-# the top of Today with its history, and Clear Archive asks, then empties the archive.
+# own. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history,
+# muted if it was and with its icon, and after a Clear, ⌘Z brings back only the tabs ⇧⌘T didn't. A
+# right-click on a row shows its tab's menu, whose Duplicate Tab, Close Tabs Below and Unpin Tab
+# work. ⌘W archives a Today tab. ⇧⌘L, View Library and the footer's button open the Library, which
+# pushes the page right at its width, and its back button closes it. A right-click on an archived
+# tab shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out. A click on
+# one reopens it at the top of Today with its history, and Clear Archive asks, then empties the
+# archive.
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 serve
@@ -174,6 +175,15 @@ switch "3 cmd" "$e"
 # Muted, it comes back muted.
 bar_command toggle-mute "Mute/Unmute Tab" mute
 expect "^browser: page $e audible 0 muted 1\$" "Mute/Unmute Tab didn't mute the middle tab"
+# With an icon, it comes back with it.
+post rightclick $(row 2)
+expect '^browser: menu shown .*Rename Tab, Change Icon…, ' \
+  "a right-click on the middle Today row didn't offer Change Icon…"
+send choose Change Icon…
+expect "^browser: change icon $e\$" \
+  "Change Icon… didn't put a field in the middle tab's icon's place"
+send insert ★
+expect "^browser: page $e icon ★\$" "the palette's pick didn't become the middle tab's icon"
 send click $page_point
 send key w cmd
 expect "^browser: tab $e closed\$" "⌘W didn't close the middle Today tab"
@@ -186,6 +196,7 @@ e=$(today | cut -d' ' -f2)
 tab=$e
 expect "^browser: selected $e\$" "⇧⌘T didn't show the tab it reopened"
 expect "^browser: page $e audible 0 muted 1\$" "⇧⌘T didn't keep the tab muted"
+expect "^browser: page $e icon ★\$" "⇧⌘T didn't keep the tab's icon"
 expect_page example.org 1 0 "after ⇧⌘T"
 ../tools/window-screenshot.sh "$pid" "$out/reopen.png" || fail "no window to capture"
 
@@ -209,21 +220,22 @@ expect "^browser: today $t $e [0-9][0-9]*\$" \
 none_since "^browser: selected" || fail "Undo after ⇧⌘T showed another tab"
 
 # A right-click on a row shows its tab's menu, with the shortcuts. Duplicate Tab opens a copy under
-# it, with its history, and shows it. Rows count from the one pinned tab.
+# it, with its history and icon, and shows it. Rows count from the one pinned tab.
 d=$(today | cut -d' ' -f3)
 t=$(today | cut -d' ' -f1)
 post rightclick $(row 2)
-expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
+expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Change Icon…, Remove Icon, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on a Today row didn't show its tab's menu"
 ../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
 send choose Duplicate Tab
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run"
 expect_lists "$a" "$t $e [0-9][0-9]* $d" "after Duplicate Tab"
 tab=$(today | cut -d' ' -f3)
 expect "^browser: selected $tab\$" "Duplicate Tab didn't show the copy"
+expect "^browser: page $tab icon ★\$" "Duplicate Tab didn't copy the tab's icon"
 expect_page example.org 1 0 "the copy Duplicate Tab made"
 # Close Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)
-expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
+expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below$' "a right-click on the top Today row didn't show its tab's menu"
 send choose Close Tabs Below
 expect '^browser: command close-tabs-below via tab menu$' "Close Tabs Below didn't run"
 expect_lists "$a" "$t" "after Close Tabs Below"
@@ -237,7 +249,7 @@ send key t cmd shift
 expect "^browser: today $t [0-9][0-9]*\$" "⇧⌘T after Close Tabs Below didn't reopen the tab under the one right-clicked: Today is \"$(today)\""
 # A pinned tab's menu unpins it, and goes back to its pinned URL only when it's away from it.
 post rightclick $(pinned_row 0)
-expect '^browser: menu shown Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
+expect '^browser: menu shown Unpin Tab, Add to Favorites, Back to Pinned URL (disabled), Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab$' "a right-click on a pinned row didn't show its tab's menu"
 send choose Unpin Tab
 expect '^browser: command toggle-pin via tab menu$' "Unpin Tab didn't run"
 expect "^browser: today $a $t [0-9][0-9]*\$" "Unpin Tab didn't move the tab to the top of Today: Today is \"$(today)\""
@@ -327,4 +339,4 @@ expect "^browser: copied ${site}.id=1\$" \
   "⇧⌘C copied the URL with its tracking parameters: $(grep '^browser: copied' "$log" | tail -1)"
 exec 3>&-
 quit
-echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history and muted if it was, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png"
+echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png"

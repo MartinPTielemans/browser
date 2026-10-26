@@ -131,6 +131,7 @@ void KeepClosed(content::WebContents* contents) {
     return;
   }
   saved.name = Tab::FromWebContents(contents)->name();
+  saved.icon = Tab::FromWebContents(contents)->icon();
   saved.muted = contents->IsAudioMuted();
   Archive(id, saved.history[saved.current].virtual_url(), Tab::FromWebContents(contents)->Title());
   const size_t index = std::ranges::find(space->today(), id) - space->today().begin();
@@ -178,6 +179,7 @@ bc_id CopyToProfile(bc_id tab, const std::string& dir) {
   }
   const bc_id id = Tab::IdOf(copy);
   Tab::FromWebContents(copy)->set_name(Tab::FromWebContents(contents)->name());
+  Tab::FromWebContents(copy)->set_icon(Tab::FromWebContents(contents)->icon());
   if (contents->IsAudioMuted()) {
     Tab::FromWebContents(copy)->SetMuted(true);
   }
@@ -1132,6 +1134,7 @@ bc_id Window::Duplicate(bc_id tab) {
   }
   const bc_id id = Tab::IdOf(copied);
   Tab::FromWebContents(copied)->set_name(Tab::FromWebContents(contents)->name());
+  Tab::FromWebContents(copied)->set_icon(Tab::FromWebContents(contents)->icon());
   if (contents->IsAudioMuted()) {
     Tab::FromWebContents(copied)->SetMuted(true);
   }
@@ -1156,6 +1159,7 @@ bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {
   }
   const bc_id tab = Tab::IdOf(contents);
   Tab::FromWebContents(contents)->set_name(saved.name);
+  Tab::FromWebContents(contents)->set_icon(saved.icon);
   if (saved.muted) {
     Tab::FromWebContents(contents)->SetMuted(true);
   }

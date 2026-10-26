@@ -146,6 +146,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
       above = id;
       tab.pinned_url = space.PinnedUrl(id);
       tab.name = Tab::FromWebContents(contents)->name();
+      tab.icon = Tab::FromWebContents(contents)->icon();
       tab.depth = DepthOf(space, id);
       if (tabs == &to.today) {
         tab.last_seen = Window::Showing(id) ? base::Time::Now()
@@ -179,6 +180,7 @@ Saved Collect() {
     }
     tab.pinned_url = Favorites::Url(id);
     tab.name = Tab::FromWebContents(contents)->name();
+    tab.icon = Tab::FromWebContents(contents)->icon();
     tab.profile = Favorites::ProfileOf(id);
     favorites[id] = saved.favorites.size();
     saved.favorites.push_back(std::move(tab));
@@ -219,6 +221,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       }
       if (!tab.name.empty()) {
         dict.Set("name", tab.name);
+      }
+      if (!tab.icon.empty()) {
+        dict.Set("icon", tab.icon);
       }
       if (tab.split) {
         dict.Set("split", true);
@@ -320,6 +325,9 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   }
   if (const std::string* name = dict->FindString("name")) {
     tab.name = *name;
+  }
+  if (const std::string* icon = dict->FindString("icon")) {
+    tab.icon = *icon;
   }
   tab.split = dict->FindBool("split").value_or(false);
   tab.stacked = tab.split && dict->FindBool("stacked").value_or(false);
@@ -574,6 +582,7 @@ bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
   // Which makes its Tab.
   const bc_id tab = Tab::IdOf(contents);
   Tab::FromWebContents(contents)->set_name(saved.name);
+  Tab::FromWebContents(contents)->set_icon(saved.icon);
   Tab::FromWebContents(contents)->Restored();
   if (!saved.last_seen.is_null()) {
     Tab::FromWebContents(contents)->set_last_seen(saved.last_seen);

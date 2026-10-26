@@ -68,6 +68,12 @@ class Tab : public content::WebContentsObserver,
   void set_name(const std::string& name) { name_ = name; }
   // Its name, else its page's title.
   std::string Title();
+  // The emoji the user gave the tab to show in place of its page's favicon, or empty.
+  const std::string& icon() const { return icon_; }
+  // Gives the tab |icon|, and tells the app with its state. Empty gives it back its favicon.
+  void SetIcon(const std::string& icon);
+  // For a tab put back: its icon, which its first state report tells the app.
+  void set_icon(const std::string& icon) { icon_ = icon; }
 
   // Mutes or unmutes the tab, as Chrome's speaker button does.
   void SetMuted(bool muted);
@@ -124,6 +130,7 @@ class Tab : public content::WebContentsObserver,
 
   const bc_id id_;
   std::string name_;
+  std::string icon_;
   base::Time last_seen_ = base::Time::Now();
   std::optional<SkColor> page_color_;
   bool state_report_posted_ = false;

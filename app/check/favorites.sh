@@ -45,7 +45,7 @@ b=$tab
 expect_tabs "$b $a" "$b" "after opening a tab"
 # Add to Favorites in a Today tab's menu takes the tab out of Today into a tile, without showing it.
 post rightclick $(row 1)
-expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below (disabled)$' \
+expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Change Icon…, Duplicate Tab, Move to Space (disabled), Close Tab, Close Tabs Below (disabled)$' \
   "a right-click on a Today row didn't offer Add to Favorites"
 send choose Add to Favorites
 expect '^browser: command add-to-favorites via tab menu$' "Add to Favorites didn't run"

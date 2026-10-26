@@ -776,6 +776,12 @@ void bc_tab_rename(bc_id id, const char* name) {
   }
 }
 
+void bc_tab_set_icon(bc_id id, const char* icon) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::Tab::FromWebContents(contents)->SetIcon(icon ? icon : "");
+  }
+}
+
 void bc_tab_set_muted(bc_id id, bool muted) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::Tab::FromWebContents(contents)->SetMuted(muted);

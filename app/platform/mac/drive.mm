@@ -25,6 +25,10 @@
 //   flags [cmd] [shift] [alt] [ctrl]      the modifiers held from now, as a modifier key going
 //                                         down or up; key holds them only for its own key
 //   type <text>                           lowercase letters, dots and spaces
+//   insert <text>                         commits <text>, any characters, to the key window's
+//                                         text input, as the character palette does for an emoji.
+//                                         The app's asking for the palette only logs "browser:
+//                                         character palette shown"
 //   scroll <x> <y> <dy> <count>           <count> trackpad scroll events at (x, y), each moving
 //                                         the content up by <dy> points, at a trackpad's pace
 //   swipe <x> <y> <dx> <dy> <count> [<rest>]
@@ -388,6 +392,13 @@ void HookIme() {
       class_getInstanceMethod(NSClassFromString(@"RenderWidgetHostViewCocoa"),
                               @selector(interpretKeyEvents:)),
       (IMP)InterpretKeyEvents);
+}
+
+// The system's character palette would go on the owner's screen, as their input method would
+// switch, so the driver stands in for it: the app logs that it asked for it, and insert commits
+// what the palette would.
+void OrderFrontCharacterPalette(id, SEL, id) {
+  fprintf(stderr, "browser: character palette shown\n");
 }
 
 // Frames are in points from the content view's bottom-left corner. A plain NSView and the core's
@@ -795,6 +806,17 @@ bool Run(const std::string& line, void (^done)(void)) {
     done();
     return true;
   }
+  if (action == "insert") {
+    std::string text = line.substr(std::min(line.size(), action.size() + 1));
+    id responder = key_window.firstResponder;
+    if (![responder conformsToProtocol:@protocol(NSTextInputClient)]) {
+      return false;
+    }
+    [(id<NSTextInputClient>)responder insertText:@(text.c_str())
+                                replacementRange:NSMakeRange(NSNotFound, 0)];
+    done();
+    return true;
+  }
   return false;
 }
 
@@ -833,6 +855,9 @@ void drive_start(void) {
     return nil;
   };
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined handler:report_done];
+  method_setImplementation(class_getInstanceMethod(NSApplication.class,
+                                                   @selector(orderFrontCharacterPalette:)),
+                           (IMP)OrderFrontCharacterPalette);
   // Full-screen transitions animate, and end well after the command's done.
   for (NSNotificationName name :
        {NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification}) {

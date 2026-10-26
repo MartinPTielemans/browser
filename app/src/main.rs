@@ -750,6 +750,11 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_rename(tab, name.as_ptr()) };
     }
 
+    fn set_icon(&self, tab: u64, icon: &str, _: &mut App) {
+        let icon = CString::new(icon).unwrap_or_default();
+        unsafe { bc::bc_tab_set_icon(tab, icon.as_ptr()) };
+    }
+
     fn delete_space(&self, space: u64, _: &mut App) -> bool {
         unsafe { bc::bc_space_delete(space) }
     }
@@ -1449,6 +1454,7 @@ unsafe extern "C" fn tab_state_changed(
         away_from_pinned_url: state.away_from_pinned_url,
         audible: state.audible,
         muted: state.muted,
+        icon: unsafe { CStr::from_ptr(state.icon) }.to_string_lossy().into_owned().into(),
     };
     update_shell(|shell, cx| shell.set_page(tab, page, cx));
 }

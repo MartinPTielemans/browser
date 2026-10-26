@@ -222,6 +222,7 @@ void Tab::ReportState() {
       .away_from_pinned_url = pinned_url.is_valid() && PageUrl(web_contents()) != pinned_url,
       .audible = audible && audible->WasRecentlyAudible(),
       .muted = web_contents()->IsAudioMuted(),
+      .icon = icon_.c_str(),
   };
   Host().tab_state_changed(Host().context, id_, &state);
   ReportFavicon(state.loading);
@@ -301,6 +302,11 @@ void Tab::Rename(const std::string& name) {
   SessionChanged();
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
       FROM_HERE, base::BindOnce(&Tab::ReportTitle, weak_factory_.GetWeakPtr()));
+}
+
+void Tab::SetIcon(const std::string& icon) {
+  icon_ = icon;
+  StateChanged();
 }
 
 std::string Tab::Title() {
