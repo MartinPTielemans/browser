@@ -1354,11 +1354,13 @@ impl Shell {
         }
     }
 
-    /// Gives "New Tab" the selected plate while ⌘T's command bar is open, or gives it back.
+    /// Gives "New Tab" the selected plate while ⌘T's command bar is open, with the New Tab page in
+    /// the card in place of the page shown, or gives them back.
     fn set_new_tab(&mut self, new_tab: bool, cx: &mut Context<Self>) {
         if self.new_tab != new_tab {
             self.new_tab = new_tab;
-            // check.sh reads this line.
+            self.browser.hide_page(new_tab, cx);
+            // check.sh reads this line, once the page is out or back.
             log!("browser: new tab plate {}", new_tab as u8);
             cx.notify();
         }

@@ -145,6 +145,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Shows |tab|, if it's one of this window's, at the page frame, and its Space if the window shows
   // another. In a split view, it shows the split with |tab| focused.
   void Select(bc_id tab);
+  // Takes the pages shown out of the window, keeping their tab selected, while the app draws in
+  // their place, or puts them back. Showing a tab puts them back.
+  void HidePage(bool hidden);
 
   // Closes the Today tabs of the Space the window shows, all but those it shows, for UndoClear to
   // bring back. Returns how many.
@@ -283,6 +286,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The focused page's part of it in a split view, else all of it: where the tab's dialogs go.
   gfx::Rect focused_frame_;
   double page_corner_radius_ = 0;
+  // HidePage took the pages shown out.
+  bool page_hidden_ = false;
   double sidebar_width_;
   std::map<Profile*, Held> browsers_;
   // The tabs the last Clear closed, top to bottom.

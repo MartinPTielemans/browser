@@ -464,7 +464,7 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 **Opening**
 
 - ⌘L or a click on the URL field opens the panel out of the field, with the URL selected. On the New Tab page in our layout, ⌘L and a click both open it at the sidebar field, not at the centred box (Ardia, from user reports).
-- ⌘T opens the New Tab page (see New tab). Arc opens the command bar over the current page instead and makes no tab until a pick (Ardia's opt-in, P§7). Decision 6 picks Dia's.
+- ⌘T opens the New Tab page (see New tab). Arc opens the command bar over the current page instead and makes no tab until a pick (Ardia's opt-in, P§7). Ours shows Dia's page and, like Arc, makes no tab until a pick.
 - ⇧⌘A opens Search Tabs.
 
 **Panel** (Dia 1.52 rec unless noted)
@@ -488,9 +488,9 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 - Ours (*interim* until Arc's sidebar panel is measured):
   - From the sidebar's URL field, the panel's left edge is the field's and it's 640 wide, ending at least 8 inside the window. Its input row is centred on the field, so the text keeps the field's x, baseline and 13 pt. There's no search glyph, since the field has none to the left of its text.
   - The grow is 1 − 2^(−10t / 0.13), from the panel's first frame on screen, at the field's box: 59, 83, 93 and 97 % on the 60 fps frames after it. The radius goes from the field's 12 to 16, and the shadow follows the shape.
-  - ⌘T's panel, until the New Tab page, is the same panel centred a fifth of the way down the window, shown at once.
+  - With the sidebar hidden, ⌘L's panel is the same panel centred a fifth of the way down the window, shown at once.
   - Rows are 13 pt like the input, without favicons for now. A hovered row takes the hover token.
-  - The shadow is the system's window shadow on the panel's shape, without Dia's two layer shadows. The bottom row isn't built yet.
+  - The shadow is the system's window shadow on the panel's shape, without Dia's two layer shadows. Only the New Tab box has the bottom row.
 
 **Rows**
 
@@ -583,6 +583,12 @@ Dia's New Tab page (decision 6). The UI draws it; it is not a web page. That kee
 - New Tab pages left untouched close when the app resigns active or the screen locks.
 - Going back to a New Tab page restores its query.
 - Dia 1.49's area light ran a 30 fps display link for up to 60 s, and its edge light and glass orb went with it. They are off in 1.50.1 and not ours: an idle New Tab page does no work.
+- Ours (*interim*: Dia's New Tab tab doesn't fit Arc's recorded plate, so this keeps Arc's structure with Dia's page):
+  - There's no New Tab tab. ⌘T gives "+ New Tab" the selected plate, as Arc's bar does, takes the page shown out of the card, hidden as a tab switched away from is, and opens the command bar as the box, all at once. Suggestions grow the box down from its top.
+  - A pick opens its tab, as from Arc's bar. Esc, a click outside the box, or another window or app taking focus closes the page: the tab gets its plate back, and its page comes back, with the keyboard if it had it. A click on the card only closes it, so the next click is the page's.
+  - The header shows no page: back, forward and reload are dimmed and the URL field is empty.
+  - The Go pill reads "Go", or what the search row names the engine, "DuckDuckGo Search", when ↩ would search. It's 16 in from the box's right edge, as far as it is above the bottom, and at 0.35 while nothing's typed.
+  - No mark, and no intro yet.
 
 ### Split view
 

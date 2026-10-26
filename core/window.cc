@@ -787,6 +787,9 @@ void Window::LayOutPage() {
   if (shown_ && shown_->IsFullscreen()) {
     shown = {shown_.get()};
   }
+  if (page_hidden_) {
+    shown.clear();
+  }
   Space* space = panes_.empty() ? nullptr : Space::Holding(panes_.front());
   stacked_ = space && space->Stacked(panes_.front());
   shares_ = space ? space->Shares(panes_.front()) : std::vector<double>();
@@ -899,6 +902,7 @@ void Window::SetSidebarWidth(double width) {
 }
 
 void Window::ShowNothing() {
+  page_hidden_ = false;
   selected_ = 0;
   for (bc_id pane : std::exchange(panes_, {})) {
     Seen(Tab::FromId(pane));
@@ -955,8 +959,22 @@ void Window::Select(bc_id tab) {
     return;
   }
   selected_ = tab;
+  page_hidden_ = false;
   Show(contents, page_frame_);
   ReportSelected();
+}
+
+void Window::HidePage(bool hidden) {
+  if (page_hidden_ == hidden) {
+    return;
+  }
+  page_hidden_ = hidden;
+  LayOutPage();
+  // At once, so the page has the keyboard back by the time the app hears it's shown: the keyboard
+  // went to the window as the page left it.
+  if (!hidden) {
+    FocusPage();
+  }
 }
 
 size_t Window::Clear() {

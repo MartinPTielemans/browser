@@ -937,6 +937,14 @@ impl Browser for Engine {
         command_bar::show(editing, field, cx);
     }
 
+    fn new_tab_bar(&self, card: Bounds<Pixels>, cx: &mut App) {
+        command_bar::show_new_tab(card, cx);
+    }
+
+    fn hide_page(&self, hidden: bool, _: &mut App) {
+        unsafe { bc::bc_window_hide_page(WINDOW.get(), hidden) };
+    }
+
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
         command_bar::show_split(with, pane, card, cx);
     }

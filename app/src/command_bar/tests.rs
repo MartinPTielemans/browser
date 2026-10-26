@@ -477,3 +477,18 @@ fn a_right_click_in_the_selection_keeps_it_for_copy(cx: &mut TestAppContext) {
     assert_eq!(copied.as_deref(), Some("example"));
     assert_eq!(bar.input(), ("example".into(), 0..7));
 }
+
+/// The New Tab page's box keeps Dia's widths for the card's, centred unless that puts it within 14
+/// of the card's left edge, and stays 138 below the card's top in a short window.
+#[test]
+fn the_new_tab_box_goes_where_dia_puts_it() {
+    use gpui::{Bounds, point, px, size};
+    let card = |left: f32, width: f32, height: f32| {
+        Bounds::new(point(px(left), px(10.)), size(px(width), px(height)))
+    };
+    // The app's window at 1280 × 800, with the sidebar docked.
+    assert_eq!(new_tab_box(card(228., 1042., 780.)), (424., 281., 652.));
+    assert_eq!(new_tab_box(card(10., 1800., 780.)), (524., 281., 774.));
+    assert_eq!(new_tab_box(card(10., 600., 500.)), (25., 149., 580.));
+    assert_eq!(new_tab_box(card(10., 700., 500.)), (53., 149., 616.));
+}
