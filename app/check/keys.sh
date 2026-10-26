@@ -8,7 +8,8 @@
 # one, or searches DuckDuckGo for words. While ⌘T's is open, "New Tab" has the selected plate.
 # Japanese input composes and commits in the page and in the command bar, where return and escape go
 # to the input method while it composes. The Edit menu's Undo, Redo and Select All reach the focused
-# page. ⌘Y opens the history page from the page and the UI. Settings › Shortcuts gives New Tab ⌃⌘T,
+# page. ⌘Y opens the history page from the page and the UI. A page whose renderer crashes
+# leaves the browser running, and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T,
 # which stays reserved and reaches the UI from both sides, while ⌘T no longer runs it, and its ↺
 # gives ⌘T back.
 
@@ -273,6 +274,17 @@ awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
   /^browser: command bar drew/ { drew = $0 }
   /^browser: command bar shown$/ && (command == "new-tab") != (drew == "browser: command bar drew \"\"") { exit 1 }' "$log" ||
   fail "the command bar went on screen still showing what it drew last"
+# A page whose renderer goes away leaves the browser running, and ⌘R loads it again. Killed, as
+# macOS kills one under memory pressure, it takes Chrome's sad tab path a crash takes; a SIGSEGV
+# sent from here only prints a stack, and the command bar completes chrome://crash to another page.
+# The core's line comes through Chromium's log, after its prefix.
+pkill -KILL -f "$app/Contents/.*--type=renderer" || fail "no renderer to kill"
+expect 'browser: tab [0-9]* page gone' "a killed renderer didn't report its page gone"
+send click $sidebar_point
+send key r cmd
+expect '^browser: loaded [0-9]* ' "⌘R didn't load the crashed page again"
+send click $page_point
+
 # ⌘Q asks first. Cancel keeps the browser running, and Quit, and Don't Ask Again quits.
 post key q cmd
 expect '^browser: command quit via page$' "⌘Q with the page focused didn't reach the UI"
@@ -286,4 +298,4 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first, and Cancel keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back. Windows: $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first, and Cancel keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
