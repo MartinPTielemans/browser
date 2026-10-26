@@ -1,14 +1,15 @@
 //! The favorites' tiles over the list, which scroll with it once they're taller than
 //! 40 % of the window (docs/ux-spec.md › Favorites).
 
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, rc::Rc, time::Instant};
 
-use gpui::{Context, MouseButton, MouseDownEvent, div, hsla, prelude::*, px, rgba};
+use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, hsla, img, prelude::*, px, rgba};
 
 use super::{
-    Curve, FAVICON_SIZE, FOOTER_HEIGHT, HAIRLINE, LIST_TOP, PLATE_INSET, Place, Row, SELECTED,
-    SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE, TILE_EDGE, TILE_GAP, TILE_HEIGHT,
-    TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
+    Curve, FAVICON_DRAWN, FAVICON_SIZE, FOOTER_HEIGHT, HAIRLINE, LIST_TOP, PLATE_INSET, Place, Row,
+    SELECTED, SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE, TILE_EDGE, TILE_GAP,
+    TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING, TILE_UNTHEMED, TileTheme,
+    tile_theme::RING_WIDTH,
 };
 
 impl Shell {
@@ -187,9 +188,26 @@ impl Shell {
         self.drawn_list_top() - self.pages_top()
     }
 
-    /// A favorite's tile: its favicon on a plate, which the tab shown has filled and ringed. A
-    /// click shows it, a double-click takes it back to its URL (Dia), and a right-click shows its
-    /// menu.
+    /// How `tab`'s favicon themes its tile while it's shown: none for an emoji, which GPUI can't
+    /// give the pixels of, and for a page without a favicon or one with no opaque pixel. Made the
+    /// first time it's drawn, then kept with the tab until its favicon changes.
+    fn tile_theme(&self, tab: u64) -> Option<Rc<TileTheme>> {
+        let tab = self.tabs.get(&tab)?;
+        let favicon = tab.favicon.as_ref().filter(|_| tab.page.icon.is_empty())?;
+        let mut made = tab.theme.borrow_mut();
+        match &*made {
+            Some((id, theme)) if *id == favicon.id => theme.clone(),
+            _ => {
+                let theme = TileTheme::new(favicon).map(Rc::new);
+                *made = Some((favicon.id, theme.clone()));
+                theme
+            }
+        }
+    }
+
+    /// A favorite's tile: its favicon on a plate, which the tab shown has filled and ringed by its
+    /// icon (tile_theme.rs). A click shows it, a double-click takes it back to its URL (Dia), and a
+    /// right-click shows its menu.
     fn tile(&self, tab: u64, cx: &mut Context<Self>) -> gpui::Stateful<gpui::Div> {
         let selected = tab == self.selected && !self.new_tab;
         // Full for a dragged tile, which covers what it passes, and none for the others then.
@@ -199,9 +217,19 @@ impl Shell {
             None => self.hover_fill(Row::Tab(tab)),
         };
         let fill = hsla(0., 0., 1., TILE + (TILE_HOVERED - TILE) * hover.unwrap_or(0.));
+        let theme = selected.then(|| self.tile_theme(tab)).flatten();
+        // The selected tile's fill and ring: a colourful icon's ring is drawn with the blurred
+        // icon, a one-colour icon's is a border, and without a theme it's Dia's default.
+        let (shown, ring_width, ring): (Hsla, f32, Hsla) = match theme.as_deref() {
+            Some(TileTheme::Blur { .. }) => (rgba(SELECTED).into(), 0., hsla(0., 0., 0., 0.)),
+            Some(&TileTheme::Flat { fill, ring, .. }) => {
+                (rgba(fill).into(), RING_WIDTH, rgba(ring).into())
+            }
+            None => (rgba(TILE_UNTHEMED).into(), HAIRLINE, rgba(TILE_RING).into()),
+        };
         let fill = match dragging == Some(Slot::Tab(tab)) {
-            true => self.window_fill().blend(if selected { rgba(SELECTED).into() } else { fill }),
-            false if selected => rgba(SELECTED).into(),
+            true => self.window_fill().blend(if selected { shown } else { fill }),
+            false if selected => shown,
             false => fill,
         };
         let icon = div()
@@ -210,7 +238,12 @@ impl Shell {
             .items_center()
             .justify_center()
             .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
-            .child(self.tab_icon(tab));
+            .child(match theme.as_deref() {
+                Some(TileTheme::Flat { template, .. }) => {
+                    img(template.clone()).size(px(FAVICON_DRAWN)).into_any_element()
+                }
+                _ => self.tab_icon(tab),
+            });
         div()
             .id(("tile", tab))
             .h(px(TILE_HEIGHT))
@@ -218,8 +251,8 @@ impl Shell {
             .items_center()
             .justify_center()
             .rounded(px(TILE_RADIUS))
-            .border(px(HAIRLINE))
-            .border_color(rgba(if selected { TILE_RING } else { TILE_EDGE }))
+            .border(px(if selected { ring_width } else { HAIRLINE }))
+            .border_color(if selected { ring } else { rgba(TILE_EDGE).into() })
             .bg(fill)
             .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
@@ -252,6 +285,7 @@ impl Shell {
                 log!("browser: command select via favorite");
                 shell.select(tab, cx)
             }))
+            .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
     }
 }

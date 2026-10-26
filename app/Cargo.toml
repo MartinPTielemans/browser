@@ -19,6 +19,8 @@ path = "src/preview.rs"
 gpui = { path = ".deps/zed/crates/gpui" }
 gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
 gpui_platform = { path = ".deps/zed/crates/gpui_platform", features = ["font-kit", "runtime_shaders"] }
+# The version GPUI decodes with, for a favicon's pixels and the images drawn from them.
+image = { version = "0.25", default-features = false, features = ["png"] }
 raw-window-handle = "0.6"
 unicode-segmentation = "1.10"
 

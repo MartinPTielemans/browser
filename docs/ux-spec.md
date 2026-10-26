@@ -263,9 +263,15 @@ The selected tile is themed by its icon (Dia 1.50.1 bin, D›Sidebar). Draw the 
 
 - **Distance ≥ 0.055 (colourful).** The tile is white 0.20 (dark) or white (light). Over it goes the icon at 22 % opacity, blurred with radius 5 and aspect-filled to 2.5× the tile. The ring is a 3 pt border showing the same blurred icon over black (dark: at 75 %, saturation 2, brightness −0.1) or white (light: at 100 %).
 - **Distance < 0.055 (one colour).** The tile is filled with the mean colour, the icon is drawn as a white template, and the ring is white with soft-light compositing. A near-white icon (relative luminance > 0.88) gets a black fill and a white 0.30 ring instead.
-- **No usable icon.** Fill black (dark) or white (light), with the default selection ring.
+- **No usable icon.** Fill black (dark) or white (light), with the default selection ring, white 0.45, 0.5 pt.
 - A secondary selection (multi-select) gets the secondary fill and no ring. Emoji icons draw at 16 pt and are themed the same way.
-- Until tiles are themed, the tile shown is white 0.20 with the default ring, white 0.45, 0.5 pt (ours).
+
+Ours (dark only, `app/src/shell/tile_theme.rs`): the theme is made from the favicon's pixels the first time its tile is drawn selected, and kept until the favicon changes. Where it differs from Dia's:
+
+- GPUI has no blur or blend mode, so the blur is a Gaussian of sigma 5 on the icon at ≤ 32 px, cropped to the icon's own extent with nothing beyond it (Dia's crop isn't known), and the ring is an image baked for an 88 pt tile and stretched between its corners to the tile's width. Its saturation and brightness are applied in the image.
+- The soft-light ring is the fill's colour with white soft-lit over it (W3C's formula), drawn as a plain border, which is the same where the fill is opaque. All themed rings are 3 pt (Dia's `itemStrokeWidth`; the one-colour and near-white rings' width is assumed).
+- An emoji icon has no theme yet and shows as no usable icon: GPUI can't give the pixels of text, so it needs the core to hand over the emoji as an image.
+- Light mode: not themed, as the app has none.
 
 What a favorite does (ours, *interim* until Arc's are captured):
 
@@ -276,7 +282,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 - A click shows it. ⌘1–⌘9, next and previous tab and ⌃Tab count the favorites first. A Space remembers the favorite it showed, across a quit too.
 - The tile's menu: Back to Favorite URL (⌘↩, away from it), Duplicate Tab (a copy at the top of Today, shown), Remove from Favorites, then Close Tab (⌘W). Closing unloads it and keeps the tile, as for a pinned tab, and shows the Space's top Today tab, else its lowest pinned tab still loaded. No Rename or Move to Space yet.
 - Links a favorite opens go at the top of Today in the Space shown.
-- Later: the hover card, theming, and Arc's measured drag: how the dragged row turns into a tile and back, which we do at once.
+- Later: the hover card, themes for emoji icons, and Arc's measured drag: how the dragged row turns into a tile and back, which we do at once.
 
 **Pinned tabs** (Arc: per Space. Dia 1.52 has the same section.)
 

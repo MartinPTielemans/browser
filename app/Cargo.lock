@@ -574,6 +574,7 @@ dependencies = [
  "gpui",
  "gpui_macos",
  "gpui_platform",
+ "image",
  "raw-window-handle",
  "unicode-segmentation",
 ]
