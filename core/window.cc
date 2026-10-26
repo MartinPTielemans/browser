@@ -19,6 +19,7 @@
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/browser_window_stand_in.h"
+#include "browser_core/extensions.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
@@ -53,6 +54,8 @@
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/menus/simple_menu_model.h"
+#include "ui/views/view.h"
+#include "ui/views/view_tracker.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_delegate.h"
 #include "ui/views/window/client_view.h"
@@ -1051,6 +1054,22 @@ bc_id Window::ReopenClosedTab() {
   }
   Select(tab);
   return tab;
+}
+
+bool Window::RunExtension(const std::string& id, const gfx::Rect& anchor) {
+  content::WebContents* contents = Tab::FromId(selected_);
+  BrowserWindowInterface* browser =
+      contents ? BrowserFor(Profile::FromBrowserContext(contents->GetBrowserContext())) : nullptr;
+  if (!browser) {
+    return false;
+  }
+  // Chrome's popup hangs from a view, so a view of no content stands where the app's anchor is.
+  if (!popup_anchor_.view()) {
+    popup_anchor_.SetView(
+        widget_->GetContentsView()->AddChildView(std::make_unique<views::View>()));
+  }
+  popup_anchor_.view()->SetBoundsRect(anchor);
+  return browser_core::RunExtension(id_, browser, contents, id, popup_anchor_.view());
 }
 
 bc_id Window::RestoreArchived(bc_id id) {

@@ -112,6 +112,15 @@ typedef struct bc_archived_tab {
   double archived;
 } bc_archived_tab;
 
+// One of a profile's extensions, as Chrome's extensions page lists them.
+typedef struct bc_extension {
+  // Chrome's id for it, for bc_window_run_extension.
+  const char* id;
+  const char* name;
+  // Whether it's turned on. A turned-off extension's action doesn't run.
+  bool enabled;
+} bc_extension;
+
 // Where a download is.
 #define BC_DOWNLOAD_RUNNING 0
 #define BC_DOWNLOAD_PAUSED 1
@@ -220,6 +229,17 @@ typedef struct bc_host {
   // Chrome asked to show |window|'s downloads, such as after the user stopped a quit to let them
   // finish. In place of Chrome's downloads page, which the window never opens.
   void (*window_show_downloads)(void* context, bc_id window);
+  // The profile's extensions changed, or were first read: one was added, removed, turned on or
+  // off, or bc_extensions_report asked. |extensions| is all of them that Chrome's extensions page
+  // lists, by name.
+  void (*extensions_changed)(void* context,
+                             bc_id profile,
+                             const bc_extension* extensions,
+                             size_t count);
+  // An extension's popup showed over the window's page, |extension| being its id, or the popup
+  // shown went, and |extension| is "". Chrome's popup goes when it loses the keyboard, when the
+  // window shows another tab, or when its page closes it.
+  void (*window_extension_popup)(void* context, bc_id window, const char* extension);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -446,6 +466,16 @@ BC_EXPORT bc_id bc_window_reopen_closed_tab(bc_id window);
 // leaves the archive. Returns the tab, or 0 if the archive has no such tab. Then space_changed,
 // archive_changed and window_selected.
 BC_EXPORT bc_id bc_window_restore_archived(bc_id window, bc_id archived);
+
+// Runs the extension's action on the tab the window shows, as a click on its button in Chrome's
+// toolbar does: the extension is granted the tab, and its popup opens, hanging from |anchor| in the
+// window, or its action.onClicked fires. Returns false if it didn't run: the window shows no tab,
+// or the extension isn't turned on in the tab's profile. Then window_extension_popup, for a popup.
+BC_EXPORT bool bc_window_run_extension(bc_id window, const char* id, bc_rect anchor);
+
+// Tells the app again of the extensions of each profile the core uses, since the first reports may
+// come before it can take them. Then extensions_changed, for each.
+BC_EXPORT void bc_extensions_report(void);
 
 // Empties the archive. Tabs closed since the browser started still reopen with
 // bc_window_reopen_closed_tab. Then archive_changed.

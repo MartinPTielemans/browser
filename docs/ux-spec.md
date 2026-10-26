@@ -175,7 +175,7 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 
 Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the same command as its key and shows that key.
 
-- **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Window and Help, as Arc's App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help. Extensions comes with its feature.
+- **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help, as Arc's.
 - **File.** New Tab…, Restore Last Closed Tab, Open Command Bar, Archive Tab (⌘W), then Save Page As (⇧⌘S) and Print (⌘P), as Arc's. Save Page As shows Chrome's save panel and Print its print preview, over the page. Arc's window, profile, Note, Easel, Share and Capture items come with their features.
 - **Archive.** Go Back, Go Forward, View Archive and Clear Archive, as Arc's. Arc's View History (⌘Y) comes with history.
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu: Find…, Find Next, Find Previous and Jump to Selection.
@@ -663,8 +663,8 @@ Chrome's extension system, per profile.
   - Only pinned extensions show: 16 pt icons on a 30.25 pitch, with no puzzle-piece button. An overflow button appears only when the pinned ones don't fit.
   - A disabled action is dimmed.
   - In our layout they sit in the sidebar's URL field (Ardia: as many as leave 84 pt for the host, which is two at 190 pt). Measure where Arc puts them.
-- **Menu bar.** An Extensions menu has one item per enabled extension (opening its popup or running its action), then Add Extension…, Manage Extensions… and Pin Extensions… (Dia).
-- **Popups** (Chrome). A popup sizes to its page between 25 × 25 and 800 × 600, shrinking as well as growing. `chrome.action.openPopup()` opens it over the active tab.
+- **Menu bar.** The Extensions menu has one item per turned-on extension of the shown Space's profile, by name, which runs its action on the tab shown as a click on its toolbar button does in Chrome: the extension is granted the tab, and its popup opens or its click handler runs. Then Manage Extensions…, which opens Chrome's extensions page in a new tab (Dia). Dia's Add Extension… and Pin Extensions… come with the install flow and pinned actions.
+- **Popups** (Chrome). A popup sizes to its page between 25 × 25 and 800 × 600, shrinking as well as growing. `chrome.action.openPopup()` opens it over the active tab. It's Chrome's own popup, with the keyboard, closed by escape, a click outside or another tab. Until pinned actions give it a button to hang from, it hangs under the URL field, or from the page's top left corner while the sidebar is hidden, *interim*.
 - **Action state.** Badge, title, icon and enabled state update from Chrome's change notifications. Ardia polls every 1.5 s; we don't (principle 1).
 - **Side panel.** A card right of the page with a header (icon, name, ⋯ menu and close), resizable from 320 to 600 with its width saved (Dia; the range is **Ardia**'s).
 - **Install** (Chrome's flow, Dia's dialog). The Web Store's own button starts it. The confirmation is our dialog listing Chrome's permission warnings, and the store's buttons read "Add to <browser>" and "Remove from <browser>". Re-enable and new-permission prompts use the same dialog. Removal asks "Remove “<name>”?" with Cancel and a destructive Remove. Measure Arc's prompt: size, layout and position.

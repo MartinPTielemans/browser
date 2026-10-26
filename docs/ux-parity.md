@@ -262,8 +262,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [ ] | Pinned actions | MVP | 16 pt icons, 30.25 pitch, no puzzle piece, overflow when full *interim*; Arc placement: measure | Dia 1.52 cap |
-| [ ] | Extensions menu in the menu bar | MVP | per extension, Add, Manage, Pin | Dia |
-| [ ] | Popups | MVP | 25 × 25 to 800 × 600, shrink and grow; openPopup works; Arc's opening and closing: measure | Chrome |
+| [ ] | Extensions menu in the menu bar | MVP | per extension and Manage done; Add and Pin with install and pinned actions | Dia |
+| [ ] | Popups | MVP | Chrome's, under the URL field *interim*; 25 × 25 to 800 × 600, shrink and grow; openPopup works; Arc's opening and closing: measure | Chrome |
 | [ ] | Action state without polling | MVP | from change notifications only | principle 1 |
 | [ ] | Side panel | MVP | card right of the page, header, 320–600 saved | Dia, Ardia |
 | [ ] | Install, re-enable, new-permission dialog | MVP | ours, Chrome's warnings; store buttons "Add to / Remove from <browser>"; Arc's: measure | Dia P§15 |
@@ -372,7 +372,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Clear Cache and Refresh, Clear Cookies and Refresh | MVP | View menu and command bar; the page's site only, then reload | Arc 1.170.0 menus, cap |
 | [x] | Page context menu | MVP | Chrome's, without what the window can't do yet *interim*; its tab dialogs, such as print preview, centred over the page at its top | Chrome |
 | [ ] | Arc's page menu items | MVP | measure | Arc |
-| [ ] | Arc's other menu items | MVP | windows, Developer › Network Inspector and Toggle Developer Mode, Space 1–9, View History, Extensions, Help, as each feature lands | Arc 1.170.0 menus |
+| [ ] | Arc's other menu items | MVP | windows, Developer › Network Inspector and Toggle Developer Mode, Space 1–9, View History, Help, as each feature lands | Arc 1.170.0 menus |
 
 ## Phase 4
 

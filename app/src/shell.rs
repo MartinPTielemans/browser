@@ -25,11 +25,13 @@ use gpui::{
 use crate::text_input::TextInput;
 
 mod clean_link;
+mod extensions;
 mod library;
 mod new_space;
 pub(crate) mod scaled;
 mod split_targets;
 
+pub use extensions::{Extension, menu_item as extension_menu_item};
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 use clean_link::clean_link;
 use library::{LIBRARY_WIDTH, RECEDE_X, Section};
@@ -401,6 +403,8 @@ pub enum Command {
     JavaScriptConsole,
     /// Opens Chrome's Task Manager.
     TaskManager,
+    /// Opens Chrome's extensions page in a new tab.
+    ManageExtensions,
     NewSpace,
     /// The Space at this index in the switcher.
     SelectSpace(usize),
@@ -561,6 +565,7 @@ const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Inspect Elements", Command::InspectElements),
     ("JavaScript Console", Command::JavaScriptConsole),
     ("Open Task Manager", Command::TaskManager),
+    ("Manage Extensions", Command::ManageExtensions),
     ("New Space", Command::NewSpace),
     ("Next Space", Command::NextSpace),
     ("Previous Space", Command::PreviousSpace),
@@ -797,6 +802,7 @@ impl Command {
             Command::InspectElements => "inspect-elements",
             Command::JavaScriptConsole => "javascript-console",
             Command::TaskManager => "task-manager",
+            Command::ManageExtensions => "manage-extensions",
             Command::NewSpace => "new-space",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
@@ -871,6 +877,7 @@ pub fn bind_keys(cx: &mut App) {
                 .ok();
         }
     });
+    extensions::bind(cx);
 }
 
 /// The command bar is about to show a page in the pane being added, if one is: the pages shown take
@@ -1062,6 +1069,13 @@ pub trait Browser {
     fn devtools(&self, tab: u64, what: i32, cx: &mut App);
     /// Opens Chrome's Task Manager, with the page shown selected.
     fn task_manager(&self, cx: &mut App);
+    /// Lists `extensions` in the menu bar's Extensions menu.
+    fn set_extensions_menu(&self, extensions: &[Extension], cx: &mut App);
+    /// Runs extension `id`'s action on the tab shown, its popup hanging from `anchor` in the
+    /// window, and returns whether the extension is turned on in the tab's profile.
+    fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, cx: &mut App) -> bool;
+    /// Opens Chrome's extensions page in a new tab, and shows it.
+    fn manage_extensions(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
@@ -1621,6 +1635,9 @@ pub struct Shell {
     /// The profile's downloads, newest first, and the file icons asked for them.
     downloads: Vec<Download>,
     download_icons: HashMap<u64, Option<Arc<Image>>>,
+    /// Each profile's extensions, and those the menu bar lists, the shown Space's turned on.
+    extensions: HashMap<u64, Vec<Extension>>,
+    menu_extensions: Vec<Extension>,
     /// The Library's section shown last, which it opens on.
     section: Section,
     /// The Library, from when it opens until it has closed.
@@ -1715,6 +1732,8 @@ impl Shell {
             page_favicons: HashMap::new(),
             downloads: Vec::new(),
             download_icons: HashMap::new(),
+            extensions: HashMap::new(),
+            menu_extensions: Vec::new(),
             section: Section::Archive,
             library: None,
             library_open: false,
@@ -2320,6 +2339,7 @@ impl Shell {
         if self.show_favorites() {
             self.log_favorites();
         }
+        self.update_extensions_menu(cx);
         cx.notify();
     }
 
@@ -2391,6 +2411,7 @@ impl Shell {
         if self.form().is_some() {
             self.focus_form(cx);
         }
+        self.update_extensions_menu(cx);
         cx.notify();
     }
 
@@ -2737,6 +2758,7 @@ impl Shell {
             Command::JavaScriptConsole => return self.browser.devtools(self.selected, 1, cx),
             Command::InspectElements => return self.browser.devtools(self.selected, 2, cx),
             Command::TaskManager => return self.browser.task_manager(cx),
+            Command::ManageExtensions => return self.browser.manage_extensions(cx),
             Command::Settings => return self.browser.settings(cx),
             Command::Quit => return self.browser.quit(cx),
             Command::AddSplit => return self.add_pane(cx),
@@ -3488,6 +3510,7 @@ impl Shell {
             | Command::ViewArchive
             | Command::ClearArchive
             | Command::ViewDownloads
+            | Command::ManageExtensions
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -4546,7 +4569,9 @@ impl Shell {
             .bg(rgba(URL_FIELD))
             .text_size(px(13.))
             .text_color(rgba(SECONDARY))
-            .child(div().truncate().child(SharedString::from(host(&url))))
+            .child(div().truncate().child(
+                (self.extension_name(&url)).unwrap_or_else(|| host(&url).to_string().into()),
+            ))
             .children(copy)
     }
 
