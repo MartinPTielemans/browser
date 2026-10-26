@@ -51,9 +51,13 @@
 //   state                                 nothing, for the done line's report
 //   title                                 logs the key window's title, as "browser: key window
 //                                         titled <title>", such as a window of Chrome's
-//   backdrop <grey>|off                   a window of the driver's in <grey> (0–255) behind the
-//                                         browser window and 100 points past its edges, for the
-//                                         window's material to blur something known
+//   backdrop <grey>|off                   a window of the driver's in <grey> (0–255, sRGB) behind
+//                                         the browser window and 100 points past its edges, for
+//                                         the window's material to blur something known. Each
+//                                         frame it draws logs "browser: backdrop <grey> drawn,
+//                                         window at <x>,<y> <w>x<h> on <w>x<h>": the browser
+//                                         window's frame and its screen's size, in points from
+//                                         that screen's top left
 //   menu <title>                          chooses the main menu's item titled <title>, in a
 //                                         submenu too, or in the submenu <title> names first
 //                                         as "Submenu › Item"
@@ -100,6 +104,30 @@
 
 - (NSDragOperation)draggingSourceOperationMask {
   return NSDragOperationEvery;
+}
+@end
+
+// The backdrop command's grey. It logs each frame it draws, since the browser window's material
+// blurs it only once that frame is on screen.
+@interface DriveBackdropView : NSView
+@property(nonatomic) int level;
+// Where the browser window is, for the log.
+@property(nonatomic, copy) NSString* place;
+@end
+
+@implementation DriveBackdropView
+- (void)drawRect:(NSRect)rect {
+  [[NSColor colorWithSRGBRed:self.level / 255.0
+                       green:self.level / 255.0
+                        blue:self.level / 255.0
+                       alpha:1] setFill];
+  NSRectFill(rect);
+  // On the main queue's next turn, once AppKit has handed the frame to the window server.
+  NSString* line = [NSString stringWithFormat:@"browser: backdrop %d drawn, %@", self.level,
+                                              self.place];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    fprintf(stderr, "%s\n", line.UTF8String);
+  });
 }
 @end
 
@@ -871,9 +899,19 @@ bool Run(const std::string& line, void (^done)(void)) {
                                                      defer:NO];
         g_backdrop.releasedWhenClosed = NO;
         g_backdrop.hasShadow = NO;
+        g_backdrop.contentView = [[DriveBackdropView alloc] initWithFrame:NSZeroRect];
       }
-      const double level = std::stod(grey) / 255;
-      g_backdrop.backgroundColor = [NSColor colorWithSRGBRed:level green:level blue:level alpha:1];
+      DriveBackdropView* view = (DriveBackdropView*)g_backdrop.contentView;
+      view.level = std::stoi(grey);
+      // In points from the top left of the browser window's screen, which a capture of that
+      // screen is read by.
+      NSRect screen = window.screen.frame;
+      view.place = [NSString
+          stringWithFormat:@"window at %.0f,%.0f %.0fx%.0f on %.0fx%.0f",
+                           NSMinX(window.frame) - NSMinX(screen),
+                           NSMaxY(screen) - NSMaxY(window.frame), NSWidth(window.frame),
+                           NSHeight(window.frame), NSWidth(screen), NSHeight(screen)];
+      view.needsDisplay = YES;
       // Past the edges by more than the material's blur, so it blurs nothing else.
       [g_backdrop setFrame:NSInsetRect(window.frame, -100, -100) display:YES];
       [g_backdrop orderWindow:NSWindowBelow relativeTo:window.windowNumber];
