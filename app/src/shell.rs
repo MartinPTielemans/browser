@@ -1083,6 +1083,10 @@ pub trait Browser {
     fn run_extension_command(&self, id: &str, name: &str, cx: &mut App) -> bool;
     /// Pins extension `id`'s action in `profile`, or unpins it.
     fn set_extension_pinned(&self, profile: u64, id: &str, pinned: bool, cx: &mut App);
+    /// Removes extension `id` from `profile`, with the data it keeps, and returns whether it went.
+    fn remove_extension(&self, profile: u64, id: &str, cx: &mut App) -> bool;
+    /// Opens an extension's options page, `url`, in a new tab, and shows it.
+    fn open_extension_options(&self, url: &str, cx: &mut App);
     /// Opens Chrome's extensions page in a new tab, at extension `id`'s details if there's one,
     /// and shows it.
     fn manage_extensions(&self, id: Option<&str>, cx: &mut App);

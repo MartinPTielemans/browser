@@ -136,6 +136,9 @@ typedef struct bc_extension {
   bool enabled;
   // Whether its action is pinned, for the windows to show (bc_extension_set_pinned).
   bool pinned;
+  // The page its options are on, for a tab to open as Chrome's Options does: its own, or Chrome's
+  // extensions page showing them. "" if it has none.
+  const char* options;
   const bc_extension_command* commands;
   size_t command_count;
 } bc_extension;
@@ -523,6 +526,11 @@ BC_EXPORT bool bc_window_run_extension_command(bc_id window, const char* id, con
 // Pins the extension's action in the profile, after the others, or unpins it, as Chrome's
 // extensions menu does. Then extensions_changed and window_extension_actions.
 BC_EXPORT void bc_extension_set_pinned(bc_id profile, const char* id, bool pinned);
+
+// Removes the extension from the profile, with the data it keeps, as Chrome's Remove does once the
+// user confirms, so the app asks first. Returns false if it can't be removed, as one that policy
+// installed. Then extensions_changed.
+BC_EXPORT bool bc_extension_remove(bc_id profile, const char* id);
 
 // Tells the app again of the extensions of each profile the core uses, since the first reports may
 // come before it can take them. Then extensions_changed, for each.

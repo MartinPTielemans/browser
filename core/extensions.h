@@ -81,6 +81,9 @@ void ReportExtensions();
 // Pins extension |id|'s action in |profile|, or unpins it.
 void SetExtensionPinned(Profile* profile, const std::string& id, bool pinned);
 
+// Removes extension |id| from |profile|, as the user does. Returns false if it can't be.
+bool RemoveExtension(Profile* profile, const std::string& id);
+
 // Runs extension |id|'s action on |contents|, the tab |window| shows in |browser|, as a click on its
 // toolbar button does in Chrome: it's granted the tab, and its popup opens from |anchor| or its
 // action.onClicked fires. Returns false if the extension isn't turned on in the tab's profile.

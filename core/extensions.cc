@@ -26,6 +26,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/extensions/extension_popup_types.h"
 #include "chrome/browser/ui/views/extensions/extension_popup.h"
+#include "chrome/common/webui_url_constants.h"
 #include "components/sessions/content/session_tab_helper.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/event_router.h"
@@ -34,14 +35,17 @@
 #include "extensions/browser/extension_action_manager.h"
 #include "extensions/browser/extension_host.h"
 #include "extensions/browser/extension_host_observer.h"
+#include "extensions/browser/extension_registrar.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/extension_registry_observer.h"
 #include "extensions/browser/permissions/active_tab_permission_granter.h"
 #include "extensions/browser/ui_util.h"
+#include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/api/commands/commands_handler.h"
 #include "extensions/common/api/extension_action/action_info.h"
 #include "extensions/common/command.h"
 #include "extensions/common/extension.h"
+#include "extensions/common/manifest_handlers/options_page_info.h"
 #include "extensions/common/mojom/context_type.mojom.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image_skia.h"
@@ -147,6 +151,18 @@ std::vector<KeyedCommand> KeyedCommands(Profile* profile, const extensions::Exte
   return keyed;
 }
 
+// The page Chrome's Options item opens for |extension|: its own, or Chrome's extensions page
+// showing it, as Chrome embeds one that doesn't ask for a tab. "" if it has none.
+std::string OptionsPage(const extensions::Extension& extension) {
+  if (!extensions::OptionsPageInfo::HasOptionsPage(&extension)) {
+    return "";
+  }
+  if (extensions::OptionsPageInfo::ShouldOpenInTab(&extension)) {
+    return extensions::OptionsPageInfo::GetOptionsPage(&extension).spec();
+  }
+  return std::string(chrome::kChromeUIExtensionsURL) + "?options=" + extension.id();
+}
+
 // Tells the app of one profile's extensions, once after each call that changed them.
 class ProfileExtensions : public extensions::ExtensionRegistryObserver,
                           public ToolbarActionsModel::Observer,
@@ -232,6 +248,8 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
     std::vector<std::vector<bc_extension_command>> commands;
     keyed.reserve(listed.size());
     commands.reserve(listed.size());
+    std::vector<std::string> options;
+    options.reserve(listed.size());
     std::vector<bc_extension> extensions;
     extensions.reserve(listed.size());
     for (const scoped_refptr<const extensions::Extension>& extension : listed) {
@@ -244,6 +262,7 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
                             .name = extension->name().c_str(),
                             .enabled = registry->enabled_extensions().Contains(extension->id()),
                             .pinned = model && model->IsActionPinned(extension->id()),
+                            .options = options.emplace_back(OptionsPage(*extension)).c_str(),
                             .commands = told.data(),
                             .command_count = told.size()});
     }
@@ -464,6 +483,15 @@ void SetExtensionPinned(Profile* profile, const std::string& id, bool pinned) {
   if (model && model->HasAction(id) && model->IsActionPinned(id) != pinned) {
     model->SetActionVisibility(id, pinned);
   }
+}
+
+bool RemoveExtension(Profile* profile, const std::string& id) {
+  if (!extensions::ExtensionRegistry::Get(profile)->GetInstalledExtension(id)) {
+    return false;
+  }
+  std::u16string error;
+  return extensions::ExtensionRegistrar::Get(profile)->UninstallExtension(
+      id, extensions::UNINSTALL_REASON_USER_INITIATED, &error);
 }
 
 bool RunExtension(bc_id window,
