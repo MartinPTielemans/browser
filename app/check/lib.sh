@@ -6,6 +6,8 @@ Color › Yellow, Color › Green, Color › Blue, Color › Pink, Color › Pur
 # Its profiles, in the one the check starts with, for a Space with tabs and an empty one.
 profile="Profile › Default (checked), Profile › New Profile (disabled)"
 empty_profile="Profile › Default (checked), Profile › New Profile"
+# The product's name, which the app's menus and alerts use.
+app_name=$(cat branding/name)
 # Points from the window's top-left corner. The sidebar is 228 wide.
 page_point="600 400"
 sidebar_point="100 400"
@@ -105,7 +107,7 @@ detents() {
 # driver's last command: the app doesn't report it done.
 quit_by_key() {
   post key q cmd
-  expect '^browser: dialog shown Quit Browser?$' "⌘Q didn't ask before quitting"
+  expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitting"
   expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
   post key return
   exec 3>&-

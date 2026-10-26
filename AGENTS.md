@@ -1,4 +1,4 @@
-# Browser (working title)
+# ilo
 
 An open-source, Arc-style browser: ungoogled-chromium underneath, a GPUI (Rust) interface on top, faster to use than Chrome, and built to be the browser AI agents work in. Mac first; everything above a thin platform layer is portable. Pre-alpha. [docs/decisions.md](docs/decisions.md) says why the stack is what it is; [docs/roadmap.md](docs/roadmap.md) gives each phase's exit check.
 

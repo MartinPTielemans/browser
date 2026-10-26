@@ -1,4 +1,6 @@
-# (working title)
+# ilo
+
+a good tool.
 
 An open-source, Arc-style browser that is faster than Chrome to use. It has Arc's sidebar, Spaces and archive, Dia's polish, Chrome's engine, and Chrome extensions. It is also built to be the browser agents use: Claude Code, Codex or any MCP client can work in your real browser, in their own Space, with permissions you set.
 
@@ -45,6 +47,6 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 
 ## License
 
-GPL-3.0-or-later. See [LICENSE](LICENSE). The project name and logo are trademarks and are not covered by the license. Forks are welcome under their own name.
+GPL-3.0-or-later. See [LICENSE](LICENSE). The name ilo and its icon are the project's trademarks and are not covered by the license. Forks are welcome under their own name: replace `app/branding/`, which holds the name and the icon, and recompile the icon with `app/icon.sh`.
 
 Contributions use the [Developer Certificate of Origin](CONTRIBUTING.md#sign-off), not a CLA.
