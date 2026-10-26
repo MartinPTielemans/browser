@@ -153,7 +153,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Text alignment | MVP | input row 64; glyph 18 pt at 23 in; text ≈ 18 pt at 53 in; hint at the field's end | Arc 1.170.0 ax |
 | [x] | Open | MVP | one frame, as ⌘T's; no grow from the field (Arc's panel isn't anchored to it) | Arc 1.170.0 rec |
 | [x] | Close | MVP | ⌘T's in one frame, as it opens; ⌘L's the same *interim*; Arc's ⌘L: measure | Arc 1.170.0 rec |
-| [ ] | Selection motion | MVP | the selection moving with ↓ and ↑, and the pointer over the rows: built with none, the selection moving at once *interim*; Arc's: measure | Arc |
+| [x] | Selection motion | MVP | ↓ and ↑ move the selection in one frame | Arc 1.170 rec |
+| [x] | Hover plate | MVP | the row under the pointer: the selection's shape in white 0.05, in one frame; kept as ↓ ↑ move the selection; none on the selected row | Arc 1.170 rec |
 | [x] | Fill / border / radius | MVP | #191919 at 0.86 over an untinted blur of what's behind; 0.5 pt outline and 1 pt grey edge; radius ≈ 18 | Arc 1.170.0 cap, Dia 1.50.1 bin |
 | [x] | Shadow | MVP | soft, no offset, ≈ 30 pt; drawn at radius 20 and 0.23 black, fitted to Arc's over a light page | Arc 1.170.0 cap |
 | [x] | No scrim | MVP | page undimmed | Dia 1.49 cap |
