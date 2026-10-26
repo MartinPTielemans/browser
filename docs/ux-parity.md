@@ -39,7 +39,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Width range | MVP | 164–500, stops at each; past the minimum hides in one frame, keeping its width (threshold *interim*); saved; double-click resets to 228; Arc's bounce at the maximum not built | Arc 1.170 rec |
 | [x] | Header row centre | MVP | traffic lights 24 below the window top, button plates 23.5 | Arc 1.170.0 ax |
 | [x] | Header hover plates | MVP | 32 × 32, top 7.5, radius 6; only the plate clicks | Arc 1.170.0 ax, Ardia P§4 |
-| [ ] | Every button under the pointer | MVP | glyph buttons the header's plate, rows the row fill, the URL field white 0.15, text buttons brighter, filled buttons 0.9 darker; Create Space and Settings' AppKit controls don't change; Arc's: measure | ours, the owner 2026-10-26 |
+| [ ] | Every button under the pointer | MVP | glyph buttons the header's plate, rows the row fill, the URL field white 0.15, text buttons brighter, filled buttons 0.9 darker; Create Space and Settings' AppKit controls don't change; Arc's: measure. Built on every surface, the Space's icon last; to tick: a capture of ours | ours, the owner 2026-10-26 |
 | [x] | Sidebar button, back, forward, reload positions | MVP | plates at x 77 / 122 / 156 / 190 in a 228 sidebar; the same at other widths *interim*, Arc's: measure | Arc 1.170.0 ax |
 | [x] | Narrow sidebar | MVP | reload hides first, then forward | Ardia |
 | [x] | Disabled nav glyph | MVP | white 0.26 against 0.60; reload too with no page | Arc 1.170.0 cap |
@@ -137,7 +137,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
 | [x] | Colour cross-fade | MVP | uniform across the window; next door exponentially, τ ≈ 30 ms; a longer jump with the 0.19 s settle; a swipe with the pages | Arc 1.170 rec, Ardia |
 | [ ] | Space title, create, colour, icon | MVP | built: the Create a Space form (Arc's), a Color submenu and Change Icon… opening Arc's icon picker (below); Arc's title, colour and icon flows: measure | — |
-| [x] | Space icon picker | MVP | popover 273 × 273 at radius 20 under the name, arrow at the icon; Emoji \| Icon and a trash; 56 glyphs 8 × 7 on a 31 pitch (Phosphor's), the Space's on a white 0.25 plate; Emoji tab a field and the palette *interim*; grows in from the arrow and goes in one frame; Emoji ↔ Icon slides the content 273 over 0.2 s; hover: measure | Arc 1.170.0 cap, Arc 1.170 rec |
+| [x] | Space icon picker | MVP | popover 273 × 273 at radius 20 under the name, arrow at the icon; Emoji \| Icon and a trash; 56 glyphs 8 × 7 on a 31 pitch (Phosphor's), the Space's on a white 0.25 plate; Emoji tab a field and the palette *interim*; grows in from the arrow and goes in one frame; Emoji ↔ Icon slides the content 273 over 0.2 s; hover white 0.12 on a glyph, the trash and the other segment *interim*, Arc's: measure | Arc 1.170.0 cap, Arc 1.170 rec |
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks in Arc's dialog if it has tabs | Arc, ours |
 | [x] | Undo delete | MVP | the toast says "Space deleted! Use ⌘Z to undo." for 5 s; ⌘Z brings the Space back where it was, with its tabs, and pages to it | Arc 1.170 rec |
 | [x] | Undo delete motion | MVP | the switch's slide *interim*; Arc's: measure | Arc |

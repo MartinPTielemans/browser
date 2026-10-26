@@ -341,6 +341,8 @@ impl IconPicker {
                 .when(chosen, |segment| {
                     segment.bg(rgb(picking.accent)).text_color(rgb(0xffffff))
                 })
+                // The other takes the trash's plate under the pointer (ours: Arc's isn't recorded).
+                .when(!chosen, |segment| segment.hover(|style| style.bg(rgba(HOVERED))))
                 .child(label)
                 .on_click(cx.listener(move |picker, _, window, cx| {
                     if picker.picking.as_ref().is_some_and(|picking| picking.tab != tab) {

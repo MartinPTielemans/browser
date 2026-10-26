@@ -14,13 +14,13 @@ use gpui::{
 use super::{
     CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE,
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
-    FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN, NAV,
-    NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET, ROW_HEIGHT, Row, SELECTED_UNHOVER, SECONDARY,
-    SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED, SLEEPING_FAVICON,
-    SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE, Shell, Slot, Swapped, TITLE_END_INSET, clear_label,
-    cubic_bezier, divider_box, favicon, folder_icon, name_box, new_tab_label, plate, row_box,
-    row_spring, scaled::scaled_from_middle, selected_plate, space_icon, split_plate,
-    swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph},
+    FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN,
+    NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET, ROW_HEIGHT, Row,
+    SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
+    SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
+    Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
+    folder_icon, name_box, new_tab_label, plate, row_box, row_spring, scaled::scaled_from_middle,
+    selected_plate, space_icon, split_plate, swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph},
     title,
 };
 use crate::icon_picker;
@@ -570,18 +570,27 @@ impl Shell {
 
     pub(super) fn name_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let space = self.space;
-        // A click on its icon opens the icon picker, or closes it: the click outside the picker
-        // has closed it by now, but the picker hears so only after this event.
-        let icon = (self.shown_space()).and_then(|each| space_icon(&each.icon)).map(|icon| {
-            icon.id("space-icon").on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |shell, _: &MouseDownEvent, _, cx| {
-                    cx.stop_propagation();
-                    if !icon_picker::is_open(cx) {
-                        shell.change_space_icon(space, cx);
-                    }
-                }),
-            )
+        let icon = (self.shown_space()).and_then(|each| space_icon(&each.icon));
+        // A click on the plate under its icon opens the icon picker, or closes it: the click
+        // outside the picker has closed it by now, but the picker hears so only after this event.
+        let icon_plate = icon.is_some().then(|| {
+            div()
+                .id("space-icon")
+                .absolute()
+                .left(px(FAVICON_X + FAVICON_SIZE / 2. - SPACE_ICON_PLATE / 2.))
+                .top(px((NAME_HEIGHT - SPACE_ICON_PLATE) / 2.))
+                .size(px(SPACE_ICON_PLATE))
+                .rounded(px(NAV_RADIUS))
+                .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |shell, _: &MouseDownEvent, _, cx| {
+                        cx.stop_propagation();
+                        if !icon_picker::is_open(cx) {
+                            shell.change_space_icon(space, cx);
+                        }
+                    }),
+                )
         });
         let drawn = self.name_row_drawn.clone();
         // Where the row is, for the icon picker to hang under.
@@ -594,7 +603,8 @@ impl Shell {
             .id("space-name")
             .block_mouse_except_scroll()
             .child(bounds)
-            .when_some(icon, |row, icon| row.child(icon));
+            .children(icon_plate)
+            .children(icon);
         if let Some(renaming) =
             self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Space(space))
         {
@@ -790,9 +800,9 @@ mod tests {
 
     use super::{
         super::{
-            CLOSE_RIGHT, CLOSE_SIZE, Folders, PLATE_INSET, PRESS_SCALE, PRESS_TIME, ROW_HEIGHT, Row,
-            SELECTED_UNHOVER, Shell, Slot, Swapped, commands::bind_keys, drag::detents::shell_with,
-            recorder::Recorder,
+            CLOSE_RIGHT, CLOSE_SIZE, FAVICON_SIZE, FAVICON_X, Folders, NAME_HEIGHT, PLATE_INSET,
+            PRESS_SCALE, PRESS_TIME, ROW_HEIGHT, Row, SELECTED_UNHOVER, SPACE_ICON_PLATE, Shell,
+            Slot, Swapped, commands::bind_keys, drag::detents::shell_with, recorder::Recorder,
         },
         CLOSE, LOADING_GAP, LOADING_TURN, Rings, UNLOAD,
     };
@@ -841,6 +851,35 @@ mod tests {
             }
         });
         assert_eq!(fill(&shell, cx, 1), Some(0.));
+    }
+
+    /// The Space's icon answers the pointer on its plate, Arc's 26 pt frame, as a header button
+    /// does: a press anywhere on the plate opens the picker, even past the glyph, and one above
+    /// it, still in the name's row, doesn't.
+    #[gpui::test]
+    fn the_space_icon_opens_the_picker_from_its_plate(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space".into(), None, 1, "🌱".into(), "".into())], cx);
+            shell.set_space(1, cx);
+        });
+        cx.run_until_parked();
+        let row = shell.read_with(cx, |shell, _| shell.name_row_drawn.get()).expect("a name row");
+        let middle = point(row.left() + px(FAVICON_X + FAVICON_SIZE / 2.), row.center().y);
+        // Whether a press at `at` asked for the picker.
+        let press = |cx: &mut VisualTestContext, at| {
+            cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+            let asked = shell.update(cx, |shell, _| shell.picker_pending.take().is_some());
+            cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+            cx.run_until_parked();
+            asked
+        };
+        let edge = SPACE_ICON_PLATE / 2. - 1.5;
+        assert!(press(cx, middle + point(px(edge), px(0.))), "on the plate, past the glyph");
+        let above = (SPACE_ICON_PLATE / 2. + NAME_HEIGHT / 2.) / 2.;
+        assert!(!press(cx, middle - point(px(0.), px(above))), "above the plate");
     }
 
     /// The window, showing a Space whose Today tabs the core reports as `today`, with `shown`.

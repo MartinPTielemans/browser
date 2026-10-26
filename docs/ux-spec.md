@@ -473,7 +473,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 
 **Icon** (Arc 1.170.0 cap of its icon picker on the Icon tab, at 2×).
 
-- Change Icon… in the Space's menu or the Library card's brush menu, or a click on the icon before the Space's name, opens the icon picker: a popover hanging under the name row. A click on the icon while it shows closes it.
+- Change Icon… in the Space's menu or the Library card's brush menu, or a click on the icon before the Space's name, opens the icon picker: a popover hanging under the name row. A click on the icon while it shows closes it. Ours: the icon takes clicks on Arc's 26 pt frame round it, which lights under the pointer with the header's plate, white 0.077 at radius 6, in one frame, as a header button does (*interim*: Arc's isn't recorded).
 - The card is 273 × 273 at radius 20 (continuous in Arc), its top 25 below the middle of the name row. Its arrow's tip is 13 over the card, 13 in from its left and under the icon's middle, so it overlaps the row's plate. Its sides go down at 45°, its tip is rounded by 5, and a 3.5 fillet joins its right side to the card's top. Its left side runs into the card's left edge, which has no corner there.
 - It's translucent: grey #484848 at 0.565 over the blur, lighter than the command bar's #191919 at 0.86. The edge is the command bar's: a 0.5 pt near-black outline, a 1 pt grey one inside it, and its shadow.
 - At the top, 14.5 down, Emoji | Icon: a 114 × 24 track of white 0.18 at radius 6, the chosen half filled with the accent (Arc's measured #3D81F9, the system's), its label 13 pt white and the other's #EDEDEF. A trash button follows 7 after it (its glyph 12 × 13), the two centred.
@@ -482,7 +482,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 - **Motion** (Arc 1.170 rec at 2×). It grows in as a system popover does, from its arrow, and goes in one frame. Switching between Emoji and Icon slides the content a card's width the way the chosen segment is, so Icon's comes in from the right. Motion › Icon picker, Icon picker tabs.
 - Ours, where Arc's isn't recorded or isn't ours to copy:
   - The glyphs are Phosphor's Fill (NOTICE), the nearest subject to each of Arc's in Arc's order. Four use Phosphor's Bold, as its Fill draws them boxed: the asterisk, the nine dots, the code brackets and the cloud outline.
-  - They draw in a 16 pt box, 13 pt of ink. The pointer's glyph gets a plate of white 0.12 (*interim*). The trash is Lucide's at 16 pt.
+  - They draw in a 16 pt box, 13 pt of ink. The pointer's glyph gets a plate of white 0.12 (*interim*), and so do the trash and the segment not chosen. The trash is Lucide's at 16 pt.
   - It grows from 0.05 its size about the arrow's tip, its blur with it, and its shadow fades in alongside. It's the command bar's kind of child window (Overlays): only one of the two shows at a time.
   - It opens on the Emoji tab for a Space with an emoji, else on Icon. It waits until the name row has stopped moving, such as during a Space's slide or the sidebar docking.
   - From the Library, Change Icon… closes the Library and hangs the popover under the sidebar's name row (Arc's from the card: measure).
