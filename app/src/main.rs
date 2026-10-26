@@ -276,17 +276,14 @@ fn create_space(name: &str) -> bc::bc_id {
 }
 
 /// The URL the core's `get` copies for `text`.
-fn url_for(
-    text: &str,
-    get: unsafe extern "C" fn(*const c_char, *mut c_char, usize) -> usize,
-) -> Option<String> {
+fn url_for(text: &str, get: impl Fn(*const c_char, *mut c_char, usize) -> usize) -> Option<String> {
     let text = CString::new(text).ok()?;
     // Long enough for most, so the core reads what was typed once.
     let mut url = vec![0u8; 2048];
-    let length = unsafe { get(text.as_ptr(), url.as_mut_ptr().cast(), url.len()) };
+    let length = get(text.as_ptr(), url.as_mut_ptr().cast(), url.len());
     if length >= url.len() {
         url.resize(length + 1, 0);
-        unsafe { get(text.as_ptr(), url.as_mut_ptr().cast(), url.len()) };
+        get(text.as_ptr(), url.as_mut_ptr().cast(), url.len());
     }
     url.truncate(length);
     (length > 0).then(|| String::from_utf8_lossy(&url).into_owned())
@@ -322,9 +319,13 @@ impl toast::Host for ToastHost {
 struct Bar;
 
 impl command_bar::Host for Bar {
-    fn suggest(&self, text: &str, complete: bool) {
+    fn suggest(&self, site: Option<&str>, text: &str, complete: bool) {
+        let Ok(site) = site.map(CString::new).transpose() else {
+            return;
+        };
+        let site = site.as_ref().map_or(std::ptr::null(), |site| site.as_ptr());
         if let Ok(text) = CString::new(text) {
-            unsafe { bc::bc_window_suggest(WINDOW.get(), text.as_ptr(), complete) };
+            unsafe { bc::bc_window_suggest(WINDOW.get(), site, text.as_ptr(), complete) };
         }
     }
 
@@ -335,11 +336,13 @@ impl command_bar::Host for Bar {
     }
 
     fn typed_url(&self, text: &str) -> Option<String> {
-        url_for(text, bc::bc_typed_url)
+        url_for(text, |text, url, capacity| unsafe { bc::bc_typed_url(text, url, capacity) })
     }
 
-    fn search_url(&self, text: &str) -> Option<String> {
-        url_for(text, bc::bc_search_url)
+    fn search_url(&self, site: Option<&str>, text: &str) -> Option<String> {
+        let site = site.map(CString::new).transpose().ok()?;
+        let site = site.as_ref().map_or(std::ptr::null(), |site| site.as_ptr());
+        url_for(text, |text, url, capacity| unsafe { bc::bc_search_url(site, text, url, capacity) })
     }
 
     fn open_tab(&self, url: &str, behind: bool) {
@@ -1456,6 +1459,8 @@ unsafe extern "C" fn window_suggestions(
             tab: suggestion.tab,
             completion: string(suggestion.completion),
             removable: suggestion.removable,
+            keyword: string(suggestion.keyword),
+            site: string(suggestion.site).into(),
             ..command_bar::Suggestion::default()
         })
         .collect();

@@ -161,7 +161,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Inline completion rules | MVP | one term, caret at end; never during IME, after delete, after paste, after whitespace | Chrome O |
 | [x] | Inline eligibility | MVP | typed ≥ 1 host / ≥ 2 deeper | Chrome O |
 | [x] | Well-known sites | MVP | built in; fill the rows left under the profile's own, never row 0 | ours |
-| [ ] | Site search | MVP | Tab when hinted, Space after exact host; ⌫ in empty leaves and restores | Chrome O |
+| [x] | Site search | MVP | Tab when hinted, Space after the keyword; ⌫ at the start, ⇧Tab or Esc leaves and restores; Arc's look: measure | Chrome O |
 | [x] | Keys | MVP | ↩, ⌘↩ behind with the bar open, ⌥↩ beside, ⇧⌘↩, ⌃↩, ↑↓ and Tab ⇧Tab wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Arc 1.170.0 cap, Chrome, Dia O |
 | [ ] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows | Chrome |
 | [ ] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms) | Ardia P§7 |

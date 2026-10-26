@@ -416,12 +416,13 @@ void bc_page_favicon(const char* url) {
   }
 }
 
-void bc_window_suggest(bc_id window_id, const char* text, bool complete) {
+void bc_window_suggest(bc_id window_id, const char* keyword, const char* text, bool complete) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   // Chrome made the profile it starts with before the core's calls work.
   Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
   if (window && profile) {
-    window->Suggest(profile, text ? base::UTF8ToUTF16(text) : std::u16string(), complete);
+    window->Suggest(profile, keyword ? base::UTF8ToUTF16(keyword) : std::u16string(),
+                    text ? base::UTF8ToUTF16(text) : std::u16string(), complete);
   }
 }
 
@@ -454,10 +455,11 @@ size_t bc_typed_url(const char* text, char* url, size_t capacity) {
   return typed.is_valid() ? CopyString(typed.spec(), url, capacity) : 0;
 }
 
-size_t bc_search_url(const char* text, char* url, size_t capacity) {
+size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity) {
   // Chrome made the profile it starts with before the core's calls work.
   Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
-  const GURL search = profile && text ? browser_core::SearchUrl(profile, text) : GURL();
+  const std::u16string engine = keyword ? base::UTF8ToUTF16(keyword) : std::u16string();
+  const GURL search = profile && text ? browser_core::SearchUrl(profile, engine, text) : GURL();
   return search.is_valid() ? CopyString(search.spec(), url, capacity) : 0;
 }
 

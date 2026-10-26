@@ -65,9 +65,11 @@ GURL TypedUrl(Profile* profile, std::string_view text) {
   return match.destination_url;
 }
 
-GURL SearchUrl(Profile* profile, std::string_view text) {
+GURL SearchUrl(Profile* profile, const std::u16string& keyword, std::string_view text) {
   TemplateURLService* engines = TemplateURLServiceFactory::GetForProfile(profile);
-  const TemplateURL* engine = engines ? engines->GetDefaultSearchProvider() : nullptr;
+  const TemplateURL* engine = !engines         ? nullptr
+                              : keyword.empty() ? engines->GetDefaultSearchProvider()
+                                                : engines->GetTemplateURLForKeyword(keyword);
   if (!engine) {
     return GURL();
   }
