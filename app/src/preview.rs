@@ -11,7 +11,7 @@ use std::{
 use browser::log;
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
-    Page, Shell, WindowButton,
+    Page, Shell, Split, WindowButton,
 };
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, TitlebarOptions,
@@ -278,8 +278,8 @@ impl Browser for Fake {
                 let mut splits = shell.splits();
                 pinned.retain(|&id| id != tab);
                 today.retain(|&id| id != tab);
-                splits.iter_mut().for_each(|split| split.retain(|&id| id != tab));
-                splits.retain(|split| split.len() > 1);
+                splits.iter_mut().for_each(|split| split.tabs.retain(|&id| id != tab));
+                splits.retain(|split| split.tabs.len() > 1);
                 let folders = shell.folders();
                 shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
             }
@@ -542,7 +542,7 @@ impl Browser for Fake {
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
 
-    fn set_page_right(&self, _: f32, _: &mut App) {}
+    fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
 
     // No command bar here, as for a new tab, and no split views but the made-up one.
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {}
@@ -550,6 +550,18 @@ impl Browser for Fake {
     fn separate(&self, _: u64, _: &mut App) {}
 
     fn move_in_split(&self, _: u64, _: usize, _: &mut App) {}
+
+    fn set_split_stacked(&self, tab: u64, stacked: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let mut splits = shell.splits();
+            for split in splits.iter_mut().filter(|split| split.tabs.contains(&tab)) {
+                split.stacked = stacked;
+            }
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let folders = shell.folders();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
 
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
 
@@ -709,7 +721,10 @@ fn main() {
                     parents: [(2, folder)].into(),
                 };
                 let today = (3..=TABS.len() as u64).collect();
-                let split = vec![TABS.len() as u64 - 1, TABS.len() as u64];
+                let split = Split {
+                    tabs: vec![TABS.len() as u64 - 1, TABS.len() as u64],
+                    stacked: false,
+                };
                 shell.set_tabs(first_space, pinned, today, vec![split], folders, cx);
                 shell.set_selected(1, cx);
                 shell

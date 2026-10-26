@@ -16,8 +16,9 @@ namespace browser_core {
 // A tab container: its pinned tabs and its Today tabs, each top to bottom (decision 5). Spaces are
 // process-wide, and a window shows one.
 //
-// Tabs in a split view show side by side, and sit together in their list, left to right, as one
-// row. Each of the Space's calls that moves a tab moves its split with it.
+// Tabs in a split view show side by side, or stacked top to bottom, and sit together in their
+// list, in their order, as one row. Each of the Space's calls that moves a tab moves its split with
+// it.
 //
 // Folders hold pinned tabs and other folders. Each sits in the pinned list followed by what's in
 // it, and moves with it.
@@ -54,7 +55,7 @@ class Space {
   bool IsPinned(bc_id tab) const;
   // Where |tab| was when it was pinned, which Back to Pinned URL goes to. Empty if it isn't pinned.
   GURL PinnedUrl(bc_id tab) const;
-  // The tabs shown with |tab|, left to right, |tab| among them: its split's, else |tab| alone.
+  // The tabs shown with |tab|, in their order, |tab| among them: its split's, else |tab| alone.
   // Empty if the Space hasn't |tab|.
   std::vector<bc_id> Panes(bc_id tab) const;
   bool IsFolder(bc_id id) const { return folders_.contains(id); }
@@ -111,6 +112,11 @@ class Space {
   // Moves |tab| to |index| in its split, and in its list with it. False, doing nothing, if it's in
   // no split or |index| is past its end.
   bool MoveInSplit(bc_id tab, size_t index);
+  // Whether |tab|'s split shows its tabs stacked, top to bottom, rather than side by side.
+  bool Stacked(bc_id tab) const;
+  // Stacks |tab|'s split's tabs top to bottom, or puts them side by side. False, doing nothing, if
+  // it's in no split.
+  bool SetStacked(bc_id tab, bool stacked);
 
   // The lowest pinned tab still |loaded|, else 0: the one to show once no Today tab is left.
   bc_id LastLoadedPinned(base::FunctionRef<bool(bc_id)> loaded) const;
@@ -130,9 +136,15 @@ class Space {
   void ForgetOpener(bc_id tab);
   // The first tab below |index| opened by |opener|, else the nearest above it. 0 if none.
   bc_id NearestOpenedBy(bc_id opener, size_t index) const;
+  struct SplitView {
+    // In their order, as they are in their list.
+    std::vector<bc_id> tabs;
+    bool stacked = false;
+  };
+
   // The split holding |tab|, or splits_.end().
-  std::vector<std::vector<bc_id>>::iterator SplitOf(bc_id tab);
-  std::vector<std::vector<bc_id>>::const_iterator SplitOf(bc_id tab) const;
+  std::vector<SplitView>::iterator SplitOf(bc_id tab);
+  std::vector<SplitView>::const_iterator SplitOf(bc_id tab) const;
   // |index| in |tabs|, or the index past the split it's inside, so a tab put there isn't in one.
   size_t OutsideSplits(const std::vector<bc_id>& tabs, size_t index) const;
   // Takes |tab| out of its split, leaving it where it is in its list.
@@ -161,8 +173,7 @@ class Space {
   std::vector<bc_id> today_;
   // Each tab a page opened, to the tab it came from.
   std::map<bc_id, bc_id> openers_;
-  // Each split's tabs, left to right, as they are in their list.
-  std::vector<std::vector<bc_id>> splits_;
+  std::vector<SplitView> splits_;
 };
 
 }  // namespace browser_core

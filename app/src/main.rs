@@ -13,7 +13,7 @@ use std::{
 use browser::{command_bar, dialog, log, toast};
 use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Folders, MenuEntry,
-    Page, Shell, WindowButton,
+    Page, Shell, Split, WindowButton,
 };
 use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
 use gpui::{
@@ -54,7 +54,7 @@ mod platform {
         pub fn host_show_find_bar(keyboard: bool);
         pub fn host_hide_find_bar();
         pub fn host_add_hud(hud_view: *mut c_void, right: f64, top: f64);
-        pub fn host_set_page_right(right: f64);
+        pub fn host_set_pane_corner(right: f64, top: f64);
         pub fn host_show_hud();
         pub fn host_hide_hud(seconds: f64);
         pub fn host_add_drop_targets(view: *mut c_void);
@@ -466,6 +466,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_move_in_split(tab, index) };
     }
 
+    fn set_split_stacked(&self, tab: u64, stacked: bool, _: &mut App) {
+        unsafe { bc::bc_tab_set_split_stacked(tab, stacked) };
+    }
+
     fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
         unsafe {
             bc::bc_tab_split_with(tab, with, left);
@@ -672,8 +676,8 @@ impl Browser for Engine {
         unsafe { bc::bc_window_set_page_color(WINDOW.get(), color) };
     }
 
-    fn set_page_right(&self, right: f32, _: &mut App) {
-        unsafe { platform::host_set_page_right(right as f64) };
+    fn set_pane_corner(&self, right: f32, top: f32, _: &mut App) {
+        unsafe { platform::host_set_pane_corner(right as f64, top as f64) };
     }
 
     fn show_window_buttons(&self, shown: bool, _: &mut App) {
@@ -1188,7 +1192,8 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
         let mut split = [0; 3];
         let count = unsafe { bc::bc_tab_split(tab, split.as_mut_ptr(), split.len()) };
         if count > 1 && split[0] == tab {
-            splits.push(split[..count.min(split.len())].to_vec());
+            let tabs = split[..count.min(split.len())].to_vec();
+            splits.push(Split { tabs, stacked: unsafe { bc::bc_tab_split_stacked(tab) } });
         }
     }
     let mut folders = Folders::default();

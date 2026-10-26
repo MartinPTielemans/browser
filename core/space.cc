@@ -131,7 +131,7 @@ GURL Space::PinnedUrl(bc_id tab) const {
 
 std::vector<bc_id> Space::Panes(bc_id tab) const {
   if (auto split = SplitOf(tab); split != splits_.end()) {
-    return *split;
+    return split->tabs;
   }
   return Has(tab) ? std::vector<bc_id>{tab} : std::vector<bc_id>();
 }
@@ -346,9 +346,10 @@ bool Space::Split(bc_id tab, bc_id with, GURL url, bool left) {
   }
   ForgetOpener(tab);
   if (auto split = SplitOf(with); split != splits_.end()) {
-    split->insert(left ? split->begin() : split->end(), tab);
+    split->tabs.insert(left ? split->tabs.begin() : split->tabs.end(), tab);
   } else {
-    splits_.push_back(left ? std::vector<bc_id>{tab, with} : std::vector<bc_id>{with, tab});
+    splits_.push_back(
+        {.tabs = left ? std::vector<bc_id>{tab, with} : std::vector<bc_id>{with, tab}});
   }
   ReportChanged();
   return true;
@@ -356,15 +357,30 @@ bool Space::Split(bc_id tab, bc_id with, GURL url, bool left) {
 
 bool Space::MoveInSplit(bc_id tab, size_t index) {
   auto split = SplitOf(tab);
-  if (split == splits_.end() || index >= split->size()) {
+  if (split == splits_.end() || index >= split->tabs.size()) {
     return false;
   }
   // A split's tabs sit together in their list, in its order.
   std::vector<bc_id>& list = IsPinned(tab) ? pinned_ : today_;
-  const auto first = std::ranges::find(list, split->front());
-  std::erase(*split, tab);
-  split->insert(split->begin() + index, tab);
-  std::ranges::copy(*split, first);
+  const auto first = std::ranges::find(list, split->tabs.front());
+  std::erase(split->tabs, tab);
+  split->tabs.insert(split->tabs.begin() + index, tab);
+  std::ranges::copy(split->tabs, first);
+  ReportChanged();
+  return true;
+}
+
+bool Space::Stacked(bc_id tab) const {
+  auto split = SplitOf(tab);
+  return split != splits_.end() && split->stacked;
+}
+
+bool Space::SetStacked(bc_id tab, bool stacked) {
+  auto split = SplitOf(tab);
+  if (split == splits_.end()) {
+    return false;
+  }
+  split->stacked = stacked;
   ReportChanged();
   return true;
 }
@@ -374,9 +390,9 @@ void Space::Separate(bc_id tab) {
   if (split == splits_.end()) {
     return;
   }
-  std::erase(*split, tab);
-  const bc_id last = split->back();
-  if (split->size() < 2) {
+  std::erase(split->tabs, tab);
+  const bc_id last = split->tabs.back();
+  if (split->tabs.size() < 2) {
     splits_.erase(split);
   }
   std::vector<bc_id>& list = IsPinned(tab) ? pinned_ : today_;
@@ -387,13 +403,13 @@ void Space::Separate(bc_id tab) {
 
 bc_id Space::NextAfterLeaving(bc_id leaving, base::FunctionRef<bool(bc_id)> loaded) const {
   if (auto split = SplitOf(leaving); split != splits_.end()) {
-    auto pane = std::ranges::find(*split, leaving);
-    auto right = std::find_if(pane + 1, split->end(), loaded);
-    if (right != split->end()) {
+    auto pane = std::ranges::find(split->tabs, leaving);
+    auto right = std::find_if(pane + 1, split->tabs.end(), loaded);
+    if (right != split->tabs.end()) {
       return *right;
     }
-    auto left = std::find_if(std::make_reverse_iterator(pane), split->rend(), loaded);
-    if (left != split->rend()) {
+    auto left = std::find_if(std::make_reverse_iterator(pane), split->tabs.rend(), loaded);
+    if (left != split->tabs.rend()) {
       return *left;
     }
   }
@@ -461,21 +477,21 @@ bc_id Space::NearestOpenedBy(bc_id opener, size_t index) const {
   return 0;
 }
 
-std::vector<std::vector<bc_id>>::iterator Space::SplitOf(bc_id tab) {
+std::vector<Space::SplitView>::iterator Space::SplitOf(bc_id tab) {
   return std::ranges::find_if(
-      splits_, [tab](const auto& split) { return std::ranges::contains(split, tab); });
+      splits_, [tab](const SplitView& split) { return std::ranges::contains(split.tabs, tab); });
 }
 
-std::vector<std::vector<bc_id>>::const_iterator Space::SplitOf(bc_id tab) const {
+std::vector<Space::SplitView>::const_iterator Space::SplitOf(bc_id tab) const {
   return std::ranges::find_if(
-      splits_, [tab](const auto& split) { return std::ranges::contains(split, tab); });
+      splits_, [tab](const SplitView& split) { return std::ranges::contains(split.tabs, tab); });
 }
 
 size_t Space::OutsideSplits(const std::vector<bc_id>& tabs, size_t index) const {
   index = std::min(index, tabs.size());
   while (index > 0 && index < tabs.size()) {
     auto split = SplitOf(tabs[index]);
-    if (split == splits_.end() || !std::ranges::contains(*split, tabs[index - 1])) {
+    if (split == splits_.end() || !std::ranges::contains(split->tabs, tabs[index - 1])) {
       break;
     }
     ++index;
@@ -520,8 +536,8 @@ void Space::LeaveSplit(bc_id tab) {
   if (split == splits_.end()) {
     return;
   }
-  std::erase(*split, tab);
-  if (split->size() < 2) {
+  std::erase(split->tabs, tab);
+  if (split->tabs.size() < 2) {
     splits_.erase(split);
   }
 }

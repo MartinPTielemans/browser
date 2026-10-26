@@ -215,7 +215,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Close pane, Separate | MVP | Close this Split Pane, Separate Page from Split View | Arc menus |
 | [ ] | Expand Current Split | MVP | measure | Arc menus |
 | [x] | Commands | MVP | Flip, Move Pane Left/Right, Separate All, in the command bar | Dia P§6 |
-| [ ] | Change Orientation | MVP | the panes stacked top to bottom | Dia P§6 |
+| [x] | Change Orientation | MVP | the panes stacked top to bottom, kept after a quit; drop targets at the sides *interim* | Dia P§6 |
 
 ## Settings
 

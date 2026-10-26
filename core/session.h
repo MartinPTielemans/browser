@@ -34,8 +34,9 @@ struct SavedTab {
   std::string name;
   // When a window last stopped showing a Today tab, if it was saved with one.
   base::Time last_seen;
-  // Whether it's in a split view with the tab saved above it.
+  // Whether it's in a split view with the tab saved above it, and whether that split is stacked.
   bool split = false;
+  bool stacked = false;
   // How many folders it's in, among the pinned tabs.
   int depth = 0;
   // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.
