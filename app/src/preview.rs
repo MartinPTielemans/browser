@@ -602,7 +602,13 @@ impl Browser for Fake {
         false
     }
 
-    fn command_bar(&self, editing: Option<(u64, SharedString)>, _: Vec<BarTab>, cx: &mut App) {
+    fn command_bar(
+        &self,
+        editing: Option<(u64, SharedString)>,
+        _: Vec<BarTab>,
+        _: Option<Bounds<Pixels>>,
+        cx: &mut App,
+    ) {
         // No command bar here: a new tab opens at once.
         if editing.is_some() {
             return;
@@ -844,7 +850,7 @@ impl command_bar::Host for PreviewBar {
     fn split(&self, _: u64, _: u64, _: &mut App) {}
     fn open_split(&self, _: &str, _: u64, _: &mut App) {}
     fn copy(&self, _: &str, _: &mut App) {}
-    fn show(&self, _: bool, _: f32, _: f32, _: f32) {}
+    fn show(&self, _: bool, _: f32, _: f32, _: f32, _: f32) {}
     fn set_height(&self, _: f32) {}
     fn hide(&self) {}
     fn dismiss(&self) {}
@@ -944,8 +950,8 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     }
     command_bar::set_accent(0x4248cf, cx);
     match typed {
-        "" => command_bar::show(None, tabs, cx),
-        typed => command_bar::show(Some((0, typed.to_string().into())), Vec::new(), cx),
+        "" => command_bar::show(None, tabs, None, cx),
+        typed => command_bar::show(Some((0, typed.to_string().into())), Vec::new(), None, cx),
     }
     let icons = [Icon::Envelope, Icon::Blocks, Icon::Play, Icon::Disc([0.9, 0.5, 0.1])];
     let favicons: Vec<_> = rows

@@ -105,3 +105,29 @@ fn sidebar_buttons_name_themselves(cx: &mut TestAppContext) {
     assert_eq!(sidebar, ["tooltip Hide Sidebar ⌘S"]);
     assert_eq!(move_to(cx, &host, 100., 300.), ["tooltip none"]);
 }
+
+/// A click on the URL field opens the command bar over the field, as Arc's does, and ⌘L centred.
+/// With the sidebar hidden there's no field, and the bar is centred (*interim*).
+#[gpui::test]
+fn a_click_on_the_url_field_opens_the_command_bar_over_it(cx: &mut TestAppContext) {
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![(1, "Work".into(), None, 0, "".into(), "".into())], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, Vec::new(), vec![1, 2], Vec::new(), Folders::default(), cx);
+        shell.set_selected(2, cx);
+    });
+    cx.run_until_parked();
+    cx.simulate_click(point(px(100.), px(64.)), Modifiers::none());
+    let field = Bounds::new(point(px(8.), px(46.)), size(px(212.), px(36.)));
+    assert_eq!(host.command_bars.take(), [Some(field)]);
+    shell.update(cx, |shell, cx| shell.run(Command::EditUrl, "ui", cx));
+    assert_eq!(host.command_bars.take(), [None]);
+    shell.update(cx, |shell, cx| {
+        shell.sidebar_hidden = true;
+        shell.run(Command::EditUrl, "sidebar", cx);
+    });
+    assert_eq!(host.command_bars.take(), [None]);
+}

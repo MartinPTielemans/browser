@@ -27,6 +27,8 @@ pub(super) struct Recorder {
     pub(super) menu_spaces: RefCell<Vec<SharedString>>,
     /// Each time the shell opened the Site Controls: the tab, where, and the button's box.
     pub(super) site_controls: RefCell<Vec<(u64, Point<Pixels>, Bounds<Pixels>)>>,
+    /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
+    pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
 }
 
 impl Recorder {
@@ -306,8 +308,14 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn command_bar(&self, _: Option<(u64, SharedString)>, _: Vec<BarTab>, _: &mut App) {
-        Default::default()
+    fn command_bar(
+        &self,
+        _: Option<(u64, SharedString)>,
+        _: Vec<BarTab>,
+        field: Option<Bounds<Pixels>>,
+        _: &mut App,
+    ) {
+        self.command_bars.borrow_mut().push(field);
     }
 
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {

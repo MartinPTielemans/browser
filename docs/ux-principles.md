@@ -6,9 +6,9 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 
 ## Everything has a place, and motion shows where
 
-- **Seen.** The Library sits left of the first Space, and New Space past the last: two fingers past either end reach them (Spaces › Switching). The Library pushes the page aside instead of covering it, as one sheet beside it as wide as what it holds, and the sidebar under it shrinks toward the page as it goes (Motion › Library push, Library recede). The Space delete dialog drops 32 pt into place and leaves back up the same way. The Space form sinks as it leaves (Spaces › Creating). Back, forward and reload stay where they are while they can't act, dimmed to white 0.26 (Sidebar › Header and URL field).
-- **Reading.** If you see where a thing came from, you know where to find it again. A place you remember replaces a menu you'd have to read.
-- **Applies.** A new surface gets a place before it gets an animation. It comes in from that place and leaves the way it came. Only menus and popups at the pointer appear from nowhere.
+- **Seen.** The Library sits left of the first Space, and New Space past the last: two fingers past either end reach them (Spaces › Switching). The Library pushes the page aside instead of covering it, as one sheet beside it as wide as what it holds, and the sidebar under it shrinks toward the page as it goes (Motion › Library push, Library recede). The Space delete dialog drops 32 pt into place and leaves back up the same way. The Space form sinks as it leaves (Spaces › Creating). Back, forward and reload stay where they are while they can't act, dimmed to white 0.26 (Sidebar › Header and URL field). A click on the URL field opens the command bar over the field, its input lying where the field was; ⌘L opens the same bar centred, where ⌘T's is (Command bar › Opening).
+- **Reading.** If you see where a thing came from, you know where to find it again. A place you remember replaces a menu you'd have to read. A click has a place, the thing clicked; a key has none, so what it opens goes where the keyboard's surfaces always are.
+- **Applies.** A new surface gets a place before it gets an animation. It comes in from that place and leaves the way it came. Only menus and popups at the pointer appear from nowhere. A surface a click opens sits on what was clicked; the same surface from a key opens where ⌘T's does.
 
 ## Under the fingers, physics; otherwise, a fixed time
 
@@ -42,7 +42,7 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 
 ## Quiet controls, loud thresholds
 
-- **Seen.** Create Space doesn't change under the pointer or while pressed. The dialog's Delete darkens to 0.9 under the pointer. The dialog's buttons are labelled in macOS's control font, 13 pt regular, and only its question is heavier, at medium (Spaces › Renaming and deleting). The New Space pull pops to 1.13×, glows and clicks the trackpad as it readies, and clicks again if it un-readies. Arc's other haptic is for reordering tabs; it has none for swiping between Spaces (Settings › Advanced). Clear is the word alone until it would close the tab shown too, when an arrow comes before it (Clear divider).
+- **Seen.** Create Space doesn't change under the pointer or while pressed. The dialog's Delete darkens to 0.9 under the pointer. The dialog's buttons are labelled in macOS's control font, 13 pt regular, and only its question is heavier, at medium (Spaces › Renaming and deleting). The New Space pull pops to 1.13×, glows and clicks the trackpad as it readies, and clicks again if it un-readies. Arc's other haptic is for reordering tabs; it has none for swiping between Spaces (Settings › Advanced). Clear is the word alone until it would close the tab shown too, when an arrow comes before it (Clear divider). In the command bar the row under the pointer takes a white 0.05 plate while the selection keeps the accent, and ↓ ↑ move only the selection (Command bar › Panel).
 - **Reading.** The strongest feedback goes where a gesture crosses a line. Everyday buttons stay calm, and the one that destroys something reacts. A button marks the press that would reach further than it looks, before it's pressed.
 - **Applies.** Haptics, glows and overshoot are for threshold crossings. Every button still shows under the pointer that it can be clicked, quietly, in its kind's way: a plate, a fill, a step brighter or darker (the owner, 2026-10-26). Only one measured to stay still, such as Create Space, does. When a control's next press would take what's on screen, it says so before the press, quietly, on the control itself.
 
@@ -86,4 +86,5 @@ Recordings could settle these. Until then, the calls listed in each PR stand.
 - How Arc's glyphs other than Copy URL's check change, such as reload into stop.
 - Where Arc shows pinned extensions, and whether only under the pointer.
 - How Arc asks about a page's permission request, such as for the camera: where it hangs, how it looks, and whether a hidden sidebar comes out for it. Ours hangs under the URL field, as Chrome's hangs under its address bar.
+- Where Arc's command bar opens for a click on the URL field while the sidebar is hidden and revealed. Ours opens centred as the reveal's panel makes way.
 - What Arc does with more favorites than its sidebar has room for. Ours scroll with the list once they're taller than 40 % of the window, as Ardia's do.

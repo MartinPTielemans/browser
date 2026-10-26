@@ -311,6 +311,11 @@ struct Overlay {
   bool shown = false;
   void (*dismissed)(void) = nullptr;
   double radius = 0;
+  // Where host_show_overlay last put it.
+  bool centered = false;
+  double left = 0;
+  double top = 0;
+  double width = 0;
   // From host_set_overlay_shape: x, y and radius for each corner, else it's a rounded rectangle.
   std::vector<double> corners;
   NSWindow* shadow = nil;
@@ -884,6 +889,17 @@ void host_set_overlay_shape(int index, const double* corners, size_t count) {
   [overlay->shadow setFrame:NSZeroRect display:NO];
 }
 
+void host_set_overlay_radius(int index, double radius) {
+  Overlay* overlay = OverlayAt(index);
+  if (!overlay || overlay->radius == radius) {
+    return;
+  }
+  overlay->radius = radius;
+  MaskOverlayBlur(*overlay);
+  // Drawn again at its next show.
+  [overlay->shadow setFrame:NSZeroRect display:NO];
+}
+
 void host_show_overlay(int index,
                        void* ui_view,
                        bool centered,
@@ -895,19 +911,29 @@ void host_show_overlay(int index,
   if (!overlay || !browser || !browser->window) {
     return;
   }
+  const bool moved = overlay->centered != centered || overlay->left != left ||
+                     overlay->top != top || overlay->width != width;
+  overlay->centered = centered;
+  overlay->left = left;
+  overlay->top = top;
+  overlay->width = width;
   if (overlay->shown && overlay->over == browser) {
-    [overlay->window makeKeyAndOrderFront:nil];
-    return;
-  }
-  // One overlay at a time, as one has the keyboard.
-  for (int other = 0; other < int(std::size(g_overlays)); other++) {
-    if (other != index) {
-      host_dismiss_overlay(other);
+    // Such as ⌘L while the command bar is open over the URL field: it moves without going.
+    if (!moved) {
+      [overlay->window makeKeyAndOrderFront:nil];
+      return;
     }
+  } else {
+    // One overlay at a time, as one has the keyboard.
+    for (int other = 0; other < int(std::size(g_overlays)); other++) {
+      if (other != index) {
+        host_dismiss_overlay(other);
+      }
+    }
+    host_hide_overlay(index);
+    overlay->shown = true;
+    overlay->over = browser;
   }
-  host_hide_overlay(index);
-  overlay->shown = true;
-  overlay->over = browser;
   // The window still holds what it drew when it last closed, such as the previous query. It goes
   // on screen once the UI has drawn it as it is now, which can't happen while the UI is still
   // handling the shortcut that opened it.

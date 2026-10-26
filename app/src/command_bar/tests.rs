@@ -10,14 +10,18 @@ use gpui::{
 use super::*;
 use crate::text_input::{self, Chosen, FieldMenu};
 
-/// A host that records what the bar asks of it, but its suggestions and its window's height and
-/// shape. A text with a dot names a page there; any other is searched for.
+/// A host that records what the bar asks of it, but its suggestions and its window's height, and
+/// apart from the rest, where it shows the window. A text with a dot names a page there; any other
+/// is searched for.
 #[derive(Default)]
-struct Recorder(RefCell<Vec<String>>);
+struct Recorder {
+    calls: RefCell<Vec<String>>,
+    shown: RefCell<Vec<String>>,
+}
 
 impl Recorder {
     fn record(&self, call: String) {
-        self.0.borrow_mut().push(call);
+        self.calls.borrow_mut().push(call);
     }
 }
 
@@ -69,7 +73,13 @@ impl Host for Recorder {
         self.record(format!("copy {text}"));
     }
 
-    fn show(&self, _: bool, _: f32, _: f32, _: f32) {}
+    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32) {
+        let place = match centered {
+            true => format!("centred {top} above the middle"),
+            false => format!("at {left} {top}"),
+        };
+        self.shown.borrow_mut().push(format!("{place}, {width} wide, radius {radius}"));
+    }
 
     fn set_height(&self, _: f32) {}
 
@@ -100,7 +110,7 @@ impl Bar {
         let host = Rc::new(Recorder::default());
         cx.update(text_input::bind_keys);
         let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the bar");
-        cx.update(|cx| show(None, tabs, cx));
+        cx.update(|cx| show(None, tabs, None, cx));
         let cx = VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
         Bar { cx, window, host }
@@ -143,7 +153,23 @@ impl Bar {
 
     /// What the bar asked of the host since the last time.
     fn calls(&self) -> Vec<String> {
-        self.host.0.take()
+        self.host.calls.take()
+    }
+
+    /// Where the host was asked to show the bar since the last time.
+    fn shown(&self) -> Vec<String> {
+        self.host.shown.take()
+    }
+
+    /// Opens the bar again on tab 1's `url`, over `field` if it's the URL field's box.
+    fn edit(&mut self, url: &str, field: Option<Bounds<Pixels>>) {
+        let editing = Some((1, SharedString::from(url.to_string())));
+        self.cx.cx.update(|cx| show(editing, Vec::new(), field, cx));
+        self.cx.run_until_parked();
+    }
+
+    fn over_field(&mut self) -> bool {
+        self.window.read_with(&self.cx.cx, |bar, _| bar.over_field).unwrap()
     }
 
     /// A right-click in the input: the items of the menu it shows, " (disabled)" after those
@@ -519,6 +545,10 @@ fn the_window_fits_up_to_five_rows_of_arcs_size() {
     // Arc's panel with five rows is 328.5 tall, and more rows scroll inside it.
     assert_eq!(height(5), 328.5);
     assert_eq!(height(11), 328.5);
+    // Over the URL field the input is a row tall with no line, and five rows make it 310.
+    assert_eq!(field_height(0), 50.);
+    assert_eq!(field_height(5), 310.);
+    assert_eq!(field_height(11), 310.);
 }
 
 /// Arc's centred panel is 169 above the window's middle at both heights it was measured at.
@@ -663,4 +693,20 @@ fn the_pointer_moving_takes_the_plate_with_it(cx: &mut TestAppContext) {
     assert_eq!(bar.plates(), (0, Some(1)));
     bar.point_at(2);
     assert_eq!(bar.plates(), (0, Some(2)));
+}
+
+/// A click on the URL field opens Arc's narrower panel over the field, its left at the field's
+/// and its top 2 above; ⌘T and ⌘L open the centred one.
+#[gpui::test]
+fn a_click_on_the_url_field_opens_the_bar_over_it_and_cmd_l_centred(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 18"]);
+    let field = Bounds::new(point(px(8.), px(46.)), size(px(244.), px(36.)));
+    bar.edit("https://example.com/", Some(field));
+    assert_eq!(bar.shown(), ["at 8 44, 350 wide, radius 12"]);
+    assert!(bar.over_field());
+    assert_eq!(bar.input(), ("https://example.com/".into(), 0..20));
+    bar.edit("https://example.com/", None);
+    assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 18"]);
+    assert!(!bar.over_field());
 }

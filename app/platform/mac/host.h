@@ -57,10 +57,14 @@ void host_add_overlay(int overlay, void* overlay_view, double radius, void (*dis
 // the window's top left, and the radius it's rounded by there.
 void host_set_overlay_shape(int overlay, const double* corners, size_t count);
 
+// Rounds the overlay's blur and shadow by |radius| from its next show on, as the command bar's
+// panel over the URL field is rounded less than its centred one.
+void host_set_overlay_radius(int overlay, double radius);
+
 // Shows the overlay over |ui_view|'s window and gives it the keyboard, |width| points wide: with
 // its top left at |left|, |top| in the window's content and ending at least 8 points inside it, or
 // if |centered|, centred across it with its top |top| points above its middle. The other overlay
-// closes, as the user leaving it.
+// closes, as the user leaving it. Shown there already, it moves to the new place.
 void host_show_overlay(int overlay,
                        void* ui_view,
                        bool centered,

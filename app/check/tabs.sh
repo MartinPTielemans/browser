@@ -1,20 +1,20 @@
 # A tab opened from the command bar goes at the top of the Space's Today tabs and shows. The command
 # bar lists the Space's other tabs before anything is typed, those shown last first, and suggests
-# pages from history as it's typed in, growing to fit them, with the tabs already at them, never
-# the one shown, and well-known sites under them. ↩ or a click on a tab's row shows that
-# tab without opening one. Typing at the end completes the text to the first row's page, and ↩ goes
-# there. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs. ⌃Tab, with the page or the UI focused, shows
-# the tab shown before, and with ⌃ held goes on back through the tabs in the order they were shown,
-# and ⌃⇧Tab the other way, until ⌃ goes up or a click. A tab a page opens goes under it and closing
-# it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing the last
-# tab leaves the Space empty, where ⌘T still works. Mute/Unmute Tab mutes a tab, its row shows a
-# speaker while it plays, crossed out while it's muted, and a click on it unmutes the tab. There ⇧⌦
-# takes a page out of history, ⇧⌘↩ searches for what was typed, ⌘↩ opens it in a tab behind that
-# loads once it's first shown, Tab on the row that hints a search engine, or a space after its
-# keyword, searches with that engine alone until ⌫ leaves, ↩ on a sum's row copies its result, and a
-# right-click in its field shows the field's menu, with Paste and Go. The command bar's tests, in
-# src/command_bar/tests.rs, have the rest of its keys and what the menu's items do. Reports how long
-# switches take.
+# pages from history as it's typed in, growing to fit them, with the tabs already at them, never the
+# one shown, and well-known sites under them. ↩ or a click on a tab's row shows that tab without
+# opening one. Typing at the end completes the text to the first row's page, and ↩ goes there. ⌘L
+# opens the bar centred and a click on the URL field over the field. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on
+# rows show tabs. ⌃Tab, with the page or the UI focused, shows the tab shown before, and with ⌃ held
+# goes on back through the tabs in the order they were shown, and ⌃⇧Tab the other way, until ⌃ goes
+# up or a click. A tab a page opens goes under it and closing it goes back there, and ⌘W otherwise
+# shows the tab below, or above at the bottom. Closing the last tab leaves the Space empty, where ⌘T
+# still works. Mute/Unmute Tab mutes a tab, its row shows a speaker while it plays, crossed out
+# while it's muted, and a click on it unmutes the tab. There ⇧⌦ takes a page out of history, ⇧⌘↩
+# searches for what was typed, ⌘↩ opens it in a tab behind that loads once it's first shown, Tab on
+# the row that hints a search engine, or a space after its keyword, searches with that engine alone
+# until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows the
+# field's menu, with Paste and Go. The command bar's tests, in src/command_bar/tests.rs, have the
+# rest of its keys and what the menu's items do. Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, and p in it plays a quiet tone until x. The app asks Chrome to trace its tab switches, timed
@@ -139,6 +139,7 @@ expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on example.org's row 
 # Typing at the end completes the text to the first row's page, as Chrome's address bar does:
 # example.com, typed before, completes "example.c", and ↩ goes where it goes.
 send key l cmd
+expect '^browser: command bar opens centred$' "⌘L didn't open the command bar centred"
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send type example.c
 expect '^browser: command bar completes "example.c" with "om"$' "the command bar didn't complete \"example.c\" to example.com"
@@ -148,18 +149,21 @@ send key return
 expect '^browser: command bar go https://example.com/$' "↩ didn't go where the completion goes: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect "^browser: loaded $c https://example.com/\$" "↩ didn't load the completion's page in the tab"
 [ "$(today)" = "$c $b $a" ] || fail "going to a page in a tab changed Today to \"$(today)\""
-# A click on the URL field opens the bar on the tab's URL, as Arc's ⌘L does: the same panel as ⌘T's,
-# 765 wide and centred.
+# A click on the URL field opens the bar on the tab's URL over the field, as Arc's does: 350 wide,
+# its left at the field's and its top 2 above the field's, where ⌘L's is centred.
 send click 100 64
 expect '^browser: command edit-url via sidebar$' \
   "a click on the URL field didn't open the command bar"
+expect '^browser: command bar opens over the URL field$' \
+  "a click on the URL field didn't open the command bar over the field"
 expect '^browser: command bar shown$' "a click on the URL field didn't open the command bar"
 expect '^browser: command bar drew "https://example.com/"$' \
   "the command bar from the URL field didn't show the tab's URL"
 at=$(grep '^browser: command bar at' "$log" | tail -1 | cut -d' ' -f5-)
-# The input alone is 64 tall, centred on the window.
-[ "$(echo "$at" | awk '{ print $3, $4 }')" = "765 64" ] ||
-  fail "the command bar from the URL field opened at $at, not 765 by 64"
+# The input alone is a row, 50 tall, over the field at 8, 46.
+[ "$at" = "8 44 350 50" ] ||
+  fail "the command bar from the URL field opened at $at, not at 8 44 and 350 by 50"
+../tools/window-screenshot.sh "$pid" "$out/url-field-bar.png" || fail "no window to capture"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 
@@ -374,6 +378,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
+echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png"

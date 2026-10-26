@@ -66,6 +66,7 @@ mod platform {
             dismissed: extern "C" fn(),
         );
         pub fn host_set_overlay_shape(overlay: c_int, corners: *const f64, count: usize);
+        pub fn host_set_overlay_radius(overlay: c_int, radius: f64);
         pub fn host_show_overlay(
             overlay: c_int,
             ui_view: *mut c_void,
@@ -716,9 +717,10 @@ impl command_bar::Host for Bar {
         shell::copy_from_bar(text, cx);
     }
 
-    fn show(&self, centered: bool, left: f32, top: f32, width: f32) {
+    fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32) {
         let (left, top, width) = (f64::from(left), f64::from(top), f64::from(width));
         unsafe {
+            platform::host_set_overlay_radius(COMMAND_BAR, radius.into());
             platform::host_show_overlay(COMMAND_BAR, front().1, centered, left, top, width)
         };
     }
@@ -1287,8 +1289,14 @@ impl Browser for Engine {
         }
     }
 
-    fn command_bar(&self, editing: Option<(u64, SharedString)>, tabs: Vec<BarTab>, cx: &mut App) {
-        command_bar::show(editing, tabs, cx);
+    fn command_bar(
+        &self,
+        editing: Option<(u64, SharedString)>,
+        tabs: Vec<BarTab>,
+        field: Option<Bounds<Pixels>>,
+        cx: &mut App,
+    ) {
+        command_bar::show(editing, tabs, field, cx);
     }
 
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
