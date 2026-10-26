@@ -9,9 +9,10 @@
 # tab leaves the Space empty, where ⌘T still works. Mute/Unmute Tab mutes a tab, its row shows a
 # speaker while it plays, crossed out while it's muted, and a click on it unmutes the tab. There ⇧⌦
 # takes a page out of history, ⇧⌘↩ searches for what was typed, Tab on the row that hints a search
-# engine, or a space after its keyword, searches with that engine alone until ⌫ leaves, and ↩ on a
-# sum's row copies its result. The command bar's tests, in src/command_bar/tests.rs, have the rest
-# of its keys. Reports how long switches take.
+# engine, or a space after its keyword, searches with that engine alone until ⌫ leaves, ↩ on a
+# sum's row copies its result, and a right-click in its field shows the field's menu, with Paste and
+# Go. The command bar's tests, in src/command_bar/tests.rs, have the rest of its keys and what the
+# menu's items do. Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, and p in it plays a quiet tone until x. The app asks Chrome to trace its tab switches, timed
@@ -289,6 +290,23 @@ send key return
 expect '^browser: command bar copies 19$' "↩ on the sum's row didn't copy its result"
 expect '^browser: copied 19$' "the sum's result wasn't copied"
 expect '^browser: command bar hidden$' "copying the sum's result didn't close the command bar"
+# A right-click in the command bar's field shows its menu, with Paste and Go and Paste and Search.
+# The check chooses only Select All: Cut, Copy and the Paste items use the owner's pasteboard.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type 8-3
+expect '^browser: command bar calculates "8-3": 5$' "the command bar didn't work out 8-3"
+post rightclickkey 200 27
+pastes='Paste, Paste and Go, Paste and Search'
+expect "^browser: menu shown Cut (disabled), Copy (disabled), $pastes, Select All\$" \
+  "a right-click in the command bar's field didn't show its menu"
+../tools/window-screenshot.sh "$pid" "$out/field-menu.png" || fail "no window to capture"
+send choose Select All
+send type 2+2
+expect '^browser: command bar calculates "2+2": 4$' \
+  "Select All in the field's menu didn't select its text for typing to replace"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar after its menu"
 exec 3>&-
 # Chrome writes the trace before it quits, once every process has started tracing or 10 s have
 # passed, so a renderer that closed early can hold the quit that long.
@@ -317,6 +335,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, and ↩ on a sum's row copies its result, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
+echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/empty.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png"

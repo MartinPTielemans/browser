@@ -17,7 +17,7 @@ use gpui::{
 
 use crate::{
     shell,
-    text_input::{self, TextInput},
+    text_input::{self, PasteAndGo, PasteAndSearch, TextInput},
 };
 
 mod calculator;
@@ -224,6 +224,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
                 .placeholder_color(rgba(PLACEHOLDER))
                 .caret_color(rgb(CARET))
                 .selection_color(rgba(SELECTION))
+                .paste_and_go()
         });
         window.focus(&input.focus_handle(cx), cx);
         cx.new(|cx| {
@@ -361,6 +362,12 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
             bar.set_rows(bar.asked.clone(), rows, window, cx);
         })
         .ok();
+}
+
+/// The clipboard's text as a paste puts it in the input: on one line, trimmed. None if it has none.
+fn pasted(cx: &App) -> Option<String> {
+    let text = cx.read_from_clipboard()?.text()?.replace('\n', " ");
+    Some(text.trim().to_string()).filter(|text| !text.is_empty())
 }
 
 /// Puts what `text` comes to, if it's a sum, after the first of `rows`, as Dia's bar does.
@@ -668,6 +675,23 @@ impl CommandBar {
         }
     }
 
+    /// Paste and Go, from the input's menu: goes where ↩ would for the clipboard's text, as
+    /// Chrome does.
+    fn paste_and_go(&mut self, _: &PasteAndGo, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(url) = pasted(cx).and_then(|text| self.typed_url(&text)) {
+            self.go_to(&url, cx);
+        }
+    }
+
+    /// Paste and Search: searches for the clipboard's text, even if it names a page, as ⇧⌘↩
+    /// does for what's typed.
+    fn paste_and_search(&mut self, _: &PasteAndSearch, _: &mut Window, cx: &mut Context<Self>) {
+        let site = self.site.as_ref().map(|site| site.keyword.as_str());
+        if let Some(url) = pasted(cx).and_then(|text| self.host.search_url(site, &text)) {
+            self.go_to(&url, cx);
+        }
+    }
+
     /// Shows `url` where the bar shows the page chosen, and closes the bar.
     fn go_to(&self, url: &str, cx: &mut App) {
         // check.sh reads this line.
@@ -909,6 +933,8 @@ impl Render for CommandBar {
                 .on_action(cx.listener(Self::go_behind))
                 .on_action(cx.listener(Self::go_dot_com))
                 .on_action(cx.listener(Self::search))
+                .on_action(cx.listener(Self::paste_and_go))
+                .on_action(cx.listener(Self::paste_and_search))
                 .on_action(cx.listener(Self::remove))
                 .on_action(cx.listener(Self::dismiss))
                 .on_action(cx.listener(Self::enter_site_or_next))

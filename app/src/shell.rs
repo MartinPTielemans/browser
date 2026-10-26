@@ -718,7 +718,7 @@ pub struct MenuEntry {
 }
 
 impl MenuEntry {
-    fn new(title: impl Into<SharedString>, enabled: bool) -> Self {
+    pub fn new(title: impl Into<SharedString>, enabled: bool) -> Self {
         MenuEntry {
             title: title.into(),
             enabled,

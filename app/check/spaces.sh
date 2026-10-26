@@ -8,11 +8,11 @@
 # shows with it. Return with no name does nothing, New Space from the footer's + shows a form
 # already open, and Cancel deletes its Space and goes back. A right-click on the Space's name or a
 # dot shows Rename Space, its colours and Delete Space. Rename, and a double-click on the name, turn
-# it into a field, where return keeps the name and escape cancels. Delete asks first for a Space
-# with tabs, in a dialog that a click around cancels and return confirms, and the Space goes once
-# the dialog has, which a toast says. ⌘Z brings it back where it was, with its name and tabs. Its
-# tabs close with it and reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last
-# Space can't be deleted.
+# it into a field, where a right-click shows the field's menu, return keeps the name and escape
+# cancels. Delete asks first for a Space with tabs, in a dialog that a click around cancels and
+# return confirms, and the Space goes once the dialog has, which a toast says. ⌘Z brings it back
+# where it was, with its name and tabs. Its tabs close with it and reopen with ⇧⌘T in the Space
+# shown, which ⌘Z then leaves out, and the last Space can't be deleted.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last.
 page='data:text/html,<title>loading</title>
@@ -233,6 +233,12 @@ send key return
 expect "^browser: renamed space $first work\$" "return in the name's field didn't rename the Space"
 send doubleclick $name_point
 expect "^browser: rename space $first\$" "a double-click on the Space's name didn't open its field"
+# A right-click in the field shows the field's menu, not the Space's, and the field stays.
+post rightclick $name_point
+expect '^browser: menu shown Cut, Copy, Paste, Select All$' \
+  "a right-click in the name's field didn't show the field's menu"
+none_since '^browser: menu shown Rename Space' || fail "the right-click showed the Space's menu too"
+send choose Select All
 send type gone
 send key escape
 expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
@@ -312,5 +318,5 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel deletes a new Space and goes back to the Space it was made from. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. Windows: $out/swipe.png, $out/library-swipe.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel deletes a new Space and goes back to the Space it was made from. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. Windows: $out/swipe.png, $out/library-swipe.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
