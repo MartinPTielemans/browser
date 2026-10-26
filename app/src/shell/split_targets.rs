@@ -11,7 +11,7 @@ use gpui::{
     canvas, div, hsla, point, prelude::*, px, rgb, size,
 };
 
-use super::{FAVICON_DRAWN, Place, Shell, TITLE_GAP, favicon};
+use super::{FAVICON_DRAWN, Place, Shell, TITLE_GAP};
 
 /// Each target's width and height as a fraction of the card's, and how far it is in from the
 /// card's side: as it slides in, grown, and under the tab, where it leans TARGET_LEAN of the way
@@ -213,7 +213,7 @@ impl Shell {
             .overflow_hidden()
             .children(targets);
         let title = self.tabs.get(&tab).map(|tab| tab.title.clone()).unwrap_or_default();
-        let icon = favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()));
+        let icon = self.tab_icon(tab);
         div()
             .size_full()
             .relative()

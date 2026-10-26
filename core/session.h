@@ -32,6 +32,8 @@ struct SavedTab {
   GURL pinned_url;
   // The name the user gave it, if any.
   std::string name;
+  // The emoji the user gave it to show in place of its favicon, if any.
+  std::string icon;
   // When a window last stopped showing a Today tab, if it was saved with one.
   base::Time last_seen;
   // Whether it's in a split view with the tab saved above it, and whether that split is stacked.

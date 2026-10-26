@@ -103,7 +103,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | ⌃Tab | MVP | the tab used last, at once, no switcher; with ⌃ held, on back (ours) | Arc rec |
 | [x] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
 | [x] | Rename | MVP | double-click or Rename Tab renames inline; the name shows over the page's title and is kept across a quit; an empty one gives the title back | Dia P§2, ours |
-| [ ] | Emoji icon | MVP | a row's icon changed to an emoji | Dia P§2 |
+| [x] | Emoji icon | MVP | Change Icon… puts a field in the favicon's place and opens the character palette; the first character picked or typed is the icon, kept as a name is; Remove Icon gives the favicon back. Dia's picker: measure | Dia P§2, ours |
 | [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Rename, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
 | [x] | Folders | MVP | in the pinned tabs, indented 16 a level: New Folder…, a click opens and closes, a double-click or the menu renames, Delete Folder keeps the tabs, a drag right or left takes a row in or out, kept over a quit; motion and icon *interim* | Arc ax, cap, menus |
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
@@ -238,7 +238,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 |---|---|---|---|---|
 | [x] | Clear (⇧⌘K and the divider button) | MVP | closes the Space's Today tabs but the one shown, in one frame, no toast; pinned and favorites stay | Arc 1.170.0 rec |
 | [x] | Undo Clear | MVP | ⌘Z brings them back in place, unloaded; the tab shown stays | Arc 1.170.0 rec |
-| [ ] | Reopen closed tab ⇧⌘T | MVP | position, name, mute, back/forward and a split's tab back in its split done; its icon once icons land. Pinned tabs don't close | Dia P§2 |
+| [x] | Reopen closed tab ⇧⌘T | MVP | back in its place with its name, icon, mute and back/forward, and a split's tab back in its split. Pinned tabs don't close | Dia P§2 |
 | [x] | Auto-archive | MVP | a Today tab unseen for 12 hours goes in the archive, counted across a quit | Arc 1.170.0 settings |
 | [x] | Auto-archive's other intervals | MVP | Settings › General: 12 hours (default), 24 hours, 7 days, 30 days, kept with the Spaces | Arc 1.170.0 bin |
 | [x] | ⌘W on a Today tab | MVP | Archive Tab: the tab goes in the archive | Arc 1.170.0 menus |

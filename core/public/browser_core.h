@@ -62,6 +62,8 @@ typedef struct bc_tab_state {
   bool audible;
   // The tab's sound is muted, by bc_tab_set_muted or an extension.
   bool muted;
+  // The emoji bc_tab_set_icon gave the tab to show in place of its page's favicon, UTF-8, or empty.
+  const char* icon;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -700,6 +702,10 @@ BC_EXPORT bc_id bc_tab_duplicate(bc_id tab);
 // Names the tab, which shows |name| for its title from then on, kept across a quit, a reopen and a
 // duplicate; an empty name gives it back its page's title. Then tab_title_changed.
 BC_EXPORT void bc_tab_rename(bc_id tab, const char* name);
+
+// Gives the tab |icon|, an emoji, UTF-8, to show in place of its page's favicon, kept as its name
+// is; empty gives it back its favicon. Then tab_state_changed.
+BC_EXPORT void bc_tab_set_icon(bc_id tab, const char* icon);
 
 // Mutes or unmutes the tab, whatever page it's at. Duplicating it and ⇧⌘T keep it muted; a quit
 // doesn't. Then tab_state_changed.

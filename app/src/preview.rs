@@ -446,6 +446,14 @@ impl Browser for Fake {
         });
     }
 
+    fn set_icon(&self, tab: u64, icon: &str, cx: &mut App) {
+        let icon: SharedString = icon.to_string().into();
+        self.later(cx, move |shell, cx| {
+            let page = Page { icon, ..shell.page(tab) };
+            shell.set_page(tab, page, cx);
+        });
+    }
+
     fn go_back(&self, _: u64, _: &mut App) {}
 
     fn go_forward(&self, _: u64, _: &mut App) {}

@@ -23,6 +23,7 @@ use gpui::{
 };
 
 use crate::text_input::TextInput;
+use unicode_segmentation::UnicodeSegmentation;
 
 mod clean_link;
 mod extensions;
@@ -165,6 +166,8 @@ const FAVICON_SIZE: f32 = 18.;
 // The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot
 // rather than scaled up soft.
 const FAVICON_DRAWN: f32 = 16.;
+/// An emoji's text size in a favicon's place, for its glyph to fill what a favicon does.
+const EMOJI_SIZE: f32 = 13.;
 const LOADING_SIZE: f32 = 12.;
 // A row narrower than this, such as a split's segment in a narrow sidebar, leaves the spinner out
 // (Dia), as it would leave the title no room.
@@ -1103,6 +1106,9 @@ pub trait Browser {
     /// Names a tab, which shows `name` for its title from then on, or gives it back its page's
     /// title for an empty one.
     fn rename_tab(&self, tab: u64, name: &str, cx: &mut App);
+    /// Gives a tab `icon`, an emoji, to show in place of its page's favicon, kept as its name is,
+    /// or gives it back its favicon for an empty one.
+    fn set_icon(&self, tab: u64, icon: &str, cx: &mut App);
     /// Deletes a Space, closing its tabs, and returns whether it will, as the last can't go.
     fn delete_space(&self, space: u64, cx: &mut App) -> bool;
     /// Gives a Space a colour, 0xRRGGBB, or none, for the system's accent colour.
@@ -1218,6 +1224,8 @@ pub struct Page {
     /// The page is playing sound, muted or not, or was in the last 2 s.
     pub audible: bool,
     pub muted: bool,
+    /// The emoji the user gave the tab to show in place of its page's favicon, or empty.
+    pub icon: SharedString,
 }
 
 /// What ⌘Z undoes: the last of what the user did that it can.
@@ -1364,14 +1372,19 @@ enum Naming {
     Space(u64),
     Tab(u64),
     Folder(u64),
+    /// A tab's icon, in a field in its place.
+    Icon(u64),
 }
 
-/// The field a Space's name or a tab's title turns into for renaming it.
+/// The field a Space's name or a tab's title turns into for renaming it, or a tab's icon for
+/// changing it.
 struct Renaming {
     naming: Naming,
     name: Entity<TextInput>,
     /// Keeps the name once the field loses GPUI's focus, as Finder does.
     _blur: Option<Subscription>,
+    /// Keeps an icon as soon as it's typed or picked.
+    _edit: Option<Subscription>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1408,6 +1421,8 @@ impl Opened {
 struct Closing {
     title: SharedString,
     favicon: Option<Arc<Image>>,
+    /// The emoji it had in place of its favicon, or empty.
+    icon: SharedString,
     /// A folder's row's, if it was open.
     folder: Option<bool>,
     /// How far in from a tab's place it was, in its folders.
@@ -2692,6 +2707,10 @@ impl Shell {
             let (audible, muted) = (flag(page.audible), flag(page.muted));
             log!("browser: page {tab} audible {audible} muted {muted}");
         }
+        if page.icon != entry.page.icon {
+            let icon = if page.icon.is_empty() { "none" } else { &page.icon };
+            log!("browser: page {tab} icon {icon}");
+        }
         entry.page = page;
         cx.notify();
     }
@@ -3262,7 +3281,7 @@ impl Shell {
     /// A favorite's menu.
     fn favorite_menu(&self, tab: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
         let page = self.page(tab);
-        vec![
+        let mut items: Vec<(MenuEntry, &'static str, MenuAction)> = vec![
             (
                 MenuEntry::new("Back to Favorite URL", page.away_from_pinned_url)
                     .shortcut(Command::BackToPinnedUrl),
@@ -3280,14 +3299,19 @@ impl Shell {
                 // To the top of Today.
                 Box::new(move |shell, cx| shell.browser.move_tab(tab, false, 0, 0, cx)),
             ),
-            (MenuEntry::line(), "", Box::new(|_, _| {})),
-            // One closed already has nothing to close.
-            (
-                MenuEntry::new("Close Tab", !page.unloaded).shortcut(Command::CloseTab),
-                "close-tab",
-                Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
-            ),
-        ]
+        ];
+        // An icon the tab had as a pinned tab.
+        if !page.icon.is_empty() {
+            items.push(remove_icon(tab));
+        }
+        items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
+        // One closed already has nothing to close.
+        items.push((
+            MenuEntry::new("Close Tab", !page.unloaded).shortcut(Command::CloseTab),
+            "close-tab",
+            Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
+        ));
+        items
     }
 
     /// A folder's menu.
@@ -3349,6 +3373,14 @@ impl Shell {
             "rename-tab",
             Box::new(move |shell, cx| shell.rename_tab(tab, cx)),
         ));
+        items.push((
+            MenuEntry::new("Change Icon…", true),
+            "change-icon",
+            Box::new(move |shell, cx| shell.change_icon(tab, cx)),
+        ));
+        if !page.icon.is_empty() {
+            items.push(remove_icon(tab));
+        }
         items.push((
             MenuEntry::new("Duplicate Tab", true),
             "duplicate-tab",
@@ -3415,6 +3447,7 @@ impl Shell {
             naming: Naming::Space(space),
             name,
             _blur: None,
+            _edit: None,
         });
         // As for the form.
         self.dock(cx);
@@ -3436,8 +3469,27 @@ impl Shell {
             naming: Naming::Tab(tab),
             name,
             _blur: None,
+            _edit: None,
         });
         // As for a Space's name.
+        self.dock(cx);
+        self.browser.focus_ui(cx);
+        self.focus_renaming = true;
+        cx.notify();
+    }
+
+    /// Shows a field in the tab's icon's place, with the emoji it has, if any, selected, and the
+    /// system's character palette to pick one from.
+    fn change_icon(&mut self, tab: u64, cx: &mut Context<Self>) {
+        let icon = self.page(tab).icon;
+        let name = cx.new(|cx| TextInput::new("", cx).with_text(icon));
+        self.renaming = Some(Renaming {
+            naming: Naming::Icon(tab),
+            name,
+            _blur: None,
+            _edit: None,
+        });
+        // As for a tab's name.
         self.dock(cx);
         self.browser.focus_ui(cx);
         self.focus_renaming = true;
@@ -3460,6 +3512,7 @@ impl Shell {
             naming: Naming::Folder(folder),
             name,
             _blur: None,
+            _edit: None,
         });
         // As for a Space's name.
         self.dock(cx);
@@ -3552,9 +3605,9 @@ impl Shell {
         self.browser.set_folder_open(folder, !open, cx);
     }
 
-    /// Renames the Space, the tab or the folder to what the field holds, and closes the field. A
-    /// Space or a folder keeps its name rather than none, and a tab named nothing shows its page's
-    /// title again.
+    /// Renames the Space, the tab or the folder to what the field holds, or gives the tab its
+    /// icon, and closes the field. A Space or a folder keeps its name rather than none, and a tab
+    /// named nothing shows its page's title again.
     fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(renaming) = self.renaming.take() else {
             return;
@@ -3570,6 +3623,13 @@ impl Shell {
                 self.browser.rename_folder(folder, &name, cx)
             }
             Naming::Folder(_) => {}
+            // The first character typed or picked; none gives the tab back its favicon.
+            Naming::Icon(tab) => {
+                let icon = name.graphemes(true).next().unwrap_or_default();
+                if icon != self.page(tab).icon.as_ref() {
+                    self.browser.set_icon(tab, icon, cx);
+                }
+            }
         }
         window.focus(&self.focus_handle, cx);
         cx.notify();
@@ -3733,6 +3793,7 @@ impl Shell {
                 self.closing.push(Closing {
                     title: self.label(tab),
                     favicon: self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()),
+                    icon: self.page(tab).icon,
                     folder: folder.map(|space| space.is_open(tab)),
                     indent: self.depth(tab) as f32 * FOLDER_INDENT,
                     top: top + self.slide(slot),
@@ -4894,7 +4955,7 @@ impl Shell {
             .items_center()
             .justify_center()
             .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
-            .child(favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone())));
+            .child(self.tab_icon(tab));
         div()
             .id(("tile", tab))
             .h(px(TILE_HEIGHT))
@@ -4954,7 +5015,11 @@ impl Shell {
             .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
             .opacity((1. - done).clamp(0., 1.))
             .child(plate(
-                row.folder.map_or_else(|| favicon(row.favicon.clone()), folder_icon),
+                match row.folder {
+                    Some(open) => folder_icon(open),
+                    None if !row.icon.is_empty() => emoji(row.icon.clone()),
+                    None => favicon(row.favicon.clone()),
+                },
                 div()
                     .flex_1()
                     .min_w_0()
@@ -5093,6 +5158,33 @@ impl Shell {
             .child(renaming.name.clone())
     }
 
+    /// The field that changes a tab's icon, in its place.
+    fn icon_field(&self, renaming: &Renaming, cx: &mut Context<Self>) -> gpui::Div {
+        div()
+            .size(px(FAVICON_SIZE))
+            .flex()
+            .items_center()
+            .rounded(px(4.))
+            .bg(rgba(HOVERED))
+            .overflow_hidden()
+            .key_context("Naming")
+            .on_action(cx.listener(|shell, _: &KeepName, window, cx| shell.keep_name(window, cx)))
+            .on_action(
+                cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
+            )
+            .text_size(px(EMOJI_SIZE))
+            .text_color(rgb(FORM_TEXT))
+            .child(renaming.name.clone())
+    }
+
+    /// What stands for `tab`: the emoji the user gave it, else its page's favicon.
+    fn tab_icon(&self, tab: u64) -> AnyElement {
+        match self.tabs.get(&tab) {
+            Some(each) if !each.page.icon.is_empty() => emoji(each.page.icon.clone()),
+            each => favicon(each.and_then(|each| each.favicon.clone())),
+        }
+    }
+
     /// A click on `tab`'s row, or its segment of a split view's, shows it, unless it ended a drag.
     fn click_row(&mut self, tab: u64, cx: &mut Context<Self>) {
         let renaming = self.renaming.as_ref().map(|renaming| renaming.naming);
@@ -5121,7 +5213,7 @@ impl Shell {
             .items_center()
             .justify_center()
             .when(page.unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
-            .child(favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone())));
+            .child(self.tab_icon(tab));
         let line = div()
             .absolute()
             .left_0()
@@ -5196,8 +5288,7 @@ impl Shell {
                 let Naming::Tab(tab) = renaming.naming else {
                     unreachable!()
                 };
-                let icon = favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()));
-                plate(icon, self.naming_field(renaming, cx))
+                plate(self.tab_icon(tab), self.naming_field(renaming, cx))
             }
             None => {
                 let close = (hovered && closable).then(|| self.close_button(panes.clone(), cx));
@@ -5260,7 +5351,7 @@ impl Shell {
                 .size(px(FAVICON_DRAWN))
                 .text_color(rgba(NAV))
                 .into_any_element(),
-            false => favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone())),
+            false => self.tab_icon(tab),
         };
         let icon = div()
             .id(("favicon", tab))
@@ -5285,6 +5376,13 @@ impl Shell {
                 }))
             })
             .child(icon);
+        let changing =
+            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Icon(tab));
+        let icon = match changing {
+            Some(changing) => self.icon_field(changing, cx).into_any_element(),
+            None => icon.into_any_element(),
+        };
+        let renaming = renaming || changing.is_some();
         // The field takes the row's clicks while it's up.
         self.row(Row::Tab(tab), plate(icon, label), cx).when(!renaming, |row| {
             row.on_mouse_down(
@@ -5674,6 +5772,24 @@ impl Render for Shell {
             if let Naming::Folder(folder) = renaming.naming {
                 log!("browser: rename folder {folder}");
             }
+            if let Naming::Icon(tab) = renaming.naming {
+                log!("browser: change icon {tab}");
+                // A pick from the palette, or a key, is the icon at once, as no ↩ is needed for
+                // one character.
+                let start = renaming.name.read(cx).text().to_string();
+                renaming._edit = Some(cx.observe_in(
+                    &renaming.name,
+                    window,
+                    move |shell, name, window, cx| {
+                        let name = name.read(cx);
+                        let text = name.text();
+                        if !name.composing() && !text.trim().is_empty() && text != start {
+                            shell.keep_name(window, cx);
+                        }
+                    },
+                ));
+                window.show_character_palette();
+            }
             renaming._blur =
                 Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
         }
@@ -5945,10 +6061,9 @@ impl Shell {
                         .when(panes.contains(&selected), |plate| selected_plate(plate, 1.)),
                 );
             }
-            let icon = favicon(self.tabs.get(&tab).and_then(|tab| tab.favicon.clone()));
             let icon = div()
                 .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
-                .child(icon);
+                .child(self.tab_icon(tab));
             row.child(
                 plate(icon, title(self.title(tab), tab == selected).pr(px(PLATE_INSET)))
                     .when(tab == selected, |plate| selected_plate(plate, 1.)),
@@ -6415,6 +6530,24 @@ fn folder_icon(open: bool) -> AnyElement {
         .size(px(FAVICON_DRAWN))
         .text_color(rgba(SECONDARY))
         .into_any_element()
+}
+
+/// An emoji in a favicon's place.
+fn emoji(icon: SharedString) -> AnyElement {
+    div()
+        .text_size(px(EMOJI_SIZE))
+        .line_height(px(FAVICON_SIZE))
+        .child(icon)
+        .into_any_element()
+}
+
+/// The menu item that gives a tab back its favicon.
+fn remove_icon(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
+    (
+        MenuEntry::new("Remove Icon", true),
+        "remove-icon",
+        Box::new(move |shell, cx| shell.browser.set_icon(tab, "", cx)),
+    )
 }
 
 /// A tab's favicon, or a globe for a page without one.
