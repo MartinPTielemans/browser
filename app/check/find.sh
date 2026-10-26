@@ -3,22 +3,26 @@
 # the matches, from the bar and from the page. A text the page doesn't have shows NOT FOUND. A click
 # on the page leaves the bar open, and the bar keeps its place through a resize and full screen.
 # Each tab has its own find, which a new tab starts from the text found last; escape and the bar's
-# close button close it, and so does another page. ⌘0 and ⌘- from the page and the View menu's Zoom
-# In zoom the page, and the zoom HUD shows the percent under the find bar for a moment, and goes at
-# once when another tab shows. ⌥⌘I from the page docks DevTools in the card, filling it, with the
-# page on its left, through a resize, and F12 closes them and gives the page the keyboard.
-# View › Developer's JavaScript Console opens them, a tab without them shows its page across the
-# card, and View Source opens the page's source in a tab under it. Help › Troubleshooting's Open
-# Task Manager opens Chrome's, with the keyboard, and ⌘W there closes it, not the tab.
+# close button close it, and so does another page. ⌘J from the page and Edit › Find › Jump to
+# Selection scroll the page back to the match a find left selected. ⌘0 and ⌘- from the page and the
+# View menu's Zoom In zoom the page, and the zoom HUD shows the percent under the find bar for a
+# moment, and goes at once when another tab shows. ⌥⌘I from the page docks DevTools in the card,
+# filling it, with the page on its left, through a resize, and F12 closes them and gives the page
+# the keyboard. View › Developer's JavaScript Console opens them, a tab without them shows its page
+# across the card, and View Source opens the page's source in a tab under it. Help ›
+# Troubleshooting's Open Task Manager opens Chrome's, with the keyboard, and ⌘W there closes it, not
+# the tab.
 
-# Find in page, and zoom. The test page has three apples and one 日本語, and puts its zoom in its
-# title as it changes.
+# Find in page, and zoom. The test page has three apples and one 日本語, and "far" well below
+# them, and puts its zoom and how far it's scrolled in its title as they change.
 page='data:text/html;charset=utf-8,<title>loading</title>
 <p style="font:24px system-ui">apple banana apple cherry apple 日本語</p>
+<p style="font:24px system-ui;margin-top:3000px">far</p>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 const unzoomed = devicePixelRatio;
 onresize = () => document.title = "zoom " + Math.round(100 * devicePixelRatio / unzoomed);
+onscroll = () => document.title = "scrolled " + Math.round(scrollY);
 </script>'
 log="$out/find.log"
 step=0
@@ -167,6 +171,27 @@ in_browser RenderWidgetHostViewCocoa "after a click on the find bar's close butt
 send key f cmd
 expect '^browser: find bar shown$' "⌘F after the close button didn't open the find bar again"
 
+# ⌘J from the page and Edit › Find › Jump to Selection scroll the page back to the match a find
+# left selected. ⌘↑ is the page's own, to its top. It ends there, where zooming doesn't scroll it.
+for _ in 1 2 3; do send key backspace; done
+send type far
+expect_find "$first" "open 1 of 1 far" "the find didn't find the text below the fold"
+expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' "the find didn't scroll the page to the match"
+send key escape
+expect_find "$first" "closed" "escape didn't close the find"
+for jump in "key j cmd" "menu Jump to Selection"; do
+  send key up cmd
+  expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
+  send $jump
+  expect '^browser: command jump-to-selection via \(page\|ui\)$' "$jump didn't reach the UI"
+  expect '^browser: title [0-9]* scrolled [1-9][0-9]*$' \
+    "$jump didn't scroll the page to its selection"
+done
+send key up cmd
+expect '^browser: title [0-9]* scrolled 0$' "⌘↑ didn't scroll the page to its top"
+send key f cmd
+expect '^browser: find bar shown$' "⌘F didn't open the find bar again"
+
 # ⌘0 and ⌘- from the page and the View menu's Zoom In zoom it, for its site, which the profile
 # keeps, so ⌘0 first. The HUD shows the zoom over the card's top right, 8 points under the find
 # bar. A tab shown in its place hides it at once.
@@ -291,4 +316,4 @@ in_browser RenderWidgetHostViewCocoa "after ⌘W closed the Task Manager"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png"
+echo "ok: ⌘F opens the find bar from the page with the keyboard, typing finds with \"n/m\", return, shift-return, ⌘G and ⇧⌘G and the bar's arrows go through the matches, from the bar and the page, a text the page doesn't have shows NOT FOUND, Japanese input finds once committed, the bar keeps its place through a resize and full screen, each tab keeps its own find, escape and the close button close it and another page closes it. ⌘J and Jump to Selection scroll the page back to the match a find left selected. ⌘0, ⌘- and the View menu zoom the page, and the HUD shows the zoom for a moment, under the find bar, and goes when another tab shows. ⌥⌘I and the View menu dock DevTools in the card beside the page, through a resize and per tab, F12 closes them and the page gets the keyboard back, and View Source opens a tab under the page. Open Task Manager shows Chrome's, which ⌘W closes, keeping the tab. Windows: $out/find.png, $out/find-not-found.png, $out/find-fullscreen.png, $out/zoom.png, $out/devtools.png, $out/task-manager.png"

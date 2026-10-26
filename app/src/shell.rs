@@ -353,6 +353,8 @@ pub enum Command {
     Find,
     FindNext,
     FindPrevious,
+    /// Scrolls the page to its selection.
+    JumpToSelection,
     Back,
     Forward,
     Reload,
@@ -443,6 +445,7 @@ const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-f", Command::Find, false),
     ("cmd-g", Command::FindNext, false),
     ("shift-cmd-g", Command::FindPrevious, false),
+    ("cmd-j", Command::JumpToSelection, false),
     ("cmd-1", Command::SelectTab(0), false),
     ("cmd-2", Command::SelectTab(1), false),
     ("cmd-3", Command::SelectTab(2), false),
@@ -758,6 +761,7 @@ impl Command {
             Command::Find => "find",
             Command::FindNext => "find-next",
             Command::FindPrevious => "find-previous",
+            Command::JumpToSelection => "jump-to-selection",
             Command::Back => "back",
             Command::Forward => "forward",
             Command::Reload => "reload",
@@ -1115,6 +1119,8 @@ pub trait Browser {
     fn settings(&self, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
+    /// Scrolls the tab's page to put its selection in the middle.
+    fn jump_to_selection(&self, tab: u64, cx: &mut App);
     fn quit(&self, cx: &mut App);
 }
 
@@ -2681,6 +2687,7 @@ impl Shell {
             Command::Find => return self.browser.find(self.selected, cx),
             Command::FindNext => return self.browser.find_next(self.selected, true, cx),
             Command::FindPrevious => return self.browser.find_next(self.selected, false, cx),
+            Command::JumpToSelection => return self.browser.jump_to_selection(self.selected, cx),
             Command::RecentTab => return self.walk(rows, true, cx),
             Command::RecentTabBack => return self.walk(rows, false, cx),
             Command::NextTab => position.map(|index| (index + 1) % count),

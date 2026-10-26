@@ -770,6 +770,12 @@ impl Browser for Engine {
         find_bar::find_next(tab, forward, cx);
     }
 
+    fn jump_to_selection(&self, tab: u64, _: &mut App) {
+        if tab != 0 {
+            unsafe { bc::bc_tab_jump_to_selection(tab) };
+        }
+    }
+
     fn settings(&self, cx: &mut App) {
         settings::show(cx);
     }
@@ -1069,6 +1075,7 @@ fn menus() -> Vec<Menu> {
                         item("Find…", Command::Find),
                         item("Find Next", Command::FindNext),
                         item("Find Previous", Command::FindPrevious),
+                        item("Jump to Selection", Command::JumpToSelection),
                     ],
                 )),
             ],
