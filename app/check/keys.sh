@@ -6,7 +6,8 @@
 # typed in it, over https for a host typed without one, or searches DuckDuckGo for words. While ⌘T's
 # is open, "New Tab" has the selected plate. Japanese input composes and commits in the page and in
 # the command bar, where return and escape go to the input method while it composes. The Edit menu's
-# Undo, Redo and Select All reach the focused page.
+# Undo, Redo and Select All reach the focused page. ⌘Y opens the history page from the page and the
+# UI.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -109,6 +110,30 @@ send key a cmd
 send type y
 expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 
+# View History (⌘Y) opens Chrome's history page in a tab, from the page, which doesn't keep the
+# key, and from the UI. ⌘W closes the tab, which shows the test page again.
+before=$(today)
+page_shortcut y view-history
+expect "^browser: today [0-9][0-9]*${before:+ $before}\$" \
+  "⌘Y with the page focused didn't open a tab"
+tab=$(today | cut -d' ' -f1)
+expect "^browser: loaded $tab chrome://history/\$" \
+  "⌘Y with the page focused didn't open the history page"
+send key w cmd
+expect "^browser: today $before\$" "⌘W didn't close the history tab"
+send click $sidebar_point
+send key y cmd
+expect '^browser: command view-history via ui$' "⌘Y with the UI focused didn't reach the UI"
+expect "^browser: today [0-9][0-9]*${before:+ $before}\$" \
+  "⌘Y with the UI focused didn't open a tab"
+tab=$(today | cut -d' ' -f1)
+expect "^browser: loaded $tab chrome://history/\$" \
+  "⌘Y with the UI focused didn't open the history page"
+send key w cmd
+expect "^browser: today $before\$" "⌘W didn't close the history tab"
+send click $page_point
+in_browser RenderWidgetHostViewCocoa "after the history tab closed"
+
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send ime on
@@ -168,4 +193,4 @@ exec 3>&-
 await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
-echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first, and Cancel keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"
+echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first, and Cancel keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides. Windows: $out/command-bar.png, $out/search.png, $out/ime.png"

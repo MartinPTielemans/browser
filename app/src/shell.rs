@@ -798,6 +798,8 @@ pub struct Shell {
     /// Each profile's extensions, and those the menu bar lists, the shown Space's turned on.
     extensions: HashMap<u64, Vec<Extension>>,
     menu_extensions: Vec<Extension>,
+    /// The names of the Spaces the menu bar lists.
+    menu_spaces: Vec<SharedString>,
     /// The pinned actions the window shows, for its tab shown.
     extension_actions: Vec<ExtensionAction>,
     /// The Library's section shown last, which it opens on.
@@ -902,6 +904,7 @@ impl Shell {
             download_icons: HashMap::new(),
             extensions: HashMap::new(),
             menu_extensions: Vec::new(),
+            menu_spaces: Vec::new(),
             extension_actions: Vec::new(),
             section: Section::Archive,
             library: None,
@@ -1111,7 +1114,7 @@ impl Shell {
         if self.show_favorites() {
             self.log_favorites();
         }
-        self.update_extensions_menu(cx);
+        self.update_menus(cx);
         cx.notify();
     }
 
@@ -1183,7 +1186,7 @@ impl Shell {
         if self.form().is_some() {
             self.focus_form(cx);
         }
-        self.update_extensions_menu(cx);
+        self.update_menus(cx);
         cx.notify();
     }
 

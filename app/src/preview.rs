@@ -553,7 +553,7 @@ impl Browser for Fake {
     fn task_manager(&self, _: &mut App) {}
 
     // The preview has no menu bar and no extensions.
-    fn set_extensions_menu(&self, _: &[Extension], _: &mut App) {}
+    fn set_menus(&self, _: &[SharedString], _: &[Extension], _: &mut App) {}
 
     fn run_extension(&self, _: &str, _: Bounds<Pixels>, _: &mut App) -> bool {
         false
@@ -572,6 +572,8 @@ impl Browser for Fake {
     fn open_extension_options(&self, _: &str, _: &mut App) {}
 
     fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
+
+    fn view_history(&self, _: &mut App) {}
 
     fn close_other_window(&self, _: &mut App) -> bool {
         false
@@ -606,6 +608,8 @@ impl Browser for Fake {
 
     // The preview has no Settings window.
     fn settings(&self, _: &mut App) {}
+
+    fn shortcuts(&self, _: &mut App) {}
 
     // Each made-up Space shows its top tab.
     fn show_space(&self, space: u64, cx: &mut App) {

@@ -189,6 +189,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Show/Hide Sidebar", Keys::Of(Command::ToggleSidebar)),
             ("View Library", Keys::Of(Command::ViewLibrary)),
             ("View Downloads", Keys::Of(Command::ViewDownloads)),
+            ("View History", Keys::Of(Command::ViewHistory)),
         ],
     ),
     (
@@ -273,6 +274,17 @@ fn profiles() -> Vec<Profile> {
 struct SettingsWindow(WindowHandle<Settings>);
 
 impl Global for SettingsWindow {}
+
+/// Shows the Settings window on its Shortcuts tab.
+pub fn show_shortcuts(cx: &mut App) {
+    show(cx);
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let show = |settings: &mut Settings, window: &mut Window, cx: &mut Context<Settings>| {
+            settings.show_tab(Tab::Shortcuts, window, cx)
+        };
+        window.update(cx, show).ok();
+    }
+}
 
 /// Shows the Settings window, opening it the first time, or brings it to the front.
 pub fn show(cx: &mut App) {

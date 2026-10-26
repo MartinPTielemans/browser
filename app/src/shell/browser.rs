@@ -117,8 +117,9 @@ pub trait Browser {
     fn devtools(&self, tab: u64, what: i32, cx: &mut App);
     /// Opens Chrome's Task Manager, with the page shown selected.
     fn task_manager(&self, cx: &mut App);
-    /// Lists `extensions` in the menu bar's Extensions menu.
-    fn set_extensions_menu(&self, extensions: &[Extension], cx: &mut App);
+    /// Lists the Spaces named `spaces`, in their order, in the menu bar's Spaces menu, and
+    /// `extensions` in its Extensions menu.
+    fn set_menus(&self, spaces: &[SharedString], extensions: &[Extension], cx: &mut App);
     /// Runs extension `id`'s action on the tab shown, its popup hanging from `anchor` in the
     /// window, and returns whether the extension is turned on in the tab's profile.
     fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, cx: &mut App) -> bool;
@@ -134,6 +135,8 @@ pub trait Browser {
     /// Opens Chrome's extensions page in a new tab, at extension `id`'s details if there's one,
     /// and shows it.
     fn manage_extensions(&self, id: Option<&str>, cx: &mut App);
+    /// Opens Chrome's history page in a new tab, and shows it.
+    fn view_history(&self, cx: &mut App);
     /// Closes the window with the keyboard if it's another of the app's, such as Chrome's Task
     /// Manager, and says whether it did.
     fn close_other_window(&self, cx: &mut App) -> bool;
@@ -235,6 +238,8 @@ pub trait Browser {
     fn find(&self, tab: u64, cx: &mut App);
     /// Opens the Settings window, or brings it to the front.
     fn settings(&self, cx: &mut App);
+    /// Opens the Settings window on its Shortcuts tab.
+    fn shortcuts(&self, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.
