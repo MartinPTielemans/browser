@@ -1110,7 +1110,8 @@ fn main() {
         // suggestions.
         if let Ok(mode) = std::env::var("PREVIEW_BAR") {
             let left = x + (width - command_bar::WIDTH as f64) / 2.;
-            let at = point(px(left as f32), px((y + height * 0.322) as f32));
+            let top = y as f32 + command_bar::centered_top(height as f32);
+            let at = point(px(left as f32), px(top));
             preview_bar(&mode, at, cx);
         }
         cx.activate(true);

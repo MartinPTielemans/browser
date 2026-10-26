@@ -9,8 +9,8 @@
 use std::{collections::HashMap, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, HoverListenerMode, Hsla,
-    Image, KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
+    AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, HoverListenerMode,
+    Hsla, Image, KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
     img, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -31,7 +31,7 @@ actions!(
 );
 
 // The panel's measures, in points, from Arc's capture (docs/ux-spec.md › Command bar).
-pub const WIDTH: f32 = 766.;
+pub const WIDTH: f32 = 765.;
 /// The input's row, down to the line under it.
 const HEIGHT: f32 = 64.;
 /// The line under it in the bar's height: one device pixel at 2×, as Arc's is.
@@ -63,8 +63,9 @@ const HINT_END: f32 = 22.;
 const HINT_GAP: f32 = 11.;
 /// The panel's corners, which the host's blur and shadow take too.
 pub const RADIUS: f32 = 18.;
-/// How far down the browser window the panel's top is, as Arc's is at y 305.5 of 949.
-pub const TOP: f32 = 0.322;
+/// How far above the browser window's middle the panel's top is: Arc's is at y 396 of 1130 and at
+/// 305.5 of 949, which no fraction of the height fits.
+pub const ABOVE_MIDDLE: f32 = 169.;
 /// Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
 const BESIDE_END: f32 = 70.;
 /// Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
@@ -246,8 +247,8 @@ pub trait Host {
     fn open_split(&self, url: &str, with: u64, cx: &mut App);
     /// Copies `text`, a sum's result, and says so.
     fn copy(&self, text: &str, cx: &mut App);
-    /// Shows the bar's window, `width` wide, with the keyboard: centred over the browser window,
-    /// else at `left` and `top` in it.
+    /// Shows the bar's window, `width` wide, with the keyboard: centred across the browser window
+    /// with its top `top` above the window's middle, else at `left` and `top` in it.
     fn show(&self, centered: bool, left: f32, top: f32, width: f32);
     fn set_height(&self, height: f32);
     /// Hides the bar's window once the user has chosen something in it.
@@ -425,7 +426,7 @@ pub fn show(editing: Option<(u64, SharedString)>, tabs: Vec<shell::BarTab>, cx: 
     let ids: Vec<String> = tabs.iter().map(|tab| tab.tab.to_string()).collect();
     log!("browser: command bar tabs {}", ids.join(" "));
     if let Some(host) = reset(target, text, tabs, cx) {
-        host.show(true, 0., 0., WIDTH);
+        host.show(true, 0., ABOVE_MIDDLE, WIDTH);
     }
 }
 
@@ -436,8 +437,10 @@ pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mu
     if let Some(host) = reset(Target::Beside(with), SharedString::default(), Vec::new(), cx) {
         let left = pane.center().x - px(WIDTH / 2.);
         let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
-        let top = (card.top() + card.bottom()) * TOP + (pane.top() - card.top());
-        host.show(false, left.into(), top.into(), WIDTH);
+        // The card is as far in from the window's bottom as from its top.
+        let window = f32::from(card.top() + card.bottom());
+        let top = centered_top(window) + f32::from(pane.top() - card.top());
+        host.show(false, left.into(), top, WIDTH);
     }
 }
 
@@ -493,6 +496,11 @@ pub fn page_favicon(url: &str, favicon: Option<Arc<Image>>, cx: &mut App) {
             }
         })
         .ok();
+}
+
+/// Where the centred panel's top is, down a browser window `height` tall.
+pub fn centered_top(height: f32) -> f32 {
+    height / 2. - ABOVE_MIDDLE
 }
 
 /// How tall the bar's window is with `rows` suggestions listed: the input, and under it, with its

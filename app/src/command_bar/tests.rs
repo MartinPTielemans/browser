@@ -521,6 +521,14 @@ fn the_window_fits_up_to_five_rows_of_arcs_size() {
     assert_eq!(height(11), 328.5);
 }
 
+/// Arc's centred panel is 169 above the window's middle at both heights it was measured at.
+#[test]
+fn the_centred_bar_hangs_a_fixed_distance_above_the_middle() {
+    assert_eq!(centered_top(1130.), 396.);
+    assert_eq!(centered_top(949.), 305.5);
+    assert_eq!(WIDTH, 765.);
+}
+
 #[gpui::test]
 fn the_rows_that_go_to_a_search_are_marked_for_their_icon(cx: &mut TestAppContext) {
     let mut bar = Bar::new(cx);

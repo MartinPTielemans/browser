@@ -149,7 +149,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [x] | Panel width | MVP | 766, centred on the window; ⌘L and a click on the field open the same panel | Arc 1.170.0 cap, ax |
+| [x] | Panel width and place | MVP | 765, centred on the window, its top 169 above the window's middle | Arc 1.170 rec |
 | [x] | Text alignment | MVP | input row 64; glyph 18 pt at 23 in; text ≈ 18 pt at 53 in; hint at the field's end | Arc 1.170.0 ax |
 | [x] | Open | MVP | one frame, as ⌘T's; no grow from the field (Arc's panel isn't anchored to it) | Arc 1.170.0 rec |
 | [x] | Close | MVP | ⌘T's in one frame, as it opens; ⌘L's the same *interim*; Arc's ⌘L: measure | Arc 1.170.0 rec |

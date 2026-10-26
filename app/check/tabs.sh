@@ -149,7 +149,7 @@ expect '^browser: command bar go https://example.com/$' "↩ didn't go where the
 expect "^browser: loaded $c https://example.com/\$" "↩ didn't load the completion's page in the tab"
 [ "$(today)" = "$c $b $a" ] || fail "going to a page in a tab changed Today to \"$(today)\""
 # A click on the URL field opens the bar on the tab's URL, as Arc's ⌘L does: the same panel as ⌘T's,
-# 766 wide and centred.
+# 765 wide and centred.
 send click 100 64
 expect '^browser: command edit-url via sidebar$' \
   "a click on the URL field didn't open the command bar"
@@ -158,8 +158,8 @@ expect '^browser: command bar drew "https://example.com/"$' \
   "the command bar from the URL field didn't show the tab's URL"
 at=$(grep '^browser: command bar at' "$log" | tail -1 | cut -d' ' -f5-)
 # The input alone is 64 tall, centred on the window.
-[ "$(echo "$at" | awk '{ print $3, $4 }')" = "766 64" ] ||
-  fail "the command bar from the URL field opened at $at, not 766 by 64"
+[ "$(echo "$at" | awk '{ print $3, $4 }')" = "765 64" ] ||
+  fail "the command bar from the URL field opened at $at, not 765 by 64"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 
