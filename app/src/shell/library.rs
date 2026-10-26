@@ -13,7 +13,7 @@ use gpui::{
 
 use super::{
     Command, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE,
-    PRESSED, SECONDARY, Shell, UNSELECTED_TITLE, favicon, host, spring_to,
+    PRESSED, SECONDARY, Shell, UNSELECTED_TITLE, clean_link, favicon, host, spring_to,
 };
 use crate::text_input::TextInput;
 
@@ -517,6 +517,43 @@ impl Shell {
         self.set_library(false, cx);
     }
 
+    /// The menu a right-click on an archived tab's row shows: reopen it, copy its URL, or take it
+    /// out of the archive.
+    fn archived_menu(&mut self, id: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(url) = self.archive.iter().find(|tab| tab.id == id).map(|tab| tab.url.clone())
+        else {
+            return;
+        };
+        let entries = vec![
+            MenuEntry::new("Restore Tab", true),
+            MenuEntry::new("Copy URL", true),
+            MenuEntry::line(),
+            MenuEntry::new("Delete from Archive", true),
+        ];
+        let shell = cx.weak_entity();
+        self.browser.menu(
+            entries,
+            position,
+            None,
+            false,
+            Box::new(move |chosen, cx| {
+                shell
+                    .update(cx, |shell, cx| match chosen {
+                        Some(0) => shell.restore_archived(id, cx),
+                        Some(1) => shell.copy(&clean_link(&url), "Copied URL", cx),
+                        Some(3) => {
+                            // check.sh waits for this line.
+                            log!("browser: remove archived {id}");
+                            shell.browser.remove_archived(id, cx);
+                        }
+                        _ => {}
+                    })
+                    .ok();
+            }),
+            cx,
+        );
+    }
+
     /// Empties the archive, once the user says so.
     pub(super) fn clear_archive(&mut self, cx: &mut Context<Self>) {
         let count = self.archive.len();
@@ -663,7 +700,8 @@ impl Shell {
             )
     }
 
-    /// A line of the archive's list: a heading, or an archived tab, which reopens on a click.
+    /// A line of the archive's list: a heading, or an archived tab, which reopens on a click and
+    /// shows its menu on a right-click.
     fn archive_item(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
         let Some(item) = self.library.as_ref().and_then(|library| library.items.get(index)) else {
             return div().into_any_element();
@@ -716,6 +754,12 @@ impl Shell {
                     .hover(|style| style.bg(rgba(HOVERED)))
                     .active(|style| style.bg(rgba(PRESSED)))
                     .on_click(cx.listener(move |shell, _, _, cx| shell.restore_archived(id, cx)))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                            shell.archived_menu(id, event.position, cx)
+                        }),
+                    )
                     .child(
                         div()
                             .absolute()

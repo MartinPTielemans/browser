@@ -451,6 +451,11 @@ BC_EXPORT bc_id bc_window_restore_archived(bc_id window, bc_id archived);
 // bc_window_reopen_closed_tab. Then archive_changed.
 BC_EXPORT void bc_archive_clear(void);
 
+// Takes the archived tab out of the archive, as bc_archive_clear does with all of them. Its tab,
+// if it closed since the browser started, still reopens with bc_window_reopen_closed_tab. Then
+// archive_changed, unless the archive has no such tab.
+BC_EXPORT void bc_archive_remove(bc_id archived);
+
 // How long, in seconds, a Today tab no window shows waits before it goes in the archive: 12 hours,
 // else the time the user chose. Setting it archives at once the tabs that have waited that long.
 // The core keeps it with the Spaces.

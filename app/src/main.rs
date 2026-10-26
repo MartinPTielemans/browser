@@ -550,6 +550,10 @@ impl Browser for Engine {
         unsafe { bc::bc_download_icon(download) };
     }
 
+    fn remove_archived(&self, archived: u64, _: &mut App) {
+        unsafe { bc::bc_archive_remove(archived) };
+    }
+
     fn clear_archive(&self, _: &mut App) {
         unsafe { bc::bc_archive_clear() };
     }

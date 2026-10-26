@@ -246,7 +246,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Archived Tabs | MVP | search on the buttons' row, day headings, rows 56 apart with favicon, title and host; a click reopens the tab | Arc 1.170.0 cap, ax |
 | [x] | Clear Archive | MVP | Archive menu; asks first | Arc 1.170.0 menus |
 | [ ] | Library's other sections | MVP | Downloads done; Media, Easels & Notes, Spaces as each feature lands | Arc 1.170.0 cap |
-| [ ] | Archive filter, row hover and menu | MVP | measure | — |
+| [ ] | Archive filter, row hover and menu | MVP | measure; ours: the sidebar's hover plate, and a menu of Restore Tab, Copy URL and Delete from Archive | — |
 
 ## Profiles
 

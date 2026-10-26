@@ -1027,6 +1027,8 @@ pub trait Browser {
     /// Reopens the archived tab `archived` at the top of the Today tabs of the Space shown, and
     /// shows it.
     fn restore_archived(&self, archived: u64, cx: &mut App);
+    /// Takes the archived tab `archived` out of the archive.
+    fn remove_archived(&self, archived: u64, cx: &mut App);
     fn clear_archive(&self, cx: &mut App);
     /// Does `action` to the download.
     fn act_on_download(&self, download: u64, action: DownloadAction, cx: &mut App);
