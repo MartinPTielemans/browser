@@ -191,10 +191,11 @@ const NAME_HEIGHT: f32 = 44.;
 const NAME_X: f32 = 41.;
 // A Space's icon before its name, at Arc's x 13 (docs/ux-spec.md; ours: its size and look are
 // *interim*, as Arc's isn't recorded). The name stays at 41 with or without one, so none moves
-// when a Space gets one. The emoji's text size makes its glyph about the slot's size.
+// when a Space gets one. The emoji is a tab's size, so it sits on the name's cap height as a tab's
+// does on its title; bigger, it outweighed the name and sat below its middle.
 const SPACE_ICON_X: f32 = 13.;
 const SPACE_ICON_SLOT: f32 = 20.;
-const SPACE_ICON_TEXT: f32 = 15.;
+const SPACE_ICON_TEXT: f32 = EMOJI_SIZE;
 const ROW_PITCH: f32 = 41.;
 const ROW_HEIGHT: f32 = 40.;
 const PLATE_HEIGHT: f32 = 36.;
