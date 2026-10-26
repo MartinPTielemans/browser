@@ -17,6 +17,7 @@
 #include "base/functional/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/pickle.h"
 #include "base/task/sequenced_task_runner.h"
@@ -49,13 +50,30 @@ struct Saved {
   // Left to right.
   std::vector<SavedTab> favorites;
   std::vector<SavedSpace> spaces;
-  // The Space the window showed.
+  // The Space the window active last showed, which a build without windows reads.
   int shown = 0;
-  // The window's docked sidebar's width, or 0 for none.
+  // That window's docked sidebar's width, or 0 for none.
   double sidebar_width = 0;
+  // The most recently active first. None from a build without windows.
+  std::vector<SavedWindow> windows;
   std::vector<ArchivedTab> archive;
   Settings settings;
 };
+
+// What the windows after the first take from it at launch: the windows saved, and the Spaces,
+// tabs and favorites the first put back, by their places in the file.
+struct Restored {
+  std::vector<SavedWindow> windows;
+  std::vector<bc_id> spaces;
+  // Each Space's tabs, pinned then Today, 0 for one not put back.
+  std::vector<std::vector<bc_id>> tabs;
+  std::vector<bc_id> favorites;
+};
+
+Restored& LastRestored() {
+  static base::NoDestructor<Restored> restored;
+  return *restored;
+}
 
 // A navigation's page state is left out past this, as in Chrome's sessions.
 constexpr int kMaxNavigationSize = 63 * 1024;
@@ -112,7 +130,10 @@ SavedTab SaveTab(content::WebContents& contents) {
   return tab;
 }
 
-SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today) {
+SavedSpace SaveSpace(const Space& space,
+                     bc_id shown,
+                     std::vector<bc_id>* today,
+                     std::vector<bc_id>* tabs_saved) {
   SavedSpace to;
   to.name = space.name();
   to.color = space.color();
@@ -158,6 +179,9 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
         }
       }
       tabs->push_back(std::move(tab));
+      if (tabs_saved) {
+        tabs_saved->push_back(id);
+      }
       ++index;
     }
   }
@@ -171,8 +195,18 @@ Saved Collect() {
   // The regular windows, as nothing of a private one is saved.
   std::vector<Window*> windows = Window::All();
   std::erase_if(windows, [](const Window* each) { return each->off_the_record(); });
+  // A window closing while others stay gives them its tabs and isn't kept. Those closing at quit,
+  // or as the last window closes, are.
+  if (!browser_shutdown::IsTryingToQuit() &&
+      std::ranges::any_of(windows, [](const Window* each) { return !each->closing(); })) {
+    std::erase_if(windows, [](const Window* each) { return each->closing(); });
+  }
   const Window* window = windows.empty() ? nullptr : windows.front();
   saved.sidebar_width = window ? window->sidebar_width() : 0;
+  for (const Window* each : windows) {
+    saved.windows.push_back(
+        {.bounds = each->Frame(), .shown = 0, .sidebar_width = each->sidebar_width(), .tabs = {}});
+  }
   saved.settings = UserSettings();
   // Each favorite saved, by its place among them.
   std::map<bc_id, int> favorites;
@@ -200,9 +234,22 @@ Saved Collect() {
         break;
       }
     }
-    SavedSpace& to = saved.spaces.emplace_back(SaveSpace(*space, shown));
+    std::vector<bc_id> tabs;
+    SavedSpace& to = saved.spaces.emplace_back(SaveSpace(*space, shown, nullptr, &tabs));
     if (auto favorite = favorites.find(shown); favorite != favorites.end()) {
       to.shown_favorite = favorite->second;
+    }
+    // Each window's own, for the windows after the first.
+    for (size_t i = 0; i < windows.size(); ++i) {
+      if (space->id() == windows[i]->space()) {
+        saved.windows[i].shown = static_cast<int>(saved.spaces.size()) - 1;
+      }
+      const bc_id its = windows[i]->SelectedIn(space->id());
+      auto tab = std::ranges::find(tabs, its);
+      auto favorite = favorites.find(its);
+      saved.windows[i].tabs.emplace_back(
+          its && tab != tabs.end() ? static_cast<int>(tab - tabs.begin()) : -1,
+          its && favorite != favorites.end() ? favorite->second : -1);
     }
   }
   saved.archive = Archived();
@@ -290,10 +337,28 @@ std::optional<std::string> ToJson(const Saved& saved) {
   base::DictValue root;
   root.Set("favorites", to_list(saved.favorites));
   root.Set("spaces", std::move(spaces));
+  // Read by a build without windows, as the window active last's.
   root.Set("shown", saved.shown);
   if (saved.sidebar_width > 0) {
     root.Set("sidebar_width", saved.sidebar_width);
   }
+  base::ListValue windows;
+  for (const SavedWindow& window : saved.windows) {
+    base::ListValue tabs;
+    for (auto [shown, favorite] : window.tabs) {
+      tabs.Append(base::Value(base::ListValue().Append(shown).Append(favorite)));
+    }
+    windows.Append(base::DictValue()
+                       .Set("bounds", base::Value(base::ListValue()
+                                                      .Append(window.bounds.x())
+                                                      .Append(window.bounds.y())
+                                                      .Append(window.bounds.width())
+                                                      .Append(window.bounds.height())))
+                       .Set("shown", window.shown)
+                       .Set("sidebar_width", window.sidebar_width)
+                       .Set("tabs", std::move(tabs)));
+  }
+  root.Set("windows", std::move(windows));
   base::ListValue archive;
   for (const ArchivedTab& tab : saved.archive) {
     archive.Append(base::DictValue()
@@ -370,6 +435,9 @@ std::optional<Saved> Read(const base::FilePath& path) {
   Saved saved;
   // Where each favorite saved went among those read, or -1.
   std::vector<int> favorites;
+  // The same for the Spaces, and for each Space read, its tabs, pinned then Today.
+  std::vector<int> spaces_read;
+  std::vector<std::vector<int>> tabs_read;
   if (const base::ListValue* list = root->FindList("favorites")) {
     for (const base::Value& value : *list) {
       std::optional<SavedTab> tab = ReadTab(value);
@@ -383,9 +451,11 @@ std::optional<Saved> Read(const base::FilePath& path) {
     const base::DictValue* space = value.GetIfDict();
     const std::string* name = space ? space->FindString("name") : nullptr;
     const base::ListValue* today = space ? space->FindList("today") : nullptr;
+    spaces_read.push_back(name && today ? static_cast<int>(saved.spaces.size()) : -1);
     if (!name || !today) {
       continue;
     }
+    std::vector<int>& tabs_at = tabs_read.emplace_back();
     SavedSpace& to = saved.spaces.emplace_back();
     to.name = *name;
     if (std::optional<int> color = space->FindInt("color")) {
@@ -427,6 +497,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
           continue;
         }
         std::optional<SavedTab> tab = ReadTab(row);
+        tabs_at.push_back(tab ? kept : -1);
         if (index++ == shown && tab) {
           to.shown = kept;
         }
@@ -443,6 +514,40 @@ std::optional<Saved> Read(const base::FilePath& path) {
   saved.shown = std::clamp(root->FindInt("shown").value_or(0), 0,
                            static_cast<int>(saved.spaces.size()) - 1);
   saved.sidebar_width = root->FindDouble("sidebar_width").value_or(0);
+  // Without them, the Spaces come back in one window, as the root's shown and sidebar_width say.
+  const base::ListValue no_windows;
+  const base::ListValue* windows = root->FindList("windows");
+  for (const base::Value& value : windows ? *windows : no_windows) {
+    const base::DictValue* window = value.GetIfDict();
+    const base::ListValue* bounds = window ? window->FindList("bounds") : nullptr;
+    const base::ListValue* tabs = window ? window->FindList("tabs") : nullptr;
+    if (!bounds || bounds->size() != 4 || !tabs) {
+      continue;
+    }
+    const auto at = [&](size_t i) { return (*bounds)[i].GetIfInt().value_or(0); };
+    SavedWindow& to = saved.windows.emplace_back();
+    to.bounds = gfx::Rect(at(0), at(1), at(2), at(3));
+    const int shown = window->FindInt("shown").value_or(0);
+    to.shown = shown >= 0 && shown < static_cast<int>(spaces_read.size())
+                   ? std::max(spaces_read[shown], 0)
+                   : 0;
+    to.sidebar_width = window->FindDouble("sidebar_width").value_or(0);
+    to.tabs.assign(saved.spaces.size(), {-1, -1});
+    // Each read by the Space's and tab's places among those read.
+    for (size_t i = 0; i < tabs->size() && i < spaces_read.size(); ++i) {
+      const base::ListValue* pair = (*tabs)[i].GetIfList();
+      if (spaces_read[i] < 0 || !pair || pair->size() != 2) {
+        continue;
+      }
+      const std::vector<int>& tabs_at = tabs_read[spaces_read[i]];
+      const int tab = (*pair)[0].GetIfInt().value_or(-1);
+      const int favorite = (*pair)[1].GetIfInt().value_or(-1);
+      to.tabs[spaces_read[i]] = {
+          tab >= 0 && tab < static_cast<int>(tabs_at.size()) ? tabs_at[tab] : -1,
+          favorite >= 0 && favorite < static_cast<int>(favorites.size()) ? favorites[favorite]
+                                                                         : -1};
+    }
+  }
   if (const base::ListValue* archive = root->FindList("archive")) {
     for (const base::Value& value : *archive) {
       const base::DictValue* tab = value.GetIfDict();
@@ -536,6 +641,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
     if (saved) {
       LoadArchive(std::exchange(saved->archive, {}));
       UserSettings() = saved->settings;
+      LastRestored().windows = saved->windows;
     }
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
@@ -598,6 +704,10 @@ double SavedSidebarWidth() {
   return g_saver && g_saver->loaded() ? g_saver->loaded()->sidebar_width : 0;
 }
 
+const std::vector<SavedWindow>& SavedWindows() {
+  return LastRestored().windows;
+}
+
 namespace {
 
 // Opens |saved| unloaded in |window|, as the tab it was. Returns its id, or 0.
@@ -619,7 +729,11 @@ bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
 
 }  // namespace
 
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved_space,
+                    bc_id id,
+                    std::vector<bc_id>* ids_out) {
   Space* space = Space::Create(saved_space.name, id, saved_space.agent);
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
@@ -689,12 +803,57 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
       }
     }
   }
+  if (ids_out) {
+    *ids_out = std::move(pinned_ids);
+    ids_out->insert(ids_out->end(), today_ids.begin(), today_ids.end());
+  }
   return space;
 }
 
-bool RestoreSession(Window& window) {
+namespace {
+
+// The |index|-th window saved, in |window|, once the first has put the Spaces back.
+bool RestoreWindow(Window& window, size_t index) {
+  const Restored& restored = LastRestored();
+  if (restored.spaces.empty() || index >= restored.windows.size()) {
+    return false;
+  }
+  window.SetActivationPlace(index);
+  const SavedWindow& saved = restored.windows[index];
+  for (size_t i = 0; i < saved.tabs.size() && i < restored.spaces.size(); ++i) {
+    const auto [shown, favorite] = saved.tabs[i];
+    const std::vector<bc_id>& tabs = restored.tabs[i];
+    bc_id tab = 0;
+    if (favorite >= 0 && favorite < static_cast<int>(restored.favorites.size())) {
+      tab = restored.favorites[favorite];
+    } else if (shown >= 0 && shown < static_cast<int>(tabs.size())) {
+      tab = tabs[shown];
+    }
+    // ShowSpace passes over one since closed, or another window's.
+    if (tab) {
+      window.SetSelectedIn(restored.spaces[i], tab);
+    }
+  }
+  // A Space since deleted gives way to the first.
+  bc_id space = saved.shown < static_cast<int>(restored.spaces.size())
+                    ? restored.spaces[saved.shown]
+                    : 0;
+  if (!Space::FromId(space) && !Space::All().empty()) {
+    space = Space::All().front()->id();
+  }
+  window.ShowSpace(space);
+  return true;
+}
+
+}  // namespace
+
+bool RestoreSession(Window& window, size_t index) {
+  if (index > 0) {
+    return RestoreWindow(window, index);
+  }
   std::optional<Saved> saved = g_saver ? g_saver->TakeLoaded() : std::nullopt;
   if (!saved || !StartProfile() || !Space::All().empty()) {
+    LastRestored() = Restored();
     return false;
   }
   // First, as a Space may show one. Each in its profile, which loaded with the session, else in the
@@ -711,10 +870,14 @@ bool RestoreSession(Window& window) {
                      Favorites::All().size());
     }
   }
+  Restored& restored = LastRestored();
+  restored.favorites = favorites;
   bc_id shown = 0;
   for (size_t i = 0; i < saved->spaces.size(); ++i) {
     const SavedSpace& saved_space = saved->spaces[i];
-    Space* space = RestoreSpace(window, ProfileFor(saved_space.profile), saved_space);
+    Space* space = RestoreSpace(window, ProfileFor(saved_space.profile), saved_space, 0,
+                                &restored.tabs.emplace_back());
+    restored.spaces.push_back(space->id());
     if (static_cast<int>(i) == saved->shown) {
       shown = space->id();
     }

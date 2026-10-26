@@ -1,7 +1,7 @@
 #!/bin/sh
-# Runs the app and checks what it does, in eighteen runs that launch it thirty-two times. Each run's
-# file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in that order,
-# and ./check.sh all of them:
+# Runs the app and checks what it does, in eighteen runs that launch it thirty-five times. Each
+# run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in that
+# order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore find pinned clear split
 #   favorites extensions windows private
 # Every run but load needs Browser to be the active app, and window and find take it full screen

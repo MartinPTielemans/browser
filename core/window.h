@@ -129,6 +129,13 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Whether its Browsers stay with no tabs left: a private window's does while the window is
   // open, as it holds the private session, which ends once the profile's last Browser has gone.
   bool KeepsBrowsers() const;
+  // Its frame on the screen, as it was out of full screen, for the session.
+  gfx::Rect Frame() const;
+  // Whether it's closing, its tabs going with it or to another window.
+  bool closing() const { return closing_; }
+  // Puts it |place| windows behind the one most recently active, as a window put back at launch
+  // was, though it opened active.
+  void SetActivationPlace(size_t place);
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
   // pinned tab, else no page, passing over tabs another window shows. With |page| false, no page,
@@ -231,6 +238,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
 
   // views::WidgetObserver:
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
+  void OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) override;
 
  private:
   class ClientView;

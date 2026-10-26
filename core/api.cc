@@ -125,9 +125,9 @@ bc_id bc_window_open(bc_rect bounds, void* ui_view) {
   return window ? window->id() : 0;
 }
 
-bool bc_window_restore(bc_id id) {
+bool bc_window_restore(bc_id id, size_t index) {
   browser_core::Window* window = browser_core::Window::FromId(id);
-  return window && browser_core::RestoreSession(*window);
+  return window && browser_core::RestoreSession(*window, index);
 }
 
 void bc_window_close(bc_id id) {
@@ -916,4 +916,19 @@ bc_id bc_window_open_private(bc_rect bounds, void* ui_view, bc_id profile_id) {
   browser_core::Window* window =
       profile ? browser_core::Window::OpenPrivate(ToRect(bounds), ui_view, profile) : nullptr;
   return window ? window->id() : 0;
+}
+
+size_t bc_saved_windows(bc_rect* bounds, double* sidebar_widths, size_t capacity) {
+  const std::vector<browser_core::SavedWindow>& saved = browser_core::SavedWindows();
+  for (size_t i = 0; i < saved.size() && i < capacity; ++i) {
+    const gfx::Rect& frame = saved[i].bounds;
+    if (bounds) {
+      bounds[i] = {static_cast<double>(frame.x()), static_cast<double>(frame.y()),
+                   static_cast<double>(frame.width()), static_cast<double>(frame.height())};
+    }
+    if (sidebar_widths) {
+      sidebar_widths[i] = saved[i].sidebar_width;
+    }
+  }
+  return saved.size();
 }

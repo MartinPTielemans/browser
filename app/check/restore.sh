@@ -16,7 +16,8 @@
 # row there has Move to Trash, which puts its file in the Trash. A SIGTERM, which macOS sends at
 # logout and restart, keeps a tab opened just before it. Reports how long putting them back takes.
 # With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long goes in
-# the archive, counting the time across a quit, and the tab shown stays.
+# the archive, counting the time across a quit, and the tab shown stays. Two windows come back at
+# their frames, each in its Space with its tab, and a Spaces file from before windows in one.
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
 # tab's history, the tab each showed and the Space the window showed. Only a tab shown loads, and
@@ -425,3 +426,107 @@ quit
 echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png,"
 echo "  $out/recent-downloads.png"
+
+# Two windows come back at the next launch, each at its frame, showing the Space it showed and the
+# tab it showed there: the second opens behind the first once the first has drawn. A Spaces file
+# from a build without windows comes back in one window, showing the Space of the one active last.
+log="$out/windows-saved.log"
+step=0
+rm -f "$saved"
+BROWSER_DRIVE=1 BROWSER_URL="${site}?one" "$app/Contents/MacOS/Browser" < "$out/drive" \
+  > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await "^browser: loaded [0-9]* ${site}?one\$" || fail "the first window's page didn't load"
+await '^browser: window opened [0-9]' || fail "the app didn't say which window opened"
+w1=$(grep -m1 '^browser: window opened ' "$log" | cut -d' ' -f4)
+# The frame the driver's last layout logged.
+frame() {
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout frame' |
+    cut -d' ' -f4-
+}
+send menu New Window
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  echo "skip: windows coming back. Browser wasn't the active app, so it took no keys."
+  exit 0
+fi
+expect '^browser: window opened [0-9]' "New Window didn't open a second window"
+w2=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+send window 2
+send menu New Space…
+expect "^browser: window $w2 shows 0\$" "New Space didn't show an empty Space in the second window"
+send type second
+send key return
+expect '^browser: create space [0-9]* second$' "return didn't name the second window's Space"
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar in the second window"
+send type example.com
+send key return
+expect '^browser: loaded [0-9]* https://example.com/$' "example.com didn't load in window 2"
+two=$(sed -n 's|^browser: loaded \([0-9]*\) https://example.com/$|\1|p' "$log" | head -1)
+expect "^browser: window $w2 shows $two\$" "the second window didn't show example.com"
+send resize 1000 640
+send layout
+frame2=$(frame)
+send window 1
+send layout
+frame1=$(frame)
+[ -n "$frame1" ] && [ "$frame1" != "$frame2" ] ||
+  fail "the windows' frames are \"$frame1\" and \"$frame2\", not two different ones"
+../tools/window-screenshot.sh "$pid" "$out/windows-saved.png" all || fail "no window to capture"
+exec 3>&-
+quit
+[ "$(python3 -I -c 'import json, sys
+print(len(json.load(open(sys.argv[1]))["windows"]))' "$saved")" = 2 ] ||
+  fail "the Spaces file doesn't keep two windows"
+
+# The relaunch brings both back, the second once the first is on screen.
+log="$out/windows-restored.log"
+step=0
+BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored windows 2$' || fail "the relaunch didn't bring back both windows"
+w1=$(grep -m1 '^browser: window opened ' "$log" | cut -d' ' -f4)
+w2=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+[ "$(grep -c '^browser: window opened ' "$log")" = 2 ] || fail "the relaunch opened more windows"
+await '^browser: spaces [0-9]* [0-9]*$' || fail "the relaunch didn't bring back both Spaces"
+await "^browser: loaded [0-9]* ${site}?one\$" || fail "the first window's tab didn't load"
+one=$(sed -n "s|^browser: loaded \([0-9]*\) ${site}?one\$|\1|p" "$log" | head -1)
+await "^browser: window $w1 shows $one\$" || fail "the first window doesn't show its tab"
+await '^browser: loaded [0-9]* https://example.com/$' || fail "the second window's tab didn't load"
+two=$(sed -n 's|^browser: loaded \([0-9]*\) https://example.com/$|\1|p' "$log" | head -1)
+await "^browser: window $w2 shows $two\$" || fail "the second window doesn't show its tab"
+grep -q "^browser: key window $w2\$" "$log" && fail "the second window took the keyboard"
+send window 1
+send layout
+[ "$(frame)" = "$frame1" ] || fail "the first window came back at $(frame), not $frame1"
+send window 2
+send layout
+[ "$(frame)" = "$frame2" ] || fail "the second window came back at $(frame), not $frame2"
+../tools/window-screenshot.sh "$pid" "$out/windows-restored.png" all ||
+  fail "no window to capture"
+# The first window active last, as the file from a build without windows keeps its Space.
+send window 1
+exec 3>&-
+quit
+
+python3 -I - "$saved" << 'PY' || fail "the Spaces file didn't keep two windows to take out"
+import json, sys
+spaces = json.load(open(sys.argv[1]))
+assert len(spaces.pop("windows")) == 2
+json.dump(spaces, open(sys.argv[1], "w"))
+PY
+log="$out/windows-old.log"
+"$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+pid=$!
+await '^browser: restored windows 1$' || fail "a Spaces file without windows didn't come back"
+[ "$(grep -c '^browser: window opened ' "$log")" = 1 ] ||
+  fail "a Spaces file without windows came back in more than one window"
+await '^browser: spaces [0-9]* [0-9]*$' || fail "a Spaces file without windows lost a Space"
+await "^browser: loaded [0-9]* ${site}?one\$" ||
+  fail "a Spaces file without windows didn't show the Space of the window active last"
+quit
+echo "ok: two windows in different Spaces at different sizes come back at their frames, $frame1 and $frame2, each showing its Space and tab, the second behind the first, and a Spaces file without windows comes back in one window. Windows: $out/windows-saved.png, $out/windows-restored.png"
