@@ -274,6 +274,27 @@ bool bc_tab_split_stacked(bc_id id) {
   return space && space->Stacked(id);
 }
 
+double bc_tab_split_share(bc_id id) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  std::vector<bc_id> panes = space ? space->Panes(id) : std::vector<bc_id>();
+  if (panes.size() < 2) {
+    return 0;
+  }
+  std::vector<double> shares = space->Shares(id);
+  return shares.empty() ? 1.0 / panes.size() : shares[std::ranges::find(panes, id) - panes.begin()];
+}
+
+bool bc_tab_set_split_shares(bc_id id, const double* shares, size_t count) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  if (!space ||
+      !space->SetShares(id, shares ? std::vector<double>(shares, shares + count)
+                                   : std::vector<double>())) {
+    return false;
+  }
+  browser_core::Window::PanesChanged();
+  return true;
+}
+
 bool bc_tab_set_split_stacked(bc_id id, bool stacked) {
   browser_core::Space* space = browser_core::Space::Holding(id);
   if (!space || !space->SetStacked(id, stacked)) {

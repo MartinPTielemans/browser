@@ -196,9 +196,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [x] | Panes | MVP | up to 3 side by side, sharing the card; stacked: to build; Arc max: measure | Arc rec, Dia P§6 |
+| [x] | Panes | MVP | up to 3 side by side or stacked, sharing the card; Arc max: measure | Arc rec, Dia P§6 |
 | [x] | Gap, focus indicator | MVP | 10 pt gap; 2 pt ring inside the focused pane, ≈ 8 pt glow outside | Arc 1.170.0 rec |
 | [ ] | Unfocused dim | MVP | none *interim*; measure | — |
+| [x] | Pane sizes | MVP | the gap drags them, a tenth of the card each, 50–200; snap to even within 15; double-click evens; kept after a quit; Arc's: measure | Chrome *interim* |
 | [x] | Keys | MVP | ⌃+ add, ⌃⇧- close pane; ⌃⇧] / ⌃⇧[ focus *interim* | Arc menus, Dia |
 | [x] | Add Split View | MVP | in one frame: page narrows, empty pane, command bar over it 77 in from the card's edge | Arc 1.170.0 rec |
 | [x] | ⌥↩ in the command bar | MVP | the URL in a right pane | Arc 1.170.0 rec |

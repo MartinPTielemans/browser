@@ -249,10 +249,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::unique_ptr<views::Widget> widget_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> widget_observation_{this};
   // The page focused, and the tabs shown, in their order: its split's, else it alone. Whether
-  // they're stacked, as last laid out.
+  // they're stacked, and their shares of the frame, as last laid out.
   base::WeakPtr<content::WebContents> shown_;
   std::vector<bc_id> panes_;
   bool stacked_ = false;
+  std::vector<double> shares_;
   uint32_t focus_color_ = 0;
   std::optional<uint32_t> page_color_;
   bc_id space_ = 0;

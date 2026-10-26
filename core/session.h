@@ -37,6 +37,8 @@ struct SavedTab {
   // Whether it's in a split view with the tab saved above it, and whether that split is stacked.
   bool split = false;
   bool stacked = false;
+  // Its share of its split view, or 0 while the split's shares are even.
+  double share = 0;
   // How many folders it's in, among the pinned tabs.
   int depth = 0;
   // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.

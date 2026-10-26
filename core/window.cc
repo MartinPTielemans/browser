@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <numeric>
 #include <optional>
 #include <set>
 #include <utility>
@@ -11,6 +12,7 @@
 #include "base/functional/bind.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
@@ -241,7 +243,8 @@ void Window::PanesChanged() {
     if (selected && (space ? space->Panes(selected) : std::vector<bc_id>{selected}) !=
                         window->panes_) {
       window->Select(selected);
-    } else if (space && space->Stacked(selected) != window->stacked_) {
+    } else if (space && (space->Stacked(selected) != window->stacked_ ||
+                         space->Shares(selected) != window->shares_)) {
       window->LayOutPage();
     }
   }
@@ -707,9 +710,20 @@ void Window::LayOutPage() {
   }
   Space* space = panes_.empty() ? nullptr : Space::Holding(panes_.front());
   stacked_ = space && space->Stacked(panes_.front());
+  shares_ = space ? space->Shares(panes_.front()) : std::vector<double>();
   std::vector<platform::Pane> panes;
   size_t focused = 0;
   const int count = static_cast<int>(shown.size());
+  // Side by side or stacked, each page takes its share of the frame with the gap after it, else
+  // is as wide or as tall as the others. A page full screen, alone, takes the whole frame.
+  const int start = stacked_ ? page_frame_.y() : page_frame_.x();
+  const int span = (stacked_ ? page_frame_.height() : page_frame_.width()) + kSplitGap;
+  const bool even = shares_.size() != shown.size();
+  auto edge = [&](int index) {
+    return start + (even ? span * index / count
+                         : base::ClampRound(span * std::accumulate(shares_.begin(),
+                                                                   shares_.begin() + index, 0.0)));
+  };
   for (int i = 0; i < count; ++i) {
     content::WebContents* contents = shown[i];
     if (contents == shown_.get()) {
@@ -719,11 +733,8 @@ void Window::LayOutPage() {
       tab->SetPageColor(SkColorSetRGB(*page_color_ >> 16, *page_color_ >> 8 & 0xff,
                                       *page_color_ & 0xff));
     }
-    // Side by side, each as wide as the others, or stacked, each as tall.
-    const int start = stacked_ ? page_frame_.y() : page_frame_.x();
-    const int span = (stacked_ ? page_frame_.height() : page_frame_.width()) + kSplitGap;
-    const int from = start + span * i / count;
-    const int to = start + span * (i + 1) / count - kSplitGap;
+    const int from = edge(i);
+    const int to = edge(i + 1) - kSplitGap;
     platform::Pane& pane = panes.emplace_back(
         contents->GetNativeView(),
         stacked_ ? gfx::Rect(page_frame_.x(), from, page_frame_.width(), to - from)

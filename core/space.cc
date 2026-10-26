@@ -4,6 +4,7 @@
 #include <iterator>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <set>
 #include <utility>
 
@@ -347,6 +348,7 @@ bool Space::Split(bc_id tab, bc_id with, GURL url, bool left) {
   ForgetOpener(tab);
   if (auto split = SplitOf(with); split != splits_.end()) {
     split->tabs.insert(left ? split->tabs.begin() : split->tabs.end(), tab);
+    split->shares.clear();
   } else {
     splits_.push_back(
         {.tabs = left ? std::vector<bc_id>{tab, with} : std::vector<bc_id>{with, tab}});
@@ -385,12 +387,33 @@ bool Space::SetStacked(bc_id tab, bool stacked) {
   return true;
 }
 
+std::vector<double> Space::Shares(bc_id tab) const {
+  auto split = SplitOf(tab);
+  return split != splits_.end() ? split->shares : std::vector<double>();
+}
+
+bool Space::SetShares(bc_id tab, std::vector<double> shares) {
+  auto split = SplitOf(tab);
+  if (split == splits_.end() || (!shares.empty() && shares.size() != split->tabs.size()) ||
+      std::ranges::any_of(shares, [](double share) { return !(share > 0); })) {
+    return false;
+  }
+  const double sum = std::accumulate(shares.begin(), shares.end(), 0.0);
+  for (double& share : shares) {
+    share /= sum;
+  }
+  split->shares = std::move(shares);
+  ReportChanged();
+  return true;
+}
+
 void Space::Separate(bc_id tab) {
   auto split = SplitOf(tab);
   if (split == splits_.end()) {
     return;
   }
   std::erase(split->tabs, tab);
+  split->shares.clear();
   const bc_id last = split->tabs.back();
   if (split->tabs.size() < 2) {
     splits_.erase(split);
@@ -537,6 +560,7 @@ void Space::LeaveSplit(bc_id tab) {
     return;
   }
   std::erase(split->tabs, tab);
+  split->shares.clear();
   if (split->tabs.size() < 2) {
     splits_.erase(split);
   }
