@@ -316,7 +316,20 @@ impl Shell {
                 Some(title) => (text, Anchor::titled(frame, title, self.viewport)),
                 None => (text, Anchor::centred(frame, self.viewport)),
             });
-        self.browser.tooltip(tip, cx);
+        self.hover_tip(tip, cx);
+    }
+
+    /// Asks for `tip` from a hover handler, or ends the tooltip with none. One the pointer has come
+    /// onto is asked for after the move, since the handler of the tile it left, which ends the
+    /// tooltip, may run after this one in it.
+    pub(super) fn hover_tip(&self, tip: Option<(Tip, Anchor)>, cx: &mut Context<Self>) {
+        match tip {
+            Some(tip) => {
+                let browser = self.browser.clone();
+                cx.defer(move |cx| browser.tooltip(Some(tip), cx));
+            }
+            None => self.browser.tooltip(None, cx),
+        }
     }
 
     /// Keeps the frame `tab`'s tile or row is drawn in, `outset` past its inside, for its tooltip

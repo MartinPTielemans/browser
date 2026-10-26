@@ -295,7 +295,12 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn tooltip(&self, _: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, _: &mut App) {}
+    fn tooltip(&self, tip: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, _: &mut App) {
+        match tip {
+            Some((tip, _)) => self.record(format!("tooltip {} {}", tip.text, tip.keys.concat())),
+            None => self.record("tooltip none".into()),
+        }
+    }
 
     fn accent_color(&self) -> u32 {
         Default::default()
