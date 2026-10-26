@@ -5,7 +5,7 @@
 //! keyboard, translucent over a blur in the shape drawn here. What it asks of its window goes
 //! through `Host`.
 
-use std::rc::Rc;
+use std::{rc::Rc, time::Instant};
 
 use gpui::{
     App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global, KeyBinding,
@@ -16,7 +16,7 @@ use gpui::{
 
 use crate::{
     command_bar,
-    shell::KEY_CONTEXT,
+    shell::{KEY_CONTEXT, cubic_bezier},
     space_icon::{self, GLYPHS, SpaceIcon},
     text_input::TextInput,
 };
@@ -31,6 +31,8 @@ const CARD: f32 = 273.;
 const ARROW: f32 = 13.;
 /// Its tip, from the card's left edge, which its left side goes down to.
 const ARROW_X: f32 = 13.;
+/// The arrow's tip in the window, which the picker grows in from as it opens.
+pub const ARROW_TIP: (f32, f32) = (ARROW_X, 0.);
 const ARROW_TIP_RADIUS: f32 = 5.;
 const ARROW_FOOT_RADIUS: f32 = 3.5;
 const RADIUS: f32 = 20.;
@@ -64,6 +66,9 @@ const FIELD: f32 = 48.;
 const FIELD_TEXT: f32 = 28.;
 const HINT: u32 = 0xffff_ff87;
 const HINT_TEXT: &str = "Type an emoji, or pick one";
+/// Arc's switch between Emoji and Icon slides the content a card's width over 0.2 s, easing out
+/// (Arc 1.170 rec at 2×).
+const SLIDE: f32 = 0.2;
 
 /// What the picker asks of its window.
 pub trait Host {
@@ -93,6 +98,8 @@ struct Picking {
     picked: Picked,
     /// The emoji's field wants the character palette, which shows once the window is on screen.
     palette: bool,
+    /// While the content slides from one tab's to the other's: the tab it slides from, and when.
+    slide: Option<(Tab, Instant)>,
     _edit: Option<Subscription>,
 }
 
@@ -199,6 +206,7 @@ pub fn show(
                 accent,
                 picked,
                 palette: false,
+                slide: None,
                 _edit: None,
             });
             picker.show_tab(tab, window, cx);
@@ -228,6 +236,19 @@ pub fn is_open(cx: &App) -> bool {
         .is_some_and(|picker| picker.picking.is_some())
 }
 
+/// How far right the old tab's content and the new one's are, `progress` (0 to 1) into a switch
+/// from `from` to `to`: the content moves the way the segment chosen is from the other, so Icon's
+/// comes in from the right.
+fn slid(from: Tab, to: Tab, progress: f32) -> (f32, f32) {
+    let way = match (from, to) {
+        (Tab::Emoji, Tab::Icon) => -1.,
+        (Tab::Icon, Tab::Emoji) => 1.,
+        _ => 0.,
+    };
+    let t = cubic_bezier(0., 0., 0.58, 1., progress.clamp(0., 1.));
+    (way * WIDTH * t, way * WIDTH * (t - 1.))
+}
+
 impl Tab {
     fn name(self) -> &'static str {
         match self {
@@ -242,6 +263,9 @@ impl IconPicker {
         let Some(picking) = &mut self.picking else {
             return;
         };
+        if picking.tab != tab {
+            picking.slide = Some((picking.tab, Instant::now()));
+        }
         picking.tab = tab;
         picking._edit = None;
         if tab == Tab::Icon {
@@ -533,6 +557,17 @@ impl Render for IconPicker {
                 window.request_animation_frame();
             }
         }
+        // The slide's progress, while the content slides.
+        let slide = self.picking.as_mut().and_then(|picking| {
+            let (from, start) = picking.slide?;
+            let progress = start.elapsed().as_secs_f32() / SLIDE;
+            if progress >= 1. {
+                picking.slide = None;
+                return None;
+            }
+            window.request_animation_frame();
+            Some((from, progress))
+        });
         let Some(picking) = &self.picking else {
             return root;
         };
@@ -563,9 +598,19 @@ impl Render for IconPicker {
         .top_0()
         .left_0()
         .size_full();
-        let content = match picking.tab {
-            Tab::Icon => self.glyphs(picking, cx).into_any_element(),
-            Tab::Emoji => self.emoji_field(cx).into_any_element(),
+        let mut content = |tab, x: f32| {
+            let pane = match tab {
+                Tab::Icon => self.glyphs(picking, cx).into_any_element(),
+                Tab::Emoji => self.emoji_field(cx).into_any_element(),
+            };
+            div().absolute().top_0().left(px(x)).size_full().child(pane)
+        };
+        let content = match slide {
+            Some((from, progress)) => {
+                let (old, new) = slid(from, picking.tab, progress);
+                vec![content(from, old), content(picking.tab, new)]
+            }
+            None => vec![content(picking.tab, 0.)],
         };
         let top = self.top(picking, cx);
         root.child(
@@ -581,7 +626,7 @@ impl Render for IconPicker {
                 .font_weight(FontWeight::MEDIUM)
                 .child(card)
                 .child(top)
-                .child(content),
+                .children(content),
         )
     }
 }

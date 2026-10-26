@@ -61,6 +61,10 @@ void host_set_overlay_shape(int overlay, const double* corners, size_t count);
 // panel over the URL field is rounded less than its centred one.
 void host_set_overlay_radius(int overlay, double radius);
 
+// Makes the overlay grow in as it shows, as a system popover does, from |x| and |y| points from
+// its window's top left, such as the tip of its arrow. It goes in one frame.
+void host_set_overlay_growth(int overlay, double x, double y);
+
 // Shows the overlay over |ui_view|'s window and gives it the keyboard, |width| points wide: with
 // its top left at |left|, |top| in the window's content and ending at least 8 points inside it, or
 // if |centered|, centred across it with its top |top| points above its middle. The other overlay

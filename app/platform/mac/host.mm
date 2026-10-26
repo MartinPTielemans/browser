@@ -293,6 +293,10 @@ Browser* FrontBrowser() {
 // overlay's first show over a browser window and stays there, shown and hidden by its alpha, since
 // putting a window on screen cost each ⌘T about 4 ms.
 constexpr double kOverlayShadowRadius = 20;
+// An overlay that grows in, as a system popover does, is done in 0.2 s, mostly in the first 0.1
+// (Arc 1.170 rec at 2×, the Space's icon picker: 0.57 of its size at 55 ms, 0.83 at 105 ms).
+constexpr double kOverlayGrow = 0.2;
+constexpr double kOverlayGrowFade = 0.1;
 constexpr float kOverlayShadowOpacity = 0.23;
 // Past this, three times the blur, the shadow is nothing.
 constexpr double kOverlayShadowReach = 3 * kOverlayShadowRadius;
@@ -321,6 +325,11 @@ struct Overlay {
   NSWindow* shadow = nil;
   CALayer* shadow_layer = nil;
   CAShapeLayer* shadow_mask = nil;
+  // From host_set_overlay_growth: whether it grows in as it shows, and from where, in points from
+  // its top left.
+  bool grows = false;
+  double grow_x = 0;
+  double grow_y = 0;
 };
 
 Overlay g_overlays[] = {Overlay("command bar"), Overlay("icon picker")};
@@ -902,6 +911,51 @@ void host_set_overlay_radius(int index, double radius) {
   [overlay->shadow setFrame:NSZeroRect display:NO];
 }
 
+// Grows |overlay| in from near nothing about its growth point, its blur and drawing together, as
+// NSPopover does, with its shadow fading in alongside.
+static void GrowOverlay(Overlay& overlay) {
+  NSView* container = overlay.view.superview;
+  container.wantsLayer = YES;
+  CALayer* layer = container.layer;
+  const NSSize size = container.bounds.size;
+  // A sublayer transform applies about the layer's anchor point, which AppKit puts at a view's
+  // bottom left, and y goes up unless the view is flipped.
+  const double x = overlay.grow_x - layer.anchorPoint.x * size.width;
+  const double y = (container.isFlipped ? overlay.grow_y : size.height - overlay.grow_y) -
+                   layer.anchorPoint.y * size.height;
+  CATransform3D from = CATransform3DMakeTranslation(x, y, 0);
+  from = CATransform3DScale(from, 0.05, 0.05, 1);
+  from = CATransform3DTranslate(from, -x, -y, 0);
+  CABasicAnimation* grow = [CABasicAnimation animationWithKeyPath:@"sublayerTransform"];
+  grow.fromValue = [NSValue valueWithCATransform3D:from];
+  grow.toValue = [NSValue valueWithCATransform3D:CATransform3DIdentity];
+  grow.duration = kOverlayGrow;
+  grow.timingFunction = [CAMediaTimingFunction functionWithControlPoints:0.15:0.75:0.35:1];
+  [layer addAnimation:grow forKey:@"grow"];
+  CABasicAnimation* fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
+  fade.fromValue = @0;
+  fade.toValue = @1;
+  fade.duration = kOverlayGrowFade;
+  [layer addAnimation:fade forKey:@"fade"];
+  overlay.shadow.alphaValue = 0;
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = kOverlayGrow;
+        overlay.shadow.animator.alphaValue = 1;
+      }
+      completionHandler:nil];
+}
+
+void host_set_overlay_growth(int index, double x, double y) {
+  Overlay* overlay = OverlayAt(index);
+  if (!overlay) {
+    return;
+  }
+  overlay->grows = true;
+  overlay->grow_x = x;
+  overlay->grow_y = y;
+}
+
 void host_show_overlay(int index,
                        void* ui_view,
                        bool centered,
@@ -965,6 +1019,9 @@ void host_show_overlay(int index,
       [window addChildWindow:overlay->shadow ordered:NSWindowAbove];
     }
     [window addChildWindow:overlay->window ordered:NSWindowAbove];
+    if (overlay->grows) {
+      GrowOverlay(*overlay);
+    }
     [overlay->window makeKeyAndOrderFront:nil];
     // check.sh reads these lines.
     fprintf(stderr, "browser: %s at %g %g %g %g\n", overlay->name,
