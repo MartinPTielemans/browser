@@ -179,6 +179,25 @@ impl Bar {
     fn copy_text(&mut self, text: &str) {
         self.cx.cx.write_to_clipboard(ClipboardItem::new_string(text.into()));
     }
+
+    /// Moves the pointer onto row `index`, with the window at its height for five rows, as the
+    /// host makes it.
+    fn point_at(&mut self, index: usize) {
+        self.cx.simulate_resize(size(px(WIDTH), px(height(ROWS_SHOWN))));
+        let y = height(0) + LINE + LIST_TOP + (index as f32 + 0.5) * ROW_HEIGHT;
+        self.cx.simulate_mouse_move(point(px(200.), px(y)), None, Modifiers::none());
+        self.cx.run_until_parked();
+    }
+
+    /// The row with the selection's plate, and the row with the pointer's, if it has one.
+    fn plates(&mut self) -> (usize, Option<usize>) {
+        self.window
+            .read_with(&self.cx.cx, |bar, _| {
+                let hovered = bar.hovered.filter(|&index| index != bar.selected);
+                (bar.selected, hovered)
+            })
+            .unwrap()
+    }
 }
 
 /// A row for a page from the profile's history, which ⇧⌦ can take out.
@@ -601,4 +620,39 @@ fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
         };
         assert!(shell::Assets.load(path).unwrap().is_some(), "{path} isn't built in");
     }
+}
+
+/// Arc lights the row under the pointer with its own plate while the selection keeps the accent,
+/// and the keys move only the selection.
+#[gpui::test]
+fn the_row_under_the_pointer_has_a_plate_as_the_keys_move_the_selection(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    let rows = vec![searching("ex"), page("https://a.test/"), page("https://b.test/")];
+    bar.suggest("ex", rows);
+    bar.point_at(2);
+    assert_eq!(bar.plates(), (0, Some(2)));
+    bar.keys("down");
+    assert_eq!(bar.plates(), (1, Some(2)));
+    bar.keys("up");
+    assert_eq!(bar.plates(), (0, Some(2)));
+    // On the selected row it's the selection's plate alone, and the hover comes back as it goes.
+    bar.keys("down down");
+    assert_eq!(bar.plates(), (2, None));
+    bar.keys("down");
+    assert_eq!(bar.plates(), (0, Some(2)));
+    // ↩ takes the selection, not the row under the pointer.
+    bar.keys("enter");
+    assert_eq!(bar.calls(), [format!("open {}", search("ex")), "hide".into()]);
+}
+
+#[gpui::test]
+fn the_pointer_moving_takes_the_plate_with_it(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), page("https://a.test/"), page("https://b.test/")]);
+    bar.point_at(1);
+    assert_eq!(bar.plates(), (0, Some(1)));
+    bar.point_at(2);
+    assert_eq!(bar.plates(), (0, Some(2)));
 }

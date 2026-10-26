@@ -9,8 +9,8 @@
 use std::{collections::HashMap, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, Hsla, Image,
-    KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
+    AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, HoverListenerMode, Hsla,
+    Image, KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
     img, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -74,7 +74,9 @@ pub(crate) const EDGE: u32 = 0x59595d;
 const LINE_COLOR: u32 = 0xffff_ff1a;
 const TITLE: u32 = 0xffff_ffd9;
 const DIM: u32 = 0xffff_ff59;
-const HOVERED: u32 = 0x787d_8652;
+/// The row under the pointer while the selection is elsewhere: white 0.05, (31, 31, 31) on the
+/// (19, 19, 19) panel (Arc 1.170 rec).
+const HOVERED: u32 = 0xffff_ff0d;
 const PLACEHOLDER: u32 = 0xffff_ff87;
 const CARET: u32 = 0x4a77d4;
 const SELECTION: u32 = 0x787d_86b3;
@@ -292,6 +294,8 @@ pub struct CommandBar {
     suggested: String,
     /// The row ↩ takes.
     selected: usize,
+    /// The row under the pointer, which keeps its plate as the keys move the selection (Arc).
+    hovered: Option<usize>,
     /// The site search the bar is in, if any.
     site: Option<Site>,
     /// The rows' favicons by page, asked for as they first show. None until one comes.
@@ -390,6 +394,7 @@ pub fn open_at(
                 rows: Vec::new(),
                 suggested: String::new(),
                 selected: 0,
+                hovered: None,
                 site: None,
                 favicons: HashMap::new(),
                 tabs: Vec::new(),
@@ -448,6 +453,8 @@ fn reset(
     window
         .update(cx, |bar, window, cx| {
             bar.target = target;
+            // The pointer has been elsewhere since the bar last showed.
+            bar.hovered = None;
             // Favicons change over time, and a long session shouldn't keep every one it saw. The
             // tabs' are the ones their rows show.
             bar.favicons.clear();
@@ -1022,6 +1029,16 @@ impl CommandBar {
         cx.notify();
     }
 
+    /// The pointer came onto row `index`, or left it.
+    fn hover(&mut self, index: usize, hovered: bool, cx: &mut Context<Self>) {
+        if hovered {
+            self.hovered = Some(index);
+        } else if self.hovered == Some(index) {
+            self.hovered = None;
+        }
+        cx.notify();
+    }
+
     /// Esc leaves the site search first, then the bar.
     fn dismiss(&mut self, _: &Dismiss, window: &mut Window, cx: &mut Context<Self>) {
         if !self.leave_site(window, cx) {
@@ -1098,6 +1115,8 @@ impl CommandBar {
 
     fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = index == self.selected;
+        // The selected row keeps its accent under the pointer.
+        let hovered = !selected && self.hovered == Some(index);
         let accent = accent(cx);
         let white = Hsla::from(rgb(0xffffff));
         let (title, dim) = match selected {
@@ -1155,10 +1174,11 @@ impl CommandBar {
             .pr(px(10.))
             .rounded(px(PLATE_RADIUS))
             .text_color(title)
-            .map(|line| match selected {
-                true => line.bg(accent),
-                false => line.hover(|style| style.bg(rgba(HOVERED))),
-            })
+            .when(selected, |line| line.bg(accent))
+            .when(hovered, |line| line.bg(rgba(HOVERED)))
+            // Arc keeps the plate under the pointer as the keys move the selection.
+            .hover_listener_mode(HoverListenerMode::InputModalityIndependent)
+            .on_hover(cx.listener(move |bar, hovered: &bool, _, cx| bar.hover(index, *hovered, cx)))
             .on_click(cx.listener(move |bar, _, _, cx| bar.take(index, cx)))
             .child(icon)
             .child(
