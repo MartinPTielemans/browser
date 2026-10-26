@@ -47,6 +47,7 @@ pub use commands::{
     BarCommand, CancelName, Command, CreateSpace, KEY_CONTEXT, KeepName, bar_commands, bind_keys,
     copy_from_bar, menu_item, pane_added, run_from_bar, shortcut_label, shown_tab,
 };
+pub use drag::dropped_urls;
 pub use extensions::{
     Extension, ExtensionAction, ExtensionCommand, menu_item as extension_menu_item,
     pin_menu_item as extension_pin_menu_item,
@@ -579,9 +580,12 @@ enum Place {
 }
 
 /// A tab's row or tile the pointer pressed, which follows the pointer once it has moved far enough.
-/// Over the favorites it's drawn as a tile, and over the list as a row.
+/// Over the favorites it's drawn as a tile, and over the list as a row. Or links or files dragged
+/// over the list from the page or another app, which the rows make room for in the same way.
 struct Drag {
+    /// For links or files, INCOMING until they're dropped, then the first one's tab.
     tab: u64,
+    incoming: bool,
     /// Where the pointer pressed, and the sidebar's top-left corner in that window.
     press: Point<Pixels>,
     origin: Point<Pixels>,
@@ -1537,7 +1541,10 @@ impl Shell {
     pub fn title(&self, tab: u64) -> SharedString {
         match self.tabs.get(&tab) {
             Some(tab) if !tab.title.is_empty() => tab.title.clone(),
-            Some(tab) if !tab.page.url.is_empty() => host(&tab.page.url).into(),
+            Some(tab) if !tab.page.url.is_empty() => match file_name(&tab.page.url) {
+                Some(name) => name.into(),
+                None => host(&tab.page.url).into(),
+            },
             _ => "Untitled".into(),
         }
     }
@@ -2011,8 +2018,11 @@ impl Shell {
         for tab in today {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }
-        // Over the rest, where the pointer has it, unless it's over the favorites or the page.
-        let dragged = self.drag.as_ref().filter(|drag| drag.moving && drag.over_page.is_none());
+        // Over the rest, where the pointer has it, unless it's over the favorites or the page. The
+        // system draws links and files dragged in.
+        let dragged = self.drag.as_ref().filter(|drag| {
+            drag.moving && drag.over_page.is_none() && !drag.incoming
+        });
         let dragged = dragged.filter(|drag| matches!(drag.to, Place::List(..))).map(|drag| {
             let row = self.tab_row(drag.tab, cx);
             let top = room + self.drag_at(drag);
@@ -2419,3 +2429,41 @@ fn host(url: &str) -> &str {
     host.strip_prefix("www.").unwrap_or(host)
 }
 
+/// The name of the file at a `file:` URL, with its escapes undone, which titles its page when the
+/// page has no title, as in Chrome's tab strip. None for a folder.
+fn file_name(url: &str) -> Option<String> {
+    let path = url.strip_prefix("file://")?.split(['?', '#']).next()?;
+    let name = path.rsplit('/').next().filter(|name| !name.is_empty())?;
+    let mut bytes = Vec::new();
+    let mut rest = name.as_bytes();
+    while let Some((&byte, after)) = rest.split_first() {
+        let escaped = after.get(..2).and_then(|hex| std::str::from_utf8(hex).ok());
+        match escaped.and_then(|hex| u8::from_str_radix(hex, 16).ok()) {
+            Some(decoded) if byte == b'%' => {
+                bytes.push(decoded);
+                rest = &after[2..];
+            }
+            _ => {
+                bytes.push(byte);
+                rest = after;
+            }
+        }
+    }
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::file_name;
+
+    /// A file's page is titled by its name, as the user wrote it; a folder's and a site's aren't.
+    #[test]
+    fn a_file_is_titled_by_its_name() {
+        let report = "file:///Users/someone/Report%20final.pdf";
+        assert_eq!(file_name(report).unwrap(), "Report final.pdf");
+        assert_eq!(file_name("file:///tmp/%E6%97%A5%E8%A8%98.txt#top").unwrap(), "日記.txt");
+        assert_eq!(file_name("file:///tmp/100%.txt").unwrap(), "100%.txt");
+        assert_eq!(file_name("file:///Users/someone/"), None);
+        assert_eq!(file_name("https://example.com/notes.txt"), None);
+    }
+}

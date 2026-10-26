@@ -19,7 +19,7 @@ use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, 
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
     ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, WeakEntity,
-    Window, WindowBackgroundAppearance, WindowOptions, actions, prelude::*,
+    Window, WindowBackgroundAppearance, WindowOptions, actions, point, prelude::*, px,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -37,7 +37,7 @@ mod bc {
 
 /// The AppKit side, in platform/mac/.
 mod platform {
-    use std::ffi::{c_char, c_void};
+    use std::ffi::{c_char, c_int, c_void};
 
     unsafe extern "C" {
         pub fn drive_start();
@@ -70,6 +70,15 @@ mod platform {
         pub fn host_accent_color() -> u32;
         pub fn host_watch_accent_color(changed: extern "C" fn());
         pub fn host_watch_control(released: extern "C" fn());
+        pub fn host_take_drops(
+            dragged: extern "C" fn(
+                phase: c_int,
+                x: f64,
+                y: f64,
+                items: *const host_dragged,
+                count: usize,
+            ) -> bool,
+        );
         pub fn host_copy(text: *const c_char);
         pub fn host_day_starts(starts: *mut f64);
         pub fn host_menu(
@@ -109,6 +118,16 @@ mod platform {
     pub const IN_WINDOW: i32 = 0;
     pub const IN_REVEAL: i32 = 1;
     pub const IN_SETTINGS: i32 = 2;
+
+    /// What host_take_drops hears of a drag.
+    pub const DRAG_OVER: c_int = 0;
+    pub const DRAG_DROP: c_int = 2;
+
+    #[repr(C)]
+    pub struct host_dragged {
+        pub url: *const c_char,
+        pub file: bool,
+    }
 
     #[repr(C)]
     pub struct host_menu_item {
@@ -157,12 +176,12 @@ thread_local! {
     static WINDOW: Cell<bc::bc_id> = const { Cell::new(0) };
 }
 
-/// Changes the shell, from a core callback.
-fn update_shell(change: impl FnOnce(&mut Shell, &mut Context<Shell>)) {
+/// Changes the shell, from a core callback, and returns what the change does, unless there's no
+/// shell.
+fn update_shell<R>(change: impl FnOnce(&mut Shell, &mut Context<Shell>) -> R) -> Option<R> {
     let ui = UI.with_borrow(|ui| ui.as_ref().map(|(cx, shell, _)| (cx.clone(), shell.clone())));
-    if let Some((cx, shell)) = ui {
-        cx.update(|cx| shell.update(cx, change).ok());
-    }
+    let (cx, shell) = ui?;
+    cx.update(|cx| shell.update(cx, change).ok())
 }
 
 /// Changes the UI outside the shell, from a core callback.
@@ -496,6 +515,27 @@ impl Browser for Engine {
 
     fn move_tab(&self, tab: u64, pinned: bool, folder: u64, index: usize, _: &mut App) {
         unsafe { bc::bc_tab_move(tab, pinned, folder, index) };
+    }
+
+    // The ones after the first load once shown, as links opened behind do.
+    fn open_at(
+        &self,
+        urls: &[String],
+        pinned: bool,
+        folder: u64,
+        index: usize,
+        _: &mut App,
+    ) -> u64 {
+        let tabs = urls.iter().enumerate().map(|(at, url)| (at, open_tab_behind(url, at > 0)));
+        let tabs: Vec<u64> = tabs.filter(|&(_, tab)| tab != 0).map(|(_, tab)| tab).collect();
+        for (at, &tab) in tabs.iter().enumerate() {
+            unsafe { bc::bc_tab_move(tab, pinned, folder, index + at) };
+        }
+        let first = tabs.first().copied().unwrap_or(0);
+        if first != 0 {
+            unsafe { bc::bc_window_select(WINDOW.get(), first) };
+        }
+        first
     }
 
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
@@ -1075,6 +1115,34 @@ extern "C" fn control_released() {
     update_shell(|shell, cx| shell.control_released(cx));
 }
 
+extern "C" fn dragged(
+    phase: c_int,
+    x: f64,
+    y: f64,
+    items: *const platform::host_dragged,
+    count: usize,
+) -> bool {
+    let items = match items.is_null() {
+        true => &[][..],
+        false => unsafe { std::slice::from_raw_parts(items, count) },
+    };
+    let items: Vec<_> = items
+        .iter()
+        .map(|item| (unsafe { CStr::from_ptr(item.url) }.to_string_lossy(), item.file))
+        .collect();
+    let urls = shell::dropped_urls(items.iter().map(|(url, file)| (url.as_ref(), *file)));
+    let position = point(px(x as f32), px(y as f32));
+    let answer = update_shell(|shell, cx| match phase {
+        platform::DRAG_OVER => !urls.is_empty() && shell.drag_in(position, cx),
+        platform::DRAG_DROP => shell.drop_in(position, &urls, cx),
+        _ => {
+            shell.drag_away(cx);
+            false
+        }
+    });
+    answer.unwrap_or(false)
+}
+
 /// Opens the browser window, the shell inside it under the page, and its Spaces.
 fn open_window(cx: &mut App) {
     let ui_view = unsafe { platform::host_ui_view() };
@@ -1116,6 +1184,7 @@ fn open_window(cx: &mut App) {
             unsafe {
                 platform::host_show_window(ui_view);
                 platform::host_watch_accent_color(accent_color_changed);
+                platform::host_take_drops(dragged);
             }
             if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
                 && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))

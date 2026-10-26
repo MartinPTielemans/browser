@@ -36,6 +36,13 @@
 //                                         each <dx> points right and <dy> down, from the touch's
 //                                         start, then its end after <rest> ms more, else at once
 //   wheel <x> <y> <dx>                    a mouse wheel's tick across at (x, y), <dx> lines right
+//   dragover <x> <y> [url|file|text <s>]  a drag from another app at (x, y), carrying the URL,
+//                                         the file at the path or the text <s>, handed to the view
+//                                         AppKit would hand it to, which it logs with whether it
+//                                         takes it, as "browser: drag over <view class> taken"
+//   dragdrop <x> <y> [url|file|text <s>]  lets go of that drag there, as dragover, then logs
+//                                         "browser: drag dropped" or "browser: drag refused"
+//   dragleave                             takes the drag away, as cancelled
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
 //   layout                                logs the frames of the window's views and child
@@ -75,6 +82,23 @@
 #include <thread>
 
 #include "host.h"
+
+// A drag from another app, as AppKit describes it to the view under the pointer: what it carries
+// and where it is.
+@interface DriveDrag : NSObject
+@property(nonatomic) NSPasteboard* draggingPasteboard;
+@property(nonatomic) NSPoint draggingLocation;
+@end
+
+@implementation DriveDrag
+- (id)draggingSource {
+  return nil;
+}
+
+- (NSDragOperation)draggingSourceOperationMask {
+  return NSDragOperationEvery;
+}
+@end
 
 namespace {
 
@@ -263,6 +287,76 @@ extern "C" void CGEventSetWindowLocation(CGEventRef event, CGPoint location);
 
 // Trackpads report about every 8 ms while a finger moves. Each event carries pixel deltas, as a
 // trackpad's do, so Chromium scrolls by exactly that much instead of animating a wheel tick.
+// The drag dragover holds, on a pasteboard of its own, and the view it's over.
+DriveDrag* g_drag;
+NSView* g_drag_view;
+
+// The view AppKit hands a drag at |location|, in the window's coordinates, to: the deepest one
+// there registered for something the drag carries.
+NSView* DragDestination(NSWindow* window, NSPoint location, NSPasteboard* pasteboard) {
+  NSView* view = [window.contentView.superview hitTest:location];
+  NSSet* carried = [NSSet setWithArray:pasteboard.types];
+  for (; view; view = view.superview) {
+    if ([carried intersectsSet:[NSSet setWithArray:view.registeredDraggedTypes]]) {
+      return view;
+    }
+  }
+  return nil;
+}
+
+// Ends the drag, at the view it's over, and lets go of its pasteboard.
+void EndDrag() {
+  id<NSDraggingDestination> view = (id<NSDraggingDestination>)g_drag_view;
+  if ([view respondsToSelector:@selector(draggingEnded:)]) {
+    [view draggingEnded:(id<NSDraggingInfo>)g_drag];
+  }
+  [g_drag.draggingPasteboard releaseGlobally];
+  g_drag = nil;
+  g_drag_view = nil;
+}
+
+// Moves the drag to (x, y), from the window's top-left corner, starting it with what |words| say
+// it carries if there's none, and returns whether the view there takes it.
+bool DragOver(NSWindow* window, double x, double y, std::istringstream& words) {
+  if (!g_drag) {
+    std::string kind, text;
+    words >> kind;
+    std::getline(words >> std::ws, text);
+    NSString* value = @(text.c_str());
+    NSPasteboard* pasteboard = [NSPasteboard pasteboardWithUniqueName];
+    if (kind == "url" || kind == "file") {
+      NSURL* url = kind == "url" ? [NSURL URLWithString:value] : [NSURL fileURLWithPath:value];
+      [pasteboard writeObjects:@[ url ]];
+    } else if (kind == "text") {
+      [pasteboard setString:value forType:NSPasteboardTypeString];
+    } else {
+      [pasteboard releaseGlobally];
+      return false;
+    }
+    g_drag = [[DriveDrag alloc] init];
+    g_drag.draggingPasteboard = pasteboard;
+  }
+  g_drag.draggingLocation = NSMakePoint(x, NSHeight(window.frame) - y);
+  NSView* view = DragDestination(window, g_drag.draggingLocation, g_drag.draggingPasteboard);
+  id<NSDraggingInfo> info = (id<NSDraggingInfo>)g_drag;
+  NSDragOperation operation = NSDragOperationNone;
+  if (view != g_drag_view) {
+    id<NSDraggingDestination> left = (id<NSDraggingDestination>)g_drag_view;
+    if ([left respondsToSelector:@selector(draggingExited:)]) {
+      [left draggingExited:info];
+    }
+    g_drag_view = view;
+    if ([view respondsToSelector:@selector(draggingEntered:)]) {
+      operation = [(id<NSDraggingDestination>)view draggingEntered:info];
+    }
+  } else if ([view respondsToSelector:@selector(draggingUpdated:)]) {
+    operation = [(id<NSDraggingDestination>)view draggingUpdated:info];
+  }
+  fprintf(stderr, "browser: drag over %s %s\n", view ? object_getClassName(view) : "nothing",
+          operation ? "taken" : "refused");
+  return operation != NSDragOperationNone;
+}
+
 void Scroll(NSWindow* window, double x, double y, double dy, int count, void (^done)(void)) {
   long window_number = window.windowNumber;
   __block int left = count;
@@ -405,7 +499,10 @@ void OrderFrontCharacterPalette(id, SEL, id) {
 // window view only hold others, so the views in them are listed instead.
 void AppendViews(NSMutableString* line, NSView* content, NSView* parent) {
   for (NSView* view in parent.subviews) {
-    if (view.class == NSView.class || [NSStringFromClass(view.class) isEqual:@"BrowserCoreWindowView"]) {
+    // Views that only hold others: the core's, and the UI's that GPUI's is in.
+    NSString* name = NSStringFromClass(view.class);
+    if (view.class == NSView.class || [name isEqual:@"BrowserCoreWindowView"] ||
+        [name isEqual:@"HostUIView"]) {
       AppendViews(line, content, view);
       continue;
     }
@@ -668,6 +765,34 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     words >> rest;
     Swipe(window, x, y, dx, dy, count, rest, done);
+    return true;
+  }
+  if (action == "dragover" || action == "dragdrop") {
+    double x, y;
+    if (!(words >> x >> y)) {
+      return false;
+    }
+    bool taken = DragOver(window, x, y, words);
+    if (!g_drag) {
+      return false;
+    }
+    if (action == "dragdrop") {
+      id<NSDraggingDestination> view = (id<NSDraggingDestination>)g_drag_view;
+      bool dropped = taken && [view respondsToSelector:@selector(performDragOperation:)] &&
+                     [view performDragOperation:(id<NSDraggingInfo>)g_drag];
+      fprintf(stderr, "browser: drag %s\n", dropped ? "dropped" : "refused");
+      EndDrag();
+    }
+    done();
+    return true;
+  }
+  if (action == "dragleave") {
+    id<NSDraggingDestination> view = (id<NSDraggingDestination>)g_drag_view;
+    if ([view respondsToSelector:@selector(draggingExited:)]) {
+      [view draggingExited:(id<NSDraggingInfo>)g_drag];
+    }
+    EndDrag();
+    done();
     return true;
   }
   if (action == "wheel") {

@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <initializer_list>
+#include <string>
+#include <vector>
 
 #include "host.h"
 
@@ -44,6 +46,96 @@
   }
   fprintf(stderr, "browser: menu shown %s\n",
           [titles componentsJoinedByString:@", "].UTF8String);
+}
+@end
+
+namespace {
+// The UI's, which hears the drags over its view.
+bool (*g_dragged)(int, double, double, const host_dragged*, size_t);
+}  // namespace
+
+// The view the UI draws in. It takes the links and files dragged onto it, from the page or another
+// app, for the UI.
+@interface HostUIView : NSView
+@end
+
+@implementation HostUIView {
+  // What the drag over the view carries, read as it comes.
+  std::vector<std::string> _urls;
+  std::vector<bool> _files;
+}
+
+- (instancetype)initWithFrame:(NSRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    [self registerForDraggedTypes:@[
+      NSPasteboardTypeFileURL, NSPasteboardTypeURL, NSPasteboardTypeString
+    ]];
+  }
+  return self;
+}
+
+// Tells the UI, with where the pointer is from the view's top-left corner.
+- (BOOL)tell:(int)phase info:(id<NSDraggingInfo>)info {
+  if (!g_dragged) {
+    return NO;
+  }
+  NSPoint point = [self convertPoint:info.draggingLocation fromView:nil];
+  std::vector<host_dragged> items;
+  for (size_t i = 0; i < _urls.size(); i++) {
+    items.push_back({_urls[i].c_str(), _files[i]});
+  }
+  return g_dragged(phase, point.x, NSHeight(self.bounds) - point.y, items.data(), items.size());
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)info {
+  _urls.clear();
+  _files.clear();
+  NSPasteboard* pasteboard = info.draggingPasteboard;
+  NSArray<NSURL*>* files =
+      [pasteboard readObjectsForClasses:@[ NSURL.class ]
+                                options:@{NSPasteboardURLReadingFileURLsOnlyKey : @YES}];
+  for (NSURL* url in files) {
+    _urls.push_back(url.absoluteString.UTF8String);
+    _files.push_back(true);
+  }
+  if (_urls.empty()) {
+    for (NSURL* url in [pasteboard readObjectsForClasses:@[ NSURL.class ] options:@{}]) {
+      _urls.push_back(url.absoluteString.UTF8String);
+      _files.push_back(false);
+    }
+  }
+  // Text, which the UI opens only if it's a web link.
+  NSString* text = [pasteboard stringForType:NSPasteboardTypeString];
+  if (_urls.empty() && text) {
+    NSCharacterSet* space = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    _urls.push_back([text stringByTrimmingCharactersInSet:space].UTF8String);
+    _files.push_back(false);
+  }
+  return [self draggingUpdated:info];
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)info {
+  return [self tell:HOST_DRAG_OVER info:info] ? NSDragOperationCopy : NSDragOperationNone;
+}
+
+- (void)draggingExited:(id<NSDraggingInfo>)info {
+  [self tell:HOST_DRAG_LEFT info:info];
+}
+
+// After a drop too, which the UI keeps.
+- (void)draggingEnded:(id<NSDraggingInfo>)info {
+  [self tell:HOST_DRAG_LEFT info:info];
+  _urls.clear();
+  _files.clear();
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)info {
+  return [self tell:HOST_DRAG_DROP info:info];
+}
+
+// Only as the pointer moves, so a drag held still doesn't wake the UI.
+- (BOOL)wantsPeriodicDraggingUpdates {
+  return NO;
 }
 @end
 
@@ -224,7 +316,7 @@ void host_centered(double width, double height, double* x, double* y) {
 
 void* host_ui_view(void) {
   // Retained by the window the core puts it in.
-  return (__bridge_retained void*)[[NSView alloc] initWithFrame:NSZeroRect];
+  return (__bridge_retained void*)[[HostUIView alloc] initWithFrame:NSZeroRect];
 }
 
 void host_show_window(void* ui_view) {
@@ -733,6 +825,11 @@ void ControlReleased() {
   dispatch_async(dispatch_get_main_queue(), ^{
     released();
   });
+}
+
+void host_take_drops(bool (*dragged)(int phase, double x, double y, const host_dragged* items,
+                                     size_t count)) {
+  g_dragged = dragged;
 }
 
 void host_watch_control(void (*released)(void)) {

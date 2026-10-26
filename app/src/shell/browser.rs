@@ -35,6 +35,11 @@ pub trait Browser {
     /// not rows, without the split's, and folders directly in the pinned tabs or `folder` count
     /// one. A favorite goes to the Space shown.
     fn move_tab(&self, tab: u64, pinned: bool, folder: u64, index: usize, cx: &mut App);
+    /// Opens tabs loading `urls`, in their order, at `index` in the Space shown's Today tabs, or
+    /// in its pinned tabs, inside `folder` if it isn't 0, counted as `move_tab` counts. Shows the
+    /// first and returns it, or 0 if none opened.
+    fn open_at(&self, urls: &[String], pinned: bool, folder: u64, index: usize, cx: &mut App)
+    -> u64;
     /// Makes an open folder named `name` at `index` in `folder`, else in the pinned tabs of
     /// `space`, counted as `move_tab` counts, else at the bottom, and returns it.
     fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, cx: &mut App)

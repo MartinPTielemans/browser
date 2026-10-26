@@ -312,6 +312,11 @@ impl Browser for Fake {
         });
     }
 
+    // The preview's window has no host to take a drop.
+    fn open_at(&self, _: &[String], _: bool, _: u64, _: usize, _: &mut App) -> u64 {
+        0
+    }
+
     fn create_folder(&self, _: u64, name: &str, folder: u64, index: usize, cx: &mut App) -> u64 {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
