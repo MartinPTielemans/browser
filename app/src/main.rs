@@ -66,6 +66,7 @@ mod platform {
         );
         pub fn host_set_overlay_shape(overlay: c_int, corners: *const f64, count: usize);
         pub fn host_set_overlay_radius(overlay: c_int, radius: f64);
+        pub fn host_set_overlay_growth(overlay: c_int, x: f64, y: f64);
         pub fn host_show_overlay(
             overlay: c_int,
             ui_view: *mut c_void,
@@ -1741,6 +1742,8 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
         unsafe {
             platform::host_add_overlay(ICON_PICKER, view, 0., icon_picker_dismissed);
             platform::host_set_overlay_shape(ICON_PICKER, corners.as_ptr(), corners.len() / 3);
+            let (x, y) = icon_picker::ARROW_TIP;
+            platform::host_set_overlay_growth(ICON_PICKER, x.into(), y.into());
         }
     }
     if let Some(dialog) = dialog::open(Rc::new(DialogHost), cx)

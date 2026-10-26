@@ -145,3 +145,16 @@ fn an_emoji_typed_or_picked_is_the_icon_at_once(cx: &mut TestAppContext) {
     picker.cx.run_until_parked();
     assert_eq!(picker.calls(), ["palette", "hide", "picked \"🌱\""]);
 }
+
+#[test]
+fn icons_come_in_from_the_right_and_emoji_from_the_left() {
+    let near = |(old, new): (f32, f32), (x, y): (f32, f32)| {
+        assert!((old - x).abs() < 1e-3 && (new - y).abs() < 1e-3, "{old} {new}, not {x} {y}");
+    };
+    near(slid(Tab::Emoji, Tab::Icon, 0.), (0., WIDTH));
+    let (old, new) = slid(Tab::Emoji, Tab::Icon, 0.5);
+    assert!(old < 0. && new > 0. && (new - old - WIDTH).abs() < 1e-3, "{old} {new}");
+    near(slid(Tab::Emoji, Tab::Icon, 1.), (-WIDTH, 0.));
+    near(slid(Tab::Icon, Tab::Emoji, 0.), (0., -WIDTH));
+    near(slid(Tab::Icon, Tab::Emoji, 1.), (WIDTH, 0.));
+}
