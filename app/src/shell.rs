@@ -218,7 +218,9 @@ const SEGMENT_FAVICON_X: f32 = 7.;
 const SEGMENT_TITLE_GAP: f32 = 10.;
 const SEGMENT_END: f32 = 5.;
 const SEGMENT_LINE: f32 = 16.;
-// Arc's divider line: one device pixel at 2x, 18 in from each side of the sidebar.
+// Arc's divider line is one device pixel, 18 in from each side of the sidebar. GPUI widens a border
+// under one device pixel to one, so borders use this 0.5 pt; a line that's a box's height has to
+// ask the window for its pixel, or it's rounded away at 1x.
 const HAIRLINE: f32 = 0.5;
 const DIVIDER_X: f32 = 18.;
 // The Clear divider, under the pinned tabs. Its line's centre is 25 pt above the centre of the first
@@ -785,6 +787,8 @@ pub struct Shell {
     /// The window's content size at the last draw, and the frame and corner radius the page was
     /// last laid out at.
     viewport: Size<Pixels>,
+    /// The window's device pixels in a point, kept from render as `viewport` is.
+    scale: f32,
     page_laid: Option<(Bounds<Pixels>, f32)>,
     /// While the command bar is open for a pane beside the tab shown, that tab. The pages shown
     /// make room on their right for the pane (Arc).
@@ -905,6 +909,7 @@ impl Shell {
             url_copied: None,
             drawn_copied: false,
             viewport: Size::default(),
+            scale: 1.,
             page_laid: None,
             adding_pane: None,
             focus_color: None,
@@ -1010,6 +1015,11 @@ impl Shell {
     fn row_tab(&self, row: u64) -> u64 {
         let panes = self.panes(row);
         self.recent.iter().copied().find(|tab| panes.contains(tab)).unwrap_or(row)
+    }
+
+    /// One device pixel, for a line that is a box's height, which GPUI drops under a pixel.
+    pub(super) fn hairline(&self) -> Pixels {
+        px(1. / self.scale)
     }
 
     pub fn space(&self) -> u64 {
@@ -1778,6 +1788,7 @@ impl Render for Shell {
             log!("browser: drawn at {width}x{height}");
         }
         self.viewport = viewport;
+        self.scale = window.scale_factor();
         if self.tiles_scroll() != self.tiles_scrolled_last {
             self.tiles_scrolled_last = !self.tiles_scrolled_last;
             // check.sh waits for these lines.
@@ -2034,7 +2045,8 @@ impl Shell {
             .child(name_box().child(div().truncate().child(space.name.clone())))
             .children(pinned.into_iter().map(row))
             .when(!today.is_empty(), |page| {
-                page.child(divider_box(self.tools_shown().then(|| clear_label(false))))
+                let clear = self.tools_shown().then(|| clear_label(false));
+                page.child(divider_box(self.hairline(), clear))
             })
             .child(row_box().child(plate(plus, new_tab)))
             .children(today.into_iter().map(row))
@@ -2322,7 +2334,7 @@ fn name_box() -> gpui::Div {
 }
 
 /// The divider under the pinned tabs: a line, and `clear` at its end while it shows.
-fn divider_box(clear: Option<impl IntoElement>) -> gpui::Div {
+fn divider_box(line: Pixels, clear: Option<impl IntoElement>) -> gpui::Div {
     // Clear ends where the titles do, 17 in from the edge.
     let right = if clear.is_some() { FAVICON_X } else { DIVIDER_X };
     div().flex_none().h(px(DIVIDER_HEIGHT)).child(
@@ -2334,7 +2346,7 @@ fn divider_box(clear: Option<impl IntoElement>) -> gpui::Div {
             .h(px(CLEAR_HEIGHT))
             .flex()
             .items_center()
-            .child(div().flex_1().h(px(HAIRLINE)).bg(rgba(DIVIDER)))
+            .child(div().flex_1().h(line).bg(rgba(DIVIDER)))
             .children(clear),
     )
 }
