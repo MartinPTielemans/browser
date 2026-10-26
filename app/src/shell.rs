@@ -778,6 +778,10 @@ pub struct Shell {
     reveal_motion: Option<(f32, Instant)>,
     /// The pointer is at the window's left edge, waiting to bring the sidebar out.
     reveal_wait: Option<Task<()>>,
+    /// The Copy URL button shows a checkmark until this one-shot timer ends.
+    url_copied: Option<Task<()>>,
+    /// Whether the button had the checkmark when last drawn, for the line check.sh waits for.
+    drawn_copied: bool,
     /// The window's content size at the last draw, and the frame and corner radius the page was
     /// last laid out at.
     viewport: Size<Pixels>,
@@ -898,6 +902,8 @@ impl Shell {
             revealed: false,
             reveal_motion: None,
             reveal_wait: None,
+            url_copied: None,
+            drawn_copied: false,
             viewport: Size::default(),
             page_laid: None,
             adding_pane: None,
@@ -1677,6 +1683,11 @@ impl Render for Shell {
             };
             let favicon = hover.1.map_or("none".into(), |tab| tab.to_string());
             log!("browser: hover {row} close {} favicon {favicon}", close as u8);
+        }
+        // As the outline's, so a capture of the URL field's button shows the glyph it logged.
+        if self.url_copied.is_some() != self.drawn_copied {
+            self.drawn_copied = self.url_copied.is_some();
+            log!("browser: copy url shows {}", if self.drawn_copied { "check" } else { "link" });
         }
         if std::mem::take(&mut self.focus_form)
             && let Some(form) = self.form()
