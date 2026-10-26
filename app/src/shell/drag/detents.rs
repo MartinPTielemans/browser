@@ -24,18 +24,18 @@ pub(in crate::shell) fn shell_with(
 }
 
 /// Where in the window `tab`'s row is, down its middle.
-fn row_y(shell: &Shell, tab: u64) -> f32 {
+pub(super) fn row_y(shell: &Shell, tab: u64) -> f32 {
     shell.drawn_list_top() + shell.layout()[&Slot::Tab(tab)] + ROW_HEIGHT / 2.
 }
 
-fn at(x: f32, y: f32) -> Point<Pixels> {
+pub(super) fn at(x: f32, y: f32) -> Point<Pixels> {
     point(px(x), px(y))
 }
 
-const X: f32 = 80.;
+pub(super) const X: f32 = 80.;
 
 /// Presses `tab`'s row, in the middle.
-fn press(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, tab: u64) -> f32 {
+pub(super) fn press(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, tab: u64) -> f32 {
     shell.update(cx, |shell, _| {
         let y = row_y(shell, tab);
         shell.press_row(tab, at(X, y));
@@ -43,7 +43,7 @@ fn press(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, tab: u64) -> f32 
     })
 }
 
-fn drag_to(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, x: f32, y: f32) {
+pub(super) fn drag_to(shell: &gpui::Entity<Shell>, cx: &mut TestAppContext, x: f32, y: f32) {
     shell.update(cx, |shell, cx| shell.drag_to(at(x, y), cx));
 }
 

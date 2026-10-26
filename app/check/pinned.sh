@@ -58,7 +58,8 @@ passed=$(($(detents) - clicks))
 [ "$passed" = 1 ] || fail "a row dragged past one gave $passed clicks"
 expect_lists "$a $c" "$b" "after dragging a pinned tab up"
 none_since '^browser: selected' || fail "dragging a tab showed it"
-# In steps, as the pointer goes: Today's tab comes away and the pinned rows make room for it.
+# In steps, as the pointer goes: Today's tab comes away, and over the pinned rows, which stay put,
+# a line marks where it would go.
 clicks=$(detents)
 send press $today_top
 none_since '^browser: detent$' || fail "pressing a row clicked the trackpad"
@@ -75,6 +76,8 @@ send release 100 200
 none_since '^browser: detent$' || fail "letting go of a row clicked the trackpad"
 expect "^browser: dragged $b to pinned 1\$" "a drag of the Today tab up didn't pin it"
 expect_lists "$a $b $c" " *" "after dragging the Today tab into the pinned tabs"
+# The rows make room only once it's let go, as Arc's do, so the next drag waits for them.
+expect '^browser: rows settled$' "the pinned rows didn't settle after the drop"
 send drag $(pinned_row 1) 100 300
 expect "^browser: dragged $b to today 0\$" "a drag of a pinned tab down didn't unpin it"
 expect_lists "$a $c" "$b" "after dragging a pinned tab into Today"
@@ -335,14 +338,14 @@ send choose Delete Folder
 expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run delete-folder"
 expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
 
-# A file dragged over the pinned tab makes room for it there, and let go, it opens there pinned and
+# A file dragged over the pinned tab gets a line above it, and let go, it opens there pinned and
 # shows, titled by its name.
 t=$(today)
 ../tools/window-screenshot.sh "$pid" "$out/drop-before.png" || fail "no window to capture"
 send dragover 100 150 file "$(cd "$out" && pwd)/site/notes.txt"
 expect '^browser: drag over HostUIView taken$' "the list didn't take a file dragged over it"
-expect '^browser: rows settled$' "the pinned tab didn't make room for the file"
-../tools/window-screenshot.sh "$pid" "$out/drop-room.png" || fail "no window to capture"
+expect '^browser: drop line in pinned 0$' "no line marked the file's place above the pinned tab"
+../tools/window-screenshot.sh "$pid" "$out/drop-line.png" || fail "no window to capture"
 send dragdrop 100 150
 expect '^browser: drag dropped$' "the list didn't take the file let go over it"
 expect '^browser: dropped 1 in pinned 0$' "the file didn't drop above the pinned tab"
@@ -366,4 +369,4 @@ send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/drop-before.png, $out/drop-room.png, $out/dropped.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/drop-before.png, $out/drop-line.png, $out/dropped.png"
