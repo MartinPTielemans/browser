@@ -39,7 +39,7 @@ impl Shell {
     /// Where a swipe has taken the page of the Space it began at: with the fingers, but
     /// rubber-banding past the first and last Spaces, and past one Space either side. Past the
     /// first Space is the Library, its width away. A swipe in the Library goes back that far, to
-    /// the Space shown, and past where it opens takes the card on, on the Library's stiffer band.
+    /// the Space shown, and past where it opens takes it and the card on, on the Library's band.
     pub(super) fn swiped_to(&self, swipe: &Swipe) -> f32 {
         if swipe.library && swipe.way > 0. {
             return self.past_library(swipe.way);
