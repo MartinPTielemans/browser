@@ -2,8 +2,10 @@
 //! own that the host shows over the browser window, as its child. Under its input it lists the
 //! core's suggestions for what's typed, and the window grows down to fit them. While the first is
 //! selected, the input completes what's typed to it, as Chrome's address bar does. Opened from the
-//! URL field, it grows out of the field, as Dia's does (docs/ux-spec.md › Command bar). What it
-//! asks of the core and of its window goes through `Host`.
+//! URL field, it grows out of the field, as Dia's does (docs/ux-spec.md › Command bar). Tab on a
+//! row that hints a search engine, or a space after the engine's keyword, searches only with that
+//! engine until ⌫ leaves, as Chrome's keyword mode does. What it asks of the core and of its window
+//! goes through `Host`.
 
 use std::{rc::Rc, time::Instant};
 
@@ -13,13 +15,19 @@ use gpui::{
     WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size,
 };
 
-use crate::{shell, text_input::TextInput};
+use crate::{
+    shell,
+    text_input::{self, TextInput},
+};
 
 mod calculator;
 
 actions!(
     command_bar,
-    [Go, GoBeside, GoBehind, GoDotCom, Search, Dismiss, Next, Previous, First, Last, Remove]
+    [
+        Go, GoBeside, GoBehind, GoDotCom, Search, Dismiss, Next, Previous, First, Last, Remove,
+        EnterSite, LeaveSite
+    ]
 );
 
 const WIDTH: f32 = 640.;
@@ -47,6 +55,7 @@ const CARET: u32 = 0x4a77d4;
 const SELECTION: u32 = 0x787d_86b3;
 /// A command's shortcut chip (ours).
 const CHIP: u32 = 0xffff_ff14;
+const PLACEHOLDER_TEXT: &str = "Search or enter a URL";
 
 /// One of the core's suggestions for what's typed.
 #[derive(Default)]
@@ -66,6 +75,9 @@ pub struct Suggestion {
     pub shortcut: Option<SharedString>,
     /// What a sum typed comes to, which the row copies instead.
     pub result: Option<SharedString>,
+    /// The keyword of the search engine whose site search Tab enters on this row, and its name.
+    pub keyword: String,
+    pub site: SharedString,
 }
 
 impl From<shell::BarCommand> for Suggestion {
@@ -82,16 +94,18 @@ impl From<shell::BarCommand> for Suggestion {
 /// What the bar asks of the browser: of the core, for suggestions and pages, and of the host, for
 /// the bar's window. The browser's are calls to the core's C API; the tests' are recorded.
 pub trait Host {
-    /// Asks for the suggestions for `text`, the first completing it if `complete`. They come back
-    /// through `suggested`.
-    fn suggest(&self, text: &str, complete: bool);
+    /// Asks for the suggestions for `text`, the first completing it if `complete`, or the searches
+    /// for it in the site search of the engine whose keyword is `site`. They come back through
+    /// `suggested`.
+    fn suggest(&self, site: Option<&str>, text: &str, complete: bool);
     /// Takes the suggestion going to `url` out of the profile's history. The suggestions come
     /// again without it.
     fn remove_suggestion(&self, url: &str);
     /// The page the address bar goes to for `text` typed in it: the one it names, else a search.
     fn typed_url(&self, text: &str) -> Option<String>;
-    /// A search for `text` with the default search engine, even if it names a page.
-    fn search_url(&self, text: &str) -> Option<String>;
+    /// A search for `text` with the search engine whose keyword is `site`, else the default one,
+    /// even if it names a page.
+    fn search_url(&self, site: Option<&str>, text: &str) -> Option<String>;
     /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it unless
     /// `behind`.
     fn open_tab(&self, url: &str, behind: bool);
@@ -113,6 +127,16 @@ pub trait Host {
     fn dismiss(&self);
     /// The bar's shape changed as it grows, so its window's shadow has to follow.
     fn reshape(&self);
+}
+
+/// A search engine's site search, which the bar's searches stay in until the user leaves it, as in
+/// Chrome's keyword mode.
+struct Site {
+    keyword: String,
+    name: SharedString,
+    /// Tab entered it and nothing has been typed since, so leaving puts the keyword back without
+    /// the space after it, as Chrome does.
+    tabbed: bool,
 }
 
 /// Where the bar shows the page chosen.
@@ -143,6 +167,8 @@ pub struct CommandBar {
     suggested: String,
     /// The row ↩ takes.
     selected: usize,
+    /// The site search the bar is in, if any.
+    site: Option<Site>,
     /// While the bar grows out of the URL field: the field's box in the bar's window, and when its
     /// window was first on screen, where the grow starts.
     grow: Option<(Bounds<Pixels>, Option<Instant>)>,
@@ -166,8 +192,8 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
         KeyBinding::new("up", Previous, Some("CommandBar")),
         KeyBinding::new("ctrl-n", Next, Some("CommandBar")),
         KeyBinding::new("ctrl-p", Previous, Some("CommandBar")),
-        KeyBinding::new("tab", Next, Some("CommandBar")),
-        KeyBinding::new("shift-tab", Previous, Some("CommandBar")),
+        KeyBinding::new("tab", EnterSite, Some("CommandBar")),
+        KeyBinding::new("shift-tab", LeaveSite, Some("CommandBar")),
         KeyBinding::new("pageup", First, Some("CommandBar")),
         KeyBinding::new("pagedown", Last, Some("CommandBar")),
         KeyBinding::new("shift-delete", Remove, Some("CommandBar")),
@@ -194,7 +220,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
     };
     let window = cx.open_window(options, |window, cx| {
         let input = cx.new(|cx| {
-            TextInput::new("Search or enter a URL", cx)
+            TextInput::new(PLACEHOLDER_TEXT, cx)
                 .placeholder_color(rgba(PLACEHOLDER))
                 .caret_color(rgb(CARET))
                 .selection_color(rgba(SELECTION))
@@ -217,6 +243,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
                 rows: Vec::new(),
                 suggested: String::new(),
                 selected: 0,
+                site: None,
                 grow: None,
             }
         })
@@ -274,6 +301,7 @@ fn reset(
         .update(cx, |bar, window, cx| {
             bar.grow = grow.map(|grow| (grow, None));
             bar.target = target;
+            bar.site_left(cx);
             bar.asked = text.to_string();
             bar.complete = false;
             bar.completion.clear();
@@ -281,7 +309,7 @@ fn reset(
             bar.set_rows(String::new(), Vec::new(), window, cx);
             bar.input.update(cx, |input, cx| input.reset(text, window, cx));
             // The last query's suggestions are of no use now.
-            bar.host.suggest("", false);
+            bar.host.suggest(None, "", false);
             bar.host.clone()
         })
         .ok()
@@ -302,15 +330,22 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
     window
         .update(cx, |bar, window, cx| {
             // Older text's come after the bar has asked about newer.
-            if text != bar.asked {
+            if text != bar.request() {
                 return;
             }
             // check.sh reads these lines.
             let urls: Vec<String> = rows
                 .iter()
-                .map(|row| match row.tab {
-                    0 => row.url.clone(),
-                    tab => format!("{} tab {tab}", row.url),
+                .map(|row| {
+                    let tab = match row.tab {
+                        0 => String::new(),
+                        tab => format!(" tab {tab}"),
+                    };
+                    let site = match row.keyword.as_str() {
+                        "" => String::new(),
+                        keyword => format!(" site {keyword}"),
+                    };
+                    format!("{}{tab}{site}", row.url)
                 })
                 .collect();
             log!(
@@ -318,9 +353,12 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                 bar.asked_at.elapsed().as_secs_f64() * 1000.,
                 urls.join(", ")
             );
-            let rows = bar.with_commands(&text, rows, cx);
-            let rows = with_calculation(&text, rows);
-            bar.set_rows(text, rows, window, cx);
+            // A site search lists only its searches.
+            let rows = match bar.site {
+                Some(_) => rows,
+                None => with_calculation(&text, bar.with_commands(&text, rows, cx)),
+            };
+            bar.set_rows(bar.asked.clone(), rows, window, cx);
         })
         .ok();
 }
@@ -358,9 +396,26 @@ impl CommandBar {
             return;
         }
         // Chrome completes only typing at the end: not a deletion, a paste, or with the caret
-        // elsewhere.
+        // elsewhere, and not in a site search.
         let deleted = text.len() < length && selection.start <= start;
-        let complete = !deleted && !input.pasted() && selection == (text.len()..text.len());
+        let typing = !deleted && !input.pasted() && selection == (text.len()..text.len());
+        let complete = typing && self.site.is_none();
+        // A space typed after the keyword the first row hints enters its engine's site search, or
+        // an ideographic one, as Japanese input types, as in Chrome.
+        let hint = self.rows.first().filter(|row| {
+            self.site.is_none()
+                && self.suggested == self.asked
+                && !row.keyword.is_empty()
+                && row.keyword == self.asked
+        });
+        let spaced = typing && text.strip_suffix([' ', '\u{3000}']) == Some(self.asked.as_str());
+        if let Some(row) = hint.filter(|_| spaced) {
+            let (keyword, name) = (row.keyword.clone(), row.site.clone());
+            return self.enter_site(keyword, name, String::new(), false, window, cx);
+        }
+        if let Some(site) = self.site.as_mut().filter(|_| !text.is_empty()) {
+            site.tabbed = false;
+        }
         // While what's typed follows the completion, the rest of it stays until the core answers,
         // so it doesn't flicker.
         let completion = shown
@@ -378,7 +433,109 @@ impl CommandBar {
         self.suggested.clear();
         self.completion.clear();
         self.show_completion(completion, window, cx);
-        self.host.suggest(&self.asked, complete);
+        let site = self.site.as_ref().map(|site| site.keyword.as_str());
+        self.host.suggest(site, &self.asked, complete);
+    }
+
+    /// What the core was last asked for, as its suggestions name it: what was typed, after the
+    /// site search's keyword and a space.
+    fn request(&self) -> String {
+        match &self.site {
+            Some(site) => format!("{} {}", site.keyword, self.asked),
+            None => self.asked.clone(),
+        }
+    }
+
+    /// Enters the site search of the engine whose keyword is `keyword`, by Tab if `tabbed`, else
+    /// by Space, with `query` in the input.
+    fn enter_site(
+        &mut self,
+        keyword: String,
+        name: SharedString,
+        query: String,
+        tabbed: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // check.sh reads this line.
+        let by = if tabbed { "tab" } else { "space" };
+        log!("browser: command bar site search {keyword} by {by}");
+        let placeholder = format!("Search {name}").into();
+        self.input.update(cx, |input, cx| input.set_placeholder(placeholder, cx));
+        self.site = Some(Site { keyword, name, tabbed });
+        self.completion.clear();
+        let caret = query.len();
+        self.input.update(cx, |input, cx| input.set_text(query.into(), caret, window, cx));
+        cx.notify();
+    }
+
+    /// Leaves the site search, if the bar is in one, putting its keyword back before what was
+    /// typed, with the caret after it, as Chrome does. Returns whether it was in one.
+    fn leave_site(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(site) = self.site_left(cx) else {
+            return false;
+        };
+        // check.sh reads this line.
+        log!("browser: command bar leaves site search");
+        let space = if site.tabbed { "" } else { " " };
+        let prefix = format!("{}{space}", site.keyword);
+        let text = format!("{prefix}{}", self.input.read(cx).text());
+        self.input.update(cx, |input, cx| input.set_text(text.into(), prefix.len(), window, cx));
+        cx.notify();
+        true
+    }
+
+    /// Takes the bar out of its site search, if it's in one, and returns it.
+    fn site_left(&mut self, cx: &mut Context<Self>) -> Option<Site> {
+        let site = self.site.take()?;
+        self.input.update(cx, |input, cx| input.set_placeholder(PLACEHOLDER_TEXT.into(), cx));
+        Some(site)
+    }
+
+    /// Tab: enters the site search the selected row hints, keeping what was typed after its first
+    /// word, the keyword, as Chrome does. Else it selects the next row.
+    fn enter_site_or_next(&mut self, _: &EnterSite, window: &mut Window, cx: &mut Context<Self>) {
+        let hint = self.chosen().filter(|row| !row.keyword.is_empty() && self.site.is_none());
+        let Some((keyword, name)) = hint.map(|row| (row.keyword.clone(), row.site.clone())) else {
+            return self.select_next(true, window, cx);
+        };
+        let typed = self.typed(cx);
+        let query = typed.split_once(char::is_whitespace).map_or("", |(_, rest)| rest.trim_start());
+        self.enter_site(keyword, name, query.to_string(), true, window, cx);
+    }
+
+    /// ⇧Tab: leaves the site search, else selects the row before.
+    fn leave_site_or_previous(
+        &mut self,
+        _: &LeaveSite,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.leave_site(window, cx) {
+            self.select_next(false, window, cx);
+        }
+    }
+
+    /// ⌫ with the caret at the start of a site search's input leaves it.
+    fn backspace(
+        &mut self,
+        _: &text_input::Backspace,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.site.is_some() && self.input.read(cx).selection() == (0..0) {
+            self.leave_site(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    /// Where ↩ goes for `text` before its suggestions come: the page it names, else a search for
+    /// it, or in a site search, a search with that site's engine.
+    fn typed_url(&self, text: &str) -> Option<String> {
+        match &self.site {
+            Some(site) => self.host.search_url(Some(&site.keyword), text),
+            None => self.host.typed_url(text),
+        }
     }
 
     /// Shows `completion` after what was typed, selected, or no completion.
@@ -506,7 +663,7 @@ impl CommandBar {
             return;
         }
         // Before the suggestions for what's typed come, ↩ goes where the first of them will.
-        if let Some(url) = self.host.typed_url(&text) {
+        if let Some(url) = self.typed_url(&text) {
             self.go_to(&url, cx);
         }
     }
@@ -532,7 +689,7 @@ impl CommandBar {
         let url = match self.chosen() {
             Some(row) => Some(row.url.clone()),
             None if text.is_empty() => None,
-            None => self.host.typed_url(&text),
+            None => self.typed_url(&text),
         };
         if let Some(url) = url {
             // check.sh reads this line.
@@ -541,10 +698,12 @@ impl CommandBar {
         }
     }
 
-    /// ⌃↩: goes to www.<word>.com for a word typed, as Chrome does, and else where ↩ goes.
+    /// ⌃↩: goes to www.<word>.com for a word typed, as Chrome does, and else where ↩ goes, as in a
+    /// site search.
     fn go_dot_com(&mut self, _: &GoDotCom, window: &mut Window, cx: &mut Context<Self>) {
         let typed = self.typed(cx);
         let word = !typed.is_empty() && typed.chars().all(|c| c.is_alphanumeric() || c == '-');
+        let word = word && self.site.is_none();
         match word.then(|| self.host.typed_url(&format!("www.{typed}.com"))).flatten() {
             Some(url) => self.go_to(&url, cx),
             None => self.go(&Go, window, cx),
@@ -554,7 +713,8 @@ impl CommandBar {
     /// ⇧⌘↩: searches for what was typed, even if it names a page, where ↩ goes (Dia).
     fn search(&mut self, _: &Search, _: &mut Window, cx: &mut Context<Self>) {
         let typed = self.typed(cx);
-        if let Some(url) = self.host.search_url(&typed).filter(|_| !typed.is_empty()) {
+        let site = self.site.as_ref().map(|site| site.keyword.as_str());
+        if let Some(url) = self.host.search_url(site, &typed).filter(|_| !typed.is_empty()) {
             self.go_to(&url, cx);
         }
     }
@@ -649,12 +809,20 @@ impl CommandBar {
         cx.notify();
     }
 
-    fn dismiss(&mut self, _: &Dismiss, _: &mut Window, _: &mut Context<Self>) {
-        self.host.dismiss();
+    /// Esc leaves the site search first, then the bar.
+    fn dismiss(&mut self, _: &Dismiss, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.leave_site(window, cx) {
+            self.host.dismiss();
+        }
     }
 
     fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
         let dim = |text: SharedString| div().text_color(rgba(SECONDARY)).child(text);
+        let chip = |text: SharedString| {
+            dim(text).flex_none().px(px(5.)).rounded(px(4.)).bg(rgba(CHIP)).text_size(px(11.))
+        };
+        // Tab enters the site search the selected row hints (Chrome's "Search <site>").
+        let hint = index == self.selected && self.site.is_none() && !row.keyword.is_empty();
         div()
             .id(("suggestion", index))
             .h(px(ROW_HEIGHT))
@@ -680,16 +848,10 @@ impl CommandBar {
                 };
                 line.child(dim(action.into()).flex_none().ml_auto())
             })
-            .when_some(row.shortcut.clone(), |line, shortcut| {
-                line.child(
-                    dim(shortcut)
-                        .flex_none()
-                        .ml_auto()
-                        .px(px(5.))
-                        .rounded(px(4.))
-                        .bg(rgba(CHIP))
-                        .text_size(px(11.)),
-                )
+            .when_some(row.shortcut.clone(), |line, shortcut| line.child(chip(shortcut).ml_auto()))
+            .when(hint, |line| {
+                let search = dim(format!("Search {}", row.site).into()).flex_none().ml_auto();
+                line.child(search).child(chip("Tab".into()))
             })
     }
 }
@@ -749,6 +911,9 @@ impl Render for CommandBar {
                 .on_action(cx.listener(Self::search))
                 .on_action(cx.listener(Self::remove))
                 .on_action(cx.listener(Self::dismiss))
+                .on_action(cx.listener(Self::enter_site_or_next))
+                .on_action(cx.listener(Self::leave_site_or_previous))
+                .capture_action(cx.listener(Self::backspace))
                 .on_action(
                     cx.listener(|bar, _: &Next, window, cx| bar.select_next(true, window, cx)),
                 )
@@ -787,9 +952,21 @@ impl Render for CommandBar {
                                 .flex_none()
                                 .flex()
                                 .items_center()
+                                .gap(px(6.))
                                 .px(px(TEXT_X))
                                 .line_height(px(17.))
-                                .child(self.input.clone()),
+                                .when_some(self.site.as_ref(), |line, site| {
+                                    line.child(
+                                        div()
+                                            .flex_none()
+                                            .px(px(6.))
+                                            .py(px(2.))
+                                            .rounded(px(6.))
+                                            .bg(rgba(CHIP))
+                                            .child(site.name.clone()),
+                                    )
+                                })
+                                .child(div().flex_1().min_w_0().child(self.input.clone())),
                         )
                         .when(!rows.is_empty(), |bar| {
                             bar.child(div().flex().flex_col().p(px(ROW_INSET)).children(rows))

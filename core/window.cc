@@ -649,11 +649,14 @@ content::WebContents* Window::RestoreTab(
       /*extra_data=*/{}, /*from_session_restore=*/true, /*is_active_browser=*/std::nullopt);
 }
 
-void Window::Suggest(Profile* profile, const std::u16string& text, bool complete) {
+void Window::Suggest(Profile* profile,
+                     const std::u16string& keyword,
+                     const std::u16string& text,
+                     bool complete) {
   if (!suggestions_ || suggestions_->profile() != profile) {
     suggestions_ = std::make_unique<Suggestions>(id_, profile);
   }
-  suggestions_->Start(text, complete);
+  suggestions_->Start(keyword, text, complete);
 }
 
 void Window::RemoveSuggestion(const GURL& url) {

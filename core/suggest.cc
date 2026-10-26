@@ -24,6 +24,8 @@
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/autocomplete_provider.h"
 #include "components/omnibox/browser/autocomplete_result.h"
+#include "components/search_engines/template_url.h"
+#include "components/search_engines/template_url_service.h"
 #include "components/url_formatter/url_formatter.h"
 #include "third_party/metrics_proto/omnibox_event.pb.h"
 #include "url/gurl.h"
@@ -33,11 +35,13 @@ namespace browser_core {
 namespace {
 
 // Chrome's address bar's sources that read only what's on the device. Search, with search
-// suggestions off, adds just the search for what was typed.
+// suggestions off, adds just the search for what was typed, and Keyword the search engines' site
+// searches.
 constexpr int kProviders = AutocompleteProvider::TYPE_BOOKMARK | AutocompleteProvider::TYPE_BUILTIN |
                            AutocompleteProvider::TYPE_HISTORY_QUICK |
                            AutocompleteProvider::TYPE_HISTORY_URL |
-                           AutocompleteProvider::TYPE_SEARCH | AutocompleteProvider::TYPE_SHORTCUTS;
+                           AutocompleteProvider::TYPE_KEYWORD | AutocompleteProvider::TYPE_SEARCH |
+                           AutocompleteProvider::TYPE_SHORTCUTS;
 
 // As Chrome matches a suggestion to an open tab: by URL, without what doesn't change the page.
 GURL Stripped(const GURL& url, const TemplateURLService* engines) {
@@ -80,15 +84,22 @@ Suggestions::Suggestions(bc_id window, Profile* profile)
 
 Suggestions::~Suggestions() = default;
 
-void Suggestions::Start(const std::u16string& text, bool complete) {
+void Suggestions::Start(const std::u16string& keyword,
+                        const std::u16string& text,
+                        bool complete) {
+  keyword_ = keyword;
   text_ = text;
   if (text.empty()) {
     controller_.Stop(AutocompleteStopReason::kClobbered);
     Changed();
     return;
   }
-  AutocompleteInput input(text, metrics::OmniboxEventProto::OTHER, *classifier_);
+  // In a site search, Chrome's address bar asks for the keyword, a space and what was typed.
+  AutocompleteInput input(keyword.empty() ? text : keyword + u' ' + text,
+                          metrics::OmniboxEventProto::OTHER, *classifier_);
   input.set_prevent_inline_autocomplete(!complete);
+  input.set_in_keyword_mode(!keyword.empty());
+  input.set_allow_exact_keyword_match(!keyword.empty());
   controller_.Start(input);
 }
 
@@ -124,7 +135,7 @@ void Suggestions::Report() {
   }
   const TemplateURLService* engines = TemplateURLServiceFactory::GetForProfile(profile_);
   struct Row {
-    std::string url, text, detail, completion;
+    std::string url, text, detail, completion, keyword, site;
     bc_id tab = 0;
     bool typed_search = false;
     bool removable = false;
@@ -138,6 +149,11 @@ void Suggestions::Report() {
     const bool search = AutocompleteMatch::IsSearchType(match.type);
     // A page by its title, then its URL; a search by its words, then its engine.
     const bool titled = !search && !match.description.empty();
+    // An extension's keyword needs its events, which the bar doesn't send.
+    const TemplateURL* engine = match.associated_keyword.empty()
+                                    ? nullptr
+                                    : engines->GetTemplateURLForKeyword(match.associated_keyword);
+    const bool site_search = engine && engine->type() == TemplateURL::NORMAL;
     rows.push_back({
         .url = match.destination_url.spec(),
         .text = base::UTF16ToUTF8(titled ? match.description : match.contents),
@@ -149,6 +165,8 @@ void Suggestions::Report() {
         .tab = search || rows.empty() ? 0
                                       : TabAt(Stripped(match.destination_url, engines), *window,
                                               window->selected(), engines),
+        .keyword = site_search ? base::UTF16ToUTF8(engine->keyword()) : std::string(),
+        .site = site_search ? base::UTF16ToUTF8(engine->short_name()) : std::string(),
         .typed_search = match.type == AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
         .removable = match.SupportsDeletion(),
     });
@@ -159,9 +177,11 @@ void Suggestions::Report() {
     std::rotate(rows.begin() + 1, search, search + 1);
   }
   // Then well-known sites, in the rows Chrome's address bar leaves empty, so a new profile lists
-  // more than the search. They never go above the profile's own, or first, where ↩ goes.
-  const std::vector<PopularSite> sites =
-      rows.empty() ? std::vector<PopularSite>() : PopularSitesFor(text_);
+  // more than the search. They never go above the profile's own, or first, where ↩ goes, and a
+  // site search lists only searches.
+  const std::vector<PopularSite> sites = rows.empty() || !keyword_.empty()
+                                             ? std::vector<PopularSite>()
+                                             : PopularSitesFor(text_);
   for (const PopularSite& site : sites) {
     if (rows.size() >= AutocompleteResult::GetMaxMatches()) {
       break;
@@ -191,9 +211,12 @@ void Suggestions::Report() {
                            .detail = row.detail.c_str(),
                            .tab = row.tab,
                            .completion = row.completion.c_str(),
-                           .removable = row.removable});
+                           .removable = row.removable,
+                           .keyword = row.keyword.c_str(),
+                           .site = row.site.c_str()});
   }
-  const std::string text = base::UTF16ToUTF8(text_);
+  const std::string text =
+      base::UTF16ToUTF8(keyword_.empty() ? text_ : keyword_ + u' ' + text_);
   Host().window_suggestions(Host().context, window_, text.c_str(), suggestions.data(),
                             suggestions.size());
 }

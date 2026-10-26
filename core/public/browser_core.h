@@ -93,6 +93,12 @@ typedef struct bc_suggestion {
   const char* completion;
   // Whether bc_window_remove_suggestion can take it out of the profile's history.
   bool removable;
+  // The keyword of the search engine whose site search Tab enters on this row, as Chrome's address
+  // bar hints "Search <site>": what was typed names the engine's site, or the row's page does.
+  // Else "".
+  const char* keyword;
+  // That engine's name, such as "DuckDuckGo", or "".
+  const char* site;
 } bc_suggestion;
 
 // One of the archive's tabs: a Today tab that closed, as Arc's Library lists them.
@@ -172,9 +178,9 @@ typedef struct bc_host {
   // The tab's find in page changed: its find bar opened or closed, its text changed, or the page
   // counted matches or selected another.
   void (*tab_find_changed)(void* context, bc_id tab, const bc_find_state* state);
-  // The window's suggestions for |text|, the text bc_window_suggest was last given, best first.
-  // The first goes where Chrome's address bar goes for what was typed. They come again as more
-  // are found.
+  // The window's suggestions for |text|, the text bc_window_suggest was last given, after its
+  // keyword and a space if it had one, best first. The first goes where Chrome's address bar goes
+  // for what was typed. They come again as more are found.
   void (*window_suggestions)(void* context, bc_id window, const char* text,
                              const bc_suggestion* suggestions, size_t count);
   // The tab has closed, by bc_tab_close, its page, its window closing or quitting.
@@ -459,8 +465,11 @@ BC_EXPORT void bc_page_favicon(const char* url);
 // device, since search suggestions are off. Then window_suggestions, and
 // again as more are found. Empty text lists none. |complete| lets the first suggestion complete
 // |text|, which Chrome allows only while the user types at the end of the text: not after deleting
-// or pasting, with the caret elsewhere, or while an input method composes.
-BC_EXPORT void bc_window_suggest(bc_id window, const char* text, bool complete);
+// or pasting, with the caret elsewhere, or while an input method composes. Unless null, |keyword|
+// names the search engine whose site search the user entered, and the suggestions are its searches
+// for |text|, as in Chrome's keyword mode; window_suggestions then gives "<keyword> <text>".
+BC_EXPORT void bc_window_suggest(bc_id window, const char* keyword, const char* text,
+                                 bool complete);
 
 // Takes the window's removable suggestion going to |url| out of the profile's history and
 // bookmarks' suggestions, as ⇧⌦ does in Chrome's address bar. Then window_suggestions without it.
@@ -477,9 +486,10 @@ BC_EXPORT bc_id bc_tab_open(bc_id window, const char* url);
 // Returns 0 if |text| names neither.
 BC_EXPORT size_t bc_typed_url(const char* text, char* url, size_t capacity);
 
-// As bc_typed_url, the URL of a search for |text| with the default search engine, even when |text|
-// names a page. Returns 0 if there's no engine.
-BC_EXPORT size_t bc_search_url(const char* text, char* url, size_t capacity);
+// As bc_typed_url, the URL of a search for |text| with the search engine whose keyword is
+// |keyword|, or the default one if that's null, even when |text| names a page. Returns 0 if there's
+// no such engine.
+BC_EXPORT size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity);
 
 // Shows the tab's page at |frame| in its window, in place of the page the window showed. It keeps
 // its distance from the window's edges as the window resizes, and takes the keyboard if that page

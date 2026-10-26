@@ -29,8 +29,9 @@ class Suggestions : public AutocompleteController::Observer {
   Profile* profile() const { return profile_; }
 
   // Lists suggestions for |text|, and again as more are found. Empty text lists none. |complete|
-  // lets the first complete |text| inline.
-  void Start(const std::u16string& text, bool complete);
+  // lets the first complete |text| inline. Unless |keyword| is empty, they're the searches of the
+  // engine with that keyword, as in Chrome's keyword mode.
+  void Start(const std::u16string& keyword, const std::u16string& text, bool complete);
 
   // Takes the removable suggestion going to |url| out of the profile's history, and lists the
   // others again.
@@ -49,6 +50,7 @@ class Suggestions : public AutocompleteController::Observer {
   const raw_ptr<Profile> profile_;
   std::unique_ptr<ChromeAutocompleteSchemeClassifier> classifier_;
   AutocompleteController controller_;
+  std::u16string keyword_;
   std::u16string text_;
   bool report_posted_ = false;
   base::ScopedObservation<AutocompleteController, AutocompleteController::Observer> observation_{

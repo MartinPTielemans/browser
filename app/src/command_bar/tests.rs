@@ -24,7 +24,7 @@ fn search(text: &str) -> String {
 }
 
 impl Host for Recorder {
-    fn suggest(&self, _: &str, _: bool) {}
+    fn suggest(&self, _: Option<&str>, _: &str, _: bool) {}
 
     fn remove_suggestion(&self, url: &str) {
         self.record(format!("remove {url}"));
@@ -34,8 +34,11 @@ impl Host for Recorder {
         Some(if text.contains('.') { format!("https://{text}/") } else { search(text) })
     }
 
-    fn search_url(&self, text: &str) -> Option<String> {
-        Some(search(text))
+    fn search_url(&self, site: Option<&str>, text: &str) -> Option<String> {
+        Some(match site {
+            Some(site) => format!("https://{site}/?q={text}"),
+            None => search(text),
+        })
     }
 
     fn open_tab(&self, url: &str, behind: bool) {
@@ -300,4 +303,94 @@ fn a_sum_comes_after_the_first_row_and_return_on_it_copies_its_result(cx: &mut T
     // The search stays first, as the core put it, and the sum's result is the row after it.
     bar.keys("down enter");
     assert_eq!(bar.calls(), ["hide", "copy 84"]);
+}
+
+/// The first row for an engine's keyword typed, which hints its site search.
+fn hinting(keyword: &str) -> Suggestion {
+    let url = format!("https://{keyword}/");
+    Suggestion { keyword: keyword.into(), site: "Duck".into(), ..page(&url) }
+}
+
+#[gpui::test]
+fn tab_on_a_hinted_row_searches_its_site_until_backspace_leaves(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("duck.test");
+    bar.suggest("duck.test", vec![hinting("duck.test"), page("https://a.test/")]);
+    bar.keys("tab");
+    assert_eq!(bar.input(), (String::new(), 0..0));
+    // ⌫ in the middle of the words stays in the site search.
+    bar.type_text("cats");
+    bar.keys("backspace");
+    assert_eq!(bar.input(), ("cat".into(), 3..3));
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://duck.test/?q=cat", "hide"]);
+
+    // Left before anything is typed, the keyword comes back as it was, without a space.
+    let mut bar = Bar::new(cx);
+    bar.type_text("duck.test");
+    bar.suggest("duck.test", vec![hinting("duck.test")]);
+    bar.keys("tab backspace");
+    assert_eq!(bar.input(), ("duck.test".into(), 9..9));
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://duck.test/", "hide"]);
+}
+
+#[gpui::test]
+fn tab_on_a_row_without_a_hint_selects_the_next(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), hinting("duck.test"), page("https://a.test/")]);
+    bar.keys("tab");
+    // Now on the hinted row, Tab enters its site search.
+    bar.keys("tab");
+    assert_eq!(bar.input(), (String::new(), 0..0));
+
+    // It keeps the words after the first, the keyword.
+    let mut bar = Bar::new(cx);
+    bar.type_text("duck.test cats");
+    bar.suggest("duck.test cats", vec![hinting("duck.test")]);
+    bar.keys("tab");
+    assert_eq!(bar.input(), ("cats".into(), 4..4));
+}
+
+#[gpui::test]
+fn a_space_after_the_hinted_keyword_searches_its_site(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("duck.test");
+    bar.suggest("duck.test", vec![hinting("duck.test")]);
+    bar.type_text(" ");
+    assert_eq!(bar.input(), (String::new(), 0..0));
+    // The site's searches only, from the core, which names them by the keyword and the words.
+    bar.type_text("cats");
+    bar.suggest("duck.test cats", vec![page("https://duck.test/?q=cats&ia=web")]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://duck.test/?q=cats&ia=web", "hide"]);
+
+    // So does Japanese input's space.
+    let mut bar = Bar::new(cx);
+    bar.type_text("duck.test");
+    bar.suggest("duck.test", vec![hinting("duck.test")]);
+    bar.type_text("\u{3000}");
+    assert_eq!(bar.input(), (String::new(), 0..0));
+
+    // Esc leaves, keeping the space, and then closes the bar.
+    let mut bar = Bar::new(cx);
+    bar.type_text("duck.test");
+    bar.suggest("duck.test", vec![hinting("duck.test")]);
+    bar.type_text(" cats");
+    bar.keys("escape");
+    assert_eq!(bar.input(), ("duck.test cats".into(), 10..10));
+    bar.keys("escape");
+    assert_eq!(bar.calls(), ["dismiss"]);
+}
+
+#[gpui::test]
+fn a_space_after_other_text_stays_in_it(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("duck");
+    bar.suggest("duck", vec![Suggestion { completion: ".test".into(), ..hinting("duck.test") }]);
+    bar.type_text(" ");
+    assert_eq!(bar.input(), ("duck ".into(), 5..5));
+    bar.keys("enter");
+    assert_eq!(bar.calls(), [format!("open {}", search("duck")), "hide".into()]);
 }

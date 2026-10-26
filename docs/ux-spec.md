@@ -523,7 +523,15 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 - Only hosts the user has typed are eligible: typed once for a host, twice for a deeper URL. Bookmark-only and open-tab-only hosts are listed but don't inline (Chrome).
 - → or ⌘→ accepts the completion, and so does a click at its end. A ⌫ after accepting deletes one character and doesn't complete again.
 
-**Site search.** Tab on a hinted row, or Space after an exact host or engine keyword, enters the site's search. ⌫ in the empty field leaves it and restores the text, keeping the space when Space entered it, and the bar stays open (Chrome).
+**Site search** (Chrome's keyword mode, O)
+
+- A row hints a search engine when what was typed starts with the engine's keyword, its site's host such as duckduckgo.com, or when the row's page is on that site. Each engine hints on one row at most.
+- Tab on the selected row, if it hints, searches with that engine alone, keeping what was typed after the first word. So does a space typed right after the keyword the first row hints, or Japanese input's ideographic space, but not a pasted one.
+- ⌫ with the caret at the start, ⇧Tab or Esc leaves it and puts the keyword back before what was typed, with the caret after it. The space comes back too, unless Tab entered it and nothing was typed since. The bar stays open.
+- Ours (*interim*, until Arc's is measured):
+  - The selected row that hints shows "Search <engine>" dimmed and a Tab chip at its right.
+  - In the search, the engine's name is a chip before the input, whose placeholder is "Search <engine>".
+  - The rows are the core's searches only, without commands, sums or well-known sites. Nothing is listed until something is typed, and ↩ does nothing until then.
 
 **Keys**
 

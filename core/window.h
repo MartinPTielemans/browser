@@ -163,8 +163,12 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // shows for a favorite. Shows it, and its page loads. Returns its id, or 0.
   bc_id Duplicate(bc_id tab);
 
-  // Lists the command bar's suggestions for |text|, from |profile|. See bc_window_suggest.
-  void Suggest(Profile* profile, const std::u16string& text, bool complete);
+  // Lists the command bar's suggestions for |text|, from |profile|, in |keyword|'s site search
+  // unless it's empty. See bc_window_suggest.
+  void Suggest(Profile* profile,
+               const std::u16string& keyword,
+               const std::u16string& text,
+               bool complete);
 
   // Takes a suggestion out of the profile's history. See bc_window_remove_suggestion.
   void RemoveSuggestion(const GURL& url);

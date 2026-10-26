@@ -8,9 +8,10 @@
 # it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing the last
 # tab leaves the Space empty, where ⌘T still works. Mute/Unmute Tab mutes a tab, its row shows a
 # speaker while it plays, crossed out while it's muted, and a click on it unmutes the tab. There ⇧⌦
-# takes a page out of history, ⇧⌘↩ searches for what was typed, and ↩ on a sum's row copies its
-# result. The command bar's tests, in src/command_bar/tests.rs, have the rest of its keys. Reports
-# how long switches take.
+# takes a page out of history, ⇧⌘↩ searches for what was typed, Tab on the row that hints a search
+# engine, or a space after its keyword, searches with that engine alone until ⌫ leaves, and ↩ on a
+# sum's row copies its result. The command bar's tests, in src/command_bar/tests.rs, have the rest
+# of its keys. Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, and p in it plays a quiet tone until x. The app asks Chrome to trace its tab switches, timed
@@ -78,7 +79,7 @@ c=$tab
 expect_tabs "$c $b $a" "$c" "after opening two tabs"
 ../tools/window-screenshot.sh "$pid" "$out/tabs.png" || fail "no window to capture"
 
-# The command bar's last suggestions, as "<url>[ tab <id>]" a line.
+# The command bar's last suggestions, as "<url>[ tab <id>][ site <keyword>]" a line.
 suggestions() {
   grep '^browser: command bar suggestions' "$log" | tail -1 | sed 's/^[^:]*: [^:]* ms: //' |
     tr -s ', ' '\n ' | sed 's/^ //'
@@ -240,6 +241,41 @@ send key return shift cmd
 expect '^browser: command bar go https://duckduckgo.com/?q=example.com$' \
   "⇧⌘↩ didn't search for what was typed: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect '^browser: command bar hidden$' "⇧⌘↩ didn't close the command bar"
+# Site search, as Chrome's keyword mode: Tab on the row that hints the default engine searches
+# with it alone, ⌫ in its empty field leaves it, keeping the keyword and a space, and a space typed
+# after the keyword enters it again.
+listed='^browser: command bar suggestions "duckduckgo.com'
+hint="[0-9.]* ms: [^,]* site duckduckgo.com"
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type duckduckgo.com
+expect "$listed\" in $hint" \
+  "the command bar's first row didn't hint DuckDuckGo's site search: $(suggestions | tr '\n' ' ')"
+../tools/window-screenshot.sh "$pid" "$out/site-hint.png" || fail "no window to capture"
+send key tab
+expect '^browser: command bar site search duckduckgo.com by tab$' \
+  "Tab on the row that hints DuckDuckGo didn't enter its site search"
+send type cats
+expect "$listed cats\" in [0-9.]* ms: https://duckduckgo.com/?q=cats" \
+  "the site search didn't list DuckDuckGo's search first: $(suggestions | tr '\n' ' ')"
+../tools/window-screenshot.sh "$pid" "$out/site-search.png" || fail "no window to capture"
+for _ in 1 2 3 4 5; do send key backspace; done
+expect '^browser: command bar leaves site search$' \
+  "⌫ in the site search's empty field didn't leave it"
+expect '^browser: command bar drew "duckduckgo.com "$' \
+  "leaving the site search didn't put the keyword and the space back"
+send key backspace
+expect "$listed\" in $hint" \
+  "the command bar didn't hint DuckDuckGo's site search again: $(suggestions | tr '\n' ' ')"
+send type ' dogs'
+expect '^browser: command bar site search duckduckgo.com by space$' \
+  "a space after DuckDuckGo's keyword didn't enter its site search"
+expect "$listed dogs\" in " "the site search didn't list DuckDuckGo's searches for what was typed"
+send key return
+went=$(grep '^browser: command bar go' "$log" | tail -1)
+expect '^browser: command bar go https://duckduckgo.com/?q=dogs' \
+  "↩ in the site search didn't search DuckDuckGo: $went"
+expect '^browser: command bar hidden$' "↩ in the site search didn't close the command bar"
 # A sum's result is the row after the first, and ↩ on it copies the result, to a pasteboard of the
 # run's own.
 send key t cmd
@@ -281,6 +317,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ↩ on a sum's row copies its result, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
+echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, and ↩ on a sum's row copies its result, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/empty.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/empty.png"

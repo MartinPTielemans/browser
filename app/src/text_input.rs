@@ -1,8 +1,8 @@
 // Adapted from Zed's crates/gpui/examples/input.rs (https://github.com/zed-industries/zed, commit
 // b36b283021c48f1712714b8a0e2ad6ffb578920b). Copyright Zed Industries, Inc. Licensed under the
 // Apache License, Version 2.0. Changes: a constructor, `text`, `composing`, `selection`, `pasted`,
-// `reset`, `complete`, a placeholder colour, key bindings scoped to the field, ⌘← and ⌘→ as Home
-// and End, and no styling of its own.
+// `reset`, `complete`, `set_text`, a placeholder colour, `set_placeholder`, key bindings scoped to
+// the field, ⌘← and ⌘→ as Home and End, and no styling of its own.
 //
 //! A single-line text field, with IME support through GPUI's input handler. GPUI has no text
 //! field of its own; Zed's is its editor.
@@ -376,6 +376,26 @@ impl TextInput {
         self.last_bounds = None;
         self.is_selecting = false;
         window.notify_text_input_changed(&self.focus_handle);
+        cx.notify();
+    }
+
+    /// Shows `text` with the caret at byte `caret`, nothing selected.
+    pub fn set_text(
+        &mut self,
+        text: SharedString,
+        caret: usize,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.selected_range = caret..caret;
+        self.selection_reversed = false;
+        self.content = text;
+        window.notify_text_input_changed(&self.focus_handle);
+        cx.notify();
+    }
+
+    pub fn set_placeholder(&mut self, placeholder: SharedString, cx: &mut Context<Self>) {
+        self.placeholder = placeholder;
         cx.notify();
     }
 
