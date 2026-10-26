@@ -22,7 +22,7 @@ use super::{
 use crate::text_input::TextInput;
 
 /// Where the card's left edge goes while the Library is open: the Library's right edge, which is
-/// this for Downloads and Archived Tabs and `SPACES_WIDTH` for Spaces.
+/// this for Downloads and Archived Tabs and `spaces_width` for Spaces.
 const LIBRARY_WIDTH: f32 = 417.;
 /// The push, on Arc's measured spring (1 run, rms 1.0 pt). The Library comes with it from its own
 /// width to the left, so they meet as they stop.
@@ -43,12 +43,15 @@ const SIDEBAR_FADE_IN: f32 = 0.13;
 /// covers the sidebar up to its edge. Ours has no fill, and cut there the sidebar looks sliced
 /// along a line with nothing on it, so it fades in over the sidebar as the sidebar fades out.
 /// (Arc 1.170 at 2×, a slow swipe open and one closed, the same both ways, in its Spaces section,
-/// whose card goes 192 to where the swipe opens it.)
+/// whose card goes 192 to where the swipe opens it.) The Spaces section moves as `receding` says.
 const RECEDE_SPAN: f32 = 0.66;
 const RECEDE_SCALE: f32 = 0.076;
 pub(super) const RECEDE_X: f32 = 128.;
 const LIBRARY_LAG: f32 = 0.29;
 const LIBRARY_LAG_SPEED: f32 = 0.92;
+/// Under the Spaces section the sidebar is gone by 0.48 of the way (Arc 1.170 rec, three Spaces,
+/// both ways), where the older recording above had 0.66.
+const SPACES_RECEDE_SPAN: f32 = 0.48;
 /// Fingers going on past where the Library opens take it on with the card, a quarter of their way
 /// at first and never 80 (ours, as Arc's isn't recorded): about as far as the Space pages' rubber
 /// band on a short pull, so it gives, and half as far on a long one, so it pulls back.
@@ -82,18 +85,20 @@ const LIBRARY_PLATE: u32 = 0xffffff17;
 /// The back button, at the column's bottom.
 pub(super) const LIBRARY_BACK_INSET: f32 = 8.;
 
-/// The Spaces section (Arc 1.170 cap, one Space): the Library is 480 wide, and a card per Space
-/// starts 28 after the column, 240 wide and as tall as the window less 48 above and below, with
-/// Arc's blue + 33 after the last, 30 across and halfway down. The card is the Space's gradient at
-/// radius 14, with its list drawn as the sidebar draws it, and its name's row has a brush at its
-/// end, 28 square, 13 from the card's right. Arc's card has no search field over it.
-const SPACES_WIDTH: f32 = 480.;
+/// The Spaces section (Arc 1.170 cap, one Space, and rec, three): a card per Space starts 28 after
+/// the column, 240 wide, 24 apart and as tall as the window less 48 above and below, with Arc's
+/// blue + 33 after the last, 30 across and halfway down, and the Library ends 37 after it, so it's
+/// 216 + 264 a Space wide. The card is the Space's gradient at radius 14, with its list drawn as
+/// the sidebar draws it, and its name's row has a brush at its end, 28 square, 13 from the card's
+/// right. Arc's card has no search field over it.
 const SPACES_LEFT: f32 = 28.;
 const SPACES_INSET: f32 = 48.;
 const CARD_WIDTH: f32 = 240.;
 const CARD_RADIUS: f32 = 14.;
-/// Ours: Arc's capture had one card, so how far apart they are isn't known.
-const CARD_GAP: f32 = 16.;
+const CARD_GAP: f32 = 24.;
+/// Ours (*interim*, as Arc's recording never ran out of room): the section grows until the page
+/// beside it would be narrower than this, and its cards scroll across past that.
+const SPACES_PAGE: f32 = 400.;
 /// The name's row in the card, 33 down to its middle as in Arc, with the rows 52 down.
 const CARD_NAME_TOP: f32 = 14.;
 const CARD_NAME_HEIGHT: f32 = 38.;
@@ -294,14 +299,6 @@ impl Section {
             Section::Archive => "archive",
         }
     }
-
-    /// How wide the Library is with this section in it.
-    fn width(self) -> f32 {
-        match self {
-            Section::Spaces => SPACES_WIDTH,
-            _ => LIBRARY_WIDTH,
-        }
-    }
 }
 
 /// A line of a Space's card.
@@ -427,9 +424,18 @@ impl Shell {
         (self.library_width() - self.card_left()) * self.library_out()
     }
 
-    /// How wide the Library is: its section's, and on its way to another's after a click on it.
+    /// How wide the Library is with `section` in it: Spaces as wide as its cards, in this window.
+    pub(super) fn section_width(&self, section: Section) -> f32 {
+        match section {
+            Section::Spaces => spaces_width(self.spaces.len(), f32::from(self.viewport.width)),
+            _ => LIBRARY_WIDTH,
+        }
+    }
+
+    /// How wide the Library is: its section's, and on its way to another's after a click on it, or
+    /// as Spaces come and go.
     pub(super) fn library_width(&self) -> f32 {
-        let to = self.section.width();
+        let to = self.section_width(self.section);
         let Some((from, start)) = self.library_resize else {
             return to;
         };
@@ -477,7 +483,7 @@ impl Shell {
     /// fast as the Library comes and back late as it goes.
     pub(super) fn sidebar_opacity(&self) -> f32 {
         let Some((from, start)) = self.clicked_fade() else {
-            return receded_opacity(self.library_out());
+            return self.receding().sidebar;
         };
         let shown = if self.library_open { 0. } else { 1. };
         let t = start.elapsed().as_secs_f32();
@@ -497,14 +503,18 @@ impl Shell {
         }
     }
 
+    /// Where the Library is as the sidebar recedes under it with the card.
+    fn receding(&self) -> Receding {
+        receding(self.section, self.library_out(), self.library_width(), self.card_left())
+    }
+
     /// How far the Library's right edge has come to the card's: 0 at the window's edge and 1 there,
     /// where it stops, to go on past only with the card (`library_past`). After a click it comes
-    /// with the card; with the sidebar receding, late (`LIBRARY_LAG`).
+    /// with the card; with the sidebar receding, as `receding` says.
     pub(super) fn library_edge(&self) -> f32 {
-        let out = self.library_out();
         match self.clicked_fade() {
-            Some(_) => out.min(1.),
-            None => receding_edge(out),
+            Some(_) => self.library_out().min(1.),
+            None => self.receding().edge,
         }
     }
 
@@ -512,7 +522,7 @@ impl Shell {
     fn library_past(&self) -> f32 {
         match self.clicked_fade() {
             Some(_) => 0.,
-            None => (self.library_width() - self.card_left()) * (self.library_out() - 1.).max(0.),
+            None => self.receding().past,
         }
     }
 
@@ -522,11 +532,11 @@ impl Shell {
         self.clicked_fade().map(|_| self.library_edge() * self.library_width())
     }
 
-    /// The Library's opacity: whole after a click, and fading in as the sidebar recedes.
+    /// The Library's opacity: whole after a click, and as the sidebar recedes, as `receding` says.
     fn library_opacity(&self) -> f32 {
         match self.clicked_fade() {
             Some(_) => 1.,
-            None => receding_library_opacity(self.library_out()),
+            None => self.receding().opacity,
         }
     }
 
@@ -601,7 +611,7 @@ impl Shell {
     pub(super) fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
         // Ours: the Library goes to the new section's width on the push's spring, as Arc's
         // isn't recorded.
-        if self.library.is_some() && section.width() != self.section.width() {
+        if self.library.is_some() && self.section_width(section) != self.library_width() {
             self.library_resize = Some((self.library_width(), Instant::now()));
         }
         self.section = section;
@@ -624,8 +634,12 @@ impl Shell {
             list: ListState::new(0, ListAlignment::Top, px(ARCHIVE_OVERDRAW)),
             _search: observe,
         });
-        // check.sh waits for this line.
+        // check.sh waits for these lines.
         log!("browser: library section {}", section.name());
+        if section == Section::Spaces {
+            let (count, width) = (self.spaces.len(), self.section_width(section));
+            log!("browser: library spaces {count} wide {width}");
+        }
         self.filter(true, cx);
     }
 
@@ -652,8 +666,8 @@ impl Shell {
             self.library_resize = None;
         }
         if let Some((from, start)) = self.library_resize {
-            let t = start.elapsed().as_secs_f32();
-            match spring_to(t, from, self.section.width(), 0., LIBRARY_RESPONSE, LIBRARY_DAMPING) {
+            let (t, to) = (start.elapsed().as_secs_f32(), self.section_width(self.section));
+            match spring_to(t, from, to, 0., LIBRARY_RESPONSE, LIBRARY_DAMPING) {
                 Some(_) => window.request_animation_frame(),
                 None => self.library_resize = None,
             }
@@ -1574,14 +1588,60 @@ fn card_row(depth: usize, plate: gpui::Div) -> AnyElement {
     row_box().pl(px(PLATE_INSET + depth as f32 * FOLDER_INDENT)).child(plate).into_any_element()
 }
 
-/// The sidebar's opacity as it recedes with the Library `out` (`library_out`).
-fn receded_opacity(out: f32) -> f32 {
-    (1. - out / RECEDE_SPAN).clamp(0., 1.)
+/// Where a card's left edge is in the Spaces section, the `index`th from the Library's left.
+fn card_x(index: usize) -> f32 {
+    COLUMN_WIDTH + SPACES_LEFT + index as f32 * (CARD_WIDTH + CARD_GAP)
 }
 
-/// The Library's opacity as the sidebar recedes with it `out`: what the sidebar has lost.
-fn receding_library_opacity(out: f32) -> f32 {
-    1. - receded_opacity(out)
+/// Where the +'s left edge is after `cards` cards.
+fn plus_x(cards: usize) -> f32 {
+    card_x(cards.max(1) - 1) + CARD_WIDTH + PLUS_GAP
+}
+
+/// How wide the Spaces section is with `cards` of them in a window `window` wide: to the room
+/// after the +, but leaving the page `SPACES_PAGE`, and never narrower than with one card.
+fn spaces_width(cards: usize, window: f32) -> f32 {
+    let width = |cards| plus_x(cards) + PLUS_SIZE + PLUS_AFTER;
+    width(cards).min(window - SPACES_PAGE).max(width(1))
+}
+
+/// Where the Library is as the sidebar recedes under it.
+struct Receding {
+    /// How far its right edge has come to where it opens (`library_edge`).
+    edge: f32,
+    opacity: f32,
+    /// How far, in points, it has gone on past where it opens.
+    past: f32,
+    /// The sidebar's opacity.
+    sidebar: f32,
+}
+
+/// Where the Library with `section` in it, `width` wide, is with the card `out` of its way there
+/// (`library_out`) from `card_left`. Spaces is one opaque sheet at the card's pace all the way,
+/// so its cards pass over the sidebar, and on past where it opens too, 1.4 times the card's way
+/// with three Spaces (Arc 1.170 rec, three Spaces). The others come late and fade in over the
+/// sidebar, and past where they open go the card's way (the older recording, `LIBRARY_LAG`).
+fn receding(section: Section, out: f32, width: f32, card_left: f32) -> Receding {
+    let past = (out - 1.).max(0.);
+    match section {
+        Section::Spaces => Receding {
+            edge: out.min(1.),
+            opacity: 1.,
+            past: width * past,
+            sidebar: receded_opacity(out, SPACES_RECEDE_SPAN),
+        },
+        _ => Receding {
+            edge: receding_edge(out),
+            opacity: 1. - receded_opacity(out, RECEDE_SPAN),
+            past: (width - card_left) * past,
+            sidebar: receded_opacity(out, RECEDE_SPAN),
+        },
+    }
+}
+
+/// The sidebar's opacity as it recedes with the Library `out` (`library_out`), gone by `span`.
+fn receded_opacity(out: f32, span: f32) -> f32 {
+    (1. - out / span).clamp(0., 1.)
 }
 
 /// Whether the Library's panel, `width` wide with its edge `edge` of the way (`library_edge`), is
@@ -1640,9 +1700,10 @@ fn of(received: i64, total: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, LIBRARY_LAG, Line,
-        RECEDE_SPAN, Space, bar_drawn, download_menu_items, downloads_progress, library_band,
-        panel_at_rest, receded_opacity, receding_edge, receding_library_opacity as library,
+        Download, DownloadAction, DownloadChoice, DownloadState, LIBRARY_BAND, LIBRARY_LAG,
+        LIBRARY_WIDTH, Line, RECEDE_SPAN, Section, Space, bar_drawn, card_x, download_menu_items,
+        downloads_progress, library_band, panel_at_rest, plus_x, receding, receding_edge,
+        spaces_width,
     };
     use crate::shell::sidebar::window_buttons_at;
     use crate::shell::{Folders, Split, rubber_band};
@@ -1725,19 +1786,64 @@ mod tests {
         assert!(library_band(600.) < library_band(2000.) && library_band(2000.) < LIBRARY_BAND);
     }
 
-    /// Fingers bringing the Library out fade it in over the sidebar as the sidebar fades out, so
-    /// neither is cut: faint as its edge comes, and whole once the sidebar is gone.
+    /// Fingers bringing out Downloads or Archived Tabs fade the Library in over the sidebar as the
+    /// sidebar fades out, so neither is cut: faint as its edge comes, and whole once the sidebar is
+    /// gone.
     #[test]
     fn the_library_fades_in_as_the_sidebar_recedes() {
-        assert!(library(LIBRARY_LAG) < 0.5 && receding_edge(LIBRARY_LAG) == 0.);
-        assert_eq!(library(RECEDE_SPAN), 1.);
-        assert_eq!(receded_opacity(RECEDE_SPAN), 0.);
+        let at = |out| receding(Section::Archive, out, LIBRARY_WIDTH, 288.);
+        assert!(at(LIBRARY_LAG).opacity < 0.5 && at(LIBRARY_LAG).edge == 0.);
+        assert_eq!(at(RECEDE_SPAN).opacity, 1.);
+        assert_eq!(at(RECEDE_SPAN).sidebar, 0.);
         let mut last = 0.;
         for step in 0..=100 {
             let out = step as f32 / 100.;
-            assert!(library(out) >= last, "the Library faded back at {out}");
-            last = library(out);
+            assert!(at(out).opacity >= last, "the Library faded back at {out}");
+            last = at(out).opacity;
         }
+    }
+
+    /// The Spaces section is as wide as Arc's: 480 with one Space and 1008 with three, the cards
+    /// 264 apart from 140 and the + 33 after the last, until the page beside it would get too
+    /// narrow, and never narrower than with one card.
+    #[test]
+    fn the_spaces_section_grows_with_its_spaces() {
+        assert_eq!(spaces_width(1, 1800.), 480.);
+        assert_eq!(spaces_width(3, 1800.), 1008.);
+        assert_eq!([card_x(0), card_x(1), card_x(2)], [140., 404., 668.]);
+        assert_eq!(plus_x(3), 941.);
+        assert_eq!(spaces_width(10, 1800.), 1400.);
+        assert_eq!(spaces_width(3, 1200.), 800.);
+        assert_eq!(spaces_width(3, 700.), 480.);
+        assert_eq!(spaces_width(0, 1800.), 480.);
+    }
+
+    /// With three Spaces in Arc's 1800-wide window, the card going from 288 to 1008, the Library
+    /// is one opaque sheet whose edge keeps the card's pace, as measured frame by frame, the
+    /// sidebar under it gone by 0.48 of the way, and past where it opens it goes on 1.4 times as
+    /// far as the card.
+    #[test]
+    fn the_spaces_section_comes_in_with_the_card() {
+        let at = |out| receding(Section::Spaces, out, 1008., 288.);
+        // The page card's left and the second card's, measured, both ways.
+        let cards = [(565., -216.), (630., -125.5), (734.5, 21.), (905., 260.), (947.5, 320.)];
+        for (page, red) in cards {
+            let receding = at((page - 288.) / 720.);
+            assert_eq!(receding.opacity, 1., "the Library faded with the card at {page}");
+            let left = (receding.edge - 1.) * 1008. + card_x(1);
+            assert!((left - red).abs() < 2., "the card at {left}, not {red}");
+        }
+        // How far the card has gone and the sidebar's opacity, measured, both ways.
+        let sidebars = [(0.17, 0.66), (0.32, 0.36), (0.43, 0.05), (0.16, 0.68), (0.38, 0.22)];
+        for (out, sidebar) in sidebars {
+            let faded = at(out).sidebar;
+            assert!((faded - sidebar).abs() < 0.06, "the sidebar at {faded} at {out}");
+        }
+        assert_eq!(at(0.48).sidebar, 0.);
+        assert_eq!(at(1.).edge, 1.);
+        let past = at(1. + 72. / 720.);
+        assert_eq!(past.edge, 1.);
+        assert!((past.past / 72. - 1.4).abs() < 0.001, "{} past its end", past.past);
     }
 
     /// How the window's buttons are drawn with the Library `out` of the way (`library_out`),

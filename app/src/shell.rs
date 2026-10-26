@@ -1366,6 +1366,7 @@ impl Shell {
         // check.sh reads these lines.
         let ids: Vec<String> = spaces.iter().map(|(id, ..)| id.to_string()).collect();
         log!("browser: spaces {}", ids.join(" "));
+        let width = self.library_width();
         let mut old = std::mem::take(&mut self.spaces);
         self.spaces = spaces
             .into_iter()
@@ -1435,6 +1436,10 @@ impl Shell {
         {
             self.renaming = None;
         }
+        // The Spaces section springs to its width as cards come and go, as on a section's change.
+        if self.library.is_some() && self.library_width() != width {
+            self.library_resize = Some((width, Instant::now()));
+        }
         if self.show_favorites() {
             self.log_favorites();
         }
@@ -1482,12 +1487,13 @@ impl Shell {
             self.swiped = true;
         }
         // A Space shown some other way slides in from its side, pushing the one before out. One a
-        // swipe settles on is moving already, and one a pull made shows where it is.
-        let pulled = self.pulled_space_shown(space);
+        // swipe settles on is moving already, one a pull made shows where it is, and one shown as
+        // the Library moves shows in its place under it.
+        let in_place = self.pulled_space_shown(space) || self.library_moving();
         let index = |id| self.spaces.iter().position(|other| other.id == id);
         let width = self.width();
         if !self.settle.as_ref().is_some_and(|settle| settle.space == space)
-            && !pulled
+            && !in_place
             && let (Some(from), Some(to)) = (index(before), index(space))
             && from != to
         {
@@ -2227,6 +2233,12 @@ impl Render for Shell {
         // Full screen has no window buttons, so the panel draws none.
         let buttons = self.library_buttons() && !window.is_fullscreen();
         let library = library.then(|| self.library_panel(buttons, cx));
+        // The Spaces section's cards slide in over the receding sidebar, as Arc's do; the other
+        // sections fade in under it, its buttons receding over them.
+        let (under, over) = match self.section {
+            Section::Spaces => (None, library),
+            _ => (library, None),
+        };
         // The sidebar leaves with the card's edge, all of it by the time the edge stops.
         let width = self.width();
         let sidebar_left = (card_left - width) * width / (width - CARD_INSET);
@@ -2295,8 +2307,9 @@ impl Render for Shell {
             // The page views go over the cards, as native views.
             .children(self.cards())
             .children(self.pane_gaps(cx))
-            .children(library)
+            .children(under)
             .children(sidebar)
+            .children(over)
             .children(edge)
             .child(self.scroll_listener(true, cx))
     }
