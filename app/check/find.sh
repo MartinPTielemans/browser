@@ -219,12 +219,11 @@ send menu "Zoom In"
 expect '^browser: title [0-9]* zoom 110$' "the View menu's Zoom In didn't zoom the page in"
 send key 1 cmd
 expect "^browser: selected $second" "⌘1 didn't show the second tab"
-send state
-awk -v state="browser: drive $step: state" '
-  /^browser: zoom hud shown$/ { hidden = 0 }
-  /^browser: zoom hud hidden$/ { hidden = 1 }
-  $0 == state { exit !hidden }' "$log" ||
-  fail "the zoom HUD stayed over the tab shown in place of the one zoomed"
+# It shrinks out over 70 ms, as Arc's does on a tab switch, so it's gone well before its 5 s are up,
+# which would take it anyway.
+gone() { sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: zoom hud hidden$'; }
+for _ in $(seq 20); do gone && break; sleep 0.1; done
+gone || fail "the zoom HUD stayed over the tab shown in place of the one zoomed"
 send key 2 cmd
 expect "^browser: selected $first" "⌘2 didn't show the first tab again"
 send key 0 cmd
