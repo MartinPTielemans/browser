@@ -258,11 +258,11 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Pinned actions | MVP | at the URL field's end, 16 pt on a 30 pitch, badges, click, right-click and overflow menu *interim*; Arc placement: measure | Dia 1.52 cap |
-| [ ] | Extensions menu in the menu bar | MVP | per extension, Pin to URL Field and Manage Extensions… done; Add Extension… waits on the install flow. In progress: extension install dialog | Dia |
+| [x] | Extensions menu in the menu bar | MVP | per extension, Pin to URL Field, Add (the Web Store in a new tab) and Manage | Dia |
 | [x] | Popups | MVP | Chrome's, from the action or under the URL field *interim*; 25 × 25 to 800 × 600, shrink and grow; openPopup works; Arc's opening and closing: measure | Chrome |
 | [x] | Action state without polling | MVP | from change notifications and tab switches only | principle 1 |
 | [ ] | Side panel | MVP | card right of the page, header, 320–600 saved. In progress: side panel | Dia, Ardia |
-| [ ] | Install, re-enable, new-permission dialog | MVP | ours, Chrome's warnings; store buttons "Add to / Remove from <browser>"; Arc's: measure. In progress: extension install dialog | Dia P§15 |
+| [ ] | Install, re-enable, new-permission dialog | MVP | ours, Chrome's words and warnings, done; the store's button can't install under ungoogled-chromium *interim*; Arc's: measure | Dia P§15 |
 | [x] | Remove | MVP | "Remove “<name>”?", Cancel / destructive Remove, from the pinned action's menu; Chrome's page asks with Chrome's dialog *interim* | Dia P§15 |
 | [x] | Keyboard commands | MVP | fire with the page and the UI focused; actions' keys; never reserved keys; suggestions that are ours stay ours; media keys: later | Chrome P§15 |
 | [x] | Site Controls | MVP | 238 wide, radius 17, beak 12.5, tiles 48 × 32 on 8 gaps; Share and the two captures; the extensions with + and Manage; Chrome's permissions as Arc's rows with More; the lock opens the certificate, … the menu; Boost items: with Boosts; motion *interim* | Arc 1.170.0 cap |

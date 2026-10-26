@@ -17,6 +17,7 @@
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
@@ -486,6 +487,10 @@ bc_id bc_window_reopen_closed_tab(bc_id window_id) {
 bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window ? window->RestoreArchived(archived) : 0;
+}
+
+void bc_extension_answer(bc_id question, bool accept) {
+  browser_core::InstallQuestion::Answer(question, accept);
 }
 
 void bc_extensions_report() {

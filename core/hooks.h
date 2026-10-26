@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "components/permissions/permission_prompt.h"
+#include "extensions/browser/extension_install_prompt_client.h"
 
 // chrome/browser/ui/browser.cc: a Browser may be made with a window the core supplies, which has
 // none of Chrome's views, and the app has its own main menu. Chrome's files that expect Chrome's
@@ -13,10 +14,15 @@
 extern bool g_browser_core_supplies_windows;
 
 class BrowserWindowInterface;
+class ExtensionInstallPromptShowParams;
 struct NavigateParams;
 
 namespace content {
 class WebContents;
+}
+
+namespace extensions {
+class InstallPromptData;
 }
 
 namespace ui {
@@ -46,5 +52,13 @@ extern void (*g_browser_core_trim_page_menu)(BrowserWindowInterface* browser,
 extern std::unique_ptr<permissions::PermissionPrompt> (*g_browser_core_permission_prompt)(
     content::WebContents* contents,
     permissions::PermissionPrompt::Delegate* delegate);
+
+// chrome/browser/ui/views/extensions/extension_install_dialog_view.cc: asks the user to confirm an
+// extension's install, re-enable or new permissions, in place of Chrome's dialog. |done_callback|
+// must run, as Chrome's dialog runs it.
+extern void (*g_browser_core_extension_install_dialog)(
+    std::unique_ptr<ExtensionInstallPromptShowParams> show_params,
+    extensions::ExtensionInstallPromptClient::DoneCallback done_callback,
+    std::unique_ptr<extensions::InstallPromptData> prompt);
 
 #endif  // BROWSER_CORE_HOOKS_H_

@@ -161,6 +161,30 @@ typedef struct bc_extension_action {
   bool enabled;
 } bc_extension_action;
 
+// An extension's install, re-enable or new permissions, for the user to confirm, in Chrome's words.
+typedef struct bc_extension_question {
+  // For bc_extension_answer.
+  bc_id id;
+  // The extension's id and name.
+  const char* extension;
+  const char* name;
+  // Its icon, a PNG of Chrome's 128-pixel install icon, or null and 0.
+  const uint8_t* icon;
+  size_t icon_size;
+  // What Chrome's dialog says: its title, such as "Add "Name"?", the line over the warnings, such
+  // as "It can:", and its buttons, such as "Add extension" and "Cancel". |accept| is "" for a
+  // question with nothing to accept.
+  const char* title;
+  const char* heading;
+  const char* accept;
+  const char* cancel;
+  // Chrome's permission warnings, such as "Read your browsing history", |warning_count| of them,
+  // each with its details: "" or lines, one per site or device, split by "\n".
+  const char* const* warnings;
+  const char* const* details;
+  size_t warning_count;
+} bc_extension_question;
+
 // Where a download is.
 #define BC_DOWNLOAD_RUNNING 0
 #define BC_DOWNLOAD_PAUSED 1
@@ -391,6 +415,14 @@ typedef struct bc_host {
   // bc_tab_capture still gives a picture of the page, for the window to show in its place. The
   // user's alone: agents have no windows.
   void (*window_page_elsewhere)(void* context, bc_id window, bc_id tab);
+  // Chrome asks the user to confirm an extension's install, its re-enabling once it asks for more
+  // permissions, or more permissions it asks for, over the window, in place of its dialog. Answer
+  // with bc_extension_answer. A window asks one at a time, and this comes again once the question
+  // has gone, answered or because the tab that asked closed, with the window's next, or with
+  // |question| null if it has none. Chrome hears none was given if the window closes first.
+  void (*window_extension_question)(void* context,
+                                    bc_id window,
+                                    const bc_extension_question* question);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -693,6 +725,13 @@ BC_EXPORT void bc_extension_set_pinned(bc_id profile, const char* id, bool pinne
 // user confirms, so the app asks first. Returns false if it can't be removed, as one that policy
 // installed. Then extensions_changed.
 BC_EXPORT bool bc_extension_remove(bc_id profile, const char* id);
+
+// Answers the question window_extension_question put, accepting it or not, if it's still asked:
+// the extension installs, is turned on again or gets the permissions, or not. Then
+// window_extension_question, and extensions_changed once the extension is added or turned on.
+// The user's: agents get none, as an extension can read what the user sees and does on the sites
+// it's given.
+BC_EXPORT void bc_extension_answer(bc_id question, bool accept);
 
 // Tells the app again of the extensions of each profile the core uses, since the first reports may
 // come before it can take them. Then extensions_changed, for each.

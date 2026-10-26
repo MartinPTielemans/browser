@@ -8,7 +8,9 @@
 # details on Chrome's extensions page, or removes it once the user confirms. The actions that don't
 # fit are behind an overflow button in the last place, whose menu runs them. Manage Extensions…
 # opens Chrome's extensions page. An extension's keyboard commands run with the page focused and
-# with the UI, but a key it suggests doesn't take one of the browser's.
+# with the UI, but a key it suggests doesn't take one of the browser's. Chrome asks whether to add
+# an extension with the browser's dialog, which lists what Chrome warns it can do: escape cancels,
+# and return adds it. Add Extension… opens the Web Store in a new tab.
 
 # Three unpacked extensions of the check's own, loaded as a developer loads one. A click on the
 # first gives the tab it's on a badge, then opens its page, and its command ⇧⌘Y opens another. The
@@ -242,3 +244,95 @@ quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
 echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png"
+
+# An extension's .crx from the served page, which Chrome installs from off the Web Store with
+# ungoogled-chromium's flag, asking first. It's added in a profile of the launch's own, which the
+# check starts without, so no other run ever has it. Chrome takes a .crx signed with the key its id
+# comes from.
+serve
+crx="$PWD/$out/install"
+mkdir -p "$crx/source" "$crx/profile/Default"
+cat > "$crx/source/manifest.json" << 'EOF'
+{"manifest_version": 3, "name": "Check Install", "version": "1", "permissions": ["tabs"],
+ "host_permissions": ["https://example.org/*"]}
+EOF
+installed=$(python3 -I -c '
+import hashlib, io, os, struct, subprocess, sys, zipfile
+
+source, crx = sys.argv[1], sys.argv[2]
+key = os.path.join(os.path.dirname(source), "key.pem")
+subprocess.run(["openssl", "genrsa", "-out", key, "2048"], check=True, capture_output=True)
+public = subprocess.run(["openssl", "rsa", "-in", key, "-pubout", "-outform", "DER"],
+                        check=True, capture_output=True).stdout
+archive = io.BytesIO()
+with zipfile.ZipFile(archive, "w") as z:
+    for name in sorted(os.listdir(source)):
+        z.write(os.path.join(source, name), name)
+archive = archive.getvalue()
+
+# A length-delimited protobuf field.
+def field(number, data):
+    out = b""
+    for value in (number << 3 | 2, len(data)):
+        while value > 0x7f:
+            out += bytes([value & 0x7f | 0x80])
+            value >>= 7
+        out += bytes([value])
+    return out + data
+
+# CRX3 (components/crx_file/crx3.proto): the key, and its signature of the id and the zip.
+crx_id = hashlib.sha256(public).digest()[:16]
+signed = field(1, crx_id)
+signature = subprocess.run(
+    ["openssl", "dgst", "-sha256", "-sign", key], check=True, capture_output=True,
+    input=b"CRX3 SignedData\x00" + struct.pack("<I", len(signed)) + signed + archive).stdout
+header = field(2, field(1, public) + field(2, signature)) + field(10000, signed)
+with open(crx, "wb") as f:
+    f.write(b"Cr24" + struct.pack("<II", 3, len(header)) + header + archive)
+print("".join(chr(ord("a") + int(c, 16)) for c in crx_id.hex()))
+' "$crx/source" "$out/site/check.crx") || fail "couldn't make the check's .crx"
+printf '{"download": {"default_directory": "%s", "prompt_for_download": false}}' \
+  "$PWD/$out/downloads" > "$crx/profile/Default/Preferences"
+log="$out/install.log"
+step=0
+BROWSER_DRIVE=1 BROWSER_URL="$site" BROWSER_PROFILE_DIR="$crx/profile" \
+  "$app/Contents/MacOS/Browser" --extension-mime-request-handling=always-prompt-for-install \
+  < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: title [0-9]* ready$' || fail "the install test page didn't draw"
+send click $page_point
+if [ "$active" != 1 ]; then
+  exec 3>&-
+  quit
+  echo "skip: installing an extension. Browser wasn't the active app, so the page ignored the click."
+  exit 0
+fi
+# Chrome's words, with its warnings in the log.
+send key x
+expect '^browser: dialog shown Add "Check Install"?$' "the .crx didn't ask to add Check Install"
+grep "^browser: extension question $installed asks " "$log" |
+  grep 'Read your browsing history' | grep -q 'Read and change your data on example.org' ||
+  fail "the question didn't list Chrome's warnings: $(grep 'extension question' "$log")"
+await '^browser: dialog settled$' || fail "the install dialog didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/extension-install.png" || fail "no window to capture"
+send key escape
+expect '^browser: dialog cancelled$' "escape didn't cancel adding Check Install"
+expect '^browser: extension question none$' "Chrome didn't hear the install was cancelled"
+grep -q "^browser: extensions menu.* $installed" "$log" && fail "the cancelled install added it"
+send click $page_point
+send key z
+expect '^browser: dialog shown Add "Check Install"?$' "the .crx didn't ask again"
+send key return
+expect '^browser: dialog confirmed$' "return didn't confirm adding Check Install"
+expect "^browser: extensions menu.* $installed" "Check Install wasn't added"
+expect '^browser: extension question none$' "Chrome didn't hear the install was confirmed"
+before=$(today)
+send menu "Add Extension…"
+expect '^browser: command add-extension via ui$' "Add Extension… didn't reach the UI"
+expect "^browser: today [0-9]* $before\$" "Add Extension… didn't open a tab"
+quit_by_key
+await '^browser: command quit via ' || fail "⌘Q didn't quit"
+exited
+echo "ok: a .crx from a page asks to be added with the browser's dialog, in Chrome's words, listing its warnings. Escape cancels it, return adds it, and Add Extension… opens a tab. Window: $out/extension-install.png"

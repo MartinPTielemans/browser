@@ -199,7 +199,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::ViewSource => "icons/code.svg",
         Command::InspectElements => "icons/square-mouse-pointer.svg",
         Command::JavaScriptConsole => "icons/terminal.svg",
-        Command::ManageExtensions => "icons/puzzle.svg",
+        Command::ManageExtensions | Command::AddExtension => "icons/puzzle.svg",
         Command::RenameSpace | Command::RenameTab => "icons/pencil.svg",
         Command::NextTab => "icons/arrow-down.svg",
         Command::PreviousTab => "icons/arrow-up.svg",
@@ -1364,8 +1364,9 @@ fn glyph(path: &'static str, size: f32, color: Hsla) -> AnyElement {
     svg().path(path).size(px(size)).flex_none().text_color(color).into_any_element()
 }
 
-/// The accent the selected row takes, dark enough for white on it.
-fn accent(cx: &App) -> Hsla {
+/// The Space's accent, which the selected row and the dialog's action take, dark enough for white
+/// on it.
+pub fn accent(cx: &App) -> Hsla {
     let color = cx.try_global::<Accent>().map_or(ACCENT, |accent| accent.0);
     let color = Hsla::from(rgb(color));
     Hsla { l: color.l.min(ACCENT_LIGHTNESS), ..color }

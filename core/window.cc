@@ -22,6 +22,7 @@
 #include "browser_core/extensions.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
+#include "browser_core/install_question.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
@@ -1507,6 +1508,7 @@ void Window::Destroy() {
   if (off_the_record_) {
     Space::Delete(space_);
   }
+  InstallQuestion::WindowClosing(id_);
   if (Host().window_closed) {
     Host().window_closed(Host().context, id_);
   }
