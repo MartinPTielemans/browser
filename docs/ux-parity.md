@@ -92,7 +92,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [ ] | Hover card dismiss | MVP | opacity 100 ms + spring to 0.92 (0.2 s, ζ 0.6); click or key dismisses | Dia bin |
 | [ ] | Background tabs | MVP | load when first shown | Dia |
 | [x] | List scrolls to a row | MVP | the least that shows it whole, for a tab opened behind and the tab shown; instant | Dia, Chrome tab strip |
-| [ ] | Opener order | MVP | Chrome's TabStripModel rules | Chrome |
+| [x] | Opener order | MVP | Chrome's TabStripModel rules | Chrome |
 | [x] | ⌘S hide (docked) | MVP | ease-out cubic 110 ms | Arc 1.170.0 rec 120 fps |
 | [x] | ⌘S show (hidden) | MVP | ease-out cubic 100 ms | Arc 1.170.0 rec 120 fps |
 | [x] | Sidebar reveal in | MVP | after ≈ 100 ms at the edge; spring 0.175 s / ζ 0.80, no fade, ≈ 4 pt overshoot | Arc 1.170.0 rec 120 fps |

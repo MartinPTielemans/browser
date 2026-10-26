@@ -1,8 +1,9 @@
 # A page's popup opens as a tab in the window, under the page. The page's context menu is Chrome's
 # without the items the window can't do, its Open Link in New Tab opens a tab under the page without
-# showing it, and its Print and ⌘P from the page show print preview centred over the page, at its
-# top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and
-# the window's.
+# showing it, after the tabs the page opened before and above the others, and closing one shows the
+# nearest other tab the page opened. Its Print and ⌘P from the page show print preview centred over
+# the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its
+# full screen and the window's, and closing it shows the tab it opened first.
 
 # A page's popup opens as a tab in the window, as links to new tabs do, instead of a window of
 # Chrome's own.
@@ -33,6 +34,13 @@ expect "^browser: today $opener $popup\$" "the popup's tab didn't go under the p
 expect '^browser: loaded [0-9]* https://example.com/$' "the popup's page didn't load in its tab"
 check_layout "with the popup's tab"
 ../tools/window-screenshot.sh "$pid" "$out/popup.png" || fail "no window to capture"
+# A tab the page didn't open, dragged under its tabs, for the links it opens behind to go above.
+open_from_bar example.net
+other=$tab
+send drag $(row 0) 100 330
+expect "^browser: dragged $other to today 2\$" "a drag of the top row to the bottom didn't move it"
+expect "^browser: today $opener $popup $other\$" \
+  "the dragged tab didn't go under the popup's: $(grep '^browser: today' "$log" | tail -1)"
 # The page's context menu is Chrome's, without the items for what the browser doesn't have yet
 # (other windows, incognito) or whose UI is in Chrome's own window (Cast, Reading Mode).
 send key 1 cmd
@@ -49,6 +57,30 @@ send choose Open Link in New Tab
 expect "^browser: tab [0-9]* opened by $opener in the background\$" \
   "Open Link in New Tab didn't open a tab under the page"
 none_since '^browser: selected' || fail "Open Link in New Tab showed its tab"
+# Links opened behind line up after the tabs their page opened, in the order opened, and above the
+# tabs it didn't open (Chrome).
+behind() {
+  grep "^browser: tab [0-9]* opened by $opener in the background\$" "$log" | tail -1 | cut -d' ' -f3
+}
+first=$(behind)
+expect "^browser: today $opener $popup $first $other\$" \
+  "the link's tab didn't go after the popup's: $(grep '^browser: today' "$log" | tail -1)"
+post rightclick 250 30
+expect '^browser: menu tracked Open Link in New Tab, ' \
+  "a right-click on the link didn't show its menu"
+send choose Open Link in New Tab
+expect "^browser: tab [0-9]* opened by $opener in the background\$" \
+  "Open Link in New Tab didn't open a second tab"
+second=$(behind)
+expect "^browser: today $opener $popup $first $second $other\$" \
+  "the second link's tab didn't go after the first's: $(grep '^browser: today' "$log" | tail -1)"
+# Closing one of them goes to the nearest other tab the page opened, though a tab it didn't open is
+# below it (Chrome).
+switch "4 cmd" "$second"
+send key w cmd
+expect "^browser: selected $first\( in .*\)\{0,1\}\$" \
+  "closing a link's tab didn't show the page's other link's tab"
+switch "1 cmd" "$opener"
 # Print preview is the tab's dialog, a child window centred over the page, at its top. Once $1
 # has asked for it: waits for it, captures it in $out/$2 once it has drawn over before-print.png,
 # a capture of the window before, and closes it with escape.
@@ -115,8 +147,11 @@ send key f
 expect '^browser: window entered full screen$' "the page didn't go full screen again"
 send key w cmd
 expect '^browser: page left full screen$' "closing its tab didn't take the page out of full screen"
+# Closing a page goes to the nearest tab it opened (Chrome).
+expect "^browser: selected $popup\( in .*\)\{0,1\}\$" \
+  "closing the page didn't show the tab it opened first"
 expect '^browser: window left full screen$' "the window didn't leave full screen as its page closed"
 check_layout "after closing a full-screen page's tab"
 exec 3>&-
 quit
-echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do, Open Link in New Tab opens a tab under the page, and Print and ⌘P show print preview centred over the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and the window's. Windows: $out/popup.png, $out/link-menu.png, $out/print.png, $out/print-key.png"
+echo "ok: a page's popup opens as a tab in the window, under the page. The page's context menu leaves out what the window can't do, Open Link in New Tab opens tabs under the page, after the ones it opened and above the others, and closing one shows the nearest other tab the page opened. Print and ⌘P show print preview centred over the page, at its top, which escape closes. Switching or closing a full-screen page's tab ends its full screen and the window's, and closing it shows the tab it opened first. Windows: $out/popup.png, $out/link-menu.png, $out/print.png, $out/print-key.png"
