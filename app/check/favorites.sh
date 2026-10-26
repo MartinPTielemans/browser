@@ -276,8 +276,8 @@ send drag $(tiled_row 0) 200 112
 expect "^browser: dragged $y to favorites 2\$" "a row dragged right of the tiles didn't go last"
 expect "^browser: favorites $a $x $y\$" "the tiles aren't three: the favorites are \"$(favorites)\""
 expect '^browser: tiles settled$' "the tiles didn't settle after the third drop"
-send drag 225 400 20 400
-expect '^browser: sidebar width 160$' "dragging the sidebar's edge didn't narrow it to 160"
+send drag 225 400 120 400
+expect '^browser: sidebar width 164$' "dragging the sidebar's edge didn't narrow it to 164"
 send layout
 size=$(grep '^browser: layout content' "$log" | tail -1 |
   sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
@@ -297,7 +297,7 @@ send scroll 100 150 -20 2
 expect '^browser: scroll edge hidden$' "the list back at its top didn't hide its edge"
 send resize $size
 expect '^browser: tiles stay put$' "the tiles in a window back at its height still scroll"
-send doubleclick 157 400
+send doubleclick 161 400
 expect '^browser: sidebar width 228$' \
   "a double-click on the sidebar's edge didn't put its width back"
 # Settings kept the time, the haptics and the warning across the quit. ⌘, from the UI opens it,

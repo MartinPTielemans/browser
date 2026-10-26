@@ -8,8 +8,9 @@
 # sidebar below the rows opens a new tab. ⌘S, with the page or the UI focused, and the sidebar
 # button hide the sidebar and the window's buttons, and the card takes its place, through a resize;
 # ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out, and one
-# passing it doesn't. The sidebar's edge drags its width between 160 and 400, rubber-banding past
-# them, and a double-click on it puts the width back. A page that hasn't drawn yet shows the card's
+# passing it doesn't. The sidebar's edge drags its width between 164 and 500, stopping at them, and
+# dragged on past half the narrowest it hides the sidebar, keeping its width; a double-click on it
+# puts the width back. A page that hasn't drawn yet shows the card's
 # colour, not white. In a check VM, the sidebar over grey backdrops is Dia's composite.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
@@ -332,30 +333,30 @@ expect '^browser: reveal shown$' "the pointer at the edge didn't bring the sideb
 send key s cmd
 toggle ui shown "⌘S with the sidebar out"
 check_reveal "with the sidebar docked by ⌘S"
-# The sidebar's edge, the 6 pt right of its rows, drags its width between 160 and 400. Past them it
-# rubber-bands, and let go it settles at the one it passed. A double-click on it puts back 228.
+# The sidebar's edge, the 6 pt right of its rows, drags its width between 164 and 500, Arc's, and
+# stops at them. Dragged on past half the narrowest, it hides the sidebar at once, which keeps the
+# width it had, and ⌘S brings it back. A double-click on the edge puts back 228.
 send drag 225 400 325 400
 expect '^browser: sidebar width 328$' "dragging the sidebar's edge didn't widen the sidebar"
 check_layout "with the sidebar dragged wider" 328
-send press 325 400
-send dragto 700 400
-for _ in $(seq 20); do
-  send layout
-  band=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
-    sed -n 's/.*WebContentsViewCocoa \([0-9]*\),.*/\1/p')
-  [ "${band:-0}" -gt 400 ] && break
-done
-[ "${band:-0}" -gt 400 ] && [ "$band" -lt 460 ] ||
-  fail "dragged far past its widest, the sidebar is ${band:-not} wide, not a little past 400"
-../tools/window-screenshot.sh "$pid" "$out/sidebar-band.png" || fail "no window to capture"
-send release 700 400
-expect '^browser: sidebar width 400$' "let go past its widest, the sidebar didn't settle at 400"
-check_layout "with the sidebar at its widest" 400
-send drag 397 400 20 400
-expect '^browser: sidebar width 160$' "let go past its narrowest, the sidebar didn't settle at 160"
-check_layout "with the sidebar at its narrowest" 160
+send drag 325 400 700 400
+expect '^browser: sidebar width 500$' "dragged far past its widest, the sidebar didn't stop at 500"
+check_layout "with the sidebar at its widest" 500
+../tools/window-screenshot.sh "$pid" "$out/sidebar-wide.png" || fail "no window to capture"
+send drag 497 400 120 400
+expect '^browser: sidebar width 164$' "dragged past its narrowest, the sidebar didn't stop at 164"
+check_layout "with the sidebar at its narrowest" 164
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-narrow.png" || fail "no window to capture"
-send doubleclick 157 400
+# Clear of the window's edge, where the pointer would bring the hidden sidebar out.
+send drag 161 400 50 400
+expect '^browser: sidebar hidden$' "dragged on past its narrowest, the sidebar didn't hide"
+none_since '^browser: sidebar width' || fail "the sidebar its edge hid changed its width"
+check_layout "with the sidebar hidden by its edge" inset
+check_buttons "with the sidebar hidden by its edge" hidden
+send key s cmd
+expect '^browser: sidebar shown$' "⌘S didn't bring back the sidebar its edge hid"
+check_layout "with the sidebar its edge hid shown again" 164
+send doubleclick 161 400
 expect '^browser: sidebar width 228$' "a double-click on the sidebar's edge didn't put its width back"
 none_since '^browser: command new-tab' || fail "a double-click on the sidebar's edge opened a tab"
 check_layout "after a double-click on the sidebar's edge"
@@ -415,4 +416,4 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
 fi
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Material: $material. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Material: $material. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
