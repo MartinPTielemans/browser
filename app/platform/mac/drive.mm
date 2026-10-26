@@ -66,6 +66,7 @@
 
 namespace {
 
+// A character typed with ⇧, such as + or ?, has its key's code on a US keyboard.
 const std::map<std::string, unsigned short> kKeyCodes = {
     {"a", 0},  {"s", 1},  {"d", 2},  {"f", 3},  {"h", 4},  {"g", 5},       {"z", 6},
     {"x", 7},  {"c", 8},  {"v", 9},  {"b", 11}, {"q", 12}, {"w", 13},      {"e", 14},
@@ -75,7 +76,7 @@ const std::map<std::string, unsigned short> kKeyCodes = {
     {"3", 20}, {"4", 21}, {"5", 23}, {"6", 22}, {"7", 26}, {"8", 28},      {"9", 25},
     {"0", 29}, {"-", 27}, {"+", 27}, {"[", 33}, {"]", 30}, {"up", 126}, {"down", 125},
     {"left", 123}, {"right", 124}, {"backspace", 51}, {",", 43}, {"delete", 117},
-    {"pageup", 116}, {"pagedown", 121},
+    {"pageup", 116}, {"pagedown", 121}, {"/", 44}, {"?", 44}, {"=", 24}, {"&", 26}, {"_", 27},
 };
 // AppKit's characters for the arrows are NSUpArrowFunctionKey to NSRightArrowFunctionKey, and for
 // the others NSDeleteFunctionKey, NSPageUpFunctionKey and NSPageDownFunctionKey.
