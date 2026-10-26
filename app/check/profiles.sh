@@ -1,8 +1,10 @@
-# A Space's menu puts an empty Space in another profile: New Profile makes one, and the Space's tabs
-# open in it, without the first profile's cookies. The first Space keeps its cookie and its
-# favorite, which shows only in the Spaces of its profile, and a new Space made from a Space is in
-# that Space's profile. After a relaunch each Space is in its profile still. Deleting the Space
-# leaves the profile unused, and Delete in the menu deletes it once the user confirms.
+# The New Space form's Profile row makes a profile and puts the Space in it, and its Choose a Theme
+# row colours the Space. The Space's tabs open in the new profile, without the first profile's
+# cookies. While it's empty the Space's menu moves it between profiles, and with a tab it keeps its
+# own. The first Space keeps its cookie and its favorite, which shows only in the Spaces of its
+# profile, and a new Space made from a Space is in that Space's profile. After a relaunch each Space
+# is in its profile still. Deleting the Space leaves the profile unused, and Delete in the menu
+# deletes it once the user confirms.
 
 # The cookie page's title shows its site's cookies, and "c" sets one. It's on localhost, as
 # clear.sh's cookie is on 127.0.0.1.
@@ -50,32 +52,57 @@ expect '^browser: menu shown Pin Tab, Add to Favorites, ' \
 send choose Add to Favorites
 expect "^browser: favorites $a\$" "Add to Favorites didn't make the tab a favorite"
 
-# A new Space is in the profile of the Space it's made from. Empty, its menu puts it in a new
-# profile, whose name Chrome's numbering gives, and its favorites aren't the first profile's.
+# A new Space is in the profile of the Space it's made from. Its form's Profile row puts it in a
+# new profile, whose name Chrome's numbering gives, and its favorites aren't the first profile's.
 send menu New Space…
 expect "^browser: spaces $first [0-9]*\$" "New Space didn't make a second Space"
 second=$(grep '^browser: spaces' "$log" | tail -1 | cut -d' ' -f4)
 expect "^browser: space $second in " "the window didn't show the new Space"
 expect "^browser: profiled space $second $default\$" \
   "the new Space isn't in the profile of the Space it was made from"
-send type work
-send key return
-expect "^browser: create space $second work\$" "return didn't name the Space"
-expect '^browser: space form gone$' "the form didn't leave after return"
 expect "^browser: settled space $second\$" "the new Space's page didn't settle"
-# The Space's name, under the URL field, and 47 lower under a row of favorites' tiles.
-name_point="100 112"
-tiled_name="100 159"
-post rightclick $tiled_name
-expect "^browser: menu shown Rename Space, $colors, $empty_profile, Delete Space\$" \
-  "the empty Space's menu didn't offer New Profile"
-../tools/window-screenshot.sh "$pid" "$out/profile-menu.png" || fail "no window to capture"
+# The form's Profile and Choose a Theme rows, under its name field.
+post click 100 255
+expect '^browser: menu shown Default (checked), New Profile$' \
+  "the form's Profile row didn't show the profiles"
+../tools/window-screenshot.sh "$pid" "$out/profile-popup.png" || fail "no window to capture"
 send choose New Profile
 expect '^browser: create profile [0-9]* Profile 2$' "New Profile didn't make a profile"
 work=$(sed -n 's/^browser: create profile \([0-9]*\) .*/\1/p' "$log" | tail -1)
 expect "^browser: added profile $work Profile 2\$" "the new profile wasn't listed"
-expect "^browser: profiled space $second $work\$" "the empty Space didn't go into the new profile"
+expect "^browser: profiled space $second $work\$" "the form's Space didn't go into the new profile"
 expect '^browser: favorites $' "the new profile's Space showed the first profile's favorite"
+post click 100 299
+expect '^browser: menu shown System Accent (checked), Gray, ' \
+  "the form's Choose a Theme row didn't show the colours"
+send choose Green
+expect "^browser: colored space $second 55bf81\$" "Green in the form didn't colour the Space"
+../tools/window-screenshot.sh "$pid" "$out/profile-form.png" || fail "no window to capture"
+green=$(echo "$colors" | sed 's/ (checked)//; s/Green/Green (checked)/')
+send type work
+send key return
+expect "^browser: create space $second work\$" "return didn't name the Space"
+expect '^browser: space form gone$' "the form didn't leave after return"
+../tools/window-screenshot.sh "$pid" "$out/profile-made.png" || fail "no window to capture"
+# Empty, its menu takes it back to the first profile, whose favorite shows again, and to the new
+# one again. The Space's name is under the URL field, and 47 lower under a row of tiles.
+name_point="100 112"
+tiled_name="100 159"
+post rightclick $name_point
+expect "^browser: menu shown Rename Space, $green, Profile › Default, \
+Profile › Profile 2 (checked), Profile › New Profile, Delete Space\$" \
+  "the empty Space's menu didn't offer its profiles"
+../tools/window-screenshot.sh "$pid" "$out/profile-menu.png" || fail "no window to capture"
+send choose Default
+expect "^browser: profiled space $second $default\$" "Default didn't take the Space back"
+expect "^browser: favorites $a\$" "the first profile's favorite didn't show in its Space again"
+post rightclick $tiled_name
+expect "^browser: menu shown Rename Space, $green, Profile › Default (checked), \
+Profile › Profile 2, Profile › New Profile, Profile › Delete “Profile 2”, Delete Space\$" \
+  "the menu didn't offer the unused profile back"
+send choose Profile 2
+expect "^browser: profiled space $second $work\$" "Profile 2 didn't take the Space again"
+expect '^browser: favorites $' "the first profile's favorite stayed in the other profile's Space"
 send key t cmd
 expect '^browser: command bar shown$' "⌘T in the new profile's Space didn't open the command bar"
 send type "$cookie_page"
@@ -88,7 +115,7 @@ expect "^browser: title $b cookie none\$" \
 ../tools/window-screenshot.sh "$pid" "$out/profile-space.png" || fail "no window to capture"
 # Its menu, with a tab, can't change its profile.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, $colors, Profile › Default (disabled), \
+expect "^browser: menu shown Rename Space, $green, Profile › Default (disabled), \
 Profile › Profile 2 (checked), Profile › New Profile (disabled), Delete Space\$" \
   "the menu of a Space with a tab offered another profile"
 send choose Profile 2
@@ -167,4 +194,4 @@ send key return
 expect "^browser: removed profile $work Profile 2\$" "the profile wasn't deleted"
 exec 3>&-
 quit
-echo "ok: an empty Space's menu makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-menu.png, $out/profile-space.png, $out/profile-delete.png"
+echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-delete.png"

@@ -252,7 +252,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Profile holds cookies, history, logins, autofill, extensions | MVP | yes | decision 5 |
-| [ ] | Create, rename, delete, pick for a Space | MVP | measure; ours: the Space menu's Profile items, rename to do | — |
+| [ ] | Create, rename, delete, pick for a Space | MVP | measure; ours: the New Space form's Profile row (Arc's) and the Space menu's Profile items, rename to do | Arc 1.170.0 cap |
 | [ ] | Where a Space shows its profile | MVP | measure | — |
 | [ ] | Incognito ⇧⌘N | MVP | per profile, dark, one session per profile, nothing written | Chrome, Dia |
 
