@@ -1,13 +1,15 @@
 //! The sidebar's header: the buttons to hide the sidebar and go back, forward and
 //! reload, and the URL field under them.
 
-use gpui::{Bounds, Context, Pixels, div, point, prelude::*, px, rgba, size, svg};
+use std::time::Instant;
+
+use gpui::{Bounds, Context, Pixels, Window, div, point, prelude::*, px, rgba, size, svg};
 
 use super::{
     BACK_X, Command, FORWARD_X, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS,
     NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY, SIDEBAR_BUTTON_X, Shell,
-    URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD, URL_FIELD_HEIGHT,
-    URL_FIELD_TEXT_X, URL_FIELD_TOP, host,
+    TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD, URL_FIELD_HEIGHT,
+    URL_FIELD_TEXT_X, URL_FIELD_TOP, fade_at, host,
 };
 
 impl Shell {
@@ -88,9 +90,11 @@ impl Shell {
         // host stops short of them.
         let actions = self.action_buttons(cx);
         let buttons_width = actions.len() as f32 * URL_BUTTON_SIZE;
+        let live = self.tools_live();
         let copy = (self.tools_shown() && !url.is_empty()).then(|| {
             div()
                 .id("copy-url")
+                .opacity(self.tools_opacity())
                 .absolute()
                 .top(px(URL_BUTTON_INSET))
                 .right(px(URL_BUTTON_INSET + buttons_width))
@@ -99,9 +103,13 @@ impl Shell {
                 .items_center()
                 .justify_center()
                 .rounded(px(NAV_RADIUS))
-                .block_mouse_except_scroll()
-                .hover(|style| style.bg(rgba(NAV_HOVERED)))
-                .on_click(cx.listener(|shell, _, _, cx| shell.copy_url_from_button(cx)))
+                // Fading out, it takes no click.
+                .when(live, |button| {
+                    button
+                        .block_mouse_except_scroll()
+                        .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                        .on_click(cx.listener(|shell, _, _, cx| shell.copy_url_from_button(cx)))
+                })
                 .child(
                     svg()
                         .path(if self.url_copied.is_some() {
@@ -142,9 +150,51 @@ impl Shell {
             .children(actions)
     }
 
-    /// Whether the sidebar shows Clear and the URL field's button, which it does while the pointer
-    /// is over it (Arc). The reveal's panel shows only under the pointer.
+    /// Whether the sidebar draws Clear and the URL field's button, which it does from the pointer
+    /// coming over it until they've faded out again (Arc).
     pub(super) fn tools_shown(&self) -> bool {
+        self.tools_opacity() > 0.
+    }
+
+    /// Whether they take clicks: while the pointer is over the sidebar, and not while they fade
+    /// out. The reveal's panel shows only under the pointer.
+    pub(super) fn tools_live(&self) -> bool {
         self.sidebar_hovered || self.sidebar_hidden
+    }
+
+    /// How far they've faded in. The reveal's panel shows them at once.
+    pub(super) fn tools_opacity(&self) -> f32 {
+        if self.sidebar_hidden {
+            return 1.;
+        }
+        let to = if self.tools_on { 1. } else { 0. };
+        self.tools_fade.map_or(to, |(start, from)| {
+            fade_at(from, to, start.elapsed().as_secs_f32(), TOOLS_FADE)
+        })
+    }
+
+    /// Starts the fade as the pointer comes or goes, from where it is, and runs frames only while
+    /// it does.
+    pub(super) fn step_tools(&mut self, window: &mut Window) {
+        if self.sidebar_hidden {
+            self.tools_fade = None;
+            self.tools_on = self.sidebar_hovered;
+        } else if self.sidebar_hovered != self.tools_on {
+            self.tools_fade = Some((Instant::now(), self.tools_opacity()));
+            self.tools_on = self.sidebar_hovered;
+        }
+        if let Some((start, _)) = self.tools_fade {
+            if start.elapsed().as_secs_f32() < TOOLS_FADE {
+                window.request_animation_frame();
+                return;
+            }
+            self.tools_fade = None;
+        }
+        let shown = self.tools_shown();
+        if shown != self.drawn_tools {
+            self.drawn_tools = shown;
+            // check.sh waits for these lines, so a capture after one shows that state.
+            log!("browser: sidebar tools {}", if shown { "shown" } else { "hidden" });
+        }
     }
 }

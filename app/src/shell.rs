@@ -127,6 +127,9 @@ const FOLD_DAMPING: f32 = 0.82;
 // The edge under the favorites fades in once the list scrolls past its top and out back there, on
 // Dia's Scroll edge curve (docs/ux-spec.md › Motion).
 const SCROLL_EDGE_FADE: f32 = 0.1;
+// Clear and the URL field's button fade in as the pointer comes onto the sidebar and out as it
+// leaves, on the scroll edge's curve. Arc's fade isn't recorded (docs/ux-spec.md › Clear divider).
+const TOOLS_FADE: f32 = 0.15;
 // Two fingers across the sidebar page between Spaces (docs/ux-spec.md › Spaces › Switching). The
 // pages follow at half the fingers' way and rubber-band past the ends. Let go, they settle
 // critically damped on the next Space if the last 100 ms moved them faster than a flick, else on
@@ -725,6 +728,12 @@ pub struct Shell {
     /// went past or back, from how far in it was then.
     scrolled: bool,
     scroll_edge_fade: Option<(Instant, f32)>,
+    /// Whether Clear and the URL field's button were fading in or shown at the last frame, the
+    /// fade since it last changed, from how far in they were then, and whether they were drawn
+    /// when the last line was logged.
+    tools_on: bool,
+    tools_fade: Option<(Instant, f32)>,
+    drawn_tools: bool,
     /// Whether the tiles scrolled with the list in the last frame.
     tiles_scrolled_last: bool,
     /// Tabs' new rows, which the rows sliding down to make room come out from beneath.
@@ -878,6 +887,9 @@ impl Shell {
             sidebar_origin: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
+            tools_on: false,
+            tools_fade: None,
+            drawn_tools: false,
             tiles_scrolled_last: false,
             opened: None,
             closing: Vec::new(),
@@ -1776,6 +1788,7 @@ impl Render for Shell {
             window.request_animation_frame();
         }
         self.step_scroll_edge(window);
+        self.step_tools(window);
         let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some());
         if drop_targets || self.drop_targets_shown {
             self.drop_targets_shown = drop_targets;
@@ -2047,7 +2060,8 @@ impl Shell {
             .child(name_box().child(div().truncate().child(space.name.clone())))
             .children(pinned.into_iter().map(row))
             .when(!today.is_empty(), |page| {
-                let clear = self.tools_shown().then(|| clear_label(false));
+                let clear =
+                    self.tools_shown().then(|| clear_label(false).opacity(self.tools_opacity()));
                 page.child(divider_box(self.hairline(), clear))
             })
             .child(row_box().child(plate(plus, new_tab)))
@@ -2143,6 +2157,7 @@ impl Shell {
             window.request_animation_frame();
         }
         self.step_scroll_edge(window);
+        self.step_tools(window);
         let left = REVEAL_INSET - (REVEAL_INSET + self.width()) * (1. - self.reveal_out());
         div()
             .size_full()
@@ -2451,6 +2466,12 @@ fn title(title: SharedString, selected: bool) -> gpui::Div {
         .child(title)
 }
 
+/// How far a fade from `from` to `to` has come `elapsed` seconds into `duration`, on the scroll
+/// edge's ease-out curve.
+pub(crate) fn fade_at(from: f32, to: f32, elapsed: f32, duration: f32) -> f32 {
+    from + (to - from) * cubic_bezier(0.25, 0.46, 0.45, 0.94, (elapsed / duration).min(1.))
+}
+
 /// Where a CSS cubic-bezier(`x1`, `y1`, `x2`, `y2`) curve is at `x`, from 0 to 1: the x of each
 /// control point, then its y.
 pub(crate) fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, x: f32) -> f32 {
@@ -2513,7 +2534,19 @@ fn file_name(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::file_name;
+    use super::{fade_at, file_name};
+
+    /// A fade reversed partway starts from the opacity it had, so nothing jumps, and ends at the
+    /// other end.
+    #[test]
+    fn a_reversed_fade_starts_where_it_was() {
+        let halfway = fade_at(0., 1., 0.05, 0.15);
+        assert!(halfway > 0. && halfway < 1.);
+        assert!((fade_at(halfway, 0., 0., 0.15) - halfway).abs() < 1e-3);
+        assert!(fade_at(halfway, 0., 0.05, 0.15) < halfway);
+        assert!(fade_at(halfway, 0., 0.15, 0.15).abs() < 1e-3);
+        assert_eq!(fade_at(halfway, 0., 9., 0.15), fade_at(halfway, 0., 0.15, 0.15));
+    }
 
     /// A file's page is titled by its name, as the user wrote it; a folder's and a site's aren't.
     #[test]

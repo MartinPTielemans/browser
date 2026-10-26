@@ -68,7 +68,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Clear divider line | MVP | one device pixel, white 0.15, 18 in from each side; ends 9 before Clear while it shows; centre 25 above the first row's centre | Arc 1.170.0 cap and tokens, Arc (Ardia) |
 | [x] | Clear label and arrow | MVP | sidebar: the word alone, semibold ≈ 10 pt, 29.5 × 15, ends with the titles, 9 after the line; a Library card: an arrow 8 tall, 3 before it | Arc 1.170.0 cap and ax |
 | [x] | Clear on hover | MVP | shows only while the pointer is over the sidebar | Arc 1.170.0 cap |
-| [ ] | Sidebar hover fades | MVP | Clear and the URL field's buttons coming and going with the pointer: measure | Arc |
+| [ ] | Sidebar hover fades | MVP | Clear and the URL field's buttons coming and going with the pointer. Ours: 150 ms ease-out fade. Arc's: measure | Arc |
 | [x] | Row pitch / height | MVP | 41 / 40 | Arc 1.170.0 ax |
 | [x] | Row plate | MVP | 36 tall, x 8 to width − 8, radius ≈ 12 | Arc 1.170.0 cap |
 | [x] | Row favicon and title | MVP | favicon 18 at x 17, title at x 43, ending at x 211 with an ellipsis | Arc 1.170.0 ax and cap |

@@ -532,11 +532,14 @@ impl Shell {
 
     /// The line over Today, and Clear at its end, where the titles end.
     pub(super) fn divider(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let live = self.tools_live();
         let clear = self.tools_shown().then(|| {
-            clear_label(false)
-                .id("clear")
-                .block_mouse_except_scroll()
-                .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)))
+            // Fading out, it takes no click.
+            clear_label(false).id("clear").opacity(self.tools_opacity()).when(live, |clear| {
+                clear.block_mouse_except_scroll().on_click(
+                    cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)),
+                )
+            })
         });
         divider_box(self.hairline(), clear).top(px(self.slide(Slot::Divider)))
     }
