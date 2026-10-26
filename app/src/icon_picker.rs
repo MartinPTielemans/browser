@@ -543,6 +543,28 @@ pub(crate) fn outline(
     path.close();
 }
 
+/// A popover's card through `corners` at `origin`: its fill, and the command bar's edge round it.
+pub(crate) fn paint_card(origin: Point<Pixels>, corners: &[(f32, f32, f32)], window: &mut Window) {
+    let mut fill = PathBuilder::fill();
+    outline(&mut fill, origin, corners, 0.);
+    if let Ok(path) = fill.build() {
+        window.paint_path(path, rgba(FILL));
+    }
+    // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
+    let hairline = 1. / window.scale_factor();
+    // The command bar's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
+    for (inset, width, color) in [
+        (hairline / 2., hairline, command_bar::OUTLINE),
+        (hairline + 0.5, 1., command_bar::EDGE),
+    ] {
+        let mut edge = PathBuilder::stroke(px(width));
+        outline(&mut edge, origin, corners, inset);
+        if let Ok(path) = edge.build() {
+            window.paint_path(path, rgb(color));
+        }
+    }
+}
+
 impl Focusable for IconPicker {
     fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus.clone()
@@ -579,28 +601,9 @@ impl Render for IconPicker {
         let Some(picking) = &self.picking else {
             return root;
         };
-        // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
-        let hairline = 1. / window.scale_factor();
         let card = canvas(
             |_, _, _| {},
-            move |bounds, _, window, _| {
-                let mut fill = PathBuilder::fill();
-                outline(&mut fill, bounds.origin, &corners(), 0.);
-                if let Ok(path) = fill.build() {
-                    window.paint_path(path, rgba(FILL));
-                }
-                // The command bar's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
-                for (inset, width, color) in [
-                    (hairline / 2., hairline, command_bar::OUTLINE),
-                    (hairline + 0.5, 1., command_bar::EDGE),
-                ] {
-                    let mut edge = PathBuilder::stroke(px(width));
-                    outline(&mut edge, bounds.origin, &corners(), inset);
-                    if let Ok(path) = edge.build() {
-                        window.paint_path(path, rgb(color));
-                    }
-                }
-            },
+            move |bounds, _, window, _| paint_card(bounds.origin, &corners(), window),
         )
         .absolute()
         .top_0()
