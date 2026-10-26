@@ -64,6 +64,12 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 - **Reading.** What you do a hundred times a day has to be instant. What you do once a month can be a moment.
 - **Applies.** Decoration goes on rare paths. Hot paths stay plain and fast (the performance gate in [roadmap.md](roadmap.md)). We skip Arc's illustrations and their waits: the art is Arc's, and a 2 s wait isn't how we want it to feel.
 
+## Pay when it's looked at
+
+- **Seen.** A tab opened behind loads only once it's first shown, and until then its row shows the address and the site's icon (Tabs › Opening rules, Dia).
+- **Reading.** Opening ten links to read later mustn't slow the page being read now. The cost moves to the moment someone looks, and the row still says what's waiting.
+- **Applies.** Work for something not yet seen waits until it's seen, and its place shows what it will be. Work the user started on purpose, such as a form they sent, runs at once.
+
 ## Not known yet
 
 Recordings could settle these. Until then, the calls listed in each PR stand.

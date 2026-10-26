@@ -41,6 +41,7 @@
 #include "chrome/browser/ui/interaction/browser_elements.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
 #include "chrome/browser/ui/navigator/browser_navigator_params.h"
+#include "chrome/browser/ui/navigator/browser_navigator_params_utils.h"
 #include "chrome/browser/ui/tabs/tab_enums.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/interaction/browser_elements_views_impl.h"
@@ -125,7 +126,7 @@ void KeepClosed(content::WebContents* contents) {
   if (!space || space->IsPinned(id)) {
     return;
   }
-  SavedTab saved = SaveTab(contents->GetController());
+  SavedTab saved = SaveTab(*contents);
   if (saved.history.empty()) {
     return;
   }
@@ -169,7 +170,7 @@ bc_id CopyToProfile(bc_id tab, const std::string& dir) {
   if (!window || !profile || DirOf(profile) != dir) {
     return 0;
   }
-  const SavedTab saved = SaveTab(contents->GetController());
+  const SavedTab saved = SaveTab(*contents);
   content::WebContents* copy =
       saved.history.empty() ? nullptr : window->RestoreTab(profile, saved.history, saved.current);
   if (!copy) {
@@ -350,6 +351,14 @@ void Window::AdjustNavigate(NavigateParams& params) {
   if (split || params.disposition == WindowOpenDisposition::NEW_POPUP ||
       params.disposition == WindowOpenDisposition::NEW_WINDOW) {
     params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  }
+  // A link a page opens behind, as by ⌘-click, loads only once its tab is first shown (Dia). A
+  // form sent to a tab behind goes at once, when the user sent it, and a window the page made
+  // itself already has its page and the page's hold on it.
+  if (source && params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB &&
+      params.url.SchemeIsHTTPOrHTTPS() && !params.post_data && !params.contents_to_insert) {
+    window->OpenBehind(params);
+    params.disposition = WindowOpenDisposition::IGNORE_ACTION;
   }
   // Chrome's downloads page, which it opens after the user stopped a quit to let downloads finish,
   // is the Library's Downloads here.
@@ -1287,6 +1296,28 @@ void Window::FocusPage() {
   if (shown_ && widget_->IsActive() && platform::KeyboardForPage(widget_.get())) {
     shown_->Focus();
   }
+}
+
+void Window::OpenBehind(NavigateParams& params) {
+  content::WebContents::CreateParams create(params.browser->GetProfile());
+  create.initially_hidden = true;
+  // As for a tab put back at launch: no renderer until it loads.
+  create.desired_renderer_state = content::WebContents::CreateParams::kNoRendererProcess;
+  std::unique_ptr<content::WebContents> made = content::WebContents::Create(create);
+  content::WebContents* contents = made.get();
+  {
+    base::AutoReset<bool> opening(&opening_tab_, true);
+    params.browser->GetTabStripModel()->AddWebContents(std::move(made), -1, params.transition,
+                                                       AddTabTypes::ADD_NONE);
+  }
+  // The load Chrome would have started in it now.
+  Tab::GetOrCreateForWebContents(contents)->LoadWhenShown(
+      LoadURLParamsFromNavigateParams(contents, &params));
+  // Posted, as for the tabs Chrome opens.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Window::ReportTabOpened, weak_factory_.GetWeakPtr(),
+                                Tab::IdOf(contents), Tab::IdOf(params.source_contents),
+                                /*foreground=*/false, /*split_with=*/0));
 }
 
 void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with) {

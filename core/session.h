@@ -15,7 +15,7 @@
 class Profile;
 
 namespace content {
-class NavigationController;
+class WebContents;
 }
 
 namespace browser_core {
@@ -47,8 +47,8 @@ struct SavedTab {
   std::string profile;
 };
 
-// |history|, with the page it's loading if it has no page yet.
-SavedTab SaveTab(content::NavigationController& history);
+// |contents|'s history, with the page it's loading, or waiting to load, if it has no page yet.
+SavedTab SaveTab(content::WebContents& contents);
 
 // A folder of pinned tabs, as the session file keeps it.
 struct SavedFolder {

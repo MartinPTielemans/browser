@@ -13,9 +13,14 @@
 #include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/window.h"
+#include "chrome/browser/favicon/favicon_service_factory.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
 #include "components/favicon/content/content_favicon_driver.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/favicon_base/favicon_types.h"
+#include "components/keyed_service/core/service_access_type.h"
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -32,6 +37,9 @@
 namespace browser_core {
 
 namespace {
+
+// 16 points at 2×, as tab_favicon_changed's.
+constexpr int kFaviconPixels = 32;
 
 std::map<bc_id, content::WebContents*>& Tabs() {
   static base::NoDestructor<std::map<bc_id, content::WebContents*>> tabs;
@@ -80,18 +88,22 @@ Tab::~Tab() {
 // static
 bool Tab::Loaded(bc_id id) {
   content::WebContents* contents = FromId(id);
-  return contents && !contents->GetController().NeedsReload();
+  return contents && !contents->GetController().NeedsReload() &&
+         !FromWebContents(contents)->waiting_;
 }
 
 // static
 GURL Tab::PageUrl(content::WebContents* contents) {
+  if (const Tab* tab = FromWebContents(contents); tab && tab->waiting_) {
+    return tab->waiting_->url;
+  }
   // A tab starts with an entry for no page, until its first page commits.
   content::NavigationEntry* entry = contents->GetController().GetLastCommittedEntry();
   return entry && !entry->IsInitialEntry() ? entry->GetURL() : contents->GetVisibleURL();
 }
 
 void Tab::Unload() {
-  if (web_contents()->GetController().NeedsReload()) {
+  if (waiting_ || web_contents()->GetController().NeedsReload()) {
     return;
   }
   // In place, so the tab keeps its id and its history, and loads again once it's shown.
@@ -109,6 +121,40 @@ void Tab::Restored() {
     driver->FetchFavicon(web_contents()->GetController().GetLastCommittedEntry()->GetURL(),
                          /*is_same_document=*/false);
   }
+}
+
+void Tab::LoadWhenShown(content::NavigationController::LoadURLParams load) {
+  waiting_ = std::make_unique<content::NavigationController::LoadURLParams>(std::move(load));
+  StateChanged();
+  favicon::FaviconService* service = FaviconServiceFactory::GetForProfile(
+      Profile::FromBrowserContext(web_contents()->GetBrowserContext()),
+      ServiceAccessType::EXPLICIT_ACCESS);
+  if (!service) {
+    return;
+  }
+  // Chrome's favicon driver finds one only for a page that has committed.
+  service->GetRawFaviconForPageURL(
+      waiting_->url, {favicon_base::IconType::kFavicon}, kFaviconPixels,
+      /*fallback_to_host=*/true,
+      base::BindOnce(
+          [](base::WeakPtr<Tab> tab, const favicon_base::FaviconRawBitmapResult& result) {
+            // Once the page loads, its favicon comes from Chrome.
+            if (tab && tab->waiting_ && result.is_valid() && Host().tab_favicon_changed) {
+              Host().tab_favicon_changed(Host().context, tab->id_, result.bitmap_data->data(),
+                                         result.bitmap_data->size());
+            }
+          },
+          weak_factory_.GetWeakPtr()),
+      &favicon_tracker_);
+}
+
+void Tab::LoadWaiting() {
+  if (!waiting_) {
+    return;
+  }
+  const std::unique_ptr<content::NavigationController::LoadURLParams> load = std::move(waiting_);
+  web_contents()->GetController().LoadURLWithParams(*load);
+  StateChanged();
 }
 
 void Tab::SetMuted(bool muted) {
@@ -161,8 +207,9 @@ void Tab::ReportState() {
   }
   content::NavigationController& history = web_contents()->GetController();
   // The visible URL is the one Chrome's location bar shows: one a page starts loading by itself
-  // shows only once it commits, so a page can't put another site's URL over its own.
-  const std::string url = web_contents()->GetVisibleURL().spec();
+  // shows only once it commits, so a page can't put another site's URL over its own. One waiting
+  // to load is the link the user opened.
+  const std::string url = (waiting_ ? waiting_->url : web_contents()->GetVisibleURL()).spec();
   const Space* space = Space::Holding(id_);
   const GURL pinned_url = space ? space->PinnedUrl(id_) : Favorites::Url(id_);
   const RecentlyAudibleHelper* audible = RecentlyAudibleHelper::FromWebContents(web_contents());
@@ -171,7 +218,7 @@ void Tab::ReportState() {
       .can_go_back = history.CanGoBack(),
       .can_go_forward = history.CanGoForward(),
       .loading = web_contents()->ShouldShowLoadingUI(),
-      .unloaded = history.NeedsReload(),
+      .unloaded = history.NeedsReload() || waiting_,
       .away_from_pinned_url = pinned_url.is_valid() && PageUrl(web_contents()) != pinned_url,
       .audible = audible && audible->WasRecentlyAudible(),
       .muted = web_contents()->IsAudioMuted(),
@@ -291,6 +338,14 @@ void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause
 
 void Tab::DidUpdateAudioMutingState(bool muted) {
   ReportStateSoon();
+}
+
+void Tab::OnVisibilityChanged(content::Visibility visibility) {
+  // As Chrome loads a restored tab once it's shown. Posted: the page view is being shown now.
+  if (visibility == content::Visibility::VISIBLE && waiting_) {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&Tab::LoadWaiting, weak_factory_.GetWeakPtr()));
+  }
 }
 
 void Tab::WebContentsDestroyed() {
