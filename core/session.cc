@@ -117,6 +117,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
   to.name = space.name();
   to.color = space.color();
   to.icon = space.icon();
+  to.theme = space.theme();
   to.profile = space.profile();
   to.agent = space.agent();
   int index = 0;
@@ -278,6 +279,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     if (!space.icon.empty()) {
       dict.Set("icon", space.icon);
     }
+    if (!space.theme.empty()) {
+      dict.Set("theme", space.theme);
+    }
     if (!space.profile.empty()) {
       dict.Set("profile", space.profile);
     }
@@ -393,6 +397,9 @@ std::optional<Saved> Read(const base::FilePath& path) {
     }
     if (const std::string* icon = space->FindString("icon")) {
       to.icon = *icon;
+    }
+    if (const std::string* theme = space->FindString("theme")) {
+      to.theme = *theme;
     }
     if (const std::string* profile = space->FindString("profile")) {
       to.profile = *profile;
@@ -623,6 +630,7 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
   Space* space = Space::Create(saved_space.name, id, saved_space.agent);
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
+  space->SetTheme(saved_space.theme);
   space->SetProfile(DirOf(profile));
   const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
     const bc_id tab = RestoreSavedTab(window, profile, saved_tab);
