@@ -642,6 +642,7 @@ impl Browser for Fake {
         &self,
         _: Vec<MenuEntry>,
         _: Point<Pixels>,
+        _: Option<usize>,
         _: bool,
         _: Box<dyn FnOnce(Option<usize>, &mut App)>,
         _: &mut App,
@@ -725,6 +726,7 @@ fn main() {
                 browser.report_archive(cx);
                 browser.report_downloads(cx);
                 let mut shell = Shell::new(browser, cx);
+                shell.set_profiles(vec![(0, "Default".into())], cx);
                 shell.set_spaces(spaces, cx);
                 shell.set_space(first_space, cx);
                 // The shell forgets what it knows of a tab in no list, so the lists come first.

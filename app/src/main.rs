@@ -671,6 +671,7 @@ impl Browser for Engine {
         &self,
         items: Vec<MenuEntry>,
         position: Point<Pixels>,
+        over: Option<usize>,
         in_reveal: bool,
         chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
@@ -679,7 +680,7 @@ impl Browser for Engine {
         // mustn't be inside.
         cx.spawn(async move |cx| {
             let place = if in_reveal { platform::IN_REVEAL } else { platform::IN_WINDOW };
-            let index = show_menu(&items, position, place, None);
+            let index = show_menu(&items, position, place, over);
             cx.update(|cx| chosen(index, cx));
         })
         .detach();

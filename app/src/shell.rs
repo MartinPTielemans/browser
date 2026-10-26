@@ -218,6 +218,20 @@ const FORM_RADIUS: f32 = 8.;
 // Arc's name starts at x 48, after the Space's icon, which Spaces don't have yet. This is the URL
 // field's padding.
 const FORM_TEXT_X: f32 = FORM_INSET + URL_FIELD_TEXT_X - PLATE_INSET;
+// Arc's Profile and Choose a Theme rows, 42 and 86 under the field's top: a glyph centred 30 in, a
+// label at 46.5, and the Space's profile in a pill at 95, 10 after the label, its name 8 in and its
+// chevron 6.5 after the name and 10 from the pill's end, which the chevron's box takes 4.5 of.
+const FORM_PROFILE_TOP: f32 = FORM_FIELD_TOP + 42.;
+const FORM_THEME_TOP: f32 = FORM_FIELD_TOP + 86.;
+const FORM_GLYPH_X: f32 = 30.;
+const FORM_GLYPH: f32 = 15.;
+const FORM_LABEL_X: f32 = 46.5;
+const FORM_PILL_X: f32 = 95.;
+const FORM_PILL_HEIGHT: f32 = 22.;
+const FORM_PILL_LEFT: f32 = 8.;
+const FORM_CHEVRON: f32 = 18.;
+const FORM_CHEVRON_GAP: f32 = 6.5 - FORM_CHEVRON / 4.;
+const FORM_PILL_RIGHT: f32 = 10. - FORM_CHEVRON / 4.;
 const CREATE_BOTTOM: f32 = 96.;
 const CANCEL_BOTTOM: f32 = 66.5;
 const CANCEL_HEIGHT: f32 = 15.;
@@ -291,11 +305,15 @@ const SPACE_HOVERED: u32 = 0xffffff4d;
 const FORM_TEXT: u32 = 0xffffff;
 const FORM_PLATE: u32 = 0xffffff13;
 const FORM_PLACEHOLDER: u32 = 0xffffff8c;
+// The rows' glyphs are white 0.5, and the profile's pill white 0.1 over its row.
+const FORM_GLYPH_COLOR: u32 = 0xffffff80;
+const FORM_PILL: u32 = 0xffffff1a;
 const CREATE: u32 = 0x2129fb;
 const CREATE_UNNAMED: f32 = 0.4;
 // Create sends the form away from the bottom up, as Arc does (docs/ux-spec.md › Creating): the
-// buttons fade, then the field and the title fade as they sink, each over 150 ms.
+// buttons fade, then the rows, the field and the title fade as they sink, each over 150 ms.
 const FORM_LEAVE: f32 = 0.15;
+const FORM_LEAVE_ROWS: f32 = 0.04;
 const FORM_LEAVE_FIELD: f32 = 0.08;
 const FORM_LEAVE_TITLE: f32 = 0.13;
 const FORM_SINK: f32 = 20.;
@@ -903,9 +921,11 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/nav-reload.svg", include_bytes!("../assets/icons/nav-reload.svg")),
     ("icons/nav-sidebar.svg", include_bytes!("../assets/icons/nav-sidebar.svg")),
     ("icons/nav-stop.svg", include_bytes!("../assets/icons/nav-stop.svg")),
+    ("icons/paintbrush.svg", include_bytes!("../assets/icons/paintbrush.svg")),
     ("icons/search.svg", include_bytes!("../assets/icons/search.svg")),
     ("icons/settings.svg", include_bytes!("../assets/icons/settings.svg")),
     ("icons/sliders-horizontal.svg", include_bytes!("../assets/icons/sliders-horizontal.svg")),
+    ("icons/user.svg", include_bytes!("../assets/icons/user.svg")),
     ("icons/vibrate.svg", include_bytes!("../assets/icons/vibrate.svg")),
     ("icons/volume-2.svg", include_bytes!("../assets/icons/volume-2.svg")),
     ("icons/volume-x.svg", include_bytes!("../assets/icons/volume-x.svg")),
@@ -1052,12 +1072,14 @@ pub trait Browser {
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
     fn delete_profile(&self, profile: u64, cx: &mut App);
     /// Shows a menu of `items` at `position` in the window, or in the reveal's panel if
-    /// `in_reveal`, as a right-click there does. Then calls `chosen` once it closes, with the index
-    /// of the item chosen, if any.
+    /// `in_reveal`, as a right-click there does, or with the item at `over` on `position`, its
+    /// title's top left there, as a pop-up button's menu does. Then calls `chosen` once it closes,
+    /// with the index of the item chosen, if any.
     fn menu(
         &self,
         items: Vec<MenuEntry>,
         position: Point<Pixels>,
+        over: Option<usize>,
         in_reveal: bool,
         chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
@@ -2967,38 +2989,45 @@ impl Shell {
 
     /// The menu a right-click on a Space's name or dot shows (Arc), with its colour (ours).
     fn space_menu(&mut self, space: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let color = self.spaces.iter().find(|each| each.id == space).and_then(|each| each.color);
         let mut items: Vec<(MenuEntry, MenuAction)> = vec![
             (
                 MenuEntry::new("Rename Space", true),
                 Box::new(move |shell, cx| shell.rename_space(space, cx)),
             ),
             (MenuEntry::new("Color", true), Box::new(|_, _| {})),
-            (
-                MenuEntry::new("System Accent", true)
-                    .under(1)
-                    .checked(color.is_none())
-                    .swatch(self.accent_color),
-                Box::new(move |shell, cx| shell.browser.set_space_color(space, None, cx)),
-            ),
         ];
-        for (name, each) in SPACE_COLORS {
-            items.push((
-                MenuEntry::new(name, true).under(1).checked(color == Some(each)).swatch(each),
-                Box::new(move |shell, cx| shell.browser.set_space_color(space, Some(each), cx)),
-            ));
-        }
+        let colors = self.color_items(space);
+        items.extend(colors.into_iter().map(|(entry, action)| (entry.under(1), action)));
         let at = items.len();
-        items.extend(self.profile_menu(space, at));
+        items.push((MenuEntry::new("Profile", true), Box::new(|_, _| {})));
+        let mut profiles = self.profile_items(space);
+        let deletes = self.delete_profile_items();
+        if !deletes.is_empty() {
+            profiles.push((MenuEntry::line(), Box::new(|_, _| {})));
+        }
+        profiles.extend(deletes);
+        items.extend(profiles.into_iter().map(|(entry, action)| (entry.under(at), action)));
         items.push((
             MenuEntry::new("Delete Space", self.spaces.len() > 1),
             Box::new(move |shell, cx| shell.delete_space(space, cx)),
         ));
+        self.show_menu(items, position, None, cx);
+    }
+
+    /// Shows `items` at `position`, or the one at `over` there, and does what the one chosen does.
+    fn show_menu(
+        &self,
+        items: Vec<(MenuEntry, MenuAction)>,
+        position: Point<Pixels>,
+        over: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
         let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
         let shell = cx.weak_entity();
         self.browser.menu(
             entries,
             position,
+            over,
             self.sidebar_hidden,
             Box::new(move |chosen, cx| {
                 shell
@@ -3013,47 +3042,62 @@ impl Shell {
         );
     }
 
-    /// The Space menu's Profile item, at index `at` in it, and its submenu: the profiles, which
-    /// only an empty Space can change to, as its tabs' pages are in its own; a new one; and a
-    /// Delete item for each one nothing is in.
-    fn profile_menu(&self, space: u64, at: usize) -> Vec<(MenuEntry, MenuAction)> {
+    /// The colours a Space can have, its own checked: the system's accent, then ours.
+    fn color_items(&self, space: u64) -> Vec<(MenuEntry, MenuAction)> {
+        let color = self.spaces.iter().find(|each| each.id == space).and_then(|each| each.color);
+        let mut items: Vec<(MenuEntry, MenuAction)> = vec![(
+            MenuEntry::new("System Accent", true)
+                .checked(color.is_none())
+                .swatch(self.accent_color),
+            Box::new(move |shell, cx| shell.browser.set_space_color(space, None, cx)),
+        )];
+        for (name, each) in SPACE_COLORS {
+            items.push((
+                MenuEntry::new(name, true).checked(color == Some(each)).swatch(each),
+                Box::new(move |shell, cx| shell.browser.set_space_color(space, Some(each), cx)),
+            ));
+        }
+        items
+    }
+
+    /// The profiles a Space can be in, its own checked, which only an empty Space can change to, as
+    /// its tabs' pages are in its own; and a new one.
+    fn profile_items(&self, space: u64) -> Vec<(MenuEntry, MenuAction)> {
         let Some(entry) = self.spaces.iter().find(|each| each.id == space) else {
             return Vec::new();
         };
         let (current, empty) = (entry.profile, entry.pinned.is_empty() && entry.today.is_empty());
-        let mut items: Vec<(MenuEntry, MenuAction)> =
-            vec![(MenuEntry::new("Profile", true), Box::new(|_, _| {}))];
+        let mut items: Vec<(MenuEntry, MenuAction)> = Vec::new();
         for (profile, name) in self.profiles.clone() {
             items.push((
-                MenuEntry::new(name, empty || profile == current)
-                    .under(at)
-                    .checked(profile == current),
+                MenuEntry::new(name, empty || profile == current).checked(profile == current),
                 Box::new(move |shell, cx| shell.browser.set_space_profile(space, profile, cx)),
             ));
         }
-        items.push((MenuEntry::line().under(at), Box::new(|_, _| {})));
+        items.push((MenuEntry::line(), Box::new(|_, _| {})));
         items.push((
-            MenuEntry::new("New Profile", empty).under(at),
+            MenuEntry::new("New Profile", empty),
             Box::new(move |shell, cx| shell.new_profile(space, cx)),
         ));
+        items
+    }
+
+    /// A Delete item for each profile nothing is in.
+    fn delete_profile_items(&self) -> Vec<(MenuEntry, MenuAction)> {
         // The one the browser started with stays, as the browser needs one.
-        let unused: Vec<(u64, SharedString)> = (self.profiles.iter().skip(1))
+        (self.profiles.iter().skip(1))
             .filter(|(profile, _)| {
                 !self.spaces.iter().any(|each| each.profile == *profile)
                     && !self.favorite_profiles.values().any(|each| each == profile)
             })
-            .cloned()
-            .collect();
-        if !unused.is_empty() {
-            items.push((MenuEntry::line().under(at), Box::new(|_, _| {})));
-        }
-        for (profile, name) in unused {
-            items.push((
-                MenuEntry::new(format!("Delete “{name}”"), true).under(at),
-                Box::new(move |shell, cx| shell.delete_profile(profile, name, cx)),
-            ));
-        }
-        items
+            .map(|(profile, name)| {
+                let (profile, name) = (*profile, name.clone());
+                let entry = MenuEntry::new(format!("Delete “{name}”"), true);
+                let action: MenuAction =
+                    Box::new(move |shell, cx| shell.delete_profile(profile, name, cx));
+                (entry, action)
+            })
+            .collect()
     }
 
     /// Deletes the profile once the user confirms, as nothing brings it back.
@@ -3101,6 +3145,7 @@ impl Shell {
         self.browser.menu(
             entries,
             position,
+            None,
             self.sidebar_hidden,
             Box::new(move |chosen, cx| {
                 shell
@@ -5283,6 +5328,7 @@ impl Shell {
         self.browser.menu(
             entries,
             position,
+            None,
             self.sidebar_hidden,
             Box::new(move |chosen, cx| {
                 if let Some(&(_, command)) = chosen.and_then(|at| items.get(at)) {
@@ -5311,6 +5357,7 @@ impl Shell {
         };
         let (title_opacity, title_sink) = sinking(FORM_LEAVE_TITLE);
         let (field_opacity, field_sink) = sinking(FORM_LEAVE_FIELD);
+        let (rows_opacity, rows_sink) = sinking(FORM_LEAVE_ROWS);
         let buttons_opacity = 1. - gone(0.);
         let plate = |id: &'static str| {
             div()
@@ -5346,6 +5393,55 @@ impl Shell {
             .font_weight(FontWeight::MEDIUM)
             .text_color(rgb(FORM_TEXT))
             .child(form.name.clone());
+        // A row with a glyph and a label, whose menu a press shows while the form is up.
+        let row = |id: &'static str, top: f32, glyph: &'static str, label: &'static str| {
+            plate(id)
+                .top(px(top + rows_sink))
+                .opacity(rows_opacity)
+                .pl(px(FORM_GLYPH_X - FORM_GLYPH / 2. - FORM_INSET))
+                .bg(rgba(FORM_PLATE))
+                .text_size(px(13.))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(FORM_TEXT))
+                .child(svg().path(glyph).size(px(FORM_GLYPH)).text_color(rgba(FORM_GLYPH_COLOR)))
+                .child(div().ml(px(FORM_LABEL_X - FORM_GLYPH_X - FORM_GLYPH / 2.)).child(label))
+        };
+        let profile = (self.spaces.iter().find(|each| each.id == form.space))
+            .and_then(|space| self.profiles.iter().find(|(id, _)| *id == space.profile))
+            .map(|(_, name)| name.clone())
+            .unwrap_or_default();
+        let pill = div()
+            .absolute()
+            .left(px(FORM_PILL_X - FORM_INSET))
+            .h(px(FORM_PILL_HEIGHT))
+            .flex()
+            .items_center()
+            .pl(px(FORM_PILL_LEFT))
+            .pr(px(FORM_PILL_RIGHT))
+            .rounded(px(FORM_PILL_HEIGHT / 2.))
+            .bg(rgba(FORM_PILL))
+            .text_size(px(11.))
+            .font_weight(FontWeight::BOLD)
+            .child(profile)
+            .child(
+                svg()
+                    .path("icons/chevron-down.svg")
+                    .ml(px(FORM_CHEVRON_GAP))
+                    .size(px(FORM_CHEVRON))
+                    .text_color(rgb(FORM_TEXT)),
+            );
+        let menu = |show: fn(&mut Self, Point<Pixels>, &mut Context<Self>)| {
+            cx.listener(move |shell, event: &MouseDownEvent, _, cx| show(shell, event.position, cx))
+        };
+        let profile_row = row("space-profile", FORM_PROFILE_TOP, "icons/user.svg", "Profile")
+            .child(pill)
+            .when(left.is_none(), |row| {
+                row.on_mouse_down(MouseButton::Left, menu(Self::form_profile_menu))
+            });
+        let theme_row = row("space-theme", FORM_THEME_TOP, "icons/paintbrush.svg", "Choose a Theme")
+            .when(left.is_none(), |row| {
+                row.on_mouse_down(MouseButton::Left, menu(Self::form_theme_menu))
+            });
         let create = plate("create-space")
             .bottom(px(CREATE_BOTTOM))
             .justify_center()
@@ -5388,8 +5484,32 @@ impl Shell {
             .bottom_0()
             .child(title)
             .child(field)
+            .child(profile_row)
+            .child(theme_row)
             .child(create)
             .child(cancel)
+    }
+
+    /// The form's Profile row's menu: the profiles its Space can be in, the Space's on the pill's
+    /// name, as a pop-up button's menu is, and a new one.
+    fn form_profile_menu(&mut self, _: Point<Pixels>, cx: &mut Context<Self>) {
+        if let Some(space) = self.form().map(|form| form.space) {
+            let items = self.profile_items(space);
+            let over = items.iter().position(|(entry, _)| entry.checked);
+            let name = point(
+                px(FORM_PILL_X + FORM_PILL_LEFT),
+                px(FORM_PROFILE_TOP + (FORM_PLATE_HEIGHT - FORM_PILL_HEIGHT) / 2.),
+            );
+            self.show_menu(items, name, over, cx);
+        }
+    }
+
+    /// The form's Choose a Theme row's menu: the Space menu's colours, until Space themes come
+    /// (Arc's picker isn't recorded).
+    fn form_theme_menu(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if let Some(space) = self.form().map(|form| form.space) {
+            self.show_menu(self.color_items(space), position, None, cx);
+        }
     }
 
     /// The line over Today, and Clear at its end, where the titles end.

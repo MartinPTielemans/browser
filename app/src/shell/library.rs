@@ -940,6 +940,7 @@ impl Shell {
         self.browser.menu(
             entries,
             position,
+            None,
             false,
             Box::new(move |chosen, cx| {
                 shell
