@@ -205,10 +205,12 @@ send press $(row 1)
 send dragto 100 200
 send dragto 114 112
 expect '^browser: drag shape tile$' "a row dragged onto the favorites didn't turn into a tile"
+expect '^browser: detent$' "a row dragged onto the favorites didn't click the trackpad"
 ../tools/window-screenshot.sh "$pid" "$out/favorite-drag.png" || fail "no window to capture"
 none_since '^browser: dragged' ||
   fail "a row dragged onto the favorites dropped before the pointer let go"
 send release 114 112
+none_since '^browser: detent$' || fail "letting go on the favorites clicked the trackpad"
 expect "^browser: dragged $x to favorites 0\$" \
   "a Today row dragged onto the favorites didn't go there"
 expect "^browser: favorites $x\$" \
@@ -234,8 +236,10 @@ expect "^browser: favorites $a\$" "the tile dropped in Today is still a favorite
 none_since '^browser: selected' || fail "dragging a tile showed it"
 # Escape puts a dragged tile back.
 send press 114 110
+none_since '^browser: detent$' || fail "pressing a tile clicked the trackpad"
 send dragto 100 200
 expect '^browser: drag shape row$' "a tile dragged into the list didn't turn into a row"
+expect '^browser: detent$' "a tile dragged into the list didn't click the trackpad"
 ../tools/window-screenshot.sh "$pid" "$out/favorite-drag-out.png" || fail "no window to capture"
 send dragto 100 300
 send key escape

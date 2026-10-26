@@ -50,18 +50,29 @@ switch "3 cmd" "$b"
 # Dragging a row moves its tab, in the pinned tabs and between them and Today, without showing it.
 # Today's top row is under the pinned rows, the divider and "+ New Tab".
 today_top="100 $((90 + 44 + 41 * 2 + 15 + 41 + 20))"
+clicks=$(detents)
 send drag $(pinned_row 1) 100 150
 expect "^browser: dragged $a to pinned 0\$" "a drag of the second pinned tab up didn't move it"
+# It passed one row, so the trackpad clicked once, and letting go added none.
+passed=$(($(detents) - clicks))
+[ "$passed" = 1 ] || fail "a row dragged past one gave $passed clicks"
 expect_lists "$a $c" "$b" "after dragging a pinned tab up"
 none_since '^browser: selected' || fail "dragging a tab showed it"
 # In steps, as the pointer goes: Today's tab comes away and the pinned rows make room for it.
+clicks=$(detents)
 send press $today_top
+none_since '^browser: detent$' || fail "pressing a row clicked the trackpad"
 send dragto 100 270
 send dragto 100 230
 send dragto 100 200
 ../tools/window-screenshot.sh "$pid" "$out/drag.png" || fail "no window to capture"
 none_since '^browser: dragged' || fail "a row dropped before the pointer let go"
+[ "$(detents)" -gt "$clicks" ] || fail "a row dragged up past the pinned rows didn't click"
+# Holding the row at its place doesn't click again, nor does letting go.
+send dragto 100 201
+none_since '^browser: detent$' || fail "a row held at its place clicked again"
 send release 100 200
+none_since '^browser: detent$' || fail "letting go of a row clicked the trackpad"
 expect "^browser: dragged $b to pinned 1\$" "a drag of the Today tab up didn't pin it"
 expect_lists "$a $b $c" " *" "after dragging the Today tab into the pinned tabs"
 send drag $(pinned_row 1) 100 300
@@ -75,7 +86,9 @@ send press $(pinned_row 0)
 send dragto 100 250
 send key escape
 expect '^browser: command stop via ' "escape during a drag didn't reach the UI"
+clicks=$(detents)
 send release 100 250
+[ "$(detents)" = "$clicks" ] || fail "letting go after escape clicked the trackpad"
 none_since '^browser: dragged' || fail "a drag escape put back dropped its row"
 none_since '^browser: selected' || fail "letting go of a drag escape put back showed its tab"
 [ "$(pinned)" = "$c $a" ] || fail "a drag escape put back moved a tab: the pinned tabs are \"$(pinned)\""
@@ -227,14 +240,18 @@ expect "^browser: renamed folder $f work\$" "the new folder didn't take the name
 # out. A folder drags as a row does.
 send press $(pinned_row 0)
 send dragto 110 180
+expect '^browser: detent$' "a row dragged under the folder and in didn't click the trackpad"
 send dragto 120 200
+none_since '^browser: detent$' || fail "a row held in the folder clicked again"
 send release 120 200
 expect "^browser: dragged $c to folder $f 0\$" "a pinned tab dragged right under the folder didn't go in"
 expect "^browser: outline $f+\\[$c\\]\$" "the tab dragged in isn't in the folder: $(outline)"
 settled
 send press $(pinned_row 1)
 send dragto 90 197
+expect '^browser: detent$' "a row dragged left out of the folder didn't click the trackpad"
 send dragto 76 199
+none_since '^browser: detent$' || fail "a row held out of the folder clicked again"
 send release 76 199
 expect "^browser: dragged $c to pinned 1\$" "a tab dragged left out of the folder didn't come out"
 expect "^browser: outline $f+\\[\\] $c\$" "the tab dragged out is still in the folder: $(outline)"
@@ -245,7 +262,9 @@ expect "^browser: outline $c $f+\\[\\]\$" "the folder dragged down isn't under t
 settled
 send press $(pinned_row 0)
 send dragto 110 180
+expect '^browser: detent$' "a row dragged under the folder and in didn't click the trackpad"
 send dragto 120 200
+none_since '^browser: detent$' || fail "a row held in the folder clicked again"
 send release 120 200
 expect "^browser: outline $f+\\[$c\\]\$" "the tab dragged under the folder didn't go in: $(outline)"
 settled

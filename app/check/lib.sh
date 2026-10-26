@@ -97,6 +97,10 @@ expect() {
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
 }
+# How many detents the app has asked the trackpad for: one for each place a dragged row passes.
+detents() {
+  grep -c '^browser: detent$' "$log" || true
+}
 # ⌘Q, and Quit in the alert that asks first. Quit is the driver's last command: the app doesn't
 # report it done.
 quit_by_key() {
