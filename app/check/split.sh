@@ -6,10 +6,11 @@
 # and show with the pane focused last, and a click on a segment focuses its pane. Launched again,
 # the app brings the split back with both pages. Separate Page from Split View shows the page alone,
 # ⌥↩ in the command bar opens a URL beside the page, and ⌘W closes the focused pane, leaving the
-# page beside it alone. The ✕ on a split's row closes all its panes, and the window shows the tab
-# above them. A row dragged onto the page brings a target to each of the card's sides, which go when
-# it's back over the sidebar, and let go on the left one, the tab joins the page shown on its left.
-# The command bar's Flip Split View, Move Pane Right and Separate All Pages reorder and end a split.
+# page beside it alone, which ⇧⌘T puts back. The ✕ on a split's row closes all its panes, and the
+# window shows the tab above them. ⇧⌘T brings them back together. A row dragged onto the page brings
+# a target to each of the card's sides, which go when it's back over the sidebar, and let go on the
+# left one, the tab joins the page shown on its left. The command bar's Flip Split View, Move Pane
+# Right and Separate All Pages reorder and end a split.
 
 # Split view, from the served page with example.org beside it.
 serve
@@ -173,15 +174,14 @@ expect "^browser: panes $b\$" "⌘W on a pane didn't leave the page beside it al
 expect '^browser: splits $' "the split outlived its pane"
 read_pages
 [ "$pages" = "$whole" ] || fail "the page left doesn't fill the card: $pages"
-# The ✕ on a split's row closes all its panes, and with the left one focused the window shows the
-# tab its Space picks after them.
-send key t cmd
-expect '^browser: command bar shown$' "⌘T didn't open the command bar"
-send type example.net
-send key return alt
-expect "^browser: splits $b+[0-9][0-9]*\$" "⌥↩ didn't open example.net beside the page again"
+# ⇧⌘T brings the closed pane back into its split, at its place, focused.
+send key t cmd shift
+expect "^browser: splits $b+[0-9][0-9]*\$" \
+  "⇧⌘T didn't bring the pane back into its split: \"$(splits)\""
 e=$(splits | cut -d+ -f2)
-expect "^browser: loaded $e https://example.net/\$" "example.net didn't load in the new pane"
+expect "^browser: selected $e\( in .*\)\{0,1\}\$" "the pane ⇧⌘T brought back isn't focused"
+expect "^browser: panes $b $e\$" "the window doesn't show the pane ⇧⌘T brought back"
+expect "^browser: loaded $e https://example.net/\$" "the pane ⇧⌘T brought back didn't load"
 # Flip Split View swaps the panes, and Move Pane Right moves the focused one back to the right.
 bar_command flip-split "Flip Split View" "flip split"
 expect "^browser: splits $e+$b\$" "Flip Split View didn't swap the split's pages: \"$(splits)\""
@@ -189,6 +189,8 @@ expect "^browser: panes $e $b\$" "Flip Split View didn't swap the pages shown"
 bar_command move-pane-right "Move Pane Right" "move pane right"
 expect "^browser: splits $b+$e\$" "Move Pane Right didn't move the focused page: \"$(splits)\""
 expect "^browser: panes $b $e\$" "Move Pane Right didn't move the page shown"
+# The ✕ on a split's row closes all its panes, and with the left one focused the window shows the
+# tab its Space picks after them.
 send click $((x + 100)) 400
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" "a click on the left pane didn't focus it"
 send move 202 $(row 2 | cut -d' ' -f2)
@@ -197,6 +199,16 @@ expect '^browser: command close-tab via sidebar$' "a click on the split's ✕ di
 expect "^browser: tab $b closed\$" "the split's ✕ didn't close its left pane"
 expect "^browser: tab $e closed\$" "the split's ✕ didn't close its right pane"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "closing the split didn't show the tab above it"
+# ⇧⌘T twice brings them back, the second into a split with the first, and the ✕ closes them again.
+send key t cmd shift
+send key t cmd shift
+expect "^browser: splits [0-9][0-9]*+[0-9][0-9]*\$" \
+  "⇧⌘T twice didn't bring the split's panes back together: \"$(splits)\""
+send click $((x + 100)) 400
+send move 202 $(row 2 | cut -d' ' -f2)
+send click 202 $(row 2 | cut -d' ' -f2)
+expect '^browser: command close-tab via sidebar$' "a click on the split's ✕ didn't run Close Tab"
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "closing the split again didn't show $a"
 # A row dragged onto the page becomes a picture of a window, and a target slides in at each of the
 # card's sides. Back over the sidebar it's a row again, and let go over the left target it joins
 # the page shown on its left, focused.
@@ -224,4 +236,4 @@ expect "^browser: panes $c\$" "Separate All Pages didn't show the focused page a
 expect "^browser: today.* $c $a\( \|\$\)" "Separate All Pages lost the pages' order: $(today)"
 exec 3>&-
 quit
-echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page and ⌥-click on \"+ New Tab\" do it too. ⌥⇧- and ⌥⌘-click on a link open it in a pane on the right. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The split comes back after a quit with both pages. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, and the ✕ on a split's row closes all its panes. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. Windows: $out/split.png, $out/split-left.png, $out/split-targets.png"
+echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page and ⌥-click on \"+ New Tab\" do it too. ⌥⇧- and ⌥⌘-click on a link open it in a pane on the right. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The split comes back after a quit with both pages. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. Windows: $out/split.png, $out/split-left.png, $out/split-targets.png"

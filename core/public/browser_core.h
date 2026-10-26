@@ -375,8 +375,9 @@ BC_EXPORT size_t bc_window_undo_clear(bc_id window);
 BC_EXPORT bc_id bc_window_undo_delete_space(bc_id window);
 
 // Reopens the Today tab closed last, in any window, with its history: at its place in its Space's
-// Today tabs, else at the top of the Space the window shows. The window shows it, and its Space,
-// and it leaves the archive.
+// Today tabs, else at the top of the Space the window shows. One closed from a split view goes back
+// to its place in it, if a tab of the split is open and it has room. The window shows it, and its
+// Space, and it leaves the archive.
 // Tabs that close with their window or as the browser quits come back at the next launch instead.
 // Returns the tab, or 0 if none is closed.
 BC_EXPORT bc_id bc_window_reopen_closed_tab(bc_id window);
