@@ -8,7 +8,8 @@ class Profile;
 namespace browser_core {
 
 // Tells the app of |profile|'s downloads from now on, those Chrome's history put back from the
-// last launch too, as Arc's Library lists them. Then downloads_changed.
+// last launch too, in one list with the other profiles', as Arc's Library lists them. Then
+// downloads_changed.
 void ObserveDownloads(Profile* profile);
 
 // What bc_download_act does to the download |id|.

@@ -1,8 +1,8 @@
 #!/bin/sh
-# Runs the app and checks what it does, in thirteen runs that launch it twenty-three times. Each
+# Runs the app and checks what it does, in fourteen runs that launch it twenty-five times. Each
 # run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in that
 # order, and ./check.sh all of them:
-#   load keys tabs window popup history spaces restore find pinned clear split favorites
+#   load keys tabs window popup history spaces profiles restore find pinned clear split favorites
 # Every run but load needs Browser to be the active app, and window and find take it full screen
 # for a moment.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
@@ -11,7 +11,7 @@
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
-runs="load keys tabs window popup history spaces restore find pinned clear split favorites"
+runs="load keys tabs window popup history spaces profiles restore find pinned clear split favorites"
 for run in "$@"; do
   case " $runs " in
     *" $run "*) ;;
@@ -45,6 +45,25 @@ prefs.setdefault("download", {}).update(default_directory=sys.argv[2], prompt_fo
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"
+# Each run starts in the one profile, Default: Chrome deletes the others a failed run left at its
+# next launch.
+python3 -I -c '
+import json, os, sys
+if not os.path.exists(sys.argv[1]):
+    sys.exit()
+with open(sys.argv[1]) as f:
+    local = json.load(f)
+profile = local.setdefault("profile", {})
+left = [name for name in profile.get("info_cache", {}) if name != "Default"]
+for name in left:
+    del profile["info_cache"][name]
+profile["last_used"] = "Default"
+profile["last_active_profiles"] = profile["profiles_order"] = ["Default"]
+deleted = local.setdefault("profiles", {}).setdefault("profile_basenames_deleted", [])
+deleted.extend(name for name in left if name not in deleted)
+with open(sys.argv[1], "w") as f:
+    json.dump(local, f)
+' "$(dirname "$saved")/Local State"
 . check/lib.sh
 trap cleanup EXIT
 # The runs send the app's driver its commands through it.

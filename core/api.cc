@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+#include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "browser_core/archive.h"
@@ -14,6 +16,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/search.h"
 #include "browser_core/session.h"
@@ -22,7 +25,6 @@
 #include "browser_core/window.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
@@ -75,6 +77,12 @@ void SplitMoved(browser_core::Space& space, bc_id id) {
   }
 }
 
+// The profile of the Space the window shows, which what it opens and suggests comes from.
+Profile* ProfileOf(const browser_core::Window& window) {
+  const browser_core::Space* space = browser_core::Space::FromId(window.space());
+  return browser_core::ProfileFor(space ? space->profile() : std::string());
+}
+
 // Loads |url| in the tab, as Chrome loads what's typed in its location bar or a bookmark.
 void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
   content::WebContents* contents = browser_core::Tab::FromId(id);
@@ -115,7 +123,44 @@ void bc_window_close(bc_id id) {
 }
 
 bc_id bc_space_create(const char* name) {
-  return browser_core::Space::Create(name ? name : "")->id();
+  browser_core::Space* space = browser_core::Space::Create(name ? name : "");
+  space->SetProfile(browser_core::DirOf(browser_core::StartProfile()));
+  return space->id();
+}
+
+bc_id bc_space_profile(bc_id id) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  return space ? browser_core::ProfileId(space->profile()) : 0;
+}
+
+bool bc_space_set_profile(bc_id id, bc_id profile) {
+  browser_core::Space* space = browser_core::Space::FromId(id);
+  const std::string dir = browser_core::ProfileDir(profile);
+  if (!space || dir.empty() || !space->pinned_rows().empty() || !space->today().empty()) {
+    return false;
+  }
+  // At once for a profile that's loaded, as a Space's is.
+  browser_core::LoadProfiles({dir},
+                             base::BindOnce(&browser_core::Window::SetSpaceProfile, id, dir));
+  return true;
+}
+
+size_t bc_profiles(bc_id* profiles, size_t capacity) {
+  const std::vector<bc_id> all = browser_core::Profiles();
+  std::copy_n(all.begin(), std::min(capacity, all.size()), profiles);
+  return all.size();
+}
+
+size_t bc_profile_name(bc_id profile, char* name, size_t capacity) {
+  return CopyString(browser_core::ProfileName(profile), name, capacity);
+}
+
+bc_id bc_profile_create(const char* name) {
+  return browser_core::CreateProfile(name ? name : "", base::DoNothing());
+}
+
+bool bc_profile_delete(bc_id profile) {
+  return browser_core::DeleteProfile(profile);
 }
 
 size_t bc_spaces(bc_id* spaces, size_t capacity) {
@@ -224,6 +269,11 @@ void bc_folder_delete(bc_id folder) {
   if (browser_core::Space* space = browser_core::Space::HoldingFolder(folder)) {
     space->DeleteFolder(folder);
   }
+}
+
+bc_id bc_tab_profile(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  return contents ? browser_core::ProfileId(browser_core::DirOf(contents)) : 0;
 }
 
 size_t bc_favorites(bc_id* tabs, size_t capacity) {
@@ -418,8 +468,7 @@ void bc_page_favicon(const char* url) {
 
 void bc_window_suggest(bc_id window_id, const char* keyword, const char* text, bool complete) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  Profile* profile = window ? ProfileOf(*window) : nullptr;
   if (window && profile) {
     window->Suggest(profile, keyword ? base::UTF8ToUTF16(keyword) : std::u16string(),
                     text ? base::UTF8ToUTF16(text) : std::u16string(), complete);
@@ -435,8 +484,7 @@ void bc_window_remove_suggestion(bc_id window_id, const char* url) {
 
 bc_id bc_tab_open(bc_id window_id, const char* url) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  Profile* profile = window ? ProfileOf(*window) : nullptr;
   content::WebContents* contents = window && profile ? window->OpenTab(profile, GURL(url)) : nullptr;
   if (!contents) {
     return 0;
@@ -449,15 +497,13 @@ bc_id bc_tab_open(bc_id window_id, const char* url) {
 }
 
 size_t bc_typed_url(const char* text, char* url, size_t capacity) {
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  Profile* profile = browser_core::StartProfile();
   const GURL typed = profile && text ? browser_core::TypedUrl(profile, text) : GURL();
   return typed.is_valid() ? CopyString(typed.spec(), url, capacity) : 0;
 }
 
 size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity) {
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  Profile* profile = browser_core::StartProfile();
   const std::u16string engine = keyword ? base::UTF8ToUTF16(keyword) : std::u16string();
   const GURL search = profile && text ? browser_core::SearchUrl(profile, engine, text) : GURL();
   return search.is_valid() ? CopyString(search.spec(), url, capacity) : 0;

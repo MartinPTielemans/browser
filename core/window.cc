@@ -22,6 +22,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/platform/window_views.h"
+#include "browser_core/profiles.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/suggest.h"
@@ -444,7 +445,7 @@ void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
   tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   Window* window = in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
   Space* shown = window ? Space::FromId(window->space_) : nullptr;
-  if (!shown || !Favorites::Has(tab)) {
+  if (!shown || !Favorites::Has(tab) || Favorites::ProfileOf(tab) != shown->profile()) {
     return;
   }
   // In the Space before it leaves the favorites, as above.
@@ -457,6 +458,25 @@ void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
   // So it isn't archived at once.
   Tab::FromWebContents(contents)->set_last_seen(base::Time::Now());
   Tab::FromWebContents(contents)->StateChanged();
+}
+
+// static
+void Window::SetSpaceProfile(bc_id space, const std::string& profile) {
+  Space* in = Space::FromId(space);
+  if (!in || !in->pinned_rows().empty() || !in->today().empty() || in->profile() == profile) {
+    return;
+  }
+  in->SetProfile(profile);
+  // A favorite of the profile it was in no longer shows there.
+  for (auto& [id, window] : Windows()) {
+    if (Favorites::Has(window->SelectedIn(space)) &&
+        Favorites::ProfileOf(window->SelectedIn(space)) != profile) {
+      window->selected_in_space_.erase(space);
+      if (window->space_ == space) {
+        window->ShowNothing();
+      }
+    }
+  }
 }
 
 // static
@@ -495,7 +515,9 @@ void Window::CloseBelow(bc_id tab) {
 void Window::MoveToSpace(bc_id tab, bc_id space) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  if (!from || !to || from == to || DeletingSpaces().contains(space)) {
+  // A tab can't take its page to another profile.
+  if (!from || !to || from == to || DeletingSpaces().contains(space) ||
+      from->profile() != to->profile()) {
     return;
   }
   const bool pinned = from->IsPinned(tab);
@@ -795,7 +817,8 @@ bc_id Window::TabToShowIn(bc_id space) const {
   }
   auto last = selected_in_space_.find(space);
   if (last != selected_in_space_.end() &&
-      (in->Has(last->second) || Favorites::Has(last->second))) {
+      (in->Has(last->second) || (Favorites::Has(last->second) &&
+                                 Favorites::ProfileOf(last->second) == in->profile()))) {
     return last->second;
   }
   if (!in->today().empty()) {
@@ -865,6 +888,18 @@ void Window::Select(bc_id tab) {
     ShowSpace(space->id());
     return;
   }
+  const Space* shown = Space::FromId(space_);
+  if (shown && Favorites::Has(tab) && Favorites::ProfileOf(tab) != shown->profile()) {
+    // A favorite shows in the Spaces of its profile: the first of them.
+    for (Space* space : Space::All()) {
+      if (space->profile() == Favorites::ProfileOf(tab)) {
+        SetSelectedIn(space->id(), tab);
+        ShowSpace(space->id());
+        return;
+      }
+    }
+    return;
+  }
   selected_ = tab;
   Show(contents, page_frame_);
   ReportSelected();
@@ -914,8 +949,7 @@ size_t Window::UndoClear() {
 
 bc_id Window::UndoDeleteSpace() {
   std::optional<DeletedSpace>& deleted = LastDeleted();
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  Profile* profile = deleted ? ProfileFor(deleted->saved.profile) : nullptr;
   // Not while a page keeps one of its tabs open, which keeps the Space.
   if (!deleted || !profile || Space::FromId(deleted->id)) {
     return 0;
@@ -1012,7 +1046,8 @@ bc_id Window::Duplicate(bc_id tab) {
   content::WebContents* contents = Tab::FromId(tab);
   tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   Space* space = Favorites::Has(tab) ? Space::FromId(space_) : Space::Holding(tab);
-  if (!in || !space || ForBrowser(in->GetBrowserWindowInterface()) != this) {
+  if (!in || !space || ForBrowser(in->GetBrowserWindowInterface()) != this ||
+      DirOf(contents) != space->profile()) {
     return 0;
   }
   TabStripModel* tabs = in->GetBrowserWindowInterface()->GetTabStripModel();
@@ -1040,8 +1075,7 @@ bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {
     space = Space::FromId(space_);
     index = 0;
   }
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  Profile* profile = space ? ProfileFor(space->profile()) : nullptr;
   content::WebContents* contents =
       space && profile ? RestoreTab(profile, saved.history, saved.current) : nullptr;
   if (!contents) {

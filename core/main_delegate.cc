@@ -8,10 +8,9 @@
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
-#include "browser_core/downloads.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
-#include "browser_core/search.h"
+#include "browser_core/profiles.h"
 #include "browser_core/session.h"
 #include "browser_core/window.h"
 #include "chrome/browser/chrome_browser_main.h"
@@ -19,9 +18,6 @@
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/termination_notification.h"
-#include "chrome/browser/profiles/keep_alive/profile_keep_alive_types.h"
-#include "chrome/browser/profiles/keep_alive/scoped_profile_keep_alive.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
@@ -52,13 +48,8 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   }
 
   void PostBrowserStart() override {
-    // Chrome unloads a profile once its last Browser closes, and loading it again would hold up the
-    // next new tab, so the profile the app's tabs open in stays loaded while the core runs.
-    if (Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded()) {
-      profile_keep_alive_ =
-          std::make_unique<ScopedProfileKeepAlive>(profile, ProfileKeepAliveOrigin::kAppWindow);
-      SetUpSearch(profile);
-      ObserveDownloads(profile);
+    if (Profile* profile = StartProfile()) {
+      UseProfile(profile);
     }
     // Once the Spaces the last launch saved are read, and so once the run loop is running.
     LoadSession(base::BindOnce([] {
@@ -72,7 +63,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
     // Their Browsers are gone: quitting closed them, and the run loop waited for that.
     FlushSession();
     Window::CloseAll();
-    profile_keep_alive_.reset();
+    ReleaseProfiles();
     if (g_host.stopping) {
       g_host.stopping(g_host.context);
     }
@@ -83,7 +74,6 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
 
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
   base::CallbackListSubscription app_terminating_;
-  std::unique_ptr<ScopedProfileKeepAlive> profile_keep_alive_;
 };
 
 class ContentBrowserClient : public ChromeContentBrowserClient {

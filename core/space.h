@@ -46,6 +46,8 @@ class Space {
   const std::string& name() const { return name_; }
   // 0xRRGGBB in sRGB, if it has one.
   std::optional<uint32_t> color() const { return color_; }
+  // The directory of the profile its tabs open in, which its favorites are in (decision 5).
+  const std::string& profile() const { return profile_; }
   // The pinned tabs and folders, top to bottom, each folder followed by what's in it.
   const std::vector<bc_id>& pinned_rows() const { return pinned_; }
   // The pinned tabs alone.
@@ -67,6 +69,7 @@ class Space {
 
   void SetName(std::string name);
   void SetColor(std::optional<uint32_t> color);
+  void SetProfile(std::string profile);
 
   // Puts |tab| in Today. One the user opened (|opener| 0) goes at the top, under "+ New Tab". One a
   // page in this Space opened goes in Chrome's place: right under its opener if it opened in front,
@@ -169,6 +172,7 @@ class Space {
   const bc_id id_;
   std::string name_;
   std::optional<uint32_t> color_;
+  std::string profile_;
   // Pinned tabs and folders.
   std::vector<bc_id> pinned_;
   std::map<bc_id, GURL> pinned_urls_;

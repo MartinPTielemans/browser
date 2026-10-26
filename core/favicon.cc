@@ -5,9 +5,9 @@
 #include "base/task/cancelable_task_tracker.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
+#include "browser_core/profiles.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/profiles/profile_manager.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon_base/favicon_types.h"
 #include "components/keyed_service/core/service_access_type.h"
@@ -32,8 +32,8 @@ void Report(const std::string& url, const favicon_base::FaviconRawBitmapResult& 
 }  // namespace
 
 void FindFavicon(const std::string& url) {
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  // The history of the profile the core started with.
+  Profile* profile = StartProfile();
   favicon::FaviconService* service =
       profile ? FaviconServiceFactory::GetForProfile(profile, ServiceAccessType::EXPLICIT_ACCESS)
               : nullptr;

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,6 +25,7 @@
 #include "base/values.h"
 #include "browser_core/archive.h"
 #include "browser_core/favorites.h"
+#include "browser_core/profiles.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -100,6 +102,7 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
   SavedSpace to;
   to.name = space.name();
   to.color = space.color();
+  to.profile = space.profile();
   int index = 0;
   for (auto [ids, tabs] : {std::pair(&space.pinned_rows(), &to.pinned),
                            std::pair(&space.today(), &to.today)}) {
@@ -162,6 +165,7 @@ Saved Collect() {
     }
     tab.pinned_url = Favorites::Url(id);
     tab.name = Tab::FromWebContents(contents)->name();
+    tab.profile = Favorites::ProfileOf(id);
     favorites[id] = saved.favorites.size();
     saved.favorites.push_back(std::move(tab));
   }
@@ -214,6 +218,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
       if (tab.depth) {
         dict.Set("depth", tab.depth);
       }
+      if (!tab.profile.empty()) {
+        dict.Set("profile", tab.profile);
+      }
       list.Append(std::move(dict));
     }
     return list;
@@ -238,6 +245,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
     }
     if (space.color) {
       dict.Set("color", static_cast<int>(*space.color));
+    }
+    if (!space.profile.empty()) {
+      dict.Set("profile", space.profile);
     }
     spaces.Append(std::move(dict));
   }
@@ -300,6 +310,9 @@ std::optional<SavedTab> ReadTab(const base::Value& value) {
   tab.stacked = tab.split && dict->FindBool("stacked").value_or(false);
   tab.share = dict->FindDouble("share").value_or(0);
   tab.depth = std::max(dict->FindInt("depth").value_or(0), 0);
+  if (const std::string* profile = dict->FindString("profile")) {
+    tab.profile = *profile;
+  }
   return tab;
 }
 
@@ -337,6 +350,9 @@ std::optional<Saved> Read(const base::FilePath& path) {
     to.name = *name;
     if (std::optional<int> color = space->FindInt("color")) {
       to.color = static_cast<uint32_t>(*color) & 0xffffff;
+    }
+    if (const std::string* profile = space->FindString("profile")) {
+      to.profile = *profile;
     }
     const int shown = space->FindInt("shown").value_or(-1);
     const int shown_favorite = space->FindInt("shown_favorite").value_or(-1);
@@ -469,8 +485,19 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
       LoadArchive(std::exchange(saved->archive, {}));
       UserSettings() = saved->settings;
     }
+    // The profiles the Spaces and favorites are in load before they come back.
+    std::set<std::string> profiles;
+    if (saved) {
+      for (const SavedTab& favorite : saved->favorites) {
+        profiles.insert(favorite.profile);
+      }
+      for (const SavedSpace& space : saved->spaces) {
+        profiles.insert(space.profile);
+      }
+      profiles.erase(std::string());
+    }
     loaded_ = std::move(saved);
-    std::move(loaded).Run();
+    LoadProfiles(profiles, std::move(loaded));
   }
 
   scoped_refptr<base::SequencedTaskRunner> task_runner_;
@@ -542,6 +569,7 @@ bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
 Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
   Space* space = Space::Create(saved_space.name, id);
   space->SetColor(saved_space.color);
+  space->SetProfile(DirOf(profile));
   const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
     const bc_id tab = RestoreSavedTab(window, profile, saved_tab);
     if (tab && index == saved_space.shown) {
@@ -612,15 +640,15 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
 
 bool RestoreSession(Window& window) {
   std::optional<Saved> saved = g_saver ? g_saver->TakeLoaded() : std::nullopt;
-  // Chrome made the profile it starts with before the core's calls work.
-  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
-  if (!saved || !profile || !Space::All().empty()) {
+  if (!saved || !StartProfile() || !Space::All().empty()) {
     return false;
   }
-  // First, as a Space may show one.
+  // First, as a Space may show one. Each in its profile, which loaded with the session, else in the
+  // one the core started with.
   std::vector<bc_id> favorites;
   for (const SavedTab& saved_tab : saved->favorites) {
-    const bc_id tab = favorites.emplace_back(RestoreSavedTab(window, profile, saved_tab));
+    const bc_id tab = favorites.emplace_back(
+        RestoreSavedTab(window, ProfileFor(saved_tab.profile), saved_tab));
     if (tab) {
       Favorites::Add(tab,
                      saved_tab.pinned_url.is_valid()
@@ -632,7 +660,7 @@ bool RestoreSession(Window& window) {
   bc_id shown = 0;
   for (size_t i = 0; i < saved->spaces.size(); ++i) {
     const SavedSpace& saved_space = saved->spaces[i];
-    Space* space = RestoreSpace(window, profile, saved_space);
+    Space* space = RestoreSpace(window, ProfileFor(saved_space.profile), saved_space);
     if (static_cast<int>(i) == saved->shown) {
       shown = space->id();
     }

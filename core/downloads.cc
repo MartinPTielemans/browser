@@ -66,29 +66,32 @@ int StateOf(const download::DownloadItem& item) {
 
 class Downloads : public download::AllDownloadItemNotifier::Observer {
  public:
-  explicit Downloads(Profile* profile) {
+  // Adds |profile|'s downloads to the list.
+  void Observe(Profile* profile) {
     // Made here, as it tells of a manager that has read the history at once.
-    notifier_ = std::make_unique<download::AllDownloadItemNotifier>(
-        profile->GetDownloadManager(), this);
+    notifiers_.push_back(
+        std::make_unique<download::AllDownloadItemNotifier>(profile->GetDownloadManager(), this));
     Changed();
   }
 
-  // The ones Chrome's downloads page lists, newest first.
+  // The ones Chrome's downloads page lists, of every profile the core uses, newest first.
   std::vector<download::DownloadItem*> Listed() {
-    content::DownloadManager* manager = notifier_->GetManager();
-    if (!manager) {
-      return {};
-    }
-    Profile* profile = Profile::FromBrowserContext(manager->GetBrowserContext());
-    content::DownloadManager::DownloadVector all;
-    manager->GetAllDownloads(&all);
     std::vector<download::DownloadItem*> listed;
-    for (download::DownloadItem* item : all) {
-      if (!download_crx_util::IsTrustedExtensionDownload(profile, *item) &&
-          !item->IsTemporary() && !item->IsTransient() &&
-          !item->GetFileNameToReportUser().empty() && !item->GetTargetFilePath().empty() &&
-          !item->GetURL().is_empty() && DownloadItemModel(item).ShouldShowInUi()) {
-        listed.push_back(item);
+    for (const auto& notifier : notifiers_) {
+      content::DownloadManager* manager = notifier->GetManager();
+      if (!manager) {
+        continue;
+      }
+      Profile* profile = Profile::FromBrowserContext(manager->GetBrowserContext());
+      content::DownloadManager::DownloadVector all;
+      manager->GetAllDownloads(&all);
+      for (download::DownloadItem* item : all) {
+        if (!download_crx_util::IsTrustedExtensionDownload(profile, *item) &&
+            !item->IsTemporary() && !item->IsTransient() &&
+            !item->GetFileNameToReportUser().empty() && !item->GetTargetFilePath().empty() &&
+            !item->GetURL().is_empty() && DownloadItemModel(item).ShouldShowInUi()) {
+          listed.push_back(item);
+        }
       }
     }
     std::ranges::sort(listed, std::ranges::greater(), &download::DownloadItem::GetStartTime);
@@ -110,6 +113,8 @@ class Downloads : public download::AllDownloadItemNotifier::Observer {
  private:
   // download::AllDownloadItemNotifier::Observer:
   void OnManagerInitialized(content::DownloadManager* manager) override { Changed(); }
+  // A deleted profile's downloads leave the list.
+  void OnManagerGoingDown(content::DownloadManager* manager) override { Changed(); }
   void OnDownloadCreated(content::DownloadManager* manager,
                          download::DownloadItem* item) override {
     Changed();
@@ -161,18 +166,18 @@ class Downloads : public download::AllDownloadItemNotifier::Observer {
     Host().downloads_changed(Host().context, downloads.data(), downloads.size());
   }
 
-  std::unique_ptr<download::AllDownloadItemNotifier> notifier_;
+  std::vector<std::unique_ptr<download::AllDownloadItemNotifier>> notifiers_;
   bool report_posted_ = false;
   base::WeakPtrFactory<Downloads> weak_factory_{this};
 };
 
-std::unique_ptr<Downloads>& TheDownloads() {
-  static base::NoDestructor<std::unique_ptr<Downloads>> downloads;
+Downloads& TheDownloads() {
+  static base::NoDestructor<Downloads> downloads;
   return *downloads;
 }
 
 download::DownloadItem* Find(bc_id id) {
-  return TheDownloads() ? TheDownloads()->Find(id) : nullptr;
+  return TheDownloads().Find(id);
 }
 
 void ReportIcon(bc_id id, gfx::Image icon) {
@@ -190,7 +195,7 @@ void ReportIcon(bc_id id, gfx::Image icon) {
 }  // namespace
 
 void ObserveDownloads(Profile* profile) {
-  TheDownloads() = std::make_unique<Downloads>(profile);
+  TheDownloads().Observe(profile);
 }
 
 void ActOnDownload(bc_id id, int action) {
@@ -229,10 +234,7 @@ void ActOnDownload(bc_id id, int action) {
 }
 
 void ClearDownloads() {
-  if (!TheDownloads()) {
-    return;
-  }
-  for (download::DownloadItem* item : TheDownloads()->Listed()) {
+  for (download::DownloadItem* item : TheDownloads().Listed()) {
     if (item->GetState() != download::DownloadItem::IN_PROGRESS) {
       item->Remove();
     }

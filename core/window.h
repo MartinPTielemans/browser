@@ -94,6 +94,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // its tabs. The Space goes with the last of them. False, doing nothing, if it's the last Space
   // not going.
   static bool DeleteSpace(bc_id space);
+  // Puts |space|, while it has no tabs, in the profile in the directory |profile|, which has
+  // loaded. A window showing a favorite of the profile it was in there shows no page instead.
+  static void SetSpaceProfile(bc_id space, const std::string& profile);
   // Closes |tab| as the user does: its page gets its unload handlers, which may keep it open.
   static void CloseTab(bc_id tab);
   // Closes the Today tabs below |tab| as the user does, bottom up, so ⇧⌘T reopens each at its

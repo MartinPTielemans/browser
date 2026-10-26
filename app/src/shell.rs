@@ -312,7 +312,7 @@ const WINDOW_BUTTON_Y: f32 = 24.;
 const WINDOW_BUTTON_SIZE: f32 = 14.;
 const WINDOW_BUTTON_GLYPH: u32 = 0x00000080;
 
-/// What an item of a tab's menu does once chosen.
+/// What an item of a menu does once chosen.
 type MenuAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
 
 /// A browser command, from a key or the sidebar.
@@ -1034,8 +1034,9 @@ pub trait Browser {
     fn show_space(&self, space: u64, cx: &mut App);
     /// The tab the window shows when it shows `space`, or the one it shows, else 0.
     fn space_tab(&self, space: u64) -> u64;
-    /// Makes an empty Space named `name` after the others, and returns it.
-    fn create_space(&self, name: &str, cx: &mut App) -> u64;
+    /// Makes an empty Space named `name` after the others, in `profile` if it isn't 0, and returns
+    /// it.
+    fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64;
     fn rename_space(&self, space: u64, name: &str, cx: &mut App);
     /// Names a tab, which shows `name` for its title from then on, or gives it back its page's
     /// title for an empty one.
@@ -1044,6 +1045,12 @@ pub trait Browser {
     fn delete_space(&self, space: u64, cx: &mut App) -> bool;
     /// Gives a Space a colour, 0xRRGGBB, or none, for the system's accent colour.
     fn set_space_color(&self, space: u64, color: Option<u32>, cx: &mut App);
+    /// Puts an empty Space in `profile`.
+    fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
+    /// Makes a profile named `name`, and returns it. It's listed once it's made.
+    fn create_profile(&self, name: &str, cx: &mut App) -> u64;
+    /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
+    fn delete_profile(&self, profile: u64, cx: &mut App);
     /// Shows a menu of `items` at `position` in the window, or in the reveal's panel if
     /// `in_reveal`, as a right-click there does. Then calls `chosen` once it closes, with the index
     /// of the item chosen, if any.
@@ -1189,6 +1196,8 @@ struct Space {
     name: SharedString,
     /// 0xRRGGBB, if it has one.
     color: Option<u32>,
+    /// The profile its tabs open in, whose favorites it shows.
+    profile: u64,
     /// Its pinned tabs and folders and its Today tabs, each top to bottom.
     pinned: Vec<u64>,
     today: Vec<u64>,
@@ -1471,8 +1480,14 @@ pub struct Shell {
     focus_renaming: bool,
     /// The pinned tabs and folders changed and haven't been drawn since.
     outline_changed: bool,
-    /// The favorites, left to right, which every Space shows over its own tabs.
+    /// The favorites of the shown Space's profile, left to right, which every Space in it shows
+    /// over its own tabs.
     favorites: Vec<u64>,
+    /// Every profile's favorites, and each one's profile.
+    all_favorites: Vec<u64>,
+    favorite_profiles: HashMap<u64, u64>,
+    /// The profiles, by id and name, the one the browser started with first.
+    profiles: Vec<(u64, SharedString)>,
     /// The tabs of every Space, and the favorites.
     tabs: HashMap<u64, Tab>,
     selected: u64,
@@ -1610,6 +1625,9 @@ impl Shell {
             focus_renaming: false,
             outline_changed: false,
             favorites: Vec::new(),
+            all_favorites: Vec::new(),
+            favorite_profiles: HashMap::new(),
+            profiles: Vec::new(),
             tabs: HashMap::new(),
             recent: Vec::new(),
             walking: false,
@@ -2199,10 +2217,10 @@ impl Shell {
         }
     }
 
-    /// The Spaces, by id and name, in the switcher's order.
+    /// The Spaces, by id, name, colour and profile, in the switcher's order.
     pub fn set_spaces(
         &mut self,
-        spaces: Vec<(u64, SharedString, Option<u32>)>,
+        spaces: Vec<(u64, SharedString, Option<u32>, u64)>,
         cx: &mut Context<Self>,
     ) {
         // check.sh reads these lines.
@@ -2211,16 +2229,18 @@ impl Shell {
         let mut old = std::mem::take(&mut self.spaces);
         self.spaces = spaces
             .into_iter()
-            .map(|(id, name, color)| {
+            .map(|(id, name, color, profile)| {
                 let Some(space) = old.iter_mut().find(|space| space.id == id) else {
                     log!("browser: added space {id} {name}");
                     if let Some(color) = color {
                         log!("browser: colored space {id} {color:06x}");
                     }
+                    log!("browser: profiled space {id} {profile}");
                     return Space {
                         id,
                         name,
                         color,
+                        profile,
                         pinned: Vec::new(),
                         today: Vec::new(),
                         splits: Vec::new(),
@@ -2235,10 +2255,14 @@ impl Shell {
                     let color = color.map_or("none".to_string(), |color| format!("{color:06x}"));
                     log!("browser: colored space {id} {color}");
                 }
+                if space.profile != profile {
+                    log!("browser: profiled space {id} {profile}");
+                }
                 Space {
                     id,
                     name,
                     color,
+                    profile,
                     pinned: std::mem::take(&mut space.pinned),
                     today: std::mem::take(&mut space.today),
                     splits: std::mem::take(&mut space.splits),
@@ -2257,6 +2281,28 @@ impl Shell {
         {
             self.renaming = None;
         }
+        if self.show_favorites() {
+            self.log_favorites();
+        }
+        cx.notify();
+    }
+
+    /// The profiles, by id and name, the one the browser started with first.
+    pub fn set_profiles(&mut self, profiles: Vec<(u64, SharedString)>, cx: &mut Context<Self>) {
+        // check.sh waits for these lines.
+        for (id, name) in &profiles {
+            match self.profiles.iter().find(|(each, _)| each == id) {
+                None => log!("browser: added profile {id} {name}"),
+                Some((_, was)) if was != name => log!("browser: renamed profile {id} {name}"),
+                Some(_) => {}
+            }
+        }
+        for (id, name) in &self.profiles {
+            if !profiles.iter().any(|(each, _)| each == id) {
+                log!("browser: removed profile {id} {name}");
+            }
+        }
+        self.profiles = profiles;
         cx.notify();
     }
 
@@ -2302,6 +2348,9 @@ impl Shell {
         self.closing.clear();
         self.clearing.clear();
         self.drag = None;
+        if self.show_favorites() {
+            self.log_favorites();
+        }
         self.log_tabs();
         if self.form().is_some() {
             self.focus_form(cx);
@@ -2369,12 +2418,13 @@ impl Shell {
         cx.notify();
     }
 
-    pub fn set_favorites(&mut self, favorites: Vec<u64>, cx: &mut Context<Self>) {
-        // check.sh reads these lines.
-        let ids: Vec<String> = favorites.iter().map(u64::to_string).collect();
-        log!("browser: favorites {}", ids.join(" "));
+    /// Every profile's favorites, left to right, each with its profile.
+    pub fn set_favorites(&mut self, favorites: Vec<(u64, u64)>, cx: &mut Context<Self>) {
         let tiles = self.drawn();
-        self.favorites = favorites;
+        self.all_favorites = favorites.iter().map(|&(tab, _)| tab).collect();
+        self.favorite_profiles = favorites.into_iter().collect();
+        self.show_favorites();
+        self.log_favorites();
         self.end_drag(true);
         // Nothing moves while the Space shown is being filled, as at launch.
         let (pinned, today) = self.rows();
@@ -2388,10 +2438,30 @@ impl Shell {
         cx.notify();
     }
 
+    /// Shows the favorites of the shown Space's profile, or all of them while no Space shows, and
+    /// says whether that changed them. Another profile's swap in at once, as the Space they come
+    /// with slides in.
+    fn show_favorites(&mut self) -> bool {
+        let profile = self.shown_space().map(|space| space.profile);
+        let profiles = &self.favorite_profiles;
+        let shown: Vec<u64> = (self.all_favorites.iter().copied())
+            .filter(|tab| profile.is_none_or(|profile| profiles.get(tab) == Some(&profile)))
+            .collect();
+        let changed = shown != self.favorites;
+        self.favorites = shown;
+        changed
+    }
+
+    fn log_favorites(&self) {
+        // check.sh reads these lines.
+        let ids: Vec<String> = self.favorites.iter().map(u64::to_string).collect();
+        log!("browser: favorites {}", ids.join(" "));
+    }
+
     /// What the shell knew of a closed tab goes with it. The core reports a tab in its new place
     /// before it leaves the old, so one moving between a Space and the favorites stays.
     fn forget_closed(&mut self) {
-        let (spaces, favorites) = (&self.spaces, &self.favorites);
+        let (spaces, favorites) = (&self.spaces, &self.all_favorites);
         let open = |tab: &u64| {
             favorites.contains(tab)
                 || spaces
@@ -2832,7 +2902,9 @@ impl Shell {
             None => {
                 // Arc's name for a Space the user doesn't name.
                 let name = format!("Space {}", self.spaces.len() + 1);
-                let space = self.browser.create_space(&name, cx);
+                // In the profile of the Space it's made from (Arc).
+                let profile = self.shown_space().map_or(0, |space| space.profile);
+                let space = self.browser.create_space(&name, profile, cx);
                 let name = cx.new(|cx| {
                     TextInput::new("Space name", cx).placeholder_color(rgba(FORM_PLACEHOLDER))
                 });
@@ -2895,9 +2967,8 @@ impl Shell {
 
     /// The menu a right-click on a Space's name or dot shows (Arc), with its colour (ours).
     fn space_menu(&mut self, space: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
-        type Action = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
         let color = self.spaces.iter().find(|each| each.id == space).and_then(|each| each.color);
-        let mut items: Vec<(MenuEntry, Action)> = vec![
+        let mut items: Vec<(MenuEntry, MenuAction)> = vec![
             (
                 MenuEntry::new("Rename Space", true),
                 Box::new(move |shell, cx| shell.rename_space(space, cx)),
@@ -2917,6 +2988,8 @@ impl Shell {
                 Box::new(move |shell, cx| shell.browser.set_space_color(space, Some(each), cx)),
             ));
         }
+        let at = items.len();
+        items.extend(self.profile_menu(space, at));
         items.push((
             MenuEntry::new("Delete Space", self.spaces.len() > 1),
             Box::new(move |shell, cx| shell.delete_space(space, cx)),
@@ -2938,6 +3011,78 @@ impl Shell {
             }),
             cx,
         );
+    }
+
+    /// The Space menu's Profile item, at index `at` in it, and its submenu: the profiles, which
+    /// only an empty Space can change to, as its tabs' pages are in its own; a new one; and a
+    /// Delete item for each one nothing is in.
+    fn profile_menu(&self, space: u64, at: usize) -> Vec<(MenuEntry, MenuAction)> {
+        let Some(entry) = self.spaces.iter().find(|each| each.id == space) else {
+            return Vec::new();
+        };
+        let (current, empty) = (entry.profile, entry.pinned.is_empty() && entry.today.is_empty());
+        let mut items: Vec<(MenuEntry, MenuAction)> =
+            vec![(MenuEntry::new("Profile", true), Box::new(|_, _| {}))];
+        for (profile, name) in self.profiles.clone() {
+            items.push((
+                MenuEntry::new(name, empty || profile == current)
+                    .under(at)
+                    .checked(profile == current),
+                Box::new(move |shell, cx| shell.browser.set_space_profile(space, profile, cx)),
+            ));
+        }
+        items.push((MenuEntry::line().under(at), Box::new(|_, _| {})));
+        items.push((
+            MenuEntry::new("New Profile", empty).under(at),
+            Box::new(move |shell, cx| shell.new_profile(space, cx)),
+        ));
+        // The one the browser started with stays, as the browser needs one.
+        let unused: Vec<(u64, SharedString)> = (self.profiles.iter().skip(1))
+            .filter(|(profile, _)| {
+                !self.spaces.iter().any(|each| each.profile == *profile)
+                    && !self.favorite_profiles.values().any(|each| each == profile)
+            })
+            .cloned()
+            .collect();
+        if !unused.is_empty() {
+            items.push((MenuEntry::line().under(at), Box::new(|_, _| {})));
+        }
+        for (profile, name) in unused {
+            items.push((
+                MenuEntry::new(format!("Delete “{name}”"), true).under(at),
+                Box::new(move |shell, cx| shell.delete_profile(profile, name, cx)),
+            ));
+        }
+        items
+    }
+
+    /// Deletes the profile once the user confirms, as nothing brings it back.
+    fn delete_profile(&mut self, profile: u64, name: SharedString, cx: &mut Context<Self>) {
+        let shell = cx.weak_entity();
+        self.browser.confirm(
+            format!("Delete “{name}”?"),
+            "Its history, cookies and logins go with it.".into(),
+            "Delete",
+            Box::new(move |cx| {
+                shell.update(cx, |shell, cx| shell.browser.delete_profile(profile, cx)).ok();
+            }),
+            cx,
+        );
+    }
+
+    /// Makes a profile, named as Chrome numbers them, and puts the empty Space in it.
+    fn new_profile(&mut self, space: u64, cx: &mut Context<Self>) {
+        let taken = |name: &str| self.profiles.iter().any(|(_, each)| each == name);
+        let name = (self.profiles.len() + 1..)
+            .map(|number| format!("Profile {number}"))
+            .find(|name| !taken(name))
+            .unwrap_or_default();
+        let profile = self.browser.create_profile(&name, cx);
+        // check.sh waits for this line.
+        log!("browser: create profile {profile} {name}");
+        if profile != 0 {
+            self.browser.set_space_profile(space, profile, cx);
+        }
     }
 
     /// The menu a right-click on a tab's row shows: Chrome's tab actions that Arc's sidebar has,
@@ -3035,10 +3180,12 @@ impl Shell {
         let panes = self.panes(tab);
         let last = panes[panes.len() - 1];
         let below = self.today().iter().skip_while(|&&id| id != last).count() > 1;
+        // The other Spaces of its profile, as its page stays in its own.
+        let profile = self.shown_space().map(|space| space.profile);
         let others: Vec<(u64, SharedString)> = self
             .spaces
             .iter()
-            .filter(|space| space.id != self.space)
+            .filter(|space| space.id != self.space && Some(space.profile) == profile)
             .map(|space| (space.id, space.name.clone()))
             .collect();
         let pin = MenuEntry::new(if pinned { "Unpin Tab" } else { "Pin Tab" }, true);
