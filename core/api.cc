@@ -448,6 +448,11 @@ bool bc_window_run_extension(bc_id window_id, const char* id, bc_rect anchor) {
   return window && id && window->RunExtension(id, ToRect(anchor));
 }
 
+bool bc_window_run_extension_command(bc_id window_id, const char* id, const char* name) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window && id && name && window->RunExtensionCommand(id, name);
+}
+
 void bc_archive_clear(void) {
   browser_core::ClearArchive();
 }

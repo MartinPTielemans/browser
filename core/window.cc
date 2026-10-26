@@ -1072,6 +1072,11 @@ bool Window::RunExtension(const std::string& id, const gfx::Rect& anchor) {
   return browser_core::RunExtension(id_, browser, contents, id, popup_anchor_.view());
 }
 
+bool Window::RunExtensionCommand(const std::string& id, const std::string& name) {
+  content::WebContents* contents = Tab::FromId(selected_);
+  return contents && browser_core::RunExtensionCommand(contents, id, name);
+}
+
 bc_id Window::RestoreArchived(bc_id id) {
   std::optional<ArchivedTab> archived = TakeArchived(id);
   if (!archived) {

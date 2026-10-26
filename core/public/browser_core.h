@@ -112,6 +112,21 @@ typedef struct bc_archived_tab {
   double archived;
 } bc_archived_tab;
 
+// One of an extension's keyboard commands that has a key, as Chrome's Keyboard Shortcuts page
+// lists them.
+typedef struct bc_extension_command {
+  // Its name in the extension's manifest, for bc_window_run_extension_command, or
+  // "_execute_action" for its action, which bc_window_run_extension runs.
+  const char* name;
+  // What it does, in the extension's words.
+  const char* description;
+  // Its key, as bc_key names one, and the BC_MODIFIER_ flags with it.
+  const char* key;
+  uint32_t modifiers;
+  // Whether the key is the one the extension suggested, not one the user set.
+  bool suggested;
+} bc_extension_command;
+
 // One of a profile's extensions, as Chrome's extensions page lists them.
 typedef struct bc_extension {
   // Chrome's id for it, for bc_window_run_extension.
@@ -121,6 +136,8 @@ typedef struct bc_extension {
   bool enabled;
   // Whether its action is pinned, for the windows to show (bc_extension_set_pinned).
   bool pinned;
+  const bc_extension_command* commands;
+  size_t command_count;
 } bc_extension;
 
 // An extension's action as a window shows it, for the tab it shows.
@@ -248,8 +265,8 @@ typedef struct bc_host {
   // finish. In place of Chrome's downloads page, which the window never opens.
   void (*window_show_downloads)(void* context, bc_id window);
   // The profile's extensions changed, or were first read: one was added, removed, turned on or
-  // off, pinned or unpinned, or bc_extensions_report asked. |extensions| is all of them that
-  // Chrome's extensions page lists, by name.
+  // off, pinned or unpinned, a command's key changed, or bc_extensions_report asked. |extensions|
+  // is all of them that Chrome's extensions page lists, by name.
   void (*extensions_changed)(void* context,
                              bc_id profile,
                              const bc_extension* extensions,
@@ -496,6 +513,12 @@ BC_EXPORT bc_id bc_window_restore_archived(bc_id window, bc_id archived);
 // window, or its action.onClicked fires. Returns false if it didn't run: the window shows no tab,
 // or the extension isn't turned on in the tab's profile. Then window_extension_popup, for a popup.
 BC_EXPORT bool bc_window_run_extension(bc_id window, const char* id, bc_rect anchor);
+
+// Runs the extension's keyboard command |name| on the tab the window shows, as its key does in
+// Chrome: the extension is granted the tab, and its commands.onCommand hears the name and the tab.
+// Returns false if it didn't run: the window shows no tab, the extension isn't turned on in the
+// tab's profile, or it isn't listening.
+BC_EXPORT bool bc_window_run_extension_command(bc_id window, const char* id, const char* name);
 
 // Pins the extension's action in the profile, after the others, or unpins it, as Chrome's
 // extensions menu does. Then extensions_changed and window_extension_actions.
