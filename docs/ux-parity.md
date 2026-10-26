@@ -13,10 +13,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
 | [x] | Blur behind the window | MVP | material 29, emphasized, following the active state | Dia 1.50.1 bin, D›Window translucency |
-| [x] | Base tint | MVP | black 0.4 | Dia 1.50.1 bin |
+| [x] | Base tint | MVP | black 0.4. Ours: black 0.25, for the composite (row below) | Dia 1.50.1 bin |
 | [x] | Space gradient | MVP | colour → HSL L + 0.25, stops 0.36 (neutral 0.12), layer 0.5; system accent colour when the Space has none | Dia 1.50.1 bin |
 | [x] | Card fill | MVP | #121212 0.5, no grain | Dia 1.50.1 bin |
-| [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)`. Partly: material 29 and the tint are Dia's, but over black / grey 20 / grey 60 / white the sidebar reads 11 / 19 / 35 / 51 against Dia's 24 / 32 / 45 / 104; light comes with the Appearance menu | Dia 1.50.1 cap |
+| [ ] | Composite matches Dia's within 2 levels | MVP | dark `0.18·tint + 0.82·0.6·blur`; light `0.27·tint + 0.73·(204 + 0.2·blur)`. Built: material 29 reads darker in our window than Dia's measures, so our base tint is black 0.25 (Window material › Ours). Over black / grey 20 / grey 60 / white a check VM reads 23 / 27 / 34 / 70 against Dia's 24 / 29 / 36 / 69, within 2.5 levels, which `check/window.sh` holds to 3. Light comes with the Appearance menu | Dia 1.50.1 cap |
 | [ ] | Inactive, Reduce Transparency, Increase Contrast | MVP | opaque wallpaper-tinted fill (AppKit). Built: the material follows the window's active state, so AppKit swaps the fill; no capture of an inactive window or either setting yet | Dia 1.50.1 cap |
 | [x] | Card inset | MVP | 10 on every side, docked or hidden; docked, the 10 on the left is inside the sidebar | Arc 1.170.0 ax and cap |
 | [x] | Card radius | MVP | 6, circular, on the card and the page in it | Arc cap |

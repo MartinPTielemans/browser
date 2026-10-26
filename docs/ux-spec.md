@@ -40,7 +40,7 @@ Layers, bottom to top. There is no grain: 1.50.1 measures 0.05–0.09 levels of 
 - With no Space colour set, the gradient uses the system accent colour and follows its changes (Dia).
 - Fitted Space colour (Dia's pink): P3 (177.6, 91.1, 106.8), which is #B25B6B in P3 and ≈ #BF556A in sRGB (HSL 349°, 0.36, 0.53). The other colours are unmeasured.
 
-Material output measured over solid backdrops. Ports without AppKit materials approximate these (sRGB, active state):
+Material output measured over solid backdrops: black, sRGB grey levels 20 and 60, and white. Ports without AppKit materials approximate these (sRGB, active state):
 
 | Material | Over black / grey 20 / grey 60 / white | Inactive fill |
 |---|---|---|
@@ -52,8 +52,8 @@ Material output measured over solid backdrops. Ports without AppKit materials ap
 - Ours (*interim*):
   - Dark only. The light layers come with the Appearance menu.
   - A colour under HSL saturation 0.1 counts as neutral.
-  - Where the window's look has to be opaque, it stands the material in with its output over grey 20 under the tint, #131313, and puts the gradient over that. That's the reveal's panel over the page and a dragged row.
-  - Over solid backdrops of black / grey 20 / grey 60 / white, our sidebar reads 11 / 19 / 35 / 51 before the gradient. That's the material at 18 / 32 / 58 / 85, against Dia's 24 / 32 / 45 / 104.
+  - Where the window's look has to be opaque, it stands the material in with Dia's composite over grey 20 before the gradient, #131313, and puts the gradient over that. That's the reveal's panel over the page and a dragged row.
+  - Base tint black 0.25, not 0.4. Material 29 reads darker in our window than in the table above: under black 0.4 our sidebar read 11 over black and 51 over white, the material at 18 and 85 against 24 and 104, two thirds of it in linear light at both ends. Under black 0.25 a check VM reads 23 / 27 / 34 / 70 over black / grey 20 / grey 60 / white, against Dia's 24 / 29 / 36 / 69. Ours is darker than Dia's over mid grey than at the ends, so no one tint puts all four within 2 levels; the `window` check fails past 3. The opaque fill of an inactive window and of Reduce Transparency is under the same lighter tint, unmeasured.
 
 ### Colour tokens (Dia asset catalogs, unchanged 1.49.1 → 1.50.1, D›Color tokens)
 

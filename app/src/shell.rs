@@ -306,9 +306,11 @@ const CREATE_BOTTOM: f32 = 96.;
 const CANCEL_BOTTOM: f32 = 66.5;
 const CANCEL_HEIGHT: f32 = 15.;
 
-// The window's layers over its material (docs/ux-spec.md › Window material): a tint of black 0.4,
+// The window's layers over its material (docs/ux-spec.md › Window material): a tint of black 0.25,
 // then the Space's gradient, its stops at 0.36 (0.12 for a neutral colour) in a layer at 0.5.
-const TINT: u32 = 0x0000_0066;
+// Dia's tint is 0.4, but material 29 draws darker in our window than Dia's measures, so the
+// lighter tint brings the window to Dia's composite. check/window.sh measures it.
+const TINT: u32 = 0x0000_0040;
 const GRADIENT_ALPHA: f32 = 0.18;
 const NEUTRAL_GRADIENT_ALPHA: f32 = 0.06;
 // A colour under this HSL saturation is neutral (ours: Dia's line isn't measured).
@@ -326,7 +328,7 @@ const SPACE_COLORS: [(&str, u32); 8] = [
     ("Purple", 0x8655bf),
 ];
 // What stands in for the material where the window's look has to be opaque, under rows it covers
-// or in the reveal's panel over the page: the material over grey 20, under the tint (ours).
+// or in the reveal's panel over the page: Dia's composite over grey 20, before the gradient (ours).
 const MATERIAL_STAND_IN: u32 = 0x131313;
 // Dia's card, #121212 at 0.5: what shows before a page first paints.
 const CARD: u32 = 0x1212_1280;

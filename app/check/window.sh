@@ -10,7 +10,7 @@
 # ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out, and one
 # passing it doesn't. The sidebar's edge drags its width between 160 and 400, rubber-banding past
 # them, and a double-click on it puts the width back. A page that hasn't drawn yet shows the card's
-# colour, not white.
+# colour, not white. In a check VM, the sidebar over grey backdrops is Dia's composite.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'
@@ -359,6 +359,60 @@ send doubleclick 157 400
 expect '^browser: sidebar width 228$' "a double-click on the sidebar's edge didn't put its width back"
 none_since '^browser: command new-tab' || fail "a double-click on the sidebar's edge opened a tab"
 check_layout "after a double-click on the sidebar's edge"
+
+# The sidebar over a backdrop of black, grey 20, grey 60 and white (sRGB levels) is Dia's composite
+# within 3 levels (docs/ux-spec.md › Window material): Dia's material reads 24 / 32 / 45 / 104
+# there, under its tint of black 0.4, with the gradient over that. The blur comes from the window
+# server, which a capture of the window alone leaves out, so this captures the screen, and only a
+# check VM's screen is the check's to capture.
+material="not measured outside a check VM"
+if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
+  # Gray is neutral, so its gradient is faint and known: stops at 0.06, from grey 138 at the top
+  # to 138 + 0.25 · 255 at the bottom.
+  post rightclick 100 112
+  expect '^browser: menu shown Rename Space' "a right-click on the Space's name showed no menu"
+  send choose Gray
+  expect '^browser: colored space [0-9]* 8a8a8a$' "Gray in the Space's menu didn't colour the Space"
+  send move $page_point
+  [ "$active" = 1 ] || fail "the app isn't active, so the window shows AppKit's inactive fill"
+  srgb="/System/Library/ColorSync/Profiles/sRGB Profile.icc"
+  material=
+  off=
+  for pair in 0:24 20:32 60:45 255:104; do
+    level=${pair%:*}
+    send backdrop "$level"
+    expect "^browser: backdrop $level drawn" "the backdrop in grey $level didn't draw"
+    # The window's frame and its screen's size, in points from the screen's top left.
+    place=$(sed -n "/^browser: drive $step: /,\$p" "$log" |
+      grep -m1 "^browser: backdrop $level drawn" | sed 's/.* at //; s/[,x]/ /g; s/ on / /')
+    [ "$(echo "$place" | wc -w)" -eq 6 ] || fail "the backdrop didn't say where the window is"
+    shot="$out/material-$level.png"
+    screencapture -x "$shot" || fail "screencapture couldn't capture the screen"
+    sips -m "$srgb" "$shot" > /dev/null || fail "sips couldn't match $shot to sRGB"
+    # A point of the empty sidebar, away from its text, and one of the backdrop beside the window.
+    sidebar=$(pixel "$shot" $(echo "$place" | awk '{ print ($1 + 60) / $5, ($2 + 450) / $6 }'))
+    backdrop=$(pixel "$shot" $(echo "$place" |
+      awk '{ x = $1 >= 50 ? $1 - 50 : $1 + $3 + 50; print x / $5, ($2 + 450) / $6 }'))
+    # Dia's composite there: 0.94 of its tinted material, then 0.06 of the gradient, 450 pt down.
+    # The material alone is ours under our tint of black 0.25, to tune the tint by.
+    line=$(echo "${pair#*:} $place $sidebar $backdrop" | awk -v level="$level" '{
+      gradient = 0.06 * (138 + 63.75 * 450 / $5)
+      dia = 0.94 * 0.6 * $1 + gradient
+      ours = ($8 + $9 + $10) / 3
+      seen = ($11 + $12 + $13) / 3
+      printf "%.0f (Dia %.0f), the material alone %.0f (Dia %d), the backdrop read as %.0f",
+        ours, dia, (ours - gradient) / (0.94 * 0.749), $1, seen
+      if (ours - dia > 3 || dia - ours > 3) printf ", off"
+      if (seen - level > 2 || level - seen > 2) printf ", capture off"
+    }')
+    echo "material over $level: $line"
+    case "$line" in *", off"* | *"capture off"*) off="$off $level" ;; esac
+    material="$material$level $line; "
+  done
+  send backdrop off
+  [ -z "$off" ] || fail "the sidebar isn't Dia's composite within 3 levels over grey$off: $material"
+  material="over grey ${material%; }"
+fi
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width, rubber-bands past 160 and 400 and settles there, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Material: $material. Windows: $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-band.png, $out/sidebar-narrow.png, $out/before-paint.png"
