@@ -177,8 +177,8 @@ mod platform {
         pub fn host_show_toast(ui_view: *mut c_void);
         pub fn host_hide_toast();
         pub fn host_add_tooltip(tooltip_view: *mut c_void, away: extern "C" fn());
-        pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64);
-        pub fn host_hide_tooltip();
+        pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
+        pub fn host_hide_tooltip(fade: f64);
     }
 
     /// Where host_menu shows a menu.
@@ -770,11 +770,12 @@ struct TooltipHost;
 
 impl tooltip::Host for TooltipHost {
     fn show(&self, left: f32, top: f32) {
-        unsafe { platform::host_show_tooltip(front().1, left.into(), top.into()) };
+        let fade = tooltip::FADE.as_secs_f64();
+        unsafe { platform::host_show_tooltip(front().1, left.into(), top.into(), fade) };
     }
 
     fn hide(&self) {
-        unsafe { platform::host_hide_tooltip() };
+        unsafe { platform::host_hide_tooltip(tooltip::FADE.as_secs_f64()) };
     }
 }
 
@@ -1279,9 +1280,9 @@ impl Browser for Engine {
         toast::show(text, key, time, cx);
     }
 
-    fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, cx: &mut App) {
+    fn tooltip(&self, tip: Option<(tooltip::Tip, tooltip::Anchor)>, cx: &mut App) {
         match tip {
-            Some((text, anchor)) => tooltip::hover(text, anchor, cx),
+            Some((tip, anchor)) => tooltip::hover(tip, anchor, cx),
             None => tooltip::dismiss(cx),
         }
     }

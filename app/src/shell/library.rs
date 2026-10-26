@@ -17,6 +17,7 @@ use super::{
     NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
     Shell, Space, Swapped, UNSELECTED_TITLE, clean_link, divider_box, favicon, folder_icon, host,
     name_box, plate, row_box, space_icon, spring_to, split_plate, still_clear, title,
+    header::TipSide,
 };
 use crate::text_input::TextInput;
 
@@ -1503,6 +1504,7 @@ impl Shell {
         let progress = downloads_progress(&self.downloads);
         let downloading = progress.is_some();
         let glyph = library_glyph(downloading);
+        let command = if downloading { Command::ViewDownloads } else { Command::ViewLibrary };
         div()
             .id("library")
             .absolute()
@@ -1514,8 +1516,11 @@ impl Shell {
             .justify_center()
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
+            .map(|button| self.with_tooltip(button, command, TipSide::Beside, cx))
             .hover(|style| style.bg(rgba(NAV_HOVERED)))
-            .on_hover(cx.listener(|shell, hovered: &bool, window, cx| {
+            // A button has one hover handler, so this one also carries the tooltip's.
+            .on_hover(cx.listener(move |shell, hovered: &bool, window, cx| {
+                shell.hover_button(command, TipSide::Beside, *hovered, cx);
                 shell.hover_recent_downloads(false, *hovered, window, cx)
             }))
             .on_click(cx.listener(move |shell, _, _, cx| match downloading {

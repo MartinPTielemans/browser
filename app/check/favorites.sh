@@ -1,8 +1,10 @@
 # Add to Favorites in a Today tab's menu takes the tab out of Today into a tile above the Space's
-# rows, without showing it. A click on the tile shows it, and ⌘1–⌘9 count favorites first. Past its
-# top, the list shows an edge under the tile, and showing a tab under its bottom scrolls to the
-# tab's row. Away from its URL, a double-click on the tile goes back there. ⌘W unloads it and keeps
-# the tile, showing the top Today tab. The tile's menu duplicates it to the top of Today. Launched
+# rows, without showing it. Resting on the tile names it in a tooltip, and the footer's Library
+# button and the header's sidebar button name themselves with their shortcuts' keys on chips. A
+# click on the tile shows it, and ⌘1–⌘9 count favorites first. Past its top, the list shows an
+# edge under the tile, and showing a tab under its bottom scrolls to the tab's row. Away from its
+# URL, a double-click on the tile goes back there. ⌘W unloads it and keeps the tile, showing the
+# top Today tab. The tile's menu duplicates it to the top of Today. Launched
 # again, the app brings the favorite back, shown, and Remove from Favorites in its menu puts it at
 # the top of Today. A row dragged onto the tiles turns into a tile, and a tile dragged into the
 # list into a row. Today rows dragged onto the tiles become favorites where they're dropped, a tile
@@ -63,6 +65,7 @@ send move 100 400
 expect '^browser: tooltip hidden$' "the pointer leaving the tile didn't hide its tooltip"
 send move $tile
 expect '^browser: tooltip shown ready$' "resting on the tile again didn't show its tooltip"
+expect '^browser: tooltip window shown$' "the tile's tooltip didn't fade in"
 ../tools/window-screenshot.sh "$pid" "$out/favorite-tooltip.png" || fail "no window to capture"
 # A click on the tile shows the favorite, and ⌘1–⌘9 count favorites first.
 send click $tile
@@ -70,6 +73,23 @@ expect '^browser: command select via favorite$' "a click on the tile didn't run"
 expect '^browser: tooltip hidden$' "a click on the tile didn't hide its tooltip"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
 ../tools/window-screenshot.sh "$pid" "$out/favorites.png" || fail "no window to capture"
+# The footer's Library button names itself beside it, with its shortcut's keys on chips (Arc), and
+# the header's sidebar button under it; each goes when the pointer leaves.
+check_layout "before the buttons' tooltips"
+send move 24 $((height - 25))
+expect '^browser: tooltip shown View Library ⇧⌘L$' \
+  "resting on the Library button didn't show View Library and ⇧⌘L"
+expect '^browser: tooltip window shown$' "the Library button's tooltip didn't fade in"
+../tools/window-screenshot.sh "$pid" "$out/library-tooltip.png" || fail "no window to capture"
+send move 100 400
+expect '^browser: tooltip hidden$' "the pointer leaving the Library button didn't hide its tooltip"
+send move 93 23
+expect '^browser: tooltip shown Hide Sidebar ⌘S$' \
+  "resting on the sidebar button didn't show Hide Sidebar and ⌘S"
+expect '^browser: tooltip window shown$' "the sidebar button's tooltip didn't fade in"
+../tools/window-screenshot.sh "$pid" "$out/header-tooltip.png" || fail "no window to capture"
+send move 100 400
+expect '^browser: tooltip hidden$' "the pointer leaving the sidebar button didn't hide its tooltip"
 send click $(tiled_row 0)
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" \
   "a click on the Today row under the tile didn't show its tab"
@@ -312,4 +332,4 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: alert shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-up sets the archive's time, all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which names itself in a tooltip, as the Library and sidebar buttons do with their keys, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-up sets the archive's time, all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorite-tooltip.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"

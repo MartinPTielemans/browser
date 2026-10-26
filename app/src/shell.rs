@@ -859,6 +859,8 @@ pub struct Shell {
     /// The frames the favorites' tiles and the folders' plates were last drawn in, in the window,
     /// for their tooltips to hang from.
     tip_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// The plates the sidebar's buttons with a tooltip were last drawn in, by their command.
+    button_frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>,
     /// Whether the list is past its top, and the edge under the favorites' fade since it last
     /// went past or back, from how far in it was then.
     scrolled: bool,
@@ -1057,6 +1059,7 @@ impl Shell {
             list_scroll: ScrollHandle::new(),
             sidebar_origin: Rc::default(),
             tip_frames: Rc::default(),
+            button_frames: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
             tools_on: false,

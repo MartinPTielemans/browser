@@ -111,7 +111,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
 | [ ] | Folder motion and drag | MVP | built: a click opens and closes on Group expand, a dragged row goes in or out with the pointer's travel *interim*; Arc's open and close by a click, and how a dragged row goes into a folder: measure | — |
 | [x] | Folder tooltip | MVP | the name after a moment; ours 0.5 s, the system's | Arc cap |
-| [x] | Favorite tooltip | MVP | the name after 0.5 s, at once from tile to tile, in one frame *interim*; Arc's delay, motion and the move to the next tile: measure | Arc cap |
+| [x] | Favorite tooltip | MVP | the name after 0.5 s, at once from tile to tile, fading in and out over 0.15 s *interim*; Arc's delay, fade-in and the move to the next tile: measure | Arc cap |
+| [ ] | Button tooltip | MVP | Arc's: View Library and ⇧ ⌘ L on chips, 3.5 right of the Library button; a capsule 28 tall, 12 pt text 10 in, chips 18 on a 22 pitch. Built, to check against a capture: the header's buttons and Copy URL with the menus' keys, under them, and colours from the mid-fade capture *interim*; Arc's other buttons, full-opacity colours and fade-in: measure | Arc in use, cap 2× |
 | [x] | Collapse All Folders | MVP | a command bar command | Arc cap |
 
 ## Spaces

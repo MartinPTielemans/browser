@@ -781,7 +781,7 @@ impl Browser for Fake {
     fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {}
 
     // The tooltip's window is the app's, over the page, which the preview has neither of.
-    fn tooltip(&self, _: Option<(SharedString, browser::tooltip::Anchor)>, _: &mut App) {}
+    fn tooltip(&self, _: Option<(browser::tooltip::Tip, browser::tooltip::Anchor)>, _: &mut App) {}
 
     // macOS's default blue.
     fn accent_color(&self) -> u32 {

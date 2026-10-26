@@ -8,7 +8,9 @@ use gpui::{
     OperatingSystem,
 };
 
-use super::commands::{BAR_COMMANDS, KEY_CONTEXT, Run, SHORTCUTS, ShellHandle, keystroke_label};
+use super::commands::{
+    BAR_COMMANDS, KEY_CONTEXT, Run, SHORTCUTS, ShellHandle, keystroke_keys, keystroke_label,
+};
 use super::Command;
 
 /// Keys that run something other than a command: AppKit's Hide, Hide Others and Minimize, which
@@ -177,6 +179,12 @@ impl UserKeys {
     /// How a menu shows the first key that runs `command`, if one does.
     pub fn label(&self, command: Command) -> Option<String> {
         self.keys(command).first().map(|&key| keystroke_label(key))
+    }
+
+    /// The same keys one by one, for a tooltip's chips: ⇧, ⌘ and L for ⇧⌘L. None if no key runs
+    /// `command`.
+    pub fn chips(&self, command: Command) -> Vec<String> {
+        self.keys(command).first().map(|&key| keystroke_keys(key)).unwrap_or_default()
     }
 
     /// Each key and the command it runs.
@@ -420,6 +428,20 @@ mod tests {
         assert_eq!(user.set(Command::EditUrl, vec![]), Ok(vec![]));
         assert_eq!(user.command_for("cmd-k", false), None);
         assert_eq!(user.label(Command::EditUrl), None);
+    }
+
+    /// A tooltip shows a chip for each key of the shortcut a menu shows first, in the menus'
+    /// order, and none for a command no key runs.
+    #[test]
+    fn a_shortcut_is_a_chip_for_each_key() {
+        let mut user = UserKeys::default();
+        assert_eq!(user.chips(Command::ViewLibrary), ["⇧", "⌘", "L"]);
+        assert_eq!(user.chips(Command::Back), ["⌘", "["]);
+        assert_eq!(user.chips(Command::Stop), ["⌘", "."]);
+        user.set(Command::ViewLibrary, keys(&["ctrl-alt-space"])).unwrap();
+        assert_eq!(user.chips(Command::ViewLibrary), ["⌃", "⌥", "Space"]);
+        user.set(Command::ViewLibrary, vec![]).unwrap();
+        assert!(user.chips(Command::ViewLibrary).is_empty());
     }
 
     /// A reserved command stays reserved on its new key, which the page then never sees, and the
