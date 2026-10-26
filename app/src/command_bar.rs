@@ -318,6 +318,14 @@ pub fn show_new_tab(card: Bounds<Pixels>, cx: &mut App) {
     }
 }
 
+/// The New Tab page's box in the card at `card` while nothing's typed, and its corner radius:
+/// what the page's intro runs around.
+pub(crate) fn empty_new_tab_box(card: Bounds<Pixels>) -> (Bounds<Pixels>, f32) {
+    let (left, top, width) = new_tab_box(card);
+    let origin = point(px(left), px(top));
+    (Bounds::new(origin, size(px(width), px(BOX_INPUT + BOX_BOTTOM))), BOX_RADIUS)
+}
+
 /// Where Dia puts the New Tab page's box in the card at `card`, 1 pt right of and below where
 /// its sums put it, as measured: its left edge and top, and its width.
 fn new_tab_box(card: Bounds<Pixels>) -> (f32, f32, f32) {

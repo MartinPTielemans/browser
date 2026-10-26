@@ -588,7 +588,8 @@ Dia's New Tab page (decision 6). The UI draws it; it is not a web page. That kee
   - A pick opens its tab, as from Arc's bar. Esc, a click outside the box, or another window or app taking focus closes the page: the tab gets its plate back, and its page comes back, with the keyboard if it had it. A click on the card only closes it, so the next click is the page's.
   - The header shows no page: back, forward and reload are dimmed and the URL field is empty.
   - The Go pill reads "Go", or what the search row names the engine, "DuckDuckGo Search", when ↩ would search. It's 16 in from the box's right edge, as far as it is above the bottom, and at 0.35 while nothing's typed.
-  - No mark, and no intro yet.
+  - No mark.
+  - The intro is Dia's band and halo, in the Space's colour (the system accent for a Space without one), drawn by the UI in the card under the box, and skipped under Reduce Motion. The halo's sweep is fitted to Dia's capture, 1.25 (1 − 2^(−11.2 (t − 0.225))): the binary's, 1.25 (1 − 2^(−8 (t − 0.225))), would reach the top at 515 ms, not the 376 ms the capture shows. Its line and glow are strokes along the box's edge, the glow in three steps rather than Dia's falloff with noise in its width. The band's top starts 160 above the card's bottom, already over it when the page appears, and passes the box's middle at ≈ 300 ms. It shows 0.068 of the colour to 200 ms and 0.036 from 400 ms, then fades from 730 ms to nothing at 3.4 s, the binary's fade. Its blur is a soft top 48 tall, and its bottom fades out over the card's last 48.
 
 ### Split view
 

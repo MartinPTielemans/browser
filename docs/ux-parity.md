@@ -187,9 +187,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Box size and look | MVP | 112 tall, radius 20 continuous, panel fill, border and shadow; suggestions grow it down | Dia 1.50.1 |
 | [x] | Box contents | MVP | magnifier 30.5 from top, ≈ 30 in; bottom row 30.5 from bottom; Go pill inert while empty, naming the engine for a search | Dia 1.50.1 cap, Ardia |
 | [x] | Mark slot | MVP | 84 view, 76 mark, centre 48.6 above the box; our mark or none: none | Dia 1.50.1 |
-| [ ] | Intro band | MVP | Space colour, blur 24, peak 0.10–0.20 s, plateau to 1.2 s, gone 3.25 s | Dia 1.50.1 cap |
-| [ ] | Intro halo | MVP | bottom 225 ms → top 376 ms → gone 529 ms; line × 0.4, glow × 0.1 / 0.12 | Dia 1.50.1 bin |
-| [ ] | Reduce Motion | MVP | no intro | Dia |
+| [x] | Intro band | MVP | Space colour, blur 24, peak 0.10–0.20 s, plateau to 1.2 s, gone 3.25 s; ours: soft edges for the blur | Dia 1.50.1 cap |
+| [x] | Intro halo | MVP | bottom 225 ms → top 376 ms → gone 529 ms; line × 0.4, glow × 0.1 / 0.12; ours: the sweep fitted to the capture, the glow in steps | Dia 1.50.1 bin |
+| [x] | Reduce Motion | MVP | no intro | Dia |
 | [x] | Idle New Tab does no work | MVP | no display link after the intro | principle 1 |
 | [x] | Abandoned New Tabs close | MVP | on app resign or screen lock: ours closes the page on app resign, with no tab to close | Dia |
 | [ ] | Query restored on Back | MVP | yes; none while there's no New Tab tab to go back to | Dia |

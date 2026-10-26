@@ -65,6 +65,8 @@ for shortcut in "t new-tab" "l edit-url"; do
     send type arc browser
     expect '^browser: command bar drew "arc browser"$' "the New Tab box didn't take the words"
     ../tools/window-screenshot.sh "$pid" "$out/new-tab-search.png" || fail "no window to capture"
+    # Its intro runs once, then stops asking for frames.
+    await '^browser: new tab intro done$' || fail "the New Tab page's intro didn't end"
   fi
   # A shortcut the page doesn't keep comes back after the page has had it, so after the
   # driver's done.
