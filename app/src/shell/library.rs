@@ -6,10 +6,10 @@
 use std::{sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, BoxShadow, ClickEvent, Context, DispatchPhase, Entity, Focusable, FontWeight, Image,
-    ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    Point, SharedString, Subscription, Window, canvas, div, hsla, list, point, prelude::*, px,
-    relative, rgb, rgba, svg,
+    AnyElement, BoxShadow, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight,
+    Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, hsla, list, point,
+    prelude::*, px, relative, rgb, rgba, svg,
 };
 
 use super::{
@@ -379,10 +379,12 @@ impl Shell {
         let (from, to) = (running(&self.downloads), running(&downloads));
         self.swaps.start(Swapped::Library, from, to, Instant::now());
         self.download_icons.retain(|id, _| downloads.iter().any(|each| each.id == *id));
+        self.download_previews.retain(|id, _| downloads.iter().any(|each| each.id == *id));
         let bar = bar_drawn(&self.downloads);
         let flying = self.flight.as_ref().map(|flight| flight.id);
         self.fly_new_download(&downloads, cx);
         self.downloads = downloads;
+        self.recent_downloads_changed(cx);
         if self.section == Section::Downloads {
             self.filter(true, cx);
         }
@@ -561,6 +563,7 @@ impl Shell {
         self.library_open = open;
         if open {
             self.conceal_now(cx);
+            self.recent_downloads_gone(cx);
             if self.library.is_none() {
                 self.show_section(self.section, cx);
             }
@@ -1236,9 +1239,6 @@ impl Shell {
             _ => None,
         };
         let name = download.name.clone();
-        // GPUI never hears the release that ends the system's drag, and would keep the row
-        // pressed.
-        let dragged = matches!(self.download_press, Some((pressed, _, true)) if pressed == id);
         // Asked for once a row first shows, as the archive's favicons are.
         if !self.download_icons.contains_key(&id) {
             self.download_icons.insert(id, None);
@@ -1255,39 +1255,11 @@ impl Shell {
             .pr(px(ARCHIVED_RIGHT))
             .py(px((ARCHIVED_PITCH - ARCHIVED_PLATE) / 2.))
             .child(
-                div()
-                    .id(("download", id))
+                self.download_row(div().id(("download", id)), id, "row", cx)
+                    .block_mouse_except_scroll()
                     .size_full()
                     .relative()
                     .rounded(px(ARCHIVED_RADIUS))
-                    .block_mouse_except_scroll()
-                    .hover(|style| style.bg(rgba(HOVERED)))
-                    .when(!dragged, |row| row.active(|style| style.bg(rgba(PRESSED))))
-                    .on_mouse_down(
-                        MouseButton::Left,
-                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                            shell.download_press = Some((id, event.position, false));
-                            cx.notify();
-                        }),
-                    )
-                    .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
-                        // A press that became a drag isn't a click.
-                        if shell.download_press.take().is_some_and(|(_, _, dragged)| dragged) {
-                            return;
-                        }
-                        // A held file's only choices are in its menu, so a click shows them.
-                        if held {
-                            shell.download_menu(id, event.position(), cx);
-                        } else if state == DownloadState::Done {
-                            shell.act_on_download(id, DownloadAction::Open, "row", cx);
-                        }
-                    }))
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                            shell.download_menu(id, event.position, cx)
-                        }),
-                    )
                     .child(
                         div()
                             .absolute()
@@ -1330,6 +1302,53 @@ impl Shell {
             .into_any_element()
     }
 
+    /// What a download's row does, in the Library or the Library button's recent downloads, with
+    /// its plate lit under the pointer: a press that can drag the file out, a click that opens a
+    /// finished file or shows a held one's menu, and a right-click that shows the menu.
+    pub(super) fn download_row(
+        &self,
+        row: Stateful<Div>,
+        id: u64,
+        source: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let Some(download) = self.downloads.iter().find(|each| each.id == id) else {
+            return row;
+        };
+        let (state, held) = (download.state, download.held);
+        // GPUI never hears the release that ends the system's drag, and would keep the row
+        // pressed.
+        let dragged = matches!(self.download_press, Some((pressed, _, true)) if pressed == id);
+        row.hover(|style| style.bg(rgba(HOVERED)))
+            .when(!dragged, |row| row.active(|style| style.bg(rgba(PRESSED))))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    shell.download_press = Some((id, event.position, false));
+                    cx.notify();
+                }),
+            )
+            .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
+                // A press that became a drag isn't a click.
+                if shell.download_press.take().is_some_and(|(_, _, dragged)| dragged) {
+                    return;
+                }
+                // A held file's only choices are in its menu, so a click shows them.
+                if held {
+                    shell.download_menu(id, event.position(), cx);
+                } else if state == DownloadState::Done {
+                    shell.act_on_download(id, DownloadAction::Open, source, cx);
+                    shell.hide_recent_downloads(cx);
+                }
+            }))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
+                    shell.download_menu(id, event.position, cx)
+                }),
+            )
+    }
+
     /// The menu a right-click on a download's row shows: what can be done with it where it is.
     fn download_menu(&mut self, id: u64, position: Point<Pixels>, cx: &mut Context<Self>) {
         let Some(download) = self.downloads.iter().find(|each| each.id == id) else {
@@ -1341,11 +1360,13 @@ impl Shell {
         let items = download_menu_items(download, finished);
         let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
         let shell = cx.weak_entity();
+        // The recent downloads' rows are in the reveal's panel while the sidebar is hidden.
+        let in_reveal = self.library.is_none() && self.sidebar_hidden;
         self.browser.menu(
             entries,
             position,
             None,
-            false,
+            in_reveal,
             Box::new(move |chosen, cx| {
                 let Some((_, Some(choice))) = chosen.and_then(|at| items.get(at)) else {
                     return;
@@ -1416,7 +1437,12 @@ impl Shell {
         if self.browser.drag_file(&path, cx) {
             // For check.sh.
             log!("browser: download {id} drag");
-            self.set_library(false, cx);
+            // A row of the recent downloads leaves the Library closed, and the rows go.
+            self.library_dragged = self.library.is_some();
+            match self.library_dragged {
+                true => self.set_library(false, cx),
+                false => self.hide_recent_downloads(cx),
+            }
         }
         cx.notify();
     }
@@ -1426,14 +1452,17 @@ impl Shell {
     pub fn file_drag_ended(&mut self, taken: bool, cx: &mut Context<Self>) {
         // For check.sh.
         log!("browser: file drag ended {}", if taken { "taken" } else { "nowhere" });
-        if !taken {
+        if std::mem::take(&mut self.library_dragged) && !taken {
             self.set_library(true, cx);
         }
     }
 
     /// The pointer's presses, moves and release anywhere in the window while a download's row is
     /// pressed, which only hears the pointer while it's over it.
-    fn download_press_listeners(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+    pub(super) fn download_press_listeners(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
         self.download_press.filter(|(_, _, dragged)| !dragged)?;
         let shell = cx.weak_entity();
         Some(
@@ -1468,7 +1497,8 @@ impl Shell {
     }
 
     /// The footer's button that opens the Library, at its left (Arc). While downloads run, it shows
-    /// the downloads' glyph over a bar of how far they've got, and opens the Library on them.
+    /// the downloads' glyph over a bar of how far they've got, and opens the Library on them. The
+    /// pointer resting on it shows the recent downloads over it.
     pub(super) fn library_button(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let progress = downloads_progress(&self.downloads);
         let downloading = progress.is_some();
@@ -1485,6 +1515,9 @@ impl Shell {
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
             .hover(|style| style.bg(rgba(NAV_HOVERED)))
+            .on_hover(cx.listener(|shell, hovered: &bool, window, cx| {
+                shell.hover_recent_downloads(false, *hovered, window, cx)
+            }))
             .on_click(cx.listener(move |shell, _, _, cx| match downloading {
                 true => shell.run(Command::ViewDownloads, "sidebar", cx),
                 false => shell.run(Command::ViewLibrary, "sidebar", cx),

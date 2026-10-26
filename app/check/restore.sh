@@ -12,7 +12,8 @@
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
 # After the relaunch, Remove from List and Clear List take them off the list and keep their files.
 # A new download's row dragged hands its file to the system's drag, the Library closing until it's
-# let go, and Move to Trash in its menu puts its file in the Trash. A SIGTERM, which macOS sends at
+# let go. Resting on the Library button shows the newest finished downloads, and the menu of one's
+# row there has Move to Trash, which puts its file in the Trash. A SIGTERM, which macOS sends at
 # logout and restart, keeps a tab opened just before it. Reports how long putting them back takes.
 # With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long goes in
 # the archive, counting the time across a quit, and the tab shown stays.
@@ -268,6 +269,19 @@ send key w cmd
 expect_tabs "$c $a" "$c" "after closing the tab from the archive"
 # The downloads the relaunch read didn't fly.
 grep -q '^browser: download flying ' "$log" && fail "a download the relaunch read flew in"
+# Resting on the footer's Library button shows the newest finished downloads over the tab list,
+# here notes.txt alone, as the cancelled one isn't finished. They stay as the pointer comes onto
+# them, and go once it's on neither.
+send move 24 $((height - 25))
+expect '^browser: recent downloads shown 1$' \
+  "resting on the Library button didn't show the recent download"
+send move 24 $((height - 45))
+send move 120 $((height - 78))
+none_since '^browser: recent downloads hidden$' ||
+  fail "the recent downloads went as the pointer came onto them"
+../tools/window-screenshot.sh "$pid" "$out/recent-downloads.png" || fail "no window to capture"
+send move $page_point
+expect '^browser: recent downloads hidden$' "the recent downloads stayed after the pointer left"
 # Remove from List in the cancelled download's menu takes it off the list, and Clear List in the
 # finished one's takes off every download that isn't running and keeps their files.
 send key j cmd shift
@@ -320,15 +334,21 @@ dragged "download $t drag" '^browser: file drag ended nowhere$' ||
   fail "the download's drag didn't end where nothing took it"
 dragged 'file drag ended' '^browser: library shown$' ||
   fail "the Library didn't come back after the download's drag"
-post rightclick 300 111
+send key j cmd shift
+expect '^browser: library hidden$' "⇧⌘J didn't close the Library after the download's drag"
+# Its row in the recent downloads shows the Library row's menu, whose Move to Trash takes the rows
+# away with the last of them.
+send move 24 $((height - 25))
+expect '^browser: recent downloads shown 1$' \
+  "resting on the Library button didn't show the second download"
+post rightclick 120 $((height - 78))
 expect '^browser: menu shown Open, Show in Finder, Move to Trash, Remove from List, Clear List$' \
-  "a right-click on the second download's row didn't show its menu"
+  "a right-click on the recent download's row didn't show its menu"
 send choose Move to Trash
 expect "^browser: download $t Trash via download menu\$" "Move to Trash didn't reach the download"
 expect '^browser: downloads 0$' "Move to Trash didn't take the download off the list"
+expect '^browser: recent downloads hidden$' "the recent downloads stayed with none left"
 [ -e "$out/downloads/trash.txt" ] && fail "Move to Trash left the file in the check's folder"
-send key j cmd shift
-expect '^browser: library hidden$' "⇧⌘J didn't close the Library after Move to Trash"
 send click $page_point
 tab=$a
 history_key right forward page
@@ -400,5 +420,6 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
-echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Window: $out/restored.png"
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, an emoji from the character palette keeps its favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png,"
+echo "  $out/recent-downloads.png"

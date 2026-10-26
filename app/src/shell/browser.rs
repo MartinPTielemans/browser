@@ -91,6 +91,9 @@ pub trait Browser {
     /// Looks up the icon the system shows for the download's file, and calls
     /// `Shell::set_download_icon`.
     fn download_icon(&self, download: u64, cx: &mut App);
+    /// Looks up a preview of the download's file at `path`, a thumbnail of an image, else the
+    /// system's icon for it, and calls `Shell::set_download_preview`.
+    fn file_preview(&self, download: u64, path: &str, cx: &mut App);
     /// Moves the file at `path` to the system's Trash, and says whether it's gone, as it is if it
     /// was gone already.
     fn trash(&self, path: &str, cx: &mut App) -> bool;

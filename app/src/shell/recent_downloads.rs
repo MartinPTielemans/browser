@@ -1,0 +1,627 @@
+//! The Library button's recent downloads: the newest finished files, in rows over the foot of the
+//! sidebar, the newest next to the button (Arc). When they show and how they come and go are ours
+//! until Arc's are recorded (docs/ux-spec.md › Downloads).
+
+use std::{
+    sync::Arc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+
+use gpui::{
+    AnyElement, Context, Image, SharedString, Task, Window, div, img, prelude::*, px, rgba, svg,
+};
+
+use super::{
+    Download, DownloadState, FOOTER_HEIGHT, NAV_SIZE, SECONDARY, Shell,
+};
+
+/// Ours: the rows wait the tooltip's delay, so a pointer passing the button leaves them, and fade.
+const RECENT_WAIT: Duration = Duration::from_millis(500);
+const RECENT_FADE: f32 = 0.15;
+/// Arc's: four rows 56 apart, a 40 pt column at 8 for an image's preview 40 wide or the file's
+/// icon 26 wide, and the name at 61 over its age.
+const RECENT_COUNT: usize = 4;
+const RECENT_PITCH: f32 = 56.;
+const COLUMN_X: f32 = 8.;
+const COLUMN: f32 = 40.;
+const ICON: f32 = 26.;
+const TEXT_X: f32 = 61.;
+const TEXT_END: f32 = 12.;
+const NAME: u32 = 0xffffffff;
+const NAME_SIZE: f32 = 15.;
+const NAME_LINE: f32 = 19.;
+const AGE_SIZE: f32 = 12.;
+const AGE_LINE: f32 = 15.;
+/// Ours: a tall image's preview keeps 4 pt inside its row, with small rounded corners.
+const PREVIEW_HEIGHT: f32 = 48.;
+const PREVIEW_RADIUS: f32 = 4.;
+/// Ours: a row's plate under the pointer, as the Library's rows have one.
+const PLATE_INSET: f32 = 4.;
+const PLATE_RADIUS: f32 = 10.;
+
+const MINUTE: f64 = 60_000.;
+const HOUR: f64 = 60. * MINUTE;
+const DAY: f64 = 24. * HOUR;
+const WEEK: f64 = 7. * DAY;
+const MONTHS: [&str; 12] =
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/// What `Browser::file_preview` found for a file: an image's thumbnail, else its icon, `width` by
+/// `height` pixels.
+#[derive(Clone)]
+pub struct FilePreview {
+    pub image: Arc<Image>,
+    pub width: f32,
+    pub height: f32,
+    /// It's the image's own, not an icon.
+    pub photo: bool,
+}
+
+/// The recent downloads' rows, and where the pointer is that keeps them.
+#[derive(Default)]
+pub(super) struct RecentDownloads {
+    over_button: bool,
+    over_rows: bool,
+    /// The wait before they show, from the pointer coming onto the button.
+    wait: Option<Task<()>>,
+    /// The downloads shown, newest first, with their ages as they opened. Empty while none show.
+    rows: Vec<(u64, SharedString)>,
+    /// They're going, and take no pointer.
+    going: bool,
+    /// When the fade toward where they're going would have started from nothing, from the first
+    /// frame drawn after it was set.
+    fade: Option<Instant>,
+    /// The fade has ended, and its line is logged.
+    settled: bool,
+}
+
+/// The downloads the rows show, newest first: the newest finished ones with a file.
+fn recent(downloads: &[Download]) -> impl Iterator<Item = &Download> {
+    let finished = |each: &&Download| {
+        each.state == DownloadState::Done && !each.held && !each.path.is_empty()
+    };
+    downloads.iter().filter(finished).take(RECENT_COUNT)
+}
+
+/// How long ago `started` is at `now`, in milliseconds since the Unix epoch, in words, with
+/// `today` the start of today in the user's calendar: "just now", minutes, hours, "yesterday",
+/// days, weeks, then the date.
+pub(super) fn age(started: f64, now: f64, today: f64) -> String {
+    let ago = (now - started).max(0.);
+    let count = |unit: f64, name: &str| match (ago / unit).floor() as i64 {
+        1 => format!("1 {name} ago"),
+        n => format!("{n} {name}s ago"),
+    };
+    match ago {
+        _ if ago < MINUTE => "just now".into(),
+        _ if ago < HOUR => count(MINUTE, "minute"),
+        _ if ago < DAY => count(HOUR, "hour"),
+        _ if ago < 2. * DAY => "yesterday".into(),
+        _ if ago < WEEK => count(DAY, "day"),
+        _ if ago < 5. * WEEK => count(WEEK, "week"),
+        _ => date(started, today),
+    }
+}
+
+/// The day `at`, before `today`, falls on in the user's calendar, as "Sep 12", with the year if
+/// it isn't this year's.
+fn date(at: f64, today: f64) -> String {
+    // Local midnight is within 12 hours of UTC's on the same date in all but the furthest zones.
+    let today_day = (today / DAY).round() as i64;
+    let back = ((today - at) / DAY).ceil().max(0.) as i64;
+    let (year, month, day) = civil(today_day - back);
+    let month = MONTHS[month as usize - 1];
+    match civil(today_day).0 == year {
+        true => format!("{month} {day}"),
+        false => format!("{month} {day}, {year}"),
+    }
+}
+
+/// The year, month and day `days` after 1 January 1970, in the Gregorian calendar (Howard
+/// Hinnant's `civil_from_days`).
+fn civil(days: i64) -> (i64, u32, u32) {
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let month = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
+    (yoe + era * 400 + i64::from(month <= 2), month, day)
+}
+
+fn now() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0., |since| since.as_secs_f64() * 1e3)
+}
+
+impl Shell {
+    /// The pointer came onto the Library button, or the rows, or left. It leaves one as it comes
+    /// onto the other in the same move, in either order, so what that means waits for both.
+    pub(super) fn hover_recent_downloads(
+        &mut self,
+        rows: bool,
+        hovered: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match rows {
+            true => self.recent_downloads.over_rows = hovered,
+            false => self.recent_downloads.over_button = hovered,
+        }
+        cx.defer_in(window, |shell, _, cx| shell.settle_recent_downloads(cx));
+    }
+
+    /// Shows the rows a moment after the pointer comes onto the button, keeps them while it's on
+    /// the button or them, and sends them away once it's on neither.
+    fn settle_recent_downloads(&mut self, cx: &mut Context<Self>) {
+        let recent = &self.recent_downloads;
+        if !recent.over_button && !(recent.over_rows && !recent.going) {
+            self.recent_downloads.wait = None;
+            return self.hide_recent_downloads(cx);
+        }
+        if !recent.rows.is_empty() {
+            // Back on the button as they go, they come back from where they are.
+            if recent.going {
+                self.fade_recent_downloads(false, cx);
+            }
+            return;
+        }
+        if recent.wait.is_some() || !self.recent_downloads_can_show() {
+            return;
+        }
+        self.recent_downloads.wait = Some(cx.spawn(async move |shell, cx| {
+            cx.background_executor().timer(RECENT_WAIT).await;
+            shell
+                .update(cx, |shell, cx| {
+                    shell.recent_downloads.wait = None;
+                    shell.open_recent_downloads(cx);
+                })
+                .ok();
+        }));
+    }
+
+    /// Whether the rows can show: the sidebar is still, docked or out in the reveal, with the
+    /// Library closed.
+    fn recent_downloads_can_show(&self) -> bool {
+        let still = self.sidebar_motion.is_none() && self.library.is_none();
+        let shown = !self.sidebar_hidden || self.revealed;
+        still && shown && !self.page_fullscreen && self.recent_downloads.over_button
+    }
+
+    /// Lists the newest finished downloads with their ages now, if there are any, and asks for
+    /// the previews it hasn't yet.
+    fn open_recent_downloads(&mut self, cx: &mut Context<Self>) {
+        if !self.recent_downloads_can_show() {
+            return;
+        }
+        let (now, today) = (now(), self.browser.day_starts()[0]);
+        let rows: Vec<_> = recent(&self.downloads)
+            .map(|each| (each.id, age(each.started, now, today).into()))
+            .collect();
+        if rows.is_empty() {
+            return;
+        }
+        let asked: Vec<_> = recent(&self.downloads)
+            .filter(|each| !self.download_previews.contains_key(&each.id))
+            .map(|each| (each.id, each.path.clone()))
+            .collect();
+        for (id, path) in asked {
+            self.download_previews.insert(id, None);
+            self.browser.file_preview(id, &path, cx);
+        }
+        let recent = &mut self.recent_downloads;
+        recent.rows = rows;
+        recent.going = false;
+        recent.fade = None;
+        recent.settled = false;
+        cx.notify();
+    }
+
+    /// Sends the rows away with their fade, from where they are, if they show.
+    pub(super) fn hide_recent_downloads(&mut self, cx: &mut Context<Self>) {
+        if !self.recent_downloads.rows.is_empty() && !self.recent_downloads.going {
+            self.fade_recent_downloads(true, cx);
+        }
+    }
+
+    /// Takes the rows away at once, as what they show over goes.
+    pub(super) fn recent_downloads_gone(&mut self, cx: &mut Context<Self>) {
+        let recent = &mut self.recent_downloads;
+        recent.wait = None;
+        recent.over_rows = false;
+        if recent.rows.is_empty() {
+            return;
+        }
+        recent.rows.clear();
+        // check.sh waits for this line.
+        log!("browser: recent downloads hidden");
+        cx.notify();
+    }
+
+    /// Turns the rows' fade toward going, or coming, from the opacity they're at.
+    fn fade_recent_downloads(&mut self, going: bool, cx: &mut Context<Self>) {
+        let opacity = self.recent_downloads_opacity();
+        let recent = &mut self.recent_downloads;
+        recent.going = going;
+        recent.settled = false;
+        if going {
+            recent.over_rows = false;
+        }
+        // From the opacity it's at, as if the fade had started that long ago.
+        let done = if going { 1. - opacity } else { opacity };
+        let since = Duration::from_secs_f32(done * RECENT_FADE);
+        let now = Instant::now();
+        recent.fade = recent.fade.map(|_| now.checked_sub(since).unwrap_or(now));
+        cx.notify();
+    }
+
+    /// How opaque the rows draw.
+    fn recent_downloads_opacity(&self) -> f32 {
+        let recent = &self.recent_downloads;
+        let t = recent.fade.map_or(0., |fade| fade.elapsed().as_secs_f32() / RECENT_FADE);
+        let t = t.clamp(0., 1.);
+        if recent.going { 1. - t } else { t }
+    }
+
+    /// The downloads changed: the rows keep those still there and finished, and go with none.
+    pub(super) fn recent_downloads_changed(&mut self, cx: &mut Context<Self>) {
+        if self.recent_downloads.rows.is_empty() {
+            return;
+        }
+        let (downloads, rows) = (&self.downloads, &mut self.recent_downloads.rows);
+        let before = rows.len();
+        rows.retain(|(id, _)| recent(downloads).any(|each| each.id == *id));
+        if rows.is_empty() {
+            // check.sh waits for this line.
+            log!("browser: recent downloads hidden");
+        }
+        if rows.len() != before {
+            cx.notify();
+        }
+    }
+
+    /// The preview `Browser::file_preview` asked for.
+    pub fn set_download_preview(
+        &mut self,
+        id: u64,
+        preview: Option<FilePreview>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(entry) = self.download_previews.get_mut(&id) {
+            *entry = preview;
+            if self.recent_downloads.rows.iter().any(|(row, _)| *row == id) {
+                cx.notify();
+            }
+        }
+    }
+
+    /// Steps the rows' fade for a frame, and once it's done, says so, and lets them go if they
+    /// went.
+    pub(super) fn step_recent_downloads(&mut self, window: &mut Window) {
+        let recent = &mut self.recent_downloads;
+        if recent.rows.is_empty() || recent.settled {
+            return;
+        }
+        let fade = *recent.fade.get_or_insert_with(Instant::now);
+        if fade.elapsed().as_secs_f32() < RECENT_FADE {
+            window.request_animation_frame();
+            return;
+        }
+        recent.settled = true;
+        // check.sh waits for these lines, logged with the frame that ends the fade.
+        if recent.going {
+            recent.rows.clear();
+            log!("browser: recent downloads hidden");
+        } else {
+            log!("browser: recent downloads shown {}", recent.rows.len());
+        }
+    }
+
+    /// The rows, over the tab list's foot and taking its pointer while they show, and the gap down
+    /// to the button, which keeps them as the pointer crosses it.
+    pub(super) fn recent_download_rows(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
+        let recent = &self.recent_downloads;
+        if recent.rows.is_empty() || self.page_fullscreen {
+            return None;
+        }
+        let live = !recent.going;
+        let button_top = (FOOTER_HEIGHT + NAV_SIZE) / 2.;
+        let height = recent.rows.len() as f32 * RECENT_PITCH;
+        let window = f32::from(self.viewport.height).max(1.);
+        // The sidebar's own look behind them, where the tab list would show through.
+        let fill = self.window_fill_at((window - FOOTER_HEIGHT - height / 2.) / window);
+        let rows: Vec<_> =
+            recent.rows.iter().rev().map(|(id, age)| self.recent_row(*id, age, live, cx)).collect();
+        Some(
+            div()
+                .id("recent-downloads")
+                .absolute()
+                .left_0()
+                .w(px(self.width()))
+                .bottom(px(button_top))
+                .h(px(height + FOOTER_HEIGHT - button_top))
+                .opacity(self.recent_downloads_opacity())
+                .when(live, |area| {
+                    area.block_mouse_except_scroll().on_hover(cx.listener(
+                        |shell, hovered: &bool, window, cx| {
+                            shell.hover_recent_downloads(true, *hovered, window, cx)
+                        },
+                    ))
+                })
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .h(px(height))
+                        .bg(fill)
+                        .flex()
+                        .flex_col()
+                        .children(rows),
+                )
+                .children(live.then(|| self.download_press_listeners(cx)).flatten()),
+        )
+    }
+
+    /// A row: the file's preview or icon in its column, its name over its age, and while the rows
+    /// show, what a Library row does.
+    fn recent_row(
+        &self,
+        id: u64,
+        age: &SharedString,
+        live: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(download) = self.downloads.iter().find(|each| each.id == id) else {
+            return div().h(px(RECENT_PITCH)).into_any_element();
+        };
+        let preview = match self.download_previews.get(&id).cloned().flatten() {
+            Some(preview) if preview.photo => {
+                let (width, height) = (preview.width.max(1.), preview.height.max(1.));
+                let scale = (COLUMN / width).min(PREVIEW_HEIGHT / height);
+                img(preview.image)
+                    .w(px(width * scale))
+                    .h(px(height * scale))
+                    .rounded(px(PREVIEW_RADIUS))
+                    .into_any_element()
+            }
+            Some(preview) => img(preview.image).size(px(ICON)).into_any_element(),
+            // The generic file glyph, as the Library's rows show, until the preview comes.
+            None => svg()
+                .path("icons/file.svg")
+                .size(px(ICON * 0.75))
+                .text_color(rgba(SECONDARY))
+                .into_any_element(),
+        };
+        let line = |text: SharedString, size: f32, height: f32, color: u32| {
+            div()
+                .h(px(height))
+                .flex()
+                .items_center()
+                .text_size(px(size))
+                .text_color(rgba(color))
+                .child(div().truncate().child(text))
+        };
+        let plate = div()
+            .id(("recent-download", id))
+            .absolute()
+            .left(px(PLATE_INSET))
+            .right(px(PLATE_INSET))
+            .top(px(2.))
+            .bottom(px(2.))
+            .rounded(px(PLATE_RADIUS));
+        let plate = match live {
+            true => self.download_row(plate, id, "recent downloads", cx),
+            false => plate,
+        };
+        div()
+            .flex_none()
+            .relative()
+            .h(px(RECENT_PITCH))
+            .child(plate)
+            .child(
+                div()
+                    .absolute()
+                    .left(px(COLUMN_X))
+                    .top_0()
+                    .bottom_0()
+                    .w(px(COLUMN))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(preview),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(px(TEXT_X))
+                    .right(px(TEXT_END))
+                    .top_0()
+                    .bottom_0()
+                    .flex()
+                    .flex_col()
+                    .justify_center()
+                    .child(line(download.name.clone(), NAME_SIZE, NAME_LINE, NAME))
+                    .child(line(age.clone(), AGE_SIZE, AGE_LINE, SECONDARY)),
+            )
+            .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{rc::Rc, time::Duration};
+
+    use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext, point, px};
+
+    use super::{
+        super::{Download, DownloadState, Shell, recorder::Recorder},
+        DAY, HOUR, MINUTE, RECENT_WAIT, WEEK, age, now,
+    };
+
+    /// Ages count minutes, hours, then yesterday, days and weeks, and past four weeks give the
+    /// date, with its year if it isn't this one's.
+    #[test]
+    fn ages_say_how_long_ago_in_words() {
+        let now = 1_790_000_000_000.;
+        let ago = |by: f64| age(now - by, now, now - 3. * HOUR);
+        assert_eq!(ago(10_000.), "just now");
+        assert_eq!(ago(-5_000.), "just now", "a clock that went back isn't the future");
+        assert_eq!(ago(MINUTE), "1 minute ago");
+        assert_eq!(ago(59. * MINUTE), "59 minutes ago");
+        assert_eq!(ago(HOUR), "1 hour ago");
+        assert_eq!(ago(2. * HOUR + 59. * MINUTE), "2 hours ago");
+        assert_eq!(ago(DAY + HOUR), "yesterday");
+        assert_eq!(ago(4. * DAY), "4 days ago");
+        assert_eq!(ago(WEEK + DAY), "1 week ago");
+        assert_eq!(ago(4. * WEEK + 6. * DAY), "4 weeks ago");
+
+        // 26 October 2026, at midnight in UTC+2.
+        let today = 1_792_965_600_000.;
+        let at = |date: f64| age(date, today + 9. * HOUR, today);
+        // 7 September, in the evening, and the first minute of that day.
+        assert_eq!(at(today - 49. * DAY + 20. * HOUR), "Sep 7");
+        assert_eq!(at(today - 49. * DAY + MINUTE), "Sep 7");
+        assert_eq!(at(today - 50. * DAY + HOUR), "Sep 6");
+        // 31 December 2025, a leap of years and months back.
+        assert_eq!(at(today - 299. * DAY + HOUR), "Dec 31, 2025");
+        assert_eq!(at(today - 300. * DAY + 23. * HOUR), "Dec 30, 2025");
+    }
+
+    /// A finished download `id`, started `ago` milliseconds back.
+    fn done(id: u64, ago: f64) -> Download {
+        Download {
+            id,
+            name: format!("file {id}.zip").into(),
+            url: "https://example.org/file".into(),
+            path: format!("/tmp/file {id}.zip").into(),
+            received: 10,
+            total: 10,
+            state: DownloadState::Done,
+            open_when_done: false,
+            held: false,
+            started: now() - ago,
+        }
+    }
+
+    fn window(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+            shell.set_space(1, cx);
+        });
+        cx.run_until_parked();
+        (shell, cx, host)
+    }
+
+    fn move_to(cx: &mut VisualTestContext, x: f32, y: f32) {
+        cx.simulate_mouse_move(point(px(x), px(y)), None, Modifiers::none());
+        cx.run_until_parked();
+    }
+
+    fn wait(cx: &mut VisualTestContext, time: Duration) {
+        cx.executor().advance_clock(time);
+        cx.run_until_parked();
+    }
+
+    /// The rows listed, newest first, with their ages, and whether they're going.
+    fn rows(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> (Vec<(u64, String)>, bool) {
+        shell.read_with(cx, |shell, _| {
+            let recent = &shell.recent_downloads;
+            let rows = recent.rows.iter().map(|(id, age)| (*id, age.to_string())).collect();
+            (rows, recent.going)
+        })
+    }
+
+    /// Resting on the Library button for the tooltip's delay shows the four newest finished
+    /// downloads with their ages, and asks for their previews once. They stay as the pointer
+    /// crosses from the button onto them, go once it's on neither, and come back from going when
+    /// it's on the button again. A click on the button opens the Library and takes them away.
+    #[gpui::test]
+    fn the_recent_downloads_show_while_the_pointer_rests_on_the_button(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx);
+        let mut running = done(9, 0.);
+        running.state = DownloadState::Running;
+        let mut held = done(8, MINUTE);
+        held.held = true;
+        let downloads = vec![
+            running,
+            held,
+            done(5, 2. * HOUR),
+            done(4, 4. * DAY),
+            done(3, 8. * DAY),
+            done(2, 9. * DAY),
+            done(1, 10. * DAY),
+        ];
+        shell.update(cx, |shell, cx| shell.set_downloads(downloads, cx));
+        cx.run_until_parked();
+        let height = shell.read_with(cx, |shell, _| f32::from(shell.viewport.height));
+        let button = (24., height - 25.);
+        host.take();
+
+        move_to(cx, button.0, button.1);
+        wait(cx, RECENT_WAIT - Duration::from_millis(100));
+        assert!(rows(&shell, cx).0.is_empty(), "they wait the tooltip's delay");
+        wait(cx, Duration::from_millis(100));
+        let shown = vec![
+            (5, "2 hours ago".to_string()),
+            (4, "4 days ago".to_string()),
+            (3, "1 week ago".to_string()),
+            (2, "1 week ago".to_string()),
+        ];
+        assert_eq!(rows(&shell, cx), (shown.clone(), false));
+        let asked = ["file preview 5", "file preview 4", "file preview 3", "file preview 2"];
+        assert_eq!(host.take(), asked);
+
+        // Up across the gap onto the newest row, at the bottom, and the oldest, at the top.
+        move_to(cx, 24., height - 45.);
+        move_to(cx, 120., height - 50. - 28.);
+        move_to(cx, 120., height - 50. - 3. * 56. - 28.);
+        assert_eq!(rows(&shell, cx), (shown.clone(), false), "the rows keep them");
+
+        move_to(cx, 120., 200.);
+        assert_eq!(rows(&shell, cx), (shown.clone(), true), "they go with the pointer on neither");
+        move_to(cx, button.0, button.1);
+        assert_eq!(rows(&shell, cx), (shown.clone(), false), "the button brings them back");
+
+        // A later rest asks for no preview again.
+        shell.update(cx, |shell, cx| shell.recent_downloads_gone(cx));
+        move_to(cx, 120., 200.);
+        move_to(cx, button.0, button.1);
+        wait(cx, RECENT_WAIT);
+        assert_eq!(rows(&shell, cx).0.len(), 4);
+        assert!(host.take().iter().all(|call| !call.starts_with("file preview")));
+
+        cx.simulate_click(point(px(button.0), px(button.1)), Modifiers::none());
+        cx.run_until_parked();
+        assert!(rows(&shell, cx).0.is_empty(), "the Library takes them away at once");
+    }
+
+    /// A pointer passing over the button leaves no rows, and with no finished download there are
+    /// none to show.
+    #[gpui::test]
+    fn the_recent_downloads_need_a_rest_and_a_finished_file(cx: &mut TestAppContext) {
+        let (shell, cx, _) = window(cx);
+        shell.update(cx, |shell, cx| shell.set_downloads(vec![done(1, HOUR)], cx));
+        let height = shell.read_with(cx, |shell, _| f32::from(shell.viewport.height));
+        move_to(cx, 24., height - 25.);
+        wait(cx, RECENT_WAIT / 2);
+        move_to(cx, 300., 200.);
+        wait(cx, RECENT_WAIT * 2);
+        assert!(rows(&shell, cx).0.is_empty(), "passing over the button shows nothing");
+
+        let mut running = done(2, 0.);
+        running.state = DownloadState::Running;
+        shell.update(cx, |shell, cx| shell.set_downloads(vec![running], cx));
+        move_to(cx, 24., height - 25.);
+        wait(cx, RECENT_WAIT * 2);
+        assert!(rows(&shell, cx).0.is_empty(), "a running download isn't a recent one");
+    }
+}
