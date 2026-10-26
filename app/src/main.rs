@@ -1240,6 +1240,11 @@ impl Browser for Engine {
         unsafe { bc::bc_space_set_icon(space, icon.as_ptr()) };
     }
 
+    fn set_space_theme(&self, space: u64, theme: &str, _: &mut App) {
+        let theme = CString::new(theme).unwrap_or_default();
+        unsafe { bc::bc_space_set_theme(space, theme.as_ptr()) };
+    }
+
     fn set_space_profile(&self, space: u64, profile: u64, _: &mut App) {
         unsafe { bc::bc_space_set_profile(space, profile) };
     }
@@ -2139,7 +2144,8 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
             let name_of = name(bc::bc_space_name, space);
             let icon = name(bc::bc_space_icon, space);
             let agent = name(bc::bc_space_agent_name, space);
-            (space, name_of, has_color.then_some(color), profile, icon, agent)
+            let theme = name(bc::bc_space_theme, space);
+            (space, name_of, has_color.then_some(color), profile, icon, agent, theme)
         })
         .collect();
     update_shells(|shell, cx| {

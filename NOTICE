@@ -14,11 +14,12 @@ arrow-left, arrow-left-right, arrow-right, arrow-up, bell, bluetooth, brush-clea
 chevron-down, chevron-up, chevrons-up-down, clipboard, clock, code, command, cookie,
 corner-down-left, credit-card, database, download, ellipsis, external-link, file, fold-vertical,
 folder, folder-open, folder-plus, gamepad-2, glasses, globe, hand, image, keyboard, library, link,
-map-pin, maximize, megaphone, mic, mouse-pointer-2, network, nfc, paintbrush, panel-left, pencil,
-piano, picture-in-picture-2, pin, plus, printer, puzzle, rotate-ccw-clock, rotate-cw, save, search,
-settings, share, sliders-horizontal, speaker, square-mouse-pointer, terminal, text-search, trash,
-type, undo-2, usb, user, vibrate, video, volume-2, volume-x, x, zap, zoom-in and zoom-out,
-and rotate-cw and x scaled as nav-reload and nav-stop, at commit
+map-pin, maximize, megaphone, mic, minus, moon-star, mouse-pointer-2, network, nfc, paintbrush,
+panel-left, pencil, piano, picture-in-picture-2, pin, plus, printer, puzzle, rotate-ccw-clock,
+rotate-cw, save, search, settings, share, sliders-horizontal, sparkles, speaker,
+square-mouse-pointer, sun, terminal, text-search, trash, type, undo-2, usb, user, vibrate, video,
+volume-2, volume-x, x, zap, zoom-in and zoom-out, and rotate-cw and x scaled as nav-reload and
+nav-stop, at commit
 7faf87628a1ad6175975bc595344337ce14a7db4.
 
   ISC License
