@@ -204,14 +204,7 @@ impl Shell {
     /// colour, going to the same at HSL lightness + 0.25. While the sidebar pages between two
     /// Spaces, it cross-fades from one's to the other's as the pages move.
     fn gradient_color(&self, y: f32) -> Hsla {
-        let color_of = |space| {
-            // A Space without a colour has the system's accent colour, as in Dia.
-            let space = self.spaces.iter().find(|each| each.id == space);
-            let color = space.and_then(|space| space.color).unwrap_or(self.accent_color);
-            let color = Hsla::from(rgb(color));
-            let alpha = if color.s < NEUTRAL { NEUTRAL_GRADIENT_ALPHA } else { GRADIENT_ALPHA };
-            Rgba::from(Hsla { l: (color.l + 0.25 * y).min(1.), ..color }.opacity(alpha))
-        };
+        let color_of = |space| self.space_color_at(space, y);
         let pages = self.pages();
         let (space, x) = pages[0];
         let from = color_of(space);
@@ -223,6 +216,23 @@ impl Shell {
         let mix = |from: f32, to: f32| from + (to - from) * t;
         let (r, g, b) = (mix(from.r, to.r), mix(from.g, to.g), mix(from.b, to.b));
         Rgba { r, g, b, a: mix(from.a, to.a) }.into()
+    }
+
+    /// `space`'s colour `y` of the way down the window, as the gradient has it.
+    fn space_color_at(&self, space: u64, y: f32) -> Rgba {
+        // A Space without a colour has the system's accent colour, as in Dia.
+        let space = self.spaces.iter().find(|each| each.id == space);
+        let color = space.and_then(|space| space.color).unwrap_or(self.accent_color);
+        let color = Hsla::from(rgb(color));
+        let alpha = if color.s < NEUTRAL { NEUTRAL_GRADIENT_ALPHA } else { GRADIENT_ALPHA };
+        Rgba::from(Hsla { l: (color.l + 0.25 * y).min(1.), ..color }.opacity(alpha))
+    }
+
+    /// `space`'s gradient from top to bottom, for what is as tall as the window, such as its card
+    /// in the Library.
+    pub(super) fn space_gradient(&self, space: u64) -> gpui::Background {
+        let stop = |y| linear_color_stop(Hsla::from(self.space_color_at(space, y)), y);
+        linear_gradient(180., stop(0.), stop(1.))
     }
 
     /// The gradient as a background, over `base` where the window's look has to be opaque.

@@ -9,7 +9,7 @@ use gpui::{
 };
 
 use super::{
-    LIBRARY_WIDTH, SCROLL_EDGE, SCROLL_EDGE_FADE, SWIPE_FLICK, SWIPE_HISTORY, SWIPE_TRACKING,
+    SCROLL_EDGE, SCROLL_EDGE_FADE, SWIPE_FLICK, SWIPE_HISTORY, SWIPE_TRACKING,
     Settle, Shell, Swipe, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, cubic_bezier, rubber_band,
 };
 
@@ -45,12 +45,12 @@ impl Shell {
     /// the Space shown.
     pub(super) fn swiped_to(&self, swipe: &Swipe) -> f32 {
         if swipe.library {
-            return rubber_band(swipe.way, -LIBRARY_WIDTH, 0.);
+            return rubber_band(swipe.way, -self.library_width(), 0.);
         }
         let index = self.spaces.iter().position(|space| space.id == swipe.from).unwrap_or(0);
         let width = self.width();
         let high = match index {
-            0 if self.library_beside(swipe.from) => LIBRARY_WIDTH,
+            0 if self.library_beside(swipe.from) => self.library_width(),
             0 => 0.,
             _ => width,
         };
@@ -74,8 +74,8 @@ impl Shell {
         }
         let x = self.swiped_to(swipe);
         match swipe.library {
-            true => Some((1. + x / LIBRARY_WIDTH).max(0.)),
-            false if x > 0. && self.library_beside(swipe.from) => Some(x / LIBRARY_WIDTH),
+            true => Some((1. + x / self.library_width()).max(0.)),
+            false if x > 0. && self.library_beside(swipe.from) => Some(x / self.library_width()),
             false => None,
         }
     }
@@ -126,7 +126,7 @@ impl Shell {
             log!("browser: swipe {}", if across { "across" } else { "along" });
             // Fingers catch a page, or the Library, that's still settling where it is.
             if across && swipe.library {
-                swipe.way = (self.library_out() - 1.) * LIBRARY_WIDTH;
+                swipe.way = (self.library_out() - 1.) * self.library_width();
                 self.library_motion = None;
             } else if across
                 && let Some(settle) = self.settle.take()
@@ -189,7 +189,7 @@ impl Shell {
                 // check.sh waits for this line.
                 log!("browser: command view-library via swipe");
             }
-            self.move_library(open, out, velocity / LIBRARY_WIDTH, None, cx);
+            self.move_library(open, out, velocity / self.library_width(), None, cx);
             return true;
         }
         if swipe.ready {

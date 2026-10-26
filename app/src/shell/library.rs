@@ -1,24 +1,27 @@
 //! The Library, which slides in from the left over the sidebar and pushes the card right without
-//! resizing it (Arc): a column of its sections, Downloads and Archived Tabs so far, and beside it
-//! the section's list, newest first under day headings, with a search field over it
-//! (docs/ux-spec.md › Archive and Downloads).
+//! resizing it (Arc): a column of its sections, Downloads, Spaces and Archived Tabs so far, and
+//! beside it the section's list, newest first under day headings, with a search field over it, or
+//! for Spaces a card for each (docs/ux-spec.md › Archive and Downloads).
 
 use std::{sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, Focusable, FontWeight, Image, ListAlignment, ListState,
-    MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, Window, div, list,
-    prelude::*, px, relative, rgb, rgba, svg,
+    AnyElement, BoxShadow, ClickEvent, Context, Entity, Focusable, FontWeight, Image, ListAlignment,
+    ListState, MouseButton, MouseDownEvent, Pixels, Point, SharedString, Subscription, Window, div,
+    hsla, list, point, prelude::*, px, relative, rgb, rgba, svg,
 };
 
 use super::{
-    Command, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE,
-    PRESSED, SECONDARY, Shell, UNSELECTED_TITLE, clean_link, favicon, host, spring_to,
+    Command, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry, NAV,
+    NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X, Shell,
+    Space, UNSELECTED_TITLE, clean_link, clear_label, divider_box, favicon, folder_icon, host,
+    name_box, plate, row_box, spring_to, split_plate, title,
 };
 use crate::text_input::TextInput;
 
-/// Where the card's left edge goes while the Library is open: the Library's right edge.
-pub(super) const LIBRARY_WIDTH: f32 = 417.;
+/// Where the card's left edge goes while the Library is open: the Library's right edge, which is
+/// this for Downloads and Archived Tabs and `SPACES_WIDTH` for Spaces.
+const LIBRARY_WIDTH: f32 = 417.;
 /// The push, on Arc's measured spring (1 run, rms 1.0 pt). The Library comes with it from its own
 /// width to the left, so they meet as they stop.
 const LIBRARY_RESPONSE: f32 = 0.245;
@@ -66,6 +69,35 @@ const SECTION_GAP: f32 = 20.;
 const LIBRARY_PLATE: u32 = 0xffffff17;
 /// The back button, at the column's bottom.
 const LIBRARY_BACK_INSET: f32 = 8.;
+
+/// The Spaces section (Arc 1.170 cap, one Space): the Library is 480 wide, and a card per Space
+/// starts 28 after the column, 240 wide and as tall as the window less 48 above and below, with
+/// Arc's blue + 33 after the last, 30 across and halfway down. The card is the Space's gradient at
+/// radius 14, with its list drawn as the sidebar draws it, and its name's row has a brush at its
+/// end, 28 square, 13 from the card's right. Arc's card has no search field over it.
+const SPACES_WIDTH: f32 = 480.;
+const SPACES_LEFT: f32 = 28.;
+const SPACES_INSET: f32 = 48.;
+const CARD_WIDTH: f32 = 240.;
+const CARD_RADIUS: f32 = 14.;
+/// Ours: Arc's capture had one card, so how far apart they are isn't known.
+const CARD_GAP: f32 = 16.;
+/// The name's row in the card, 33 down to its middle as in Arc, with the rows 52 down.
+const CARD_NAME_TOP: f32 = 14.;
+const CARD_NAME_HEIGHT: f32 = 38.;
+const CARD_BRUSH: f32 = 28.;
+const CARD_BRUSH_GLYPH: f32 = 14.;
+const CARD_BRUSH_RIGHT: f32 = 13.;
+const CARD_BRUSH_COLOR: u32 = 0xffffff59;
+/// Ours: the shadow round a card, which Arc has, soft and dark.
+const CARD_SHADOW: f32 = 0.3;
+const CARD_SHADOW_BLUR: f32 = 16.;
+const PLUS_GAP: f32 = 33.;
+const PLUS_SIZE: f32 = 30.;
+const PLUS_FILL: u32 = 0x1f2aff;
+const PLUS_GLYPH: f32 = 14.;
+/// The room after the +, to the Library's edge.
+const PLUS_AFTER: f32 = 37.;
 
 /// The search field, on the window buttons' row. Arc's Filter button is left out, and the field
 /// takes its place.
@@ -182,6 +214,7 @@ pub enum DownloadAction {
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Section {
     Downloads,
+    Spaces,
     Archive,
 }
 
@@ -189,8 +222,43 @@ impl Section {
     fn name(self) -> &'static str {
         match self {
             Section::Downloads => "downloads",
+            Section::Spaces => "spaces",
             Section::Archive => "archive",
         }
+    }
+
+    /// How wide the Library is with this section in it.
+    fn width(self) -> f32 {
+        match self {
+            Section::Spaces => SPACES_WIDTH,
+            _ => LIBRARY_WIDTH,
+        }
+    }
+}
+
+/// A line of a Space's card.
+#[derive(Debug, PartialEq)]
+enum Line {
+    /// A folder, in this many folders.
+    Folder(u64, usize),
+    /// A tab, or a split view by its first tab, in this many folders.
+    Tab(u64, usize),
+    /// The line over the Today tabs, with Clear at its end.
+    Divider,
+}
+
+impl Space {
+    /// What its card lists: the sidebar's rows, pinned tabs and folders, then the Today tabs
+    /// under their line, without the New Tab row between (Arc).
+    fn card_lines(&self) -> Vec<Line> {
+        let (pinned, today) = self.rows();
+        let line = |row: u64| match self.is_folder(row) {
+            true => Line::Folder(row, self.depth(row)),
+            false => Line::Tab(row, self.depth(row)),
+        };
+        let divider = (!today.is_empty()).then_some(Line::Divider);
+        let lines = pinned.into_iter().map(line).chain(divider);
+        lines.chain(today.into_iter().map(line)).collect()
     }
 }
 
@@ -272,7 +340,17 @@ impl Shell {
         if self.page_fullscreen {
             return 0.;
         }
-        (LIBRARY_WIDTH - self.card_left()) * self.library_out()
+        (self.library_width() - self.card_left()) * self.library_out()
+    }
+
+    /// How wide the Library is: its section's, and on its way to another's after a click on it.
+    pub(super) fn library_width(&self) -> f32 {
+        let to = self.section.width();
+        let Some((from, start)) = self.library_resize else {
+            return to;
+        };
+        let t = start.elapsed().as_secs_f32();
+        spring_to(t, from, to, 0., LIBRARY_RESPONSE, LIBRARY_DAMPING).map_or(to, |(width, _)| width)
     }
 
     /// How far the card has gone to the Library's edge, 0 not at all and 1 there, and how fast,
@@ -392,6 +470,11 @@ impl Shell {
         self.show_section(section, cx);
     }
 
+    /// Opens the Library on its Spaces, for the preview, which has no pointer to pick it with.
+    pub fn show_spaces(&mut self, cx: &mut Context<Self>) {
+        self.view_section(Section::Spaces, cx);
+    }
+
     /// Shows the Library's Downloads for Chrome, which asks after the user stopped a quit to let
     /// downloads finish. Unlike ⇧⌘J, it leaves the Library open when Downloads are shown already.
     pub fn show_downloads(&mut self, cx: &mut Context<Self>) {
@@ -402,9 +485,15 @@ impl Shell {
 
     /// Lists `section` in the Library, with an empty search field of its own.
     pub(super) fn show_section(&mut self, section: Section, cx: &mut Context<Self>) {
+        // Ours: the Library goes to the new section's width on the push's spring, as Arc's
+        // isn't recorded.
+        if self.library.is_some() && section.width() != self.section.width() {
+            self.library_resize = Some((self.library_width(), Instant::now()));
+        }
         self.section = section;
         let placeholder = match section {
             Section::Downloads => "Search Downloads…",
+            Section::Spaces => "",
             Section::Archive => "Search Archive…",
         };
         let search = cx.new(|cx| {
@@ -430,6 +519,7 @@ impl Shell {
     pub(super) fn close_library_now(&mut self) {
         self.library = None;
         self.library_open = false;
+        self.library_resize = None;
         self.library_motion = None;
         self.sidebar_fade = None;
     }
@@ -443,6 +533,16 @@ impl Shell {
             && library.search.focus_handle(cx).is_focused(window)
         {
             window.focus(&self.focus_handle, cx);
+        }
+        if self.library.is_none() {
+            self.library_resize = None;
+        }
+        if let Some((from, start)) = self.library_resize {
+            let t = start.elapsed().as_secs_f32();
+            match spring_to(t, from, self.section.width(), 0., LIBRARY_RESPONSE, LIBRARY_DAMPING) {
+                Some(_) => window.request_animation_frame(),
+                None => self.library_resize = None,
+            }
         }
         if self.library_motion.is_none() {
             // Fingers that took the Library out a little, then paged instead, let it go.
@@ -479,6 +579,7 @@ impl Shell {
         let found = |text: &SharedString| text.to_lowercase().contains(&query);
         // Each with the time it's listed by, newest first.
         let found: Vec<(Item, f64)> = match self.section {
+            Section::Spaces => Vec::new(),
             Section::Archive => (self.archive.iter().enumerate())
                 .filter(|(_, tab)| query.is_empty() || found(&tab.title) || found(&tab.url))
                 .map(|(index, tab)| (Item::Tab(index), tab.archived))
@@ -588,6 +689,7 @@ impl Shell {
             // Arc's buttons sit 5 above the column's middle.
             .mb(px(10.))
             .child(self.section_button(Section::Downloads, color, cx))
+            .child(self.section_button(Section::Spaces, color, cx))
             .child(self.section_button(Section::Archive, color, cx));
         let back = div()
             .id("library-back")
@@ -659,8 +761,10 @@ impl Shell {
                     .text_color(rgba(SEARCH_PLACEHOLDER)),
             )
             .child(library.search.clone());
+        let spaces = self.section == Section::Spaces;
         let archive = if library.items.is_empty() {
             let empty = match (self.section, library.query.is_empty()) {
+                (Section::Spaces, _) => "",
                 (Section::Archive, true) => "Today tabs you close are kept here for 30 days.",
                 (Section::Archive, false) => "No archived tabs match.",
                 (Section::Downloads, true) => "Files you download show here.",
@@ -680,24 +784,156 @@ impl Shell {
             let item = cx.processor(|shell, index, _, cx| shell.archive_item(index, cx));
             list(library.list.clone(), item).size_full().into_any_element()
         };
-        div()
+        let width = self.library_width();
+        let panel = div()
             .absolute()
-            .left(px((self.library_edge() - 1.) * LIBRARY_WIDTH))
+            .left(px((self.library_edge() - 1.) * width))
             .top_0()
             .bottom_0()
-            .w(px(LIBRARY_WIDTH))
+            .w(px(width))
             .child(column)
-            .child(edge)
-            .child(field)
+            .child(edge);
+        if spaces {
+            return panel.child(self.space_cards(cx));
+        }
+        panel.child(field).child(
+            div()
+                .absolute()
+                .left(px(COLUMN_WIDTH))
+                .top(px(ARCHIVE_TOP))
+                .bottom_0()
+                .w(px(ARCHIVE_WIDTH))
+                .child(archive),
+        )
+    }
+
+    /// The Spaces section: a card for each Space of the window's profile set, in the switcher's
+    /// order, and the + after them, which scroll across together if they don't fit.
+    fn space_cards(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let cards: Vec<_> = self.spaces.iter().map(|space| self.space_card(space, cx)).collect();
+        let plus = div()
+            .id("library-new-space")
+            .flex_none()
+            .ml(px(PLUS_GAP - CARD_GAP))
+            .mr(px(PLUS_AFTER))
+            .size(px(PLUS_SIZE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .bg(rgb(PLUS_FILL))
+            .block_mouse_except_scroll()
+            .on_click(cx.listener(|shell, _, _, cx| {
+                shell.run(Command::NewSpace, "library", cx);
+                shell.set_library(false, cx);
+            }))
+            .child(
+                svg().path("icons/nav-plus.svg").size(px(PLUS_GLYPH)).text_color(rgb(FORM_TEXT)),
+            );
+        div()
+            .id("library-spaces")
+            .absolute()
+            .left(px(COLUMN_WIDTH))
+            .top_0()
+            .bottom_0()
+            .right_0()
+            .overflow_x_scroll()
             .child(
                 div()
-                    .absolute()
-                    .left(px(COLUMN_WIDTH))
-                    .top(px(ARCHIVE_TOP))
-                    .bottom_0()
-                    .w(px(ARCHIVE_WIDTH))
-                    .child(archive),
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(CARD_GAP))
+                    .pl(px(SPACES_LEFT))
+                    .py(px(SPACES_INSET))
+                    .children(cards)
+                    .child(plus),
             )
+    }
+
+    /// A Space's card: its name over the rows the sidebar would show, in its colour. A click shows
+    /// the Space, and the brush shows its menu, for what the Space can be changed in.
+    fn space_card(&self, space: &Space, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let id = space.id;
+        let rows = space.card_lines().into_iter().map(|line| match line {
+            Line::Divider => divider_box(Some(clear_label())).into_any_element(),
+            Line::Folder(folder, depth) => {
+                let name = space.folders.folders.get(&folder).map(|(name, _)| name.clone());
+                let name = title(name.unwrap_or_default(), false).pr(px(PLATE_INSET));
+                let icon = folder_icon(space.is_open(folder));
+                card_row(depth, plate(icon, name))
+            }
+            Line::Tab(tab, depth) => {
+                let panes = space.panes(tab);
+                if panes.len() == 1 {
+                    let label = title(self.title(tab), false).pr(px(PLATE_INSET));
+                    return card_row(depth, plate(self.tab_icon(tab), label));
+                }
+                let plate = CARD_WIDTH - 2. * PLATE_INSET - depth as f32 * FOLDER_INDENT;
+                let plate = plate - (FAVICON_X - PLATE_INSET - SEGMENT_FAVICON_X);
+                let width = plate / panes.len() as f32;
+                let segments = panes.iter().enumerate().map(|(index, &pane)| {
+                    self.segment(pane, width, index == 0, false)
+                });
+                card_row(depth, split_plate(segments))
+            }
+        });
+        let brush = div()
+            .id(("space-brush", id))
+            .absolute()
+            .top(px(CARD_NAME_TOP + (CARD_NAME_HEIGHT - CARD_BRUSH) / 2.))
+            .right(px(CARD_BRUSH_RIGHT))
+            .size(px(CARD_BRUSH))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(NAV_RADIUS))
+            .block_mouse_except_scroll()
+            .hover(|style| style.bg(rgba(NAV_HOVERED)))
+            .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
+                cx.stop_propagation();
+                shell.space_menu(id, event.position(), cx);
+            }))
+            .child(
+                svg()
+                    .path("icons/paintbrush.svg")
+                    .size(px(CARD_BRUSH_GLYPH))
+                    .text_color(rgba(CARD_BRUSH_COLOR)),
+            );
+        let shadow = BoxShadow {
+            color: hsla(0., 0., 0., CARD_SHADOW),
+            offset: point(px(0.), px(CARD_SHADOW_BLUR / 4.)),
+            blur_radius: px(CARD_SHADOW_BLUR),
+            spread_radius: px(0.),
+            inset: false,
+        };
+        div()
+            .id(("space-card", id))
+            .flex_none()
+            .w(px(CARD_WIDTH))
+            .h_full()
+            .overflow_hidden()
+            .rounded(px(CARD_RADIUS))
+            .bg(self.space_gradient(id))
+            .shadow(vec![shadow])
+            .block_mouse_except_scroll()
+            .on_click(cx.listener(move |shell, _, _, cx| shell.pick_space(id, cx)))
+            .child(
+                name_box()
+                    .mt(px(CARD_NAME_TOP))
+                    .h(px(CARD_NAME_HEIGHT))
+                    .child(div().truncate().child(space.name.clone())),
+            )
+            .child(div().children(rows))
+            .child(brush)
+    }
+
+    /// Shows `space`, from its card, and closes the Library.
+    fn pick_space(&mut self, space: u64, cx: &mut Context<Self>) {
+        // check.sh waits for this line.
+        log!("browser: library space {space}");
+        self.show_space(space, cx);
+        self.set_library(false, cx);
     }
 
     /// A line of the archive's list: a heading, or an archived tab, which reopens on a click and
@@ -795,6 +1031,7 @@ impl Shell {
         let selected = section == self.section;
         let (glyph, label) = match section {
             Section::Downloads => ("icons/arrow-down-to-line.svg", "Downloads"),
+            Section::Spaces => ("icons/spaces.svg", "Spaces"),
             Section::Archive => ("icons/archive.svg", "Archived Tabs"),
         };
         div()
@@ -1068,6 +1305,11 @@ impl Shell {
     }
 }
 
+/// A row of a Space's card, `depth` folders in.
+fn card_row(depth: usize, plate: gpui::Div) -> AnyElement {
+    row_box().pl(px(PLATE_INSET + depth as f32 * FOLDER_INDENT)).child(plate).into_any_element()
+}
+
 /// The sidebar's opacity as it recedes with the Library `out` (`library_out`).
 fn receded_opacity(out: f32) -> f32 {
     (1. - out / RECEDE_SPAN).clamp(0., 1.)
@@ -1100,5 +1342,64 @@ fn of(received: i64, total: i64) -> String {
     match total > 0 {
         true => format!("{} of {}", bytes(received), bytes(total)),
         false => bytes(received),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Line, Space};
+    use crate::shell::{Folders, Split};
+
+    fn space(pinned: &[u64], today: &[u64], folders: Folders, splits: Vec<Split>) -> Space {
+        Space {
+            id: 1,
+            name: "Space 1".into(),
+            color: None,
+            profile: 0,
+            pinned: pinned.to_vec(),
+            today: today.to_vec(),
+            splits,
+            folders,
+            shown: 0,
+        }
+    }
+
+    /// A card lists what the sidebar does: folders with what's in them an open folder's depth in,
+    /// a split view by its first tab, and a line over the Today tabs only if there are any.
+    #[test]
+    fn a_card_lists_the_rows_of_the_sidebar() {
+        let folders = Folders {
+            folders: [(10, ("Docs".into(), true))].into(),
+            parents: [(2, 10)].into(),
+        };
+        let split = Split { tabs: vec![5, 6], ..Split::default() };
+        let card = space(&[1, 10, 2], &[4, 5, 6], folders, vec![split]);
+        assert_eq!(
+            card.card_lines(),
+            [
+                Line::Tab(1, 0),
+                Line::Folder(10, 0),
+                Line::Tab(2, 1),
+                Line::Divider,
+                Line::Tab(4, 0),
+                Line::Tab(5, 0),
+            ]
+        );
+        let one = space(&[1], &[], Folders::default(), Vec::new());
+        assert_eq!(one.card_lines(), [Line::Tab(1, 0)]);
+    }
+
+    /// What's in a closed folder is left out of its card, as of the sidebar, except the tab the
+    /// Space shows.
+    #[test]
+    fn a_closed_folder_hides_its_tabs_but_the_one_shown() {
+        let folders = Folders {
+            folders: [(10, ("Docs".into(), false))].into(),
+            parents: [(2, 10), (3, 10)].into(),
+        };
+        let mut card = space(&[10, 2, 3], &[], folders, Vec::new());
+        assert_eq!(card.card_lines(), [Line::Folder(10, 0)]);
+        card.shown = 3;
+        assert_eq!(card.card_lines(), [Line::Folder(10, 0), Line::Tab(3, 1)]);
     }
 }

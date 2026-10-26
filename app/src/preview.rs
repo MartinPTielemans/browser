@@ -42,6 +42,14 @@ const TABS: [(&str, &str); 5] = [
     ("", "https://example.com/"),
 ];
 
+// The second Space's tabs, the first pinned, for its card in the Library.
+const READING: [(&str, &str); 4] = [
+    ("The Rust Book", "https://doc.rust-lang.org/book/"),
+    ("Lobsters", "https://lobste.rs/"),
+    ("Daring Fireball", "https://daringfireball.net/"),
+    ("Wikipedia", "https://www.wikipedia.org/"),
+];
+
 // The favorites, which every Space shows above its tabs, with made-up icons that theme a selected
 // tile each way (docs/ux-spec.md › Favorites): colourful twice, one colour, white, and none.
 // PREVIEW_FAVORITE=<index> shows one selected.
@@ -839,7 +847,7 @@ fn main() {
                 let folder = first_favorite + FAVORITES.len() as u64;
                 let browser = Rc::new(Fake {
                     shell: cx.weak_entity(),
-                    next_id: Cell::new(folder + 1),
+                    next_id: Cell::new(folder + 1 + READING.len() as u64),
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
@@ -889,6 +897,13 @@ fn main() {
                     ..Split::default()
                 };
                 shell.set_tabs(first_space, pinned, today, vec![split], folders, cx);
+                let reading: Vec<u64> = (folder + 1..).take(READING.len()).collect();
+                let (pinned, today) = (reading[..1].to_vec(), reading[1..].to_vec());
+                shell.set_tabs(first_space + 1, pinned, today, Vec::new(), Folders::default(), cx);
+                for (&tab, (title, url)) in reading.iter().zip(READING) {
+                    shell.set_title(tab, title.into(), cx);
+                    shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
+                }
                 let favorite = std::env::var("PREVIEW_FAVORITE").ok().and_then(|n| n.parse().ok());
                 match favorite.and_then(|n: usize| favorites.get(n)) {
                     Some(&tab) => shell.set_selected(tab, cx),
@@ -900,13 +915,16 @@ fn main() {
             shell
         });
         match window {
-            // PREVIEW_LIBRARY=1 opens the Library, and PREVIEW_LIBRARY=downloads opens it there.
+            // PREVIEW_LIBRARY=1 opens the Library, and PREVIEW_LIBRARY=downloads or =spaces opens
+            // it there.
             Ok(window) if std::env::var_os("PREVIEW_LIBRARY").is_some() => {
-                let command = match std::env::var("PREVIEW_LIBRARY").as_deref() {
-                    Ok("downloads") => Command::ViewDownloads,
-                    _ => Command::ViewLibrary,
-                };
-                window.update(cx, |shell, _, cx| shell.run(command, "preview", cx)).ok();
+                window
+                    .update(cx, |shell, _, cx| match std::env::var("PREVIEW_LIBRARY").as_deref() {
+                        Ok("downloads") => shell.run(Command::ViewDownloads, "preview", cx),
+                        Ok("spaces") => shell.show_spaces(cx),
+                        _ => shell.run(Command::ViewLibrary, "preview", cx),
+                    })
+                    .ok();
             }
             Ok(_) => {}
             Err(error) => {
