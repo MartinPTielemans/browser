@@ -70,6 +70,7 @@ mod space_form;
 mod split_targets;
 mod swap;
 mod swipe;
+mod themes;
 mod tile_theme;
 mod trouble;
 mod undo;
@@ -377,18 +378,6 @@ const NEUTRAL: f32 = 0.1;
 // A private window's layer in the gradient's place: black, darker than any Space and without its
 // colour (ours: Arc's and Dia's private look isn't recorded).
 const PRIVATE_SHADE: f32 = 0.35;
-// The colours a Space's menu offers: Dia's hue families, in its order. Its pink is measured, ≈
-// #BF556A; the others are ours, at the pink's HSL saturation and lightness.
-const SPACE_COLORS: [(&str, u32); 8] = [
-    ("Gray", 0x8a8a8a),
-    ("Red", 0xbf5c55),
-    ("Orange", 0xbf8355),
-    ("Yellow", 0xbfa655),
-    ("Green", 0x55bf81),
-    ("Blue", 0x5583bf),
-    ("Pink", 0xbf556a),
-    ("Purple", 0x8655bf),
-];
 // What stands in for the material where the window's look has to be opaque, under rows it covers
 // or in the reveal's panel over the page: Dia's composite over grey 20, before the gradient (ours).
 const MATERIAL_STAND_IN: u32 = 0x131313;
@@ -508,6 +497,13 @@ fn replace<T: PartialEq>(kept: &mut T, value: T) -> bool {
 /// agent it belongs to, and its theme as `Theme` writes it.
 pub type SpaceEntry =
     (u64, SharedString, Option<u32>, u64, SharedString, SharedString, SharedString);
+
+/// A picker that waits for the row it points at to settle before it opens over it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Pending {
+    Icon(Subject),
+    Theme(u64),
+}
 
 #[derive(Clone)]
 struct Space {
@@ -1129,9 +1125,12 @@ pub struct Shell {
     background_pressed: bool,
     /// The system's accent colour, as 0xRRGGBB.
     accent_color: u32,
-    /// The Space or tab whose icon picker opens once its row stops moving, and when it was asked
-    /// for.
-    picker_pending: Option<(Subject, Instant)>,
+    /// The picker that opens once the row it points at stops moving: a Space's or a tab's icon
+    /// picker, or a Space's theme picker; and when it was asked for.
+    picker_pending: Option<(Pending, Instant)>,
+    /// The theme the picker is making for a Space, which the window shows as it's made, until the
+    /// core has it.
+    theme_preview: Option<(u64, Theme)>,
     /// Where the name row was drawn last, and the frame before; and the same for the pending
     /// tab's row, which draws it only while it is pending.
     name_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
@@ -1280,6 +1279,7 @@ impl Shell {
             crash_reload_drawn: Rc::default(),
             hang_noted: None,
             picker_pending: None,
+            theme_preview: None,
             name_row_drawn: Rc::default(),
             tab_row_drawn: Rc::default(),
             name_row_before: None,
@@ -1586,6 +1586,7 @@ impl Shell {
                 }
             })
             .collect();
+        self.settle_theme_preview();
         if let Some(form) = &self.form
             && !self.spaces.iter().any(|space| space.id == form.space)
         {
@@ -2381,7 +2382,7 @@ impl Render for Shell {
                 Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
         }
         if self.picker_pending.is_some() {
-            self.open_icon_picker_when_settled(window, cx);
+            self.open_picker_when_settled(window, cx);
         }
         if let Some((_, start)) = self.width_motion {
             if settle_progress(start).is_some() {
@@ -2562,7 +2563,7 @@ impl Render for Shell {
                     }
                 }),
             )
-            .child(div().absolute().size_full().bg(self.gradient(None)))
+            .child(self.window_background())
             // The page views go over the cards, as native views.
             .children(self.cards())
             .children(self.picture_element(cx))

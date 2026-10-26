@@ -220,21 +220,6 @@ void StripTint(CALayer* layer) {
 
 namespace {
 
-// A round swatch of |color|, 0xRRGGBB in sRGB, for a menu item.
-NSImage* Swatch(int32_t color) {
-  NSColor* fill = [NSColor colorWithSRGBRed:((color >> 16) & 0xff) / 255.0
-                                      green:((color >> 8) & 0xff) / 255.0
-                                       blue:(color & 0xff) / 255.0
-                                      alpha:1];
-  return [NSImage imageWithSize:NSMakeSize(12, 12)
-                        flipped:NO
-                 drawingHandler:^BOOL(NSRect rect) {
-                   [fill setFill];
-                   [[NSBezierPath bezierPathWithOvalInRect:rect] fill];
-                   return YES;
-                 }];
-}
-
 // A browser window, once shown, the view the UI draws in, and the windows over it that are its
 // own. The others show over one browser window at a time, the one they're asked to.
 struct Browser {
@@ -324,10 +309,12 @@ constexpr double kOverlayShadowRadius = 20;
 // (Arc 1.170 rec at 2×, the Space's icon picker: 0.57 of its size at 55 ms, 0.83 at 105 ms).
 constexpr double kOverlayGrow = 0.2;
 constexpr double kOverlayGrowFade = 0.1;
+// Arc's theme picker shrinks to its arrow and fades as it closes, gone in 0.11 s.
+constexpr double kOverlayShrink = 0.11;
 constexpr float kOverlayShadowOpacity = 0.23;
 
 // A window of the UI's over a browser window's page, translucent over a blur, with a shadow: the
-// command bar, the Space's icon picker, or the Site Controls.
+// command bar, the Space's icon or theme picker, or the Site Controls.
 struct Overlay {
   explicit Overlay(const char* name) : name(name) {}
   Overlay(const char* name, float shadow_opacity, double shadow_radius, double shadow_drop)
@@ -366,9 +353,11 @@ struct Overlay {
   double shadow_drop = 0;
   // Past this, three times the blur and its drop, the shadow is nothing.
   double reach() const { return 3 * shadow_radius + shadow_drop; }
+  // From host_set_overlay_shrink: whether it shrinks back there as it hides.
+  bool shrinks = false;
 };
 
-Overlay g_overlays[] = {Overlay("command bar"), Overlay("icon picker")};
+Overlay g_overlays[] = {Overlay("command bar"), Overlay("icon picker"), Overlay("theme picker")};
 
 // Arc's Site Controls' shadow, fitted over a dark page: darker below, as it falls 4 pt. It's an
 // overlay for its blur and shadow alone, outside g_overlays, so the tooltip shows over it.
@@ -1518,11 +1507,10 @@ void host_set_overlay_radius(int index, double radius) {
   [overlay->shadow setFrame:NSZeroRect display:NO];
 }
 
-// Grows |overlay| in from near nothing about its growth point, its blur and drawing together, as
-// NSPopover does, with its shadow fading in alongside.
-static void GrowOverlay(Overlay& overlay) {
+// |overlay| at near nothing about its growth point, as a sublayer transform of the layer holding
+// its blur and drawing.
+static CATransform3D ShrunkOverlay(const Overlay& overlay) {
   NSView* container = overlay.view.superview;
-  container.wantsLayer = YES;
   CALayer* layer = container.layer;
   const NSSize size = container.bounds.size;
   // A sublayer transform applies about the layer's anchor point, which AppKit puts at a view's
@@ -1530,11 +1518,22 @@ static void GrowOverlay(Overlay& overlay) {
   const double x = overlay.grow_x - layer.anchorPoint.x * size.width;
   const double y = (container.isFlipped ? overlay.grow_y : size.height - overlay.grow_y) -
                    layer.anchorPoint.y * size.height;
-  CATransform3D from = CATransform3DMakeTranslation(x, y, 0);
-  from = CATransform3DScale(from, 0.05, 0.05, 1);
-  from = CATransform3DTranslate(from, -x, -y, 0);
+  CATransform3D shrunk = CATransform3DMakeTranslation(x, y, 0);
+  shrunk = CATransform3DScale(shrunk, 0.05, 0.05, 1);
+  return CATransform3DTranslate(shrunk, -x, -y, 0);
+}
+
+// Grows |overlay| in from near nothing about its growth point, its blur and drawing together, as
+// NSPopover does, with its shadow fading in alongside.
+static void GrowOverlay(Overlay& overlay) {
+  NSView* container = overlay.view.superview;
+  container.wantsLayer = YES;
+  CALayer* layer = container.layer;
+  // Shown again while it shrank away.
+  [layer removeAnimationForKey:@"shrink"];
+  [layer removeAnimationForKey:@"shrink fade"];
   CABasicAnimation* grow = [CABasicAnimation animationWithKeyPath:@"sublayerTransform"];
-  grow.fromValue = [NSValue valueWithCATransform3D:from];
+  grow.fromValue = [NSValue valueWithCATransform3D:ShrunkOverlay(overlay)];
   grow.toValue = [NSValue valueWithCATransform3D:CATransform3DIdentity];
   grow.duration = kOverlayGrow;
   grow.timingFunction = [CAMediaTimingFunction functionWithControlPoints:0.15:0.75:0.35:1];
@@ -1551,6 +1550,54 @@ static void GrowOverlay(Overlay& overlay) {
         overlay.shadow.animator.alphaValue = 1;
       }
       completionHandler:nil];
+}
+
+// Shrinks |overlay| back to its growth point and fades it, then takes it off |parent|.
+static void ShrinkOverlay(Overlay& overlay, NSWindow* parent) {
+  CALayer* layer = overlay.view.superview.layer;
+  NSWindow* window = overlay.window;
+  // What it shows stays, and the clicks go through it to what's under it.
+  window.ignoresMouseEvents = YES;
+  Overlay* shrinking = &overlay;
+  [CATransaction begin];
+  [CATransaction setCompletionBlock:^{
+    window.ignoresMouseEvents = NO;
+    if (shrinking->shown) {
+      return;
+    }
+    [layer removeAnimationForKey:@"shrink"];
+    [layer removeAnimationForKey:@"shrink fade"];
+    [parent removeChildWindow:window];
+    [window orderOut:nil];
+  }];
+  CAMediaTimingFunction* timing =
+      [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseIn];
+  CABasicAnimation* shrink = [CABasicAnimation animationWithKeyPath:@"sublayerTransform"];
+  shrink.toValue = [NSValue valueWithCATransform3D:ShrunkOverlay(overlay)];
+  CABasicAnimation* fade = [CABasicAnimation animationWithKeyPath:@"opacity"];
+  fade.toValue = @0;
+  for (CABasicAnimation* animation in @[ shrink, fade ]) {
+    animation.duration = kOverlayShrink;
+    animation.timingFunction = timing;
+    // Held at its end until the window goes, so it doesn't come back for a frame.
+    animation.fillMode = kCAFillModeForwards;
+    animation.removedOnCompletion = NO;
+  }
+  [layer addAnimation:shrink forKey:@"shrink"];
+  [layer addAnimation:fade forKey:@"shrink fade"];
+  [CATransaction commit];
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = kOverlayShrink;
+        overlay.shadow.animator.alphaValue = 0;
+      }
+      completionHandler:nil];
+}
+
+void host_set_overlay_shrink(int index) {
+  if (Overlay* overlay = OverlayAt(index)) {
+    overlay->shrinks = true;
+  }
 }
 
 void host_set_overlay_growth(int index, double x, double y) {
@@ -1630,6 +1677,11 @@ void host_show_overlay(int index,
       [overlay->shadow.parentWindow removeChildWindow:overlay->shadow];
       AddOver(window, overlay->shadow);
     }
+    // Still on another browser window as it shrinks away from there.
+    if (overlay->window.parentWindow && overlay->window.parentWindow != window) {
+      [overlay->window.parentWindow removeChildWindow:overlay->window];
+    }
+    overlay->window.ignoresMouseEvents = NO;
     AddOver(window, overlay->window);
     if (overlay->grows) {
       GrowOverlay(*overlay);
@@ -1673,9 +1725,13 @@ void host_hide_overlay(int index) {
   }
   overlay->shown = false;
   Browser* browser = overlay->over;
-  [browser->window removeChildWindow:overlay->window];
-  [overlay->window orderOut:nil];
-  overlay->shadow.alphaValue = 0;
+  if (overlay->shrinks && overlay->grows && overlay->window.visible) {
+    ShrinkOverlay(*overlay, browser->window);
+  } else {
+    [browser->window removeChildWindow:overlay->window];
+    [overlay->window orderOut:nil];
+    overlay->shadow.alphaValue = 0;
+  }
   [KeyWindowOver(browser) makeKeyWindow];
   fprintf(stderr, "browser: %s hidden\n", overlay->name);
 }
@@ -3085,9 +3141,6 @@ int ShowMenu(const host_menu_item* items,
     item.tag = static_cast<NSInteger>(i);
     item.enabled = items[i].enabled;
     item.state = items[i].checked ? NSControlStateValueOn : NSControlStateValueOff;
-    if (items[i].swatch >= 0) {
-      item.image = Swatch(items[i].swatch);
-    }
   }
   // The UI draws what the menu changed, such as its row's fill, now: it can't once the menu's
   // event loop runs.
