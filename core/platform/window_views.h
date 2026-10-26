@@ -56,13 +56,18 @@ struct SidePanelPage {
 
 // Shows |panes| in place of the pages shown, with corners of |corner_radius|, and |side_panel| in
 // place of the side panel shown. With more than one pane, as in a split view, the one at |focused|
-// has a ring of |ring_color|, 0xRRGGBB, inside its edge. No panes shows no page.
+// has a ring of |ring_color|, 0xRRGGBB, inside its edge. No panes shows no page. While |widget|
+// isn't visible, the pages stay hidden.
 void ShowPages(views::Widget* widget,
                base::span<const Pane> panes,
                double corner_radius,
                size_t focused,
                uint32_t ring_color,
                std::optional<SidePanelPage> side_panel);
+
+// Hides the pages shown, their DevTools and the side panel, in place, for a window out of sight, so
+// Chromium counts them hidden. ShowPages shows them again.
+void HidePages(views::Widget* widget);
 
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
 // the window opens or the page view that had it left the window. Not in DevTools or the side

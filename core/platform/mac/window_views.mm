@@ -126,11 +126,11 @@ BrowserCoreWindowView* WindowView(views::Widget* widget) {
 }
 
 // Shows a page's view, or its DevTools', which Chrome's views host leaves hidden while their tab is
-// in the background. Hidden, a page never draws, and Chromium drops the keys it doesn't use instead
-// of passing them to the window.
-void Unhide(NSView* view) {
+// in the background, unless |hidden| as its window is out of sight. Hidden, a page never draws, and
+// Chromium drops the keys it doesn't use instead of passing them to the window.
+void Unhide(NSView* view, bool hidden) {
   view.autoresizingMask = NSViewNotSizable;
-  view.hidden = NO;
+  view.hidden = hidden;
   // Clipped by Core Animation, which rounds the compositor's layers under it without redrawing
   // them.
   view.wantsLayer = YES;
@@ -222,6 +222,7 @@ void ShowPages(views::Widget* widget,
     return NSEdgeInsetsMake(NSMinY(rect), NSMinX(rect), NSHeight(bounds) - NSMaxY(rect),
                             NSWidth(bounds) - NSMaxX(rect));
   };
+  const bool hidden = !widget->IsVisible();
   NSMutableArray<BrowserCorePane*>* shown = [NSMutableArray array];
   for (const Pane& pane : panes) {
     NSView* page_view = pane.page.GetNativeNSView();
@@ -229,9 +230,9 @@ void ShowPages(views::Widget* widget,
     BrowserCorePane* record = [[BrowserCorePane alloc] init];
     record.page = page_view;
     record.devtools = devtools_view;
-    Unhide(page_view);
+    Unhide(page_view, hidden);
     if (devtools_view) {
-      Unhide(devtools_view);
+      Unhide(devtools_view, hidden);
       RoundCorners(devtools_view, corner_radius, kAllCorners);
       record.pageInDevTools = pane.devtools->page_frame.ToCGRect();
       RoundCorners(page_view, corner_radius,
@@ -263,7 +264,7 @@ void ShowPages(views::Widget* widget,
     BrowserCorePane* record = [[BrowserCorePane alloc] init];
     record.page = panel_view;
     record.insets = insets(side_panel->frame);
-    Unhide(panel_view);
+    Unhide(panel_view, hidden);
     RoundCorners(panel_view, corner_radius,
                  panel_view.isFlipped ? kCALayerMinXMaxYCorner | kCALayerMaxXMaxYCorner
                                       : kCALayerMinXMinYCorner | kCALayerMaxXMinYCorner);
@@ -300,6 +301,15 @@ void ShowPages(views::Widget* widget,
   if (!had_page && !panes.empty()) {
     UpdateOcclusion(view.window);
   }
+}
+
+void HidePages(views::Widget* widget) {
+  BrowserCoreWindowView* view = WindowView(widget);
+  for (BrowserCorePane* pane in view.panes) {
+    pane.page.hidden = YES;
+    pane.devtools.hidden = YES;
+  }
+  view.sidePanel.page.hidden = YES;
 }
 
 bool KeyboardForPage(views::Widget* widget) {

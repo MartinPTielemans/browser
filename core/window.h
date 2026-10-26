@@ -269,6 +269,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
 
   // views::WidgetObserver:
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
+  void OnWidgetVisibilityChanged(views::Widget* widget, bool visible) override;
 
  private:
   class ClientView;
@@ -375,6 +376,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Another window took the page shown. The tab stays selected, and the window shows no page.
   bool let_go_ = false;
   bool opening_tab_ = false;
+  // Whether the keyboard was the page's as the window went out of sight, which hid the page.
+  bool page_had_keyboard_ = false;
   // The tab whose page the navigation being made opens a tab beside, until that tab is inserted.
   bc_id split_with_ = 0;
   base::ObserverList<web_modal::ModalDialogHostObserver> dialog_observers_;

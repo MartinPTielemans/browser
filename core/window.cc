@@ -1894,6 +1894,20 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
   }
 }
 
+void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
+  // As Chrome's views host does, the pages hide while the window is out of sight, minimized or
+  // with the app hidden, so Chromium counts them hidden and they stop drawing and slow their
+  // timers. Only the window's being covered reaches them otherwise, as occluded.
+  if (visible) {
+    LayOutPage();
+    FocusPageSoon();
+    return;
+  }
+  // A page view hidden with the keyboard gives it to another view.
+  page_had_keyboard_ = page_had_keyboard_ || platform::KeyboardForPage(widget_.get());
+  platform::HidePages(widget_.get());
+}
+
 void Window::FocusPageSoon() {
   // Posted: AppKit can be part way through moving the keyboard, as when a committing page hides the
   // view that had it and Chromium makes the window key. A page view focused inside that move
@@ -1903,7 +1917,10 @@ void Window::FocusPageSoon() {
 }
 
 void Window::FocusPage() {
-  if (shown_ && widget_->IsActive() && platform::KeyboardForPage(widget_.get())) {
+  if (!shown_ || !widget_->IsActive()) {
+    return;
+  }
+  if (std::exchange(page_had_keyboard_, false) || platform::KeyboardForPage(widget_.get())) {
     Tab::FocusPage(shown_.get());
   }
 }

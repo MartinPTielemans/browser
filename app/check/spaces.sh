@@ -16,11 +16,31 @@
 # in a dialog that a click around cancels and return confirms, and the Space goes once the dialog
 # has, which a toast says. ⌘Z brings it back where it was, with its name and tabs. Its tabs close
 # with it and reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last Space
-# can't be deleted. The Spaces menu lists the Spaces, and its names show them.
+# can't be deleted. The Spaces menu lists the Spaces, and its names show them. A page out of sight,
+# behind another tab, in a Space not shown, in a minimized window or a hidden app, is hidden and
+# runs no animation frames, and it's visible once it's back.
 
-# Spaces. A new one is empty, and each keeps its tabs and the one it showed last.
+# Spaces. A new one is empty, and each keeps its tabs and the one it showed last. The page puts
+# "hidden" in its title as it hides, and "visible <n>" as it shows again, with the n animation
+# frames it ran while hidden, where Chrome runs none.
 page='data:text/html,<title>loading</title>
-<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+let frames = 0;
+const count = () => {
+  if (document.hidden) {
+    frames++;
+    requestAnimationFrame(count);
+  }
+};
+document.onvisibilitychange = () => {
+  document.title = document.hidden ? "hidden" : "visible " + frames;
+  if (document.hidden) {
+    frames = 0;
+    requestAnimationFrame(count);
+  }
+};
+</script>'
 log="$out/spaces.log"
 step=0
 rm -f "$saved"
@@ -114,6 +134,20 @@ show_space "key left alt cmd" previous-space ui "$first" "$a"
 show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
 ../tools/window-screenshot.sh "$pid" "$out/spaces.png" || fail "no window to capture"
+
+# A page out of sight is hidden, as in Chrome, and runs no animation frames: a tab behind the one
+# shown, and the tab a Space not shown shows. Back in sight, it's visible.
+open_from_bar example.org
+expect "^browser: title $a hidden\$" "the tab behind the one shown isn't hidden"
+send key w cmd
+expect_tabs "$a" "$a" "after closing the tab over the page"
+expect "^browser: title $a visible 0\$" \
+  "the tab shown again isn't visible, or ran frames while hidden"
+show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
+expect "^browser: title $a hidden\$" "the tab in the Space not shown isn't hidden"
+show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
+expect "^browser: title $a visible 0\$" \
+  "the tab in the Space shown again isn't visible, or ran frames while hidden"
 
 # Two fingers across the sidebar page between Spaces. A flick goes on to the next Space, a drag let
 # go still goes to the Space nearest its place, and past the last Space the pages come back. Fingers
@@ -526,8 +560,25 @@ Delete Space (disabled)\$" \
 send choose Rename Space
 send key escape
 expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
+# The page shown is hidden while its window is minimized, and while the app is hidden, as Chrome's
+# is, and visible once they're back. Last, as the app may not be active after it's been hidden.
+# Today is the tab ⇧⌘T reopened over the page's.
+send click $(row 1)
+last_title=$(grep "^browser: title $a " "$log" | tail -1 | cut -d' ' -f4-)
+[ "$last_title" = "visible 0" ] ||
+  expect "^browser: title $a visible 0\$" "a click on the page's row didn't show it"
+send minimize
+expect "^browser: title $a hidden\$" "the page in the minimized window isn't hidden"
+send minimize
+expect "^browser: title $a visible 0\$" \
+  "the page isn't visible after the window came back, or ran frames while minimized"
+send hide
+expect "^browser: title $a hidden\$" "the page isn't hidden while the app is"
+send hide
+expect "^browser: title $a visible 0\$" \
+  "the page isn't visible after the app came back, or ran frames while hidden"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, its colours and Delete; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, its colours and Delete; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. A page behind another tab, in a Space not shown, in a minimized window or a hidden app is hidden and runs no animation frames, and is visible once back. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
