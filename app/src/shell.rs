@@ -163,6 +163,10 @@ const LOADING_ROW_MIN: f32 = 48.;
 // One clockwise turn (docs/ux-spec.md › Motion).
 const LOADING_TURN: Duration = Duration::from_millis(1880);
 const TITLE_GAP: f32 = 8.;
+// The speaker before a title, while its tab plays sound or is muted, and its pressable square.
+const SPEAKER_DRAWN: f32 = 16.;
+const SPEAKER_SIZE: f32 = 18.;
+const SPEAKER_GAP: f32 = 4.;
 // Arc's close button, 5 inside the plate's right edge.
 const CLOSE_SIZE: f32 = 26.;
 const CLOSE_RIGHT: f32 = 5.;
@@ -332,6 +336,8 @@ pub enum Command {
     CollapseFolders,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
+    /// Mutes the selected tab, or unmutes it.
+    ToggleMute,
     /// Closes the Today tabs of the Space shown, but the one shown.
     Clear,
     /// Brings back the tabs the last Clear closed, or the Space deleted last, whichever was last.
@@ -495,6 +501,7 @@ const BAR_COMMANDS: &[(&str, Command)] = &[
     ("New Folder", Command::NewFolder),
     ("Pin/Unpin Tab", Command::TogglePin),
     ("Back to Pinned URL", Command::BackToPinnedUrl),
+    ("Mute/Unmute Tab", Command::ToggleMute),
     ("Archive Tab", Command::CloseTab),
     ("Restore Last Closed Tab", Command::ReopenClosedTab),
     ("Copy URL", Command::CopyUrl),
@@ -732,6 +739,7 @@ impl Command {
             Command::NewFolder => "new-folder",
             Command::CollapseFolders => "collapse-folders",
             Command::BackToPinnedUrl => "back-to-pinned-url",
+            Command::ToggleMute => "toggle-mute",
             Command::Clear => "clear",
             Command::Undo => "undo",
             Command::CopyUrl => "copy-url",
@@ -882,6 +890,8 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/settings.svg", include_bytes!("../assets/icons/settings.svg")),
     ("icons/sliders-horizontal.svg", include_bytes!("../assets/icons/sliders-horizontal.svg")),
     ("icons/vibrate.svg", include_bytes!("../assets/icons/vibrate.svg")),
+    ("icons/volume-2.svg", include_bytes!("../assets/icons/volume-2.svg")),
+    ("icons/volume-x.svg", include_bytes!("../assets/icons/volume-x.svg")),
     ("icons/window-close.svg", include_bytes!("../assets/icons/window-close.svg")),
     ("icons/window-full-screen.svg", include_bytes!("../assets/icons/window-full-screen.svg")),
     ("icons/window-minimize.svg", include_bytes!("../assets/icons/window-minimize.svg")),
@@ -951,6 +961,8 @@ pub trait Browser {
     fn show_drop_targets(&self, shown: bool, cx: &mut App);
     /// Loads a pinned tab's pinned URL, unless it's there already.
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
+    /// Mutes `tab`, or unmutes it.
+    fn set_muted(&self, tab: u64, muted: bool, cx: &mut App);
     /// Closes the Today tabs of the Space shown, but the one shown.
     fn clear(&self, cx: &mut App);
     /// Brings back the tabs the last clear closed, and returns how many.
@@ -1104,6 +1116,9 @@ pub struct Page {
     /// The tab is pinned or a favorite, and its page isn't the one it was pinned or made a favorite
     /// at.
     pub away_from_pinned_url: bool,
+    /// The page is playing sound, muted or not, or was in the last 2 s.
+    pub audible: bool,
+    pub muted: bool,
 }
 
 /// What ⌘Z undoes: the last of what the user did that it can.
@@ -2338,6 +2353,10 @@ impl Shell {
         if page.away_from_pinned_url != entry.page.away_from_pinned_url {
             eprintln!("browser: page {tab} away {}", flag(page.away_from_pinned_url));
         }
+        if (page.audible, page.muted) != (entry.page.audible, entry.page.muted) {
+            let (audible, muted) = (flag(page.audible), flag(page.muted));
+            eprintln!("browser: page {tab} audible {audible} muted {muted}");
+        }
         entry.page = page;
         cx.notify();
     }
@@ -2396,6 +2415,7 @@ impl Shell {
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
+            Command::ToggleMute => return self.toggle_mute(self.selected, cx),
             Command::Clear => return self.clear(cx),
             Command::Undo => {
                 self.undo(cx);
@@ -4504,6 +4524,45 @@ impl Shell {
             }))
     }
 
+    /// The speaker after `tab`'s favicon while its page plays sound, crossed out while it's muted,
+    /// which a click mutes or unmutes (Dia).
+    fn speaker(&self, tab: u64, cx: &mut Context<Self>) -> Option<gpui::Stateful<gpui::Div>> {
+        let page = self.page(tab);
+        let icon = if page.muted { "icons/volume-x.svg" } else { "icons/volume-2.svg" };
+        (page.audible || page.muted).then(|| {
+            div()
+                .id(("speaker", tab))
+                .flex_none()
+                .mr(px(SPEAKER_GAP))
+                .size(px(SPEAKER_SIZE))
+                .rounded(px(NAV_RADIUS))
+                .hover(|style| style.bg(rgba(CLOSE_HOVERED)))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(svg().path(icon).size(px(SPEAKER_DRAWN)).text_color(rgba(SECONDARY)))
+                // Not a double-click's rename.
+                .on_mouse_down(MouseButton::Left, |event: &MouseDownEvent, _, cx| {
+                    if event.click_count == 2 {
+                        cx.stop_propagation();
+                    }
+                })
+                .on_click(cx.listener(move |shell, _, _, cx| {
+                    cx.stop_propagation();
+                    eprintln!("browser: command toggle-mute via sidebar");
+                    shell.toggle_mute(tab, cx);
+                }))
+        })
+    }
+
+    /// Mutes `tab`, or unmutes it.
+    fn toggle_mute(&mut self, tab: u64, cx: &mut Context<Self>) {
+        if tab != 0 {
+            let muted = self.page(tab).muted;
+            self.browser.set_muted(tab, !muted, cx);
+        }
+    }
+
     /// The field that renames a tab, in place of its title.
     fn naming_field(&self, renaming: &Renaming, cx: &mut Context<Self>) -> gpui::Div {
         div()
@@ -4678,6 +4737,7 @@ impl Shell {
                 .flex()
                 .items_center()
                 .when(!(hovered && closable), |label| label.pr(px(PLATE_INSET)))
+                .children(self.speaker(tab, cx))
                 .child(title)
                 .when(hovered && closable, |label| label.child(close))
                 .when(!hovered && loading, |label| label.child(loading_ring(tab))),
@@ -5797,4 +5857,35 @@ fn host(url: &str) -> &str {
         return url;
     }
     host.strip_prefix("www.").unwrap_or(host)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Assets;
+    use gpui::AssetSource;
+
+    /// A glyph that isn't built in draws nothing, with no error to say so.
+    #[test]
+    fn every_icon_the_ui_names_is_built_in() {
+        let mut paths = vec![std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src"))];
+        let mut named = 0;
+        while let Some(path) = paths.pop() {
+            if path.is_dir() {
+                let entries = std::fs::read_dir(&path).unwrap();
+                paths.extend(entries.map(|entry| entry.unwrap().path()));
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            for (at, _) in text.match_indices("\"icons/") {
+                let icon = text[at + 1..].split('"').next().unwrap_or_default();
+                // Not this test's own pattern.
+                if !icon.ends_with(".svg") {
+                    continue;
+                }
+                assert!(Assets.load(icon).unwrap().is_some(), "{icon}, in {}", path.display());
+                named += 1;
+            }
+        }
+        assert!(named > 0);
+    }
 }

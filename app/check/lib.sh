@@ -190,6 +190,15 @@ go_from_bar() {
   send key return
   expect '^browser: command bar hidden$' "going to $1 didn't close the command bar"
 }
+# Runs command $1, named $2, from the command bar, found by typing $3.
+bar_command() {
+  send key l cmd
+  expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+  send type "$3"
+  expect "^browser: command bar commands \"$3\": $2" "the command bar didn't find $2 first"
+  send key return
+  expect "^browser: command $1 via command bar\$" "$2 didn't run from the command bar"
+}
 # The driver's key $1, with ⌘, runs command $2, which the UI hears from side $3. Chromium and GPUI
 # name keys through the Mac's keyboard layout, where the keys for ⌘[ and ⌘] on a US one can be
 # others (å and a dead key on a Danish one), so this drives ⌘← and ⌘→, the same on every layout.

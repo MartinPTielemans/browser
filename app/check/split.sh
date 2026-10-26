@@ -33,15 +33,6 @@ fi
 splits() {
   grep '^browser: splits' "$log" | tail -1 | sed 's/^browser: splits *//'
 }
-# Runs command $1, named $2, from the command bar, found by typing $3.
-bar_command() {
-  send key l cmd
-  expect '^browser: command bar shown$' "⌘L didn't open the command bar"
-  send type "$3"
-  expect "^browser: command bar commands \"$3\": $2" "the command bar didn't find $2 first"
-  send key return
-  expect "^browser: command $1 via command bar\$" "$2 didn't run from the command bar"
-}
 # Sets $pages to the frames of the pages shown, left to right, then the focused one's ring. Not in
 # a subshell, where send's count of the commands sent would be lost.
 read_pages() {

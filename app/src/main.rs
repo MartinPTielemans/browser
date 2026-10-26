@@ -482,6 +482,10 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_back_to_pinned_url(tab) };
     }
 
+    fn set_muted(&self, tab: u64, muted: bool, _: &mut App) {
+        unsafe { bc::bc_tab_set_muted(tab, muted) };
+    }
+
     fn clear(&self, _: &mut App) {
         unsafe { bc::bc_window_clear(WINDOW.get()) };
     }
@@ -1239,6 +1243,8 @@ unsafe extern "C" fn tab_state_changed(
         loading: state.loading,
         unloaded: state.unloaded,
         away_from_pinned_url: state.away_from_pinned_url,
+        audible: state.audible,
+        muted: state.muted,
     };
     update_shell(|shell, cx| shell.set_page(tab, page, cx));
 }

@@ -118,6 +118,7 @@ void KeepClosed(content::WebContents* contents) {
     return;
   }
   saved.name = Tab::FromWebContents(contents)->name();
+  saved.muted = contents->IsAudioMuted();
   Archive(id, saved.history[saved.current].virtual_url(), Tab::FromWebContents(contents)->Title());
   const size_t index = std::ranges::find(space->today(), id) - space->today().begin();
   ClosedTabs().push_back(
@@ -960,6 +961,9 @@ bc_id Window::Duplicate(bc_id tab) {
   }
   const bc_id id = Tab::IdOf(copied);
   Tab::FromWebContents(copied)->set_name(Tab::FromWebContents(contents)->name());
+  if (contents->IsAudioMuted()) {
+    Tab::FromWebContents(copied)->SetMuted(true);
+  }
   Tab::FromWebContents(copied)->Restored();
   auto at = std::ranges::find(space->today(), tab);
   space->AddAt(id, at == space->today().end() ? 0 : at - space->today().begin() + 1);
@@ -982,6 +986,9 @@ bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {
   }
   const bc_id tab = Tab::IdOf(contents);
   Tab::FromWebContents(contents)->set_name(saved.name);
+  if (saved.muted) {
+    Tab::FromWebContents(contents)->SetMuted(true);
+  }
   Tab::FromWebContents(contents)->Restored();
   space->AddAt(tab, index);
   return tab;
