@@ -95,10 +95,12 @@ expect "^browser: page $a unloaded 0\$" "the pinned tab still read as unloaded o
 
 # The ✕ under the pointer unloads a pinned tab, and an unloaded one has none.
 send move $(pinned_close 0)
+expect "^browser: hover tab $c close 1 favicon none\$" "the pinned tab's row didn't draw its ✕"
 send click $(pinned_close 0)
 expect '^browser: command close-tab via sidebar$' "a click on a pinned tab's ✕ didn't run Close Tab"
 expect "^browser: page $c unloaded 1\$" "the ✕ didn't unload the pinned tab"
 none_since '^browser: selected' || fail "unloading a pinned tab not shown changed the tab shown"
+expect "^browser: hover tab $c close 0 favicon none\$" "the unloaded pinned tab's row kept its ✕"
 send click $(pinned_close 0)
 expect "^browser: selected $c in " "a click where an unloaded pinned tab's ✕ was didn't show the tab"
 none_since '^browser: command close-tab' || fail "an unloaded pinned tab showed its ✕"
@@ -152,6 +154,8 @@ expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as
 switch "2 cmd" "$a"
 # Its favicon under the pointer offers the way back.
 send move $(pinned_favicon 0)
+expect "^browser: hover tab $c close [01] favicon $c\$" \
+  "the pointer on the pinned tab's favicon wasn't drawn"
 ../tools/window-screenshot.sh "$pid" "$out/pinned-away.png" || fail "no window to capture"
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
@@ -186,6 +190,8 @@ if [ "$active" != 1 ]; then
   exit 0
 fi
 send move $(pinned_favicon 0)
+expect "^browser: hover tab $c close [01] favicon $c\$" \
+  "the pointer on the pinned tab's favicon wasn't drawn"
 send click $(pinned_favicon 0)
 expect '^browser: command back-to-pinned-url via sidebar$' "a click on an away pinned tab's favicon didn't run Back to Pinned URL"
 expect "^browser: selected $c in " "a click on the pinned tab's favicon didn't show it"

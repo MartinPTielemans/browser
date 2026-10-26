@@ -291,6 +291,7 @@ expect "^browser: panes $b $e\$" "Move Pane Right didn't move the page shown"
 send click $((x + 100)) 400
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" "a click on the left pane didn't focus it"
 send move 202 $(row 2 | cut -d' ' -f2)
+expect '^browser: hover tab [0-9][0-9]* close 1 favicon none$' "the split's row didn't draw its ✕"
 send click 202 $(row 2 | cut -d' ' -f2)
 expect '^browser: command close-tab via sidebar$' "a click on the split's ✕ didn't run Close Tab"
 expect "^browser: tab $b closed\$" "the split's ✕ didn't close its left pane"
@@ -303,6 +304,7 @@ expect "^browser: splits [0-9][0-9]*+[0-9][0-9]*\$" \
   "⇧⌘T twice didn't bring the split's panes back together: \"$(splits)\""
 send click $((x + 100)) 400
 send move 202 $(row 2 | cut -d' ' -f2)
+expect '^browser: hover tab [0-9][0-9]* close 1 favicon none$' "the split's row didn't draw its ✕"
 send click 202 $(row 2 | cut -d' ' -f2)
 expect '^browser: command close-tab via sidebar$' "a click on the split's ✕ didn't run Close Tab"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "closing the split again didn't show $a"
