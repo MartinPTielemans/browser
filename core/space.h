@@ -69,6 +69,7 @@ class Space {
   std::optional<uint32_t> color() const { return color_; }
   // The emoji the user gave it to show in place of its dot and before its name, or empty.
   const std::string& icon() const { return icon_; }
+  const std::string& theme() const { return theme_; }
   // The directory of the profile its tabs open in, which its favorites are in (decision 5).
   const std::string& profile() const { return profile_; }
   // The agent it belongs to, or none for the user's own.
@@ -99,6 +100,8 @@ class Space {
   void SetColor(std::optional<uint32_t> color);
   // Gives the Space |icon|, and tells the app. Empty takes its icon away.
   void SetIcon(std::string icon);
+  // Gives the Space |theme|, and tells the app. Empty takes its theme away.
+  void SetTheme(std::string theme);
   void SetProfile(std::string profile);
 
   // Puts |tab| in Today. One the user opened (|opener| 0) goes at the top, under "+ New Tab". One a
@@ -207,6 +210,7 @@ class Space {
   std::string name_;
   std::optional<uint32_t> color_;
   std::string icon_;
+  std::string theme_;
   std::string profile_;
   bool off_the_record_ = false;
   // Pinned tabs and folders.
