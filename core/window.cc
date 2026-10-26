@@ -1088,11 +1088,14 @@ size_t Window::Clear() {
   }
   cleared_.clear();
   const std::vector<bc_id>& today = space->today();
+  // While the window shows every Today tab, there's nothing else to clear, so they go too (Arc).
+  const bool last = std::ranges::all_of(
+      today, [this](bc_id tab) { return std::ranges::contains(panes_, tab); });
   for (size_t index = 0; index < today.size(); ++index) {
-    if (!Showing(today[index])) {
+    if (last || !Showing(today[index])) {
       const bool split = index > 0 && std::ranges::contains(space->Panes(today[index]),
                                                             today[index - 1]);
-      cleared_.push_back({today[index], index, split});
+      cleared_.push_back({today[index], index, split, today[index] == selected_});
     }
   }
   // Bottom up, so ReopenClosedTab brings back the top one first, at its place.
@@ -1105,6 +1108,7 @@ size_t Window::Clear() {
 size_t Window::UndoClear() {
   size_t reopened = 0;
   bc_id above = 0;
+  bc_id shown = 0;
   // Top down, each at its place before the Clear, which puts back the order with the tab kept.
   for (const Cleared& cleared : std::exchange(cleared_, {})) {
     // Not one whose page kept it open, or one already reopened.
@@ -1117,8 +1121,15 @@ size_t Window::UndoClear() {
           space && cleared.split && above && space->Split(id, above, GURL()) && tab->stacked) {
         space->SetStacked(id, true);
       }
+      if (cleared.selected) {
+        shown = id;
+      }
     }
     above = id;
+  }
+  // A Clear that closed the tab shown shows it again, with its split.
+  if (shown) {
+    Select(shown);
   }
   return reopened;
 }

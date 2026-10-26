@@ -15,8 +15,8 @@ use gpui::{
 use super::{
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry,
     NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
-    Shell, Space, Swapped, UNSELECTED_TITLE, clean_link, clear_label, divider_box, favicon,
-    folder_icon, host, name_box, plate, row_box, space_icon, spring_to, split_plate, title,
+    Shell, Space, Swapped, UNSELECTED_TITLE, clean_link, divider_box, favicon, folder_icon, host,
+    name_box, plate, row_box, space_icon, spring_to, split_plate, still_clear, title,
 };
 use crate::text_input::TextInput;
 
@@ -977,7 +977,8 @@ impl Shell {
         let id = space.id;
         let rows = space.card_lines().into_iter().map(|line| match line {
             Line::Divider => {
-                divider_box(self.hairline(), Some(clear_label(true))).into_any_element()
+                let clear = still_clear(space.clears_last(space.shown));
+                divider_box(self.hairline(), Some(clear)).into_any_element()
             }
             Line::Folder(folder, depth) => {
                 let name = space.folders.folders.get(&folder).map(|(name, _)| name.clone());

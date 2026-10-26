@@ -66,7 +66,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Pinned tab away from its URL | MVP | the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL"; a click or ⌘↩ goes back *interim*; Arc's look: measure | Dia 1.53.0 bin |
 | [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25. Not started: multi-window step 4 | Dia cap, Ardia |
 | [x] | Clear divider line | MVP | one device pixel, white 0.15, 18 in from each side; ends 9 before Clear while it shows; centre 25 above the first row's centre | Arc 1.170.0 cap and tokens, Arc (Ardia) |
-| [x] | Clear label and arrow | MVP | sidebar: the word alone, semibold ≈ 10 pt, 29.5 × 15, ends with the titles, 9 after the line; a Library card: an arrow 8 tall, 3 before it | Arc 1.170.0 cap and ax |
+| [x] | Clear label and arrow | MVP | the word, semibold ≈ 10 pt, 29.5 × 15, ends with the titles, 9 after the line; an arrow 8 tall, 3 before it, while the tab shown is all of Today, and Clear then closes it too; ours: on Glyph change, with a hover plate | Arc 1.170.0 cap and ax, Arc in use |
 | [x] | Clear on hover | MVP | shows only while the pointer is over the sidebar | Arc 1.170.0 cap |
 | [x] | Sidebar hover fades | MVP | Clear and the URL field's buttons coming and going with the pointer. Ours: 150 ms ease-out fade. Arc's: measure | Arc |
 | [x] | Row pitch / height | MVP | 41 / 40 | Arc 1.170.0 ax |
@@ -226,8 +226,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [x] | Clear (⇧⌘K and the divider button) | MVP | closes the Space's Today tabs but the one shown, in one frame, no toast; pinned and favorites stay | Arc 1.170.0 rec |
-| [x] | Undo Clear | MVP | ⌘Z brings them back in place, unloaded; the tab shown stays | Arc 1.170.0 rec |
+| [x] | Clear (⇧⌘K and the divider button) | MVP | closes the Space's Today tabs but the one shown, in one frame, no toast, or that one too when it's all of Today; pinned and favorites stay | Arc 1.170.0 rec, Arc in use |
+| [x] | Undo Clear | MVP | ⌘Z brings them back in place, unloaded; the tab shown stays; one Clear closed as the last shows again (ours) | Arc 1.170.0 rec |
 | [x] | Reopen closed tab ⇧⌘T | MVP | back in its place with its name, icon, mute and back/forward, and a split's tab back in its split. Pinned tabs don't close | Dia P§2 |
 | [x] | Auto-archive | MVP | a Today tab unseen for 12 hours goes in the archive, counted across a quit | Arc 1.170.0 settings |
 | [x] | Auto-archive's other intervals | MVP | Settings › General: 12 hours (default), 24 hours, 7 days, 30 days, kept with the Spaces | Arc 1.170.0 bin |

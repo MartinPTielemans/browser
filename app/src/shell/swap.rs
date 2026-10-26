@@ -25,10 +25,15 @@ pub(super) enum Swapped {
     Library,
     /// The URL field's Copy URL, a check for a while after a click.
     CopyUrl,
+    /// The arrow before a Space's Clear, while Clear would close its last Today tabs.
+    Clear(u64),
 }
 
 pub(super) const CHECK: &str = "icons/check.svg";
 pub(super) const LINK: &str = "icons/link.svg";
+pub(super) const ARROW_DOWN: &str = "icons/arrow-down.svg";
+/// No glyph, for one that comes and goes.
+pub(super) const NONE: &str = "";
 // The old glyph leaves over the first 120 ms and the new one comes over the last 120 of 200, both
 // ease-in-out, between full size and 0.8 (ours). A symmetric curve lets a change undone mid-way go
 // back from where it is.
@@ -117,9 +122,22 @@ impl Swaps {
         }
     }
 
+    /// Shows `what`'s glyph at once, as on a thing just drawn.
+    pub(super) fn end(&mut self, what: Swapped) {
+        self.0.retain(|swap| swap.what != what);
+    }
+
     /// Whether `what`'s glyph is changing.
     pub(super) fn changing(&self, what: Swapped) -> bool {
         self.0.iter().any(|swap| swap.what == what)
+    }
+
+    /// How far `what`'s glyph has come toward `path`, ease-in-out over the whole change, for the
+    /// room a glyph that comes and goes makes as it does. None while it isn't changing.
+    pub(super) fn toward(&self, what: Swapped, path: &'static str) -> Option<f32> {
+        let swap = self.0.iter().find(|swap| swap.what == what)?;
+        let way = ease(swap.elapsed(Instant::now()) / lasts(swap.to));
+        Some(if swap.to == path { way } else { 1. - way })
     }
 
     /// Lets the changes that are done go, and asks for the next frame while one isn't.
@@ -144,10 +162,16 @@ impl Swaps {
         color: Hsla,
     ) -> AnyElement {
         let Some(swap) = self.0.iter().find(|swap| swap.what == what && swap.to == path) else {
+            if path == NONE {
+                return div().flex_none().size(px(side)).into_any_element();
+            }
             return svg().path(path).size(px(side)).text_color(color).into_any_element();
         };
         let elapsed = swap.elapsed(Instant::now());
         let glyph = |path: &'static str, way: f32| {
+            if path == NONE {
+                return div().into_any_element();
+            }
             let scale = SMALL + (1. - SMALL) * way;
             svg()
                 .absolute()

@@ -148,11 +148,12 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // shows the split with |tab| focused. A page another window shows moves here (Adopt).
   void Select(bc_id tab);
 
-  // Closes the Today tabs of the Space the window shows, all but those any window shows, for
-  // UndoClear to bring back. Returns how many.
+  // Closes the Today tabs of the Space the window shows, all but those any window shows, or all of
+  // them if it shows every one, for UndoClear to bring back. Returns how many.
   size_t Clear();
   // Brings back the tabs the last Clear closed, at their places in their Space's Today tabs and
-  // unloaded. Once only, and not those ReopenClosedTab brought back. Returns how many.
+  // unloaded, and shows the tab shown it closed. Once only, and not those ReopenClosedTab brought
+  // back. Returns how many.
   size_t UndoClear();
   // Brings back the Space DeleteSpace deleted last, at its place and with its id, and shows it. See
   // bc_window_undo_delete_space. Returns its id, or 0.
@@ -235,6 +236,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
     size_t index;
     // Whether it was in a split view with the tab above it.
     bool split;
+    // Whether it was the tab the window showed.
+    bool selected;
   };
   Window(bc_id id, const gfx::Rect& bounds, void* ui_view);
 
