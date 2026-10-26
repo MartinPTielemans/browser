@@ -43,6 +43,8 @@ impl Host for Recorder {
         })
     }
 
+    fn page_favicon(&self, _: &str) {}
+
     fn open_tab(&self, url: &str, behind: bool) {
         self.record(format!("open {url}{}", if behind { " behind" } else { "" }));
     }
@@ -79,7 +81,6 @@ impl Host for Recorder {
         self.record("dismiss".into());
     }
 
-    fn reshape(&self) {}
 }
 
 /// The bar, opened for a new tab.
@@ -94,7 +95,7 @@ impl Bar {
         let host = Rc::new(Recorder::default());
         cx.update(text_input::bind_keys);
         let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the bar");
-        cx.update(|cx| show(None, None, cx));
+        cx.update(|cx| show(None, cx));
         let cx = VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
         Bar { cx, window, host }
@@ -476,4 +477,32 @@ fn a_right_click_in_the_selection_keeps_it_for_copy(cx: &mut TestAppContext) {
     let copied = bar.cx.cx.read_from_clipboard().and_then(|item| item.text());
     assert_eq!(copied.as_deref(), Some("example"));
     assert_eq!(bar.input(), ("example".into(), 0..7));
+}
+
+#[test]
+fn the_window_fits_up_to_five_rows_of_arcs_size() {
+    assert_eq!(height(0), 64.);
+    assert_eq!(height(1), 128.5);
+    // Arc's panel with five rows is 328.5 tall, and more rows scroll inside it.
+    assert_eq!(height(5), 328.5);
+    assert_eq!(height(11), 328.5);
+}
+
+#[gpui::test]
+fn the_rows_that_go_to_a_search_are_marked_for_their_icon(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("example");
+    let typed = Suggestion {
+        url: search("example"),
+        text: "example".into(),
+        ..Suggestion::default()
+    };
+    bar.suggest("example", vec![page("https://example.com/"), typed]);
+    let kinds = bar
+        .window
+        .read_with(&bar.cx.cx, |bar, _| {
+            bar.rows.iter().map(|row| matches!(row.kind(), Kind::Search)).collect::<Vec<_>>()
+        })
+        .unwrap();
+    assert_eq!(kinds, [false, true]);
 }

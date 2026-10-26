@@ -552,12 +552,12 @@ impl Shell {
         let target = match command {
             Command::NewTab => {
                 self.set_new_tab(true, cx);
-                return self.browser.command_bar(None, None, cx);
+                return self.browser.command_bar(None, cx);
             }
             Command::EditUrl => {
                 self.set_new_tab(false, cx);
                 let editing = (self.selected != 0).then(|| (self.selected, self.url(self.selected)));
-                return self.browser.command_bar(editing, self.url_field_bounds(), cx);
+                return self.browser.command_bar(editing, cx);
             }
             Command::CloseTab => {
                 // From a window of Chrome's, such as its Task Manager, ⌘W closes that window, as in
