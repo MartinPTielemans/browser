@@ -8,10 +8,11 @@ use gpui::{Context, Hsla, MouseButton, MouseDownEvent, div, hsla, img, prelude::
 use crate::tooltip;
 
 use super::{
-    Curve, FAVICON_DRAWN, FAVICON_SIZE, FOOTER_HEIGHT, HAIRLINE, LIST_TOP, PLATE_INSET, Place, Row,
-    SELECTED, SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE, TILE_EDGE, TILE_GAP,
-    TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING, TILE_UNTHEMED, TileTheme,
-    tile_theme::RING_WIDTH,
+    Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOOTER_HEIGHT, HAIRLINE, HOVERED, LIST_TOP,
+    PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE,
+    TILE_EDGE, TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
+    TILE_UNTHEMED, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
+    title,
 };
 
 impl Shell {
@@ -49,8 +50,88 @@ impl Shell {
     /// sidebar.
     pub(super) fn dragged_tile(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let (tab, [left, top, width]) = self.tile_ghost()?;
+        if self.turning_shape().is_some() {
+            return None;
+        }
         let tile = self.tile(tab, cx).absolute().left(px(left));
         Some(tile.top(px(self.tiles_top() + top)).w(px(width)))
+    }
+
+    /// A tab dragged across the favorites' edge, mid-turn between its row and its tile: the plate
+    /// takes the tile's size, corners and colours, the title fades over the first part of the
+    /// turn, and the favicon goes to the middle. A turn the other way reverses it.
+    pub(super) fn turning_drag(&self) -> Option<impl IntoElement + use<>> {
+        let (tab, [left, top, width, height, radius], turned) = self.turning_shape()?;
+        let selected = tab == self.selected && !self.new_tab;
+        let row_fill = rgba(if selected { SELECTED } else { HOVERED });
+        let row_fill = self.window_fill().blend(row_fill.into());
+        let theme = selected.then(|| self.tile_theme(tab)).flatten();
+        let (shown, ring_width, ring) = shown_look(theme.as_deref());
+        let tile_fill = match selected {
+            true => shown,
+            false => hsla(0., 0., 1., TILE_HOVERED),
+        };
+        let (ring_width, ring) = match selected {
+            true => (ring_width, ring),
+            false => (HAIRLINE, rgba(TILE_EDGE).into()),
+        };
+        let row_icon = FAVICON_X - PLATE_INSET;
+        let icon_left = row_icon + ((width - FAVICON_SIZE) / 2. - row_icon) * turned;
+        let row_width = self.width() - 2. * PLATE_INSET;
+        let title_left = icon_left + FAVICON_SIZE + TITLE_GAP;
+        let template = match theme.as_deref() {
+            Some(TileTheme::Flat { template, .. }) => Some(template.clone()),
+            _ => None,
+        };
+        // A one-colour icon's tile draws it as a white template, which fades in over it.
+        let favicon = 1. - if template.is_some() { turned } else { 0. };
+        let icon = div()
+            .absolute()
+            .left(px(icon_left))
+            .top(px((height - FAVICON_SIZE) / 2.))
+            .size(px(FAVICON_SIZE))
+            .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+            .child(centred().opacity(favicon).child(self.tab_icon(tab)))
+            .children(template.map(|template| {
+                centred().opacity(turned).child(img(template).size(px(FAVICON_DRAWN)))
+            }));
+        Some(
+            div()
+                .absolute()
+                .left(px(left))
+                .top(px(top))
+                .w(px(width))
+                .h(px(height))
+                .rounded(px(radius))
+                .overflow_hidden()
+                .bg(self.window_fill().blend(tile_fill))
+                .children(theme.as_deref().and_then(TileTheme::layers).map(|layers| {
+                    div().absolute().size_full().opacity(turned).child(layers)
+                }))
+                .child(div().absolute().size_full().bg(row_fill).opacity(1. - turned))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(title_left))
+                        .w(px((row_width - title_left - TITLE_END_INSET).max(0.)))
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .opacity((1. - turned / TURN_TITLE_FADE).max(0.))
+                        .child(title(self.title(tab), selected)),
+                )
+                .child(icon)
+                // The ring over the rest, as the tile's border would shift the favicon in by its
+                // width.
+                .child(
+                    div()
+                        .absolute()
+                        .size_full()
+                        .rounded(px(radius))
+                        .border(px(ring_width))
+                        .border_color(ring.opacity(turned)),
+                ),
+        )
     }
 
     /// The tiles in their order: the favorites, with a dragged tab out of its place, and in the
@@ -240,15 +321,7 @@ impl Shell {
         };
         let fill = hsla(0., 0., 1., TILE + (TILE_HOVERED - TILE) * hover.unwrap_or(0.));
         let theme = selected.then(|| self.tile_theme(tab)).flatten();
-        // The selected tile's fill and ring: a colourful icon's ring is drawn with the blurred
-        // icon, a one-colour icon's is a border, and without a theme it's Dia's default.
-        let (shown, ring_width, ring): (Hsla, f32, Hsla) = match theme.as_deref() {
-            Some(TileTheme::Blur { .. }) => (rgba(SELECTED).into(), 0., hsla(0., 0., 0., 0.)),
-            Some(&TileTheme::Flat { fill, ring, .. }) => {
-                (rgba(fill).into(), RING_WIDTH, rgba(ring).into())
-            }
-            None => (rgba(TILE_UNTHEMED).into(), HAIRLINE, rgba(TILE_RING).into()),
-        };
+        let (shown, ring_width, ring) = shown_look(theme.as_deref());
         let fill = match dragging == Some(Slot::Tab(tab)) {
             true => self.window_fill().blend(if selected { shown } else { fill }),
             false if selected => shown,
@@ -312,4 +385,21 @@ impl Shell {
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
     }
+}
+
+/// The selected tile's fill, ring width and ring: a colourful icon's ring is drawn with the blurred
+/// icon, a one-colour icon's is a border, and without a theme it's Dia's default.
+fn shown_look(theme: Option<&TileTheme>) -> (Hsla, f32, Hsla) {
+    match theme {
+        Some(TileTheme::Blur { .. }) => (rgba(SELECTED).into(), 0., hsla(0., 0., 0., 0.)),
+        Some(&TileTheme::Flat { fill, ring, .. }) => {
+            (rgba(fill).into(), RING_WIDTH, rgba(ring).into())
+        }
+        None => (rgba(TILE_UNTHEMED).into(), HAIRLINE, rgba(TILE_RING).into()),
+    }
+}
+
+/// A favicon's square, its icon in the middle.
+fn centred() -> gpui::Div {
+    div().absolute().size_full().flex().items_center().justify_center()
 }
