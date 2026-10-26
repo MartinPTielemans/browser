@@ -122,6 +122,8 @@ const ROW_FILL: f32 = 0.3;
 // dragged one make way critically damped (docs/ux-spec.md › Motion: Reorder).
 const DRAG_START: f32 = 4.;
 const REORDER_OMEGA: f32 = 90.;
+// A dragged row turning into a tile has faded its title by this far through the turn (ours).
+const TURN_TITLE_FADE: f32 = 0.5;
 // The rows under a folder make room as it opens and close up as it closes on Dia's group spring
 // (docs/ux-spec.md › Motion: Group expand).
 const FOLD_RESPONSE: f32 = 0.3;
@@ -628,6 +630,50 @@ struct Drag {
     dropped: bool,
     /// Over the page, where it can join the page shown in a split view.
     over_page: Option<split_targets::OverPage>,
+    /// Its turn between its row and its tile, and whether the pointer let go mid-turn, which
+    /// holds the drop until it has turned.
+    shape: Shape,
+    held: bool,
+}
+
+/// How far a dragged tab has turned from its row into its tile as it crossed into or out of the
+/// favorites, on the Reorder spring the tiles make room on (ours, docs/ux-spec.md › Favorites).
+#[derive(Clone, Copy)]
+struct Shape {
+    /// Where it turned from, whether it's turning into a tile, and since when, until it has.
+    from: f32,
+    tile: bool,
+    start: Option<Instant>,
+}
+
+impl Shape {
+    fn new(tile: bool) -> Self {
+        Shape { from: if tile { 1. } else { 0. }, tile, start: None }
+    }
+
+    /// How far from its row to its tile it is at `now`: 0 a row, 1 a tile.
+    fn at(&self, now: Instant) -> f32 {
+        let to = if self.tile { 1. } else { 0. };
+        let done = self.start.and_then(|start| {
+            Curve::Reorder.at(now.duration_since(start).as_secs_f32())
+        });
+        done.map_or(to, |done| self.from + (to - self.from) * done)
+    }
+
+    /// Turns it toward its tile or its row from where it is at `now`, so a crossing back mid-turn
+    /// reverses with no jump.
+    fn turn(&mut self, tile: bool, now: Instant) {
+        if tile != self.tile {
+            *self = Shape { from: self.at(now), tile, start: Some(now) };
+        }
+    }
+
+    /// Whether it's still turning at `now`.
+    fn turning(&self, now: Instant) -> bool {
+        self.start.is_some_and(|start| {
+            Curve::Reorder.at(now.duration_since(start).as_secs_f32()).is_some()
+        })
+    }
 }
 
 /// Two fingers on the trackpad over the sidebar, which may page between Spaces.
@@ -1683,6 +1729,25 @@ impl Shell {
             || self.opened.is_some()
             || self.settle.is_some()
     }
+
+    /// Draws a dragged tab's turn between its row and its tile on, and once it has turned, lands a
+    /// drop the pointer let go of mid-turn.
+    fn step_drag_shape(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(drag) = self.drag.as_mut().filter(|drag| drag.shape.start.is_some()) else {
+            return;
+        };
+        if drag.shape.turning(Instant::now()) {
+            window.request_animation_frame();
+            return;
+        }
+        drag.shape.start = None;
+        // check.sh waits for these lines before it captures a dragged tab.
+        log!("browser: drag shape {}", if drag.shape.tile { "tile" } else { "row" });
+        if std::mem::take(&mut drag.held) {
+            // Out of render, as the browser may report the lists it made at once.
+            cx.defer_in(window, |shell, _, cx| shell.drop_row(cx));
+        }
+    }
 }
 
 impl Focusable for Shell {
@@ -1798,6 +1863,7 @@ impl Render for Shell {
         if self.list_moving() {
             window.request_animation_frame();
         }
+        self.step_drag_shape(window, cx);
         self.step_scroll_edge(window);
         self.step_tools(window);
         let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some());
@@ -1989,6 +2055,7 @@ impl Shell {
                 // Over the pages, which they scroll with when they're tall.
                 .children(self.tiles(cx))
                 .children(self.dragged_tile(cx))
+                .children(self.turning_drag())
                 .children(self.question_card(cx)),
         };
         sidebar
@@ -2107,7 +2174,9 @@ impl Shell {
         let dragged = self.drag.as_ref().filter(|drag| {
             drag.moving && drag.over_page.is_none() && !drag.incoming
         });
-        let dragged = dragged.filter(|drag| matches!(drag.to, Place::List(..))).map(|drag| {
+        let dragged = dragged.filter(|drag| matches!(drag.to, Place::List(..)));
+        // Mid-turn into or out of a tile, it's drawn over the sidebar instead.
+        let dragged = dragged.filter(|drag| drag.shape.start.is_none()).map(|drag| {
             let row = self.tab_row(drag.tab, cx);
             let top = room + self.drag_at(drag);
             div().absolute().top(px(top)).left_0().w(px(self.width())).child(row)
@@ -2168,6 +2237,7 @@ impl Shell {
         if self.list_moving() {
             window.request_animation_frame();
         }
+        self.step_drag_shape(window, cx);
         self.step_scroll_edge(window);
         self.step_tools(window);
         let left = REVEAL_INSET - (REVEAL_INSET + self.width()) * (1. - self.reveal_out());
@@ -2546,7 +2616,9 @@ fn file_name(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{fade_at, file_name};
+    use std::time::{Duration, Instant};
+
+    use super::{Shape, fade_at, file_name};
 
     /// A fade reversed partway starts from the opacity it had, so nothing jumps, and ends at the
     /// other end.
@@ -2569,5 +2641,39 @@ mod tests {
         assert_eq!(file_name("file:///tmp/100%.txt").unwrap(), "100%.txt");
         assert_eq!(file_name("file:///Users/someone/"), None);
         assert_eq!(file_name("https://example.com/notes.txt"), None);
+    }
+
+    /// A row turning into a tile is partway there 20 ms in, and turned for good once the spring
+    /// has settled.
+    #[test]
+    fn a_dragged_row_turns_into_a_tile() {
+        let start = Instant::now();
+        let mut shape = Shape::new(false);
+        shape.turn(true, start);
+        let partway = shape.at(start + Duration::from_millis(20));
+        assert!(partway > 0.3 && partway < 0.8, "20 ms in it's {partway} of the way");
+        assert!(shape.turning(start + Duration::from_millis(20)));
+        assert!(!shape.turning(start + Duration::from_millis(100)));
+        assert_eq!(shape.at(start + Duration::from_millis(100)), 1.);
+    }
+
+    /// Crossing back mid-turn turns it back from where it was, with no jump, to a whole row.
+    #[test]
+    fn crossing_back_reverses_from_where_it_is() {
+        let start = Instant::now();
+        let mut shape = Shape::new(false);
+        shape.turn(true, start);
+        let back = start + Duration::from_millis(15);
+        let there = shape.at(back);
+        shape.turn(false, back);
+        assert_eq!(shape.at(back), there);
+        let later = shape.at(back + Duration::from_millis(5));
+        assert!(later < there && later > 0., "5 ms after turning back it's at {later}");
+        assert_eq!(shape.at(back + Duration::from_millis(100)), 0.);
+        // Crossing again the way it's going changes nothing.
+        let at = back + Duration::from_millis(20);
+        let going = shape.at(at);
+        shape.turn(false, back + Duration::from_millis(10));
+        assert_eq!(shape.at(at), going);
     }
 }

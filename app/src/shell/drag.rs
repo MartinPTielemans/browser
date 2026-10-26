@@ -10,8 +10,8 @@ use gpui::{
 };
 
 use super::{
-    Closing, Curve, DRAG_START, Drag, FOLDER_INDENT, Opened, Place, ROW_HEIGHT, ROW_PITCH, Shell,
-    Slot, TILE_HEIGHT, slots,
+    Closing, Curve, DRAG_START, Drag, FOLDER_INDENT, Opened, PLATE_HEIGHT, PLATE_INSET,
+    PLATE_RADIUS, Place, ROW_HEIGHT, ROW_PITCH, Shape, Shell, Slot, TILE_HEIGHT, TILE_RADIUS, slots,
 };
 
 /// The tab that links or files dragged in stand for until they're dropped: none, as the core
@@ -89,6 +89,47 @@ impl Shell {
         (self.list_y(drag.pointer.y) - drag.grab.0).clamp(first, last)
     }
 
+    /// A tab dragged across the favorites' edge, mid-turn between its row and its tile: its
+    /// plate's left, top, width, height and radius in the sidebar, and how far it has turned. The
+    /// point the pointer holds goes from where it held the row to where it holds the tile, so the
+    /// plate grows and shrinks around the pointer.
+    pub(super) fn turning_shape(&self) -> Option<(u64, [f32; 5], f32)> {
+        let drag = self.drag.as_ref().filter(|drag| drag.moving && drag.shape.start.is_some())?;
+        if drag.incoming || drag.over_page.is_some() {
+            return None;
+        }
+        let indent = drag.depth as f32 * FOLDER_INDENT;
+        let scrolled = f32::from(self.list_scroll.offset().y);
+        let row_top = self.drawn_list_top() + scrolled + self.drag_at(drag);
+        let row = [
+            PLATE_INSET + indent,
+            row_top + (ROW_HEIGHT - PLATE_HEIGHT) / 2.,
+            self.width() - 2. * PLATE_INSET - indent,
+            PLATE_HEIGHT,
+            PLATE_RADIUS,
+        ];
+        let others = self.favorites.iter().filter(|&&tab| tab != drag.tab).count();
+        let width = self.tile_places(others + 1)[0][2];
+        let centre = drag.pointer - drag.grab.1;
+        let tile = [
+            centre.x - width / 2.,
+            centre.y - TILE_HEIGHT / 2.,
+            width,
+            TILE_HEIGHT,
+            TILE_RADIUS,
+        ];
+        let turned = drag.shape.at(Instant::now());
+        let blend = |row: f32, tile: f32| row + (tile - row) * turned;
+        let (width, height) = (blend(row[2], tile[2]), blend(row[3], tile[3]));
+        let pointer = drag.pointer;
+        let held = point(
+            blend(pointer.x - row[0], pointer.x - tile[0]),
+            blend(pointer.y - row[1], pointer.y - tile[1]),
+        );
+        let radius = blend(row[4], tile[4]);
+        Some((drag.tab, [pointer.x - held.x, pointer.y - held.y, width, height, radius], turned))
+    }
+
     /// Scrolls the list the least that shows `tab`'s row whole, if it has one: for a new tab's row,
     /// as Dia's does for a tab opened behind, and for the tab shown, as Chrome's tab strip does.
     pub(super) fn scroll_to_row(&self, tab: u64) {
@@ -161,7 +202,7 @@ impl Shell {
         top: f32,
         grab: (f32, Point<f32>),
     ) {
-        if self.drag.as_ref().is_some_and(|drag| drag.dropped) {
+        if self.drag.as_ref().is_some_and(|drag| drag.dropped || drag.held) {
             return;
         }
         let origin = self.sidebar_origin.get();
@@ -184,6 +225,8 @@ impl Shell {
             divider: true,
             dropped: false,
             over_page: None,
+            shape: Shape::new(matches!(from, Place::Favorite(_))),
+            held: false,
         });
     }
 
@@ -194,7 +237,7 @@ impl Shell {
     /// of folders or after one, the pointer moved right takes it into them, a row in for each
     /// FOLDER_INDENT. A split view's row stays in the list, and a folder's in the pinned tabs.
     fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped) else {
+        let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped && !drag.held) else {
             return;
         };
         let (moved, incoming) = (position - drag.press, drag.incoming);
@@ -207,7 +250,8 @@ impl Shell {
         let Some(drag) = &self.drag else {
             return;
         };
-        let (tab, to, grab, span) = (drag.tab, drag.to, drag.grab, drag.span);
+        let (tab, to, grab, span, kept_depth) =
+            (drag.tab, drag.to, drag.grab, drag.span, drag.depth);
         let pointer = in_sidebar(position, drag.origin);
         // Rows in, from where it was, by how far the pointer has gone right. Links dragged in go
         // in as far as the row under them.
@@ -236,6 +280,8 @@ impl Shell {
                 x * x + y * y
             };
             let index = (0..places.len()).min_by(|a, b| distance(a).total_cmp(&distance(b)));
+            // Its row keeps its indent while it turns into a tile.
+            depth = kept_depth;
             (Place::Favorite(index.unwrap_or(0)), slots(&pinned, &today), span)
         } else {
             let fits = |&gap: &usize| self.gap_depths(&pinned, gap, tab).is_some();
@@ -269,6 +315,7 @@ impl Shell {
             drag.pointer = pointer;
             drag.span = span;
             drag.depth = depth;
+            drag.shape.turn(over_favorites, Instant::now());
         }
         if place != to {
             // The rows and tiles that make room, or no longer need to, start from where they're
@@ -301,7 +348,7 @@ impl Shell {
 
     /// The pointer let go of a pressed row or tile. A dragged tab goes where it would, and the rows
     /// and tiles settle once the browser has moved it.
-    fn drop_row(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn drop_row(&mut self, cx: &mut Context<Self>) {
         if self.drop_over_page(cx) {
             return;
         }
@@ -313,8 +360,14 @@ impl Shell {
             return;
         }
         self.dragged = true;
+        // Let go mid-turn, it lands once it has turned, from its tile's or its row's shape.
+        if drag.shape.start.is_some() {
+            drag.held = true;
+            return;
+        }
         let (tab, to, drag_depth) = (drag.tab, drag.to, drag.depth);
-        if drag.to == drag.from && drag.depth == drag.from_depth {
+        let favorite = matches!(to, Place::Favorite(_));
+        if drag.to == drag.from && (favorite || drag.depth == drag.from_depth) {
             self.settle_drag();
         } else {
             drag.dropped = true;
@@ -483,7 +536,7 @@ impl Shell {
 
     /// Puts the tab the pointer drags back where it was, and returns whether there was one.
     pub(super) fn cancel_drag(&mut self, cx: &mut Context<Self>) -> bool {
-        if !self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.dropped) {
+        if !self.drag.as_ref().is_some_and(|drag| drag.moving && !drag.dropped && !drag.held) {
             return false;
         }
         // The release that ends the drag isn't a click.

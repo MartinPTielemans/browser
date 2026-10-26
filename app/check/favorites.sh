@@ -4,7 +4,8 @@
 # tab's row. Away from its URL, a double-click on the tile goes back there. ⌘W unloads it and keeps
 # the tile, showing the top Today tab. The tile's menu duplicates it to the top of Today. Launched
 # again, the app brings the favorite back, shown, and Remove from Favorites in its menu puts it at
-# the top of Today. Today rows dragged onto the tiles become favorites where they're dropped, a tile
+# the top of Today. A row dragged onto the tiles turns into a tile, and a tile dragged into the
+# list into a row. Today rows dragged onto the tiles become favorites where they're dropped, a tile
 # dragged across the other goes before it, one dragged into the list goes there, and escape puts a
 # dragged tile back. Tiles taller than 40 % of the window scroll with the list. ⌘, from the page and
 # the UI opens Settings, where switches turn the warning before quitting and the haptics off and the
@@ -203,6 +204,7 @@ y=$2
 send press $(row 1)
 send dragto 100 200
 send dragto 114 112
+expect '^browser: drag shape tile$' "a row dragged onto the favorites didn't turn into a tile"
 ../tools/window-screenshot.sh "$pid" "$out/favorite-drag.png" || fail "no window to capture"
 none_since '^browser: dragged' ||
   fail "a row dragged onto the favorites dropped before the pointer let go"
@@ -233,6 +235,8 @@ none_since '^browser: selected' || fail "dragging a tile showed it"
 # Escape puts a dragged tile back.
 send press 114 110
 send dragto 100 200
+expect '^browser: drag shape row$' "a tile dragged into the list didn't turn into a row"
+../tools/window-screenshot.sh "$pid" "$out/favorite-drag-out.png" || fail "no window to capture"
 send dragto 100 300
 send key escape
 expect '^browser: command stop via ' "escape during a tile's drag didn't reach the UI"
@@ -304,4 +308,4 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: alert shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-up sets the archive's time, all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-up sets the archive's time, all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
