@@ -286,6 +286,11 @@ bool Key(NSWindow* window, const std::string& key, NSEventModifierFlags flags) {
   }
   auto special = kCharacters.find(key);
   NSString* characters = @((special == kCharacters.end() ? key : special->second).c_str());
+  // A keyboard reports ⇧ with a letter as the capital, even ignoring modifiers, and AppKit matches
+  // the menu's key equivalents by it.
+  if ((flags & NSEventModifierFlagShift) && key.size() == 1 && key[0] >= 'a' && key[0] <= 'z') {
+    characters = characters.uppercaseString;
+  }
   // The keyboard marks arrow keys as function and keypad keys, and the keys above them as function
   // keys.
   if (key == "up" || key == "down" || key == "left" || key == "right") {
