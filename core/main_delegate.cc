@@ -12,6 +12,7 @@
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
+#include "browser_core/password_offer.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
@@ -113,6 +114,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   g_browser_core_populate_frame_binders = &PopulateFrameBinders;
+  g_browser_core_password_prompt = &PasswordOffer::Prompt;
   return ChromeMain(argc, argv);
 }
 

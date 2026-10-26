@@ -271,9 +271,9 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Save / update prompt | MVP | page top right; Save / Update with username picker / Never / Not Now; look: measure. In progress: passwords save prompt | Dia P§16 |
+| [x] | Save / update prompt | MVP | page top right; Save / Update Password, username picker, Never, No Thanks in Chrome's words; look: measure | Dia P§16, Chrome |
 | [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
-| [ ] | Pending offer on tab switch | MVP | closes. In progress: passwords save prompt | Dia P§16 |
+| [x] | Pending offer on tab switch | MVP | closes | Dia P§16 |
 | [ ] | Fill dropdown | MVP | Chrome's, under the field. Not started; unverified, it may already show | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |

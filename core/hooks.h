@@ -73,4 +73,9 @@ extern void (*g_browser_core_extension_install_dialog)(
 extern void (*g_browser_core_populate_frame_binders)(
     mojo::BinderMapWithContext<content::RenderFrameHost*>* map);
 
+// chrome/browser/ui/views/tab_dialogs_views.cc: shows or hides the offer to save a submitted
+// login's password, in place of Chrome's bubble, which hangs from a toolbar the core's windows
+// don't have.
+extern void (*g_browser_core_password_prompt)(content::WebContents* contents, bool show);
+
 #endif  // BROWSER_CORE_HOOKS_H_

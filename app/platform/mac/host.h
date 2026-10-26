@@ -134,9 +134,21 @@ void host_show_find_bar(void* ui_view, bool keyboard);
 // Hides |ui_view|'s find bar. If it had the keyboard, its browser window gets it back.
 void host_hide_find_bar(void* ui_view);
 
-// Moves |ui_view|'s find bar and the HUD over it |right| points further in from the window's right
-// edge and |top| points further down, to the focused page's top right corner when a split view's
-// focused page isn't the top right one.
+// Makes the window of |offer_view| the offer to save a password of |ui_view|'s window, floating
+// over it when shown, |right| and |top| points from the top right corner of the window's content,
+// or under the find bar while it shows. It starts hidden.
+void host_add_offer(void* ui_view, void* offer_view, double right, double top);
+
+// Shows |ui_view|'s offer, without the keyboard: as the find bar, it takes it when clicked, and the
+// page takes it back when clicked.
+void host_show_offer(void* ui_view);
+
+// Hides |ui_view|'s offer. If it had the keyboard, its browser window gets it back.
+void host_hide_offer(void* ui_view);
+
+// Moves |ui_view|'s find bar, its offer and the HUD over it |right| points further in from the
+// window's right edge and |top| points further down, to the focused page's top right corner when a
+// split view's focused page isn't the top right one.
 void host_set_pane_corner(void* ui_view, double right, double top);
 
 // Makes the window of |hud_view| float over a browser window when shown, |right| and |top| points

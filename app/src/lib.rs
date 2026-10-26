@@ -26,6 +26,7 @@ pub mod capture;
 pub mod command_bar;
 pub mod dialog;
 pub mod icon_picker;
+pub mod offer;
 pub mod shell;
 pub mod site_controls;
 pub mod space_icon;

@@ -11,7 +11,8 @@ use std::{
 };
 
 use browser::{
-    capture, command_bar, dialog, icon_picker, log, site_controls, toast, tooltip, zoom_hud,
+    capture, command_bar, dialog, icon_picker, log, offer, site_controls, toast, tooltip,
+    zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -101,6 +102,9 @@ mod platform {
         );
         pub fn host_show_find_bar(ui_view: *mut c_void, keyboard: bool);
         pub fn host_hide_find_bar(ui_view: *mut c_void);
+        pub fn host_add_offer(ui_view: *mut c_void, offer_view: *mut c_void, right: f64, top: f64);
+        pub fn host_show_offer(ui_view: *mut c_void);
+        pub fn host_hide_offer(ui_view: *mut c_void);
         pub fn host_add_hud(hud_view: *mut c_void, right: f64, top: f64, margin: f64);
         pub fn host_set_pane_corner(ui_view: *mut c_void, right: f64, top: f64);
         pub fn host_show_hud(ui_view: *mut c_void);
@@ -899,6 +903,31 @@ impl zoom_hud::Host for HudHost {
 
     fn hide(&self) {
         unsafe { platform::host_hide_hud() };
+    }
+}
+
+/// A browser window's password offer's requests, to the host's offer window over it and the core.
+struct OfferHost {
+    ui_view: *mut c_void,
+}
+
+impl offer::Host for OfferHost {
+    fn show(&self) {
+        unsafe { platform::host_show_offer(self.ui_view) };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_offer(self.ui_view) };
+    }
+
+    fn answer(&self, tab: u64, answer: offer::Answer, username: &str) {
+        let answer = match answer {
+            offer::Answer::Accept => bc::BC_OFFER_ACCEPT,
+            offer::Answer::Never => bc::BC_OFFER_NEVER,
+            offer::Answer::NotNow => bc::BC_OFFER_NOT_NOW,
+        };
+        let username = CString::new(username).unwrap_or_default();
+        unsafe { bc::bc_tab_answer_offer(tab, answer as i32, username.as_ptr()) };
     }
 }
 
@@ -2161,11 +2190,26 @@ fn finish_opening(
     let Ok(shell) = window.entity(cx) else {
         return;
     };
-    let children: Vec<AnyWindowHandle> =
-        [find_bar::open(id, ui_view, cx), reveal::open(shell, ui_view, cx)]
-            .into_iter()
-            .flatten()
-            .collect();
+    let fill = shell.downgrade();
+    let fill = move |cx: &App| fill.upgrade().map(|shell| shell.read(cx).window_fill());
+    let prompt = offer::open(
+        id,
+        Rc::new(OfferHost { ui_view }),
+        move |cx| fill(cx).unwrap_or_default(),
+        cx,
+    );
+    if let Some(view) = prompt.and_then(|prompt| prompt.update(cx, |_, w, _| ns_view(w)).ok()) {
+        let (right, top) = (offer::RIGHT.into(), offer::TOP.into());
+        unsafe { platform::host_add_offer(ui_view, view, right, top) };
+    }
+    let children: Vec<AnyWindowHandle> = [
+        find_bar::open(id, ui_view, cx),
+        prompt.map(Into::into),
+        reveal::open(shell, ui_view, cx),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     WINDOWS.with_borrow_mut(|windows| {
         if let Some(window) = windows.iter_mut().find(|window| window.id == id) {
             window.children = children;
@@ -2464,6 +2508,7 @@ unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
         unsafe { platform::host_forget_window(window.ui_view) };
         update_app(|cx| {
             find_bar::window_closed(id, cx);
+            offer::window_closed(id, cx);
             for child in window.children {
                 child.update(cx, |_, window, _| window.remove_window()).ok();
             }
@@ -2687,6 +2732,7 @@ unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc:
         shell.set_selected(tab, cx);
         find_bar::tab_shown(window, tab, cx);
         zoom_hud::tab_shown(tab, cx);
+        offer::tab_shown(window, tab, cx);
     });
 }
 
@@ -2694,6 +2740,7 @@ unsafe extern "C" fn window_page_elsewhere(_: *mut c_void, window: bc::bc_id, ta
     // check.sh reads this line.
     log!("browser: window {window} page elsewhere {tab}");
     update_window(window, |shell, cx| shell.page_elsewhere(tab, cx));
+    update_app(|cx| offer::page_elsewhere(window, tab != 0, cx));
 }
 
 // check.sh reads these lines. Test pages report what reached them through their title.
@@ -3013,6 +3060,7 @@ unsafe extern "C" fn tab_opened(
 unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
     log!("browser: tab {tab} closed");
     find_bar::forget(tab);
+    offer::forget(tab);
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         let executor = cx.foreground_executor().clone();
         executor
@@ -3091,6 +3139,42 @@ unsafe extern "C" fn tab_find_changed(
         selected: state.selected,
     };
     update_app(|cx| find_bar::changed(tab, find, cx));
+}
+
+unsafe extern "C" fn tab_offer_changed(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    offer: *const bc::bc_offer,
+) {
+    let offer = (!offer.is_null()).then(|| {
+        let offer = unsafe { &*offer };
+        let string = |text: *const c_char| -> SharedString {
+            unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+        };
+        let usernames = match offer.username_count {
+            0 => Vec::new(),
+            count => unsafe { std::slice::from_raw_parts(offer.usernames, count) }
+                .iter()
+                .map(|username| string(*username))
+                .collect(),
+        };
+        let never = string(offer.never);
+        offer::Offer {
+            kind: match offer.kind as u32 {
+                bc::BC_OFFER_PASSWORD_UPDATE => offer::Kind::Update,
+                _ => offer::Kind::Save,
+            },
+            title: string(offer.title),
+            site: string(offer.site),
+            username: string(offer.username),
+            usernames,
+            password_length: offer.password_length,
+            accept: string(offer.accept),
+            decline: string(offer.decline),
+            never: (!never.is_empty()).then_some(never),
+        }
+    });
+    update_app(|cx| offer::changed(tab, offer, cx));
 }
 
 unsafe extern "C" fn tab_permission_asked(
@@ -3299,6 +3383,7 @@ fn main() {
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
         tab_media_unsupported: Some(tab_media_unsupported),
+        tab_offer_changed: Some(tab_offer_changed),
         ..Default::default()
     };
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };

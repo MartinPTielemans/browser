@@ -284,6 +284,32 @@ typedef struct bc_side_panel {
   double width;
 } bc_side_panel;
 
+// What a tab's offer offers: to save the password of a login its page submitted, or to update the
+// password saved for it.
+#define BC_OFFER_PASSWORD 0
+#define BC_OFFER_PASSWORD_UPDATE 1
+
+// An offer from Chrome's password manager, in Chrome's words. The password stays in the core.
+typedef struct bc_offer {
+  // A BC_OFFER_ kind.
+  int kind;
+  // Such as "Save password?", and the site whose password it is, as the user should see it.
+  const char* title;
+  const char* site;
+  // The username it saves unless the user edits it, and the values the page's other fields had
+  // that might be it instead, |username_count| of them, the first that one, for a picker.
+  const char* username;
+  const char* const* usernames;
+  size_t username_count;
+  // How many characters the password has, to show it masked.
+  size_t password_length;
+  // The labels of its buttons for BC_OFFER_ACCEPT, BC_OFFER_NOT_NOW and BC_OFFER_NEVER, the last ""
+  // where it has none, as an update.
+  const char* accept;
+  const char* decline;
+  const char* never;
+} bc_offer;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -452,6 +478,11 @@ typedef struct bc_host {
   // the tab goes to another site: the note it asks for is gone. There's no call to answer it.
   // Agents get none: the note hands the user's page to another app.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
+  // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
+  // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,
+  // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
+  // agents hear none, as it names the user's login.
+  void (*tab_offer_changed)(void* context, bc_id tab, const bc_offer* offer);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -989,6 +1020,17 @@ BC_EXPORT void bc_tab_picture_in_picture(bc_id tab);
 // window on the Mac, as Chrome's page info does. Does nothing for a page with none, as http and
 // the browser's own pages have.
 BC_EXPORT void bc_tab_show_certificate(bc_id tab);
+
+// Answers to the offer tab_offer_changed made: save or update the password; never save one for the
+// site; or not now.
+#define BC_OFFER_ACCEPT 0
+#define BC_OFFER_NEVER 1
+#define BC_OFFER_NOT_NOW 2
+
+// Answers the tab's offer with |answer|, a BC_OFFER_ answer, with the username as the user left it,
+// or null to keep the offer's, if the offer is still open. Then tab_offer_changed. The user's:
+// agents get none, as saving a password is the user's to decide.
+BC_EXPORT void bc_tab_answer_offer(bc_id tab, int answer, const char* username);
 
 // Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.

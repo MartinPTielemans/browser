@@ -11,6 +11,7 @@ ours/chromium-core-split-link.patch
 ours/chromium-core-permission-prompt.patch
 ours/chromium-core-extension-install.patch
 ours/chromium-extensions-web-store.patch
+ours/chromium-core-password-prompt.patch
 ours/chromium-rust-std-component-link.patch
 ours/chromium-disclaimer-service-test-only-call.patch
 ours/chromium-prefs-passwords-autofill-on.patch

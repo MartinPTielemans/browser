@@ -20,6 +20,7 @@
 #include "browser_core/find.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
+#include "browser_core/password_offer.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -767,6 +768,10 @@ void bc_tab_picture_in_picture(bc_id id) {
 
 void bc_tab_show_certificate(bc_id id) {
   browser_core::SiteControls::ShowCertificate(id);
+}
+
+void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
+  browser_core::PasswordOffer::Answer(id, answer, username);
 }
 
 void bc_tab_jump_to_selection(bc_id id) {
