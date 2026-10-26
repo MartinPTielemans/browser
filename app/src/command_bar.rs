@@ -107,7 +107,7 @@ pub trait Host {
     /// even if it names a page.
     fn search_url(&self, site: Option<&str>, text: &str) -> Option<String>;
     /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it unless
-    /// `behind`.
+    /// `behind`, when it loads only once it's first shown.
     fn open_tab(&self, url: &str, behind: bool);
     fn navigate(&self, tab: u64, url: &str);
     fn select(&self, tab: u64);

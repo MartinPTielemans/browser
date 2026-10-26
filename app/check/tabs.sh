@@ -8,11 +8,12 @@
 # it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing the last
 # tab leaves the Space empty, where ⌘T still works. Mute/Unmute Tab mutes a tab, its row shows a
 # speaker while it plays, crossed out while it's muted, and a click on it unmutes the tab. There ⇧⌦
-# takes a page out of history, ⇧⌘↩ searches for what was typed, Tab on the row that hints a search
-# engine, or a space after its keyword, searches with that engine alone until ⌫ leaves, ↩ on a
-# sum's row copies its result, and a right-click in its field shows the field's menu, with Paste and
-# Go. The command bar's tests, in src/command_bar/tests.rs, have the rest of its keys and what the
-# menu's items do. Reports how long switches take.
+# takes a page out of history, ⇧⌘↩ searches for what was typed, ⌘↩ opens it in a tab behind that
+# loads once it's first shown, Tab on the row that hints a search engine, or a space after its
+# keyword, searches with that engine alone until ⌫ leaves, ↩ on a sum's row copies its result, and a
+# right-click in its field shows the field's menu, with Paste and Go. The command bar's tests, in
+# src/command_bar/tests.rs, have the rest of its keys and what the menu's items do. Reports how long
+# switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, and p in it plays a quiet tone until x. The app asks Chrome to trace its tab switches, timed
@@ -307,6 +308,25 @@ expect '^browser: command bar calculates "2+2": 4$' \
   "Select All in the field's menu didn't select its text for typing to replace"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar after its menu"
+# ⌘↩ opens what was typed in a tab behind, at the top of Today, which loads only once it's first
+# shown (Dia), and the bar stays open.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+before=$(today)
+send type example.org
+send key return cmd
+# The bar may go over http, from history, as the https page was taken out of it above.
+expect '^browser: command bar behind https\{0,1\}://example.org/$' \
+  "⌘↩ didn't open example.org behind"
+expect "^browser: today [0-9][0-9]* $before\$" "⌘↩'s tab didn't open at the top of Today"
+waiting=$(today | cut -d' ' -f1)
+expect "^browser: page $waiting unloaded 1\$" "⌘↩'s tab didn't wait to load"
+none_since '^browser: command bar hidden$' || fail "⌘↩ closed the command bar"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar after ⌘↩"
+grep -q "^browser: loaded $waiting " "$log" && fail "⌘↩'s tab loaded before it was shown"
+switch "1 cmd" "$waiting"
+expect "^browser: loaded $waiting https\{0,1\}://example.org/\$" "⌘↩'s tab didn't load once shown"
 exec 3>&-
 # Chrome writes the trace before it quits, once every process has started tracing or 10 s have
 # passed, so a renderer that closed early can hold the quit that long.
@@ -335,6 +355,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
+echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
 echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png"

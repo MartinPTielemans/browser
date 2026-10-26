@@ -184,9 +184,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Takes a suggestion out of the profile's history. See bc_window_remove_suggestion.
   void RemoveSuggestion(const GURL& url);
 
-  // Opens a tab for |profile| loading |url|, not shown. Null while the window is closing or
-  // Chromium is quitting.
-  content::WebContents* OpenTab(Profile* profile, const GURL& url);
+  // Opens a tab for |profile| loading |url|, not shown, or with |when_shown| an http(s) |url| only
+  // once it's first shown. Null while the window is closing or Chromium is quitting.
+  content::WebContents* OpenTab(Profile* profile, const GURL& url, bool when_shown);
   // Opens a tab for |profile| with |history|, at its |current| page, not shown. It loads once it's
   // shown. Null while the window is closing or Chromium is quitting.
   content::WebContents* RestoreTab(Profile* profile,
@@ -244,7 +244,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // |split_with| is the tab whose page opened it to show beside it, or 0.
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with);
   // Opens the tab |params| asks for, behind, with nothing loaded until it's first shown.
-  void OpenBehind(NavigateParams& params);
+  content::WebContents* OpenBehind(NavigateParams& params);
   // Shows next_after_closing_, as the tab shown has closed.
   void SelectAfterClosing();
   // Shows no page, as for a Space without tabs.

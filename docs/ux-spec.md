@@ -538,7 +538,7 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 | Key | Action | Source |
 |---|---|---|
 | ↩ | open where the bar shows pages: a new tab for ⌘T, the tab for ⌘L | Chrome |
-| ⌘↩ | a tab behind the one shown, at the top of Today; the bar stays open. A command runs as for ↩ | Arc 1.170.0 cap |
+| ⌘↩ | a tab behind the one shown, at the top of Today, which loads once first shown; the bar stays open. A command runs as for ↩ | Arc 1.170.0 cap |
 | ⌥↩ | a new pane on the right of the page, in a split view | Arc 1.170.0 cap |
 | ⇧↩ | new window | Chrome |
 | ⇧⌘↩ | search for what was typed, even if it names a page | Dia |

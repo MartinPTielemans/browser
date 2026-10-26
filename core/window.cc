@@ -357,7 +357,12 @@ void Window::AdjustNavigate(NavigateParams& params) {
   // itself already has its page and the page's hold on it.
   if (source && params.disposition == WindowOpenDisposition::NEW_BACKGROUND_TAB &&
       params.url.SchemeIsHTTPOrHTTPS() && !params.post_data && !params.contents_to_insert) {
-    window->OpenBehind(params);
+    content::WebContents* contents = window->OpenBehind(params);
+    // Posted, as for the tabs Chrome opens.
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&Window::ReportTabOpened, window->weak_factory_.GetWeakPtr(),
+                                  Tab::IdOf(contents), Tab::IdOf(params.source_contents),
+                                  /*foreground=*/false, /*split_with=*/0));
     params.disposition = WindowOpenDisposition::IGNORE_ACTION;
   }
   // Chrome's downloads page, which it opens after the user stopped a quit to let downloads finish,
@@ -731,13 +736,16 @@ void Window::RemoveSuggestion(const GURL& url) {
   }
 }
 
-content::WebContents* Window::OpenTab(Profile* profile, const GURL& url) {
+content::WebContents* Window::OpenTab(Profile* profile, const GURL& url, bool when_shown) {
   BrowserWindowInterface* browser = BrowserFor(profile);
   if (!browser) {
     return nullptr;
   }
   NavigateParams params(browser, url, ui::PAGE_TRANSITION_TYPED);
   params.disposition = WindowOpenDisposition::NEW_BACKGROUND_TAB;
+  if (when_shown && url.SchemeIsHTTPOrHTTPS()) {
+    return OpenBehind(params);
+  }
   // The app hears only of the tabs it didn't open.
   base::AutoReset<bool> opening(&opening_tab_, true);
   Navigate(&params);
@@ -1298,7 +1306,7 @@ void Window::FocusPage() {
   }
 }
 
-void Window::OpenBehind(NavigateParams& params) {
+content::WebContents* Window::OpenBehind(NavigateParams& params) {
   content::WebContents::CreateParams create(params.browser->GetProfile());
   create.initially_hidden = true;
   // As for a tab put back at launch: no renderer until it loads.
@@ -1313,11 +1321,7 @@ void Window::OpenBehind(NavigateParams& params) {
   // The load Chrome would have started in it now.
   Tab::GetOrCreateForWebContents(contents)->LoadWhenShown(
       LoadURLParamsFromNavigateParams(contents, &params));
-  // Posted, as for the tabs Chrome opens.
-  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
-      FROM_HERE, base::BindOnce(&Window::ReportTabOpened, weak_factory_.GetWeakPtr(),
-                                Tab::IdOf(contents), Tab::IdOf(params.source_contents),
-                                /*foreground=*/false, /*split_with=*/0));
+  return contents;
 }
 
 void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with) {
