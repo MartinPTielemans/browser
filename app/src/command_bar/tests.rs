@@ -3,10 +3,12 @@
 
 use std::{cell::RefCell, ops::Range, rc::Rc};
 
-use gpui::{App, TestAppContext, VisualTestContext, WindowHandle};
+use gpui::{
+    App, ClipboardItem, Modifiers, MouseButton, TestAppContext, VisualTestContext, WindowHandle,
+};
 
 use super::*;
-use crate::text_input;
+use crate::text_input::{self, Chosen, FieldMenu};
 
 /// A host that records what the bar asks of it, but its suggestions and its window's height and
 /// shape. A text with a dot names a page there; any other is searched for.
@@ -127,6 +129,40 @@ impl Bar {
     /// What the bar asked of the host since the last time.
     fn calls(&self) -> Vec<String> {
         self.host.0.take()
+    }
+
+    /// A right-click in the input: the items of the menu it shows, " (disabled)" after those
+    /// that are and "" for a separator, and what takes the one chosen.
+    fn right_click(&mut self) -> (Vec<String>, Chosen) {
+        let shown: Rc<RefCell<Option<(Vec<String>, Chosen)>>> = Rc::default();
+        let menu = shown.clone();
+        self.cx.cx.update(|cx| {
+            cx.set_global(FieldMenu(Rc::new(move |items, _, _, chosen, _| {
+                let items = (items.into_iter())
+                    .map(|(title, enabled)| match enabled || title.is_empty() {
+                        true => title.to_string(),
+                        false => format!("{title} (disabled)"),
+                    })
+                    .collect();
+                *menu.borrow_mut() = Some((items, chosen));
+            })))
+        });
+        let at = point(px(200.), px(HEIGHT / 2.));
+        self.cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+        self.cx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
+        self.cx.run_until_parked();
+        shown.take().expect("a right-click in the input showed no menu")
+    }
+
+    /// Chooses `title` in the menu a right-click showed.
+    fn choose(&mut self, (items, chosen): (Vec<String>, Chosen), title: &str) {
+        let index = items.iter().position(|item| item == title).expect("no such item");
+        self.cx.update(|window, cx| chosen(index, window, cx));
+        self.cx.run_until_parked();
+    }
+
+    fn copy_text(&mut self, text: &str) {
+        self.cx.cx.write_to_clipboard(ClipboardItem::new_string(text.into()));
     }
 }
 
@@ -393,4 +429,51 @@ fn a_space_after_other_text_stays_in_it(cx: &mut TestAppContext) {
     assert_eq!(bar.input(), ("duck ".into(), 5..5));
     bar.keys("enter");
     assert_eq!(bar.calls(), [format!("open {}", search("duck")), "hide".into()]);
+}
+
+#[gpui::test]
+fn the_inputs_menu_pastes_and_goes_where_return_would(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("something else");
+    let menu = bar.right_click();
+    let items = [
+        "Cut (disabled)",
+        "Copy (disabled)",
+        "Paste",
+        "Paste and Go",
+        "Paste and Search",
+        "",
+        "Select All",
+    ];
+    assert_eq!(menu.0, items);
+    // What was typed doesn't count, and a copied line break is a space.
+    bar.copy_text("  example.org\n");
+    bar.choose(menu, "Paste and Go");
+    assert_eq!(bar.calls(), ["open https://example.org/", "hide"]);
+
+    let mut bar = Bar::new(cx);
+    bar.copy_text("example.org");
+    let menu = bar.right_click();
+    bar.choose(menu, "Paste and Search");
+    assert_eq!(bar.calls(), [format!("open {}", search("example.org")), "hide".into()]);
+
+    // Nothing to paste, nowhere to go.
+    let mut bar = Bar::new(cx);
+    bar.copy_text(" \n");
+    let menu = bar.right_click();
+    bar.choose(menu, "Paste and Go");
+    assert_eq!(bar.calls(), Vec::<String>::new());
+}
+
+#[gpui::test]
+fn a_right_click_in_the_selection_keeps_it_for_copy(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("example");
+    bar.keys("cmd-a");
+    let menu = bar.right_click();
+    assert_eq!(menu.0[..2], ["Cut", "Copy"]);
+    bar.choose(menu, "Copy");
+    let copied = bar.cx.cx.read_from_clipboard().and_then(|item| item.text());
+    assert_eq!(copied.as_deref(), Some("example"));
+    assert_eq!(bar.input(), ("example".into(), 0..7));
 }

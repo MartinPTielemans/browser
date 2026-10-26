@@ -15,7 +15,7 @@ use browser::shell::{
     self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, Folders, MenuEntry, Page, Shell, Split, WindowButton,
 };
-use browser::text_input::{Copy, Cut, Paste, Redo, SelectAll, Undo};
+use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, Undo};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
     ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, WeakEntity,
@@ -79,6 +79,13 @@ mod platform {
             y: f64,
             place: i32,
             over: i32,
+        ) -> i32;
+        pub fn host_menu_in(
+            items: *const host_menu_item,
+            count: usize,
+            x: f64,
+            y: f64,
+            view: *mut c_void,
         ) -> i32;
         pub fn host_add_settings(settings_view: *mut c_void);
         pub fn host_show_settings();
@@ -183,6 +190,26 @@ fn show_menu(
     place: i32,
     over: Option<usize>,
 ) -> Option<usize> {
+    let (x, y) = (f64::from(position.x), f64::from(position.y));
+    let over = over.map_or(-1, |over| over as i32);
+    pop_up(items, |items, count| unsafe { platform::host_menu(items, count, x, y, place, over) })
+}
+
+/// Shows a text field's menu of `items` at `position` in `view`, a window's, as show_menu does.
+fn show_field_menu(
+    items: &[MenuEntry],
+    position: Point<Pixels>,
+    view: *mut c_void,
+) -> Option<usize> {
+    let (x, y) = (f64::from(position.x), f64::from(position.y));
+    pop_up(items, |items, count| unsafe { platform::host_menu_in(items, count, x, y, view) })
+}
+
+/// Gives `show` the host's items for `items`, and returns the index it returns, if one was chosen.
+fn pop_up(
+    items: &[MenuEntry],
+    show: impl FnOnce(*const platform::host_menu_item, usize) -> i32,
+) -> Option<usize> {
     let strings: Vec<(CString, CString, [bool; 4])> = items
         .iter()
         .map(|item| {
@@ -212,11 +239,30 @@ fn show_menu(
             }
         })
         .collect();
-    let (x, y) = (f64::from(position.x), f64::from(position.y));
-    let over = over.map_or(-1, |over| over as i32);
-    let count = host_items.len();
-    let index = unsafe { platform::host_menu(host_items.as_ptr(), count, x, y, place, over) };
-    usize::try_from(index).ok()
+    usize::try_from(show(host_items.as_ptr(), host_items.len())).ok()
+}
+
+/// Shows a text field's menu in the field's window, outside the GPUI update that asks for it.
+fn field_menu(
+    items: Vec<(SharedString, bool)>,
+    position: Point<Pixels>,
+    window: &Window,
+    chosen: Chosen,
+    cx: &mut App,
+) {
+    let handle = window.window_handle();
+    cx.spawn(async move |cx| {
+        // The view is looked up once the update is over, in case its window closed meanwhile.
+        let Ok(view) = cx.update_window(handle, |_, window, _| ns_view(window)) else {
+            return;
+        };
+        let items: Vec<MenuEntry> =
+            items.into_iter().map(|(title, enabled)| MenuEntry::new(title, enabled)).collect();
+        if let Some(index) = show_field_menu(&items, position, view) {
+            cx.update_window(handle, |_, window, cx| chosen(index, window, cx)).ok();
+        }
+    })
+    .detach();
 }
 
 /// Tells the core where the page goes and the radius of its corners (`Shell::page_frame`).
@@ -1095,6 +1141,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
     let app = gpui_platform::application().with_assets(shell::Assets).run_embedded(|cx| {
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
+        cx.set_global(FieldMenu(Rc::new(field_menu)));
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
         cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());

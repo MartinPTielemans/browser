@@ -871,7 +871,17 @@ void host_focus(void* view) {
   [ns_view.window makeFirstResponder:ns_view];
 }
 
-int host_menu(const host_menu_item* items, size_t count, double x, double y, int in, int over) {
+namespace {
+
+// Shows the menu at |x|, |y| from the top-left of |view|, after the UI in |drawn| draws what the
+// menu changed. See host_menu.
+int ShowMenu(const host_menu_item* items,
+             size_t count,
+             double x,
+             double y,
+             NSView* view,
+             NSArray<NSView*>* drawn,
+             int over) {
   HostMenuTarget* target = [[HostMenuTarget alloc] init];
   target.chosen = -1;
   NSMenu* menu = [[NSMenu alloc] init];
@@ -911,16 +921,12 @@ int host_menu(const host_menu_item* items, size_t count, double x, double y, int
       item.image = Swatch(items[i].swatch);
     }
   }
-  NSView* panel = in == HOST_IN_REVEAL     ? g_reveal_view
-                  : in == HOST_IN_SETTINGS ? g_settings_view
-                                           : nil;
   // The UI draws what the menu changed, such as its row's fill, now: it can't once the menu's
   // event loop runs.
-  for (NSView* ui in panel ? @[ panel ] : g_ui_view.subviews) {
+  for (NSView* ui in drawn) {
     [ui.layer setNeedsDisplay];
     [ui.layer displayIfNeeded];
   }
-  NSView* view = panel ?: g_window.contentView;
   NSPoint at = NSMakePoint(x, view.flipped ? y : NSHeight(view.bounds) - y);
   NSMenuItem* positioned =
       over >= 0 && static_cast<NSUInteger>(over) < made.count ? made[over] : nil;
@@ -934,6 +940,21 @@ int host_menu(const host_menu_item* items, size_t count, double x, double y, int
   [menu popUpMenuPositioningItem:positioned atLocation:at inView:view];
   g_menu = nil;
   return static_cast<int>(target.chosen);
+}
+
+}  // namespace
+
+int host_menu(const host_menu_item* items, size_t count, double x, double y, int in, int over) {
+  NSView* panel = in == HOST_IN_REVEAL     ? g_reveal_view
+                  : in == HOST_IN_SETTINGS ? g_settings_view
+                                           : nil;
+  return ShowMenu(items, count, x, y, panel ?: g_window.contentView,
+                  panel ? @[ panel ] : g_ui_view.subviews, over);
+}
+
+int host_menu_in(const host_menu_item* items, size_t count, double x, double y, void* view) {
+  NSView* in = (__bridge NSView*)view;
+  return ShowMenu(items, count, x, y, in, @[ in ], -1);
 }
 
 void host_add_settings(void* settings_view) {

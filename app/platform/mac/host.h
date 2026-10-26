@@ -139,6 +139,10 @@ typedef struct {
 // or -1.
 int host_menu(const host_menu_item* items, size_t count, double x, double y, int in, int over);
 
+// Shows a menu as host_menu does, at |x|, |y| in points from the top-left of |view|, a window's
+// content, such as a text field's context menu in whichever window has the field.
+int host_menu_in(const host_menu_item* items, size_t count, double x, double y, void* view);
+
 // Asks |message| in an alert, with |detail| under it and the |count| |buttons|, the first the
 // default and a "Cancel" one taking escape, and returns the index of the one chosen once it
 // closes.

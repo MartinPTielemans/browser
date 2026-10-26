@@ -2,16 +2,17 @@
 // b36b283021c48f1712714b8a0e2ad6ffb578920b). Copyright Zed Industries, Inc. Licensed under the
 // Apache License, Version 2.0. Changes: a constructor, `text`, `composing`, `selection`, `pasted`,
 // `reset`, `complete`, `set_text`, a placeholder colour, `set_placeholder`, key bindings scoped to
-// the field, ⌘← and ⌘→ as Home and End, and no styling of its own.
+// the field, ⌘← and ⌘→ as Home and End, a context menu, and no styling of its own.
 //
 //! A single-line text field, with IME support through GPUI's input handler. GPUI has no text
 //! field of its own; Zed's is its editor.
 
-use std::ops::Range;
+use std::{ops::Range, rc::Rc};
 
 use gpui::{
-    App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler, Entity,
-    EntityInputHandler, FocusHandle, Focusable, GlobalElementId, Hsla, KeyBinding, LayoutId, MouseButton,
+    Action, App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler,
+    Entity, EntityInputHandler, FocusHandle, Focusable, Global, GlobalElementId, Hsla, KeyBinding,
+    LayoutId, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
     SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla,
     point, prelude::*, px, relative, rgba, size,
@@ -36,8 +37,20 @@ actions!(
         Copy,
         Undo,
         Redo,
+        PasteAndGo,
+        PasteAndSearch,
     ]
 );
+
+/// Shows a field's context menu: `items`' titles, dimmed where they aren't enabled and a line for
+/// an empty one, at `position` in `window`, and calls `chosen` with the index of the one chosen
+/// once it closes. The app's, which has the platform's menus.
+pub struct FieldMenu(pub Rc<ShowMenu>);
+
+pub type ShowMenu = dyn Fn(Vec<(SharedString, bool)>, Point<Pixels>, &Window, Chosen, &mut App);
+pub type Chosen = Box<dyn FnOnce(usize, &mut Window, &mut App)>;
+
+impl Global for FieldMenu {}
 
 pub fn bind_keys(cx: &mut App) {
     let context = Some("TextInput");
@@ -79,6 +92,7 @@ pub struct TextInput {
     last_layout: Option<ShapedLine>,
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
+    paste_and_go: bool,
 }
 
 impl TextInput {
@@ -97,7 +111,15 @@ impl TextInput {
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
+            paste_and_go: false,
         }
+    }
+
+    /// Its menu has Paste and Go and Paste and Search, as an address bar's has, which dispatch
+    /// PasteAndGo and PasteAndSearch for the field's owner to take.
+    pub fn paste_and_go(mut self) -> Self {
+        self.paste_and_go = true;
+        self
     }
 
     /// The placeholder's colour, for a field on a dark background.
@@ -216,6 +238,50 @@ impl TextInput {
         } else {
             self.move_to(self.index_for_mouse_position(event.position), window, cx)
         }
+    }
+
+    /// A right-click shows the field's menu, as any Mac text field has, with the keyboard in the
+    /// field. Outside the selection, the caret moves to the click first. Paste stays enabled, as
+    /// asking what the clipboard holds before the user pastes can make macOS ask them.
+    fn on_right_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(menu) = cx.try_global::<FieldMenu>().map(|menu| menu.0.clone()) else {
+            return;
+        };
+        // The click is the field's, not the menu of a row it's in, as when renaming a tab.
+        cx.stop_propagation();
+        window.focus(&self.focus_handle, cx);
+        let at = self.index_for_mouse_position(event.position);
+        if at < self.selected_range.start || at > self.selected_range.end {
+            self.move_to(at, window, cx);
+        }
+        let selected = !self.selected_range.is_empty();
+        let mut items: Vec<(&str, bool, Option<Box<dyn Action>>)> = vec![
+            ("Cut", selected, Some(Box::new(Cut))),
+            ("Copy", selected, Some(Box::new(Copy))),
+            ("Paste", true, Some(Box::new(Paste))),
+        ];
+        if self.paste_and_go {
+            items.push(("Paste and Go", true, Some(Box::new(PasteAndGo))));
+            items.push(("Paste and Search", true, Some(Box::new(PasteAndSearch))));
+        }
+        items.push(("", false, None));
+        items.push(("Select All", !self.content.is_empty(), Some(Box::new(SelectAll))));
+        let titles = (items.iter())
+            .map(|&(title, enabled, _)| (SharedString::from(title), enabled))
+            .collect();
+        let mut actions: Vec<Option<Box<dyn Action>>> =
+            items.into_iter().map(|(_, _, action)| action).collect();
+        let chosen: Chosen = Box::new(move |index, window, cx| {
+            if let Some(action) = actions.get_mut(index).and_then(Option::take) {
+                window.dispatch_action(action, cx);
+            }
+        });
+        menu(titles, event.position, window, chosen, cx);
     }
 
     fn on_mouse_up(&mut self, _: &MouseUpEvent, _window: &mut Window, _: &mut Context<Self>) {
@@ -801,6 +867,7 @@ impl Render for TextInput {
             .on_action(|_: &Undo, _, _| {})
             .on_action(|_: &Redo, _, _| {})
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::on_right_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
