@@ -22,7 +22,8 @@ fn shell_with(
     let host = Rc::new(Recorder::default());
     let shell = cx.new(|cx| Shell::new(host.clone(), cx));
     shell.update(cx, |shell, cx| {
-        shell.set_spaces(vec![(1, "Work".into(), None, 0, "".into(), "".into())], cx);
+        let space = (1, "Work".into(), None, 0, "".into(), "".into(), "".into());
+        shell.set_spaces(vec![space], cx);
         shell.set_space(1, cx);
         shell.set_tabs(1, pinned.to_vec(), today.to_vec(), Vec::new(), folders, cx);
     });
@@ -69,7 +70,8 @@ fn drawn_shell(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContex
     let browser = host.clone();
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
     shell.update(cx, |shell, cx| {
-        shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+        let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+        shell.set_spaces(vec![space], cx);
         shell.set_space(1, cx);
     });
     cx.run_until_parked();
@@ -114,7 +116,8 @@ fn a_click_on_the_url_field_opens_the_command_bar_over_it(cx: &mut TestAppContex
     let browser = host.clone();
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
     shell.update(cx, |shell, cx| {
-        shell.set_spaces(vec![(1, "Work".into(), None, 0, "".into(), "".into())], cx);
+        let space = (1, "Work".into(), None, 0, "".into(), "".into(), "".into());
+        shell.set_spaces(vec![space], cx);
         shell.set_space(1, cx);
         shell.set_tabs(1, Vec::new(), vec![1, 2], Vec::new(), Folders::default(), cx);
         shell.set_selected(2, cx);

@@ -514,7 +514,8 @@ mod tests {
         let browser = host.clone();
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_space(1, cx);
         });
         cx.run_until_parked();
