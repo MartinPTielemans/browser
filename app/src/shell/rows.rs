@@ -1014,7 +1014,8 @@ mod tests {
         let browser = host.clone();
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space".into(), None, 1, "🌱".into(), "".into())], cx);
+            let space = (1, "Space".into(), None, 1, "🌱".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_space(1, cx);
         });
         cx.run_until_parked();
@@ -1140,7 +1141,8 @@ mod tests {
         cx.update(bind_keys);
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_space(1, cx);
         });
         // The keys reach the shell as they do with the UI focused.
@@ -1194,7 +1196,8 @@ mod tests {
         let browser = host.clone();
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_space(1, cx);
             shell.set_tabs(1, pinned, today, Vec::new(), folders, cx);
             shell.set_selected(shown, cx);

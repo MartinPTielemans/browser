@@ -22,6 +22,7 @@ use crate::{
     icon_picker::Subject,
     space_icon::{GLYPHS, SpaceIcon},
     text_input::TextInput,
+    theme::Theme,
 };
 
 #[cfg(test)]
@@ -519,12 +520,19 @@ fn replace<T: PartialEq>(kept: &mut T, value: T) -> bool {
     changed
 }
 
+/// A Space as the core reports it: its id, name, colour (0xRRGGBB), profile, icon, the name of the
+/// agent it belongs to, and its theme as `Theme` writes it.
+pub type SpaceEntry =
+    (u64, SharedString, Option<u32>, u64, SharedString, SharedString, SharedString);
+
 #[derive(Clone)]
 struct Space {
     id: u64,
     name: SharedString,
     /// 0xRRGGBB, if it has one.
     color: Option<u32>,
+    /// What Arc's theme picker made for it, whose main colour is `color`, if it has one.
+    theme: Option<Theme>,
     /// The emoji it shows in place of its dot and before its name, or empty.
     icon: SharedString,
     /// The profile its tabs open in, and its favorites' tabs unless they're each Space's own.
@@ -1336,6 +1344,7 @@ impl Shell {
             id: space,
             name,
             color: None,
+            theme: None,
             icon: SharedString::default(),
             agent: SharedString::default(),
             profile,
@@ -1553,11 +1562,7 @@ impl Shell {
 
     /// The Spaces, by id, name, colour, profile, icon and the name of the agent each belongs to,
     /// empty for the user's own, in the switcher's order.
-    pub fn set_spaces(
-        &mut self,
-        spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString, SharedString)>,
-        cx: &mut Context<Self>,
-    ) {
+    pub fn set_spaces(&mut self, spaces: Vec<SpaceEntry>, cx: &mut Context<Self>) {
         if self.private {
             return;
         }
@@ -1568,7 +1573,7 @@ impl Shell {
         let mut old = std::mem::take(&mut self.spaces);
         self.spaces = spaces
             .into_iter()
-            .map(|(id, name, color, profile, icon, agent)| {
+            .map(|(id, name, color, profile, icon, agent, theme)| {
                 let Some(space) = old.iter_mut().find(|space| space.id == id) else {
                     log!("browser: added space {id} {name}");
                     if !agent.is_empty() {
@@ -1580,11 +1585,15 @@ impl Shell {
                     if !icon.is_empty() {
                         log!("browser: iconed space {id} {icon}");
                     }
+                    if !theme.is_empty() {
+                        log!("browser: themed space {id} {theme}");
+                    }
                     log!("browser: profiled space {id} {profile}");
                     return Space {
                         id,
                         name,
                         color,
+                        theme: Theme::parse(&theme),
                         icon,
                         profile,
                         agent,
@@ -1609,10 +1618,16 @@ impl Shell {
                 if space.profile != profile {
                     log!("browser: profiled space {id} {profile}");
                 }
+                let theme = Theme::parse(&theme);
+                if space.theme != theme {
+                    let text = theme.map_or("none".to_string(), |theme| theme.to_text());
+                    log!("browser: themed space {id} {text}");
+                }
                 Space {
                     id,
                     name,
                     color,
+                    theme,
                     icon,
                     profile,
                     agent,
@@ -3571,6 +3586,7 @@ mod tests {
             id: 1,
             name: "Space 1".into(),
             color: None,
+            theme: None,
             icon: Default::default(),
             profile: 0,
             agent: Default::default(),
