@@ -95,16 +95,18 @@ expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, De
 send choose Pink
 expect "^browser: colored space $second bf556a\$" "Pink didn't give the Space its colour"
 ../tools/window-screenshot.sh "$pid" "$out/space-color.png" || fail "no window to capture"
-# Change Icon… in the Space's menu gives it an emoji from the character palette, which a relaunch
-# brings back.
+# Change Icon… in the Space's menu gives it an emoji from the icon picker's Emoji tab and the
+# character palette, which a relaunch brings back.
 pink=${colors/ (checked)/}
 post rightclick 100 112
 expect "^browser: menu shown Rename Space, Change Icon…, ${pink/Pink/Pink (checked)}, $profile, \
 Delete Space\$" "the Space's menu didn't offer Change Icon…"
 send choose Change Icon…
-expect "^browser: change space icon $second\$" \
-  "Change Icon… didn't put a field before the Space's name"
-expect '^browser: character palette shown$' "Change Icon… didn't show the character palette"
+expect "^browser: icon picker for $second on icon\$" "Change Icon… didn't open the icon picker"
+expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
+# Emoji, the left half of Emoji | Icon at the picker's top.
+send clickkey 92.5 39.5
+expect '^browser: character palette shown$' "the Emoji tab didn't show the character palette"
 send insert 🌱
 expect "^browser: iconed space $second 🌱\$" \
   "an emoji from the palette didn't become the Space's icon"

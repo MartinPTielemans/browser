@@ -7,8 +7,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent,
-    SharedString, Transformation, div, percentage, prelude::*, px, rgb, rgba, svg,
+    AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent, SharedString,
+    Transformation, canvas, div, percentage, prelude::*, px, rgb, rgba, svg,
 };
 
 use super::{
@@ -23,6 +23,7 @@ use super::{
     swap::{ARROW_DOWN, NONE, folder_glyph},
     title,
 };
+use crate::icon_picker;
 
 impl Shell {
     /// Closes every folder of the Space shown, all on one fold.
@@ -517,18 +518,30 @@ impl Shell {
 
     pub(super) fn name_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let space = self.space;
-        // Its icon, or the field changing it, before its name.
-        let changing =
-            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::SpaceIcon(space));
-        let icon = match changing {
-            Some(changing) => Some(space_icon(self.space_icon_field(changing, cx))),
-            None => (self.shown_space())
-                .filter(|each| !each.icon.is_empty())
-                .map(|each| space_icon(each.icon.clone())),
-        };
+        // A click on its icon opens the icon picker, or closes it: the click outside the picker
+        // has closed it by now, but the picker hears so only after this event.
+        let icon = (self.shown_space()).and_then(|each| space_icon(&each.icon)).map(|icon| {
+            icon.id("space-icon").on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |shell, _: &MouseDownEvent, _, cx| {
+                    cx.stop_propagation();
+                    if !icon_picker::is_open(cx) {
+                        shell.change_space_icon(space, cx);
+                    }
+                }),
+            )
+        });
+        let drawn = self.name_row_drawn.clone();
+        // Where the row is, for the icon picker to hang under.
+        let bounds = canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full();
         let row = name_box()
             .id("space-name")
             .block_mouse_except_scroll()
+            .child(bounds)
             .when_some(icon, |row, icon| row.child(icon));
         if let Some(renaming) =
             self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Space(space))

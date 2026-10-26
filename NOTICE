@@ -59,3 +59,37 @@ and rotate-cw and x scaled as nav-reload and nav-stop, at commit
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
+
+Phosphor Icons (https://github.com/phosphor-icons/core), MIT License
+Used in app/assets/icons/space/: airplane-tilt-fill, asterisk-bold, bandaids-fill, barbell-fill,
+baseball-fill, basket-fill, bed-fill, bell-fill, book-open-fill, bookmark-simple-fill,
+calendar-dots-fill, campfire-fill, cards-three-fill, chat-circle-dots-fill, check-square-fill,
+circle-fill, cloud-bold, cloud-fill, code-simple-bold, copy-fill, database-fill, dots-nine-bold,
+egg-fill, envelope-simple-fill, file-fill, flag-fill, folder-fill, fork-knife-fill, gift-fill,
+heart-fill, leaf-fill, lightbulb-fill, lightning-fill, map-trifold-fill, moon-fill, music-note-fill,
+palette-fill, paw-print-fill, pizza-fill, planet-fill, receipt-fill, shapes-fill, skull-fill,
+square-fill, squares-four-fill, stack-fill, star-fill, sun-fill, terminal-window-fill,
+thumbs-up-fill, train-simple-fill, tray-fill, triangle-fill, users-fill, video-camera-fill and
+wrench-fill, at commit 2b75f3ad12b420c9504ef05df8d2564a28f8500e.
+
+  MIT License
+
+  Copyright (c) 2023 Phosphor Icons
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.

@@ -6,6 +6,7 @@ use std::time::Instant;
 use gpui::{Context, Pixels, Point, SharedString};
 
 use super::{Command, Row, SPACE_COLORS, Shell, UserKeys, user_keys};
+use crate::space_icon::SpaceIcon;
 
 /// What an item of a menu does once chosen.
 pub(super) type MenuAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
@@ -486,11 +487,12 @@ fn space_menu_head(space: u64, has_icon: bool) -> Vec<(MenuEntry, MenuAction)> {
     items
 }
 
-/// A Space's item in the menu bar: its name, after its icon if it has one.
+/// A Space's item in the menu bar: its name, after its emoji if it has one. GPUI's menu items
+/// have no image, so a glyph isn't shown.
 pub(super) fn space_menu_label(icon: &str, name: &str) -> SharedString {
-    match icon.is_empty() {
-        true => name.to_string().into(),
-        false => format!("{icon} {name}").into(),
+    match SpaceIcon::parse(icon) {
+        SpaceIcon::Emoji(emoji) => format!("{emoji} {name}").into(),
+        SpaceIcon::Dot | SpaceIcon::Glyph(_) => name.to_string().into(),
     }
 }
 
@@ -520,10 +522,11 @@ mod tests {
         assert_eq!(titles(true), ["Rename Space", "Change Icon…", "Remove Icon"]);
     }
 
-    /// The menu bar lists a Space by its name, after its icon if it has one.
+    /// The menu bar lists a Space by its name, after its emoji if it has one.
     #[test]
-    fn the_menu_bar_names_a_space_after_its_icon() {
+    fn the_menu_bar_names_a_space_after_its_emoji() {
         assert_eq!(space_menu_label("", "Work"), "Work");
         assert_eq!(space_menu_label("🙂", "Work"), "🙂 Work");
+        assert_eq!(space_menu_label("glyph:star", "Work"), "Work");
     }
 }

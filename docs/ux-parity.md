@@ -135,7 +135,8 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
 | [x] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
 | [ ] | Colour cross-fade | MVP | built: the gradient is as much of each Space's colour as its page shows, in a swipe and a switch's slide *interim*; Arc's duration: measure | Ardia |
-| [ ] | Space title, create, colour, icon | MVP | built: the Create a Space form (Arc's), a Color submenu and Change Icon… with the system's palette *interim*; Arc's title, colour and icon flows: measure. In progress: Arc's Space icon picker | — |
+| [ ] | Space title, create, colour, icon | MVP | built: the Create a Space form (Arc's), a Color submenu and Change Icon… opening Arc's icon picker (below); Arc's title, colour and icon flows: measure | — |
+| [x] | Space icon picker | MVP | popover 273 × 273 at radius 20 under the name, arrow at the icon; Emoji \| Icon and a trash; 56 glyphs 8 × 7 on a 31 pitch (Phosphor's), the Space's on a white 0.25 plate; Emoji tab a field and the palette *interim*; motion and hover: measure | Arc 1.170.0 cap |
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks in Arc's dialog if it has tabs | Arc, ours |
 | [x] | Undo delete | MVP | the toast says "Space deleted! Use ⌘Z to undo." for 5 s; ⌘Z brings the Space back where it was, with its tabs, and pages to it | Arc 1.170 rec |
 | [x] | Undo delete motion | MVP | the switch's slide *interim*; Arc's: measure | Arc |

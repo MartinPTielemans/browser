@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <initializer_list>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
@@ -284,27 +285,45 @@ Browser* FrontBrowser() {
   return nullptr;
 }
 
-// The command bar's window and view, and the browser it shows over.
-Browser* g_overlay_over;
-NSWindow* g_overlay;
-NSView* g_overlay_view;
-bool g_overlay_shown = false;
-void (*g_overlay_dismissed)(void);
-double g_overlay_radius;
-
-// The command bar's shadow, Arc's: soft and even on every side (Arc 1.170.0 cap over a light page,
-// fitted to a Gaussian). It's a window of its own under the bar's that the mouse goes through, so a
-// click on it lands on the browser window and closes the bar as any click outside it does, and the
-// bar's window keeps the bar's frame.
-NSWindow* g_overlay_shadow;
-CALayer* g_overlay_shadow_layer;
-CAShapeLayer* g_overlay_shadow_mask;
-// The shadow's window goes on screen with the bar's first show over a browser window and stays
-// there, shown and hidden by its alpha, since putting a window on screen cost each ⌘T about 4 ms.
+// The overlays' shadow, Arc's command bar's: soft and even on every side (Arc 1.170.0 cap over a
+// light page, fitted to a Gaussian). It's a window of its own under the overlay's that the mouse
+// goes through, so a click on it lands on the browser window and closes the overlay as any click
+// outside it does, and the overlay's window keeps the overlay's frame. It goes on screen with the
+// overlay's first show over a browser window and stays there, shown and hidden by its alpha, since
+// putting a window on screen cost each ⌘T about 4 ms.
 constexpr double kOverlayShadowRadius = 20;
 constexpr float kOverlayShadowOpacity = 0.23;
 // Past this, three times the blur, the shadow is nothing.
 constexpr double kOverlayShadowReach = 3 * kOverlayShadowRadius;
+
+// A window of the UI's over a browser window's page, translucent over a blur, with a shadow: the
+// command bar, or the Space's icon picker.
+struct Overlay {
+  explicit Overlay(const char* name) : name(name) {}
+  // What its log lines call it, which check.sh reads.
+  const char* name;
+  NSWindow* window = nil;
+  NSView* view = nil;
+  HostBlurView* blur = nil;
+  // The browser it shows over.
+  Browser* over = nullptr;
+  bool shown = false;
+  void (*dismissed)(void) = nullptr;
+  double radius = 0;
+  // From host_set_overlay_shape: x, y and radius for each corner, else it's a rounded rectangle.
+  std::vector<double> corners;
+  NSWindow* shadow = nil;
+  CALayer* shadow_layer = nil;
+  CAShapeLayer* shadow_mask = nil;
+};
+
+Overlay g_overlays[] = {Overlay("command bar"), Overlay("icon picker")};
+
+Overlay* OverlayAt(int index) {
+  return index >= 0 && index < int(std::size(g_overlays)) && g_overlays[index].window
+             ? &g_overlays[index]
+             : nullptr;
+}
 
 // The dialog's window and view, and the browser it shows over.
 Browser* g_dialog_over;
@@ -427,33 +446,102 @@ void PlaceTooltip() {
                                         NSMaxY(content) - g_tooltip_top - size.height)];
 }
 
-// Around the command bar by the shadow's reach, with the bar's shape cut out of it, since what's
-// under the translucent bar shows through it.
-void PlaceOverlayShadow() {
-  const NSRect bar = g_overlay.frame;
-  const NSRect frame = NSInsetRect(bar, -kOverlayShadowReach, -kOverlayShadowReach);
-  if (NSEqualRects(frame, g_overlay_shadow.frame)) {
+// The overlay's shape filling |bounds|, in coordinates whose y goes up, as Core Graphics draws.
+CGPathRef OverlayPath(const Overlay& overlay, CGRect bounds) {
+  const size_t count = overlay.corners.size() / 3;
+  if (count < 3) {
+    return CGPathCreateWithRoundedRect(bounds, overlay.radius, overlay.radius, nullptr);
+  }
+  auto corner = [&](size_t index) {
+    const double* at = &overlay.corners[3 * (index % count)];
+    return CGPointMake(CGRectGetMinX(bounds) + at[0], CGRectGetMaxY(bounds) - at[1]);
+  };
+  CGMutablePathRef path = CGPathCreateMutable();
+  // From the middle of the last side, so each corner rounds between its two sides.
+  const CGPoint first = corner(0);
+  const CGPoint last = corner(count - 1);
+  CGPathMoveToPoint(path, nullptr, (first.x + last.x) / 2, (first.y + last.y) / 2);
+  for (size_t index = 0; index < count; index++) {
+    const CGPoint at = corner(index);
+    const CGPoint next = corner(index + 1);
+    CGPathAddArcToPoint(path, nullptr, at.x, at.y, next.x, next.y,
+                        overlay.corners[3 * index + 2]);
+  }
+  CGPathCloseSubpath(path);
+  return path;
+}
+
+// Under the UI's view, in the overlay's shape at the window's size, so nothing shows outside it.
+void MaskOverlayBlur(Overlay& overlay) {
+  const NSSize size = overlay.window.frame.size;
+  if (overlay.corners.empty()) {
+    const double radius = overlay.radius;
+    NSImage* mask = [NSImage imageWithSize:NSMakeSize(2 * radius + 1, 2 * radius + 1)
+                                   flipped:NO
+                            drawingHandler:^BOOL(NSRect rect) {
+                              [NSColor.blackColor setFill];
+                              [[NSBezierPath bezierPathWithRoundedRect:rect
+                                                               xRadius:radius
+                                                               yRadius:radius] fill];
+                              return YES;
+                            }];
+    mask.capInsets = NSEdgeInsetsMake(radius, radius, radius, radius);
+    mask.resizingMode = NSImageResizingModeStretch;
+    overlay.blur.maskImage = mask;
     return;
   }
-  [g_overlay_shadow setFrame:frame display:NO];
+  Overlay* shaped = &overlay;
+  NSImage* mask = [NSImage imageWithSize:size
+                                 flipped:NO
+                          drawingHandler:^BOOL(NSRect rect) {
+                            CGContextRef context = NSGraphicsContext.currentContext.CGContext;
+                            CGPathRef path = OverlayPath(*shaped, rect);
+                            CGContextAddPath(context, path);
+                            CGContextSetFillColorWithColor(context, NSColor.blackColor.CGColor);
+                            CGContextFillPath(context);
+                            CGPathRelease(path);
+                            return YES;
+                          }];
+  // Drawn at the window's size, but stretched rather than tiled if the view's differs.
+  mask.resizingMode = NSImageResizingModeStretch;
+  overlay.blur.maskImage = mask;
+}
+
+// Around the overlay by the shadow's reach, with the overlay's shape cut out of it, since what's
+// under the translucent overlay shows through it.
+void PlaceOverlayShadow(Overlay& overlay) {
+  const NSRect frame =
+      NSInsetRect(overlay.window.frame, -kOverlayShadowReach, -kOverlayShadowReach);
+  if (NSEqualRects(frame, overlay.shadow.frame)) {
+    return;
+  }
+  [overlay.shadow setFrame:frame display:NO];
   const CGRect bounds = CGRectMake(0, 0, NSWidth(frame), NSHeight(frame));
-  CGPathRef shape = CGPathCreateWithRoundedRect(
-      CGRectInset(bounds, kOverlayShadowReach, kOverlayShadowReach), g_overlay_radius,
-      g_overlay_radius, nullptr);
+  CGPathRef shape =
+      OverlayPath(overlay, CGRectInset(bounds, kOverlayShadowReach, kOverlayShadowReach));
   CGMutablePathRef outside = CGPathCreateMutable();
   CGPathAddRect(outside, nullptr, bounds);
   CGPathAddPath(outside, nullptr, shape);
   // At once, not animated to the new size.
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
-  g_overlay_shadow_layer.superlayer.frame = bounds;
-  g_overlay_shadow_layer.frame = bounds;
-  g_overlay_shadow_layer.shadowPath = shape;
-  g_overlay_shadow_mask.frame = bounds;
-  g_overlay_shadow_mask.path = outside;
+  overlay.shadow_layer.superlayer.frame = bounds;
+  overlay.shadow_layer.frame = bounds;
+  overlay.shadow_layer.shadowPath = shape;
+  overlay.shadow_mask.frame = bounds;
+  overlay.shadow_mask.path = outside;
   [CATransaction commit];
   CGPathRelease(outside);
   CGPathRelease(shape);
+}
+
+// Puts the overlays showing over |browser| above |window|, one of its child windows.
+void RaiseOverlays(Browser* browser, NSWindow* window) {
+  for (Overlay& overlay : g_overlays) {
+    if (overlay.shown && overlay.over == browser) {
+      [overlay.window orderWindow:NSWindowAbove relativeTo:window.windowNumber];
+    }
+  }
 }
 
 // 8 points below the find bar while it shows, where the HUD would cover it.
@@ -544,8 +632,11 @@ void host_show_window(void* ui_view) {
                                                 each->find_bar_keyboard = true;
                                               }
                                             }
-                                            if (event.window != g_overlay) {
-                                              host_dismiss_overlay();
+                                            for (int index = 0;
+                                                 index < int(std::size(g_overlays)); index++) {
+                                              if (event.window != g_overlays[index].window) {
+                                                host_dismiss_overlay(index);
+                                              }
                                             }
                                             return event;
                                           }];
@@ -618,8 +709,10 @@ void host_forget_window(void* ui_view) {
   if (!browser) {
     return;
   }
-  if (g_overlay_shown && g_overlay_over == browser) {
-    host_dismiss_overlay();
+  for (int index = 0; index < int(std::size(g_overlays)); index++) {
+    if (g_overlays[index].shown && g_overlays[index].over == browser) {
+      host_dismiss_overlay(index);
+    }
   }
   if (g_dialog_shown && g_dialog_over == browser) {
     host_hide_dialog();
@@ -652,69 +745,65 @@ void host_forget_window(void* ui_view) {
   browser->reveal_view = nil;
 }
 
-void host_add_overlay(void* overlay_view, double radius, void (*dismissed)(void)) {
-  g_overlay_view = (__bridge NSView*)overlay_view;
-  g_overlay_dismissed = dismissed;
-  g_overlay_radius = radius;
-  g_overlay = g_overlay_view.window;
-  MakeOverlay(g_overlay);
-  // The UI draws the bar's rounded shape, translucent, over the blur, and the shadow is its own
+void host_add_overlay(int index, void* overlay_view, double radius, void (*dismissed)(void)) {
+  if (index < 0 || index >= int(std::size(g_overlays))) {
+    return;
+  }
+  Overlay& overlay = g_overlays[index];
+  overlay.view = (__bridge NSView*)overlay_view;
+  overlay.dismissed = dismissed;
+  overlay.radius = radius;
+  overlay.window = overlay.view.window;
+  MakeOverlay(overlay.window);
+  // The UI draws the overlay's shape, translucent, over the blur, and the shadow is its own
   // window. A titled window would draw its edge at the window's full size.
-  g_overlay.styleMask = NSWindowStyleMaskBorderless;
-  g_overlay.hasShadow = NO;
-  // Under the UI's view, in the bar's shape, so nothing shows outside its corners.
-  HostBlurView* blur = [[HostBlurView alloc] initWithFrame:g_overlay_view.frame];
-  blur.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  blur.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-  blur.material = NSVisualEffectMaterialUnderWindowBackground;
-  blur.state = NSVisualEffectStateActive;
-  NSImage* mask = [NSImage imageWithSize:NSMakeSize(2 * radius + 1, 2 * radius + 1)
-                                 flipped:NO
-                          drawingHandler:^BOOL(NSRect rect) {
-                            [NSColor.blackColor setFill];
-                            [[NSBezierPath bezierPathWithRoundedRect:rect
-                                                             xRadius:radius
-                                                             yRadius:radius] fill];
-                            return YES;
-                          }];
-  mask.capInsets = NSEdgeInsetsMake(radius, radius, radius, radius);
-  mask.resizingMode = NSImageResizingModeStretch;
-  blur.maskImage = mask;
-  [g_overlay_view.superview addSubview:blur positioned:NSWindowBelow relativeTo:g_overlay_view];
-  g_overlay_shadow = [[NSWindow alloc] initWithContentRect:NSZeroRect
-                                                 styleMask:NSWindowStyleMaskBorderless
-                                                   backing:NSBackingStoreBuffered
-                                                     defer:YES];
-  g_overlay_shadow.releasedWhenClosed = NO;
-  g_overlay_shadow.opaque = NO;
-  g_overlay_shadow.backgroundColor = NSColor.clearColor;
-  g_overlay_shadow.hasShadow = NO;
-  g_overlay_shadow.ignoresMouseEvents = YES;
-  NSView* shadow_view = g_overlay_shadow.contentView;
+  overlay.window.styleMask = NSWindowStyleMaskBorderless;
+  overlay.window.hasShadow = NO;
+  overlay.blur = [[HostBlurView alloc] initWithFrame:overlay.view.frame];
+  overlay.blur.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  overlay.blur.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+  overlay.blur.material = NSVisualEffectMaterialUnderWindowBackground;
+  overlay.blur.state = NSVisualEffectStateActive;
+  MaskOverlayBlur(overlay);
+  [overlay.view.superview addSubview:overlay.blur
+                          positioned:NSWindowBelow
+                          relativeTo:overlay.view];
+  overlay.shadow = [[NSWindow alloc] initWithContentRect:NSZeroRect
+                                               styleMask:NSWindowStyleMaskBorderless
+                                                 backing:NSBackingStoreBuffered
+                                                   defer:YES];
+  overlay.shadow.releasedWhenClosed = NO;
+  overlay.shadow.opaque = NO;
+  overlay.shadow.backgroundColor = NSColor.clearColor;
+  overlay.shadow.hasShadow = NO;
+  overlay.shadow.ignoresMouseEvents = YES;
+  NSView* shadow_view = overlay.shadow.contentView;
   shadow_view.wantsLayer = YES;
   // The mask is on a layer holding the shadow's, since a layer's own mask doesn't cut its shadow.
   CALayer* holder = [CALayer layer];
-  g_overlay_shadow_mask = [CAShapeLayer layer];
-  g_overlay_shadow_mask.fillRule = kCAFillRuleEvenOdd;
-  holder.mask = g_overlay_shadow_mask;
-  g_overlay_shadow_layer = [CALayer layer];
-  g_overlay_shadow_layer.shadowColor = NSColor.blackColor.CGColor;
-  g_overlay_shadow_layer.shadowOpacity = kOverlayShadowOpacity;
-  g_overlay_shadow_layer.shadowRadius = kOverlayShadowRadius;
-  g_overlay_shadow_layer.shadowOffset = CGSizeZero;
-  [holder addSublayer:g_overlay_shadow_layer];
+  overlay.shadow_mask = [CAShapeLayer layer];
+  overlay.shadow_mask.fillRule = kCAFillRuleEvenOdd;
+  holder.mask = overlay.shadow_mask;
+  overlay.shadow_layer = [CALayer layer];
+  overlay.shadow_layer.shadowColor = NSColor.blackColor.CGColor;
+  overlay.shadow_layer.shadowOpacity = kOverlayShadowOpacity;
+  overlay.shadow_layer.shadowRadius = kOverlayShadowRadius;
+  overlay.shadow_layer.shadowOffset = CGSizeZero;
+  [holder addSublayer:overlay.shadow_layer];
   [shadow_view.layer addSublayer:holder];
-  // The window grows and shrinks from its top with the rows. Until the frame at the new size lands,
-  // the last one stays as drawn at the top; scaled to the window, it stretched or squashed them.
-  g_overlay_view.layer.contentsGravity = kCAGravityTopLeft;
-  // The overlay closes when the user leaves it: a click outside it, another window taking the
+  // The command bar grows and shrinks from its top with the rows. Until the frame at the new size
+  // lands, the last one stays as drawn at the top; scaled to the window, it stretched or squashed
+  // them.
+  overlay.view.layer.contentsGravity = kCAGravityTopLeft;
+  // An overlay closes when the user leaves it: a click outside it, another window taking the
   // keyboard, or switching apps.
+  Overlay* each = &overlay;
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
   [center addObserverForName:NSApplicationDidResignActiveNotification
                       object:nil
                        queue:nil
                   usingBlock:^(NSNotification*) {
-                    host_dismiss_overlay();
+                    host_dismiss_overlay(index);
                   }];
   // Chromium makes its window key by itself, such as when a page commits and its view replaces
   // the one that had focus. That isn't the user leaving, so the overlay takes the keyboard back.
@@ -724,42 +813,67 @@ void host_add_overlay(void* overlay_view, double radius, void (*dismissed)(void)
                   usingBlock:^(NSNotification* notification) {
                     NSWindow* window = notification.object;
                     Browser* browser = BrowserOf(window);
-                    if (g_overlay_shown && window != g_overlay) {
-                      if (browser == g_overlay_over) {
-                        [g_overlay makeKeyWindow];
+                    if (each->shown && window != each->window) {
+                      if (browser == each->over) {
+                        [each->window makeKeyWindow];
                       } else {
-                        host_dismiss_overlay();
+                        host_dismiss_overlay(index);
                       }
-                    } else if (!g_overlay_shown && !g_dialog_shown && browser &&
-                               browser->find_bar_shown && browser->find_bar_keyboard) {
+                    } else if (index == 0 && !g_dialog_shown && browser &&
+                               browser->find_bar_shown && browser->find_bar_keyboard &&
+                               std::none_of(std::begin(g_overlays), std::end(g_overlays),
+                                            [](const Overlay& other) { return other.shown; })) {
                       // The same for the find bar, which the user left only by clicking.
                       [browser->find_bar makeKeyWindow];
                     }
                   }];
 }
 
-void host_show_overlay(void* ui_view, bool centered, double left, double top, double width) {
+void host_set_overlay_shape(int index, const double* corners, size_t count) {
+  Overlay* overlay = OverlayAt(index);
+  if (!overlay) {
+    return;
+  }
+  overlay->corners.assign(corners, corners + 3 * count);
+  MaskOverlayBlur(*overlay);
+  // Drawn again at its next show.
+  [overlay->shadow setFrame:NSZeroRect display:NO];
+}
+
+void host_show_overlay(int index,
+                       void* ui_view,
+                       bool centered,
+                       double left,
+                       double top,
+                       double width) {
+  Overlay* overlay = OverlayAt(index);
   Browser* browser = BrowserWithView(ui_view);
-  if (!g_overlay || !browser || !browser->window) {
+  if (!overlay || !browser || !browser->window) {
     return;
   }
-  if (g_overlay_shown && g_overlay_over == browser) {
-    [g_overlay makeKeyAndOrderFront:nil];
+  if (overlay->shown && overlay->over == browser) {
+    [overlay->window makeKeyAndOrderFront:nil];
     return;
   }
-  host_hide_overlay();
-  g_overlay_shown = true;
-  g_overlay_over = browser;
+  // One overlay at a time, as one has the keyboard.
+  for (int other = 0; other < int(std::size(g_overlays)); other++) {
+    if (other != index) {
+      host_dismiss_overlay(other);
+    }
+  }
+  host_hide_overlay(index);
+  overlay->shown = true;
+  overlay->over = browser;
   // The window still holds what it drew when it last closed, such as the previous query. It goes
   // on screen once the UI has drawn it as it is now, which can't happen while the UI is still
   // handling the shortcut that opened it.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_overlay_shown || g_overlay_over != browser) {
+    if (!overlay->shown || overlay->over != browser) {
       return;
     }
     NSWindow* window = browser->window;
     NSRect content = [window contentRectForFrameRect:window.frame];
-    const double height = NSHeight(g_overlay.frame);
+    const double height = NSHeight(overlay->window.frame);
     NSRect frame;
     if (centered) {
       // Centred, with its top 0.322 of the way down, where Arc's is: y 305.5 in a window 949 tall.
@@ -770,65 +884,72 @@ void host_show_overlay(void* ui_view, bool centered, double left, double top, do
                          fmin(width, NSWidth(content) - left - 8), height);
     }
     // At its new size before it draws, so it draws once.
-    [g_overlay setFrame:frame display:NO];
-    [g_overlay_view.layer setNeedsDisplay];
-    [g_overlay_view.layer displayIfNeeded];
-    PlaceOverlayShadow();
-    g_overlay_shadow.alphaValue = 1;
-    if (g_overlay_shadow.parentWindow != window) {
-      [g_overlay_shadow.parentWindow removeChildWindow:g_overlay_shadow];
-      [window addChildWindow:g_overlay_shadow ordered:NSWindowAbove];
+    [overlay->window setFrame:frame display:NO];
+    [overlay->view.layer setNeedsDisplay];
+    [overlay->view.layer displayIfNeeded];
+    PlaceOverlayShadow(*overlay);
+    overlay->shadow.alphaValue = 1;
+    if (overlay->shadow.parentWindow != window) {
+      [overlay->shadow.parentWindow removeChildWindow:overlay->shadow];
+      [window addChildWindow:overlay->shadow ordered:NSWindowAbove];
     }
-    [window addChildWindow:g_overlay ordered:NSWindowAbove];
-    [g_overlay makeKeyAndOrderFront:nil];
+    [window addChildWindow:overlay->window ordered:NSWindowAbove];
+    [overlay->window makeKeyAndOrderFront:nil];
     // check.sh reads these lines.
-    fprintf(stderr, "browser: command bar at %g %g %g %g\n",
+    fprintf(stderr, "browser: %s at %g %g %g %g\n", overlay->name,
             NSMinX(frame) - NSMinX(content), NSMaxY(content) - NSMaxY(frame), NSWidth(frame),
             NSHeight(frame));
-    fprintf(stderr, "browser: command bar shown\n");
+    fprintf(stderr, "browser: %s shown\n", overlay->name);
   });
 }
 
-void host_set_overlay_height(double height) {
+void host_set_overlay_height(int index, double height) {
+  Overlay* overlay = OverlayAt(index);
+  if (!overlay) {
+    return;
+  }
   // After the UI's update that asked, since the overlay draws at its new size here.
   dispatch_async(dispatch_get_main_queue(), ^{
-    if (!g_overlay || NSHeight(g_overlay.frame) == height) {
+    if (NSHeight(overlay->window.frame) == height) {
       return;
     }
-    NSRect frame = g_overlay.frame;
+    NSRect frame = overlay->window.frame;
     // Keeping its top edge, so the rows grow down from the input.
-    [g_overlay setFrame:NSMakeRect(NSMinX(frame), NSMaxY(frame) - height, NSWidth(frame), height)
-                display:NO];
-    [g_overlay_view.layer setNeedsDisplay];
-    [g_overlay_view.layer displayIfNeeded];
-    PlaceOverlayShadow();
-    fprintf(stderr, "browser: command bar height %g\n", height);
+    [overlay->window
+        setFrame:NSMakeRect(NSMinX(frame), NSMaxY(frame) - height, NSWidth(frame), height)
+         display:NO];
+    [overlay->view.layer setNeedsDisplay];
+    [overlay->view.layer displayIfNeeded];
+    PlaceOverlayShadow(*overlay);
+    fprintf(stderr, "browser: %s height %g\n", overlay->name, height);
   });
 }
 
-void host_hide_overlay(void) {
-  if (!g_overlay_shown) {
+void host_hide_overlay(int index) {
+  Overlay* overlay = OverlayAt(index);
+  if (!overlay || !overlay->shown) {
     return;
   }
-  g_overlay_shown = false;
-  Browser* browser = g_overlay_over;
-  [browser->window removeChildWindow:g_overlay];
-  [g_overlay orderOut:nil];
-  g_overlay_shadow.alphaValue = 0;
+  overlay->shown = false;
+  Browser* browser = overlay->over;
+  [browser->window removeChildWindow:overlay->window];
+  [overlay->window orderOut:nil];
+  overlay->shadow.alphaValue = 0;
   [browser->find_bar_shown && browser->find_bar_keyboard ? browser->find_bar : browser->window
       makeKeyWindow];
-  fprintf(stderr, "browser: command bar hidden\n");
+  fprintf(stderr, "browser: %s hidden\n", overlay->name);
 }
 
-void host_dismiss_overlay(void) {
-  if (!g_overlay_shown) {
+void host_dismiss_overlay(int index) {
+  Overlay* overlay = OverlayAt(index);
+  if (!overlay || !overlay->shown) {
     return;
   }
-  host_hide_overlay();
+  host_hide_overlay(index);
   // Posted: the UI may be handling the event that closed the overlay.
-  if (g_overlay_dismissed) {
+  if (void (*dismissed)(void) = overlay->dismissed) {
     dispatch_async(dispatch_get_main_queue(), ^{
-      g_overlay_dismissed();
+      dismissed();
     });
   }
 }
@@ -876,8 +997,8 @@ void host_show_find_bar(void* ui_view, bool keyboard) {
     if (browser->find_bar_keyboard) {
       // From the command bar too, which closes.
       [find_bar makeKeyAndOrderFront:nil];
-    } else if (g_overlay_shown && g_overlay_over == browser) {
-      [g_overlay orderWindow:NSWindowAbove relativeTo:find_bar.windowNumber];
+    } else {
+      RaiseOverlays(browser, find_bar);
     }
     if (g_hud_shown && g_hud_over == browser) {
       PlaceHud();
@@ -962,9 +1083,7 @@ void host_show_hud(void* ui_view) {
     if (browser->find_bar_shown) {
       [g_hud orderWindow:NSWindowAbove relativeTo:browser->find_bar.windowNumber];
     }
-    if (g_overlay_shown) {
-      [g_overlay orderWindow:NSWindowAbove relativeTo:g_hud.windowNumber];
-    }
+    RaiseOverlays(browser, g_hud);
     fprintf(stderr, "browser: zoom hud shown\n");
   });
 }
@@ -1125,9 +1244,7 @@ void host_show_toast(void* ui_view) {
     [g_toast_view.layer setNeedsDisplay];
     [g_toast_view.layer displayIfNeeded];
     [browser->window addChildWindow:g_toast ordered:NSWindowAbove];
-    if (g_overlay_shown) {
-      [g_overlay orderWindow:NSWindowAbove relativeTo:g_toast.windowNumber];
-    }
+    RaiseOverlays(browser, g_toast);
     fprintf(stderr, "browser: toast window shown\n");
   });
 }
@@ -1197,9 +1314,7 @@ void host_show_tooltip(void* ui_view, double left, double top) {
       return;
     }
     [browser->window addChildWindow:g_tooltip ordered:NSWindowAbove];
-    if (g_overlay_shown) {
-      [g_overlay orderWindow:NSWindowAbove relativeTo:g_tooltip.windowNumber];
-    }
+    RaiseOverlays(browser, g_tooltip);
   });
 }
 

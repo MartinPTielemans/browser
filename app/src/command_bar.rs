@@ -69,8 +69,8 @@ pub const TOP: f32 = 0.322;
 const BESIDE_END: f32 = 70.;
 /// Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
 const FILL: u32 = 0x1919_19db;
-const OUTLINE: u32 = 0x040404;
-const EDGE: u32 = 0x59595d;
+pub(crate) const OUTLINE: u32 = 0x040404;
+pub(crate) const EDGE: u32 = 0x59595d;
 const LINE_COLOR: u32 = 0xffff_ff1a;
 const TITLE: u32 = 0xffff_ffd9;
 const DIM: u32 = 0xffff_ff59;

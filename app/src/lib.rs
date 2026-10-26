@@ -14,7 +14,9 @@ macro_rules! log {
 
 pub mod command_bar;
 pub mod dialog;
+pub mod icon_picker;
 pub mod shell;
+pub mod space_icon;
 pub mod text_input;
 pub mod toast;
 pub mod tooltip;
