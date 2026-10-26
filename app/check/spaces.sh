@@ -7,12 +7,13 @@
 # wheel's tick across pages once. A tab's menu moves the tab to another Space, which the window
 # shows with it. Return with no name does nothing, New Space from the footer's + shows a form
 # already open, and Cancel deletes its Space and goes back. A right-click on the Space's name or a
-# dot shows Rename Space, its colours and Delete Space. Rename, and a double-click on the name, turn
-# it into a field, where a right-click shows the field's menu, return keeps the name and escape
-# cancels. Delete asks first for a Space with tabs, in a dialog that a click around cancels and
-# return confirms, and the Space goes once the dialog has, which a toast says. ⌘Z brings it back
-# where it was, with its name and tabs. Its tabs close with it and reopen with ⇧⌘T in the Space
-# shown, which ⌘Z then leaves out, and the last Space can't be deleted.
+# dot shows Rename Space, its colours and Delete Space. Rename, the Spaces menu's too, and a
+# double-click on the name, turn it into a field, where a right-click shows the field's menu,
+# return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog
+# that a click around cancels and return confirms, and the Space goes once the dialog has, which a
+# toast says. ⌘Z brings it back where it was, with its name and tabs. Its tabs close with it and
+# reopen with ⇧⌘T in the Space shown, which ⌘Z then leaves out, and the last Space can't be
+# deleted. The Spaces menu lists the Spaces, and its names show them.
 
 # Spaces. A new one is empty, and each keeps its tabs and the one it showed last.
 page='data:text/html,<title>loading</title>
@@ -217,6 +218,11 @@ expect_tabs "$b" "$b" "after Cancel"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle after Cancel"
 show_space "key 1 ctrl" select-space ui "$first" "$a"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
+# The Spaces menu lists the Spaces by name, and a name shows its Space.
+show_space "menu reading 日本語" select-space ui "$second" "$b"
+expect "^browser: settled space $second\$" "the Space the menu showed didn't settle"
+show_space "key 1 ctrl" select-space ui "$first" "$a"
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 
 # A right-click on the Space's name or its dot shows the Space's menu, as in Arc.
 name_point="100 112"
@@ -243,6 +249,12 @@ send type gone
 send key escape
 expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 none_since '^browser: renamed space' || fail "escape in the name's field renamed the Space"
+# Rename Space in the Spaces menu turns the name of the Space shown into a field too.
+send menu Rename Space
+expect '^browser: command rename-space via ui$' "Rename Space in the menu didn't run rename-space"
+expect "^browser: rename space $first\$" "Rename Space in the menu didn't open the name's field"
+send key escape
+expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 # Deleting a Space with tabs asks first, in a dialog over the window, and a click around it cancels.
 # Return deletes the Space once the dialog has gone. Its tabs close with it, and ⇧⌘T reopens them
 # here.
@@ -318,5 +330,5 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel deletes a new Space and goes back to the Space it was made from. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. Windows: $out/swipe.png, $out/library-swipe.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, and fingers let go short of halfway put it back; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel deletes a new Space and goes back to the Space it was made from. A right-click on a Space's name or dot shows Rename, its colours and Delete; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Windows: $out/swipe.png, $out/library-swipe.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"

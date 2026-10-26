@@ -351,7 +351,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Other browser keys only if the page doesn't keep them | MVP | yes | Chrome, AGENTS.md |
 | [x] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar | Arc (Ardia) |
 | [ ] | Every command rebindable | MVP | Settings › Keyboard Shortcuts | Dia P§22 |
-| [ ] | Full table in the spec | MVP | ux-spec.md › Keyboard | Dia, Chrome |
+| [x] | Full table in the spec | MVP | ux-spec.md › Keyboard: every key marked built or with its feature | Dia, Chrome |
 | [ ] | Arc's keys not yet recorded | MVP | Back to Pinned URL and Search Tabs: measure; the rest are its menus' | Arc 1.170.0 menus |
 | [x] | Menu bar | MVP | Arc's menus in Arc's order, with the commands the browser has | Arc 1.170.0 menus |
 | [x] | Edit menu in pages | MVP | Undo, Redo, Cut, Copy, Paste, Select All reach the focused page or field | Arc 1.170.0 menus |
@@ -360,7 +360,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Clear Cache and Refresh, Clear Cookies and Refresh | MVP | View menu and command bar; the page's site only, then reload | Arc 1.170.0 menus, cap |
 | [x] | Page context menu | MVP | Chrome's, without what the window can't do yet *interim*; its tab dialogs, such as print preview, centred over the page at its top | Chrome |
 | [ ] | Arc's page menu items | MVP | measure | Arc |
-| [ ] | Arc's other menu items | MVP | windows, Developer › Network Inspector and Toggle Developer Mode, Space 1–9, View History, Help, as each feature lands | Arc 1.170.0 menus |
+| [x] | Space list, Rename Space, View History, Services, Essential Keyboard Shortcuts | MVP | Spaces by name with ⌃1–⌃9; ⌘Y opens Chrome's history page; Help opens Settings › Shortcuts | Arc 1.170.0 menus |
+| [ ] | Arc's other menu items | MVP | windows, Developer › Network Inspector and Toggle Developer Mode, Edit Theme…, Change Profile, Manage Spaces…, Help's service items, as each feature lands | Arc 1.170.0 menus |
 
 ## Phase 4
 

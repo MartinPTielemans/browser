@@ -76,6 +76,8 @@ pub enum Command {
     /// Opens Chrome's extensions page in a new tab.
     ManageExtensions,
     NewSpace,
+    /// Shows the Space shown with its name in a field.
+    RenameSpace,
     /// The Space at this index in the switcher.
     SelectSpace(usize),
     NextSpace,
@@ -107,8 +109,12 @@ pub enum Command {
     /// Focuses the split view's page right of the focused one, or left of it.
     NextPane,
     PreviousPane,
+    /// Opens Chrome's history page in a new tab.
+    ViewHistory,
     /// Opens the Settings window, or brings it to the front.
     Settings,
+    /// Opens the Settings window on its Shortcuts tab.
+    KeyboardShortcuts,
     Quit,
 }
 
@@ -172,6 +178,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-s", Command::ToggleSidebar, false),
     ("shift-cmd-l", Command::ViewLibrary, false),
     ("shift-cmd-j", Command::ViewDownloads, false),
+    ("cmd-y", Command::ViewHistory, false),
     // ⌃+ is ⌃⇧= on most layouts, as ⌘+ is.
     ("ctrl-+", Command::AddSplit, false),
     ("ctrl-shift-=", Command::AddSplit, false),
@@ -237,6 +244,7 @@ const BAR_COMMANDS: &[(&str, Command)] = &[
     ("Open Task Manager", Command::TaskManager),
     ("Manage Extensions", Command::ManageExtensions),
     ("New Space", Command::NewSpace),
+    ("Rename Space", Command::RenameSpace),
     ("Next Space", Command::NextSpace),
     ("Previous Space", Command::PreviousSpace),
     ("Next Tab", Command::NextTab),
@@ -244,7 +252,9 @@ const BAR_COMMANDS: &[(&str, Command)] = &[
     ("View Library", Command::ViewLibrary),
     ("View Archive", Command::ViewArchive),
     ("View Downloads", Command::ViewDownloads),
+    ("View History", Command::ViewHistory),
     ("Settings", Command::Settings),
+    ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts),
 ];
 
 /// The most commands the command bar lists at once.
@@ -422,6 +432,7 @@ impl Command {
             Command::TaskManager => "task-manager",
             Command::ManageExtensions => "manage-extensions",
             Command::NewSpace => "new-space",
+            Command::RenameSpace => "rename-space",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
@@ -440,7 +451,9 @@ impl Command {
             Command::MovePaneRight => "move-pane-right",
             Command::NextPane => "next-pane",
             Command::PreviousPane => "previous-pane",
+            Command::ViewHistory => "view-history",
             Command::Settings => "settings",
+            Command::KeyboardShortcuts => "keyboard-shortcuts",
             Command::Quit => "quit",
         }
     }
@@ -512,7 +525,7 @@ pub fn shown_tab(cx: &App) -> u64 {
 }
 
 /// A menu item that runs `command`, showing its shortcut.
-pub fn menu_item(name: &'static str, command: Command) -> MenuItem {
+pub fn menu_item(name: impl Into<SharedString>, command: Command) -> MenuItem {
     MenuItem::action(name, Run(command))
 }
 
@@ -596,6 +609,14 @@ impl Shell {
             Command::TaskManager => return self.browser.task_manager(cx),
             Command::ManageExtensions => return self.browser.manage_extensions(None, cx),
             Command::Settings => return self.browser.settings(cx),
+            Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
+            Command::ViewHistory => {
+                // Chrome's ⌘Y shows the history page it has open rather than a second one.
+                if !self.url(self.selected).starts_with("chrome://history") {
+                    self.browser.view_history(cx);
+                }
+                return;
+            }
             Command::Quit => return self.browser.quit(cx),
             Command::AddSplit => return self.add_pane(cx),
             Command::CloseSplitPane | Command::SeparatePane => {
@@ -644,6 +665,7 @@ impl Shell {
             Command::ViewDownloads => return self.view_section(Section::Downloads, cx),
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
+            Command::RenameSpace => return self.rename_space(self.space, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
             Command::PreviousSpace => {
@@ -792,11 +814,14 @@ impl Shell {
             | Command::ReopenClosedTab
             | Command::ToggleSidebar
             | Command::NewSpace
+            | Command::RenameSpace
             | Command::ViewLibrary
             | Command::ViewArchive
             | Command::ClearArchive
             | Command::ViewDownloads
             | Command::ManageExtensions
+            | Command::ViewHistory
+            | Command::KeyboardShortcuts
             | Command::Settings => true,
             _ => self.selected != 0,
         }
@@ -813,4 +838,37 @@ pub(super) fn markdown_text(text: &str) -> String {
         escaped.push(c);
     }
     escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A key that ran two commands would run the first of them, and the menu would show it for
+    /// the other.
+    #[test]
+    fn no_key_is_bound_twice() {
+        for (at, &(key, ..)) in SHORTCUTS.iter().enumerate() {
+            assert!(SHORTCUTS[..at].iter().all(|&(each, ..)| each != key), "{key} is bound twice");
+        }
+    }
+
+    /// ⌃n shows the nth Space, as the Spaces menu lists them, and the ones past the ninth have
+    /// no key.
+    #[test]
+    fn ctrl_and_a_digit_show_the_spaces_in_order() {
+        for number in 1..=9 {
+            let key = format!("ctrl-{number}");
+            assert_eq!(Command::for_keystroke(&key, false), Some(Command::SelectSpace(number - 1)));
+        }
+        assert_eq!(shortcut_label(Command::SelectSpace(0)).as_deref(), Some("⌃1"));
+        assert_eq!(shortcut_label(Command::SelectSpace(9)), None);
+    }
+
+    /// ⌘Y is a page's to keep, as Chrome's is, unlike the reserved keys.
+    #[test]
+    fn history_is_not_a_reserved_key() {
+        assert_eq!(Command::for_keystroke("cmd-y", false), Some(Command::ViewHistory));
+        assert_eq!(Command::for_keystroke("cmd-y", true), None);
+    }
 }

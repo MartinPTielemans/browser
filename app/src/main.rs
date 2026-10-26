@@ -18,8 +18,8 @@ use browser::shell::{
 use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, Undo};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
-    ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, WeakEntity,
-    Window, WindowBackgroundAppearance, WindowOptions, actions, point, prelude::*, px,
+    ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, SystemMenuType,
+    WeakEntity, Window, WindowBackgroundAppearance, WindowOptions, actions, point, prelude::*, px,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -727,8 +727,8 @@ impl Browser for Engine {
         unsafe { bc::bc_window_task_manager(WINDOW.get()) };
     }
 
-    fn set_extensions_menu(&self, extensions: &[Extension], cx: &mut App) {
-        cx.set_menus(menus(extensions));
+    fn set_menus(&self, spaces: &[SharedString], extensions: &[Extension], cx: &mut App) {
+        cx.set_menus(menus(spaces, extensions));
     }
 
     fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, _: &mut App) -> bool {
@@ -767,6 +767,10 @@ impl Browser for Engine {
             Some(id) => open_tab(&format!("chrome://extensions/?id={id}")),
             None => open_tab("chrome://extensions"),
         }
+    }
+
+    fn view_history(&self, _: &mut App) {
+        open_tab("chrome://history");
     }
 
     fn close_other_window(&self, _: &mut App) -> bool {
@@ -957,6 +961,10 @@ impl Browser for Engine {
 
     fn settings(&self, cx: &mut App) {
         settings::show(cx);
+    }
+
+    fn shortcuts(&self, cx: &mut App) {
+        settings::show_shortcuts(cx);
     }
 
     /// Asks first, as Arc does, unless the user said not to. Only the user's Quit asks: a quit from
@@ -1235,16 +1243,17 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
-        cx.set_menus(menus(&[]));
+        cx.set_menus(menus(&[], &[]));
         open_window(cx);
     });
     APP.set(Some(app));
 }
 
-/// The menu bar: Arc's menus, with the commands the browser has and the shown Space's profile's
-/// `extensions` (docs/ux-spec.md › Menus). The Edit menu's standard items go to the first
-/// responder, so a focused page cuts, copies, pastes, selects and undoes for itself.
-fn menus(extensions: &[Extension]) -> Vec<Menu> {
+/// The menu bar: Arc's menus, with the commands the browser has, the Spaces named `spaces` and the
+/// shown Space's profile's `extensions` (docs/ux-spec.md › Menus). The Edit menu's standard items
+/// go to the first responder, so a focused page cuts, copies, pastes, selects and undoes for
+/// itself.
+fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
     vec![
@@ -1252,6 +1261,8 @@ fn menus(extensions: &[Extension]) -> Vec<Menu> {
             "Browser",
             vec![
                 item("Settings…", Command::Settings),
+                MenuItem::separator(),
+                MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
                 MenuItem::action("Hide Browser", Hide),
                 MenuItem::action("Hide Others", HideOthers),
@@ -1330,12 +1341,19 @@ fn menus(extensions: &[Extension]) -> Vec<Menu> {
         ),
         menu(
             "Spaces",
-            vec![
+            [
                 item("New Space…", Command::NewSpace),
+                item("Rename Space", Command::RenameSpace),
                 MenuItem::separator(),
                 item("Next Space", Command::NextSpace),
                 item("Previous Space", Command::PreviousSpace),
-            ],
+            ]
+            .into_iter()
+            .chain((!spaces.is_empty()).then(MenuItem::separator))
+            .chain(spaces.iter().enumerate().map(|(index, name)| {
+                shell::menu_item(name.clone(), Command::SelectSpace(index))
+            }))
+            .collect(),
         ),
         menu(
             "Tabs",
@@ -1356,6 +1374,7 @@ fn menus(extensions: &[Extension]) -> Vec<Menu> {
                 item("Go Back", Command::Back),
                 item("Go Forward", Command::Forward),
                 MenuItem::separator(),
+                item("View History", Command::ViewHistory),
                 item("View Archive", Command::ViewArchive),
                 item("Clear Archive", Command::ClearArchive),
             ],
@@ -1382,10 +1401,14 @@ fn menus(extensions: &[Extension]) -> Vec<Menu> {
         ),
         menu(
             "Help",
-            vec![MenuItem::submenu(menu(
-                "Troubleshooting",
-                vec![item("Open Task Manager", Command::TaskManager)],
-            ))],
+            vec![
+                item("Essential Keyboard Shortcuts", Command::KeyboardShortcuts),
+                MenuItem::separator(),
+                MenuItem::submenu(menu(
+                    "Troubleshooting",
+                    vec![item("Open Task Manager", Command::TaskManager)],
+                )),
+            ],
         ),
     ]
 }

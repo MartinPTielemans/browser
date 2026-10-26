@@ -142,7 +142,7 @@ impl Shell {
             log!("browser: extension keys {} {}", extension.id, keys.join(", "));
         }
         self.extensions.insert(profile, extensions);
-        self.update_extensions_menu(cx);
+        self.update_menus(cx);
     }
 
     /// The pinned actions the window shows, for its tab shown.
@@ -159,22 +159,28 @@ impl Shell {
         cx.notify();
     }
 
-    /// Gives the menu bar the turned-on extensions of the shown Space's profile, once they change,
-    /// so a switch between Spaces of one profile doesn't rebuild the menus.
-    pub(super) fn update_extensions_menu(&mut self, cx: &mut Context<Self>) {
+    /// Gives the menu bar the Spaces' names and the turned-on extensions of the shown Space's
+    /// profile, once they change, so a switch between Spaces of one profile doesn't rebuild the
+    /// menus.
+    pub(super) fn update_menus(&mut self, cx: &mut Context<Self>) {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         let shown: Vec<Extension> = (self.extensions.get(&profile).into_iter().flatten())
             .filter(|extension| extension.enabled)
             .cloned()
             .collect();
-        if shown == self.menu_extensions {
+        let spaces: Vec<SharedString> =
+            self.spaces.iter().map(|space| space.name.clone()).collect();
+        if shown == self.menu_extensions && spaces == self.menu_spaces {
             return;
         }
-        // check.sh waits for this line.
-        let ids: Vec<&str> = shown.iter().map(|extension| extension.id.as_ref()).collect();
-        log!("browser: extensions menu {}", ids.join(" "));
-        self.browser.set_extensions_menu(&shown, cx);
+        if shown != self.menu_extensions {
+            // check.sh waits for this line.
+            let ids: Vec<&str> = shown.iter().map(|extension| extension.id.as_ref()).collect();
+            log!("browser: extensions menu {}", ids.join(" "));
+        }
+        self.browser.set_menus(&spaces, &shown, cx);
         self.menu_extensions = shown;
+        self.menu_spaces = spaces;
     }
 
     /// The name of the extension whose page `url` is, in the shown Space's profile, which the URL

@@ -135,33 +135,33 @@ Arc's note at the window's top right, after something done without showing it (A
 
 | Action | Arc (recorded) | Dia | Ours |
 |---|---|---|---|
-| New tab / window / incognito window | ⌘T / ⌘N / ⇧⌘N (menus); Blank Window ⌃⌘N | ⌘T / ⌘N / ⇧⌘N | ⌘T / ⌘N / ⇧⌘N |
+| New tab / window / incognito window | ⌘T / ⌘N / ⇧⌘N (menus); Blank Window ⌃⌘N | ⌘T / ⌘N / ⇧⌘N | ⌘T; ⌘N / ⇧⌘N come with windows and incognito |
 | Command bar on the current URL | ⌘L (menus) | ⌘L | ⌘L |
-| Close tab / window | ⌘W (Archive Tab) / ⇧⌘W (menus) | ⌘W / ⇧⌘W | ⌘W / ⇧⌘W |
+| Close tab / window | ⌘W (Archive Tab) / ⇧⌘W (menus) | ⌘W / ⇧⌘W | ⌘W; ⇧⌘W comes with windows, as with one the close button quits at once, past the Quit warning |
 | Reopen closed tab | ⇧⌘T (menus) | ⇧⌘T | ⇧⌘T |
 | Clear Today tabs | ⇧⌘K | ⇧⌘K (Close All Tabs) | ⇧⌘K |
 | Pin / unpin tab | ⌘D | — (⌘D bookmarks) | ⌘D, *owner to confirm* |
 | Back to pinned URL | measure | ⌘↩ | ⌘↩ |
 | Toggle sidebar | ⌘S | ⌘S (Auto-Hide Tabs) | ⌘S |
 | Library | ⇧⌘L (menus) | — | ⇧⌘L, which closes it too |
-| Little Arc / open it in the main window | ⌥⌘N / ⌘O | — | ⌥⌘N / ⌘O (⌘O stays Open File in main windows) |
+| Little Arc / open it in the main window | ⌥⌘N / ⌘O | — | with Little Arc: ⌥⌘N / ⌘O (⌘O stays Open File in main windows) |
 | Switch Space 1–9 / next / previous | ⌃1–⌃9 / ⌥⌘→ / ⌥⌘← (menus) | ⌃1–⌃9 (profiles) | Arc's |
 | Next / previous tab | ⌥⌘↓ / ⌥⌘↑ (menus) | ⇧⌘] / ⇧⌘[, ⌥⌘→ / ⌥⌘←, ⌥⌘↓ / ⌥⌘↑ | Arc's |
 | Select tab 1–8 / last | ⌘1–⌘8 / ⌘9, pinned tabs first, counting those in an open folder (ax) | ⌘1–⌘8 / ⌘9 in sidebar order | Dia's |
 | Tab used last, then further back | ⌃Tab (rec) | ⌃Tab / ⌃⇧Tab (switcher) | ⌃Tab / ⌃⇧Tab, no switcher |
-| Search tabs | measure | ⇧⌘A | ⇧⌘A |
+| Search tabs | measure | ⇧⌘A | ⇧⌘A, with Search Tabs |
 | Split: add pane / close pane / focus next / previous | ⌃+ / ⌃⇧- (menus) | ⌃⇧= / — / ⌃⇧] / ⌃⇧[ | Arc's; focus Dia's, *interim* |
 | Find / next / previous | ⌘F / ⌘G / ⇧⌘G (menus) | ⌘F / ⌘G / ⇧⌘G | ⌘F / ⌘G / ⇧⌘G |
-| Use selection for find / jump to selection / find and replace | — / ⌘J / ⌥⌘F (menus) | — (⌘E is Chat) / ⌘J / ⌥⌘F | ⌘E / ⌘J / ⌥⌘F |
-| Copy URL / as Markdown / as Quote | ⇧⌘C / ⌥⇧⌘C / ⌃⇧⌘C (menus) | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C |
+| Use selection for find / jump to selection / find and replace | — / ⌘J / ⌥⌘F (menus) | — (⌘E is Chat) / ⌘J / ⌥⌘F | ⌘J; ⌘E and ⌥⌘F come with their features (⌘E writes the system's find pasteboard) |
+| Copy URL / as Markdown / as Quote | ⇧⌘C / ⌥⇧⌘C / ⌃⇧⌘C (menus) | ⇧⌘C / ⌥⇧⌘C | ⇧⌘C / ⌥⇧⌘C; Quote needs the page's selection |
 | Downloads | ⇧⌘J (menus) | ⇧⌘J | ⇧⌘J |
 | Save page / print | ⇧⌘S / ⌘P (menus) | ⇧⌘S / ⌘P | same |
 | DevTools / console / inspect / view source | ⌥⌘I / ⌥⌘J / ⌥⌘C / ⌥⌘U (menus) | ⌥⌘I or F12 / ⌥⌘J / ⌥⌘C / ⌥⌘U | same |
 | Back / forward | ⌘[ / ⌘] (menus) | ⌘[ / ⌘], ⌘← / ⌘→ | same |
 | Reload / force reload / stop | ⌘R / ⇧⌘R / ⌘. (menus) | ⌘R / ⇧⌘R / — | ⌘R / ⇧⌘R / ⌘. and Esc |
 | Zoom actual / in / out | ⌘0 / ⌘+ / ⌘- (menus) | ⌘0 / ⌘+ / ⌘- | same, plus hidden ⌘= |
-| History / clear browsing data | ⌘Y / — (menus) | ⌘Y / ⇧⌘⌫ | same |
-| Full screen | ⌃⌘F (menus) | Globe-F | Globe-F, plus hidden ⌃⌘F |
+| History / clear browsing data | ⌘Y / — (menus) | ⌘Y / ⇧⌘⌫ | ⌘Y, which opens Chrome's history page in a tab; ⇧⌘⌫ not yet |
+| Full screen | ⌃⌘F (menus) | Globe-F | Globe-F, plus ⌃⌘F, which AppKit's Enter Full Screen in View binds |
 | Settings | ⌘, | ⌘, | ⌘, |
 
 Mouse (Dia and Chrome, P§ Keyboard shortcuts):
@@ -173,16 +173,17 @@ Mouse (Dia and Chrome, P§ Keyboard shortcuts):
 
 ### Menus
 
-Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the same command as its key and shows that key.
+Arc 1.170.0's menu bar, with the items the browser has so far. An item runs the same command as its key and shows that key. Each is in the command bar by its name too. Their agent paths are the core's own calls: `bc_tab_open` for View History, `bc_window_show_space` for the Space list and `bc_space_set_name` for Rename Space. Essential Keyboard Shortcuts only shows our Settings window, which an agent has no use for.
 
 - **Order.** App, File, Edit, View, Spaces, Tabs, Archive, Extensions, Window and Help, as Arc's.
 - **File.** New Tab…, Restore Last Closed Tab, Open Command Bar, Archive Tab (⌘W), then Save Page As (⇧⌘S) and Print (⌘P), as Arc's. Save Page As shows Chrome's save panel and Print its print preview, over the page. Arc's window, profile, Note, Easel, Share and Capture items come with their features.
-- **Archive.** Go Back, Go Forward, View Archive and Clear Archive, as Arc's. Arc's View History (⌘Y) comes with history.
+- **Archive.** Go Back, Go Forward, View History (⌘Y), View Archive and Clear Archive, as Arc's. View History opens Chrome's history page in a new tab, and does nothing on that page, as Chrome's ⌘Y shows the one it has (*interim* until a history page of ours).
 - **Edit.** Undo, Redo, Cut, Copy, Paste and Select All go to the first responder, so a focused page or text field does them itself. Blink on Mac leaves those keys to the menu, so without them a page can't undo, copy or paste. Copy URL and Copy URL as Markdown sit between Copy and Paste, as in Arc, and Find is a submenu: Find…, Find Next, Find Previous and Jump to Selection.
-- **App.** Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
+- **App.** Settings…, the system's Services, Hide (⌘H), Hide Others (⌥⌘H), Show All and Quit (⌘Q).
+- **Spaces.** New Space…, Rename Space, Next Space and Previous Space, then each Space by its name, the first nine with ⌃1 to ⌃9, as Arc's "Space 1" (its capture had one Space, so the names are an inference). The list is made again when a Space is made, renamed, deleted or moved, never on a switch. Arc's Edit Theme…, Change Profile and Manage Spaces… come with their features.
 - **View.** Show/Hide Sidebar, then Stop Loading, Refresh the Page, Force Refresh the Page, Clear Cookies and Refresh and Clear Cache and Refresh, then the split view items, zoom and Developer, as Arc's. The two Clear items, also in the command bar, delete the profile's cookies or cache for the page's site, its registrable domain or IP address, then load the page again, the cache's bypassing the cache. Pages that aren't http(s) have no site, so the command bar leaves the items out and they do nothing (*interim*: what Arc clears beyond the site isn't measured).
 - **Window.** Minimize Window (⌘M), then View Library (⇧⌘L) and View Downloads (⇧⌘J). AppKit adds its window items (Fill, Center, Move & Resize, Full Screen Tile) above them, and Enter Full Screen to View.
-- **Help.** Troubleshooting › Open Task Manager, as Arc's, where Chrome has Window › Task Manager. AppKit adds its search field. Arc's other Help items come with their features.
+- **Help.** Essential Keyboard Shortcuts, which opens Settings on its Shortcuts tab, then Troubleshooting › Open Task Manager, as Arc's, where Chrome has Window › Task Manager. AppKit adds its search field. Arc's other Help items are its services' (Getting Started, Release Notes, Contact the Team, Visit Help Center, Restore Data, Export Arc Notes, Record Trace) or put its data on the clipboard or in Finder (Copy Arc Info, Reveal Arc Data), and stay out.
 - **Page menu** (*interim* until Arc's is captured). A right-click on the page shows Chrome's context menu, as Arc's does, with Chrome's items working as in Chrome: a link opens in a tab under the page, Save As and Save Link As show the save panel, Print shows print preview and Inspect docks DevTools at the element. Open Link in Split View opens the link in a pane on the right, as ⌥⇧-click does. It leaves out the items for what the browser doesn't have yet, Open Link in New Window and in Incognito Window, and those whose UI is a bubble on Chrome's toolbar or its side panel: Cast, Open in Reading Mode, Listen to This Page, QR Code and Translate. Each comes back with its feature.
 - **Tab dialogs**, such as print preview, Chrome's, as in Chrome's window: centred over the page, with their top at the page's, and gone while another tab shows.
 - **Names.** Arc's, where they're plain words: Restore Last Closed Tab, Archive Tab (⌘W), Refresh the Page, Force Refresh the Page, Go Back, Go Forward, Zoom to Actual Size, Zoom In, Zoom Out, and View › Developer's View Source, Developer Tools, Inspect Elements and JavaScript Console.
