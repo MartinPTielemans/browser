@@ -213,7 +213,7 @@ pub enum Run {
 }
 
 /// An action tile. Arc's row is Share, Boost, Capture a portion and Capture the full page; the
-/// ones the browser doesn't have aren't here, and one is a line in TILES.
+/// ones the browser doesn't have aren't here, and one is a line in TILES. Boost comes with Boosts.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Tile {
     /// For the logs.
@@ -232,13 +232,31 @@ pub enum TileRun {
     Command(Command),
 }
 
-pub const TILES: &[Tile] = &[Tile {
-    name: "share",
-    label: "Share",
-    glyph: "icons/share.svg",
-    glyph_size: 19.5,
-    run: TileRun::Share,
-}];
+/// Arc's order, without Boost. The captures' glyphs are Lucide's frame and page, *interim*: Arc's
+/// aren't recorded.
+pub const TILES: &[Tile] = &[
+    Tile {
+        name: "share",
+        label: "Share",
+        glyph: "icons/share.svg",
+        glyph_size: 19.5,
+        run: TileRun::Share,
+    },
+    Tile {
+        name: "capture",
+        label: "Capture a Portion of This Page",
+        glyph: "icons/maximize.svg",
+        glyph_size: 19.5,
+        run: TileRun::Command(Command::CapturePortion),
+    },
+    Tile {
+        name: "capture-full-page",
+        label: "Capture Full Page",
+        glyph: "icons/file.svg",
+        glyph_size: 19.5,
+        run: TileRun::Command(Command::CaptureFullPage),
+    },
+];
 
 /// The Lucide glyph for a permission, by Chrome's name for its type.
 pub fn glyph_for(key: &str) -> &'static str {

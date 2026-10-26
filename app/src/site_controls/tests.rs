@@ -200,9 +200,12 @@ impl Panel {
 }
 
 // The panel's places in its window, which is 238 pt wide under a beak 12.5 pt tall: the Share tile
-// 11 pt in at y 23.5, the extensions' tiles from y 92.5, the Settings heading's cap at y 142.5,
-// the rows 43 pt apart from y 167.5, and the footer at y 354.5.
+// 11 pt in at y 23.5 and the capture tiles 56 pt apart after it, the extensions' tiles from y
+// 92.5, the Settings heading's cap at y 142.5, the rows 43 pt apart from y 167.5, and the footer at
+// y 354.5.
 const SHARE: (f32, f32) = (35., 39.5);
+const CAPTURE: (f32, f32) = (91., 39.5);
+const CAPTURE_FULL_PAGE: (f32, f32) = (147., 39.5);
 const EXTENSION: (f32, f32) = (35., 108.5);
 const ADD: (f32, f32) = (91., 108.5);
 const EXTENSIONS_HEADING: (f32, f32) = (40., 74.);
@@ -285,14 +288,31 @@ fn its_button_toggles_it(cx: &mut TestAppContext) {
     assert_eq!(panel.calls(), [format!("read {TAB}"), "show 87 78.5 238 397.5".into()]);
 }
 
-/// Share is the only one of Arc's tiles the browser has. It closes the panel first, then the
-/// share menu hangs from it, in the browser window.
+/// Share closes the panel first, then the share menu hangs from it, in the browser window.
 #[gpui::test]
 fn share_hangs_its_menu_from_its_tile(cx: &mut TestAppContext) {
     let mut panel = Panel::new(cx, site());
     panel.calls();
     panel.click(SHARE);
     panel.ran("share 98 102 48 32");
+}
+
+/// The capture tiles close the panel first, so the picture has none of it, then ask for what
+/// Capture's commands do.
+#[gpui::test]
+fn the_capture_tile_closes_the_panel_and_starts_a_capture(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    panel.calls();
+    panel.click(CAPTURE);
+    panel.ran("CapturePortion");
+}
+
+#[gpui::test]
+fn the_full_page_tile_closes_the_panel_and_captures_the_page(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    panel.calls();
+    panel.click(CAPTURE_FULL_PAGE);
+    panel.ran("CaptureFullPage");
 }
 
 #[gpui::test]
