@@ -54,7 +54,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Favorite resting look | MVP | fill white 0.10, 0.5 pt stroke white 0.14 | Dia 1.50.1 bin |
 | [ ] | Favorite selection theming | MVP | colourful (≥ 0.055): blur 5 at 22 %, 3 pt ring; one colour: mean fill, white template, soft-light ring; near-white: black fill, white 0.30 ring | Dia 1.50.1 bin |
 | [x] | Favorites fixed while the list scrolls | MVP | yes | Dia |
-| [ ] | Tall favorites block | MVP | scrolls with the list above 40 % of the sidebar | Ardia |
+| [x] | Tall favorites block | MVP | scrolls with the list above 40 % of the sidebar | Ardia |
 | [x] | Favorite double-click | MVP | back to the favorite's URL | Dia P§2 |
 | [x] | Favorites in a tab's menu | MVP | Add to Favorites; the tile's menu: Back to Favorite URL, Duplicate Tab, Remove from Favorites, Close Tab *interim* | ours |
 | [x] | Favorite ⌘W | MVP | unloads, keeps the tile | as pinned tabs |
