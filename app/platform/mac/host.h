@@ -45,11 +45,12 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
 // The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
 void host_forget_window(void* ui_view);
 
-// The overlays: the command bar, and the Space's icon picker. One shows at a time.
+// The overlays: the command bar, and the Space's icon and theme pickers. One shows at a time.
 #define HOST_COMMAND_BAR 0
 #define HOST_ICON_PICKER 1
+#define HOST_THEME_PICKER 2
 
-// Makes the window of |overlay_view| the |overlay| (HOST_COMMAND_BAR or HOST_ICON_PICKER), which
+// Makes the window of |overlay_view| the |overlay| (one of the HOST_ overlays above), which
 // floats over a browser window when shown, for UI that has to draw over the page, translucent over
 // a blur of what's behind it, with a shadow, in a rounded shape of |radius|. It starts hidden.
 // |dismissed| runs, after the event, when the user leaves the overlay without choosing anything in
@@ -68,6 +69,9 @@ void host_set_overlay_radius(int overlay, double radius);
 // Makes the overlay grow in as it shows, as a system popover does, from |x| and |y| points from
 // its window's top left, such as the tip of its arrow. It goes in one frame.
 void host_set_overlay_growth(int overlay, double x, double y);
+
+// Makes the overlay, once it grows in, shrink back to where it grew from as it hides, fading.
+void host_set_overlay_shrink(int overlay);
 
 // Shows the overlay over |ui_view|'s window and gives it the keyboard, |width| points wide: with
 // its top left at |left|, |top| in the window's content and ending at least 8 points inside it, or
@@ -203,8 +207,6 @@ typedef struct {
   int parent;
   // Whether it shows a check mark.
   bool checked;
-  // A round swatch of this colour, 0xRRGGBB in sRGB, before its title, or -1 for none.
-  int32_t swatch;
 } host_menu_item;
 
 // Where host_menu shows a menu.

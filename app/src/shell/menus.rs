@@ -3,7 +3,7 @@
 
 use gpui::{Context, Pixels, Point, SharedString};
 
-use super::{Command, Row, SPACE_COLORS, Shell, UserKeys, user_keys};
+use super::{Command, Row, Shell, UserKeys, user_keys};
 use crate::space_icon::SpaceIcon;
 
 /// What an item of a menu does once chosen.
@@ -20,8 +20,6 @@ pub struct MenuEntry {
     pub parent: Option<usize>,
     /// Whether it shows a check mark.
     pub checked: bool,
-    /// A round swatch of this colour, 0xRRGGBB, before its title.
-    pub swatch: Option<u32>,
 }
 
 impl MenuEntry {
@@ -32,7 +30,6 @@ impl MenuEntry {
             shortcut: None,
             parent: None,
             checked: false,
-            swatch: None,
         }
     }
 
@@ -47,10 +44,6 @@ impl MenuEntry {
 
     pub(super) fn checked(self, checked: bool) -> Self {
         MenuEntry { checked, ..self }
-    }
-
-    fn swatch(self, color: u32) -> Self {
-        MenuEntry { swatch: Some(color), ..self }
     }
 
     /// Shows the shortcut that runs `command`.
@@ -69,8 +62,7 @@ pub fn new_profile_name(names: &[SharedString]) -> String {
 }
 
 impl Shell {
-    /// The menu a right-click on a Space's name or dot shows (Arc), with its colour and icon
-    /// (ours).
+    /// The menu a right-click on a Space's name or dot shows (Arc), with its icon (ours).
     pub(super) fn space_menu(
         &mut self,
         space: u64,
@@ -83,10 +75,6 @@ impl Shell {
         }
         let has_icon = self.spaces.iter().any(|each| each.id == space && !each.icon.is_empty());
         let mut items = space_menu_head(space, has_icon);
-        let color_at = items.len();
-        items.push((MenuEntry::new("Color", true), Box::new(|_, _| {})));
-        let colors = self.color_items(space);
-        items.extend(colors.into_iter().map(|(entry, action)| (entry.under(color_at), action)));
         let at = items.len();
         items.push((MenuEntry::new("Profile", true), Box::new(|_, _| {})));
         let mut profiles = self.profile_items(space);
@@ -129,24 +117,6 @@ impl Shell {
             }),
             cx,
         );
-    }
-
-    /// The colours a Space can have, its own checked: the system's accent, then ours.
-    pub(super) fn color_items(&self, space: u64) -> Vec<(MenuEntry, MenuAction)> {
-        let color = self.spaces.iter().find(|each| each.id == space).and_then(|each| each.color);
-        let mut items: Vec<(MenuEntry, MenuAction)> = vec![(
-            MenuEntry::new("System Accent", true)
-                .checked(color.is_none())
-                .swatch(self.accent_color),
-            Box::new(move |shell, cx| shell.browser.set_space_color(space, None, cx)),
-        )];
-        for (name, each) in SPACE_COLORS {
-            items.push((
-                MenuEntry::new(name, true).checked(color == Some(each)).swatch(each),
-                Box::new(move |shell, cx| shell.browser.set_space_color(space, Some(each), cx)),
-            ));
-        }
-        items
     }
 
     /// The profiles a Space can be in, its own checked, which only an empty Space can change to, as
@@ -490,6 +460,11 @@ fn space_menu_head(space: u64, has_icon: bool) -> Vec<(MenuEntry, MenuAction)> {
             Box::new(move |shell, cx| shell.browser.set_space_icon(space, "", cx)),
         ));
     }
+    // After the icon and the name, as in Arc's.
+    items.push((
+        MenuEntry::new("Edit Theme Color…", true),
+        Box::new(move |shell, cx| shell.edit_space_theme(space, cx)),
+    ));
     items
 }
 
@@ -524,8 +499,9 @@ mod tests {
     /// Rename, as a tab's menu does.
     #[test]
     fn remove_icon_is_offered_once_the_space_has_one() {
-        assert_eq!(titles(false), ["Rename Space", "Change Icon…"]);
-        assert_eq!(titles(true), ["Rename Space", "Change Icon…", "Remove Icon"]);
+        let theme = "Edit Theme Color…";
+        assert_eq!(titles(false), ["Rename Space", "Change Icon…", theme]);
+        assert_eq!(titles(true), ["Rename Space", "Change Icon…", "Remove Icon", theme]);
     }
 
     /// The menu bar lists a Space by its name, after its emoji if it has one.
