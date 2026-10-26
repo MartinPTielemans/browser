@@ -15,6 +15,8 @@ use gpui::{
 
 use crate::{shell, text_input::TextInput};
 
+mod calculator;
+
 actions!(
     command_bar,
     [Go, GoBeside, GoBehind, GoDotCom, Search, Dismiss, Next, Previous, First, Last, Remove]
@@ -47,6 +49,7 @@ const SELECTION: u32 = 0x787d_86b3;
 const CHIP: u32 = 0xffff_ff14;
 
 /// One of the core's suggestions for what's typed.
+#[derive(Default)]
 pub struct Suggestion {
     pub url: String,
     pub text: SharedString,
@@ -61,19 +64,17 @@ pub struct Suggestion {
     /// The browser command the row runs instead, and its shortcut.
     pub command: Option<shell::Command>,
     pub shortcut: Option<SharedString>,
+    /// What a sum typed comes to, which the row copies instead.
+    pub result: Option<SharedString>,
 }
 
 impl From<shell::BarCommand> for Suggestion {
     fn from(command: shell::BarCommand) -> Self {
         Suggestion {
-            url: String::new(),
             text: command.name,
-            detail: SharedString::default(),
-            tab: 0,
-            completion: String::new(),
-            removable: false,
             command: Some(command.command),
             shortcut: command.shortcut,
+            ..Suggestion::default()
         }
     }
 }
@@ -100,6 +101,8 @@ pub trait Host {
     fn split(&self, tab: u64, with: u64, cx: &mut App);
     /// Opens a tab loading `url` in a split view with `with`, on its right, and shows it there.
     fn open_split(&self, url: &str, with: u64, cx: &mut App);
+    /// Copies `text`, a sum's result, and says so.
+    fn copy(&self, text: &str, cx: &mut App);
     /// Shows the bar's window, `width` wide, with the keyboard: centred over the browser window,
     /// else at `left` and `top` in it.
     fn show(&self, centered: bool, left: f32, top: f32, width: f32);
@@ -316,9 +319,25 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                 urls.join(", ")
             );
             let rows = bar.with_commands(&text, rows, cx);
+            let rows = with_calculation(&text, rows);
             bar.set_rows(text, rows, window, cx);
         })
         .ok();
+}
+
+/// Puts what `text` comes to, if it's a sum, after the first of `rows`, as Dia's bar does.
+fn with_calculation(text: &str, mut rows: Vec<Suggestion>) -> Vec<Suggestion> {
+    if let Some(result) = calculator::calculate(text) {
+        // check.sh reads this line.
+        eprintln!("browser: command bar calculates \"{text}\": {result}");
+        let row = Suggestion {
+            text: format!("= {result}").into(),
+            result: Some(result.into()),
+            ..Suggestion::default()
+        };
+        rows.insert(rows.len().min(1), row);
+    }
+    rows
 }
 
 impl CommandBar {
@@ -501,9 +520,11 @@ impl CommandBar {
     }
 
     /// ⌘↩: opens where ↩ would go in a tab behind the one shown, at the top of Today, and the bar
-    /// stays open (Arc). A command runs as ↩ runs it, and over a new pane ⌘↩ is ↩.
+    /// stays open (Arc). A command or a sum's result is taken as ↩ takes it, and over a new pane
+    /// ⌘↩ is ↩.
     fn go_behind(&mut self, _: &GoBehind, window: &mut Window, cx: &mut Context<Self>) {
-        let command = self.chosen().is_some_and(|row| row.command.is_some());
+        let command =
+            self.chosen().is_some_and(|row| row.command.is_some() || row.result.is_some());
         if command || matches!(self.target, Target::Beside(_)) {
             return self.go(&Go, window, cx);
         }
@@ -572,11 +593,18 @@ impl CommandBar {
     }
 
     /// Goes where row `index` goes: to its tab, else its page, where the bar shows the page
-    /// chosen. Beside a tab, its tab moves into the split view.
+    /// chosen. Beside a tab, its tab moves into the split view. A sum's row copies its result.
     fn take(&mut self, index: usize, cx: &mut App) {
         let Some(row) = self.rows.get(index) else {
             return;
         };
+        if let Some(result) = &row.result {
+            // check.sh reads this line.
+            eprintln!("browser: command bar copies {result}");
+            self.host.hide();
+            self.host.copy(result, cx);
+            return;
+        }
         // check.sh reads these lines.
         if let Some(command) = row.command {
             eprintln!("browser: command bar runs {}", row.text);
@@ -614,7 +642,8 @@ impl CommandBar {
         self.selected = index;
         // check.sh reads this line.
         let row = &self.rows[self.selected];
-        let name = if row.command.is_some() { row.text.as_ref() } else { row.url.as_str() };
+        let named = row.command.is_some() || row.result.is_some();
+        let name = if named { row.text.as_ref() } else { row.url.as_str() };
         eprintln!("browser: command bar selected {name}");
         self.update_completion(window, cx);
         cx.notify();

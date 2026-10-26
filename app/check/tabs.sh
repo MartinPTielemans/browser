@@ -6,9 +6,9 @@
 # the tab shown before, and with ⌃ held goes on back through the tabs in the order they were shown,
 # and ⌃⇧Tab the other way, until ⌃ goes up or a click. A tab a page opens goes under it and closing
 # it goes back there, and ⌘W otherwise shows the tab below, or above at the bottom. Closing the last
-# tab leaves the Space empty, where ⌘T still works. There ⇧⌦ takes a page out of history and ⇧⌘↩
-# searches for what was typed. The command bar's tests, in src/command_bar/tests.rs, have the rest
-# of its keys. Reports how long switches take.
+# tab leaves the Space empty, where ⌘T still works. There ⇧⌦ takes a page out of history, ⇧⌘↩
+# searches for what was typed, and ↩ on a sum's row copies its result. The command bar's tests, in
+# src/command_bar/tests.rs, have the rest of its keys. Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new
 # tab does. The app asks Chrome to trace its tab switches, timed as Chrome times its own: from the
@@ -206,6 +206,19 @@ send key return shift cmd
 expect '^browser: command bar go https://duckduckgo.com/?q=example.com$' \
   "⇧⌘↩ didn't search for what was typed: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect '^browser: command bar hidden$' "⇧⌘↩ didn't close the command bar"
+# A sum's result is the row after the first, and ↩ on it copies the result, to a pasteboard of the
+# run's own.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type 12+7
+expect '^browser: command bar calculates "12+7": 19$' "the command bar didn't work out 12+7"
+send key down
+expect '^browser: command bar selected = 19$' "↓ didn't select the sum's row"
+../tools/window-screenshot.sh "$pid" "$out/sum.png" || fail "no window to capture"
+send key return
+expect '^browser: command bar copies 19$' "↩ on the sum's row didn't copy its result"
+expect '^browser: copied 19$' "the sum's result wasn't copied"
+expect '^browser: command bar hidden$' "copying the sum's result didn't close the command bar"
 exec 3>&-
 # Chrome writes the trace before it quits, once every process has started tracing or 10 s have
 # passed, so a renderer that closed early can hold the quit that long.
@@ -234,6 +247,6 @@ for event in events:
 PY
 )
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
-echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history and ⇧⌘↩ searches, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
+echo "ok: new tabs open at the top and show, the command bar suggests pages, their tabs and well-known sites and completes what's typed, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ↩ on a sum's row copies its result, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, ⌘W shows the tab below or above, an empty Space still opens tabs."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
 echo "  Switch, key to the core's report: $app_ms. Windows: $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/popular.png, $out/empty.png"
