@@ -39,6 +39,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/views/widget/widget.h"
 #include "url/gurl.h"
 
 namespace browser_core {
@@ -53,6 +54,8 @@ struct Saved {
   int shown = 0;
   // The window's docked sidebar's width, or 0 for none.
   double sidebar_width = 0;
+  // Whether the window was full screen.
+  bool fullscreen = false;
   std::vector<ArchivedTab> archive;
   Settings settings;
 };
@@ -173,6 +176,7 @@ Saved Collect() {
   std::erase_if(windows, [](const Window* each) { return each->off_the_record(); });
   const Window* window = windows.empty() ? nullptr : windows.front();
   saved.sidebar_width = window ? window->sidebar_width() : 0;
+  saved.fullscreen = window && window->widget() && window->widget()->IsFullscreen();
   saved.settings = UserSettings();
   // Each favorite saved, by its place among them.
   std::map<bc_id, int> favorites;
@@ -293,6 +297,9 @@ std::optional<std::string> ToJson(const Saved& saved) {
   root.Set("shown", saved.shown);
   if (saved.sidebar_width > 0) {
     root.Set("sidebar_width", saved.sidebar_width);
+  }
+  if (saved.fullscreen) {
+    root.Set("fullscreen", true);
   }
   base::ListValue archive;
   for (const ArchivedTab& tab : saved.archive) {
@@ -443,6 +450,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
   saved.shown = std::clamp(root->FindInt("shown").value_or(0), 0,
                            static_cast<int>(saved.spaces.size()) - 1);
   saved.sidebar_width = root->FindDouble("sidebar_width").value_or(0);
+  saved.fullscreen = root->FindBool("fullscreen").value_or(false);
   if (const base::ListValue* archive = root->FindList("archive")) {
     for (const base::Value& value : *archive) {
       const base::DictValue* tab = value.GetIfDict();
@@ -723,6 +731,10 @@ bool RestoreSession(Window& window) {
     }
   }
   window.ShowSpace(shown);
+  // The window is on screen already, so this is the transition the user would start.
+  if (saved->fullscreen && window.widget()) {
+    window.widget()->SetFullscreen(true);
+  }
   return true;
 }
 
