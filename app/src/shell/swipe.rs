@@ -242,7 +242,8 @@ impl Shell {
         let velocity = if velocity * from < 0. { velocity } else { 0. };
         let cancel = space != swipe.from && self.form().is_some();
         let beside = cancel.then_some(swipe.from);
-        self.settle = Some(Settle { space, beside, from, velocity, start: now });
+        self.settle =
+            Some(Settle { space, beside, from, velocity, start: now, next_door: false });
         if cancel {
             self.form_going = self.close_form(window, cx);
         } else if space != self.space {
