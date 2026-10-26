@@ -3,9 +3,10 @@
 # cookies. While it's empty the Space's menu moves it between profiles, and with a tab it keeps its
 # own. The first Space keeps its cookie and its favorite, which shows only in the Spaces of its
 # profile, and a new Space made from a Space is in that Space's profile. After a relaunch each Space
-# is in its profile still. Settings › Profiles renames a profile, which the Space menu then shows,
-# and makes and deletes one. Deleting the Space leaves its profile unused, and Delete in the menu
-# deletes it once the user confirms.
+# is in its profile still. A tab moved to the other profile's Space loads there with that profile's
+# cookie, after a warning the first time. Settings › Profiles renames a profile, which the Space
+# menu then shows, and makes and deletes one. Deleting the Space leaves its profile unused, and
+# Delete in the menu deletes it once the user confirms.
 
 # The cookie page's title shows its site's cookies, and "c" sets one. It's on localhost, as
 # clear.sh's cookie is on 127.0.0.1.
@@ -171,6 +172,33 @@ expect "^browser: space $second in " "⌃2 didn't show the second Space"
 expect '^browser: favorites $' "the second Space showed the first profile's favorite"
 b=$(today)
 expect "^browser: title $b cookie none\$" "the second Space's tab came back in the first profile"
+# Its menu moves it to the first profile's Space, after a warning the first time, as a tab
+# whose page loads there with that profile's cookie. Moved back, from under the favorite's tile,
+# it asks nothing.
+post rightclick $(row 0)
+expect '^browser: menu shown .*, Move to Space › Space 1, ' \
+  "the tab's menu didn't offer the other profile's Space"
+post choose Space 1
+expect '^browser: dialog shown Move this tab to the “Default” profile?$' \
+  "moving the tab to another profile's Space didn't warn first"
+expect '^browser: dialog settled$' "the dialog didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/profile-move.png" || fail "no window to capture"
+send key return
+expect "^browser: tab $b closed\$" "the tab moved to another profile kept its old page"
+expect "^browser: space $first\$" "the window didn't go with the moved tab"
+expect '^browser: today [0-9][0-9]*$' "the moved tab isn't in the first Space"
+c=$(today)
+expect "^browser: title $c cookie p=1\$" "the moved tab didn't load with the first profile's cookie"
+post rightclick 100 $(($(row 0 | cut -d' ' -f2) + 47))
+expect '^browser: menu shown .*, Move to Space › work, ' \
+  "the moved tab's menu didn't offer its old Space"
+send choose work
+none_since '^browser: dialog shown' || fail "the second move to another profile warned again"
+expect "^browser: tab $c closed\$" "the tab moved back kept its page in the first profile"
+expect "^browser: space $second\$" "the window didn't go with the tab moved back"
+expect '^browser: today [0-9][0-9]*$' "the tab moved back isn't in the second Space"
+d=$(today)
+expect "^browser: title $d cookie none\$" "the tab moved back still saw the first profile's cookie"
 # Settings › Profiles lists the profiles, a row each from 129, 41 apart, and New Profile under
 # them. A double-click on a name puts it in a field, where escape leaves it and return keeps a new
 # one.
@@ -242,4 +270,4 @@ send key return
 expect "^browser: removed profile $work personal\$" "the profile wasn't deleted"
 exec 3>&-
 quit
-echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"
+echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"

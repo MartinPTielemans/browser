@@ -428,6 +428,14 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_move_to_space(tab, space) };
     }
 
+    fn warn_moving_profiles(&self, _: &mut App) -> bool {
+        unsafe { bc::bc_warn_moving_profiles() }
+    }
+
+    fn set_warn_moving_profiles(&self, warn: bool, _: &mut App) {
+        unsafe { bc::bc_set_warn_moving_profiles(warn) };
+    }
+
     fn set_pinned(&self, tab: u64, pinned: bool, _: &mut App) {
         unsafe { bc::bc_tab_set_pinned(tab, pinned) };
     }

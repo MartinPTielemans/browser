@@ -105,7 +105,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Moves |tab| to |space|: a pinned tab to the bottom of its pinned tabs, still pinned at its
   // pinned URL, a Today tab to the top of its Today tabs. A window showing the tab goes with it, as
   // Chrome's active tab does to another window, and its old Space shows next what it would once the
-  // tab closed.
+  // tab closed. Into another profile's Space it goes as a new tab, as bc_tab_move_to_space says.
   static void MoveToSpace(bc_id tab, bc_id space);
 
   Window(const Window&) = delete;

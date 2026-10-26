@@ -464,6 +464,15 @@ void bc_set_warn_before_quitting(bool warn) {
   browser_core::SessionChanged();
 }
 
+bool bc_warn_moving_profiles(void) {
+  return browser_core::UserSettings().warn_moving_profiles;
+}
+
+void bc_set_warn_moving_profiles(bool warn) {
+  browser_core::UserSettings().warn_moving_profiles = warn;
+  browser_core::SessionChanged();
+}
+
 void bc_page_favicon(const char* url) {
   if (url) {
     browser_core::FindFavicon(url);

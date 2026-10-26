@@ -249,6 +249,12 @@ impl Browser for Fake {
     // The made-up tabs stay in their Space.
     fn move_to_space(&self, _: u64, _: u64, _: &mut App) {}
 
+    fn warn_moving_profiles(&self, _: &mut App) -> bool {
+        true
+    }
+
+    fn set_warn_moving_profiles(&self, _: bool, _: &mut App) {}
+
     // As the core does: pinned at the bottom of the pinned tabs, unpinned at the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App) {
         self.later(cx, move |shell, cx| {

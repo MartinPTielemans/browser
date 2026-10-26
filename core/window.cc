@@ -156,6 +156,31 @@ std::optional<ClosedTab> TakeClosed(bc_id id) {
   return tab;
 }
 
+// A new tab in |dir|'s profile with |tab|'s history, name and mute, in no Space and not shown, or 0
+// if the profile isn't loaded.
+bc_id CopyToProfile(bc_id tab, const std::string& dir) {
+  content::WebContents* contents = Tab::FromId(tab);
+  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  Window* window = in ? Window::ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
+  Profile* profile = ProfileFor(dir);
+  if (!window || !profile || DirOf(profile) != dir) {
+    return 0;
+  }
+  const SavedTab saved = SaveTab(contents->GetController());
+  content::WebContents* copy =
+      saved.history.empty() ? nullptr : window->RestoreTab(profile, saved.history, saved.current);
+  if (!copy) {
+    return 0;
+  }
+  const bc_id id = Tab::IdOf(copy);
+  Tab::FromWebContents(copy)->set_name(Tab::FromWebContents(contents)->name());
+  if (contents->IsAudioMuted()) {
+    Tab::FromWebContents(copy)->SetMuted(true);
+  }
+  Tab::FromWebContents(copy)->Restored();
+  return id;
+}
+
 // |contents|, leaving a window, was seen until now.
 void Seen(content::WebContents* contents) {
   if (Tab* tab = contents ? Tab::FromWebContents(contents) : nullptr) {
@@ -515,9 +540,12 @@ void Window::CloseBelow(bc_id tab) {
 void Window::MoveToSpace(bc_id tab, bc_id space) {
   Space* from = Space::Holding(tab);
   Space* to = Space::FromId(space);
-  // A tab can't take its page to another profile.
-  if (!from || !to || from == to || DeletingSpaces().contains(space) ||
-      from->profile() != to->profile()) {
+  if (!from || !to || from == to || DeletingSpaces().contains(space)) {
+    return;
+  }
+  // A page can't take its cookies and logins to another profile, so it opens there again.
+  const bc_id moved = from->profile() == to->profile() ? tab : CopyToProfile(tab, to->profile());
+  if (!moved) {
     return;
   }
   const bool pinned = from->IsPinned(tab);
@@ -526,20 +554,24 @@ void Window::MoveToSpace(bc_id tab, bc_id space) {
   // In its new Space before it leaves the old, so the UI never hears of it in neither and forgets
   // its title.
   if (pinned) {
-    to->AddPinned(tab, 0, to->pinned_rows().size(), url);
+    to->AddPinned(moved, 0, to->pinned_rows().size(), url);
   } else {
-    to->AddAt(tab, 0);
+    to->AddAt(moved, 0);
   }
   from->Remove(tab);
   for (auto& [id, window] : Windows()) {
     if (window->selected_ == tab) {
       // ShowSpace keeps |next| as the tab the old Space shows.
       window->selected_ = next;
-      window->SetSelectedIn(space, tab);
+      window->SetSelectedIn(space, moved);
       window->ShowSpace(space);
     } else if (window->SelectedIn(from->id()) == tab) {
       window->SetSelectedIn(from->id(), next);
     }
+  }
+  // Out of its Space, it isn't kept for ReopenClosedTab or archived.
+  if (moved != tab) {
+    CloseTab(tab);
   }
   PanesChanged();
 }

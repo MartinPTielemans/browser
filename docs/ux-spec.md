@@ -380,7 +380,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 
 - A Space has a name, a colour, its pinned tabs, its Today tabs and a profile.
 - Several Spaces can share a profile. Switching to a Space of another profile switches the window's cookies, logins and extensions with it.
-- Moving a tab to a Space of another profile reloads it in that profile, after a one-time warning that the tab loses its session (Dia warns when moving a tab to another profile, P§1). *Interim*: ours doesn't move one yet, so Move to Space lists only the Spaces of the tab's profile.
+- Moving a tab to a Space of another profile reloads it in that profile, after a one-time warning that the tab loses its session (Dia warns when moving a tab to another profile, P§1). Its back and forward history, name and mute go with it, and it loads once it shows; the old tab closes without going to the archive or ⇧⌘T, since it lives on in the new one. *Interim*: the warning is our in-window dialog with Move and Cancel, as Dia's wasn't captured, and nothing turns it back on once it's been confirmed.
 - Favorites belong to the profile: every Space of a profile shows the same ones (Arc, to confirm in the capture).
 
 **Footer and switcher** (Arc 1.170.0 cap and ax)

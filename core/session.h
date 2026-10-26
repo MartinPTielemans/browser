@@ -114,6 +114,8 @@ struct Settings {
   bool haptics = true;
   // Whether the app asks before the user's Quit quits.
   bool warn_before_quitting = true;
+  // Whether the app warns before moving a tab to another profile's Space, which it does once.
+  bool warn_moving_profiles = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.
