@@ -110,9 +110,9 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Folders | MVP | in the pinned tabs, indented 16 a level: New Folder…, a click opens and closes, a double-click or the menu renames, Delete Folder keeps the tabs, a drag right or left takes a row in or out, kept over a quit; motion and icon *interim* | Arc ax, cap, menus |
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
 | [ ] | Folder motion and drag | MVP | built: a click opens and closes on Group expand, a dragged row goes in or out with the pointer's travel *interim*; Arc's open and close by a click, and how a dragged row goes into a folder: measure | — |
-| [x] | Folder tooltip | MVP | the name after a moment; ours 0.5 s, the system's | Arc cap |
-| [x] | Favorite tooltip | MVP | the name after 0.5 s, at once from tile to tile, fading in and out over 0.15 s *interim*; Arc's delay, fade-in and the move to the next tile: measure | Arc cap |
-| [ ] | Button tooltip | MVP | Arc's: View Library and ⇧ ⌘ L on chips, 3.5 right of the Library button; a capsule 28 tall, 12 pt text 10 in, chips 18 on a 22 pitch. Built, to check against a capture: the header's buttons and Copy URL with the menus' keys, under them, and colours from the mid-fade capture *interim*; Arc's other buttons, full-opacity colours and fade-in: measure | Arc in use, cap 2× |
+| [x] | Folder tooltip | MVP | the name after a moment; ours 0.73 s *interim* | Arc cap |
+| [x] | Favorite tooltip | MVP | the name after 0.73 s *interim*, at once from tile to tile, in one frame and out over 0.27 s as Arc's; Arc's move to the next tile: measure | Arc cap |
+| [ ] | Button tooltip | MVP | Arc's: View Library and ⇧ ⌘ L on chips, 3.5 right of the Library button; a capsule 27 tall in #090C4B with a 0.5 pt rim, 12 pt semibold text 11 in, chips 18.5 with a 2 pt lip on a 22 pitch, in one frame and out over 0.27 s. Built, to check against a capture: the header's buttons and Copy URL with the menus' keys, under them, and the square corner's side there *interim*; Arc's other buttons: measure | Arc in use, cap 2× |
 | [x] | Collapse All Folders | MVP | a command bar command | Arc cap |
 
 ## Spaces
@@ -288,7 +288,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Row actions | MVP | progress, pause/resume, cancel, open, Show in Finder, Open When Done, keep or delete a held file, Remove from List, Clear List | Dia P§14 |
 | [x] | Move to Trash, drag out | MVP | to Finder, other apps, the page, the tab list | Dia P§14 |
 | [x] | Footer button while downloading | MVP | ours: glyph over a 16 × 2 bar *interim*; Arc's look: measure | — |
-| [x] | Recent downloads over the Library button | MVP | up to 4 finished, newest at the bottom, 56 apart: 40 pt preview or 26 pt icon at 8, name 15 pt at 61 over its age; ours: after a 0.5 s rest, 0.15 s fade, a row acts as the Library's *interim*; tooltip with key chips and glyph motion: #189 | owner's Arc cap |
+| [x] | Recent downloads over the Library button | MVP | up to 4 finished, newest at the bottom, 56 apart: 40 pt preview or 26 pt icon at 8, name 15 pt at 61 over its age; ours: after a 0.5 s rest (its own, not the tooltip's 0.73 s), 0.15 s fade, a row acts as the Library's *interim*; tooltip with key chips and glyph motion: #189 | owner's Arc cap |
 | [x] | Fly-in | MVP | ours: 32 → 16 pt icon from under the URL field to the button on a slight arc, 0.45 s on cubic-bezier(0.55, 0, 0.85, 0.4), fading over the last 30 %; Arc's: measure (Dia constants 0.1 s / 1.3 undecoded) | Dia bin |
 | [x] | Per profile, persisted | MVP | Chrome's history; private never written once private windows land | Dia P§14 |
 | [x] | Quit guard | MVP | asks while downloads run, in Chrome's alert; Continue Downloading shows the Library's Downloads; Arc's wording: measure | Dia P§1, Chrome |

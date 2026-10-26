@@ -166,7 +166,7 @@ fn a_tooltip_is_centred_under_its_tile() {
 
 #[test]
 fn a_folders_tooltip_has_its_text_over_the_title() {
-    // The title starts 35 in from the plate's left, and the text 10 in from the tooltip's.
+    // The title starts 35 in from the plate's left, and the text 11 in from the tooltip's.
     let (left, top) = place(folder_row(), SIZE);
     assert_eq!(left + TEXT_X, 8. + 35.);
     assert_eq!(top, 336. + GAP);
@@ -187,7 +187,7 @@ fn a_tooltip_stays_inside_the_window_across() {
 
 #[test]
 fn a_tooltip_goes_above_when_there_is_no_room_below() {
-    // 41 tall at the window's bottom: 700 - 28 would be the lowest top.
+    // 41 tall at the window's bottom: 700 - 27 would be the lowest top.
     let bottom = Anchor::centred(frame(8., 650., 80., 41.), window());
     let (_, top) = place(bottom, SIZE);
     assert_eq!(top, 650. - GAP - HEIGHT);
@@ -247,19 +247,19 @@ fn a_header_buttons_tooltip_is_centred_under_it() {
 }
 
 #[test]
-fn a_name_alone_has_its_text_10_in_from_each_end() {
+fn a_name_alone_has_its_text_11_in_and_10_before_the_end() {
     let layout = layout(60., &[]);
-    let alone = Layout { width: 10. + 60. + 10., text: 60., truncated: false, chips: vec![] };
+    let alone = Layout { width: 11. + 60. + 10., text: 60., truncated: false, chips: vec![] };
     assert_eq!(layout, alone);
 }
 
 #[test]
 fn chips_follow_the_text_on_arcs_pitch() {
-    // View Library ⇧⌘L: 8 after the text, 18 square 4 apart, and 10 after the last.
+    // View Library ⇧⌘L: 8 after the text, 18.5 wide on a pitch of 22, and 10 after the last.
     let layout = layout(70., &[CHIP, CHIP, CHIP]);
-    let first = 10. + 70. + 8.;
-    assert_eq!(layout.chips, [(first, 18.), (first + 22., 18.), (first + 44., 18.)]);
-    assert_eq!(layout.width, first + 44. + 18. + 10.);
+    let first = 11. + 70. + 8.;
+    assert_eq!(layout.chips, [(first, 18.5), (first + 22., 18.5), (first + 44., 18.5)]);
+    assert_eq!(layout.width, first + 44. + 18.5 + 10.);
     assert!(!layout.truncated);
 }
 
@@ -267,9 +267,9 @@ fn chips_follow_the_text_on_arcs_pitch() {
 fn a_wider_chip_moves_the_next() {
     // A key named in words, as Space is, between two glyphs.
     let layout = layout(50., &[CHIP, 40., CHIP]);
-    let first = 10. + 50. + 8.;
-    assert_eq!(layout.chips, [(first, 18.), (first + 22., 40.), (first + 22. + 44., 18.)]);
-    assert_eq!(layout.width, first + 22. + 44. + 18. + 10.);
+    let first = 11. + 50. + 8.;
+    assert_eq!(layout.chips, [(first, 18.5), (first + 22., 40.), (first + 22. + 43.5, 18.5)]);
+    assert_eq!(layout.width, first + 22. + 43.5 + 18.5 + 10.);
 }
 
 #[test]
@@ -280,7 +280,7 @@ fn a_long_name_truncates_and_its_keys_stay_whole() {
     // The chips end 10 from the window's end, and the text stops 8 before them.
     let &(last, width) = layout.chips.last().unwrap();
     assert_eq!(last + width + 10., WINDOW_WIDTH);
-    assert_eq!(10. + layout.text + 8., layout.chips[0].0);
+    assert_eq!(11. + layout.text + 8., layout.chips[0].0);
 }
 
 #[gpui::test]
@@ -296,7 +296,7 @@ fn a_keys_chip_is_square_unless_its_name_is_wider(cx: &mut TestAppContext) {
     assert!(words.chips[1].1 > CHIP);
     // The same text with keys is wider by its chips, 8 before them and none of its end changes.
     let name = measured(cx, &tip("View Library"));
-    assert_eq!(glyphs.width, name.width + 8. + 3. * CHIP + 2. * 4.);
+    assert_eq!(glyphs.width, name.width + 8. + 3. * CHIP + 2. * CHIP_GAP);
 }
 
 #[test]
@@ -304,4 +304,35 @@ fn the_log_names_the_keys_as_a_menu_does() {
     let tip = Tip { text: "View Library".into(), keys: vec!["⇧".into(), "⌘".into(), "L".into()] };
     assert_eq!(label(&tip), "View Library ⇧⌘L");
     assert_eq!(label(&Tip::named("Docs".into())), "Docs");
+}
+
+#[test]
+fn arcs_capsule_is_27_tall_and_round_but_toward_its_button() {
+    assert_eq!(HEIGHT, 27.);
+    assert_eq!(RADIUS, 13.5);
+    // Beside a button, and under a tile, the corner toward what it names is the top left.
+    let beside = Anchor::beside(library_button(), window());
+    assert_eq!(near(beside, HEIGHT), Near::TopLeft);
+    assert_eq!(near(tile_a(), HEIGHT), Near::TopLeft);
+    // Above it for want of room below, that corner is the bottom left.
+    let bottom = Anchor::centred(frame(8., 650., 80., 41.), window());
+    assert_eq!(near(bottom, HEIGHT), Near::BottomLeft);
+    // A footer button's tooltip never goes above, whatever the window's height.
+    let low = Anchor::beside(frame(8., 690., 32., 10.), window());
+    assert_eq!(near(low, HEIGHT), Near::TopLeft);
+}
+
+#[test]
+fn a_tooltip_shows_in_a_frame_and_fades_out_over_270_ms() {
+    assert_eq!(FADE_IN, Duration::ZERO);
+    assert_eq!(FADE_OUT, Duration::from_millis(270));
+    assert_eq!(DELAY, Duration::from_millis(730));
+}
+
+#[test]
+fn a_chip_is_18_and_a_half_wide_on_a_pitch_of_22() {
+    assert_eq!(CHIP, 18.5);
+    assert_eq!(CHIP + CHIP_GAP, 22.);
+    // Its 16.25 body is centred on the capsule, and the lip hangs 2 under it.
+    assert_eq!((HEIGHT - CHIP_BODY) / 2. + CHIP_BODY + CHIP_LIP, 23.625);
 }

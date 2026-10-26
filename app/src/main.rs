@@ -770,12 +770,12 @@ struct TooltipHost;
 
 impl tooltip::Host for TooltipHost {
     fn show(&self, left: f32, top: f32) {
-        let fade = tooltip::FADE.as_secs_f64();
+        let fade = tooltip::FADE_IN.as_secs_f64();
         unsafe { platform::host_show_tooltip(front().1, left.into(), top.into(), fade) };
     }
 
     fn hide(&self) {
-        unsafe { platform::host_hide_tooltip(tooltip::FADE.as_secs_f64()) };
+        unsafe { platform::host_hide_tooltip(tooltip::FADE_OUT.as_secs_f64()) };
     }
 }
 
