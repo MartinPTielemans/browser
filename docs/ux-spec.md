@@ -96,6 +96,7 @@ Every curve used in this spec. Each feature's section says where it applies.
 | Sidebar reveal in | no fade: spring 0.175 s / ζ 0.80, ≈ 4 pt past rest, starting ≈ 100 ms after the pointer reaches the edge | sidebar reveal at the left edge | Arc 1.170.0 rec 120 fps, 3 runs |
 | Sidebar reveal out | spring 0.175 s / ζ 0.76, starting as the pointer leaves the hold zone | same | Arc 1.170.0 rec 120 fps, 3 runs |
 | Space settle | critically damped, 0.19 s (ω ≈ 33), from the moment the fingers lift | Space pages after a swipe, a switch's slide, the pull's spring back | Arc 1.170 rec at 2×: 6 swipes, ω 30–33 in the 4 tracked best, and 3 pulls springing back, 0.18 s. Dia 1.50.1 bin has 0.25 |
+| Space colour | the whole window at once: to the Space next door exponentially, τ ≈ 30 ms; a longer jump with the Space settle; a swipe with the pages | the window's colour as the Space changes | Arc 1.170 rec at 2× |
 | Library push | spring 0.245 s / ζ 0.92 | the card pushed right and the Library sliding in with it, from its width to the left, as it opens, and back as it closes | Arc 1.170.0 rec 120 fps, 1 run; Arc 1.x video 60 fps, 2 opens and 2 closes |
 | Library fade | out in 33 ms; in over 130 ms from 80 ms | the sidebar under the Library, where it is, opened or closed by a click | Arc 1.x video 60 fps, 2 opens and 2 closes |
 | Library end | the card `80·(1 − 1/(0.25·x/80 + 1))` pt past where it opens, x the pages' way, and the Library with it: as far in Downloads and Archived Tabs, and in Spaces its width over the card's way as far, 1.4 times with three Spaces, the column's fill reaching back to the window's edge; both spring back on the Library push | fingers past where the Library opens | ours, the band; Arc 1.170 rec, three Spaces, for the Spaces section: the card +71.5 and +79.5 on two pulls, the cards 1.4 times that, back in ≈ 0.26 s |
@@ -445,7 +446,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
   - A dot click, ⌃1–⌃9 and ⌥⌘←/→ slide the new Space's page in from its side on the Space settle curve, pushing the old one out.
   - The detent is AppKit's alignment haptic. Swipes don't page while a rename or a row drag is up, or while the Create a Space form is up in a Space not shown.
   - On the Create a Space form, fingers going back page to the Space it was made from, as to the Space before, whichever Space that is. The form goes as a page does, without the URL field and the favorites, which show with that Space once it's in. Let go on a flick back or past halfway, it's Cancel: the form's page goes out as that Space settles, and the new Space is deleted once it's out, so the window's colour crosses from its own. Let go short, the form settles back. Going on, the form rubber-bands and readies no new Space. A wheel's tick back is Cancel, with its slide. Arc's swipe off its form isn't recorded.
-- The window tint cross-fades between the two Spaces' colours during a swipe (Ardia; Dia and Arc durations: measure).
+- The window's colour changes across the whole window at once, with no sweep (Arc 1.170 rec at 2×). During a swipe it's as much of each Space's colour as its page shows (Ardia). A switch to the Space next door changes it exponentially, τ ≈ 30 ms, well ahead of the slide; a longer jump changes it with the slide, as Arc's fits. Motion › Space colour.
   - Ours (*interim*): the gradient is as much of each Space's colour as its page shows, during a swipe and while a switch's pages slide.
 - Measure in Arc: the Space title and colour flows, the icon picker's Emoji tab, hover and motion, the ••• button at the end of the Space's name row (not built), the menus the form's Profile and Choose a Theme rows open, and how a Space shows its profile.
 
@@ -945,7 +946,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 | Sidebar | The scroll edge under the favorites | — (ours: Dia's Scroll edge) | 1 |
 | Spaces | A swipe tracking the fingers, let go, and settling | Motion › Space settle | done |
 | Spaces | ⌃1–⌃9 and a click on the switcher | Motion › Space settle | done |
-| Spaces | The window's colour going from one Space's to the next | — | 2 |
+| Spaces | The window's colour going from one Space's to the next | Motion › Space colour | done |
 | Spaces | The pull past the last Space, and the Create a Space form | Motion › New Space pull, Space form leave | done |
 | Spaces | Past the first Space, the Library | Motion › Library recede | done |
 | Spaces | ⌘Z bringing a deleted Space back | — (ours: the switch's slide) | 2 |

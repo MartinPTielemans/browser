@@ -13,7 +13,7 @@ use super::{
     CARD_INSET, GRADIENT_ALPHA, MATERIAL_STAND_IN, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, PRIVATE_SHADE,
     REVEAL_HOLD, REVEAL_INSET, REVEAL_IN_DAMPING, REVEAL_IN_RESPONSE, REVEAL_OUT_DAMPING,
     REVEAL_OUT_RESPONSE, REVEAL_OVERSHOOT, REVEAL_WAIT, SIDEBAR_EDGE, SIDEBAR_HIDE, SIDEBAR_MAX,
-    SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Shell, settle_progress, spring,
+    SIDEBAR_MIN, SIDEBAR_SHOW, SIDEBAR_WIDTH, Settle, Shell, settle_progress, spring,
 };
 
 impl Shell {
@@ -239,7 +239,14 @@ impl Shell {
             return from.into();
         };
         let to = color_of(beside);
-        let t = (x.abs() / self.width()).min(1.);
+        // A switch next door changes the colour ahead of the slide; anything else with the pages.
+        let settle = self.settle.as_ref().filter(|settle| {
+            self.swipe.is_none() && settle.space == space && settle.beside == Some(beside)
+        });
+        let t = match settle.and_then(Settle::color_left) {
+            Some(left) => left,
+            None => (x.abs() / self.width()).min(1.),
+        };
         let mix = |from: f32, to: f32| from + (to - from) * t;
         let (r, g, b) = (mix(from.r, to.r), mix(from.g, to.g), mix(from.b, to.b));
         Rgba { r, g, b, a: mix(from.a, to.a) }.into()

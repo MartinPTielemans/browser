@@ -161,6 +161,10 @@ const SWIPE_TRACKING: f32 = 0.5;
 const SWIPE_FLICK: f32 = 5.;
 const SWIPE_HISTORY: Duration = Duration::from_millis(100);
 const SPACE_SETTLE: f32 = 0.19;
+/// A switch to the Space next door changes the window's colour all at once, exponentially with a
+/// time constant of 30 ms, well ahead of the page's slide (Arc 1.170 rec at 2×); a longer jump's
+/// colour goes with the slide.
+const SPACE_COLOR_TAU: f32 = 0.03;
 const WHEEL_LINE: f32 = 10.;
 const WHEEL_BURST: Duration = Duration::from_millis(49);
 const WHEEL_REST: Duration = Duration::from_millis(250);
@@ -795,9 +799,17 @@ struct Settle {
     from: f32,
     velocity: f32,
     start: Instant,
+    /// A switch to the Space next to the one before, whose colour changes ahead of the slide.
+    next_door: bool,
 }
 
 impl Settle {
+    /// How much of the Space before's colour is left, for a switch next door.
+    fn color_left(&self) -> Option<f32> {
+        let t = self.start.elapsed().as_secs_f32();
+        self.next_door.then(|| (-t / SPACE_COLOR_TAU).exp())
+    }
+
     /// How far the page is from its place, or None once it's there.
     fn offset(&self) -> Option<f32> {
         let omega = std::f32::consts::TAU / SPACE_SETTLE;
@@ -1514,6 +1526,7 @@ impl Shell {
                 from: if to > from { width } else { -width },
                 velocity: 0.,
                 start: Instant::now(),
+                next_door: from.abs_diff(to) == 1,
             });
         }
         self.slides.clear();

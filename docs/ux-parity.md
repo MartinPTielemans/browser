@@ -134,7 +134,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Settle | MVP | critically damped 0.19 s, carrying the velocity; detent haptic | Arc 1.170 rec |
 | [x] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
 | [x] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
-| [ ] | Colour cross-fade | MVP | built: the gradient is as much of each Space's colour as its page shows, in a swipe and a switch's slide *interim*; Arc's duration: measure | Ardia |
+| [x] | Colour cross-fade | MVP | uniform across the window; next door exponentially, τ ≈ 30 ms; a longer jump with the 0.19 s settle; a swipe with the pages | Arc 1.170 rec, Ardia |
 | [ ] | Space title, create, colour, icon | MVP | built: the Create a Space form (Arc's), a Color submenu and Change Icon… opening Arc's icon picker (below); Arc's title, colour and icon flows: measure | — |
 | [x] | Space icon picker | MVP | popover 273 × 273 at radius 20 under the name, arrow at the icon; Emoji \| Icon and a trash; 56 glyphs 8 × 7 on a 31 pitch (Phosphor's), the Space's on a white 0.25 plate; Emoji tab a field and the palette *interim*; grows in from the arrow and goes in one frame; Emoji ↔ Icon slides the content 273 over 0.2 s; hover: measure | Arc 1.170.0 cap, Arc 1.170 rec |
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks in Arc's dialog if it has tabs | Arc, ours |
