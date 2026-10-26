@@ -734,6 +734,8 @@ pub struct Shell {
     form: Option<SpaceForm>,
     /// The form Create sent away, and when, until it's gone and its Space shows its rows.
     leaving_form: Option<(SpaceForm, Instant)>,
+    /// The form a swipe back cancelled, while its page goes out.
+    form_going: Option<SpaceForm>,
     /// The form's field takes GPUI's focus at the next draw, which is when the shell has a window.
     focus_form: bool,
     renaming: Option<Renaming>,
@@ -919,6 +921,7 @@ impl Shell {
             space: 0,
             form: None,
             leaving_form: None,
+            form_going: None,
             focus_form: false,
             renaming: None,
             focus_renaming: false,
@@ -1697,6 +1700,19 @@ impl Shell {
         .size_full()
     }
 
+    /// Deletes the Space of the form a swipe cancelled once its page is out, so the window's
+    /// colour crosses to the other Space's from its own. After the draw, which the core's report
+    /// of the Spaces left would otherwise come into.
+    fn step_form_going(&mut self, cx: &mut Context<Self>) {
+        let beside = self.settle.as_ref().and_then(|settle| settle.beside);
+        if let Some(form) = self.form_going.take_if(|form| Some(form.space) != beside) {
+            let browser = self.browser.clone();
+            cx.defer(move |cx| {
+                browser.delete_space(form.space, cx);
+            });
+        }
+    }
+
     /// Drops the list's and the pages' motion that's done, and returns whether any is left.
     fn list_moving(&mut self) -> bool {
         let sliding = !self.slides.is_empty();
@@ -1866,6 +1882,7 @@ impl Render for Shell {
             window.request_animation_frame();
         }
         self.step_drag_shape(window, cx);
+        self.step_form_going(cx);
         self.step_scroll_edge(window);
         self.step_tools(window);
         let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some());
@@ -2042,13 +2059,21 @@ impl Shell {
             .w(px(self.width()))
             .children(self.nav_buttons(cx));
         let leaving = self.leaving_form.as_ref().filter(|(form, _)| form.space == self.space);
-        let sidebar = match (self.form(), leaving) {
-            (Some(form), _) => sidebar.child(self.space_form(form, None, cx)),
-            (None, Some((form, left))) => {
+        let sidebar = match (self.paged_form(), self.form(), leaving) {
+            // Paged, the form goes as a page does, without the URL field and the favorites, which
+            // show with the Space beside once it's in.
+            (Some((form, x)), ..) => {
+                let page = div().absolute().top_0().bottom_0().left(px(x)).w(px(self.width()));
+                let page = page.child(self.space_form(form, None, cx));
+                let form = div().absolute().size_full().overflow_hidden().child(page);
+                sidebar.child(self.space_pages(cx)).child(form)
+            }
+            (None, Some(form), _) => sidebar.child(self.space_form(form, None, cx)),
+            (None, None, Some((form, left))) => {
                 let left = left.elapsed().as_secs_f32();
                 sidebar.child(self.space_form(form, Some(left), cx))
             }
-            (None, None) => sidebar
+            (None, None, None) => sidebar
                 .child(self.url_field(cx))
                 .children(self.scroll_edge_line())
                 .child(self.space_pages(cx))
@@ -2071,9 +2096,11 @@ impl Shell {
     /// scroll.
     fn space_pages(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let width = self.width();
+        let form = self.paged_form().map(|(form, _)| form.space);
         let mut pages = Vec::new();
         for (space, x) in self.pages() {
             let page = match self.spaces.iter().find(|other| other.id == space) {
+                _ if Some(space) == form => continue,
                 _ if space == self.space => self.list(cx).into_any_element(),
                 Some(other) => self.still_page(other).into_any_element(),
                 None => continue,
@@ -2238,6 +2265,7 @@ impl Shell {
             window.request_animation_frame();
         }
         self.step_drag_shape(window, cx);
+        self.step_form_going(cx);
         self.step_scroll_edge(window);
         self.step_tools(window);
         let left = REVEAL_INSET - (REVEAL_INSET + self.width()) * (1. - self.reveal_out());
