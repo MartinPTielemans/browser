@@ -235,6 +235,10 @@ pub fn diagonal(x: f32, y: f32, width: f32, height: f32) -> f32 {
     ((x * width + y * height) / (width + height).max(1.)).clamp(0., 1.)
 }
 
+/// How strongly grain at 1 lies over the colours: Arc's window at full grain is ≈ 5.5 levels of
+/// luminance noisier (Arc 1.170 rec at 2×).
+pub const GRAIN_STRENGTH: f32 = 0.075;
+
 /// Grain's side, in device pixels: a tile the window repeats.
 pub const GRAIN_TILE: usize = 256;
 
