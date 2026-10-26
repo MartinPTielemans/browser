@@ -228,6 +228,11 @@ pub trait Browser {
         field: Option<Bounds<Pixels>>,
         cx: &mut App,
     );
+    /// Opens the command bar for a new tab as the New Tab page's box, in the card at `card`.
+    fn new_tab_bar(&self, card: Bounds<Pixels>, cx: &mut App);
+    /// Takes the page shown out of the card while the New Tab page is in its place, or puts it
+    /// back.
+    fn hide_page(&self, hidden: bool, cx: &mut App);
     /// Opens the command bar over `pane`, a new pane in the card at `card`, for a page to show
     /// there in a split view with `with`.
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App);

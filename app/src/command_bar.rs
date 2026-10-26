@@ -12,7 +12,7 @@ use std::{rc::Rc, time::Instant};
 use gpui::{
     App, Bounds, Context, Entity, Focusable, Global, KeyBinding, Pixels, SharedString,
     TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
-    WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size,
+    WindowOptions, actions, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{
@@ -56,6 +56,24 @@ const SELECTION: u32 = 0x787d_86b3;
 /// A command's shortcut chip (ours).
 const CHIP: u32 = 0xffff_ff14;
 const PLACEHOLDER_TEXT: &str = "Search or enter a URL";
+// The New Tab page's box (docs/ux-spec.md › New tab): its radius, its input's row, with the text
+// and the magnifier's centre this far in, and the bottom row under the suggestions, with the Go
+// pill centred 30.5 above the box's bottom, and as far in from its right edge as above its
+// bottom (ours).
+const BOX_RADIUS: f32 = 20.;
+const BOX_INPUT: f32 = 61.;
+const BOX_TEXT_X: f32 = 48.;
+const BOX_GLYPH_X: f32 = 30.;
+const BOX_GLYPH: f32 = 14.;
+const BOX_BOTTOM: f32 = 51.;
+const PILL_WIDTH: f32 = 92.;
+const PILL_HEIGHT: f32 = 29.;
+const PILL_INSET: f32 = 30.5 - PILL_HEIGHT / 2.;
+const PILL: u32 = 0xdccbd8;
+const PILL_TEXT: u32 = 0x0000_00d9;
+/// The pill's while there's nothing to go to (ours).
+const PILL_INERT: f32 = 0.35;
+const BOX_PLACEHOLDER_TEXT: &str = "Search or enter address";
 
 /// One of the core's suggestions for what's typed.
 #[derive(Default)]
@@ -172,6 +190,8 @@ pub struct CommandBar {
     /// While the bar grows out of the URL field: the field's box in the bar's window, and when its
     /// window was first on screen, where the grow starts.
     grow: Option<(Bounds<Pixels>, Option<Instant>)>,
+    /// It's the New Tab page's box.
+    boxed: bool,
 }
 
 struct CommandBarWindow(WindowHandle<CommandBar>);
@@ -246,6 +266,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>
                 selected: 0,
                 site: None,
                 grow: None,
+                boxed: false,
             }
         })
     });
@@ -271,7 +292,7 @@ pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>,
     let grow = grow.map(|(field, origin)| Bounds::new(field.origin - origin, field.size));
     let target = editing.as_ref().map_or(Target::NewTab, |&(tab, _)| Target::Tab(tab));
     let text = editing.map(|(_, url)| url).unwrap_or_default();
-    if let Some(host) = reset(target, text, grow, cx) {
+    if let Some(host) = reset(target, text, grow, false, cx) {
         let (left, top) = origin.map_or((0., 0.), |origin| (origin.x.into(), origin.y.into()));
         host.show(origin.is_none(), left, top, WIDTH);
     }
@@ -281,7 +302,7 @@ pub fn show(editing: Option<(u64, SharedString)>, field: Option<Bounds<Pixels>>,
 /// a page to show there beside `with`. It's centred over the pane, as far into the card as it
 /// needs to be, and as far down the pane as it opens down the window for a new tab.
 pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
-    if let Some(host) = reset(Target::Beside(with), SharedString::default(), None, cx) {
+    if let Some(host) = reset(Target::Beside(with), SharedString::default(), None, false, cx) {
         let left = pane.center().x - px(WIDTH / 2.);
         let left = left.min(card.right() - px(BESIDE_END + WIDTH)).max(card.left());
         let top = (card.top() + card.bottom()) / 5. + (pane.top() - card.top());
@@ -289,18 +310,47 @@ pub fn show_split(with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mu
     }
 }
 
+/// Shows the command bar, empty, for a new tab, as the New Tab page's box in the card at `card`.
+pub fn show_new_tab(card: Bounds<Pixels>, cx: &mut App) {
+    let (left, top, width) = new_tab_box(card);
+    if let Some(host) = reset(Target::NewTab, SharedString::default(), None, true, cx) {
+        host.show(false, left, top, width);
+    }
+}
+
+/// Where Dia puts the New Tab page's box in the card at `card`, 1 pt right of and below where
+/// its sums put it, as measured: its left edge and top, and its width.
+fn new_tab_box(card: Bounds<Pixels>) -> (f32, f32, f32) {
+    let (width, height) = (f32::from(card.size.width), f32::from(card.size.height));
+    let box_width = match width {
+        ..708. => (width - 20.).min(616.),
+        ..=1700. => 652.,
+        _ => 774.,
+    };
+    let left = f32::from(card.left()) + (width / 2. - box_width / 2.).max(14.) + 1.;
+    let top = f32::from(card.top()) + (height / 2. - 158.).max(100.) + 38. + 1.;
+    (left, top, box_width)
+}
+
 /// Puts the bar to `target` with `text` in its input, growing out of `grow` in its window if
-/// that's given. Returns its host, or none if there's no bar.
+/// that's given, and as the New Tab page's box if `boxed`. Returns its host, or none if there's
+/// no bar.
 fn reset(
     target: Target,
     text: SharedString,
     grow: Option<Bounds<Pixels>>,
+    boxed: bool,
     cx: &mut App,
 ) -> Option<Rc<dyn Host>> {
     let window = cx.try_global::<CommandBarWindow>()?.0;
     window
         .update(cx, |bar, window, cx| {
             bar.grow = grow.map(|grow| (grow, None));
+            if bar.boxed != boxed {
+                bar.boxed = boxed;
+                let placeholder = if boxed { BOX_PLACEHOLDER_TEXT } else { PLACEHOLDER_TEXT };
+                bar.input.update(cx, |input, cx| input.set_placeholder(placeholder.into(), cx));
+            }
             bar.target = target;
             bar.site_left(cx);
             bar.asked = text.to_string();
@@ -636,7 +686,8 @@ impl CommandBar {
         self.rows = rows;
         self.suggested = text;
         let rows = self.rows.len() as f32;
-        let height = HEIGHT + if rows > 0. { rows * ROW_HEIGHT + 2. * ROW_INSET } else { 0. };
+        let rows = if rows > 0. { rows * ROW_HEIGHT + 2. * ROW_INSET } else { 0. };
+        let height = if self.boxed { BOX_INPUT + rows + BOX_BOTTOM } else { HEIGHT + rows };
         self.host.set_height(height);
         self.update_completion(window, cx);
         cx.notify();
@@ -840,6 +891,51 @@ impl CommandBar {
         }
     }
 
+    /// The New Tab box's bottom row: the Go pill, which goes where ↩ does, naming the search engine
+    /// when that's a search. It's greyed and does nothing while nothing's typed.
+    fn bottom_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let typed = self.typed(cx);
+        let site = self.site.as_ref().map(|site| site.keyword.as_str());
+        let search = self.chosen().filter(|row| {
+            row.tab == 0
+                && row.command.is_none()
+                && row.result.is_none()
+                && self.host.search_url(site, &typed).as_deref() == Some(row.url.as_str())
+        });
+        let label = match search {
+            Some(row) if !row.detail.is_empty() => row.detail.clone(),
+            _ => "Go".into(),
+        };
+        let pill = div()
+            .id("go")
+            .flex()
+            .items_center()
+            .justify_center()
+            .gap(px(4.))
+            .min_w(px(PILL_WIDTH))
+            .h(px(PILL_HEIGHT))
+            .px(px(12.))
+            .rounded(px(PILL_HEIGHT / 2.))
+            .bg(rgb(PILL))
+            .text_color(rgba(PILL_TEXT))
+            .child(label)
+            .child(
+                svg().path("icons/corner-down-left.svg").size(px(14.)).text_color(rgba(PILL_TEXT)),
+            );
+        let pill = match typed.is_empty() {
+            true => pill.opacity(PILL_INERT),
+            false => pill.on_click(cx.listener(|bar, _, window, cx| bar.go(&Go, window, cx))),
+        };
+        div()
+            .h(px(BOX_BOTTOM))
+            .flex_none()
+            .flex()
+            .justify_end()
+            .pt(px(BOX_BOTTOM - PILL_INSET - PILL_HEIGHT))
+            .pr(px(PILL_INSET))
+            .child(pill)
+    }
+
     fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
         let dim = |text: SharedString| div().text_color(rgba(SECONDARY)).child(text);
         let chip = |text: SharedString| {
@@ -854,7 +950,8 @@ impl CommandBar {
             .flex()
             .items_center()
             .gap(px(6.))
-            .px(px(TEXT_X - ROW_INSET))
+            .pl(px(if self.boxed { BOX_TEXT_X } else { TEXT_X } - ROW_INSET))
+            .pr(px(TEXT_X - ROW_INSET))
             .rounded(px(ROW_RADIUS))
             .map(|line| match index == self.selected {
                 true => line.bg(rgb(SELECTED)),
@@ -921,7 +1018,7 @@ impl Render for CommandBar {
                 if self.grow.take().is_some() {
                     self.host.reshape();
                 }
-                (whole, RADIUS)
+                (whole, if self.boxed { BOX_RADIUS } else { RADIUS })
             }
         };
         // The browser's shortcuts work here too, below the bar's own keys.
@@ -974,13 +1071,15 @@ impl Render for CommandBar {
                         .flex_col()
                         .child(
                             div()
-                                .h(px(HEIGHT))
+                                .h(px(if self.boxed { BOX_INPUT } else { HEIGHT }))
                                 .flex_none()
                                 .flex()
                                 .items_center()
                                 .gap(px(6.))
-                                .px(px(TEXT_X))
+                                .pl(px(if self.boxed { BOX_TEXT_X } else { TEXT_X }))
+                                .pr(px(TEXT_X))
                                 .line_height(px(17.))
+                                .when(self.boxed, |line| line.child(magnifier()))
                                 .when_some(self.site.as_ref(), |line, site| {
                                     line.child(
                                         div()
@@ -996,10 +1095,22 @@ impl Render for CommandBar {
                         )
                         .when(!rows.is_empty(), |bar| {
                             bar.child(div().flex().flex_col().p(px(ROW_INSET)).children(rows))
-                        }),
+                        })
+                        .when(self.boxed, |bar| bar.child(self.bottom_row(cx))),
                 ),
         )
     }
+}
+
+/// The New Tab box's magnifier, before the input.
+fn magnifier() -> impl IntoElement {
+    svg()
+        .path("icons/search.svg")
+        .absolute()
+        .left(px(BOX_GLYPH_X - BOX_GLYPH / 2.))
+        .top(px(BOX_INPUT / 2. - BOX_GLYPH / 2.))
+        .size(px(BOX_GLYPH))
+        .text_color(rgba(PLACEHOLDER))
 }
 
 #[cfg(test)]
