@@ -41,6 +41,7 @@ pub(crate) mod scaled;
 mod sidebar;
 mod space_form;
 mod split_targets;
+mod swap;
 mod swipe;
 mod tile_theme;
 
@@ -67,6 +68,7 @@ use library::{RECEDE_X, Section};
 use menus::MenuAction;
 use panes::pane_frames;
 use scaled::scaled;
+use swap::{Swapped, Swaps};
 use tile_theme::TileTheme;
 
 /// The docked sidebar's width at first, where the card starts.
@@ -863,8 +865,10 @@ pub struct Shell {
     reveal_wait: Option<Task<()>>,
     /// The Copy URL button shows a checkmark until this one-shot timer ends.
     url_copied: Option<Task<()>>,
-    /// Whether the button had the checkmark when last drawn, for the line check.sh waits for.
-    drawn_copied: bool,
+    /// What the button showed when last drawn, for the lines check.sh waits for.
+    drawn_copied: &'static str,
+    /// The glyphs changing into others.
+    swaps: Swaps,
     /// The window's content size at the last draw, and the frame and corner radius the page was
     /// last laid out at.
     viewport: Size<Pixels>,
@@ -1002,7 +1006,8 @@ impl Shell {
             reveal_motion: None,
             reveal_wait: None,
             url_copied: None,
-            drawn_copied: false,
+            drawn_copied: "shows link",
+            swaps: Swaps::default(),
             viewport: Size::default(),
             scale: 1.,
             page_laid: None,
@@ -1392,6 +1397,9 @@ impl Shell {
                 log!("browser: renamed folder {folder} {name}");
             }
         }
+        if space == self.space {
+            self.swaps.folders_changed(&entry.folders, &folders, Instant::now());
+        }
         entry.folders = folders;
         let has_tabs = !entry.pinned.is_empty() || !entry.today.is_empty();
         // After a Clear, the rows left are in their places at once (Arc).
@@ -1628,6 +1636,7 @@ impl Shell {
             let icon = if page.icon.is_empty() { "none" } else { &page.icon };
             log!("browser: page {tab} icon {icon}");
         }
+        self.swaps.page_changed(tab, self.selected, &entry.page, &page, Instant::now());
         entry.page = page;
         cx.notify();
     }
@@ -1893,10 +1902,17 @@ impl Render for Shell {
             let favicon = hover.1.map_or("none".into(), |tab| tab.to_string());
             log!("browser: hover {row} close {} favicon {favicon}", close as u8);
         }
+        self.swaps.step(window);
         // As the outline's, so a capture of the URL field's button shows the glyph it logged.
-        if self.url_copied.is_some() != self.drawn_copied {
-            self.drawn_copied = self.url_copied.is_some();
-            log!("browser: copy url shows {}", if self.drawn_copied { "check" } else { "link" });
+        let copied = match (self.url_copied.is_some(), self.swaps.changing(Swapped::CopyUrl)) {
+            (true, true) => "draws check",
+            (true, false) => "shows check",
+            (false, true) => "brings back link",
+            (false, false) => "shows link",
+        };
+        if copied != self.drawn_copied {
+            self.drawn_copied = copied;
+            log!("browser: copy url {copied}");
         }
         if std::mem::take(&mut self.focus_form)
             && let Some(form) = self.form()
@@ -2659,7 +2675,7 @@ fn plate(icon: impl IntoElement, label: impl IntoElement) -> gpui::Div {
 /// A folder's icon, open or closed.
 fn folder_icon(open: bool) -> AnyElement {
     svg()
-        .path(if open { "icons/folder-open.svg" } else { "icons/folder.svg" })
+        .path(swap::folder_glyph(open))
         .size(px(FAVICON_DRAWN))
         .text_color(rgba(SECONDARY))
         .into_any_element()

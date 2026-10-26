@@ -15,8 +15,8 @@ use gpui::{
 use super::{
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry,
     NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
-    Shell, Space, UNSELECTED_TITLE, clean_link, clear_label, divider_box, favicon, folder_icon,
-    host, name_box, plate, row_box, space_icon, spring_to, split_plate, title,
+    Shell, Space, Swapped, UNSELECTED_TITLE, clean_link, clear_label, divider_box, favicon,
+    folder_icon, host, name_box, plate, row_box, space_icon, spring_to, split_plate, title,
 };
 use crate::text_input::TextInput;
 
@@ -370,6 +370,11 @@ impl Shell {
         if downloads.len() != self.downloads.len() {
             log!("browser: downloads {}", downloads.len());
         }
+        let running = |downloads: &[Download]| {
+            library_glyph(downloads.iter().any(|each| each.state == DownloadState::Running))
+        };
+        let (from, to) = (running(&self.downloads), running(&downloads));
+        self.swaps.start(Swapped::Library, from, to, Instant::now());
         self.download_icons.retain(|id, _| downloads.iter().any(|each| each.id == *id));
         self.fly_new_download(&downloads, cx);
         self.downloads = downloads;
@@ -1447,7 +1452,7 @@ impl Shell {
             (received + each.received.min(each.total.max(0)), total + each.total.max(0))
         });
         let downloading = self.downloads.iter().any(|each| each.state == DownloadState::Running);
-        let glyph = if downloading { "icons/arrow-down-to-line.svg" } else { "icons/archive.svg" };
+        let glyph = library_glyph(downloading);
         div()
             .id("library")
             .absolute()
@@ -1464,7 +1469,7 @@ impl Shell {
                 true => shell.run(Command::ViewDownloads, "sidebar", cx),
                 false => shell.run(Command::ViewLibrary, "sidebar", cx),
             }))
-            .child(svg().path(glyph).size(px(16.)).text_color(rgba(NAV)))
+            .child(self.swaps.glyph(Swapped::Library, glyph, 16., rgba(NAV).into()))
             .when(downloading, |button| {
                 // A download of a size not yet known shows an empty bar.
                 let done = if total > 0 { received as f32 / total as f32 } else { 0. };
@@ -1523,6 +1528,11 @@ pub(super) fn library_band(way: f32) -> f32 {
 }
 
 /// A line of a row's text, cut short with an ellipsis.
+/// The Library button's glyph, the downloads' while they run.
+fn library_glyph(downloading: bool) -> &'static str {
+    if downloading { "icons/arrow-down-to-line.svg" } else { "icons/archive.svg" }
+}
+
 fn text_line(text: SharedString, size: f32, height: f32, color: u32) -> gpui::Div {
     div()
         .h(px(height))

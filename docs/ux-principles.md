@@ -28,6 +28,12 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 - **Reading.** Motion is there to explain, never to make you wait. You can read and act before it ends.
 - **Applies.** Content is legible and takes input within about 130 ms. Motion can run past that, but never blocks a key or a click.
 
+## A change shows that it happened
+
+- **Seen.** A click on Copy URL turns its link into a check that draws itself from its left end, down, then up (Sidebar › URL field, the owner's look at Arc). Clear shows no toast: the rows leaving say what it did.
+- **Reading.** A glyph that swaps in one frame is easy to miss, and a click that seems to do nothing gets clicked again. Motion on the thing clicked says it worked, where the eye already is, with nothing to read.
+- **Applies.** A glyph that changes on the same thing moves into the new one (Motion › Glyph change). One that differs because something else is shown, such as another tab, shows at once: nothing changed, and a switch stays instant.
+
 ## Wait for intent before acting
 
 - **Seen.** The reveal waits about 100 ms after the pointer reaches the window's edge, so a pointer passing on its way to another display leaves it shut. A swipe let go short of halfway goes back. The New Space pull makes a Space only if it's let go once readied, which a glow and a click on the trackpad announce (Spaces › Switching).
@@ -77,6 +83,7 @@ Recordings could settle these. Until then, the calls listed in each PR stand.
 - Whether Arc's dialog and form colours follow the Space's theme or are fixed.
 - How Cancel looks under the pointer, and whether a click outside the dialog cancels it.
 - What Arc does under Reduce Motion.
+- How Arc's glyphs other than Copy URL's check change, such as reload into stop.
 - Where Arc shows pinned extensions, and whether only under the pointer.
 - How Arc asks about a page's permission request, such as for the camera: where it hangs, how it looks, and whether a hidden sidebar comes out for it. Ours hangs under the URL field, as Chrome's hangs under its address bar.
 - What Arc does with more favorites than its sidebar has room for. Ours scroll with the list once they're taller than 40 % of the window, as Ardia's do.

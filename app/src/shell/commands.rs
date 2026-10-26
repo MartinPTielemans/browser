@@ -1,13 +1,17 @@
 //! The browser's commands: their names, their keys and where the command bar offers
 //! them, and what each does, run from a key, a menu, the command bar or the page.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
 };
 
-use super::{COPIED_TIME, Section, Shell, Undo, clean_link, extensions, keys, user_keys};
+use super::{
+    COPIED_TIME, Section, Shell, Swapped, Undo, clean_link, extensions, keys,
+    swap::{CHECK, LINK},
+    user_keys,
+};
 
 /// A browser command, from a key or the sidebar.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -798,11 +802,15 @@ impl Shell {
         };
         self.browser.copy(&text, cx);
         log!("browser: copied {text}");
+        if self.url_copied.is_none() {
+            self.swaps.start(Swapped::CopyUrl, LINK, CHECK, Instant::now());
+        }
         self.url_copied = Some(cx.spawn(async move |shell, cx| {
             cx.background_executor().timer(COPIED_TIME).await;
             shell
                 .update(cx, |shell, cx| {
                     shell.url_copied = None;
+                    shell.swaps.start(Swapped::CopyUrl, CHECK, LINK, Instant::now());
                     cx.notify();
                 })
                 .ok();
