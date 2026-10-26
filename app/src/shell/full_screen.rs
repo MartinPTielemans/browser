@@ -14,8 +14,8 @@ fn two_spaces(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>) {
     shell.update(cx, |shell, cx| {
         shell.set_spaces(
             vec![
-                (1, "Space 1".into(), None, 0, "".into(), "".into()),
-                (2, "Space 2".into(), None, 0, "".into(), "".into()),
+                (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into()),
+                (2, "Space 2".into(), None, 0, "".into(), "".into(), "".into()),
             ],
             cx,
         );

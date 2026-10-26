@@ -12,7 +12,7 @@ use std::{
 use browser::log;
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    Folders, MenuEntry, Page, Shell, Split, WindowButton,
+    Folders, MenuEntry, Page, Shell, SpaceEntry, Split, WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
 use gpui::{
@@ -217,7 +217,7 @@ fn now() -> f64 {
 struct Fake {
     shell: WeakEntity<Shell>,
     next_id: Cell<u64>,
-    spaces: RefCell<Vec<(u64, SharedString, Option<u32>, u64, SharedString, SharedString)>>,
+    spaces: RefCell<Vec<SpaceEntry>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
 }
@@ -664,7 +664,8 @@ impl Browser for Fake {
     fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
         let space = self.next_id.get();
         self.next_id.set(space + 1);
-        let entry = (space, name.to_string().into(), None, profile, "".into(), "".into());
+        let entry =
+            (space, name.to_string().into(), None, profile, "".into(), "".into(), "".into());
         self.spaces.borrow_mut().push(entry);
         self.report_spaces(cx);
         space
@@ -701,6 +702,13 @@ impl Browser for Fake {
     fn set_space_icon(&self, space: u64, icon: &str, cx: &mut App) {
         if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, ..)| *id == space) {
             entry.4 = icon.to_string().into();
+        }
+        self.report_spaces(cx);
+    }
+
+    fn set_space_theme(&self, space: u64, theme: &str, cx: &mut App) {
+        if let Some(entry) = self.spaces.borrow_mut().iter_mut().find(|(id, ..)| *id == space) {
+            entry.6 = theme.to_string().into();
         }
         self.report_spaces(cx);
     }
@@ -1006,11 +1014,11 @@ fn main() {
             let shell = cx.new(|cx| {
                 let first_space = TABS.len() as u64 + 1;
                 // The preview's Spaces and favorites are in its one profile, 0.
-                let spaces: Vec<(u64, SharedString, Option<u32>, u64, SharedString, SharedString)> =
+                let spaces: Vec<SpaceEntry> =
                     (first_space..)
                         .zip(SPACES)
                         .map(|(id, (name, color))| {
-                            (id, name.into(), color, 0, "".into(), "".into())
+                            (id, name.into(), color, 0, "".into(), "".into(), "".into())
                         })
                         .collect();
                 let first_archived = first_space + SPACES.len() as u64;
