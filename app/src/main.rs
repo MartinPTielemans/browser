@@ -12,7 +12,7 @@ use std::{
 
 use browser::{command_bar, dialog, log, toast, tooltip};
 use browser::shell::{
-    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension,
+    self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, Folders, MenuEntry, Page, Shell, Split, WindowButton,
 };
 use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, Undo};
@@ -44,7 +44,11 @@ mod platform {
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
         pub fn host_ui_view() -> *mut c_void;
         pub fn host_show_window(ui_view: *mut c_void);
-        pub fn host_add_overlay(overlay_view: *mut c_void, dismissed: extern "C" fn());
+        pub fn host_add_overlay(
+            overlay_view: *mut c_void,
+            radius: f64,
+            dismissed: extern "C" fn(),
+        );
         pub fn host_show_overlay(centered: bool, left: f64, top: f64, width: f64);
         pub fn host_set_overlay_height(height: f64);
         pub fn host_hide_overlay();
@@ -982,8 +986,8 @@ impl Browser for Engine {
         }
     }
 
-    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
-        command_bar::show(editing, cx);
+    fn command_bar(&self, editing: Option<(u64, SharedString)>, tabs: Vec<BarTab>, cx: &mut App) {
+        command_bar::show(editing, tabs, cx);
     }
 
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
@@ -1249,7 +1253,8 @@ fn open_window(cx: &mut App) {
             if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
                 && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
             {
-                unsafe { platform::host_add_overlay(view, command_bar_dismissed) };
+                let radius = command_bar::RADIUS.into();
+                unsafe { platform::host_add_overlay(view, radius, command_bar_dismissed) };
             }
             if let Some(dialog) = dialog::open(Rc::new(DialogHost), cx)
                 && let Ok(view) = dialog.update(cx, |_, window, _| ns_view(window))

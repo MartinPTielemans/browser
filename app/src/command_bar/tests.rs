@@ -92,10 +92,15 @@ struct Bar {
 
 impl Bar {
     fn new(cx: &mut TestAppContext) -> Self {
+        Bar::with_tabs(cx, Vec::new())
+    }
+
+    /// The bar, opened for a new tab in a Space with `tabs`.
+    fn with_tabs(cx: &mut TestAppContext, tabs: Vec<shell::BarTab>) -> Self {
         let host = Rc::new(Recorder::default());
         cx.update(text_input::bind_keys);
         let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the bar");
-        cx.update(|cx| show(None, cx));
+        cx.update(|cx| show(None, tabs, cx));
         let cx = VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
         Bar { cx, window, host }
@@ -123,6 +128,15 @@ impl Bar {
             .read_with(&self.cx.cx, |bar, cx| {
                 let input = bar.input.read(cx);
                 (input.text().to_string(), input.selection())
+            })
+            .unwrap()
+    }
+
+    /// The rows listed: each one's page, and its tab if it has one.
+    fn rows(&mut self) -> Vec<(String, u64)> {
+        self.window
+            .read_with(&self.cx.cx, |bar, _| {
+                bar.rows.iter().map(|row| (row.url.clone(), row.tab)).collect()
             })
             .unwrap()
     }
@@ -505,4 +519,86 @@ fn the_rows_that_go_to_a_search_are_marked_for_their_icon(cx: &mut TestAppContex
         })
         .unwrap();
     assert_eq!(kinds, [false, true]);
+}
+
+/// One of the Space's open tabs.
+fn tab(tab: u64, url: &str) -> shell::BarTab {
+    shell::BarTab { tab, title: url.to_string().into(), url: url.to_string().into(), favicon: None }
+}
+
+#[gpui::test]
+fn before_anything_is_typed_it_lists_the_spaces_tabs(cx: &mut TestAppContext) {
+    let tabs = vec![tab(4, "https://a.test/"), tab(2, "https://b.test/")];
+    let mut bar = Bar::with_tabs(cx, tabs);
+    let listed = vec![("https://a.test/".to_string(), 4), ("https://b.test/".to_string(), 2)];
+    assert_eq!(bar.rows(), listed);
+    // The core's answer for the empty text keeps them.
+    bar.suggest("", Vec::new());
+    assert_eq!(bar.rows(), listed);
+    bar.keys("down enter");
+    assert_eq!(bar.calls(), ["select 2", "hide"]);
+}
+
+#[gpui::test]
+fn typing_lists_suggestions_and_emptying_the_input_lists_the_tabs_again(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_tabs(cx, vec![tab(4, "https://a.test/")]);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex")]);
+    assert_eq!(bar.rows(), [(search("ex"), 0)]);
+    bar.keys("backspace backspace");
+    bar.suggest("", Vec::new());
+    assert_eq!(bar.rows(), [("https://a.test/".to_string(), 4)]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["select 4", "hide"]);
+}
+
+#[gpui::test]
+fn return_with_nothing_typed_and_no_tabs_does_nothing(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.keys("enter");
+    assert!(bar.calls().is_empty());
+}
+
+#[test]
+fn a_page_only_in_history_has_a_clock_and_an_open_tab_or_a_site_its_favicon() {
+    assert_eq!(page("https://a.test/").icon(), Icon::Glyph("icons/clock.svg"));
+    let open = Suggestion { tab: 3, ..page("https://a.test/") };
+    assert_eq!(open.icon(), Icon::Favicon);
+    // A well-known site isn't in the profile's history.
+    let site = Suggestion { removable: false, ..page("https://wikipedia.org/") };
+    assert_eq!(site.icon(), Icon::Favicon);
+    let typed = Suggestion { search: true, ..searching("a") };
+    assert_eq!(typed.icon(), Icon::Glyph("icons/search.svg"));
+    let sum = Suggestion { result: Some("2".into()), ..Suggestion::default() };
+    assert_eq!(sum.icon(), Icon::None);
+}
+
+#[test]
+fn a_command_has_its_own_glyph_where_lucide_names_it_and_each_is_built_in() {
+    use gpui::AssetSource;
+    use shell::Command;
+    let glyph = |command| {
+        Suggestion { command: Some(command), ..Suggestion::default() }.icon()
+    };
+    assert_eq!(glyph(Command::Clear), Icon::Glyph("icons/brush-cleaning.svg"));
+    assert_eq!(glyph(Command::ClearArchive), Icon::Glyph("icons/archive.svg"));
+    assert_eq!(glyph(Command::CollapseFolders), Icon::Glyph("icons/fold-vertical.svg"));
+    assert_eq!(glyph(Command::SeparateSplit), Icon::Glyph(COMMAND_GLYPH));
+    let commands = [
+        Command::Clear, Command::ClearCacheAndRefresh, Command::ClearCookiesAndRefresh,
+        Command::ClearArchive, Command::CollapseFolders, Command::NewFolder, Command::TogglePin,
+        Command::ToggleMute, Command::CloseTab, Command::ReopenClosedTab, Command::CopyUrl,
+        Command::Find, Command::Back, Command::Forward, Command::Reload, Command::Stop,
+        Command::ZoomIn, Command::ZoomOut, Command::FlipSplit, Command::ToggleSidebar,
+        Command::SavePage, Command::Print, Command::ViewSource, Command::InspectElements,
+        Command::JavaScriptConsole, Command::ManageExtensions, Command::RenameSpace,
+        Command::NextTab, Command::PreviousTab, Command::ViewLibrary, Command::ViewDownloads,
+        Command::ViewHistory, Command::Settings, Command::KeyboardShortcuts, Command::NewSpace,
+    ];
+    for command in commands {
+        let Icon::Glyph(path) = glyph(command) else {
+            panic!("{command:?} has no glyph");
+        };
+        assert!(shell::Assets.load(path).unwrap().is_some(), "{path} isn't built in");
+    }
 }

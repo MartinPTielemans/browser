@@ -11,8 +11,8 @@ use std::{
 
 use browser::log;
 use browser::shell::{
-    self, Archived, Browser, Command, Download, DownloadAction, DownloadState, Extension, Folders,
-    MenuEntry, Page, Shell, Split, WindowButton,
+    self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
+    Folders, MenuEntry, Page, Shell, Split, WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
 use gpui::{
@@ -588,7 +588,7 @@ impl Browser for Fake {
         false
     }
 
-    fn command_bar(&self, editing: Option<(u64, SharedString)>, cx: &mut App) {
+    fn command_bar(&self, editing: Option<(u64, SharedString)>, _: Vec<BarTab>, cx: &mut App) {
         // No command bar here: a new tab opens at once.
         if editing.is_some() {
             return;
@@ -831,8 +831,23 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
         text: text.to_string().into(),
         ..Suggestion::default()
     };
+    // The Space's tabs, which the bar lists before anything is typed.
+    let tabs: Vec<shell::BarTab> = [
+        ("The Browser Company", "https://thebrowser.company/", 1),
+        ("Arc (web browser) - Wikipedia", "https://en.wikipedia.org/wiki/Arc", 2),
+        ("Zed — The editor for what's next", "https://zed.dev/", 3),
+        ("Example Domain", "https://example.com/", 5),
+    ]
+    .into_iter()
+    .map(|(title, url, tab)| shell::BarTab {
+        tab,
+        title: title.into(),
+        url: url.into(),
+        favicon: None,
+    })
+    .collect();
     let (typed, rows) = match mode {
-        "empty" => ("", Vec::new()),
+        "empty" => ("", tabs.iter().cloned().map(Suggestion::from).collect()),
         "commands" => (
             "clear",
             vec![
@@ -872,7 +887,16 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
             vec![
                 page("Example Domain", "", "https://example.com/", 5),
                 search("e"),
-                page("Hacker News", "news.ycombinator.com", "https://news.ycombinator.com/", 0),
+                // Only in the history, which Arc marks with a clock.
+                Suggestion {
+                    removable: true,
+                    ..page(
+                        "Hacker News",
+                        "news.ycombinator.com",
+                        "https://news.ycombinator.com/",
+                        0,
+                    )
+                },
                 page("Arc (web browser) - Wikipedia", "", "https://en.wikipedia.org/wiki/Arc", 1),
                 page("Zed — The editor for what's next", "", "https://zed.dev/", 3),
                 page("Rust Programming Language", "", "https://www.rust-lang.org/", 4),
@@ -886,7 +910,10 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
         return;
     }
     command_bar::set_accent(0x4248cf, cx);
-    command_bar::show(Some((0, typed.to_string().into())), cx);
+    match typed {
+        "" => command_bar::show(None, tabs, cx),
+        typed => command_bar::show(Some((0, typed.to_string().into())), Vec::new(), cx),
+    }
     let icons = [Icon::Envelope, Icon::Blocks, Icon::Play, Icon::Disc([0.9, 0.5, 0.1])];
     let favicons: Vec<_> = rows
         .iter()

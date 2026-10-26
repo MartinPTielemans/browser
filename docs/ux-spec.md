@@ -486,8 +486,8 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 | Height | 328.5 with five rows: the input row 64, a 0.5 pt line, 4, the rows at 50 each, 10 below. The table holds more rows (11 in "wik") and scrolls inside the five |
 | Radius | ≈ 18 (cap, ± 1) |
 | Edge | a 0.5 pt outline (4, 4, 4) with a 1 pt grey one inside it, (89, 89, 93) |
-| Fill | translucent: (23–25) over a dark page, (39–47) over a blue one. Ours: opaque #2D2D2D |
-| Shadow | ≈ 30 pt. Ours: the system's window shadow on the panel's shape |
+| Fill | translucent: (23–25) over a dark page, (39–47) over a blue one, (47) over a light grey one: #191919 at 0.86 over a blur of what's behind. Ours: the same over AppKit's behind-window blur with its tint taken out, opaque where Reduce Transparency is on |
+| Shadow | soft, no offset: over a light grey page it darkens ≈ 11 % at the edge and fades out over ≈ 30 pt on every side. Ours: drawn to that fit, a shadow radius of 20 at 0.23 black, in a window of its own that clicks pass through, so the panel's frame is the panel's |
 | Scrim | none: the page stays visible and undimmed |
 | Input row | 64 tall; the search glyph 18 × 18 at 23 in, centred; the text at 53 in, 23 tall, ≈ 18 pt, "Search or Enter URL…" in white 0.55; the text field is 656 wide, 534 while the hint shows |
 | Line | 1 px, white 0.1, 12 in from both sides, under the input row |
@@ -495,14 +495,14 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 | Hint | "Search Wikipedia" and a "Tab" key, 146 × 24 for that site, ending 22 from the panel's right and 11 after the field. The text is ≈ 14 pt at white 0.35, the key 30 × 24 at radius 6 on white 0.06. It's the field's end, not the row's. It shows while the selected row hints a site search; no Go pill |
 | Rows | 750 wide at 8 in, 50 tall at a 50 pitch, from 68.5 under the panel's top. The first row's top is 4 under the line |
 | Selected plate | the row inset 2 on every side (746 × 46), radius ≈ 6.5, filled with the Space's accent (66, 72, 207), text white. The row under the pointer doesn't light up while the keyboard selection is elsewhere (cap, 1 run) |
-| Icon | 16 pt at the row's left + 16, centred in a 24 box; on the selected row the box is a white tile at radius 6. A command's has a faint tile (white 0.06); a search row has a magnifier |
-| Title | 14 pt at the row's left + 43, white 0.8 (white on the selected row); " — host" follows after 2 in white 0.35 (0.5 on the plate) |
+| Icon | 16 pt at the row's left + 16, centred in a 24 box; on the selected row the box is a white tile at radius 6. A command's has a faint tile (white 0.06) and a glyph of its own; a search row has a magnifier; a page only in history has a clock, an open tab or a site its favicon |
+| Title | 14 pt, medium (its strokes at 2×), at the row's left + 43, white 0.8 (white on the selected row); " — host" follows after 2 in white 0.35 (0.5 on the plate) |
 | Switch to Tab | on an open tab's row (the selected one too): "Switch to Tab" at 14 pt, white 0.35 (white on the plate), ending 46 in from the row's right, and 7 after it a 24 × 24 tile at radius 6 with an arrow, white 0.04 on the panel, a white tile with an accent arrow on the plate. "Switch to Split View" for a split's row |
 | Shortcut | on a command, a chip 24 tall at radius 6, ending 10 inside the plate: white with accent-coloured keys on the plate |
 | The field's icon | the search glyph, or the selected row's icon when a row is chosen |
 
-- Ours, where Arc's isn't measured: the title's weight is regular (Arc's width of "Example Domain", 106, matches it); the caret, selection and placeholder colours are Dia's (Colour tokens); the hover fill is Dia's hover token; the accent is the Space's colour, or the system's, with its lightness held to 0.55; "Add to Split View" in place of "Switch to Tab" over a split's new pane; Tab's key on an unselected row isn't shown; a sum's row has no icon; commands share one glyph, Lucide's command, where Arc draws one for each; page rows ask the profile's history for the favicon, with a globe until it comes; the bar shows no suggestions before something is typed (Arc lists open tabs and recents then).
-- Not built: the info button, the translucent fill, Arc's 30 pt shadow, Arc's per-command icons, the open tabs and recents Arc lists for empty text, and the "Search or Enter URL…" text in medium weight.
+- Ours, where Arc's isn't measured: all the bar's text is medium, as its title's strokes are, though Arc's cap height reads ≈ 13.5 pt against our 14; the caret, selection and placeholder colours are Dia's (Colour tokens); the hover fill is Dia's hover token; the accent is the Space's colour, or the system's, with its lightness held to 0.55; "Add to Split View" in place of "Switch to Tab" over a split's new pane; Tab's key on an unselected row isn't shown; a sum's row has no icon; each command has Lucide's glyph for it where Lucide plainly has one, and the rest share Lucide's command; page rows ask the profile's history for the favicon, with a globe until it comes; the field's icon stays the search glyph until something is typed, as Arc's empty bar has it.
+- Not built: the info button, and the recents and commands Arc lists under the open tabs for empty text.
 
 **Rows**
 
@@ -510,6 +510,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 - The search row comes right after the top hit (Dia 1.49).
 - Row 0 is computed from local data only; remote suggestions append below it, so row 0 never flickers (Chrome).
 - Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia).
+- Before anything is typed, the rows are the Space's open tabs, each with "Switch to Tab" (Arc cap). Ours (*interim*): its favorites, pinned tabs and Today tabs, the most recently shown first, without the tab shown or its split, at most ten; none over a split's new pane. ↩ switches to the selected one, and emptying the field lists them again.
 - History rows can be removed with a hover ✕ or ⇧⌦, and the selection moves to the next row (Chrome; Dia has the ✕).
 - Bookmarks, a calculator (↩ copies the result) and commands are also rows (Dia).
 - **Calculator** (Dia, as Ardia has it). A sum typed, such as "12*7" or "(1+2)^3", shows its result as the row after the first: "= 84". ↩ on it copies "84", closes the bar and says "Copied 84" in the toast.
@@ -523,7 +524,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
     - Only commands that would do something now are listed: Go Back with history behind, Close this Split Pane in a split, and so on.
     - The chip is the shortcut in 13 pt, at 24 tall, radius 6, white 0.08 and the dim text colour; on the selected row white with accent keys (Panel).
     - ↩ or a click runs the command. The bar closes first, as for a pick.
-    - Not yet: Arc's commands we don't have, and a glyph for each.
+    - Not yet: Arc's commands we don't have.
 - Well-known sites that what's typed could start, such as YouTube for "you", fill the rows the profile's own leave, under them and never as row 0, so a new profile's list isn't bare. The list is built in and ranked by popularity alone (ours).
 - Hovering highlights a row; Enter uses the keyboard selection (Chrome). Ours, as Dia's: Arc's didn't light the row under the pointer while the keyboard selection was elsewhere (1 run).
 
