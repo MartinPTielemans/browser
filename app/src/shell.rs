@@ -4454,8 +4454,13 @@ impl Shell {
             // check.sh waits for this line before it presses a row that moved.
             log!("browser: rows settled");
         }
+        let tiling = !self.tile_slides.is_empty();
         self.tile_slides
             .retain(|_, (_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_some());
+        if tiling && self.tile_slides.is_empty() {
+            // check.sh waits for this line before it presses a tile that moved.
+            log!("browser: tiles settled");
+        }
         self.list_slide
             .take_if(|(_, start, curve)| curve.at(start.elapsed().as_secs_f32()).is_none());
         self.closing.retain(|row| row_spring(row.start.elapsed().as_secs_f32()).is_some());

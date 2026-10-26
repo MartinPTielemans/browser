@@ -200,11 +200,13 @@ send drag $(tiled_row 0) 180 112
 expect "^browser: dragged $a to favorites 1\$" "a row dragged right of the tile didn't go there"
 expect "^browser: favorites $x $a\$" \
   "the second row dropped on the favorites isn't the second: the favorites are \"$(favorites)\""
+expect '^browser: tiles settled$' "the tiles didn't settle after the drop"
 # A tile dragged left of the other goes before it.
 send drag 168 110 40 110
 expect "^browser: dragged $a to favorites 0\$" \
   "a tile dragged left of the other didn't go before it"
 expect "^browser: favorites $a $x\$" "the tiles didn't swap: the favorites are \"$(favorites)\""
+expect '^browser: tiles settled$' "the tiles didn't settle after the swap"
 # A tile dragged into the list goes there, unpinned in Today.
 send drag 168 110 100 240
 expect "^browser: dragged $x to today 0\$" "a tile dragged into Today didn't go there"
@@ -235,7 +237,9 @@ send clickkey 430 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"
-send clickkey 16 16
+# The driver's done for a click that closes its window can be lost with the window, as it always
+# was in a VM, so the click isn't waited for; Settings going is.
+post clickkey 16 16
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 send menu Settings…
 expect '^browser: settings shown Advanced$' "Settings… didn't show Settings on the tab it showed"
