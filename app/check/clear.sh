@@ -1,16 +1,16 @@
 # View › Clear Cache and Refresh and the command bar's Clear Cookies and Refresh delete the cache
 # and the cookies of the page's site, and load the page again. ⇧⌘C and ⌥⇧⌘C from the page and the UI
-# copy the tab's URL and a Markdown link to it, to a pasteboard of the run's own. The sidebar shows
-# Clear and the URL field's button only while the pointer is over it, and the button copies the URL.
-# ⇧⌘K from the page and the UI, and Clear on the divider, close the Space's Today tabs but the one
-# shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, unless
-# the page's text field has the keyboard, when ⌘Z is its own. ⇧⌘T from the page and the UI reopens
-# the tab closed last, where it was and with its history, and after a Clear, ⌘Z brings back only the
-# tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, whose Duplicate Tab, Close Tabs
-# Below and Unpin Tab work. ⌘W archives a Today tab. ⇧⌘L, View Library and the footer's button open
-# the Library, which pushes the page right at its width, and its back button closes it. A click on
-# an archived tab reopens it at the top of Today with its history, and Clear Archive asks, then
-# empties the archive.
+# copy the tab's URL and a Markdown link to it, to a pasteboard of the run's own, without its
+# tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is
+# over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider,
+# close the Space's Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI
+# brings them back in place, unloaded, unless the page's text field has the keyboard, when ⌘Z is its
+# own. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history,
+# and after a Clear, ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's
+# menu, whose Duplicate Tab, Close Tabs Below and Unpin Tab work. ⌘W archives a Today tab. ⇧⌘L, View
+# Library and the footer's button open the Library, which pushes the page right at its width, and
+# its back button closes it. A click on an archived tab reopens it at the top of Today with its
+# history, and Clear Archive asks, then empties the archive.
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 serve
@@ -296,6 +296,13 @@ expect '^browser: command view-library via sidebar$' "the footer's Library butto
 expect '^browser: library shown$' "the footer's Library button didn't open the Library"
 send key l cmd shift
 expect '^browser: library hidden$' "⇧⌘L didn't close the Library"
+# A copied URL leaves out the parameters that only tell a site where a click came from.
+go_from_bar "example.org/?utm_source=check&id=1&fbclid=2"
+expect "^browser: loaded $r https://example.org/.utm_source=check&id=1&fbclid=2\$" \
+  "the tab didn't go to the URL with tracking parameters"
+send key c cmd shift
+expect '^browser: copied https://example.org/.id=1$' \
+  "⇧⌘C copied the URL with its tracking parameters: $(grep '^browser: copied' "$log" | tail -1)"
 exec 3>&-
 quit
-echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, and Clear Archive asks, then empties it. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/library-empty.png"
+echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. ⇧⌘T from the page and the UI reopens the tab closed last, where it was and with its history, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, and Clear Archive asks, then empties it. Windows: $out/clear-site.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/library-empty.png"

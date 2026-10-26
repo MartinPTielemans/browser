@@ -541,7 +541,8 @@ Dia's polish (decision 6). Parsing, inline completion and ranking follow Chrome'
 - ⌘V, ⌘C, ⌘X or ⌘A pressed right after ⌘T, ⌘L or ⌘F waits up to 400 ms for the new field and lands there, never in the old page (Ardia, from a user report).
 - A click anywhere outside the panel, or another window or app taking focus, closes it like Esc; the click still does its own thing.
 - **URLs** (Chrome's `AutocompleteInput::Parse`). A dotted host without a scheme goes to https, falling back to http. Single labels, localhost, IP addresses and `.local` hosts go to http.
-- Paste and Go and Paste and Search are in the context menus. Copied links have trackers stripped (Dia).
+- Paste and Go and Paste and Search are in the context menus.
+- Copy URL, as a link or as Markdown, leaves out the utm_ parameters and the click IDs ad and mail services add, such as fbclid and gclid (Dia; the list is ours, in `app/src/shell/clean_link.rs`).
 
 ### New tab
 

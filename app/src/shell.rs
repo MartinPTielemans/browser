@@ -24,12 +24,14 @@ use gpui::{
 
 use crate::text_input::TextInput;
 
+mod clean_link;
 mod library;
 mod new_space;
 pub(crate) mod scaled;
 mod split_targets;
 
 pub use library::{Archived, Download, DownloadAction, DownloadState};
+use clean_link::clean_link;
 use library::{LIBRARY_WIDTH, RECEDE_X, Section};
 use scaled::scaled;
 
@@ -2530,14 +2532,15 @@ impl Shell {
         undone
     }
 
-    /// Copies the selected tab's URL, or a Markdown link to it, and says so in the toast.
+    /// Copies the selected tab's URL, or a Markdown link to it, without its tracking parameters,
+    /// and says so in the toast.
     fn copy_url(&mut self, markdown: bool, cx: &mut Context<Self>) {
-        let url = self.url(self.selected);
+        let url = clean_link(&self.url(self.selected));
         if url.is_empty() {
             return;
         }
         let (text, toast) = match markdown {
-            false => (url.to_string(), "Copied URL"),
+            false => (url.clone(), "Copied URL"),
             true => {
                 let title = markdown_text(&self.title(self.selected));
                 (format!("[{title}]({url})"), "Copied URL as Markdown")
