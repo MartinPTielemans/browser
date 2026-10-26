@@ -872,7 +872,7 @@ Each motion Arc has, with where its measure is, or the take that records it. "On
 | Sidebar | A row dragged into a folder and out | — | 1 |
 | Sidebar | A folder closed and opened by a click | — (ours: Dia's Group expand) | 1 |
 | Sidebar | Clear and the URL field's buttons, with the pointer coming onto the sidebar and leaving | — | 1 |
-| Sidebar | A favorite's tooltip, coming, moving to the next favorite, and going | — | 1 |
+| Sidebar | A favorite's tooltip, coming, moving to the next favorite, and going; whether a tab row has one. A tooltip is a window of its own, so it's recorded, not posed | — | 1 |
 | Sidebar | The width dragged past each limit and let go; a double-click on the edge | — (ours: the Space pages' rubber band and spring) | 1 |
 | Sidebar | A tab loading | — (ours: Dia's Spinner) | 1 |
 | Sidebar | The scroll edge under the favorites | — (ours: Dia's Scroll edge) | 1 |
