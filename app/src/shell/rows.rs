@@ -536,7 +536,7 @@ impl Shell {
                 .block_mouse_except_scroll()
                 .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)))
         });
-        divider_box(clear).top(px(self.slide(Slot::Divider)))
+        divider_box(self.hairline(), clear).top(px(self.slide(Slot::Divider)))
     }
 
     pub(super) fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
