@@ -205,7 +205,7 @@ void host_hide_drop_targets(void) {}
 
 void host_add_dialog(void* dialog_view) {}
 
-void host_show_dialog(void* ui_view) {}
+void host_show_dialog(void* ui_view, double x, double y, double width, double height) {}
 
 void host_hide_dialog(void) {}
 

@@ -11,7 +11,8 @@ use std::{
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size, WeakEntity};
 
 use super::{
-    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, browser::WindowButton,
+    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog,
+    browser::WindowButton,
 };
 
 /// What the core shares between its windows, as it keeps them: the Spaces deleted and the archive's
@@ -110,6 +111,8 @@ pub(super) struct Recorder {
     /// The shell it answers each picture asked of it for with this PNG, at once, inside the call
     /// that asked, as a core that answers inline would.
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, Vec<u8>)>>,
+    /// The answers to page dialogs it was given, with what was typed.
+    pub(super) replies: RefCell<Vec<PageReply>>,
 }
 
 impl Recorder {
@@ -395,6 +398,18 @@ impl Browser for Recorder {
 
     fn use_system_engine(&self, tab: u64, _: &mut App) {
         self.record(format!("system engine {tab}"))
+    }
+
+    fn show_page_dialog(&self, shown: Option<ShownPageDialog>, _: &mut App) {
+        match shown {
+            Some((tab, dialog, _)) => self.record(format!("page dialog {tab} {}", dialog.id)),
+            None => self.record("page dialog none".into()),
+        }
+    }
+
+    fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, _: &mut App) {
+        self.record(format!("answer dialog {tab} {id} {reply:?}"));
+        self.replies.borrow_mut().push(reply);
     }
 
     fn stop(&self, _: u64, _: &mut App) {}
