@@ -817,6 +817,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   # The Site Controls list it in the first row, and Off forgets it, brings its session back to
   # Chromium and shows the page there.
   send move $page_point
+  expect '^browser: sidebar tools hidden$' "Clear and the URL field's buttons didn't fade out"
   send move $sidebar_point
   expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
   send click $site_controls_point
