@@ -395,10 +395,10 @@ fn a_value_chosen_sets_the_permission(cx: &mut TestAppContext) {
     assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", "menu Allow*, Block, Ask"]);
 }
 
-/// A site kept for Apple's engine lists it first, and its menu's Off turns it off; On, which it
+/// A site kept for Safari's engine lists it first, and its menu's Off turns it off; On, which it
 /// is, does nothing.
 #[gpui::test]
-fn the_engine_row_turns_apples_engine_off(cx: &mut TestAppContext) {
+fn the_engine_row_turns_safaris_engine_off(cx: &mut TestAppContext) {
     let mut panel = Panel::new(cx, Site { system_engine: true, ..site() });
     panel.calls();
     panel.host.answer.set(Some(0));

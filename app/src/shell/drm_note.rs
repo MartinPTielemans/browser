@@ -1,6 +1,6 @@
 //! A note that a page needs protected-media playback Chromium doesn't have, such as Netflix's video:
 //! a card under the URL field, where a page's question shows, until the tab goes to another site.
-//! Apple's engine plays these sites with Apple's DRM, so its one button shows the tab's page there,
+//! Safari's engine plays these sites with Apple's DRM, so its one button shows the tab's page there,
 //! in the tab, and the profile keeps the site for it: its pages open there from then on, with no
 //! note, until the Site Controls turn it off (decision 1). Where the Mac has no engine to give, on
 //! macOS 13, and in an agent's Space, whose tabs never switch, it opens the page in Safari instead
@@ -16,10 +16,10 @@ use super::{
 };
 
 /// Ours, as neither Arc nor Dia has protected media to explain: short and plain. It says the video
-/// plays here, in this tab, and warns of the sign-in Apple's engine asks for once, as it keeps its
+/// plays here, in this tab, and warns of the sign-in Safari's engine asks for once, as it keeps its
 /// own cookies.
 const SWITCH_WORDS: &str =
-    "This site's video needs Apple's engine. Play it in this tab, and the site may ask you to sign \
+    "This site's video needs Safari's engine. Play it in this tab, and the site may ask you to sign \
      in once more.";
 const SWITCH: &str = "Play in This Tab";
 const WORDS: &str =
@@ -49,13 +49,13 @@ impl Shell {
         self.drm_notes.get(&self.selected).filter(|_| !playing && self.question().is_none())
     }
 
-    /// Whether the note's button shows the page in Apple's engine, in the tab: where the Mac has
+    /// Whether the note's button shows the page in Safari's engine, in the tab: where the Mac has
     /// one, and not in an agent's Space, whose tabs never switch.
     fn can_switch(&self) -> bool {
         self.browser.can_use_system_engine() && !self.agents_space_shown()
     }
 
-    /// Shows the page of the tab shown in Apple's engine. The core takes the note away.
+    /// Shows the page of the tab shown in Safari's engine. The core takes the note away.
     fn use_system_engine(&mut self, cx: &mut Context<Self>) {
         if self.drm_note().is_none() || !self.can_switch() {
             return;
@@ -172,7 +172,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn the_button_shows_the_tabs_page_in_apples_engine_where_the_mac_has_it(
+    fn the_button_shows_the_tabs_page_in_safaris_engine_where_the_mac_has_it(
         cx: &mut TestAppContext,
     ) {
         let (shell, host) = window_with_tabs(cx);
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn a_tab_in_apples_engine_has_no_note(cx: &mut TestAppContext) {
+    fn a_tab_in_safaris_engine_has_no_note(cx: &mut TestAppContext) {
         let (shell, host) = window_with_tabs(cx);
         host.system_engine.set(true);
         shell.update(cx, |shell, cx| {
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn without_apples_engine_the_button_switches_nothing(cx: &mut TestAppContext) {
+    fn without_safaris_engine_the_button_switches_nothing(cx: &mut TestAppContext) {
         let (shell, host) = window_with_tabs(cx);
         shell.update(cx, |shell, cx| {
             shell.set_media_unsupported(10, "com.widevine.alpha", cx);
