@@ -480,3 +480,6 @@ fn shown_look(theme: Option<&TileTheme>) -> (Hsla, f32, Hsla) {
 fn centred() -> gpui::Div {
     div().absolute().size_full().flex().items_center().justify_center()
 }
+
+#[cfg(test)]
+mod tests;

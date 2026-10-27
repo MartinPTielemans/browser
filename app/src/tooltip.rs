@@ -30,6 +30,8 @@ pub const FADE_OUT: Duration = Duration::from_millis(270);
 /// How far below the tile or row it names the tooltip's top is, or above it if it doesn't fit
 /// below. The gap between two tiles, so it reads as the tile's own and the tile's edge shows.
 pub const GAP: f32 = 6.;
+/// How far in from the window's left and right edges a tooltip that would cross one stays (ours).
+pub const EDGE_INSET: f32 = 8.;
 /// How far right of a footer button's plate the tooltip beside it starts (Arc).
 pub const BESIDE: f32 = 3.5;
 // Arc's, from the Library button's: a capsule 27 tall and 161.5 wide for View Library ⇧⌘L, its
@@ -140,14 +142,15 @@ impl Anchor {
 }
 
 /// Where a tooltip of `size` has its top left: under what it hangs from, or above it with the same
-/// gap if there's no room below, or beside it, and inside the window.
+/// gap if there's no room below, or beside it, and inside the window, EDGE_INSET from its sides.
 pub fn place(anchor: Anchor, (width, height): (f32, f32)) -> (f32, f32) {
     let left = match anchor.align {
         Align::Centre => anchor.x - width / 2.,
         Align::Text => anchor.x - TEXT_X,
         Align::Beside => anchor.x + BESIDE,
     };
-    let left = left.min(anchor.window.0 - width).max(0.);
+    // Past the edges it keeps EDGE_INSET from them, the left one first if it can't be both.
+    let left = left.min(anchor.window.0 - width - EDGE_INSET).max(EDGE_INSET);
     let top = match anchor.align {
         Align::Beside => (anchor.top + anchor.bottom - height) / 2.,
         _ if above(anchor, height) => anchor.top - GAP - height,
@@ -347,6 +350,8 @@ impl Tooltip {
     fn show(&mut self, tip: Tip, anchor: Anchor, cx: &mut Context<Self>) {
         let layout = measure(&tip, &self.system);
         let (left, top) = place(anchor, (layout.width, HEIGHT));
+        // check.sh reads this line, to see the tooltip hangs from what it names.
+        log!("browser: tooltip at {left} {top} {} {HEIGHT}", layout.width);
         if self.shown.as_ref() != Some(&tip) {
             // check.sh reads this line.
             log!("browser: tooltip shown {}", label(&tip));

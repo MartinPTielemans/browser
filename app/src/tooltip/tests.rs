@@ -174,15 +174,36 @@ fn a_folders_tooltip_has_its_text_over_the_title() {
 
 #[test]
 fn a_tooltip_stays_inside_the_window_across() {
-    // A tile at the right edge: the tooltip ends at the window's edge instead of its middle.
+    // A tile at the right edge: the tooltip ends EDGE_INSET from the window's edge instead of
+    // having its middle at the tile's.
     let right = Anchor::centred(frame(930., 100., 70., 41.), window());
-    assert_eq!(place(right, SIZE).0, 900.);
+    assert_eq!(place(right, SIZE).0, 1000. - 100. - EDGE_INSET);
     // And one whose middle is nearer the left than half its width.
     let left = Anchor::centred(frame(0., 100., 40., 41.), window());
-    assert_eq!(place(left, SIZE).0, 0.);
+    assert_eq!(place(left, SIZE).0, EDGE_INSET);
     // A folder's text near the right edge.
     let folder = Anchor::titled(frame(900., 300., 100., 36.), 35., window());
-    assert_eq!(place(folder, SIZE).0, 900.);
+    assert_eq!(place(folder, SIZE).0, 1000. - 100. - EDGE_INSET);
+    // Room for the tooltip but not the insets: the left one is kept.
+    let narrow = Anchor::centred(frame(8., 100., 80., 41.), size(px(110.), px(700.)));
+    assert_eq!(place(narrow, SIZE).0, EDGE_INSET);
+}
+
+/// The sidebar's three tiles, each 66.7 wide on the 8 pt gaps, and the tooltips of titles as long
+/// as the owner's, in a wide window.
+#[test]
+fn a_tooltip_over_a_tile_stays_centred_unless_it_crosses_the_edge() {
+    let tile = |left: f32| Anchor::centred(frame(left, 90., 66.7, 41.), size(px(1400.), px(900.)));
+    // The last tile, a short title: centred on it, 6 under it.
+    let (left, top) = place(tile(153.3), (146., HEIGHT));
+    assert!((left + 73. - (153.3 + 33.35)).abs() < 0.01);
+    assert_eq!(top, 131. + GAP);
+    // A long title over the first tile starts EDGE_INSET in, not at the window's edge.
+    let (left, _) = place(tile(8.), (306., HEIGHT));
+    assert_eq!(left, EDGE_INSET);
+    // A tooltip as wide as its window is still centred on a tile in the middle of a wide window.
+    let (left, _) = place(tile(700.), (WINDOW_WIDTH, HEIGHT));
+    assert!((left + WINDOW_WIDTH / 2. - (700. + 33.35)).abs() < 0.01);
 }
 
 #[test]
@@ -234,9 +255,9 @@ fn a_tooltip_beside_stays_inside_the_window() {
     // A button whose middle is nearer the window's bottom than half the tooltip's height.
     let low = Anchor::beside(frame(8., 690., 32., 10.), window());
     assert_eq!(place(low, SIZE).1, 700. - HEIGHT);
-    // One at the right edge: the tooltip ends at the window's edge.
+    // One at the right edge: the tooltip ends EDGE_INSET from the window's edge.
     let right = Anchor::beside(frame(950., 300., 32., 32.), window());
-    assert_eq!(place(right, SIZE).0, 900.);
+    assert_eq!(place(right, SIZE).0, 1000. - 100. - EDGE_INSET);
 }
 
 #[test]

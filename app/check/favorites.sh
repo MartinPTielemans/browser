@@ -67,6 +67,18 @@ expect '^browser: tooltip hidden$' "the pointer leaving the tile didn't hide its
 send move $tile
 expect '^browser: tooltip shown ready$' "resting on the tile again didn't show its tooltip"
 expect '^browser: tooltip window shown$' "the tile's tooltip didn't fade in"
+# It hangs from the tile it names: its middle is the tile's, 114 across, and the window the host
+# put over the page is where the UI asked.
+since_move() {
+  sed -n "/^browser: drive $step: /,\$p" "$log" | grep "$1" | tail -1
+}
+asked=$(since_move '^browser: tooltip at ')
+placed=$(since_move '^browser: tooltip window at ')
+echo "$asked $placed" | awk '
+  { middle = $4 + $6 / 2 - 114; across = $4 - $12; down = $5 - $13 }
+  END { exit !(NR == 1 && NF == 13 && middle > -1 && middle < 1 && across > -1 && across < 1 \
+    && down > -1 && down < 1) }' \
+  || fail "the tooltip isn't under the tile it names: asked \"$asked\", placed \"$placed\""
 ../tools/window-screenshot.sh "$pid" "$out/favorite-tooltip.png" || fail "no window to capture"
 # A click on the tile shows the favorite, and ⌘1–⌘9 count favorites first.
 send click $tile
