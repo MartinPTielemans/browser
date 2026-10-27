@@ -667,6 +667,9 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect "^browser: tab $tab back to Chromium for http://localhost:$port/engine.html\$" \
     "a link whose redirects ended at another site didn't take the tab back to Chromium"
   expect "^browser: title $tab engine chromium\$" "a link's redirects to another site stayed in Safari's engine"
+  # Chromium's view shows the page it kept, with its title, until the handback's load replaces it,
+  # which would count a click from zero again.
+  expect "^browser: loaded $tab http://localhost:$port/engine.html\$" "Chromium didn't load the handed-back page"
   # The command bar closes at a click outside it before the click is dispatched, so the click lands
   # on the page as it would with the bar closed (AGENTS.md › Over the page). Chromium's page counts
   # the click that closed the bar and the next, as Safari's engine's does below.
