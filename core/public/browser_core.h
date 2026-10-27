@@ -526,10 +526,11 @@ typedef struct bc_host {
   void (*tab_offer_changed)(void* context, bc_id tab, const bc_offer* offer);
   // Another app asked the browser to open |urls|, |count| http, https or file URLs: a link clicked
   // in Mail or Slack, `open https://…`, an .html file from Finder. Open each in a new tab of the
-  // user's, in front. Those that launched the browser come before started; open them over the
-  // Spaces bc_window_restore brings back. The user's alone: a link a page opens, an agent's too,
-  // comes in tab_opened, and agents get no way to make the browser the system's default, which
-  // only the user does, in the app's Settings or the system's.
+  // user's, in front. Those that launched the browser come as AppKit finishes launching the app,
+  // before started or just after; open them over the Spaces bc_window_restore brings back. The
+  // user's alone: a link a page opens, an agent's too, comes in tab_opened, and agents get no way
+  // to make the browser the system's default, which only the user does, in the app's Settings or
+  // the system's.
   void (*open_links)(void* context, const char* const* urls, size_t count);
   // The pointer is on a link in the page of |tab|, or has left it and |url| is "". |url| is the
   // link's address as the app shows it: UTF-8, without https://, and a name in another script as
