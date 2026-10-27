@@ -4,6 +4,8 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <objc/runtime.h>
 
+#include <dlfcn.h>
+
 #include <algorithm>
 #include <initializer_list>
 #include <iterator>
@@ -836,6 +838,141 @@ void HoldKeys(NSWindow* window) {
 
 }  // namespace
 
+namespace {
+
+// Dia's window material (docs/ux-spec.md › Window material): what's behind the window, blurred,
+// under the UI, which tints it. AppKit swaps it for an opaque fill while the window is inactive,
+// and with Reduce Transparency or Increase Contrast.
+NSVisualEffectView* WindowMaterial(NSRect frame) {
+  NSVisualEffectView* material = [[NSVisualEffectView alloc] initWithFrame:frame];
+  material.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  material.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+  // Dia's dark material, which AppKit doesn't name.
+  material.material = (NSVisualEffectMaterial)29;
+  material.state = NSVisualEffectStateFollowsWindowActiveState;
+  material.emphasized = YES;
+  material.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
+  return material;
+}
+
+// What the first window looks like until its UI has drawn, put on screen before the browser
+// starts, and the sidebar's picture in it, which the browser window takes over.
+NSWindow* g_launch_window;
+NSImageView* g_launch_picture;
+
+// The picture of a |width| by |height| window's sidebar, named for the size, as a window opens at
+// another size than the one it quit at.
+NSString* LaunchPicturePath(const char* profile_dir, double width, double height) {
+  return [NSString stringWithFormat:@"%s/launch-picture-%.0fx%.0f.png", profile_dir, width, height];
+}
+
+}  // namespace
+
+void host_show_launch_window(const char* profile_dir, double width, double height) {
+  double x = 0, y = 0;
+  host_centered(width, height, &x, &y);
+  // host_centered's y runs down from the main display's top, AppKit's up from its bottom.
+  const NSRect frame =
+      NSMakeRect(x, NSHeight(NSScreen.screens.firstObject.frame) - y - height, width, height);
+  NSWindow* window = [[NSWindow alloc]
+      initWithContentRect:frame
+                styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
+                          NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable |
+                          NSWindowStyleMaskFullSizeContentView
+                  backing:NSBackingStoreBuffered
+                    defer:NO];
+  window.releasedWhenClosed = NO;
+  window.titlebarAppearsTransparent = YES;
+  window.titleVisibility = NSWindowTitleHidden;
+  window.ignoresMouseEvents = YES;
+  // The picture has the window's buttons, where ilo puts them.
+  for (NSWindowButton button : {NSWindowCloseButton, NSWindowMiniaturizeButton, NSWindowZoomButton}) {
+    [window standardWindowButton:button].hidden = YES;
+  }
+  // The material's colour rather than the material: its blur slows the browser's start by a
+  // third, and the window is gone by the time the material could show through.
+  window.backgroundColor = [NSColor colorWithWhite:0.15 alpha:1];
+  NSView* content = window.contentView;
+  NSImage* picture = [[NSImage alloc] initWithContentsOfFile:LaunchPicturePath(profile_dir, width, height)];
+  NSImageRep* pixels = picture.representations.firstObject;
+  const CGFloat scale = window.backingScaleFactor;
+  // A picture taken on a screen of another scale is left out.
+  if (pixels && pixels.pixelsHigh == lround(height * scale)) {
+    if ([pixels isKindOfClass:NSBitmapImageRep.class]) {
+      // The sidebar's right edge, halfway down, is the material with nothing on it.
+      NSColor* edge = [(NSBitmapImageRep*)pixels colorAtX:pixels.pixelsWide - 1 y:pixels.pixelsHigh / 2];
+      window.backgroundColor = [edge colorWithAlphaComponent:1];
+    }
+    picture.size = NSMakeSize(pixels.pixelsWide / scale, height);
+    NSImageView* shown = [NSImageView imageViewWithImage:picture];
+    shown.frame = NSMakeRect(0, 0, picture.size.width, height);
+    shown.imageScaling = NSImageScaleNone;
+    [content addSubview:shown];
+    g_launch_picture = shown;
+  }
+  [window makeKeyAndOrderFront:nil];
+  [NSApp activateIgnoringOtherApps:YES];
+  // On screen now, as Chromium's startup holds the main thread for a while before its run loop.
+  [CATransaction flush];
+  g_launch_window = window;
+}
+
+void host_close_launch_window(void) {
+  [g_launch_window orderOut:nil];
+  g_launch_window = nil;
+  [g_launch_picture removeFromSuperview];
+  g_launch_picture = nil;
+}
+
+bool host_save_launch_picture(void* ui_view, const char* profile_dir, double width) {
+  NSWindow* window = ((__bridge NSView*)ui_view).window;
+  const NSSize size = window.frame.size;
+  NSString* path = LaunchPicturePath(profile_dir, size.width, size.height);
+  NSFileManager* files = NSFileManager.defaultManager;
+  NSString* dir = [NSString stringWithUTF8String:profile_dir];
+  for (NSString* name in [files contentsOfDirectoryAtPath:dir error:nil]) {
+    if ([name hasPrefix:@"launch-picture-"]) {
+      [files removeItemAtPath:[dir stringByAppendingPathComponent:name] error:nil];
+    }
+  }
+  if (!window.visible || (window.styleMask & NSWindowStyleMaskFullScreen) || width < 1) {
+    return false;
+  }
+  // Only the sidebar: the page could be anything, and shouldn't be kept on disk.
+  // The SDK no longer declares it, though macOS keeps it, and it reads the app's own windows
+  // without the Screen Recording permission that ScreenCaptureKit asks for.
+  using CreateImage = CGImageRef (*)(CGRect, CGWindowListOption, CGWindowID, CGWindowImageOption);
+  static const auto create_image =
+      reinterpret_cast<CreateImage>(dlsym(RTLD_DEFAULT, "CGWindowListCreateImage"));
+  CGImageRef whole =
+      create_image ? create_image(CGRectNull, kCGWindowListOptionIncludingWindow,
+                                  (CGWindowID)window.windowNumber, kCGWindowImageBoundsIgnoreFraming)
+                   : nullptr;
+  if (!whole) {
+    return false;
+  }
+  const CGFloat scale = (CGFloat)CGImageGetWidth(whole) / size.width;
+  CGImageRef sidebar = CGImageCreateWithImageInRect(
+      whole, CGRectMake(0, 0, round(width * scale), CGImageGetHeight(whole)));
+  CGImageRelease(whole);
+  if (!sidebar) {
+    return false;
+  }
+  // Encoded off the main thread, which the user is about to use elsewhere or quit.
+  NSURL* url = [NSURL fileURLWithPath:path];
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+    CGImageDestinationRef png =
+        CGImageDestinationCreateWithURL((__bridge CFURLRef)url, CFSTR("public.png"), 1, nullptr);
+    if (png) {
+      CGImageDestinationAddImage(png, sidebar, nullptr);
+      CGImageDestinationFinalize(png);
+      CFRelease(png);
+    }
+    CGImageRelease(sidebar);
+  });
+  return true;
+}
+
 void host_centered(double width, double height, double* x, double* y) {
   NSScreen* main = NSScreen.screens.firstObject;
   NSRect visible = WindowScreen().visibleFrame;
@@ -862,20 +999,23 @@ void host_show_window(void* ui_view) {
   browser->window = window;
   // Never drawn, but Mission Control and the Window menu name the window by it.
   window.title = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleName"];
-  // Dia's window material (docs/ux-spec.md › Window material): what's behind the window, blurred,
-  // under the UI, which tints it. AppKit swaps it for an opaque fill while the window is inactive,
-  // and with Reduce Transparency or Increase Contrast.
-  NSVisualEffectView* material = [[NSVisualEffectView alloc] initWithFrame:view.bounds];
-  material.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-  material.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-  // Dia's dark material, which AppKit doesn't name.
-  material.material = (NSVisualEffectMaterial)29;
-  material.state = NSVisualEffectStateFollowsWindowActiveState;
-  material.emphasized = YES;
-  material.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
   // Under the UI's view, since the core keeps only the UI's and the page's views in its own.
-  [view addSubview:material positioned:NSWindowBelow relativeTo:nil];
+  [view addSubview:WindowMaterial(view.bounds) positioned:NSWindowBelow relativeTo:nil];
+  // Views keeps a new window clear until its compositor's first frame, which waits for the GPU
+  // process to start, though the UI's and the pages' views cover all of that compositor.
+  window.alphaValue = 1;
+  if (g_launch_window) {
+    // It takes the launch window's place, and its picture stays over the UI until the UI has
+    // drawn. The launch window itself can't stay over it: Chromium counts a covered window's
+    // pages as hidden, and they don't paint.
+    window.animationBehavior = NSWindowAnimationBehaviorNone;
+    if (g_launch_picture) {
+      [view addSubview:g_launch_picture];
+    }
+  }
   [window makeKeyAndOrderFront:nil];
+  [g_launch_window orderOut:nil];
+  g_launch_window = nil;
   [NSApp activateIgnoringOtherApps:YES];
 
   // A click outside the command bar closes it first, so the click lands the way it would with
@@ -1020,6 +1160,15 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {
                                                   }
                                                 }];
   }
+}
+
+void host_watch_resigning_active(void (*resigning)(void)) {
+  [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationWillResignActiveNotification
+                                                  object:nil
+                                                   queue:nil
+                                              usingBlock:^(NSNotification*) {
+                                                resigning();
+                                              }];
 }
 
 void host_forget_window(void* ui_view) {
