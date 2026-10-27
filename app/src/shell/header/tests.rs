@@ -153,6 +153,47 @@ fn a_press_with_no_move_before_it_puts_the_pointer_over_the_sidebar(cx: &mut Tes
     assert!(!tools(&shell, cx).0);
 }
 
+/// Whether the pointer is over the sidebar and Clear and the URL field's buttons show, once the
+/// sidebar has stopped moving.
+fn tools(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> (bool, bool) {
+    shell.update(cx, |shell, cx| {
+        shell.sidebar_motion = None;
+        cx.notify();
+    });
+    cx.run_until_parked();
+    shell.read_with(cx, |shell, _| (shell.sidebar_hovered, shell.tools_shown()))
+}
+
+/// The pointer leaving while the sidebar is hidden, with nothing drawn to hear it go, leaves ⌘S's
+/// sidebar without its tools until the pointer comes over it.
+#[gpui::test]
+fn the_sidebar_comes_back_with_its_tools_only_under_the_pointer(cx: &mut TestAppContext) {
+    let (shell, cx, _host) = drawn_shell(cx);
+    cx.simulate_mouse_move(point(px(100.), px(300.)), None, Modifiers::none());
+    assert_eq!(tools(&shell, cx), (true, true));
+    shell.update(cx, |shell, cx| shell.toggle_sidebar(cx));
+    assert!(!tools(&shell, cx).0);
+    cx.simulate_mouse_move(point(px(600.), px(400.)), None, Modifiers::none());
+    shell.update(cx, |shell, cx| shell.toggle_sidebar(cx));
+    assert_eq!(tools(&shell, cx), (false, false));
+    cx.simulate_mouse_move(point(px(100.), px(300.)), None, Modifiers::none());
+    assert_eq!(tools(&shell, cx), (true, true));
+}
+
+/// The reveal's panel shows them, and docking it, under the pointer that keeps it out, keeps them
+/// with no fade.
+#[gpui::test]
+fn the_revealed_sidebar_keeps_its_tools_as_it_docks(cx: &mut TestAppContext) {
+    let (shell, cx, _host) = drawn_shell(cx);
+    shell.update(cx, |shell, cx| shell.toggle_sidebar(cx));
+    assert_eq!(tools(&shell, cx), (false, true));
+    shell.update(cx, |shell, cx| shell.set_revealed(true, cx));
+    assert_eq!(tools(&shell, cx), (false, true));
+    shell.update(cx, |shell, cx| shell.toggle_sidebar(cx));
+    assert_eq!(tools(&shell, cx), (true, true));
+    assert_eq!(shell.read_with(cx, |shell, _| shell.tools_opacity()), 1.);
+}
+
 /// A click on the URL field opens the command bar over the field, as Arc's does, and ⌘L centred.
 /// With the sidebar hidden there's no field, and the bar is centred (*interim*).
 #[gpui::test]
