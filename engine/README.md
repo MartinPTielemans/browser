@@ -15,8 +15,9 @@ Work that doesn't change the core needs no build: `./fetch.sh` downloads the pre
 | `patches/ours/` | Our own patches |
 | `args.gn` | Our GN args, after ungoogled-chromium's `flags.gn` and ungoogled-chromium-macos's `flags.macos.gn` |
 | `args.dev.gn` | The dev build's args, after `args.gn` |
-| `tree.sh` | What `setup.sh` and `check-linux.sh` both do to a prepared tree: remove Chromium's agent instructions, link the core and apply `series` |
+| `tree.sh` | What `setup.sh` and `linux/prepare.sh` both do to a prepared tree: remove Chromium's agent instructions, link the core and apply `series` |
 | `check-linux.sh` | Compiles the core on Linux, as CI does |
+| `linux/` | Prepares, builds and packs the Linux engine |
 | `prebuilt.ini` | The prebuilt engine: the commit it was built from, its URL and its SHA-256. Written by `publish.sh` |
 
 ## Order
@@ -38,7 +39,11 @@ It also needs the macOS SDK of Chromium's official builds (`mac_sdk_official_ver
 
 ## Linux
 
-CI (`.github/workflows/core-linux.yml`) runs `check-linux.sh` on pushes that change the core or the engine. It prepares the tree with ungoogled-chromium-portablelinux's scripts at the pinned tag, applies `series`, and compiles only the core's own objects; the `browser_core` target would compile most of Chrome, and nothing links. A run takes about half an hour and 40 GB of disk.
+Linux keeps to the Chromium its ungoogled-chromium-portablelinux tag in `pins.ini` builds, which can lag the Mac's pin. `linux/prepare.sh <work>` prepares the tree in `<work>/src` with portablelinux's scripts at that tag, links the core and applies `series`. A new tag is unpacked and patched in `<work>/next` first, then copied over the tree with `rsync --checksum`, so a point release leaves unchanged files as they were and the next build recompiles only what it changed. `linux/build.sh <work>` builds `chrome`, with the core linked in, and `linux/package.sh` packs it with what it runs with into `Chromium-linux-x64.tar.xz`.
+
+`check-linux.sh` prepares the same tree and compiles only the core's own objects; the `browser_core` target would compile most of Chrome, and nothing links. CI (`.github/workflows/core-linux.yml`) runs it on pushes that change the core or the engine, in about half an hour and 40 GB of disk.
+
+The engine itself is built by `.github/workflows/engine-linux.yml`, on a self-hosted runner on the owner's machine that keeps the tree in `$ILO_ENGINE_ROOT/linux` between runs. It runs by hand and on pushes to main that change `pins.ini` or the Linux engine's scripts, never on branches or pull requests. Each run publishes a release `engine-linux-<commit>`, and `fetch.sh` on Linux downloads the one built from the nearest commit in the checkout's history, unless `core/public/browser_core.h` has changed since. The first build takes 6 to 10 hours and the tree needs about 100 GB, twice the source while a new version comes in.
 
 ## Rules
 

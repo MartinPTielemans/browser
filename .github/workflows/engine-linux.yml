@@ -1,0 +1,59 @@
+# The engine on Linux: ungoogled-chromium-portablelinux's build with the core and our series
+# (engine/linux/), published as a release fetch.sh downloads. It runs on the owner's machine, which
+# keeps the tree and its build in $ILO_ENGINE_ROOT between runs, so a run recompiles only what
+# changed. Run by hand, and on main when the pin or the Linux engine's scripts change; never on a
+# branch's pushes or a pull request, as the repository is public. core-linux.yml compiles the core
+# alone on every push.
+name: Engine on Linux
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [engine/pins.ini, engine/linux/**, .github/workflows/engine-linux.yml]
+
+# One engine build on the machine at a time, and one that started finishes.
+concurrency:
+  group: ilo-engine
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'MartinPTielemans/browser'
+    runs-on: [self-hosted, linux, x64, ilo-engine]
+    # The first build takes 6 to 10 hours on its 8 cores; a point release or a change to the core,
+    # much less.
+    timeout-minutes: 1440
+    permissions:
+      contents: write
+    env:
+      # A job per 3 GB of the job's 22 GB.
+      BUILD_JOBS: 7
+    steps:
+      - uses: actions/checkout@v4
+      # Dawn's code generators need the Go its go.mod names.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Prepare
+        run: |
+          [ -n "${ILO_ENGINE_ROOT:-}" ] || { echo "The runner doesn't set ILO_ENGINE_ROOT."; exit 1; }
+          engine/linux/prepare.sh "$ILO_ENGINE_ROOT/linux"
+      - name: Build
+        run: engine/linux/build.sh "$ILO_ENGINE_ROOT/linux"
+      - name: Package
+        run: engine/linux/package.sh "$ILO_ENGINE_ROOT/linux" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz"
+      # A release named after the commit, which holds the engine's source. fetch.sh takes the
+      # newest one in the checkout's history whose core API matches the checkout's.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=engine-linux-${GITHUB_SHA::12}
+          tag_ucl=$(git config -f engine/pins.ini ungoogled-chromium-portablelinux.tag)
+          gh release view "$tag" >/dev/null 2>&1 ||
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Linux engine ${GITHUB_SHA::12}" \
+              --notes "The Linux engine (ungoogled-chromium-portablelinux $tag_ucl, x64) built from $GITHUB_SHA, which holds its source."
+          gh release upload "$tag" --clobber "$RUNNER_TEMP/Chromium-linux-x64.tar.xz" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz.sha256"
+          rm "$RUNNER_TEMP"/Chromium-linux-x64.tar.xz*
