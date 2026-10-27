@@ -258,6 +258,13 @@ none_since '^browser: new space ready$' || fail "fingers past the form readied a
 none_since '^browser: cancel space' || fail "fingers going on past the form cancelled it"
 send state
 in_browser AccessKitSubclassOfGPUIView "in the form after a swipe"
+# Held partway, the first Space's URL field and Favorites come in with its rows, and let go there
+# the form springs back.
+post swipe $swipe_point 12 0 18 1500
+expect '^browser: swipe across$' "two fingers back off the form didn't page"
+../tools/window-screenshot.sh "$pid" "$out/space-form-back.png" || fail "no window to capture"
+await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
+expect "^browser: settled space $third\$" "the form's page didn't spring back"
 send swipe $swipe_point 12 0 10
 expect "^browser: cancel space $third\$" "two fingers back off the form didn't cancel it"
 expect "^browser: space $first in " "a swipe back off the form didn't show the Space it came from"

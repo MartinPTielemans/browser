@@ -414,12 +414,13 @@ mod tests {
     use std::rc::Rc;
 
     use gpui::{
-        Context, Entity, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase, VisualTestContext,
-        Window, point, px,
+        AppContext, Context, Entity, Modifiers, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase,
+        VisualTestContext, Window, point, px,
     };
 
     use super::{heading, nearest};
-    use crate::shell::{Folders, SWIPE_TRACKING, Shell, Space, recorder::Recorder};
+    use crate::shell::{Folders, SWIPE_TRACKING, Shell, Space, SpaceForm, recorder::Recorder};
+    use crate::text_input::TextInput;
 
     fn spaces(ids: &[u64]) -> Vec<Space> {
         let space = |&id| Space {
@@ -481,17 +482,30 @@ mod tests {
         (shell, host, cx)
     }
 
-    /// Two fingers across the sidebar, down, moved `way` of the page's way in one go, and up.
-    fn swipe(shell: &mut Shell, way: f32, window: &mut Window, cx: &mut Context<Shell>) {
+    /// Two fingers across the sidebar: down, moved `way` of the page's way in one go, and, if
+    /// `lift`, up.
+    fn fingers(
+        shell: &mut Shell,
+        way: f32,
+        lift: bool,
+        window: &mut Window,
+        cx: &mut Context<Shell>,
+    ) {
         let fingers = |touch_phase, x| ScrollEvent {
             delta: ScrollDelta::Pixels(point(px(x), px(0.))),
             touch_phase,
             ..Default::default()
         };
         use TouchPhase::{Ended, Moved, Started};
-        for (phase, x) in [(Started, 0.), (Moved, way / SWIPE_TRACKING), (Ended, 0.)] {
+        let phases = [(Started, 0.), (Moved, way / SWIPE_TRACKING), (Ended, 0.)];
+        for (phase, x) in phases.into_iter().take(if lift { 3 } else { 2 }) {
             shell.scroll(&fingers(phase, x), window, cx);
         }
+    }
+
+    /// Two fingers across the sidebar, down, moved `way` of the page's way in one go, and up.
+    fn swipe(shell: &mut Shell, way: f32, window: &mut Window, cx: &mut Context<Shell>) {
+        fingers(shell, way, true, window, cx);
     }
 
     /// Fingers taking the Library back land on the first Space, which it sits left of, though it
@@ -526,5 +540,60 @@ mod tests {
             assert!(shell.library_open, "the next swipe left the Library closed");
         });
         assert_eq!(*host.shown.borrow(), [1]);
+    }
+
+    /// Back off the form, the URL field and the favorites are drawn from the first frame, at the
+    /// offset of the page of the Space beside, as its rows are, while fingers move it and while it
+    /// settles after they lift, not hidden until the form is gone.
+    #[gpui::test]
+    fn the_url_field_and_favorites_come_back_with_the_rows_off_the_form(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
+        // The fourth Space's form, made from the third, in a profile with a favorite.
+        shell.update(cx, |shell, cx| {
+            let space = |id: u64| (id, format!("Space {id}").into(), None, 1, "".into(), "".into());
+            shell.set_spaces((1..=4).map(space).collect(), cx);
+            shell.set_space(4, cx);
+            let name = cx.new(|cx| TextInput::new("Space name", cx));
+            shell.form = Some(SpaceForm { space: 4, from: 3, name });
+            shell.set_favorites(vec![(10, 1)], cx);
+        });
+        cx.run_until_parked();
+        let rest = shell.read_with(cx, |shell, _| shell.drawn_tiles()[&10]);
+        let tile = |shell: &Shell| shell.tip_frames.borrow().get(&10).copied();
+        assert!(shell.read_with(cx, |shell, _| tile(shell).is_none()), "the form left a tile up");
+
+        // Fingers 0.7 of the way back, down: the Space's page is 0.3 in from the left.
+        shell.update_in(cx, |shell, window, cx| {
+            let way = 0.7 * shell.width();
+            fingers(shell, way, false, window, cx);
+        });
+        cx.run_until_parked();
+        let (tile_at, page) = shell.read_with(cx, |shell, _| {
+            let page = shell.pages().into_iter().find(|&(space, _)| space == 3);
+            (tile(shell), page.expect("no page of the Space beside").1)
+        });
+        assert!(page < 0., "the Space's page isn't coming in from the left");
+        let tile_at = tile_at.expect("no tile while the form pages back");
+        let centre = rest[0] + rest[2] / 2. + page;
+        let at = f32::from(tile_at.center().x);
+        assert!((at - centre).abs() < 0.5, "the tile isn't with the rows");
+        // The field is where the page puts it: a press in its drawn part opens the command bar.
+        cx.simulate_click(point(px(100.), px(64.)), Modifiers::none());
+        assert_eq!(host.command_bars.take().len(), 1, "the URL field wasn't drawn");
+
+        // Fingers up past halfway: Cancel, and the page settles in with the form's going out.
+        shell.update_in(cx, |shell, window, cx| {
+            let way = 0.7 * shell.width();
+            fingers(shell, way, true, window, cx);
+            shell.tip_frames.borrow_mut().clear();
+            assert!(shell.form_going.is_some(), "the swipe didn't cancel the form");
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let tile_at = shell.read_with(cx, |shell, _| tile(shell));
+        let tile_at = tile_at.expect("no tile while the cancelled form goes out");
+        let at = f32::from(tile_at.center().x);
+        assert!(at < rest[0] + rest[2] / 2., "the tile isn't coming in");
     }
 }
