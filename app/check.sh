@@ -10,8 +10,12 @@
 # for a moment.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
 # another; BROWSER_DISPLAY=main opens it on the main display.
+# A run that fails ends only itself: the check goes on to the next, and ends with a table of each
+# run's result, time and first failure, failing if any run did. STOP_ON_FAIL=1 ends it at the
+# first failure instead.
 # Leaves window captures and logs in build/check/: the captures a step compares or a run's ok line
-# names, and with CHECK_CAPTURES=1 the ones only for a look too. Build first with ./build.sh.
+# names, and with CHECK_CAPTURES=1 the ones only for a look too, and each run's output, as
+# <run>.out. Build first with ./build.sh.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
@@ -81,14 +85,49 @@ with open(sys.argv[1], "w") as f:
 . check/lib.sh
 # The check's server goes once the runs are done, without the shell printing its whole script as
 # the job it killed, and without its status taking the check's.
-trap 'status=$?; cleanup; [ -z "${server:-}" ] || { kill "$server"; wait "$server"; } 2>/dev/null || true
-  exit $status' EXIT
+trap 'code=$?; [ -z "${server:-}" ] || { kill "$server"; wait "$server"; } 2>/dev/null || true
+  exit $code' EXIT
 # The tools the runs share, ready before the first: lib.sh's log waiter, and the capture tool,
-# which compiles once for every check after.
+# which compiles once for every check after. The server is shared too, since its pages leave their
+# marks in the profile, which the runs share.
 cc -O2 -o "$out/logwait" check/logwait.c
 ../tools/window-screenshot.sh compile
+serve
 # The runs send the app's driver its commands through it.
 mkfifo "$out/drive"
+now() {
+  python3 -I -c 'import time; print(time.time())'
+}
+# Each run in a shell of its own, which a failure ends, and its app with it.
+results=
+failed=0
 for run in ${*:-$runs}; do
-  . "check/$run.sh"
+  start=$(now)
+  set +e
+  (
+    set -e
+    trap cleanup EXIT
+    . "check/$run.sh"
+  ) > "$out/$run.out" 2>&1
+  status=$?
+  set -e
+  cat "$out/$run.out"
+  took=$(echo "$start $(now)" | awk '{ printf "%.1f", $2 - $1 }')
+  if [ "$status" -ne 0 ]; then
+    failed=$((failed + 1))
+    first=$(grep -m1 '^FAIL: ' "$out/$run.out" | cut -c7-)
+    results="$results$run FAIL $took ${first:-it exited with status $status}
+"
+  elif grep -q 'skip: ' "$out/$run.out"; then
+    results="$results$run skip $took
+"
+  else
+    results="$results$run ok $took
+"
+  fi
+  [ "$status" -eq 0 ] || [ "${STOP_ON_FAIL:-}" != 1 ] || break
 done
+echo
+printf '%s' "$results" | awk '{ first = $4; for (i = 5; i <= NF; i++) first = first " " $i
+  printf "%-11s %-4s %6s s  %s\n", $1, $2, $3, first }'
+[ "$failed" -eq 0 ] || { echo "FAIL: $failed of the runs failed" >&2; exit 1; }

@@ -264,7 +264,8 @@ pinned_favicon() {
   echo "26 $((90 + 44 + 41 * $1 + 20))"
 }
 
-# Starts the check's web server, in site.sh, unless a run before has. Its pages are at $site.
+# Starts the check's web server, in site.sh, unless it's running. check.sh starts it before the
+# runs. Its pages are at $site.
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
 }
