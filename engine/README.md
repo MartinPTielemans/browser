@@ -52,8 +52,8 @@ ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patch
 
 ## Rules
 
-- Keep patches small and separate.
-- Domain substitution rewrites Google's hosts in the source before the series is applied, so a patch that needs a real host writes it in full, and nothing rewrites it. New code goes in new files under `//browser_core` where possible. Patches to Chrome's files add hooks; they don't move logic.
+- Keep patches small and separate. New code goes in new files under `//browser_core` where possible. Patches to Chrome's files add hooks; they don't move logic.
+- Domain substitution rewrites Google's hosts in the source before the series is applied, so a patch that needs a real host writes it in full, and nothing rewrites it.
 - One concern per patch, named `chromium-<area>-<what>.patch`.
 - Each release, diff Helium's and Ardia's series against ours for anything worth taking.
 - A new Chromium version, or a change to the GN args, means a full build.
