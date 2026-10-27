@@ -345,12 +345,14 @@ typedef struct bc_offer {
   const char* never;
 } bc_offer;
 
-// What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt(), or whether to
-// leave it, from its beforeunload handler, which Chrome words.
+// What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt(), whether to
+// leave it, from its beforeunload handler, which Chrome words, or the user's name and password for
+// the site's HTTP sign-in.
 #define BC_DIALOG_ALERT 0
 #define BC_DIALOG_CONFIRM 1
 #define BC_DIALOG_PROMPT 2
 #define BC_DIALOG_LEAVE 3
+#define BC_DIALOG_SIGN_IN 4
 
 // A page's own dialog, for the user to answer while its tab shows, in Chrome's words.
 typedef struct bc_page_dialog {
@@ -369,6 +371,9 @@ typedef struct bc_page_dialog {
   const char* cancel;
   // The label of a checkbox under the message, or "" for none.
   const char* check;
+  // A sign-in's labels for its username field and its password field, else "".
+  const char* username;
+  const char* password;
 } bc_page_dialog;
 
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
@@ -574,7 +579,9 @@ typedef struct bc_host {
   // tab shown can't ask confirm() or prompt(), its alert() waits until the tab shows, and a
   // confirm() or prompt() is cancelled once its tab no longer shows. A "Leave site?" holds up
   // every other app-wide dialog, as Chrome's, so its tab comes to the front window if no window
-  // shows it. An agent's tab asks the user the same way, and the agent can't answer.
+  // shows it. A site's sign-in waits until its tab shows, as an alert(), and goes once another of
+  // the profile's tabs signs in to the same realm. An agent's tab asks the user the same way, and
+  // the agent can't answer: a sign-in is the user's to give.
   void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
 } bc_host;
 

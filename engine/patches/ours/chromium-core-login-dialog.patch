@@ -1,0 +1,39 @@
+Lets the core ask for a site's HTTP sign-in with the app's dialog
+(//browser_core/hooks.h), in place of Chrome's views dialog, which the
+core's windows show only in Chrome's look over the top of the page.
+
+--- a/chrome/browser/ui/views/login_handler_views.cc
++++ b/chrome/browser/ui/views/login_handler_views.cc
+@@ -5,6 +5,7 @@
+ #include <string>
+ 
+ #include "base/memory/raw_ptr.h"
++#include "browser_core/hooks.h"  // nogncheck
+ #include "base/strings/utf_string_conversions.h"
+ #include "chrome/browser/ui/blocked_content/popunder_preventer.h"
+ #include "chrome/browser/ui/dialogs/browser_dialogs.h"
+@@ -24,6 +25,12 @@
+ 
+ class LoginHandlerViewsDialog;
+ 
++// browser_core: the core's windows ask with the app's dialog (//browser_core/hooks.h).
++std::unique_ptr<LoginHandler> (*g_browser_core_login_handler)(
++    const net::AuthChallengeInfo& auth_info,
++    content::WebContents* web_contents,
++    content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback) = nullptr;
++
+ namespace {
+ 
+ // This class prompts the user for credentials and returns the result to
+@@ -231,6 +238,11 @@
+     const net::AuthChallengeInfo& auth_info,
+     content::WebContents* web_contents,
+     content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback) {
++  if (g_browser_core_login_handler) {
++    // browser_core: the app asks, in place of Chrome's views dialog.
++    return g_browser_core_login_handler(auth_info, web_contents,
++                                        std::move(auth_required_callback));
++  }
+   return std::make_unique<LoginHandlerViews>(auth_info, web_contents,
+                                              std::move(auth_required_callback));
+ }
