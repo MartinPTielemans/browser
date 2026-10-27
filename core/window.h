@@ -104,6 +104,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Puts |space|, while it has no tabs, in the profile in the directory |profile|, which has
   // loaded. A window showing a favorite of the profile it was in there shows no page instead.
   static void SetSpaceProfile(bc_id space, const std::string& profile);
+  // Every window stops showing, and stops remembering, a favorite its Space no longer shows, as
+  // when the favorites' scope or a Space's profile changed. It shows that Space's own tab instead.
+  static void HiddenFavoritesGone();
   // Closes |tab| as the user does: its page gets its unload handlers, which may keep it open.
   static void CloseTab(bc_id tab);
   // Closes the Today tabs below |tab| as the user does, bottom up, so ⇧⌘T reopens each at its

@@ -18,6 +18,44 @@ use super::{
     title,
 };
 
+/// Who shares the favorites, as Settings lists the choices. Each is the core's BC_FAVORITES_ value
+/// of the same name, which the bin checks at compile time.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FavoritesScope {
+    /// The same sites in every Space, each profile opening them in its own tabs.
+    Every,
+    /// The Spaces of one profile share them, as in Arc.
+    #[default]
+    Profile,
+    /// Every Space has its own.
+    Space,
+}
+
+impl FavoritesScope {
+    pub const ALL: [Self; 3] = [Self::Every, Self::Profile, Self::Space];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Every => "In Every Space",
+            Self::Profile => "In Each Profile's Spaces",
+            Self::Space => "In Each Space",
+        }
+    }
+
+    pub fn to_core(self) -> i32 {
+        match self {
+            Self::Every => 0,
+            Self::Profile => 1,
+            Self::Space => 2,
+        }
+    }
+
+    /// The scope the core reports. One it doesn't know is the default.
+    pub fn from_core(scope: i32) -> Self {
+        Self::ALL.into_iter().find(|each| each.to_core() == scope).unwrap_or_default()
+    }
+}
+
 impl Shell {
     /// The favorites' tiles under the URL field, which stay put while the Spaces' pages move under
     /// them, and slide to their places as tiles come, go and make room for a dragged tab. Taller

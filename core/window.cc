@@ -581,10 +581,14 @@ void Window::MoveToFavorites(bc_id tab, size_t index) {
   if (!contents || !space || space->off_the_record()) {
     return;
   }
+  // Under Each Space the favorites are the user's Spaces' own, and an agent's has none.
+  if (space->agent() && Favorites::scope() == BC_FAVORITES_SPACE) {
+    return;
+  }
   // In the favorites before it leaves its Space, so the UI never hears of it in neither and
   // forgets its title.
   Favorites::Add(tab, space->IsPinned(tab) ? space->PinnedUrl(tab) : Tab::PageUrl(contents),
-                 index);
+                 index, space->id());
   space->Remove(tab);
   // A window showing it beside the tab it shows shows the rest of the split.
   PanesChanged();
@@ -599,8 +603,7 @@ void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
   Window* window = in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
   Space* shown = window ? Space::FromId(window->space_) : nullptr;
   // A favorite is the user's, so it doesn't move into an agent's Space.
-  if (!shown || shown->agent() || shown->off_the_record() || !Favorites::Has(tab) ||
-      Favorites::ProfileOf(tab) != shown->profile()) {
+  if (!shown || shown->agent() || shown->off_the_record() || !Favorites::ShownIn(tab, *shown)) {
     return;
   }
   // In the Space before it leaves the favorites, as above.
@@ -609,7 +612,8 @@ void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
   } else {
     shown->AddAt(tab, index);
   }
-  Favorites::Remove(tab);
+  // Under Every Space, the site's tabs in the other profiles close.
+  Favorites::Unfavorite(tab);
   // So it isn't archived at once.
   Tab::FromWebContents(contents)->set_last_seen(base::Time::Now());
   Tab::FromWebContents(contents)->StateChanged();
@@ -623,14 +627,34 @@ void Window::SetSpaceProfile(bc_id space, const std::string& profile) {
     return;
   }
   in->SetProfile(profile);
-  // A favorite of the profile it was in no longer shows there.
+  // Its own favorites go with it, and the profile gets the sites it lacks.
+  Favorites::SpaceMoved(space);
+  HiddenFavoritesGone();
+}
+
+// static
+void Window::HiddenFavoritesGone() {
   for (auto& [id, window] : Windows()) {
-    if (Favorites::Has(window->SelectedIn(space)) &&
-        Favorites::ProfileOf(window->SelectedIn(space)) != profile) {
-      window->selected_in_space_.erase(space);
-      if (window->space_ == space) {
-        window->ShowNothing();
-      }
+    // A favorite a Space no longer shows isn't the tab it comes back to.
+    std::erase_if(window->selected_in_space_, [](const auto& entry) {
+      const Space* in = Space::FromId(entry.first);
+      return Favorites::Has(entry.second) && !(in && Favorites::ShownIn(entry.second, *in));
+    });
+    const Space* shown = Space::FromId(window->space_);
+    if (!shown || !Favorites::Has(window->selected_) ||
+        Favorites::ShownIn(window->selected_, *shown)) {
+      continue;
+    }
+    const auto free = [&window](bc_id tab) { return !window->ShownElsewhere(tab); };
+    const std::vector<bc_id> pinned = shown->pinned();
+    auto today = std::ranges::find_if(shown->today(), free);
+    auto first = std::ranges::find_if(pinned, free);
+    if (today != shown->today().end()) {
+      window->Pick(*today);
+    } else if (first != pinned.end()) {
+      window->Pick(*first);
+    } else {
+      window->ShowNothing();
     }
   }
 }
@@ -733,6 +757,8 @@ bool Window::DeleteSpace(bc_id space) {
     }
     window->selected_in_space_.erase(space);
   }
+  // Under Each Space, its favorites close with it.
+  Favorites::SpaceDeleting(space);
   std::vector<bc_id> tabs = (*it)->pinned();
   std::ranges::copy((*it)->today(), std::back_inserter(tabs));
   if (tabs.empty()) {
@@ -1006,8 +1032,7 @@ bc_id Window::TabToShowIn(bc_id space) const {
   const auto free = [this](bc_id tab) { return !ShownElsewhere(tab); };
   auto last = selected_in_space_.find(space);
   if (last != selected_in_space_.end() && free(last->second) &&
-      (in->Has(last->second) || (Favorites::Has(last->second) &&
-                                 Favorites::ProfileOf(last->second) == in->profile()))) {
+      (in->Has(last->second) || Favorites::ShownIn(last->second, *in))) {
     return last->second;
   }
   if (auto today = std::ranges::find_if(in->today(), free); today != in->today().end()) {
@@ -1085,10 +1110,11 @@ void Window::Select(bc_id tab) {
     other_space = space->id();
   }
   const Space* shown = Space::FromId(space_);
-  if (shown && Favorites::Has(tab) && Favorites::ProfileOf(tab) != shown->profile()) {
-    // A favorite shows in the Spaces of its profile: the first of them.
+  if (shown && Favorites::Has(tab) && !Favorites::ShownIn(tab, *shown)) {
+    // A favorite shows in the Spaces that have it: the first of them.
     auto spaces = Space::All();
-    auto first = std::ranges::find(spaces, Favorites::ProfileOf(tab), &Space::profile);
+    auto first = std::ranges::find_if(
+        spaces, [tab](const Space* each) { return Favorites::ShownIn(tab, *each); });
     if (first == spaces.end()) {
       return;
     }
@@ -1297,7 +1323,8 @@ bc_id Window::UndoDeleteSpace() {
   }
   space.saved.today = std::move(today);
   RestoreSpace(*this, profile, space.saved, space.id);
-  if (Favorites::Has(space.shown)) {
+  // Not one of the Space's own, which closed with it and came back as other tabs.
+  if (Favorites::Has(space.shown) && !Favorites::SpaceOf(space.shown)) {
     SetSelectedIn(space.id, space.shown);
   }
   ShowSpace(space.id);

@@ -27,6 +27,8 @@ mod agent_spaces;
 #[cfg(test)]
 mod close_tab;
 #[cfg(test)]
+mod favorites_scope;
+#[cfg(test)]
 mod full_screen;
 mod assets;
 mod browser;
@@ -60,6 +62,7 @@ mod swipe;
 mod tile_theme;
 
 pub use assets::Assets;
+pub use favorites::FavoritesScope;
 pub use browser::{Browser, Folders, Page, Split, WindowButton};
 pub use commands::{
     BAR_ROWS, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT, KeepName, Match,
@@ -501,7 +504,7 @@ struct Space {
     color: Option<u32>,
     /// The emoji it shows in place of its dot and before its name, or empty.
     icon: SharedString,
-    /// The profile its tabs open in, whose favorites it shows.
+    /// The profile its tabs open in, and its favorites' tabs unless they're each Space's own.
     profile: u64,
     /// The name of the agent it belongs to, or empty for the user's own. It never changes.
     agent: SharedString,
@@ -867,12 +870,12 @@ pub struct Shell {
     focus_renaming: bool,
     /// The pinned tabs and folders changed and haven't been drawn since.
     outline_changed: bool,
-    /// The favorites of the shown Space's profile, left to right, which every Space in it shows
-    /// over its own tabs.
+    /// The favorites the shown Space shows over its own tabs, left to right.
     favorites: Vec<u64>,
-    /// Every profile's favorites, and each one's profile.
+    /// Every favorite, and each one's holder: the Space it belongs to under Each Space, else the
+    /// profile whose tab it is. The ids come from one counter, so a Space's never is a profile's.
     all_favorites: Vec<u64>,
-    favorite_profiles: HashMap<u64, u64>,
+    favorite_holders: HashMap<u64, u64>,
     /// The profiles, by id and name, the one the browser started with first.
     profiles: Vec<(u64, SharedString)>,
     /// The tabs of every Space, and the favorites.
@@ -1103,7 +1106,7 @@ impl Shell {
             outline_changed: false,
             favorites: Vec::new(),
             all_favorites: Vec::new(),
-            favorite_profiles: HashMap::new(),
+            favorite_holders: HashMap::new(),
             profiles: Vec::new(),
             tabs: HashMap::new(),
             rings: Rings::default(),
@@ -1259,7 +1262,7 @@ impl Shell {
         shell.tabs = from.tabs.clone();
         shell.favorites = from.favorites.clone();
         shell.all_favorites = from.all_favorites.clone();
-        shell.favorite_profiles = from.favorite_profiles.clone();
+        shell.favorite_holders = from.favorite_holders.clone();
         shell.profiles = from.profiles.clone();
         shell.archive = from.archive.clone();
         shell.page_favicons = from.page_favicons.clone();
@@ -1659,14 +1662,15 @@ impl Shell {
         cx.notify();
     }
 
-    /// Every profile's favorites, left to right, each with its profile.
+    /// Every favorite, left to right, each with its holder: the Space it belongs to under Each
+    /// Space (the core's `bc_favorite_space`), else its profile.
     pub fn set_favorites(&mut self, favorites: Vec<(u64, u64)>, cx: &mut Context<Self>) {
         if self.private {
             return;
         }
         let tiles = self.drawn();
         self.all_favorites = favorites.iter().map(|&(tab, _)| tab).collect();
-        self.favorite_profiles = favorites.into_iter().collect();
+        self.favorite_holders = favorites.into_iter().collect();
         self.show_favorites();
         self.log_favorites();
         self.end_drag(true);
@@ -1682,14 +1686,16 @@ impl Shell {
         cx.notify();
     }
 
-    /// Shows the favorites of the shown Space's profile, or all of them while no Space shows, and
-    /// says whether that changed them. Another profile's swap in at once, as the Space they come
-    /// with slides in.
+    /// Shows the favorites the shown Space has (its own, or its profile's), or all of them while no
+    /// Space shows, and says whether that changed them. Another Space's swap in at once, as the
+    /// Space they come with slides in.
     fn show_favorites(&mut self) -> bool {
-        let profile = self.shown_space().map(|space| space.profile);
-        let profiles = &self.favorite_profiles;
+        let held_by = self.shown_space().map(|space| [space.id, space.profile]);
+        let holders = &self.favorite_holders;
         let shown: Vec<u64> = (self.all_favorites.iter().copied())
-            .filter(|tab| profile.is_none_or(|profile| profiles.get(tab) == Some(&profile)))
+            .filter(|tab| {
+                held_by.is_none_or(|held_by| holders.get(tab).is_some_and(|h| held_by.contains(h)))
+            })
             .collect();
         let changed = shown != self.favorites;
         self.favorites = shown;

@@ -61,6 +61,8 @@ const CONTROL_HEIGHT: f32 = 24.;
 const CONTROL_PADDING: f32 = 12.;
 const CONTROL_RADIUS: f32 = 5.;
 const POPUP_WIDTH: f32 = 155.;
+/// Ours: the favorites' longest choice, "In Each Profile's Spaces", needs more than 155.
+const FAVORITES_POPUP_WIDTH: f32 = 195.;
 const POPUP_END: f32 = 22.5;
 const CHEVRONS: f32 = 14.;
 /// Buttons under the boxes are 11 below them.
@@ -250,13 +252,20 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
     ),
 ];
 
+/// The pop-up buttons in General, top to bottom after the switch.
+#[derive(Clone, Copy, PartialEq)]
+enum Popup {
+    ArchiveAfter,
+    Favorites,
+}
+
 pub struct Settings {
     tab: Tab,
     focus: FocusHandle,
     /// Which switch last changed, and when, for its knob's slide.
     switched: Option<(&'static str, Instant)>,
-    /// Whether the archive's pop-up menu is open, when its button shows pressed.
-    choosing: bool,
+    /// The pop-up menu that is open, whose button shows pressed.
+    choosing: Option<Popup>,
     /// The profile whose name is in a field for renaming.
     renaming: Option<Renaming>,
     /// Whether the field takes the keyboard once its row is drawn.
@@ -365,7 +374,7 @@ fn open(cx: &mut App) {
                 tab: Tab::General,
                 focus: cx.focus_handle(),
                 switched: None,
-                choosing: false,
+                choosing: None,
                 renaming: None,
                 focus_renaming: false,
                 recording: None,
@@ -467,10 +476,41 @@ impl Settings {
             Some(index) => ARCHIVE_AFTER[index].0.into(),
             None => format!("{:.0} hours", after / 3600.).into(),
         };
-        // It opens on a press, as a pop-up button does, and shows pressed while its menu is open.
-        let popup = div()
+        let archive = self.popup(
+            Popup::ArchiveAfter,
+            label,
+            POPUP_WIDTH,
+            cx.listener(move |settings, _, _, cx| settings.choose_archive_after(chosen, cx)),
+        );
+        let scope = favorites_scope();
+        let favorites = self.popup(
+            Popup::Favorites,
+            scope.title().into(),
+            FAVORITES_POPUP_WIDTH,
+            cx.listener(move |settings, _, _, cx| settings.choose_favorites_scope(scope, cx)),
+        );
+        let warn = unsafe { bc::bc_warn_before_quitting() };
+        let warn = self.toggle("warn before quitting", warn, set_warn_before_quitting, accent, cx);
+        group([
+            row(None, "Warn before quitting", warn),
+            row(None, "Archive tabs after", archive.into_any_element()),
+            row(None, "Favorites", favorites.into_any_element()),
+        ])
+        .into_any_element()
+    }
+
+    /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows
+    /// pressed while its menu is open.
+    fn popup(
+        &self,
+        which: Popup,
+        label: SharedString,
+        width: f32,
+        press: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static,
+    ) -> gpui::Div {
+        div()
             .flex_none()
-            .w(px(POPUP_WIDTH))
+            .w(px(width))
             .mr(px(POPUP_END))
             .h(px(CONTROL_HEIGHT))
             .pl(px(CONTROL_PADDING))
@@ -479,22 +519,12 @@ impl Settings {
             .items_center()
             .justify_between()
             .rounded(px(CONTROL_RADIUS))
-            .bg(rgb(if self.choosing { CONTROL_PRESSED } else { CONTROL }))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |settings, _, _, cx| settings.choose_archive_after(chosen, cx)),
-            )
+            .bg(rgb(if self.choosing == Some(which) { CONTROL_PRESSED } else { CONTROL }))
+            .on_mouse_down(MouseButton::Left, press)
             .child(label)
             .child(
                 svg().path("icons/chevrons-up-down.svg").size(px(CHEVRONS)).text_color(rgb(TEXT)),
-            );
-        let warn = unsafe { bc::bc_warn_before_quitting() };
-        let warn = self.toggle("warn before quitting", warn, set_warn_before_quitting, accent, cx);
-        group([
-            row(None, "Warn before quitting", warn),
-            row(None, "Archive tabs after", popup.into_any_element()),
-        ])
-        .into_any_element()
+            )
     }
 
     /// The switch `name`, `on` now, that calls `set` with the other way when clicked.
@@ -540,12 +570,13 @@ impl Settings {
                 swatch: None,
             })
             .collect();
-        self.choosing = true;
+        self.choosing = Some(Popup::ArchiveAfter);
         cx.notify();
         cx.spawn(async move |settings, cx| {
             // A menu in Settings shows over Settings' window, not a browser window's view.
             let ui_view = std::ptr::null_mut();
-            let picked = show_menu(ui_view, &items, popup_text(), platform::IN_SETTINGS, chosen);
+            let at = popup_text(Popup::ArchiveAfter);
+            let picked = show_menu(ui_view, &items, at, platform::IN_SETTINGS, chosen);
             if let Some((title, seconds)) = picked.map(|index| ARCHIVE_AFTER[index]) {
                 // check.sh waits for this line.
                 log!("browser: archive tabs after {title}");
@@ -553,7 +584,44 @@ impl Settings {
             }
             settings
                 .update(cx, |settings, cx| {
-                    settings.choosing = false;
+                    settings.choosing = None;
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Opens the favorites' pop-up menu over its button, as the archive's, and sets the scope
+    /// picked. The core keeps the favorites it had, copying or merging the lists, and tells the
+    /// windows (`favorites_changed`).
+    fn choose_favorites_scope(&mut self, chosen: shell::FavoritesScope, cx: &mut Context<Self>) {
+        let items: Vec<MenuEntry> = shell::FavoritesScope::ALL
+            .iter()
+            .map(|&scope| MenuEntry {
+                title: scope.title().into(),
+                enabled: true,
+                shortcut: None,
+                parent: None,
+                checked: scope == chosen,
+                swatch: None,
+            })
+            .collect();
+        let over = shell::FavoritesScope::ALL.iter().position(|&scope| scope == chosen);
+        self.choosing = Some(Popup::Favorites);
+        cx.notify();
+        cx.spawn(async move |settings, cx| {
+            let ui_view = std::ptr::null_mut();
+            let at = popup_text(Popup::Favorites);
+            let picked = show_menu(ui_view, &items, at, platform::IN_SETTINGS, over);
+            if let Some(scope) = picked.map(|index| shell::FavoritesScope::ALL[index]) {
+                // check.sh waits for this line.
+                log!("browser: favorites scope {}", scope.title());
+                unsafe { bc::bc_set_favorites_scope(scope.to_core()) };
+            }
+            settings
+                .update(cx, |settings, cx| {
+                    settings.choosing = None;
                     cx.notify();
                 })
                 .ok();
@@ -872,15 +940,31 @@ impl Settings {
     }
 }
 
-/// Where the archive's pop-up button's text starts in the window, in the first box's second row,
-/// under the switch's.
-fn popup_text() -> gpui::Point<gpui::Pixels> {
+/// Where `which`'s pop-up button's text starts in the window, in the first box under the switch's
+/// row, one row each.
+fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
     let switch_row = PADDING + SWITCH_HEIGHT + PADDING + 1.;
+    let popup_row = PADDING + CONTROL_HEIGHT + PADDING + 1.;
+    let (width, above) = match which {
+        Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
+        Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row),
+    };
     point(
-        px(WIDTH - SIDE - PADDING - POPUP_END - POPUP_WIDTH + CONTROL_PADDING),
-        px(TITLE_BAR + TOOLBAR + FIRST + 1. + switch_row + PADDING),
+        px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),
+        px(TITLE_BAR + TOOLBAR + FIRST + 1. + switch_row + above + PADDING),
     )
 }
+
+/// What the core has for who shares the favorites.
+fn favorites_scope() -> shell::FavoritesScope {
+    shell::FavoritesScope::from_core(unsafe { bc::bc_favorites_scope() })
+}
+
+// The shell's FavoritesScope numbers are the core's.
+const _: () = {
+    assert!(bc::BC_FAVORITES_EVERY == 0 && bc::BC_FAVORITES_PROFILE == 1);
+    assert!(bc::BC_FAVORITES_SPACE == 2);
+};
 
 fn set_warn_before_quitting(warn: bool) {
     unsafe { bc::bc_set_warn_before_quitting(warn) };

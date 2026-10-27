@@ -2554,10 +2554,14 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
-    let tabs: Vec<_> = ids(bc::bc_favorites)
-        .into_iter()
-        .map(|tab| (tab, unsafe { bc::bc_tab_profile(tab) }))
-        .collect();
+    // Each with its holder: the Space it belongs to under Each Space, else its profile.
+    let holder = |tab| unsafe {
+        match bc::bc_favorite_space(tab) {
+            0 => bc::bc_tab_profile(tab),
+            space => space,
+        }
+    };
+    let tabs: Vec<_> = ids(bc::bc_favorites).into_iter().map(|tab| (tab, holder(tab))).collect();
     update_shells(|shell, cx| shell.set_favorites(tabs.clone(), cx));
     update_app(settings::refresh);
 }

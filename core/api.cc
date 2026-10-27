@@ -336,9 +336,23 @@ bc_id bc_tab_profile(bc_id id) {
 }
 
 size_t bc_favorites(bc_id* tabs, size_t capacity) {
-  const std::vector<bc_id>& favorites = browser_core::Favorites::All();
+  const std::vector<bc_id> favorites = browser_core::Favorites::All();
   std::copy_n(favorites.begin(), std::min(capacity, favorites.size()), tabs);
   return favorites.size();
+}
+
+bc_id bc_favorite_space(bc_id tab) {
+  return browser_core::Favorites::SpaceOf(tab);
+}
+
+int bc_favorites_scope(void) {
+  return browser_core::Favorites::scope();
+}
+
+void bc_set_favorites_scope(int scope) {
+  browser_core::Favorites::SetScope(scope);
+  // Each window stops showing a favorite its Space no longer has.
+  browser_core::Window::HiddenFavoritesGone();
 }
 
 size_t bc_tab_split(bc_id id, bc_id* tabs, size_t capacity) {
