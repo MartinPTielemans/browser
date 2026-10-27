@@ -2473,7 +2473,7 @@ impl Render for Shell {
         let buttons = self.library_buttons() && !window.is_fullscreen();
         let library = library.then(|| self.library_panel(buttons, cx));
         // The Spaces section's cards slide in over the receding sidebar, as Arc's do; the other
-        // sections slide in under it, cut where they reach, its buttons receding over them.
+        // sections slide in under it, its buttons receding over them.
         let (under, over) = match self.section {
             Section::Spaces => (None, library),
             _ => (library, None),
@@ -2488,22 +2488,14 @@ impl Render for Shell {
         let sidebar = sidebar_shown.then(|| {
             let scale = self.sidebar_scale();
             let origin = point(px(width + RECEDE_X), self.viewport.height / 2.);
-            let cover = self.sidebar_cut();
-            let sidebar = self.sidebar(cx).left(px(sidebar_left - cover));
-            let uncovered = div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .left(px(cover))
-                .right_0()
-                .overflow_hidden()
-                .child(sidebar.child(self.hover_listener(cx)));
+            // Whole: the Library fades in over it rather than cutting it (`library_opacity`).
+            let sidebar = self.sidebar(cx).left(px(sidebar_left)).child(self.hover_listener(cx));
             // Its buttons recede with it, over the Library, as the window's do in Arc. Full screen
             // has none.
             let buttons = self.sidebar_buttons() && !window.is_fullscreen();
             let buttons = buttons.then(|| self.window_buttons(cx));
             let receding = div().absolute().size_full().opacity(opacity);
-            scaled(receding.child(uncovered).children(buttons), scale, origin)
+            scaled(receding.child(sidebar).children(buttons), scale, origin)
         });
         let docked = sidebar_shown
             && !self.sidebar_hidden
