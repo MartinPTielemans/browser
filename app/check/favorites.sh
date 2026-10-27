@@ -1,7 +1,7 @@
 # Add to Favorites in a Today tab's menu takes the tab out of Today into a tile above the Space's
-# rows, without showing it. Resting on the tile names it in a tooltip, and the footer's Library
-# button and the header's sidebar button name themselves with their shortcuts' keys on chips. A
-# click on the tile shows it, and ⌘1–⌘9 count favorites first. Past its top, the list shows an
+# rows, without showing it. Resting on the tile names it in a tooltip, which other apps don't take
+# for the window in front, and the footer's Library button and the header's sidebar button name
+# themselves with their shortcuts' keys on chips. A click on the tile shows it, and ⌘1–⌘9 count favorites first. Past its top, the list shows an
 # edge under the tile, and showing a tab under its bottom scrolls to the tab's row. Away from its
 # URL, a double-click on the tile goes back there. ⌘W unloads it and keeps the tile, showing the
 # top Today tab. The tile's menu duplicates it to the top of Today. Launched
@@ -80,6 +80,11 @@ echo "$asked $placed" | awk '
     && down > -1 && down < 1) }' \
   || fail "the tooltip isn't under the tile it names: asked \"$asked\", placed \"$placed\""
 ../tools/window-screenshot.sh "$pid" "$out/favorite-tooltip.png" || fail "no window to capture"
+# Another app asking which window is in front, as T3 Code's window capture does, gets the browser
+# window, not the tooltip over it or the command bar's shadow.
+send front
+expect '^browser: front driven, main driven, key driven, ax focused driven, ax main driven$' \
+  "with the tooltip showing, other apps take the wrong window: $(grep '^browser: front ' "$log" | tail -1)"
 # A click on the tile shows the favorite, and ⌘1–⌘9 count favorites first.
 send click $tile
 expect '^browser: command select via favorite$' "a click on the tile didn't run"
@@ -403,4 +408,4 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: dialog shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which names itself in a tooltip, as the Library and sidebar buttons do with their keys, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each hang their tooltip from their own middle, along them and back, drawn as wide as it was placed for. Windows: $out/favorite-tooltip.png, $out/favorite-tooltips.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which names itself in a tooltip, which other apps don't take for the window in front, as the Library and sidebar buttons do with their keys, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each hang their tooltip from their own middle, along them and back, drawn as wide as it was placed for. Windows: $out/favorite-tooltip.png, $out/favorite-tooltips.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
