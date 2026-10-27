@@ -24,6 +24,7 @@
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
 #include "chrome/browser/chrome_content_browser_client.h"
+#include "chrome/browser/devtools/chrome_devtools_manager_delegate.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/lifetime/termination_notification.h"
 #include "chrome/common/chrome_switches.h"
@@ -100,7 +101,12 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
   }
 
  private:
-  void OnAppTerminating() { keep_alive_.reset(); }
+  void OnAppTerminating() {
+    keep_alive_.reset();
+    // A remote-debugging switch, with the window Chrome doesn't open at startup, has Chrome hold
+    // the browser up until a client closes it over the protocol, so the user's quit never ended.
+    ChromeDevToolsManagerDelegate::AllowBrowserToClose();
+  }
 
   std::unique_ptr<ScopedKeepAlive> keep_alive_;
   base::CallbackListSubscription app_terminating_;
