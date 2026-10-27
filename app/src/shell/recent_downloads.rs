@@ -76,15 +76,13 @@ pub(super) struct RecentDownloads {
 }
 
 /// The downloads the rows show, newest first: the newest finished ones with a file, and those
-/// still coming, as a download that runs on shouldn't hide the files before it.
+/// still coming, as a download that runs on shouldn't hide the files before it. A held one shows
+/// too, as nothing else says it's waiting to be kept or deleted.
 fn recent(downloads: &[Download]) -> impl Iterator<Item = &Download> {
-    let shown = |each: &&Download| {
-        !each.held
-            && match each.state {
-                DownloadState::Done => !each.path.is_empty(),
-                DownloadState::Running | DownloadState::Paused => true,
-                DownloadState::Cancelled | DownloadState::Failed => false,
-            }
+    let shown = |each: &&Download| match each.state {
+        DownloadState::Done => !each.path.is_empty(),
+        DownloadState::Running | DownloadState::Paused => true,
+        DownloadState::Cancelled | DownloadState::Failed => false,
     };
     downloads.iter().filter(shown).take(RECENT_COUNT)
 }
@@ -222,7 +220,7 @@ impl Shell {
     fn ask_download_previews(&mut self, cx: &mut Context<Self>) {
         let rows = &self.recent_downloads.rows;
         let asked: Vec<_> = recent(&self.downloads)
-            .filter(|each| each.state == DownloadState::Done)
+            .filter(|each| each.state == DownloadState::Done && !each.held)
             .filter(|each| rows.iter().any(|(id, _)| *id == each.id))
             .filter(|each| !self.download_previews.contains_key(&each.id))
             .map(|each| (each.id, each.path.clone()))
@@ -413,8 +411,10 @@ impl Shell {
                 .text_color(rgba(SECONDARY))
                 .into_any_element(),
         };
-        // One still coming says how much has come, as its Library row does, and its age once done.
+        // One still coming says how much has come, and a held one why, as its Library row does,
+        // and its age once done.
         let detail: SharedString = match download.state {
+            _ if download.held => "May harm your computer".into(),
             DownloadState::Running => of(download.received, download.total).into(),
             DownloadState::Paused => {
                 format!("Paused · {}", of(download.received, download.total)).into()
@@ -564,8 +564,8 @@ mod tests {
     }
 
     /// Resting on the Library button for the tooltip's delay shows the four newest downloads, the
-    /// running one with the finished ones, with their ages, and asks for the finished ones'
-    /// previews once, and the running one's once it finishes. They stay as the pointer crosses
+    /// running and held ones with the finished ones, with their ages, and asks for the finished
+    /// ones' previews once, and the running one's once it finishes. They stay as the pointer crosses
     /// from the button onto them, go once it's on neither, and come back from going when it's on
     /// the button again. While the download runs, the button still names itself View Library, and
     /// a click opens the Library where it was, not on Downloads, and takes the rows away.
@@ -575,7 +575,7 @@ mod tests {
         let mut running = done(9, 0.);
         running.state = DownloadState::Running;
         let mut held = done(8, MINUTE);
-        held.held = true;
+        (held.state, held.held) = (DownloadState::Running, true);
         let downloads = vec![
             running,
             held,
@@ -597,12 +597,12 @@ mod tests {
         wait(cx, Duration::from_millis(100));
         let shown = vec![
             (9, "just now".to_string()),
+            (8, "1 minute ago".to_string()),
             (5, "2 hours ago".to_string()),
             (4, "4 days ago".to_string()),
-            (3, "1 week ago".to_string()),
         ];
         assert_eq!(rows(&shell, cx), (shown.clone(), false));
-        let asked = ["file preview 5", "file preview 4", "file preview 3"];
+        let asked = ["file preview 5", "file preview 4"];
         let calls = host.take();
         assert!(calls.iter().any(|call| call == "tooltip View Library ⇧⌘L"), "{calls:?}");
         let previews: Vec<_> = calls.iter().filter(|c| !c.starts_with("tooltip")).collect();
@@ -650,10 +650,11 @@ mod tests {
     }
 
     /// A pointer passing over the button leaves no rows. A download running alone shows as one, and
-    /// a held one, which Chrome keeps running until it's kept or deleted, never does.
+    /// so does a held one, which Chrome keeps running until it's kept or deleted, whose row's
+    /// click offers Keep and Delete.
     #[gpui::test]
-    fn the_recent_downloads_need_a_rest_and_a_download_not_held(cx: &mut TestAppContext) {
-        let (shell, cx, _) = window(cx);
+    fn the_recent_downloads_need_a_rest_and_show_a_held_download(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx);
         shell.update(cx, |shell, cx| shell.set_downloads(vec![done(1, HOUR)], cx));
         let height = shell.read_with(cx, |shell, _| f32::from(shell.viewport.height));
         move_to(cx, 24., height - 25.);
@@ -676,6 +677,12 @@ mod tests {
         shell.update(cx, |shell, cx| shell.set_downloads(vec![running], cx));
         move_to(cx, 24., height - 25.);
         wait(cx, RECENT_WAIT * 2);
-        assert!(rows(&shell, cx).0.is_empty(), "a held download isn't a recent one");
+        assert_eq!(rows(&shell, cx).0, [(2, "just now".to_string())], "a held one shows");
+        move_to(cx, 24., height - 45.);
+        cx.simulate_click(point(px(120.), px(height - 50. - 28.)), Modifiers::none());
+        cx.run_until_parked();
+        let menu = host.menus.borrow().last().cloned().unwrap_or_default();
+        let titles: Vec<_> = menu.iter().take(2).map(|(title, _)| title.to_string()).collect();
+        assert_eq!(titles, ["Keep", "Delete"]);
     }
 }
