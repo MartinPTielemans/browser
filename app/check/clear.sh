@@ -317,13 +317,13 @@ expect "^browser: tab $d closed\$" "Close Tabs Below didn't close the bottom tab
 expect "^browser: selected $t\$" "Close Tabs Below didn't show the tab right-clicked"
 [ "$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: selected ')" = 1 ] ||
   fail "Close Tabs Below showed a tab on the way out"
-# It says so with an Undo, and one ⌘Z brings back both tabs under the one right-clicked, in place;
-# ⇧⌘Z closes them again.
+# It says so with an Undo, and one ⌘Z brings back the three tabs under the one right-clicked, the
+# copy Duplicate Tab made among them, in place; ⇧⌘Z closes them again.
 expect '^browser: toast shown Tabs Closed \[undo\]$' "Close Tabs Below didn't offer Undo"
 send key z cmd
 expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo Close Tabs Below"
-expect "^browser: today $t [0-9][0-9]* [0-9][0-9]*\$" \
-  "⌘Z didn't bring back both tabs under the one right-clicked: Today is \"$(today)\""
+expect "^browser: today $t [0-9][0-9]* [0-9][0-9]* [0-9][0-9]*\$" \
+  "⌘Z didn't bring back the three tabs under the one right-clicked: Today is \"$(today)\""
 none_since '^browser: selected' || fail "⌘Z after Close Tabs Below showed another tab"
 send key z cmd shift
 expect '^browser: command redo via \(ui\|page\)$' "⇧⌘Z didn't redo Close Tabs Below"
