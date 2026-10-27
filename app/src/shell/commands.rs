@@ -957,16 +957,15 @@ impl Shell {
         Some((text, toast))
     }
 
-    /// A click on the URL field's Copy URL button: copies without the toast, since the button
+    /// A click on the URL field's Copy URL button: copies with the toast, as Arc's does, and
     /// shows a checkmark in the glyph's place for `COPIED_TIME`.
     pub(super) fn copy_url_from_button(&mut self, cx: &mut Context<Self>) {
-        // check.sh waits for these lines.
+        // check.sh waits for this line.
         log!("browser: command copy-url via sidebar");
-        let Some((text, _)) = self.url_to_copy(false) else {
+        let Some((text, toast)) = self.url_to_copy(false) else {
             return;
         };
-        self.browser.copy(&text, cx);
-        log!("browser: copied {text}");
+        self.copy(&text, toast, cx);
         if self.url_copied.is_none() {
             self.swaps.start(Swapped::CopyUrl, LINK, CHECK, Instant::now());
         }

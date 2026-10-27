@@ -9,7 +9,7 @@ use gpui::{
 
 use crate::{
     shell::{
-        Command, FOOTER_HEIGHT, Folders, NAV_SIZE, NAV_TOP, SIDEBAR_BUTTON_X, Shell,
+        Command, FOOTER_HEIGHT, Folders, NAV_SIZE, NAV_TOP, Page, SIDEBAR_BUTTON_X, Shell,
         library::LIBRARY_BACK_INSET, recorder::Recorder,
     },
     site_controls::Place,
@@ -221,4 +221,25 @@ fn a_click_on_the_url_field_opens_the_command_bar_over_it(cx: &mut TestAppContex
         shell.run(Command::EditUrl, "sidebar", cx);
     });
     assert_eq!(host.command_bars.take(), [None]);
+}
+
+/// A click on the URL field's Copy URL button says so in the toast, as ⇧⌘C does and Arc's button
+/// does, and swaps its glyph for the checkmark, without opening the command bar.
+#[gpui::test]
+fn copy_url_shows_the_toast_and_the_checkmark(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![1], Vec::new(), Folders::default(), cx);
+        shell.set_selected(1, cx);
+        let page = Page { url: "https://example.org/?utm_source=x".into(), ..Page::default() };
+        shell.set_page(1, page, cx);
+    });
+    // The pointer coming onto the sidebar fades the button in, at check.sh's point.
+    move_to(cx, &host, 100., 300.);
+    shell.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    cx.simulate_click(point(px(178.), px(64.)), Modifiers::none());
+    assert_eq!(host.toasts.take(), ["Copied Current URL"]);
+    assert!(host.command_bars.take().is_empty());
+    assert!(shell.read_with(cx, |shell, _| shell.url_copied.is_some()));
 }
