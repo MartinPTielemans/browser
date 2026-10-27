@@ -156,6 +156,16 @@ impl Shell {
         cx.notify();
     }
 
+    /// A tab menu's Add Split View: ⌃+ beside `tab`, which shows first if it isn't. Agents reach
+    /// the same split through `bc_tab_split_with`.
+    pub(super) fn add_split_to(&mut self, tab: u64, cx: &mut Context<Self>) {
+        if self.panes(self.selected).contains(&tab) {
+            return self.add_pane(cx);
+        }
+        self.split_pending = Some(tab);
+        self.select(tab, cx);
+    }
+
     /// Focuses the split view's page right of the focused one, or left of it, round the ends.
     pub(super) fn focus_pane(&mut self, forward: bool, cx: &mut Context<Self>) {
         let panes = self.panes(self.selected);

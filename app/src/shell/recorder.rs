@@ -11,7 +11,7 @@ use std::{
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
 use super::{
-    Answer, BarTab, Browser, DownloadAction, Extension, MenuEntry, browser::WindowButton,
+    Answer, BarTab, Browser, DownloadAction, MenuBar, MenuEntry, browser::WindowButton,
 };
 
 /// What the core shares between its windows, as it keeps them: the Spaces deleted and the archive's
@@ -60,8 +60,13 @@ pub(super) struct Recorder {
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
     pub(super) menus: RefCell<Vec<Vec<(SharedString, bool)>>>,
-    /// The Spaces the menu bar's Spaces menu lists.
-    pub(super) menu_spaces: RefCell<Vec<SharedString>>,
+    /// The last menus it was asked to show, item by item.
+    pub(super) entries: RefCell<Vec<MenuEntry>>,
+    /// What the menu bar was last asked to show, and the window's title.
+    pub(super) menu_bar: RefCell<MenuBar>,
+    pub(super) window_title: RefCell<String>,
+    /// The share services it lists for any page.
+    pub(super) share_services: RefCell<Vec<SharedString>>,
     /// Each time the shell opened the Site Controls: the tab, and where they hang from.
     pub(super) site_controls: RefCell<Vec<(u64, crate::site_controls::Place)>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
@@ -358,8 +363,12 @@ impl Browser for Recorder {
 
     fn task_manager(&self, _: &mut App) {}
 
-    fn set_menus(&self, spaces: &[SharedString], _: &[Extension], _: &mut App) {
-        *self.menu_spaces.borrow_mut() = spaces.to_vec();
+    fn set_menus(&self, bar: &MenuBar, _: &mut App) {
+        *self.menu_bar.borrow_mut() = bar.clone();
+    }
+
+    fn set_window_title(&self, title: &str, _: &mut App) {
+        *self.window_title.borrow_mut() = title.to_string();
     }
 
     fn set_edit_titles(&self, undo: Option<&str>, redo: Option<&str>, _: &mut App) {
@@ -464,8 +473,9 @@ impl Browser for Recorder {
         _: Box<dyn FnOnce(Option<usize>, &mut App)>,
         _: &mut App,
     ) {
-        let items = entries.into_iter().map(|entry| (entry.title, entry.enabled)).collect();
+        let items = entries.iter().map(|entry| (entry.title.clone(), entry.enabled)).collect();
         self.menus.borrow_mut().push(items);
+        *self.entries.borrow_mut() = entries;
     }
 
     fn confirm(
@@ -519,6 +529,12 @@ impl Browser for Recorder {
     fn watch_control(&self, _: &mut App) {}
 
     fn copy(&self, _: &str, _: &mut App) {}
+
+    fn share_services(&self, _: &str) -> Vec<SharedString> {
+        self.share_services.borrow().clone()
+    }
+
+    fn share(&self, _: &str, _: &str, _: usize, _: &mut App) {}
 
     fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {
         Default::default()

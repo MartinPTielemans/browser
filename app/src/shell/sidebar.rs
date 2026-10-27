@@ -107,6 +107,7 @@ impl Shell {
         self.sidebar_hidden = true;
         self.sidebar_motion = None;
         self.recent_downloads_gone(cx);
+        self.update_menus(cx);
         // check.sh waits for this line.
         log!("browser: sidebar hidden");
         cx.notify();
@@ -159,7 +160,28 @@ impl Shell {
         self.sidebar_hidden = !self.sidebar_hidden;
         self.sidebar_motion = Some((from, Instant::now()));
         self.recent_downloads_gone(cx);
+        self.update_menus(cx);
         cx.notify();
+    }
+
+    /// Tabs › Reveal Tab in Sidebar: shows the hidden sidebar, opens the closed folders the tab
+    /// shown is in and scrolls the list to its row, once more after the folders open. It moves
+    /// only the user's view, so agents get none; they open folders with `bc_folder_set_open`.
+    pub(super) fn reveal_tab(&mut self, cx: &mut Context<Self>) {
+        let tab = self.selected;
+        let Some(space) = self.shown_space().filter(|_| tab != 0) else {
+            return;
+        };
+        let row = self.row_of(tab);
+        let shut: Vec<u64> = space.holders(row).filter(|&folder| !space.is_open(folder)).collect();
+        if self.sidebar_hidden && !self.reveal_shown() {
+            self.toggle_sidebar(cx);
+        }
+        for &folder in &shut {
+            self.browser.set_folder_open(folder, true, cx);
+        }
+        self.revealing = (!shut.is_empty()).then_some(tab);
+        self.scroll_to_row(tab);
     }
 
     /// Whether the window's own buttons show (`window_buttons_at`).
@@ -194,6 +216,7 @@ impl Shell {
         self.conceal_now(cx);
         self.sidebar_hidden = false;
         self.sidebar_motion = None;
+        self.update_menus(cx);
         // check.sh waits for this line.
         log!("browser: sidebar shown");
         cx.notify();

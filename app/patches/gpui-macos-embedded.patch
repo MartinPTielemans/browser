@@ -26,7 +26,7 @@ index 8732badd32..ef553825c0 100644
  trait BoolExt {
      fn to_objc(self) -> Bool;
 diff --git a/crates/gpui_macos/src/platform.rs b/crates/gpui_macos/src/platform.rs
-index 4b48188131..dcdd630902 100644
+index 4b48188131..2b8c859e84 100644
 --- a/crates/gpui_macos/src/platform.rs
 +++ b/crates/gpui_macos/src/platform.rs
 @@ -60,6 +60,12 @@ const MAC_PLATFORM_IVAR: &CStr = c"platform";
@@ -69,9 +69,11 @@ index 4b48188131..dcdd630902 100644
              activation_policy: ActivationPolicy::Regular,
              application_created: false,
              text_system,
-@@ -370,10 +387,10 @@ impl MacPlatform {
+@@ -369,11 +386,12 @@ impl MacPlatform {
+                         Some(gpui::OsAction::Cut) => sel!(cut:),
                          Some(gpui::OsAction::Copy) => sel!(copy:),
                          Some(gpui::OsAction::Paste) => sel!(paste:),
++                        Some(gpui::OsAction::PasteAndMatchStyle) => sel!(pasteAndMatchStyle:),
                          Some(gpui::OsAction::SelectAll) => sel!(selectAll:),
 -                        // "undo:" and "redo:" are always disabled in our case, as
 -                        // we don't have a NSTextView/NSTextField to enable them on.
@@ -84,7 +86,7 @@ index 4b48188131..dcdd630902 100644
                          None => sel!(handleGPUIMenuItem:),
                      };
  
-@@ -381,6 +398,16 @@ impl MacPlatform {
+@@ -381,6 +399,16 @@ impl MacPlatform {
                      if let Some(keystrokes) = keystrokes {
                          if keystrokes.len() == 1 {
                              let keystroke = &keystrokes[0];
@@ -101,7 +103,7 @@ index 4b48188131..dcdd630902 100644
                              let mut mask = NSEventModifierFlags::empty();
                              for (modifier, flag) in &[
                                  (
-@@ -389,7 +416,7 @@ impl MacPlatform {
+@@ -389,7 +417,7 @@ impl MacPlatform {
                                  ),
                                  (keystroke.modifiers().control, NSEventModifierFlags::Control),
                                  (keystroke.modifiers().alt, NSEventModifierFlags::Option),
@@ -110,7 +112,7 @@ index 4b48188131..dcdd630902 100644
                              ] {
                                  if *modifier {
                                      mask |= *flag;
-@@ -400,7 +427,7 @@ impl MacPlatform {
+@@ -400,7 +428,7 @@ impl MacPlatform {
                                  NSMenuItem::alloc(self.1),
                                  &NSString::from_str(name),
                                  Some(selector),
@@ -119,7 +121,7 @@ index 4b48188131..dcdd630902 100644
                              );
                              if Self::os_version() >= Version::new(12, 0, 0) {
                                  item.setAllowsAutomaticKeyEquivalentLocalization(false);
-@@ -427,6 +454,11 @@ impl MacPlatform {
+@@ -427,6 +455,17 @@ impl MacPlatform {
                          item.setState(NSControlStateValueOn);
                      }
                      item.setEnabled(!disabled);
@@ -128,10 +130,16 @@ index 4b48188131..dcdd630902 100644
 +                    if selector == sel!(handleGPUIMenuItem:) {
 +                        let _: () = msg_send![&item, setTarget: delegate];
 +                    }
++                    // AppKit enables an item by whether its target takes its action, over
++                    // setEnabled, so a disabled one gets an action its target doesn't take.
++                    if *disabled {
++                        let _: () = msg_send![&item, setAction: sel!(disabledGPUIMenuItem:)];
++                        let _: () = msg_send![&item, setTarget: delegate];
++                    }
  
                      let tag = actions.len() as NSInteger;
                      item.setTag(tag);
-@@ -485,17 +517,11 @@ impl MacPlatform {
+@@ -485,17 +524,11 @@ impl MacPlatform {
              return;
          }
  
@@ -154,7 +162,7 @@ index 4b48188131..dcdd630902 100644
              self.0.lock().system_power_observers_registered = true;
          }
      }
-@@ -532,6 +558,34 @@ impl Platform for MacPlatform {
+@@ -532,6 +565,34 @@ impl Platform for MacPlatform {
              drop(state);
          }
  
@@ -189,7 +197,7 @@ index 4b48188131..dcdd630902 100644
          unsafe {
              let app: *mut AnyObject = msg_send![APP_CLASS, sharedApplication];
              // An accessory app must not register in the Dock during launch, so its
-@@ -547,6 +601,7 @@ impl Platform for MacPlatform {
+@@ -547,6 +608,7 @@ impl Platform for MacPlatform {
                  let _: Bool = msg_send![app, setActivationPolicy: native_activation_policy(policy)];
              }
              let app_delegate: *mut AnyObject = msg_send![APP_DELEGATE_CLASS, new];
@@ -197,7 +205,7 @@ index 4b48188131..dcdd630902 100644
              let _: () = msg_send![app, setDelegate: app_delegate];
  
              let self_ptr = self as *const Self as *mut c_void;
-@@ -1105,8 +1160,8 @@ impl Platform for MacPlatform {
+@@ -1105,8 +1167,8 @@ impl Platform for MacPlatform {
          unsafe {
              let app: *mut AnyObject = msg_send![APP_CLASS, sharedApplication];
              let mut state = self.0.lock();
@@ -207,7 +215,7 @@ index 4b48188131..dcdd630902 100644
              let menu = self.create_menu_bar(&menus, delegate, actions, keymap);
              drop(state);
              let _: () = msg_send![app, setMainMenu: &*menu];
-@@ -1120,10 +1175,9 @@ impl Platform for MacPlatform {
+@@ -1120,10 +1182,9 @@ impl Platform for MacPlatform {
  
      fn set_dock_menu(&self, menu: Vec<MenuItem>, keymap: &Keymap) {
          unsafe {

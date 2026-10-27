@@ -19,7 +19,9 @@ use browser::shell::{
     ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, SidePanel,
     Split, Trouble, WindowButton,
 };
-use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, Undo};
+use browser::text_input::{
+    Chosen, Copy, Cut, FieldMenu, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
+};
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
     ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, Size,
@@ -165,6 +167,12 @@ mod platform {
             url: *const c_char,
             title: *const c_char,
         );
+        pub fn host_share_services(
+            url: *const c_char,
+            each: unsafe extern "C" fn(context: *mut c_void, name: *const c_char),
+            context: *mut c_void,
+        );
+        pub fn host_share_with(url: *const c_char, title: *const c_char, index: usize);
         pub fn host_day_starts(starts: *mut f64);
         pub fn host_menu(
             ui_view: *mut c_void,
@@ -341,25 +349,21 @@ thread_local! {
     // open over; None after.
     static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
     // What the menu bar was last built from, so a change to one part rebuilds it with the others.
-    static MENUS: RefCell<Menus> = const { RefCell::new(Menus::new()) };
+    static MENUS: RefCell<Menus> = RefCell::default();
 }
 
-/// What the menu bar lists besides what never changes: the Spaces, the shown Space's profile's
-/// extensions, and the titles Undo and Redo have for what the key window would undo and redo.
+/// What the menu bar lists besides what never changes: what the key window's shell says of it, and
+/// the titles Undo and Redo have for what the key window would undo and redo.
+#[derive(Default)]
 struct Menus {
-    spaces: Vec<SharedString>,
-    extensions: Vec<Extension>,
+    bar: shell::MenuBar,
     undo: Option<String>,
     redo: Option<String>,
 }
 
 impl Menus {
-    const fn new() -> Self {
-        Menus { spaces: Vec::new(), extensions: Vec::new(), undo: None, redo: None }
-    }
-
     fn build(&self) -> Vec<Menu> {
-        menus(&self.spaces, &self.extensions, self.undo.as_deref(), self.redo.as_deref())
+        menus(&self.bar, self.undo.as_deref(), self.redo.as_deref())
     }
 }
 
@@ -1506,11 +1510,8 @@ impl Browser for Engine {
         unsafe { bc::bc_window_task_manager(self.window) };
     }
 
-    fn set_menus(&self, spaces: &[SharedString], extensions: &[Extension], cx: &mut App) {
-        MENUS.with_borrow_mut(|menus| {
-            menus.spaces = spaces.to_vec();
-            menus.extensions = extensions.to_vec();
-        });
+    fn set_menus(&self, bar: &shell::MenuBar, cx: &mut App) {
+        MENUS.with_borrow_mut(|menus| menus.bar = bar.clone());
         // The menu bar is the key window's, which lists its own Space's extensions.
         if front().0 == self.window {
             cx.set_menus(MENUS.with_borrow(Menus::build));
@@ -1525,6 +1526,11 @@ impl Browser for Engine {
         if front().0 == self.window {
             cx.set_menus(MENUS.with_borrow(Menus::build));
         }
+    }
+
+    fn set_window_title(&self, title: &str, _: &mut App) {
+        let title = CString::new(title).unwrap_or_default();
+        unsafe { platform::host_set_window_title(self.ui_view, title.as_ptr()) };
     }
 
     fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, _: &mut App) -> bool {
@@ -1782,6 +1788,25 @@ impl Browser for Engine {
         // check.sh reads this line.
         let used = unsafe { bc::bc_tab_set_system_engine(tab, true) };
         log!("browser: system engine {tab} {}", if used { "on" } else { "refused" });
+    }
+
+    fn share_services(&self, url: &str) -> Vec<SharedString> {
+        unsafe extern "C" fn each(context: *mut c_void, name: *const c_char) {
+            let names = unsafe { &mut *(context as *mut Vec<SharedString>) };
+            names.push(unsafe { CStr::from_ptr(name) }.to_string_lossy().into_owned().into());
+        }
+        let mut names: Vec<SharedString> = Vec::new();
+        if let Ok(url) = CString::new(url) {
+            let context = &mut names as *mut Vec<SharedString> as *mut c_void;
+            unsafe { platform::host_share_services(url.as_ptr(), each, context) };
+        }
+        names
+    }
+
+    fn share(&self, url: &str, title: &str, service: usize, _: &mut App) {
+        if let (Ok(url), Ok(title)) = (CString::new(url), CString::new(title)) {
+            unsafe { platform::host_share_with(url.as_ptr(), title.as_ptr(), service) };
+        }
     }
 
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {
@@ -2444,7 +2469,7 @@ fn finish_opening(
     let children: Vec<AnyWindowHandle> = [
         find_bar::open(id, ui_view, cx),
         prompt.map(Into::into),
-        reveal::open(shell, ui_view, cx),
+        reveal::open(shell.clone(), ui_view, cx),
     ]
     .into_iter()
     .flatten()
@@ -2459,7 +2484,7 @@ fn finish_opening(
     if let Some(profile) = private {
         log!("browser: private window opened {id} profile {profile}");
         // The core showed its Space before there was a window to title.
-        title_windows();
+        shell.update(cx, |shell, cx| shell.update_title(cx));
     }
     if seeded {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
@@ -2565,24 +2590,21 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
-        cx.set_menus(menus(&[], &[], None, None));
+        cx.set_menus(menus(&shell::MenuBar::default(), None, None));
         open_window(None, None, cx);
     });
     APP.set(Some(app));
 }
 
-/// The menu bar: Arc's menus, with the commands the browser has, the Spaces named `spaces` and the
-/// shown Space's profile's `extensions` (docs/ux-spec.md › Menus). The Edit menu's standard items
-/// go to the first responder, so a focused page cuts, copies, pastes, selects and undoes for
-/// itself.
-fn menus(
-    spaces: &[SharedString],
-    extensions: &[Extension],
-    undo: Option<&str>,
-    redo: Option<&str>,
-) -> Vec<Menu> {
+/// The menu bar: Arc's menus, with the commands the browser has, what `bar` says of the key
+/// window, its Spaces, its Space's profile's extensions and the titles that follow its state, and
+/// the titles Undo and Redo have for what it would undo and redo (docs/ux-spec.md › Menus). The
+/// Edit menu's standard items go to the first responder, so a focused page cuts, copies, pastes,
+/// selects and undoes for itself.
+fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Menu> {
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
+    let (spaces, extensions) = (&bar.spaces, &bar.extensions);
     vec![
         menu(
             env!("APP_NAME"),
@@ -2628,6 +2650,11 @@ fn menus(
                 item("Copy URL", Command::CopyUrl),
                 item("Copy URL as Markdown", Command::CopyMarkdownLink),
                 MenuItem::os_action("Paste", Paste, OsAction::Paste),
+                MenuItem::os_action(
+                    "Paste and Match Style",
+                    PasteAndMatchStyle,
+                    OsAction::PasteAndMatchStyle,
+                ),
                 MenuItem::os_action("Select All", SelectAll, OsAction::SelectAll),
                 MenuItem::separator(),
                 MenuItem::submenu(menu(
@@ -2644,7 +2671,7 @@ fn menus(
         menu(
             "View",
             vec![
-                item("Show/Hide Sidebar", Command::ToggleSidebar),
+                item(bar.sidebar_title(), Command::ToggleSidebar),
                 MenuItem::separator(),
                 item("Stop Loading", Command::Stop),
                 item("Refresh the Page", Command::Reload),
@@ -2676,11 +2703,14 @@ fn menus(
             [
                 item("New Space…", Command::NewSpace),
                 item("Rename Space", Command::RenameSpace),
+            ]
+            .into_iter()
+            .chain(bar.profiles.as_ref().map(change_profile))
+            .chain([
                 MenuItem::separator(),
                 item("Next Space", Command::NextSpace),
                 item("Previous Space", Command::PreviousSpace),
-            ]
-            .into_iter()
+            ])
             .chain((!spaces.is_empty()).then(MenuItem::separator))
             .chain(spaces.iter().enumerate().map(|(index, name)| {
                 shell::menu_item(name.clone(), Command::SelectSpace(index))
@@ -2691,13 +2721,14 @@ fn menus(
             "Tabs",
             vec![
                 item("New Tab…", Command::NewTab),
-                item("Pin/Unpin Tab", Command::TogglePin),
+                item(bar.pin_title(), Command::TogglePin),
                 item("New Folder…", Command::NewFolder),
                 MenuItem::separator(),
                 item("Next Tab", Command::NextTab),
                 item("Previous Tab", Command::PreviousTab),
+                item("Reveal Tab in Sidebar", Command::RevealTab),
                 MenuItem::separator(),
-                item("Clear Unpinned Tabs", Command::Clear),
+                item("Clear Today", Command::Clear),
             ],
         ),
         menu(
@@ -2707,7 +2738,7 @@ fn menus(
                 item("Go Forward", Command::Forward),
                 MenuItem::separator(),
                 item("View History", Command::ViewHistory),
-                item("View Archive", Command::ViewArchive),
+                item("View Archive…", Command::ViewArchive),
                 item("Clear Archive", Command::ClearArchive),
             ],
         ),
@@ -2730,8 +2761,8 @@ fn menus(
             vec![
                 MenuItem::action("Minimize Window", Minimize),
                 MenuItem::separator(),
-                item("View Library", Command::ViewLibrary),
-                item("View Downloads", Command::ViewDownloads),
+                item("Open Library…", Command::ViewLibrary),
+                item("View Downloads…", Command::ViewDownloads),
             ],
         ),
         menu(
@@ -2746,6 +2777,23 @@ fn menus(
             ],
         ),
     ]
+}
+
+/// Spaces › Change Profile: the profiles the Space shown can be in, as its menu's Profile items
+/// are, and New Profile.
+fn change_profile((choices, new): &(Vec<shell::ProfileChoice>, bool)) -> MenuItem {
+    let items = (choices.iter())
+        .map(|choice| {
+            shell::menu_item(choice.name.clone(), Command::ChangeProfile(Some(choice.profile)))
+                .checked(choice.checked)
+                .disabled(!choice.enabled)
+        })
+        .chain([
+            MenuItem::separator(),
+            shell::menu_item("New Profile", Command::ChangeProfile(None)).disabled(!new),
+        ])
+        .collect();
+    MenuItem::submenu(Menu { name: "Change Profile".into(), items, disabled: false })
 }
 
 // Closing the last window quits, as its close button does in Chrome's last window.
@@ -2905,7 +2953,6 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_profiles(profiles.clone(), cx);
         shell.set_spaces(spaces.clone(), cx);
     });
-    title_windows();
     update_app(settings::refresh);
 }
 
@@ -2966,22 +3013,6 @@ unsafe extern "C" fn space_changed(_: *mut c_void, space: bc::bc_id) {
     });
 }
 
-/// Titles each window with its Space's name, which AppKit lists in the Window menu, and a private
-/// window as private. The window doesn't draw its title.
-fn title_windows() {
-    let windows: Vec<_> = WINDOWS
-        .with_borrow(|windows| windows.iter().map(|w| (w.id, w.ui_view, w.private)).collect());
-    for (id, ui_view, private) in windows {
-        let space = unsafe { bc::bc_window_space(id) };
-        let title = match private {
-            true => private_name(unsafe { bc::bc_space_profile(space) }),
-            false => name(bc::bc_space_name, space),
-        };
-        let title = CString::new(title.as_ref()).unwrap_or_default();
-        unsafe { platform::host_set_window_title(ui_view, title.as_ptr()) };
-    }
-}
-
 /// A private window's name, in its sidebar and the Window menu: Chrome's, and its profile's while
 /// there's more than one, as each has its own private session.
 fn private_name(profile: bc::bc_id) -> SharedString {
@@ -3000,7 +3031,6 @@ unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space
         });
     }
     update_window(window, |shell, cx| shell.set_space(space, cx));
-    title_windows();
 }
 
 unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {

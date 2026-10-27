@@ -47,12 +47,14 @@ send key c
 expect "^browser: title $a cookie set\$" "c in the cookie page didn't set a cookie"
 send key r cmd
 expect "^browser: title $a cookie p=1\$" "the cookie page lost its cookie on ⌘R"
-# The tab becomes the first profile's favorite, which leaves the first Space empty.
-post rightclick $(row 0)
-expect '^browser: menu shown Pin Tab, Add to Favorites, ' \
-  "the tab's menu didn't offer Add to Favorites"
-send choose Add to Favorites
-expect "^browser: favorites $a\$" "Add to Favorites didn't make the tab a favorite"
+# Dragged onto the Space's name, the tab becomes the first profile's favorite, which leaves the
+# first Space empty.
+send press $(row 0)
+send dragto 100 160
+send dragto 114 112
+expect '^browser: drag shape tile$' "the row dragged onto the Space's name didn't turn into a tile"
+send release 114 112
+expect "^browser: favorites $a\$" "the row dragged onto the Space's name didn't make a favorite"
 
 # A new Space is in the profile of the Space it's made from. Its form's Profile row puts it in a
 # new profile, whose name Chrome's numbering gives, and its favorites aren't the first profile's.
@@ -176,7 +178,7 @@ expect "^browser: title $b cookie none\$" "the second Space's tab came back in t
 # whose page loads there with that profile's cookie. Moved back, from under the favorite's tile,
 # it asks nothing.
 post rightclick $(row 0)
-expect '^browser: menu shown .*, Move to Space › Space 1, ' \
+expect '^browser: menu shown .*, Move to › Space 1, Move to › work (checked), ' \
   "the tab's menu didn't offer the other profile's Space"
 post choose Space 1
 expect '^browser: dialog shown Move this tab to the “Default” profile?$' \
@@ -190,7 +192,7 @@ expect '^browser: today [0-9][0-9]*$' "the moved tab isn't in the first Space"
 c=$(today)
 expect "^browser: title $c cookie p=1\$" "the moved tab didn't load with the first profile's cookie"
 post rightclick 100 $(($(row 0 | cut -d' ' -f2) + 47))
-expect '^browser: menu shown .*, Move to Space › work, ' \
+expect '^browser: menu shown .*, Move to › Space 1 (checked), Move to › work, ' \
   "the moved tab's menu didn't offer its old Space"
 send choose work
 none_since '^browser: dialog shown' || fail "the second move to another profile warned again"

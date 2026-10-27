@@ -33,6 +33,7 @@ actions!(
         End,
         ShowCharacterPalette,
         Paste,
+        PasteAndMatchStyle,
         Cut,
         Copy,
         Undo,
@@ -75,6 +76,7 @@ pub fn bind_keys(cx: &mut App) {
         // undoes for itself, as a page does.
         KeyBinding::new("cmd-z", Undo, context),
         KeyBinding::new("shift-cmd-z", Redo, context),
+        KeyBinding::new("shift-cmd-v", PasteAndMatchStyle, context),
     ]);
 }
 
@@ -869,6 +871,10 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::end))
             .on_action(cx.listener(Self::show_character_palette))
             .on_action(cx.listener(Self::paste))
+            // A field's text has no style, so it pastes as Paste does.
+            .on_action(cx.listener(|field, _: &PasteAndMatchStyle, window, cx| {
+                field.paste(&Paste, window, cx)
+            }))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
             // A field has no undo yet. Its ⌘Z stops here, so it doesn't undo a Clear.

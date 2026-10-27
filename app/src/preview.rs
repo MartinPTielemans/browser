@@ -11,8 +11,8 @@ use std::{
 
 use browser::log;
 use browser::shell::{
-    self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    Folders, Match, MenuEntry, Page, Shell, Split, Trouble, WindowButton,
+    self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState,
+    Folders, Match, MenuBar, MenuEntry, Page, Shell, Split, Trouble, WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
 use browser::icon_picker::{self, Recents};
@@ -611,7 +611,9 @@ impl Browser for Fake {
     fn task_manager(&self, _: &mut App) {}
 
     // The preview has no menu bar and no extensions.
-    fn set_menus(&self, _: &[SharedString], _: &[Extension], _: &mut App) {}
+    fn set_menus(&self, _: &MenuBar, _: &mut App) {}
+
+    fn set_window_title(&self, _: &str, _: &mut App) {}
 
     fn run_extension(&self, _: &str, _: Bounds<Pixels>, _: &mut App) -> bool {
         false
@@ -850,8 +852,14 @@ impl Browser for Fake {
         self.later(cx, |shell, cx| shell.control_released(cx));
     }
 
-    // The preview leaves the clipboard alone.
+    // The preview leaves the clipboard alone, and shares nothing.
     fn copy(&self, _: &str, _: &mut App) {}
+
+    fn share_services(&self, _: &str) -> Vec<SharedString> {
+        Vec::new()
+    }
+
+    fn share(&self, _: &str, _: &str, _: usize, _: &mut App) {}
 
     // The toast's window is one the app's host lays over the browser window.
     fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {}

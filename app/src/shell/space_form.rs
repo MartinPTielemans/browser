@@ -21,11 +21,20 @@ use crate::text_input::TextInput;
 impl Shell {
     /// Makes a Space and shows it with the form for naming it, or shows the form already open.
     pub(super) fn new_space(&mut self, cx: &mut Context<Self>) {
+        self.new_space_with(None, cx)
+    }
+
+    /// New Space…, and with `tab` Move to › New Space… in a tab's menu, which moves the tab into
+    /// the Space once the form makes it, so Cancel leaves the tab where it was.
+    pub(super) fn new_space_with(&mut self, tab: Option<u64>, cx: &mut Context<Self>) {
         if self.private {
             return;
         }
-        let space = match &self.form {
-            Some(form) => form.space,
+        let space = match &mut self.form {
+            Some(form) => {
+                form.tab = tab.or(form.tab);
+                form.space
+            }
             None => {
                 // Arc's name for a Space the user doesn't name.
                 let name = format!("Space {}", self.spaces.len() + 1);
@@ -39,6 +48,7 @@ impl Shell {
                     space,
                     from: self.space,
                     name,
+                    tab,
                 });
                 space
             }
@@ -74,7 +84,11 @@ impl Shell {
         }
         // check.sh waits for these lines.
         log!("browser: create space {} {name}", form.space);
-        self.browser.rename_space(form.space, &name, cx);
+        let (space, tab) = (form.space, form.tab);
+        self.browser.rename_space(space, &name, cx);
+        if let Some(tab) = tab {
+            self.move_to_space(tab, space, cx);
+        }
         self.leaving_form = self.form.take().map(|form| (form, Instant::now()));
         window.focus(&self.focus_handle, cx);
         cx.notify();

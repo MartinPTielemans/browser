@@ -6,7 +6,7 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
-use super::{Answer, BarTab, DownloadAction, Extension, MenuEntry};
+use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry};
 
 /// What the shell asks of the browser. The browser answers by updating the shell afterwards, never
 /// during the call.
@@ -141,9 +141,10 @@ pub trait Browser {
     fn devtools(&self, tab: u64, what: i32, cx: &mut App);
     /// Opens Chrome's Task Manager, with the page shown selected.
     fn task_manager(&self, cx: &mut App);
-    /// Lists the Spaces named `spaces`, in their order, in the menu bar's Spaces menu, and
-    /// `extensions` in its Extensions menu.
-    fn set_menus(&self, spaces: &[SharedString], extensions: &[Extension], cx: &mut App);
+    /// Makes the menu bar show `bar`, if the window is the key one.
+    fn set_menus(&self, bar: &MenuBar, cx: &mut App);
+    /// Titles the window `title`, which the Window menu and Mission Control list it by.
+    fn set_window_title(&self, title: &str, cx: &mut App);
     /// Runs extension `id`'s action on the tab shown, its popup hanging from `anchor` in the
     /// window, and returns whether the extension is turned on in the tab's profile.
     fn run_extension(&self, id: &str, anchor: Bounds<Pixels>, cx: &mut App) -> bool;
@@ -276,6 +277,12 @@ pub trait Browser {
     /// Shows `tab`'s page in Safari's engine, in the tab, and has its profile keep the site for it.
     /// The user's: agents get none.
     fn use_system_engine(&self, _tab: u64, _cx: &mut App) {}
+    /// The names of the system's share services for the page at `url`, as its share menu lists
+    /// them.
+    fn share_services(&self, url: &str) -> Vec<SharedString>;
+    /// Shares the page at `url`, titled `title`, with the service at `service` in
+    /// `share_services`.
+    fn share(&self, url: &str, title: &str, service: usize, cx: &mut App);
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
     /// words after it if there's a key.
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);

@@ -47,7 +47,7 @@ fn item(menu: &[(SharedString, bool)], title: &str) -> Option<bool> {
 #[gpui::test]
 fn an_agents_space_shows_and_switches_like_the_users(cx: &mut TestAppContext) {
     let (shell, host) = shell_with_agent(cx);
-    assert_eq!(*host.menu_spaces.borrow(), ["Space 1", "Research"]);
+    assert_eq!(host.menu_bar.borrow().spaces, ["Space 1", "Research"]);
     shell.update(cx, |shell, cx| shell.run(Command::SelectSpace(1), "ui", cx));
     assert_eq!(*host.shown.borrow(), [2]);
     shell.update(cx, |shell, cx| {
@@ -57,19 +57,19 @@ fn an_agents_space_shows_and_switches_like_the_users(cx: &mut TestAppContext) {
     assert_eq!(*host.shown.borrow(), [2, 1]);
 }
 
-/// A tab's Move to Space leaves the agent's Space out, so with no other Space of the user's it
-/// has nowhere to go, while a tab of the agent's can come to the user's. A favorite can't be
-/// taken out of the favorites into the agent's Space.
+/// A tab's Move to lists the user's Spaces and leaves the agent's out, while a tab of the agent's
+/// can come to the user's. A favorite can't be taken out of the favorites into the agent's Space.
 #[gpui::test]
 fn no_tab_of_the_users_moves_into_an_agents_space(cx: &mut TestAppContext) {
     let (shell, host) = shell_with_agent(cx);
     let menu = tab_menu(&shell, &host, cx, 10);
-    assert_eq!(item(&menu, "Move to Space"), Some(false));
+    assert_eq!(item(&menu, "Space 1"), Some(true));
     assert_eq!(item(&menu, "Research"), None);
     assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Remove from Favorites"), Some(true));
     shell.update(cx, |shell, cx| shell.set_space(2, cx));
     let menu = tab_menu(&shell, &host, cx, 20);
-    assert_eq!(item(&menu, "Move to Space"), Some(true));
+    assert_eq!(item(&menu, "Move to"), Some(true));
+    assert_eq!(item(&menu, "Research"), None);
     assert_eq!(item(&menu, "Space 1"), Some(true));
     assert_eq!(item(&tab_menu(&shell, &host, cx, 30), "Remove from Favorites"), Some(false));
 }

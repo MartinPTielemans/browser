@@ -2,7 +2,7 @@
 # Spaces: their names, colours and icons, their tabs with each tab's history, the tab each showed
 # and the Space it showed, and the sidebar's width. Only a tab shown loads; the others show their
 # titles and favicons. A tab named with a double-click on its row, where escape cancels, keeps its
-# name over its page's title, and Rename Tab in its menu with no name gives the title back. An
+# name over its page's title, and Rename… in its menu with no name gives the title back. An
 # emoji picked in the icon picker that Change Icon… hangs under its favicon takes the favicon's
 # place until Remove Icon, and a Japanese conversion in the picker's search isn't a pick. A Space's
 # icon, picked in its icon picker, comes back too. A tab closed before the quit stays closed,
@@ -143,7 +143,7 @@ expect "^browser: title $c news\$" "return didn't name the tab"
 # Change Icon… in its menu hangs the icon picker under its favicon, on the Emoji tab, and the first
 # emoji a search finds, which ↩ picks, is the tab's icon at once.
 post rightclick $(row 0)
-expect '^browser: menu shown .*Rename Tab, Change Icon…, Duplicate Tab' \
+expect '^browser: menu shown .*, Change Icon…, Rename…, ' \
   "a right-click on the tab's row didn't offer Change Icon…"
 send choose Change Icon…
 expect "^browser: icon picker for tab $c on emoji\$" \
@@ -242,13 +242,13 @@ if [ "$active" != 1 ]; then
   echo "skip: restored history. Browser wasn't the active app, so the page ignored the click."
   exit 0
 fi
-# Rename Tab in its menu, with the name taken out, gives the tab back its page's title.
+# Rename… in its menu, with the name taken out, gives the tab back its page's title.
 post rightclick $(row 0)
-menu="Pin Tab, Add to Favorites, Rename Tab, Change Icon…, Remove Icon, Duplicate Tab, Move to Space › reading list, Close Tab, Close Tabs Below"
+menu="Copy Link, $share, Change Icon…, Remove Icon, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › [^,]* (checked), Move to › reading list, Move to › New Space…, Archive Tab, Archive Tabs Below"
 expect "^browser: menu shown $menu\$" \
-  "a right-click on the renamed tab's row didn't offer Rename Tab"
-send choose Rename Tab
-expect "^browser: rename tab $c\$" "Rename Tab didn't turn the tab's title into a field"
+  "a right-click on the renamed tab's row didn't offer Rename…"
+send choose Rename…
+expect "^browser: rename tab $c\$" "Rename… didn't turn the tab's title into a field"
 send key backspace
 send key return
 expect "^browser: title $c Example Domain\$" \
@@ -477,6 +477,6 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename… takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
 echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png, $out/tab-icon-picker.png,"
 echo "  $out/recent-downloads.png"

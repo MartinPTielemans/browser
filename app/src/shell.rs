@@ -51,6 +51,7 @@ mod library;
 mod link;
 #[cfg(test)]
 mod link_target;
+mod menu_bar;
 mod menus;
 mod naming;
 mod new_space;
@@ -88,6 +89,7 @@ pub use extensions::{
 };
 pub use keys::{Holder, Refused, UserKeys, change_keys, rebindable, recorded, reserved, user_keys};
 pub use library::{Archived, Download, DownloadAction, DownloadState};
+pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
 pub use side_panel::SidePanel;
 pub use panes::page_frame;
@@ -618,6 +620,8 @@ struct SpaceForm {
     /// The Space shown before, which Cancel shows again.
     from: u64,
     name: Entity<TextInput>,
+    /// The tab Move to › New Space… moves into the Space once it's made.
+    tab: Option<u64>,
 }
 
 /// What the renaming field names.
@@ -1042,6 +1046,10 @@ pub struct Shell {
     /// While the command bar is open for a pane beside the tab shown, that tab. The pages shown
     /// make room on their right for the pane (Arc).
     adding_pane: Option<u64>,
+    /// The tab a tab menu's Add Split View showed, to open the pane beside once it's shown.
+    split_pending: Option<u64>,
+    /// The tab Reveal Tab in Sidebar opened folders for, to scroll to once they've opened.
+    revealing: Option<u64>,
     /// The colour last given for a split view's focused page.
     focus_color: Option<u32>,
     /// The colour last given for a page before its first frame.
@@ -1072,11 +1080,11 @@ pub struct Shell {
     /// The picture of the page another window shows, in place of it, and the pictures to let go of.
     picture: Option<picture::Picture>,
     stale_pictures: Vec<Arc<gpui::RenderImage>>,
-    /// Each profile's extensions, and those the menu bar lists, the shown Space's turned on.
+    /// Each profile's extensions.
     extensions: HashMap<u64, Vec<Extension>>,
-    menu_extensions: Vec<Extension>,
-    /// The names of the Spaces the menu bar lists, each after its icon if it has one.
-    menu_spaces: Vec<SharedString>,
+    /// What the menu bar was last given for this window, and the window's title.
+    menus: MenuBar,
+    window_title: SharedString,
     /// The pinned actions the window shows, for its tab shown.
     extension_actions: Vec<ExtensionAction>,
     /// The extension's side panel shown right of the page, the width the user gave it, and where
@@ -1233,6 +1241,8 @@ impl Shell {
             page_laid: None,
             page_moving_told: false,
             adding_pane: None,
+            split_pending: None,
+            revealing: None,
             focus_color: None,
             page_color: None,
             drop_targets_shown: false,
@@ -1251,8 +1261,8 @@ impl Shell {
             picture: None,
             stale_pictures: Vec::new(),
             extensions: HashMap::new(),
-            menu_extensions: Vec::new(),
-            menu_spaces: Vec::new(),
+            menus: MenuBar::default(),
+            window_title: SharedString::default(),
             extension_actions: Vec::new(),
             side_panel: None,
             side_panel_width: 0.,
@@ -1591,6 +1601,7 @@ impl Shell {
             self.log_favorites();
         }
         self.update_menus(cx);
+        self.update_title(cx);
         cx.notify();
     }
 
@@ -1610,6 +1621,7 @@ impl Shell {
             }
         }
         self.profiles = profiles;
+        self.update_menus(cx);
         cx.notify();
     }
 
@@ -1670,6 +1682,7 @@ impl Shell {
             self.focus_form(cx);
         }
         self.update_menus(cx);
+        self.update_title(cx);
         cx.notify();
     }
 
@@ -1733,6 +1746,14 @@ impl Shell {
             self.form = None;
         }
         self.forget_closed();
+        // The folders Reveal Tab in Sidebar opened have moved its row.
+        if space == self.space
+            && let Some(tab) = self.revealing.take()
+        {
+            self.scroll_to_row(tab);
+        }
+        // Pinning or unpinning the tab shown renames Tabs › Pin Tab.
+        self.update_menus(cx);
         cx.notify();
     }
 
@@ -1851,6 +1872,11 @@ impl Shell {
         self.adding_pane = None;
         self.link_tab_changed(cx);
         self.note_hang(cx);
+        if self.split_pending.take() == Some(tab) {
+            self.add_pane(cx);
+        }
+        self.update_title(cx);
+        self.update_menus(cx);
         cx.notify();
     }
 
@@ -1946,6 +1972,9 @@ impl Shell {
     // draws a frame.
     pub fn set_title(&mut self, tab: u64, title: SharedString, cx: &mut Context<Self>) {
         let changed = self.tabs.entry(tab).or_default().keep_title(title);
+        if changed && tab == self.selected {
+            self.update_title(cx);
+        }
         self.tab_changed(tab, changed, cx);
     }
 
@@ -1989,6 +2018,10 @@ impl Shell {
         self.swaps.page_changed(tab, self.selected, &entry.page, &page, Instant::now());
         let trouble = (page.trouble != entry.page.trouble).then_some(page.trouble);
         let changed = entry.keep_page(page);
+        // An untitled tab is named by its URL.
+        if changed && tab == self.selected {
+            self.update_title(cx);
+        }
         self.tab_changed(tab, changed, cx);
         if let Some(trouble) = trouble {
             self.trouble_changed(tab, trouble, cx);

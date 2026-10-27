@@ -229,14 +229,14 @@ library_to "wheel $swipe_point -1" wheel hidden
 
 # A tab's menu moves it to another Space, and the window goes with the tab it shows.
 post rightclick $(row 0)
-expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Change Icon…, Duplicate Tab, Move to Space › reading 日本語, Close Tab, Close Tabs Below (disabled)$' "the tab's menu didn't offer the other Space"
+expect "^browser: menu shown Copy Link, $share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1 (checked), Move to › reading 日本語, Move to › New Space…, Archive Tab, Archive Tabs Below (disabled)\$" "the tab's menu didn't offer the other Space"
 send choose reading 日本語
-expect '^browser: command move-to-space via tab menu$' "Move to Space didn't run"
-expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to Space didn't show the tab's new Space"
-expect_tabs "$a $b" "$a" "after Move to Space"
+expect '^browser: command move-to-space via tab menu$' "Move to didn't run"
+expect "^browser: space $second\( in .*\)\{0,1\}\$" "Move to didn't show the tab's new Space"
+expect_tabs "$a $b" "$a" "after Move to"
 expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 post rightclick $(row 0)
-expect '^browser: menu shown Pin Tab, Add to Favorites, Rename Tab, Change Icon…, Duplicate Tab, Move to Space › Space 1, Close Tab, Close Tabs Below$' "the moved tab's menu didn't offer the first Space"
+expect "^browser: menu shown Copy Link, $share, Change Icon…, Rename…, Mute (disabled), Add Split View, Duplicate, Move to › Space 1, Move to › reading 日本語 (checked), Move to › New Space…, Archive Tab, Archive Tabs Below\$" "the moved tab's menu didn't offer the first Space"
 send choose Space 1
 expect "^browser: space $first\( in .*\)\{0,1\}\$" "moving the tab back didn't show the first Space"
 expect_tabs "$a" "$a" "after moving the tab back"
@@ -260,19 +260,19 @@ expect "^browser: settled space $second\$" "the second Space's page didn't settl
 # A right-click on a row as soon as ⌃2 has shown the second Space, while its rows still slide in
 # from the right, shows the row's tab's menu, as it does once they've settled: a press acts on
 # the row that's there to be pressed, the Space having switched. The pointer is 12 in, where the
-# page takes longest to reach it. The menu's Rename Tab, then escape, leave the tab as it was.
+# page takes longest to reach it. The menu's Rename…, then escape, leave the tab as it was.
 show_space "key 1 ctrl" select-space ui "$first" "$a"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post key 2 ctrl
 slide=$step
 expect_soon "^browser: space $second in " "⌃2 didn't show the second Space"
 post rightclick 12 $(row 0 | cut -d' ' -f2)
-expect '^browser: menu shown Pin Tab, ' "a right-click while the second Space's rows slid in showed no menu"
+expect '^browser: menu shown Copy Link, ' "a right-click while the second Space's rows slid in showed no menu"
 # Settled before the menu showed, and the press came too late to be a test of the slide.
 sed -n "/^browser: drive $slide: /,\$p" "$log" |
   awk '/^browser: settled space/ { late = 1 } /^browser: menu shown/ { exit late }' ||
   fail "the rows had settled before the right-click, so it didn't press mid-slide"
-send choose Rename Tab
+send choose Rename…
 expect "^browser: rename tab $b\$" "the menu a mid-slide right-click showed was another row's"
 send key escape
 expect '^browser: rename cancelled$' "escape in the tab's field didn't cancel"

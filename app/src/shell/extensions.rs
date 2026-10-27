@@ -13,7 +13,7 @@ use gpui::{
 use super::{
     MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, PRESSED, Shell,
     ShellHandle, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, URL_FIELD_TEXT_X,
-    URL_FIELD_TOP, UserKeys, menus::space_menu_label, user_keys,
+    URL_FIELD_TOP, UserKeys, user_keys,
 };
 
 /// The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -157,41 +157,6 @@ impl Shell {
         log!("browser: extension actions {}", shown.join(" "));
         self.extension_actions = actions;
         cx.notify();
-    }
-
-    /// Gives the menu bar the Spaces' names and the turned-on extensions of the shown Space's
-    /// profile, once they change, so a switch between Spaces of one profile doesn't rebuild the
-    /// menus.
-    pub(super) fn update_menus(&mut self, cx: &mut Context<Self>) {
-        let profile = self.shown_space().map_or(0, |space| space.profile);
-        // A private window lists neither: its one Space isn't one of them, and Chrome keeps
-        // extensions out of a private session.
-        let shown: Vec<Extension> = (self.extensions.get(&profile).into_iter().flatten())
-            .filter(|extension| extension.enabled && !self.private)
-            .cloned()
-            .collect();
-        let spaces: Vec<SharedString> = (self.spaces.iter())
-            .filter(|_| !self.private)
-            .map(|space| space_menu_label(&space.icon, &space.name))
-            .collect();
-        if shown == self.menu_extensions && spaces == self.menu_spaces {
-            return;
-        }
-        if shown != self.menu_extensions {
-            // check.sh waits for this line.
-            let ids: Vec<&str> = shown.iter().map(|extension| extension.id.as_ref()).collect();
-            log!("browser: extensions menu {}", ids.join(" "));
-        }
-        self.browser.set_menus(&spaces, &shown, cx);
-        self.menu_extensions = shown;
-        self.menu_spaces = spaces;
-    }
-
-    /// Gives the menu bar the keys the commands have now.
-    pub(super) fn refresh_menus(&mut self, cx: &mut Context<Self>) {
-        // The menu bar is the key window's, so its Undo and Redo name this window's steps.
-        self.send_edit_titles(true, cx);
-        self.browser.set_menus(&self.menu_spaces, &self.menu_extensions, cx);
     }
 
     /// The name of the extension whose page `url` is, in the shown Space's profile, which the URL

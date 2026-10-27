@@ -469,7 +469,7 @@ id g_control_monitor;
 id g_control_observer;
 void (*g_control_released)(void);
 
-// The menu or alert showing, for host_choose.
+// The menu or alert showing, for host_choose and host_dismiss_menu.
 NSMenu* g_menu;
 NSAlert* g_alert;
 
@@ -2920,6 +2920,48 @@ void host_share(void* ui_view,
                preferredEdge:content.flipped ? NSRectEdgeMaxY : NSRectEdgeMinY];
 }
 
+namespace {
+
+// The system's share services for |link|, as its share menu lists them. AppKit's own Share item
+// can't be a submenu of the UI's menus, and this is the list its picker shows.
+NSArray<NSSharingService*>* ShareServices(NSURL* link) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+  return [NSSharingService sharingServicesForItems:@[ link ]];
+#pragma clang diagnostic pop
+}
+
+}  // namespace
+
+void host_share_services(const char* url,
+                         void (*each)(void* context, const char* name),
+                         void* context) {
+  NSURL* link = [NSURL URLWithString:@(url)];
+  if (!link) {
+    return;
+  }
+  for (NSSharingService* service in ShareServices(link)) {
+    each(context, service.menuItemTitle.UTF8String ?: "");
+  }
+}
+
+void host_share_with(const char* url, const char* title, size_t index) {
+  NSURL* link = [NSURL URLWithString:@(url)];
+  NSArray<NSSharingService*>* services = link ? ShareServices(link) : @[];
+  if (index >= services.count) {
+    return;
+  }
+  NSSharingService* service = services[index];
+  // check.sh reads this line. A driven run shares nothing, as the service takes the page to
+  // another app.
+  fprintf(stderr, "browser: share %s with %s\n", url, service.menuItemTitle.UTF8String ?: "");
+  if (getenv("BROWSER_DRIVE")) {
+    return;
+  }
+  service.subject = @(title);
+  [service performWithItems:@[ link ]];
+}
+
 void host_day_starts(double starts[4]) {
   NSCalendar* calendar = NSCalendar.currentCalendar;
   NSDate* now = NSDate.date;
@@ -3224,6 +3266,14 @@ int host_ask(const char* message, const char* detail, const char* const* buttons
   NSModalResponse response = [alert runModal];
   g_alert = nil;
   return static_cast<int>(response - NSAlertFirstButtonReturn);
+}
+
+bool host_dismiss_menu(void) {
+  if (!g_menu) {
+    return false;
+  }
+  [g_menu cancelTracking];
+  return true;
 }
 
 void* host_browser_window(size_t index) {

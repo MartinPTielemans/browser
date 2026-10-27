@@ -71,9 +71,14 @@
 //   menu <title>                          chooses the main menu's item titled <title>, in a
 //                                         submenu too, or in the submenu <title> names first
 //                                         as "Submenu › Item"
+//   menubar <menu>                        logs the items of the main menu's <menu>, as
+//                                         "browser: menu bar <menu>: <titles>", enabled as
+//                                         AppKit would show them now, written as "menu shown"
+//                                         writes a menu's, and chooses none
 //   choose <title>                        chooses the item titled <title> in the menu a right
 //                                         click showed, the page's too, or the button in the
 //                                         alert shown, Chrome's too
+//   dismiss                               closes the menu a right click showed, choosing none
 //   ime on|off                            the scripted input method, for keys to the UI or the
 //                                         page, Chromium's or Safari's engine's: letters add to a
 //                                         composition, space converts it to 日本語, return
@@ -1100,6 +1105,41 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     return false;
   }
+  if (action == "menubar") {
+    NSString* title = @(line.substr(std::min(line.size(), action.size() + 1)).c_str());
+    NSMenu* menu = [NSApp.mainMenu itemWithTitle:title].submenu;
+    if (!menu) {
+      return false;
+    }
+    NSMutableArray<NSString*>* titles = [NSMutableArray array];
+    auto add = ^(NSMenuItem* item, NSString* name) {
+      if (item.state == NSControlStateValueOn) {
+        name = [name stringByAppendingString:@" (checked)"];
+      }
+      [titles addObject:item.enabled ? name : [name stringByAppendingString:@" (disabled)"]];
+    };
+    // Enabled as the menu would open now, which validates its items.
+    [menu update];
+    for (NSMenuItem* item in menu.itemArray) {
+      if (item.separatorItem || item.hidden) {
+        continue;
+      }
+      if (!item.submenu) {
+        add(item, item.title);
+        continue;
+      }
+      [item.submenu update];
+      for (NSMenuItem* inner in item.submenu.itemArray) {
+        if (!inner.separatorItem && !inner.hidden) {
+          add(inner, [NSString stringWithFormat:@"%@ › %@", item.title, inner.title]);
+        }
+      }
+    }
+    fprintf(stderr, "browser: menu bar %s: %s\n", title.UTF8String,
+            [titles componentsJoinedByString:@", "].UTF8String);
+    done();
+    return true;
+  }
   if (action == "choose") {
     std::string title = line.substr(std::min(line.size(), action.size() + 1));
     if (!host_choose(title.c_str()) && !ChooseTracked(@(title.c_str())) &&
@@ -1107,6 +1147,13 @@ bool Run(const std::string& line, void (^done)(void)) {
       return false;
     }
     // Once the menu or alert has closed, which GCD's main queue waits for.
+    dispatch_async(dispatch_get_main_queue(), done);
+    return true;
+  }
+  if (action == "dismiss") {
+    if (!host_dismiss_menu()) {
+      return false;
+    }
     dispatch_async(dispatch_get_main_queue(), done);
     return true;
   }
