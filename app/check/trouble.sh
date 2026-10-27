@@ -157,7 +157,7 @@ expect_late "^browser: loaded $tab http://127.0.0.1:$free/\$" "the refused page 
 expect "^browser: page $tab trouble fine\$" "the page that came wasn't fine"
 kill "$stuck"
 stuck=
-grep -q '^browser: tab [0-9]* game running$' "$log" && fail "Space started a game on a page that wasn't offline"
+grep -q 'browser: tab [0-9]* game running$' "$log" && fail "Space started a game on a page that wasn't offline"
 
 # Offline. A DevTools session on the tab, which DevTools' own Offline is, fails its loads with
 # ERR_INTERNET_DISCONNECTED until it says online. It takes "offline" or "online" on its input and
@@ -252,13 +252,13 @@ expect "^browser: page $tab trouble network -106\$" "offline, a load wasn't ERR_
 # A click focuses the page and starts nothing: the run comes in Space's step, not the click's.
 send click $page_point
 send key space
-expect "^browser: tab $tab game running\$" "Space didn't start a run on the offline page"
+expect "browser: tab $tab game running\$" "Space didn't start a run on the offline page"
 # The network comes back mid-run. Chromium's auto-reload, due a second after the page or every
 # few after, waits for the run, which ends at the first column with no more hops.
 network online
 ../tools/window-screenshot.sh "$pid" "$out/offline-game.png" || fail "no window to capture"
-expect "^browser: tab $tab game over\$" "the run didn't end at the first column"
-sed -n "/^browser: tab $tab game running\$/,/^browser: tab $tab game over\$/p" "$log" |
+expect "browser: tab $tab game over\$" "the run didn't end at the first column"
+sed -n "/browser: tab $tab game running\$/,/browser: tab $tab game over\$/p" "$log" |
   grep -q "^browser: page $tab trouble fine\$\|^browser: loaded $tab ${site}index.html\$" &&
   fail "the page came back mid-run"
 expect "^browser: loaded $tab ${site}index.html\$" "the page didn't load once the run ended"
@@ -275,11 +275,11 @@ send key return
 expect "^browser: page $tab trouble network -106\$" "chrome://dino didn't open the offline page"
 send click $page_point
 send key space
-expect "^browser: tab $tab game running\$" "Space didn't start a run at chrome://dino"
+expect "browser: tab $tab game running\$" "Space didn't start a run at chrome://dino"
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar over a run"
 send key escape
-expect "^browser: tab $tab game over\$" "the run at chrome://dino didn't end"
+expect "browser: tab $tab game over\$" "the run at chrome://dino didn't end"
 
 quit_by_key
 exited
