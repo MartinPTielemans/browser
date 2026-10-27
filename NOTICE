@@ -26,7 +26,7 @@ keyboard, layers, leaf, library, lightbulb, link, lock-open, lock, mail, map-pin
 megaphone, message-circle-more, message-circle, mic, minus, moon-star, moon, mouse-pointer-2,
 network, nfc, paintbrush, palette, panel-left, paw-print, pencil, piano, picture-in-picture-2, pin,
 pizza, plane, plus, printer, puzzle, receipt, rotate-ccw-clock, rotate-ccw, rotate-cw, save, search,
-settings, shapes, share, shopping-basket, skull, sliders-horizontal, sparkles, speaker,
+settings, shapes, share, shield, shopping-basket, skull, sliders-horizontal, sparkles, speaker,
 square-check, square-mouse-pointer, square-terminal, square, star, sun, terminal, text-search,
 thumbs-up, train-front, trash, triangle, type, undo-2, usb, user, users, utensils, vibrate, video,
 volume-2, volume-x, wrench, x, zap, zoom-in and zoom-out, and rotate-cw and x scaled as nav-reload
@@ -181,3 +181,12 @@ Used in app/assets/fonts/Outfit-Medium.ttf, unmodified, at commit
 app/assets/fonts/OFL.txt.
 
   Copyright 2021 The Outfit Project Authors (https://github.com/Outfitio/Outfit-Fonts)
+
+uBlock Origin (https://github.com/gorhill/uBlock), GNU General Public License v3.0 or later
+Shipped unchanged but for the "key" app/fetch-ublock.sh adds to its manifest, in the app's
+framework's resources, as app/build.sh puts it there: release 1.75.0, the version and sha256
+app/ublock.ini pins, whose source is at https://github.com/gorhill/uBlock/tree/1.75.0. The license
+travels with it, as its LICENSE.txt, and the filter lists it bundles keep their own.
+
+  uBlock Origin - a comprehensive, efficient content blocker
+  Copyright (C) 2014-present Raymond Hill
