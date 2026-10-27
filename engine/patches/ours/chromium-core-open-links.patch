@@ -1,0 +1,35 @@
+Lets the core open the links other apps send (//browser_core/hooks.h): a link clicked in Mail,
+`open https://…`, an .html file from Finder. AppController queues those that come before it
+has finished launching, as Chrome does, and the core gets them in place of a tab in Chrome's
+Browser for the last profile.
+
+--- a/chrome/browser/app_controller_mac.mm
++++ b/chrome/browser/app_controller_mac.mm
+@@ -154,6 +154,10 @@
+ #include "ui/native_theme/native_theme.h"
+ #include "url/gurl.h"
+ 
++// browser_core: the core opens the links other apps send in its own windows
++// (//browser_core/hooks.h).
++void (*g_browser_core_open_links)(const std::vector<GURL>& urls) = nullptr;
++
+ namespace {
+ 
+ // True while AppController is calling chrome::NewEmptyWindow(). We need a
+@@ -438,6 +442,16 @@
+                                          Profile* profile);
+ 
+ void OpenStartupTabsInBrowser(StartupTabs tabs) {
++  // browser_core: in place of a tab in Chrome's Browser for the last profile.
++  if (g_browser_core_open_links) {
++    std::vector<GURL> urls;
++    for (const StartupTab& tab : tabs) {
++      urls.push_back(tab.url);
++    }
++    g_browser_core_open_links(urls);
++    return;
++  }
++
+   StartupTabs regular_tabs;
+   std::vector<base::FilePath> shortcuts;
+ 

@@ -51,8 +51,29 @@ plutil -replace CFBundleIconName -string "$name" "$plist"
 for strings in "$app"/Contents/Resources/*.lproj/InfoPlist.strings; do
   plutil -create binary1 "$strings"
 done
-# A dev build doesn't offer to open the owner's links and files. The prod build does, so it can be
-# the default browser.
+# The prod build opens web links and files, so it can be the default browser: http, https and file
+# URLs, and the documents Chrome views, such as .html. Not what's Chromium's own, which the core
+# doesn't open: its chromium:// scheme, its extension and shortcut files and the types it exports
+# for them, and the sign-in sheets apps ask the default browser for.
+python3 -I - "$plist" << 'EOF'
+import plistlib, sys
+with open(sys.argv[1], "rb") as f:
+    info = plistlib.load(f)
+info["CFBundleURLTypes"] = [
+    kind for kind in info.get("CFBundleURLTypes", [])
+    if set(kind["CFBundleURLSchemes"]) <= {"http", "https", "file"}
+]
+info["CFBundleDocumentTypes"] = [
+    kind for kind in info.get("CFBundleDocumentTypes", [])
+    if not any(name.startswith("org.chromium.") for name in kind.get("LSItemContentTypes", []))
+]
+info.pop("UTExportedTypeDeclarations", None)
+info.pop("ASWebAuthenticationSessionWebBrowserSupportCapabilities", None)
+with open(sys.argv[1], "wb") as f:
+    plistlib.dump(info, f)
+EOF
+# A dev build offers none of it: every lane's build registers with the system too, and none may
+# show in its list of browsers or catch the owner's links.
 if [ -z "$features" ]; then
   plutil -remove CFBundleURLTypes "$plist"
   plutil -remove CFBundleDocumentTypes "$plist"

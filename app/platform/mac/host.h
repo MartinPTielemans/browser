@@ -64,6 +64,22 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
 // Calls |resigning| as the app is about to stop being the active one, its windows still shown.
 void host_watch_resigning_active(void (*resigning)(void));
 
+// Calls |became_active| each time the app becomes the active one, such as back from System
+// Settings.
+void host_watch_active(void (*became_active)(void));
+
+// Whether the system opens http and https links with this app: whether it's the default browser.
+bool host_is_default_browser(void);
+
+// Asks the system to open http and https links with this app, which asks the user to confirm
+// first, then calls |answered| once they have, either way. The way back is the system's own
+// setting, in System Settings › Desktop & Dock. The user's alone: agents get none, as it's the
+// system's setting, not the browser's.
+void host_make_default_browser(void (*answered)(void));
+
+// Milliseconds since the system started the app's process, for its launch times.
+double host_since_launch(void);
+
 // The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
 void host_forget_window(void* ui_view);
 

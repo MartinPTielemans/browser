@@ -71,6 +71,10 @@ mod platform {
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
+        pub fn host_watch_active(became_active: extern "C" fn());
+        pub fn host_is_default_browser() -> bool;
+        pub fn host_make_default_browser(answered: extern "C" fn());
+        pub fn host_since_launch() -> f64;
         pub fn host_forget_window(ui_view: *mut c_void);
         pub fn host_add_overlay(
             overlay: c_int,
@@ -319,6 +323,8 @@ struct BrowserWindow {
     children: Vec<AnyWindowHandle>,
     /// A private window's: it shows a Space of its own, in an off-the-record session.
     private: bool,
+    /// The user's Space it showed last, not an agent's, or 0, for a link from another app.
+    users_space: bc::bc_id,
 }
 
 thread_local! {
@@ -328,6 +334,9 @@ thread_local! {
     static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
     // The most recently key first, as the core keeps its windows.
     static WINDOWS: RefCell<Vec<BrowserWindow>> = const { RefCell::new(Vec::new()) };
+    // The links other apps sent before the first window had brought back the Spaces, which they
+    // open over; None after.
+    static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
 }
 
 /// The core's id and the UI's view of the window that the overlays every window shares show over,
@@ -1953,7 +1962,8 @@ fn open_browser_window(
 }
 
 /// Shows the Spaces as the user left them in `window`, else a first Space with the first tab. A
-/// page given in BROWSER_URL opens on top either way.
+/// page given in BROWSER_URL, and the links from other apps that launched the browser, open on top
+/// either way.
 fn restore_spaces(window: bc::bc_id) {
     let start = Instant::now();
     let restored = unsafe { bc::bc_window_restore(window) };
@@ -1966,10 +1976,72 @@ fn restore_spaces(window: bc::bc_id) {
     } else {
         unsafe { bc::bc_window_show_space(window, create_space("Space 1")) };
     }
+    let links = LAUNCH_LINKS.take().unwrap_or_default();
     match std::env::var("BROWSER_URL") {
         Ok(url) => open_tab(window, &url),
-        Err(_) if !restored => open_tab(window, START_URL),
+        Err(_) if !restored && links.is_empty() => open_tab(window, START_URL),
         Err(_) => {}
+    }
+    open_links_in(window, &links);
+}
+
+/// Links another app sent: a link clicked in Mail, `open https://…`, an .html file from Finder.
+/// Each opens as a new tab in the window in front, as a link to a new tab does, and that window
+/// comes to the front. Those that launched the browser wait for its first window.
+unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, count: usize) {
+    let urls: Vec<String> = unsafe { std::slice::from_raw_parts(urls, count) }
+        .iter()
+        .map(|&url| unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned())
+        .collect();
+    let launching = LAUNCH_LINKS.with_borrow_mut(|links| {
+        links.as_mut().map(|links| links.extend(urls.iter().cloned())).is_some()
+    });
+    if launching {
+        return;
+    }
+    // A private window's session is the user's on purpose, so a link from elsewhere goes to the
+    // regular window in front, as Chrome's does.
+    let Some(window) = WINDOWS.with_borrow(|windows| windows.iter().find(|w| !w.private).cloned())
+    else {
+        return;
+    };
+    open_links_in(window.id, &urls);
+    unsafe { platform::host_activate(window.ui_view) };
+}
+
+/// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
+/// that's an agent's, which none of the user's tabs go in. The last one opened shows.
+fn open_links_in(window: bc::bc_id, urls: &[String]) {
+    if urls.is_empty() {
+        return;
+    }
+    let users = |space: bc::bc_id| space != 0 && name(bc::bc_space_agent, space).is_empty();
+    let shown = unsafe { bc::bc_window_space(window) };
+    let space = if users(shown) {
+        shown
+    } else {
+        let last = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|w| w.id == window).map_or(0, |w| w.users_space)
+        });
+        let spaces = ids(bc::bc_spaces);
+        match spaces.contains(&last) && users(last) {
+            true => last,
+            false => spaces.into_iter().find(|&space| users(space)).unwrap_or(0),
+        }
+    };
+    if space == 0 {
+        return;
+    }
+    if space != shown {
+        unsafe { bc::bc_window_show_space(window, space) };
+    }
+    for url in urls {
+        let tab = open_tab_behind(window, url, false);
+        if tab != 0 {
+            unsafe { bc::bc_window_select(window, tab) };
+        }
+        // check.sh reads this line.
+        log!("browser: link from another app {url}: tab {tab} in space {space} of window {window}");
     }
 }
 
@@ -2103,6 +2175,7 @@ fn open_window(
                     handle: Window::window_handle(window),
                     children: Vec::new(),
                     private: private.is_some(),
+                    users_space: 0,
                 },
             )
         });
@@ -2166,6 +2239,8 @@ fn open_window(
         .update(cx, |_, window, _| {
             // Deferred, as the shell's window is borrowed while it draws.
             window.on_next_frame(move |window, _| {
+                // check.sh reads this line.
+                log!("browser: first frame at {:.1} ms", unsafe { platform::host_since_launch() });
                 window.on_next_frame(move |_, cx| cx.defer(on_frame))
             })
         })
@@ -2238,6 +2313,7 @@ fn finish_opening(
         platform::host_watch_key_window(key_window_changed);
         platform::host_watch_full_screen(full_screen_changed);
         platform::host_watch_resigning_active(launch_picture_on_resigning);
+        platform::host_watch_active(became_active);
     }
     if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
@@ -2565,6 +2641,14 @@ unsafe extern "C" fn launching(_: *mut c_void) {
     };
     let (width, height) = WINDOW_SIZE;
     unsafe { platform::host_show_launch_window(profile.as_ptr(), width, height) };
+    // The launch's times, from the process's start, for the performance gate.
+    log!("browser: launch window at {:.1} ms", unsafe { platform::host_since_launch() });
+}
+
+/// Back from another app, such as System Settings, where the user may have changed the default
+/// browser.
+extern "C" fn became_active() {
+    update_app(settings::check_default_browser);
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
@@ -2724,6 +2808,13 @@ fn private_name(profile: bc::bc_id) -> SharedString {
 }
 
 unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space: bc::bc_id) {
+    if name(bc::bc_space_agent, space).is_empty() {
+        WINDOWS.with_borrow_mut(|windows| {
+            if let Some(window) = windows.iter_mut().find(|w| w.id == window) {
+                window.users_space = space;
+            }
+        });
+    }
     update_window(window, |shell, cx| shell.set_space(space, cx));
     title_windows();
 }
@@ -3387,6 +3478,7 @@ fn main() {
         tab_key_unhandled: Some(tab_key_unhandled),
         tab_media_unsupported: Some(tab_media_unsupported),
         tab_offer_changed: Some(tab_offer_changed),
+        open_links: Some(open_links),
         ..Default::default()
     };
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
