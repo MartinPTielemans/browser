@@ -673,7 +673,7 @@ double SavedSidebarWidth() {
   return g_saver && g_saver->loaded() ? g_saver->loaded()->sidebar_width : 0;
 }
 
-bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
+bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved, bool load) {
   content::WebContents* contents = window.RestoreTab(profile, saved.history, saved.current);
   if (!contents) {
     return 0;
@@ -686,16 +686,58 @@ bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
   if (!saved.last_seen.is_null()) {
     Tab::FromWebContents(contents)->set_last_seen(saved.last_seen);
   }
+  if (load) {
+    contents->GetController().LoadIfNecessary();
+  }
   return tab;
 }
 
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
+namespace {
+
+// |made| if it was made for |saved|, else |saved| made unloaded.
+bc_id RestoreOrTake(Window& window, Profile* profile, const SavedTab& saved, const MadeTab& made) {
+  return made.tab && &saved == made.saved ? made.tab : RestoreSavedTab(window, profile, saved);
+}
+
+// The tab the window will show, of |saved|'s Space it shows, and that tab's profile.
+const SavedTab* ShownTab(const Saved& saved, std::string& profile) {
+  if (saved.shown < 0 || saved.shown >= static_cast<int>(saved.spaces.size())) {
+    return nullptr;
+  }
+  const SavedSpace& space = saved.spaces[saved.shown];
+  const auto at = [](const std::vector<SavedTab>& tabs, size_t index) {
+    return index < tabs.size() ? &tabs[index] : nullptr;
+  };
+  if (space.shown_favorite >= 0) {
+    const SavedTab* tab = at(saved.favorites, space.shown_favorite);
+    profile = tab ? tab->profile : std::string();
+    return tab;
+  }
+  profile = space.profile;
+  if (space.shown_own_favorite >= 0) {
+    return at(space.favorites, space.shown_own_favorite);
+  }
+  if (space.shown < 0) {
+    return nullptr;
+  }
+  const size_t index = space.shown;
+  return index < space.pinned.size() ? &space.pinned[index]
+                                     : at(space.today, index - space.pinned.size());
+}
+
+}  // namespace
+
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved_space,
+                    bc_id id,
+                    const MadeTab& made) {
   Space* space = Space::Create(saved_space.name, id, saved_space.agent);
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetProfile(DirOf(profile));
   const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
-    const bc_id tab = RestoreSavedTab(window, profile, saved_tab);
+    const bc_id tab = RestoreOrTake(window, profile, saved_tab, made);
     if (tab && index == saved_space.shown) {
       window.SetSelectedIn(space->id(), tab);
     }
@@ -736,7 +778,7 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
   // Under Each Space, its favorites, in its profile.
   for (size_t j = 0; j < saved_space.favorites.size(); ++j) {
     const SavedTab& saved_tab = saved_space.favorites[j];
-    if (bc_id tab = RestoreSavedTab(window, profile, saved_tab)) {
+    if (bc_id tab = RestoreOrTake(window, profile, saved_tab, made)) {
       Favorites::Restore(tab,
                          saved_tab.pinned_url.is_valid()
                              ? saved_tab.pinned_url
@@ -781,12 +823,19 @@ bool RestoreSession(Window& window) {
   if (!saved || !StartProfile() || !Space::All().empty()) {
     return false;
   }
-  // First, as a Space may show one. Each in its profile, which loaded with the session, else in the
-  // one the core started with.
+  // The tab the window shows comes back first and loading, as making the others takes a while
+  // when there are many, and they stay unloaded until they're shown.
+  MadeTab made;
+  std::string made_profile;
+  if ((made.saved = ShownTab(*saved, made_profile))) {
+    made.tab = RestoreSavedTab(window, ProfileFor(made_profile), *made.saved, /*load=*/true);
+  }
+  // Then the favorites, as a Space may show one. Each in its profile, which loaded with the
+  // session, else in the one the core started with.
   std::vector<bc_id> favorites;
   for (const SavedTab& saved_tab : saved->favorites) {
     const bc_id tab = favorites.emplace_back(
-        RestoreSavedTab(window, ProfileFor(saved_tab.profile), saved_tab));
+        RestoreOrTake(window, ProfileFor(saved_tab.profile), saved_tab, made));
     if (tab) {
       Favorites::Restore(tab,
                          saved_tab.pinned_url.is_valid()
@@ -798,7 +847,8 @@ bool RestoreSession(Window& window) {
   bc_id shown = 0;
   for (size_t i = 0; i < saved->spaces.size(); ++i) {
     const SavedSpace& saved_space = saved->spaces[i];
-    Space* space = RestoreSpace(window, ProfileFor(saved_space.profile), saved_space);
+    Space* space =
+        RestoreSpace(window, ProfileFor(saved_space.profile), saved_space, /*id=*/0, made);
     if (static_cast<int>(i) == saved->shown) {
       shown = space->id();
     }

@@ -54,8 +54,14 @@ struct SavedTab {
 // |contents|'s history, with the page it's loading, or waiting to load, if it has no page yet.
 SavedTab SaveTab(content::WebContents& contents);
 
-// Opens |saved| unloaded in |window|, as the tab it was. Returns its id, or 0.
-bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved);
+// Opens |saved| in |window|, as the tab it was, unloaded unless |load|. Returns its id, or 0.
+bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved, bool load = false);
+
+// A saved tab made already, which a restore takes rather than making it again.
+struct MadeTab {
+  const SavedTab* saved = nullptr;
+  bc_id tab = 0;
+};
 
 // A folder of pinned tabs, as the session file keeps it.
 struct SavedFolder {
@@ -97,8 +103,13 @@ struct SavedSpace {
 SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today = nullptr);
 
 // Makes |saved| a Space, its tabs unloaded in |window| and |profile|, with the id |id|, a deleted
-// Space's, if it isn't 0. The window shows its shown tab there. Returns it.
-Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved, bc_id id = 0);
+// Space's, if it isn't 0, taking |made| for its tab if it was made for one. The window shows its
+// shown tab there. Returns it.
+Space* RestoreSpace(Window& window,
+                    Profile* profile,
+                    const SavedSpace& saved,
+                    bc_id id = 0,
+                    const MadeTab& made = {});
 
 // The Spaces as the user left them: their names, their tabs with each tab's history, the tab each
 // showed and the Space the window showed, and the favorites. The core saves them a while after
