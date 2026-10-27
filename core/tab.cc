@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <utility>
 
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
@@ -17,6 +18,7 @@
 #include "browser_core/space.h"
 #include "browser_core/window.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
@@ -28,9 +30,13 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/navigation_handle.h"
+#include "content/public/browser/reload_type.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/result_codes.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image_skia.h"
@@ -54,6 +60,22 @@ std::map<bc_id, content::WebContents*>& Tabs() {
 void LogFullScreenAsked(bool entered) {
   fprintf(stderr, "browser: full screen %s asked at %.1f ms\n", entered ? "enter" : "exit",
           base::TimeTicks::Now().since_origin().InMillisecondsF());
+}
+
+// Whether a renderer that went with |status| died, rather than ending as asked, as it does when
+// the core closes a page on purpose.
+bool Died(base::TerminationStatus status) {
+  switch (status) {
+    case base::TERMINATION_STATUS_ABNORMAL_TERMINATION:
+    case base::TERMINATION_STATUS_PROCESS_WAS_KILLED:
+    case base::TERMINATION_STATUS_PROCESS_CRASHED:
+    case base::TERMINATION_STATUS_LAUNCH_FAILED:
+    case base::TERMINATION_STATUS_OOM:
+    case base::TERMINATION_STATUS_EVICTED_FOR_MEMORY:
+      return true;
+    default:
+      return false;
+  }
 }
 
 }  // namespace
@@ -194,9 +216,18 @@ void Tab::DidStartNavigation(content::NavigationHandle* navigation) {
 }
 
 void Tab::DidFinishNavigation(content::NavigationHandle* navigation) {
-  if (navigation->IsInPrimaryMainFrame()) {
-    StateChanged();
+  if (!navigation->IsInPrimaryMainFrame()) {
+    return;
   }
+  if (navigation->HasCommitted() && !navigation->IsSameDocument()) {
+    net_error_ = navigation->IsErrorPage() ? navigation->GetNetErrorCode() : 0;
+    ShowOnPageColor();
+    ClearHang();
+    if (std::exchange(crashed_, false)) {
+      LayOutSoon();
+    }
+  }
+  StateChanged();
 }
 
 void Tab::DidStartLoading() {
@@ -248,6 +279,8 @@ void Tab::ReportState() {
       .audible = audible && audible->WasRecentlyAudible(),
       .muted = web_contents()->IsAudioMuted(),
       .icon = icon_.c_str(),
+      .trouble = Trouble(),
+      .net_error = Trouble() == BC_PAGE_NETWORK_ERROR ? net_error_ : 0,
   };
   Host().tab_state_changed(Host().context, id_, &state);
   ReportFavicon(state.loading);
@@ -301,6 +334,18 @@ void Tab::SetPageColor(SkColor color) {
   if (content::RenderWidgetHostView* view = web_contents()->GetRenderWidgetHostView()) {
     view->SetBackgroundColor(color);
   }
+  ShowOnPageColor();
+}
+
+void Tab::ShowOnPageColor() {
+  // The core's error page has no background of its own (//browser_core/error_page.cc), so it sits
+  // on the colour the pane shows before a page draws, as the app's cards sit on theirs. Every other
+  // page keeps Chrome's white under it.
+  const std::optional<SkColor> color = net_error_ ? page_color_ : std::nullopt;
+  if (color != shown_on_) {
+    shown_on_ = color;
+    web_contents()->SetPageBaseBackgroundColor(color);
+  }
 }
 
 void Tab::RenderFrameHostChanged(content::RenderFrameHost* old_host,
@@ -314,6 +359,11 @@ void Tab::RenderFrameHostChanged(content::RenderFrameHost* old_host,
 void Tab::RenderViewReady() {
   if (page_color_) {
     SetPageColor(*page_color_);
+  }
+  // A page that died has a renderer again, loading it: its pane shows it again.
+  if (std::exchange(crashed_, false)) {
+    LayOutSoon();
+    StateChanged();
   }
 }
 
@@ -410,10 +460,122 @@ void Tab::OnVisibilityChanged(content::Visibility visibility) {
   }
 }
 
-// The page's renderer went away, crashed or killed. The page shows nothing until it's reloaded, and
-// check.sh waits for this line, an error since our builds print no warnings.
+// The page's renderer went away, crashed, killed or ended on purpose. check.sh waits for this line,
+// an error since our builds print no warnings.
 void Tab::PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) {
   LOG(ERROR) << "browser: tab " << id_ << " page gone, status " << static_cast<int>(status);
+  ClearHang();
+  if (reload_after_kill_) {
+    // Posted: Chrome is still telling the page's observers it went.
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&Tab::Reload, weak_factory_.GetWeakPtr(),
+                                  *std::exchange(reload_after_kill_, std::nullopt)));
+  } else if (Died(status) && !browser_shutdown::HasShutdownStarted()) {
+    if (Window::Showing(id_)) {
+      crashed_ = true;
+      LayOutSoon();
+    } else {
+      // Behind, it has nothing to show the user, so it's unloaded, as Chrome does with a page it
+      // ended for memory, and loads again once it's shown.
+      web_contents()->GetController().SetNeedsReload();
+    }
+  }
+  StateChanged();
+}
+
+// static
+void Tab::PageHung(content::WebContents* contents,
+                   content::RenderWidgetHost* widget,
+                   base::RepeatingClosure restart_hang_monitor) {
+  // A page in none of the core's tabs, such as DevTools', waits as it would after Chrome's Wait.
+  Tab* tab = FromWebContents(contents);
+  if (!tab) {
+    return;
+  }
+  tab->restart_hang_monitor_ = std::move(restart_hang_monitor);
+  tab->hung_process_ = widget->GetProcess()->GetDeprecatedID();
+  // check.sh waits for this line.
+  LOG(ERROR) << "browser: tab " << tab->id_ << " page hung";
+  tab->ReportStateSoon();
+}
+
+void Tab::OnRendererResponsive(content::RenderProcessHost* process) {
+  if (hung_process_ && process->GetDeprecatedID() == hung_process_) {
+    ClearHang();
+    ReportStateSoon();
+  }
+}
+
+void Tab::Wait() {
+  if (!restart_hang_monitor_) {
+    return;
+  }
+  base::RepeatingClosure restart = std::move(restart_hang_monitor_);
+  ClearHang();
+  restart.Run();
+  ReportStateSoon();
+}
+
+void Tab::Reload(bool bypass_cache) {
+  content::RenderProcessHost* hung =
+      hung_process_ ? content::RenderProcessHost::FromID(hung_process_) : nullptr;
+  ClearHang();
+  if (hung && hung->IsInitializedAndNotDead()) {
+    const bool page = hung == web_contents()->GetPrimaryMainFrame()->GetProcess();
+    // As Chrome's Exit page: a reload would wait on the renderer that hung.
+    hung->Shutdown(content::RESULT_CODE_HUNG);
+    // The page reloads once its renderer has gone. A frame's alone ends without it.
+    if (page) {
+      reload_after_kill_ = bypass_cache;
+      ReportStateSoon();
+      return;
+    }
+  }
+  // As Chrome's, it asks before sending a form again.
+  web_contents()->GetController().Reload(
+      bypass_cache ? content::ReloadType::BYPASSING_CACHE : content::ReloadType::NORMAL,
+      /*check_for_repost=*/true);
+}
+
+void Tab::ClearHang() {
+  restart_hang_monitor_.Reset();
+  hung_process_ = 0;
+}
+
+void Tab::LeftWindow() {
+  if (!crashed_) {
+    return;
+  }
+  // Posted: the window letting go of the tab still lists it, and another may be taking it.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](base::WeakPtr<Tab> tab) {
+                       if (tab && tab->crashed_ && !Window::Showing(tab->id_)) {
+                         tab->crashed_ = false;
+                         tab->web_contents()->GetController().SetNeedsReload();
+                         tab->StateChanged();
+                       }
+                     },
+                     weak_factory_.GetWeakPtr()));
+}
+
+void Tab::LayOutSoon() {
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Window::LayOutShowing, id_));
+}
+
+int Tab::Trouble() const {
+  if (crashed_) {
+    return BC_PAGE_CRASHED;
+  }
+  // An unloaded page has no renderer to hang and no error page to show.
+  if (waiting_ || web_contents()->GetController().NeedsReload()) {
+    return BC_PAGE_FINE;
+  }
+  if (hung_process_) {
+    return BC_PAGE_HUNG;
+  }
+  return net_error_ ? BC_PAGE_NETWORK_ERROR : BC_PAGE_FINE;
 }
 
 void Tab::WebContentsDestroyed() {

@@ -40,7 +40,6 @@
 #include "components/zoom/page_zoom.h"
 #include "components/zoom/zoom_controller.h"
 #include "content/public/browser/navigation_controller.h"
-#include "content/public/browser/reload_type.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/page_zoom.h"
@@ -681,10 +680,13 @@ void bc_tab_go_forward(bc_id id) {
 
 void bc_tab_reload(bc_id id, bool bypass_cache) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
-    // As Chrome's, it asks before sending a form again.
-    contents->GetController().Reload(
-        bypass_cache ? content::ReloadType::BYPASSING_CACHE : content::ReloadType::NORMAL,
-        /*check_for_repost=*/true);
+    browser_core::Tab::FromWebContents(contents)->Reload(bypass_cache);
+  }
+}
+
+void bc_tab_wait(bc_id id) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::Tab::FromWebContents(contents)->Wait();
   }
 }
 

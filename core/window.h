@@ -72,6 +72,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static Window* Showing(bc_id tab);
   // Has each window whose shown tab's split changed show it as it is now.
   static void PanesChanged();
+  // Lays out each window showing |tab|, whose page died or came back: a page that died leaves its
+  // pane to the app's card under it.
+  static void LayOutShowing(bc_id tab);
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.
   static void OnPageClicked(bc_id tab);

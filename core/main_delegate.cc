@@ -143,6 +143,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
 #if BUILDFLAG(IS_MAC)
   g_browser_core_open_links = &OpenLinks;
 #endif
+  g_browser_core_page_hung = &Tab::PageHung;
   return ChromeMain(argc, argv);
 }
 

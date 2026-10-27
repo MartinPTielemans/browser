@@ -22,3 +22,5 @@ ours/chromium-drm-request.patch
 ours/chromium-core-page-stretch.patch
 ours/chromium-core-open-links.patch
 ours/chromium-core-link-target.patch
+ours/chromium-core-hung-page.patch
+ours/chromium-core-error-page.patch

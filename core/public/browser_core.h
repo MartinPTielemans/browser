@@ -42,6 +42,19 @@ typedef struct bc_key {
   bool editing;
 } bc_key;
 
+// What's wrong with a tab's page, if anything.
+#define BC_PAGE_FINE 0
+// Its renderer died: it crashed, was killed, ran out of memory or never started. The page shows
+// nothing until bc_tab_reload. Only while a window shows the tab: one that isn't shown, or stops
+// being, is unloaded instead and loads once it's shown.
+#define BC_PAGE_CRASHED 1
+// Its renderer hasn't answered the user's input for Chrome's hang timeout. It may come back by
+// itself; bc_tab_wait waits longer, and bc_tab_reload ends the renderer and loads the page again.
+#define BC_PAGE_HUNG 2
+// It's Chromium's error page for a load that failed, such as for no network: net_error says why.
+// Chromium loads it again once the network is back, while it's shown.
+#define BC_PAGE_NETWORK_ERROR 3
+
 // Where a tab's page is, and its sound: what the URL field, back, forward, reload and the tab's
 // speaker show.
 typedef struct bc_tab_state {
@@ -64,6 +77,10 @@ typedef struct bc_tab_state {
   bool muted;
   // The emoji bc_tab_set_icon gave the tab to show in place of its page's favicon, UTF-8, or empty.
   const char* icon;
+  // What's wrong with the page: a BC_PAGE_ value. The UI and agents read the same one.
+  int trouble;
+  // With BC_PAGE_NETWORK_ERROR, Chromium's net error code, such as -106 for no network, else 0.
+  int net_error;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -954,8 +971,13 @@ BC_EXPORT void bc_tab_go_back(bc_id tab);
 BC_EXPORT void bc_tab_go_forward(bc_id tab);
 
 // Loads the tab's page again. |bypass_cache| fetches all of it from the network, as a force reload
-// does.
+// does. A hung page's renderer is ended first, as Chrome's Exit page does, with every page it
+// shows: a reload would wait on it.
 BC_EXPORT void bc_tab_reload(bc_id tab, bool bypass_cache);
+
+// For a tab whose page is BC_PAGE_HUNG: waits for it, as Chrome's Wait does. The tab is fine again
+// until Chrome's hang timeout runs out once more. The UI's and agents', which may reload instead.
+BC_EXPORT void bc_tab_wait(bc_id tab);
 
 // Stops the tab loading.
 BC_EXPORT void bc_tab_stop(bc_id tab);
