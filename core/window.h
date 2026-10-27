@@ -222,6 +222,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
 
   // Takes a suggestion out of the profile's history. See bc_window_remove_suggestion.
   void RemoveSuggestion(const GURL& url);
+  // Lets go of what each window built on |profile|, which is about to go.
+  static void LetProfileGo(Profile* profile);
 
   // Opens a tab for |profile| loading |url|, not shown, or with |when_shown| an http(s) |url| only
   // once it's first shown. Null while the window is closing or Chromium is quitting.

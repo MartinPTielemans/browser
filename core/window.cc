@@ -903,10 +903,23 @@ void Window::Suggest(Profile* profile,
                      const std::u16string& keyword,
                      const std::u16string& text,
                      bool complete) {
+  // Closing, it may have let its profile go.
+  if (closing_) {
+    return;
+  }
   if (!suggestions_ || suggestions_->profile() != profile) {
     suggestions_ = std::make_unique<Suggestions>(id_, profile);
   }
   suggestions_->Start(keyword, text, complete);
+}
+
+// static
+void Window::LetProfileGo(Profile* profile) {
+  for (auto& [id, window] : Windows()) {
+    if (window->suggestions_ && window->suggestions_->profile() == profile) {
+      window->suggestions_.reset();
+    }
+  }
 }
 
 void Window::RemoveSuggestion(const GURL& url) {
@@ -1762,6 +1775,13 @@ bool Window::KeepsBrowsers() const {
 
 void Window::OnBrowserGone(BrowserWindowInterface* browser) {
   std::erase_if(browsers_, [browser](const auto& entry) { return entry.second.browser == browser; });
+  // Chrome destroys an off-the-record profile as the last of its Browsers goes, right after this
+  // returns when no page of it is left, so what the window built on it goes now. The core keeps a
+  // regular profile loaded, and DeleteProfile lets go of what windows built on it.
+  if (Profile* profile = browser->GetProfile();
+      profile->IsOffTheRecord() && !browsers_.contains(profile)) {
+    LetProfileGo(profile);
+  }
   if (closing_ && browsers_.empty()) {
     // Posted: the Browser is part way through its destructor.
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
@@ -1775,6 +1795,9 @@ void Window::Destroy() {
   auto it = Windows().find(id_);
   std::unique_ptr<Window> self = std::move(it->second);
   Windows().erase(it);
+  // What it built on its profiles, before the Space goes and ends a private session: not left to
+  // the order of its members.
+  suggestions_.reset();
   widget_->CloseNow();
   // A private window's Space goes with it, its tabs closed, and the last one's session ends.
   if (off_the_record_) {
