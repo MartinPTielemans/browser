@@ -167,30 +167,13 @@ impl Shell {
     }
 
     /// Expand Current Split: the focused page takes the card and each other page keeps 220 pt, in
-    /// the same frame (Arc). The shares are fractions of the card, so a window resized after keeps
-    /// them in proportion, and the command pins the other pages again at the new width. Done
-    /// again at the same width it asks the core for nothing.
+    /// the same frame (Arc). The core holds it as a flag on the page and works the widths out at
+    /// every layout, so a resized window keeps the 220. Dragging a gap, evening the pages or a
+    /// page joining or leaving ends it. Done again it asks the core for nothing.
     pub(super) fn expand_split(&mut self, cx: &mut Context<Self>) {
-        let panes = self.panes(self.selected);
-        let Some(focused) =
-            panes.iter().position(|&tab| tab == self.selected).filter(|_| panes.len() > 1)
-        else {
-            return;
-        };
-        let (frame, _) = self.page_frame(self.viewport);
-        let length = match self.stacked(self.selected) {
-            true => frame.size.height,
-            false => frame.size.width,
-        };
-        let shares = expanded_shares(panes.len(), focused, f32::from(length));
-        let now = self.shares(self.selected);
-        let now = if now.is_empty() { vec![1. / panes.len() as f64; panes.len()] } else { now };
-        if shares.iter().zip(&now).all(|(share, now)| (share - now).abs() < 1e-6) {
-            return;
+        if self.panes(self.selected).len() > 1 && self.expanded(self.selected) != self.selected {
+            self.browser.set_split_expanded(self.selected, true, cx);
         }
-        // Even again, as the core keeps them, where the card is too short for more.
-        let even = shares.iter().all(|share| (share - 1. / panes.len() as f64).abs() < 1e-6);
-        self.browser.set_split_shares(self.selected, (!even).then_some(shares.as_slice()), cx);
     }
 
     /// Focuses the split view's page right of the focused one, or left of it, round the ends.
@@ -244,7 +227,9 @@ pub(super) fn pane_frames(
 
 /// The shares of `count` pages across a card `length` long, or tall stacked, with the `focused`
 /// one taking all but what the others keep: EXPANDED_OTHER each, no more than an even share, so
-/// the focused page is never the smaller one on a card too short for both.
+/// the focused page is never the smaller one on a card too short for both. The core works out the
+/// same at its layout (`ExpandedShares` in core/window.cc), which keeps the others at 220 pt as
+/// the window resizes.
 pub(super) fn expanded_shares(count: usize, focused: usize, length: f32) -> Vec<f64> {
     let span = f64::from(length + SPLIT_GAP);
     let other = f64::from(EXPANDED_OTHER + SPLIT_GAP).min(span / count as f64) / span;
@@ -298,167 +283,6 @@ mod tests {
         AppContext, Bounds, Entity, MouseButton, MouseDownEvent, TestAppContext, point, px, size,
     };
 
-    /// A Space whose Today holds `tabs`, all in one split view, with `shares` as the core kept
-    /// them, on a host that records what the shell asks; `selected` is focused, in a window
-    /// `width` wide.
-    fn split_of(
-        tabs: &[u64],
-        selected: u64,
-        shares: &[f64],
-        width: f32,
-        cx: &mut TestAppContext,
-    ) -> (Entity<Shell>, Rc<Recorder>) {
-        let host = Rc::new(Recorder::default());
-        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
-        shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
-            let split = Split { tabs: tabs.to_vec(), stacked: false, shares: shares.to_vec() };
-            shell.set_tabs(1, Vec::new(), tabs.to_vec(), vec![split], Folders::default(), cx);
-            shell.set_space(1, cx);
-            shell.set_selected(selected, cx);
-            shell.viewport = size(px(width), px(800.));
-        });
-        (shell, host)
-    }
-
-    /// What the core keeps after the shell's one call: its shares, none while they're even.
-    fn asked(host: &Recorder) -> Vec<f64> {
-        let calls = host.take();
-        assert_eq!(calls.len(), 1, "{calls:?}");
-        let shares = calls[0].split(' ').skip(3).collect::<Vec<_>>();
-        let shares = shares.into_iter().filter(|share| *share != "even");
-        shares.map(|share| share.parse().unwrap()).collect()
-    }
-
-    /// The core reports `shares`, as it does after the shell asks.
-    fn kept(shell: &Entity<Shell>, tabs: &[u64], shares: &[f64], cx: &mut TestAppContext) {
-        shell.update(cx, |shell, cx| {
-            let split = Split { tabs: tabs.to_vec(), stacked: false, shares: shares.to_vec() };
-            shell.set_tabs(1, Vec::new(), tabs.to_vec(), vec![split], Folders::default(), cx);
-        });
-    }
-
-    /// The widths of the pages shown, left to right.
-    fn widths(shell: &Entity<Shell>, count: usize, cx: &mut TestAppContext) -> Vec<f32> {
-        shell.read_with(cx, |shell, _| {
-            let (frame, _) = shell.page_frame(shell.viewport);
-            let shares = shell.shares(shell.selected);
-            let frames = pane_frames(frame, count, false, &shares);
-            frames.iter().map(|frame| f32::from(frame.size.width)).collect()
-        })
-    }
-
-    #[gpui::test]
-    fn expanding_gives_the_focused_page_the_card_and_the_other_220(cx: &mut TestAppContext) {
-        for width in [900., 1200., 1800.] {
-            let (shell, host) = split_of(&[10, 11], 11, &[], width, cx);
-            host.take();
-            shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-            let shares = asked(&host);
-            kept(&shell, &[10, 11], &shares, cx);
-            let widths = widths(&shell, 2, cx);
-            assert!((widths[0] - 220.).abs() < 1., "at {width} the other is {}", widths[0]);
-            let (card, _) = shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport));
-            assert!((widths[0] + 10. + widths[1] - f32::from(card.size.width)).abs() < 1.);
-        }
-    }
-
-    #[gpui::test]
-    fn the_page_focused_is_the_one_that_takes_the_card(cx: &mut TestAppContext) {
-        let (shell, host) = split_of(&[10, 11, 12], 11, &[], 1400., cx);
-        host.take();
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        kept(&shell, &[10, 11, 12], &asked(&host), cx);
-        let widths = widths(&shell, 3, cx);
-        assert!((widths[0] - 220.).abs() < 1. && (widths[2] - 220.).abs() < 1., "{widths:?}");
-        assert!(widths[1] > 600., "{widths:?}");
-    }
-
-    #[gpui::test]
-    fn expanding_again_changes_nothing(cx: &mut TestAppContext) {
-        let (shell, host) = split_of(&[10, 11], 10, &[], 1200., cx);
-        host.take();
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        let shares = asked(&host);
-        kept(&shell, &[10, 11], &shares, cx);
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        assert_eq!(host.take(), Vec::<String>::new());
-        // After a quit the core hands the shares back with the split, and it's still done.
-        let (shell, host) = split_of(&[10, 11], 10, &shares, 1200., cx);
-        host.take();
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        assert_eq!(host.take(), Vec::<String>::new());
-        assert!((widths(&shell, 2, cx)[1] - 220.).abs() < 1.);
-    }
-
-    /// A double-click on the gap evens the pages, which is the way out, and the command takes
-    /// them back.
-    #[gpui::test]
-    fn a_double_click_on_the_gap_leaves_it(cx: &mut TestAppContext) {
-        let (shell, host) = split_of(&[10, 11], 11, &[], 1200., cx);
-        host.take();
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        let shares = asked(&host);
-        kept(&shell, &[10, 11], &shares, cx);
-        shell.update(cx, |shell, cx| {
-            let event = MouseDownEvent {
-                button: MouseButton::Left,
-                position: point(px(600.), px(300.)),
-                modifiers: Default::default(),
-                click_count: 2,
-                first_mouse: false,
-            };
-            shell.press_gap(1, &event, cx);
-        });
-        assert_eq!(host.take(), ["split shares 11 even"]);
-        kept(&shell, &[10, 11], &[], cx);
-        let evened = widths(&shell, 2, cx);
-        assert!((evened[0] - evened[1]).abs() <= 1., "{evened:?}");
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        assert_eq!(asked(&host), shares);
-    }
-
-    /// The shares are fractions of the card, so a resized window keeps the pages in proportion,
-    /// and the command pins the other one at 220 again at the new width.
-    #[gpui::test]
-    fn expanding_after_a_resize_pins_the_other_page_at_the_new_width(cx: &mut TestAppContext) {
-        let (shell, host) = split_of(&[10, 11], 11, &[], 1600., cx);
-        host.take();
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        let shares = asked(&host);
-        kept(&shell, &[10, 11], &shares, cx);
-        shell.update(cx, |shell, _| shell.viewport = size(px(1000.), px(800.)));
-        assert!((widths(&shell, 2, cx)[0] - 220.).abs() > 20.);
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        kept(&shell, &[10, 11], &asked(&host), cx);
-        assert!((widths(&shell, 2, cx)[0] - 220.).abs() < 1.);
-    }
-
-    /// On a card too short for 220 and a larger page, the pages are even, as the core keeps them.
-    #[gpui::test]
-    fn a_card_too_short_for_it_leaves_the_pages_even(cx: &mut TestAppContext) {
-        let (shell, host) = split_of(&[10, 11], 11, &[0.3, 0.7], 560., cx);
-        host.take();
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        assert_eq!(host.take(), ["split shares 11 even"]);
-        for (count, length) in [(2, 300.), (3, 500.), (3, 1400.)] {
-            for focused in 0..count {
-                let shares = expanded_shares(count, focused, length);
-                assert!((shares.iter().sum::<f64>() - 1.).abs() < 1e-9);
-                assert!(shares.iter().all(|share| *share <= shares[focused] + 1e-9));
-            }
-        }
-    }
-
-    #[gpui::test]
-    fn a_page_alone_has_nothing_to_expand(cx: &mut TestAppContext) {
-        let (shell, host) = split_of(&[10], 10, &[], 1200., cx);
-        host.take();
-        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
-        assert_eq!(host.take(), Vec::<String>::new());
-        assert!(!shell.read_with(cx, |shell, _| shell.offers(Command::ExpandSplit)));
-    }
-
     /// A dragged gap's shares put the pages back where it was dragged to, as the core lays them
     /// out with the same rounding, so the cards behind the pages line up with them.
     #[test]
@@ -476,5 +300,171 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A Space whose Today holds `tabs`, all in one split view, with `expanded` the tab that took
+    /// the card, as the core reports it, on a host that records what the shell asks. `selected`
+    /// is focused, in a window `width` wide.
+    fn split_of(
+        tabs: &[u64],
+        selected: u64,
+        expanded: u64,
+        width: f32,
+        cx: &mut TestAppContext,
+    ) -> (Entity<Shell>, Rc<Recorder>) {
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+            shell.set_space(1, cx);
+            shell.set_selected(selected, cx);
+            shell.viewport = size(px(width), px(800.));
+        });
+        reported(&shell, tabs, &[], expanded, cx);
+        (shell, host)
+    }
+
+    /// The core reports the split with these `shares` and the tab that took the card.
+    fn reported(
+        shell: &Entity<Shell>,
+        tabs: &[u64],
+        shares: &[f64],
+        expanded: u64,
+        cx: &mut TestAppContext,
+    ) {
+        shell.update(cx, |shell, cx| {
+            let (tabs, shares) = (tabs.to_vec(), shares.to_vec());
+            let split = Split { tabs: tabs.clone(), stacked: false, shares, expanded };
+            shell.set_tabs(1, Vec::new(), tabs, vec![split], Folders::default(), cx);
+        });
+    }
+
+    fn run(shell: &Entity<Shell>, cx: &mut TestAppContext) {
+        shell.update(cx, |shell, cx| shell.run(Command::ExpandSplit, "ui", cx));
+    }
+
+    /// The widths of the pages shown, left to right.
+    fn widths(shell: &Entity<Shell>, count: usize, cx: &mut TestAppContext) -> Vec<f32> {
+        shell.read_with(cx, |shell, _| {
+            let (frame, _) = shell.page_frame(shell.viewport);
+            let shares = shell.shares(shell.selected);
+            let frames = pane_frames(frame, count, false, &shares);
+            frames.iter().map(|frame| f32::from(frame.size.width)).collect()
+        })
+    }
+
+    fn resize(shell: &Entity<Shell>, width: f32, cx: &mut TestAppContext) {
+        shell.update(cx, |shell, _| shell.viewport = size(px(width), px(800.)));
+    }
+
+    #[gpui::test]
+    fn expanding_asks_the_core_to_give_the_focused_page_the_card(cx: &mut TestAppContext) {
+        for width in [900., 1200., 1800.] {
+            let (shell, host) = split_of(&[10, 11], 11, 0, width, cx);
+            host.take();
+            run(&shell, cx);
+            assert_eq!(host.take(), ["split expanded 11 true"]);
+            reported(&shell, &[10, 11], &[], 11, cx);
+            let widths = widths(&shell, 2, cx);
+            assert!((widths[0] - 220.).abs() < 1., "at {width} the other is {}", widths[0]);
+            let (card, _) = shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport));
+            assert!((widths[0] + 10. + widths[1] - f32::from(card.size.width)).abs() < 1.);
+        }
+    }
+
+    #[gpui::test]
+    fn the_page_focused_is_the_one_that_takes_the_card(cx: &mut TestAppContext) {
+        let (shell, host) = split_of(&[10, 11, 12], 11, 0, 1400., cx);
+        host.take();
+        run(&shell, cx);
+        assert_eq!(host.take(), ["split expanded 11 true"]);
+        reported(&shell, &[10, 11, 12], &[], 11, cx);
+        let widths = widths(&shell, 3, cx);
+        assert!((widths[0] - 220.).abs() < 1. && (widths[2] - 220.).abs() < 1., "{widths:?}");
+        assert!(widths[1] > 600., "{widths:?}");
+    }
+
+    /// Done again it changes nothing, and so after a quit, when the core hands the flag back with
+    /// the split. Run from the other pane it moves the card there.
+    #[gpui::test]
+    fn expanding_again_changes_nothing(cx: &mut TestAppContext) {
+        let (shell, host) = split_of(&[10, 11], 10, 10, 1200., cx);
+        host.take();
+        run(&shell, cx);
+        assert_eq!(host.take(), Vec::<String>::new());
+        assert!((widths(&shell, 2, cx)[1] - 220.).abs() < 1.);
+        shell.update(cx, |shell, cx| shell.set_selected(11, cx));
+        host.take();
+        run(&shell, cx);
+        assert_eq!(host.take(), ["split expanded 11 true"]);
+    }
+
+    /// The other page stays 220 pt as the window gets wider and narrower, with nothing asked of
+    /// the core.
+    #[gpui::test]
+    fn a_resize_keeps_the_other_page_at_220(cx: &mut TestAppContext) {
+        let (shell, host) = split_of(&[10, 11], 11, 11, 1600., cx);
+        host.take();
+        for width in [1000., 2400., 1300.] {
+            resize(&shell, width, cx);
+            let widths = widths(&shell, 2, cx);
+            assert!((widths[0] - 220.).abs() < 1., "at {width} the other is {}", widths[0]);
+        }
+        assert_eq!(host.take(), Vec::<String>::new());
+    }
+
+    /// On a card too short for 220 and a larger page, the pages are even.
+    #[gpui::test]
+    fn a_card_too_short_for_it_leaves_the_pages_even(cx: &mut TestAppContext) {
+        let (shell, _) = split_of(&[10, 11], 11, 11, 560., cx);
+        let widths = widths(&shell, 2, cx);
+        assert!((widths[0] - widths[1]).abs() <= 1., "{widths:?}");
+        for (count, length) in [(2, 300.), (3, 500.), (3, 1400.)] {
+            for focused in 0..count {
+                let shares = expanded_shares(count, focused, length);
+                assert!((shares.iter().sum::<f64>() - 1.).abs() < 1e-9);
+                assert!(shares.iter().all(|share| *share <= shares[focused] + 1e-9));
+            }
+        }
+    }
+
+    /// Dragging the gap asks for the widths it was dragged to, which the core takes instead of the
+    /// flag, and a double-click on it asks for even ones: the ways out.
+    #[gpui::test]
+    fn a_drag_or_a_double_click_on_the_gap_ends_it(cx: &mut TestAppContext) {
+        let (shell, host) = split_of(&[10, 11], 11, 11, 1200., cx);
+        host.take();
+        shell.update(cx, |shell, cx| {
+            let edge = shell.shown_pane_edges()[1];
+            let press = |click_count| MouseDownEvent {
+                button: MouseButton::Left,
+                position: point(px(edge - 5.), px(300.)),
+                modifiers: Default::default(),
+                click_count,
+                first_mouse: false,
+            };
+            shell.press_gap(1, &press(1), cx);
+            shell.drag_gap(edge + 95., cx);
+            shell.press_gap(1, &press(2), cx);
+        });
+        let calls = host.take();
+        assert_eq!(calls.len(), 2, "{calls:?}");
+        assert!(calls[0].starts_with("split shares 11 ") && !calls[0].ends_with("even"));
+        assert_eq!(calls[1], "split shares 11 even");
+        // The core, taking either, no longer has the card expanded.
+        reported(&shell, &[10, 11], &[], 0, cx);
+        let evened = widths(&shell, 2, cx);
+        assert!((evened[0] - evened[1]).abs() <= 1., "{evened:?}");
+        run(&shell, cx);
+        assert_eq!(host.take(), ["split expanded 11 true"]);
+    }
+
+    #[gpui::test]
+    fn a_page_alone_has_nothing_to_expand(cx: &mut TestAppContext) {
+        let (shell, host) = split_of(&[10], 10, 0, 1200., cx);
+        host.take();
+        run(&shell, cx);
+        assert_eq!(host.take(), Vec::<String>::new());
+        assert!(!shell.read_with(cx, |shell, _| shell.offers(Command::ExpandSplit)));
     }
 }

@@ -362,6 +362,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   std::vector<bc_id> panes_;
   bool stacked_ = false;
   std::vector<double> shares_;
+  // The tab of the split that took the card, else 0: its shares_ are worked out from the frame.
+  bc_id expanded_ = 0;
   uint32_t focus_color_ = 0;
   std::optional<uint32_t> page_color_;
   bc_id space_ = 0;
