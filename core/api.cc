@@ -752,6 +752,9 @@ bool bc_tab_set_system_engine(bc_id id, bool on) {
   }
   // Forgotten first, so Chromium doesn't hand the pages straight back once they go there.
   browser_core::system_engine::Forget(profile, url);
+  // Off keeps the site offered in Site Controls, the way back, as the closed note's ✕ does, and
+  // keeps the note from asking again about a site the user just turned off.
+  browser_core::CloseMediaNote(contents);
   browser_core::system_engine::ReturnToChromium(profile, url);
   return true;
 }
