@@ -213,7 +213,7 @@ void SiteControls::PageChanged(bc_id tab) {
 
 void SiteControls::SetAdBlocking(bc_id tab, bool on) {
   SiteControls* controls = ShownFor(tab);
-  if (!controls) {
+  if (!controls || SystemPageOf(controls->web_contents())) {
     return;
   }
   SetAdBlockingOnSite(controls->web_contents(), on);
@@ -395,7 +395,9 @@ void SiteControls::Report() {
       .certificate = CertificateOf(web_contents()) != nullptr,
       .system_engine = system_engine_,
       .system_engine_offered = system_engine_offered_,
-      .ad_blocking = AdBlockingOf(web_contents()),
+      // uBlock Origin never sees the pages the system's engine shows.
+      .ad_blocking = SystemPageOf(web_contents()) ? BC_AD_BLOCKING_NONE
+                                                  : AdBlockingOf(web_contents()),
   };
   Host().tab_site_controls(Host().context, tab_, &controls);
 }
