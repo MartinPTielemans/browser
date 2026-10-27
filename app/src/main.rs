@@ -2898,13 +2898,19 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
     );
 }
 
-/// Where Chromium keeps the profiles, and the app the user's keys. A profile of the dev build's
-/// own, never the owner's. A copy the owner uses is given its own in BROWSER_PROFILE_DIR, so the
-/// checks, which delete what the last run saved, never reach it.
+/// Where Chromium keeps the profiles, and the app the user's keys. A dev build keeps a profile of
+/// its own, never the owner's, since the checks delete what the last run saved. The prod build
+/// keeps the user's in Application Support, under the product's name.
 fn profile_dir() -> String {
     let home = std::env::var("HOME").unwrap_or_default();
-    std::env::var("BROWSER_PROFILE_DIR")
-        .unwrap_or_else(|_| format!("{home}/Library/Caches/browser-app"))
+    let name = include_str!("../branding/name").trim();
+    std::env::var("BROWSER_PROFILE_DIR").unwrap_or_else(|_| {
+        if cfg!(feature = "prod") {
+            format!("{home}/Library/Application Support/{name}")
+        } else {
+            format!("{home}/Library/Caches/browser-app")
+        }
+    })
 }
 
 fn main() {
@@ -2912,13 +2918,16 @@ fn main() {
     let profile = profile_dir();
     args.extend([
         format!("--user-data-dir={profile}"),
-        // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed build
-        // asking for it gets a password prompt, and every request that uses cookies waits.
-        "--use-mock-keychain".into(),
         // Chrome would copy the app bundle to check its signature against, which an
         // ad-hoc-signed build doesn't need.
         "--disable-features=MacAppCodeSignClone".into(),
     ]);
+    // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed dev build asking
+    // for it gets a password prompt after every build, and every request that uses cookies waits.
+    // The prod build is signed alike every time (tools/install.sh), so macOS asks once.
+    if !cfg!(feature = "prod") {
+        args.push("--use-mock-keychain".into());
+    }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
     args.extend(std::env::args().skip(1));
