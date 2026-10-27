@@ -40,7 +40,9 @@
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/profiles/profiles_state.h"
 #include "chrome/browser/tab_list/tab_removed_reason.h"
+#include "chrome/browser/ui/browser_active_state_manager/browser_active_state_manager.h"
 #include "chrome/browser/ui/browser_tabrestore.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/browser_window/public/create_browser_window.h"
@@ -1032,6 +1034,8 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   // new page takes it.
   LayOutPage();
   FocusPageSoon();
+  // A page of another profile makes its Browser the active one.
+  ReportActiveBrowser();
 }
 
 void Window::LayOutPage() {
@@ -1964,6 +1968,41 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
     if (ToFront(id_)) {
       SessionChanged();
     }
+  }
+  ReportActiveBrowser();
+}
+
+void Window::ReportActiveBrowser() {
+  // Chrome orders its Browsers by these reports, and picks the window by that order for what has
+  // no tab of its own, such as an extension popup's install question or a page's alert.
+  const bool key = widget_ && widget_->IsActive();
+  // A key window showing no page, as for an empty Space, keeps the Browser it had active.
+  if (key && !shown_) {
+    return;
+  }
+  tabs::TabInterface* tab = key ? tabs::TabInterface::MaybeGetFromContents(shown_.get()) : nullptr;
+  BrowserWindowInterface* shown = tab ? tab->GetBrowserWindowInterface() : nullptr;
+  BrowserWindowInterface* active = nullptr;
+  for (auto& [profile, held] : browsers_) {
+    if (held.browser->IsDeleteScheduled()) {
+      continue;
+    }
+    if (held.browser == shown) {
+      active = held.browser;
+    } else if (auto* state = BrowserActiveStateManager::From(held.browser.get())) {
+      state->DidBecomeInactive();
+    }
+  }
+  auto* state = BrowserActiveStateManager::From(active);
+  if (!state || state->IsActive()) {
+    return;
+  }
+  state->DidBecomeActive();
+  // Chrome also makes the active Browser's profile the one the next launch starts with, but the
+  // core's start profile is the one new Spaces take and that can't be deleted, so it stays put.
+  Profile* start = StartProfile();
+  if (start && active->GetProfile()->GetOriginalProfile() != start) {
+    profiles::SetLastUsedProfile(start->GetBaseName());
   }
 }
 
