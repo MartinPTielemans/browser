@@ -419,17 +419,6 @@ void Tab::GoForward() {
   }
 }
 
-void Tab::Reload(bool bypass_cache) {
-  if (system_page_) {
-    system_page_->Reload(bypass_cache);
-    return;
-  }
-  // As Chrome's, it asks before sending a form again.
-  web_contents()->GetController().Reload(
-      bypass_cache ? content::ReloadType::BYPASSING_CACHE : content::ReloadType::NORMAL,
-      /*check_for_repost=*/true);
-}
-
 void Tab::Stop() {
   if (system_page_) {
     system_page_->Stop();
@@ -911,6 +900,10 @@ void Tab::Wait() {
 }
 
 void Tab::Reload(bool bypass_cache) {
+  if (system_page_) {
+    system_page_->Reload(bypass_cache);
+    return;
+  }
   content::RenderProcessHost* hung =
       hung_process_ ? content::RenderProcessHost::FromID(hung_process_) : nullptr;
   ClearHang();

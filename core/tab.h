@@ -119,6 +119,7 @@ class Tab : public content::WebContentsObserver,
   // keeps for it, else through |load|, which loads it in Chromium.
   void Load(const GURL& url, base::FunctionRef<void()> load);
   // Back, forward, reload and stop, as the app's buttons, in whichever engine shows the page.
+  // Reload, as bc_tab_reload says, ends a hung page's renderer first.
   bool CanGoBack();
   bool CanGoForward();
   void GoBack();
@@ -139,8 +140,6 @@ class Tab : public content::WebContentsObserver,
   // game is going, Chromium's auto-reload waits, and it loads the page once the run ends if the
   // network came back meanwhile, so a page coming back never throws a run away.
   static void GameRunning(content::WebContents* contents, bool running);
-  // Loads the page again, as bc_tab_reload says, ending a hung page's renderer first.
-  void Reload(bool bypass_cache);
   // Gives a hung page Chrome's hang timeout again, as Chrome's Wait does.
   void Wait();
   // For a window that stopped showing the tab: a page whose renderer died is unloaded rather than
