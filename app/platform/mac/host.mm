@@ -335,6 +335,9 @@ Browser* g_dialog_over;
 NSWindow* g_dialog;
 NSView* g_dialog_view;
 bool g_dialog_shown = false;
+// What the dialog covers, as insets from the browser window's content edges: none for all of it,
+// or a tab's card for a page's dialog, which keeps them as the window resizes.
+NSEdgeInsets g_dialog_insets;
 
 // The Site Controls' window and view, the browser they show over, and where their top left goes
 // there. Released, they're on screen only for the motion of their leaving, and take no clicks.
@@ -588,6 +591,19 @@ NSWindow* KeyWindowOver(Browser* browser) {
     return browser->offer;
   }
   return browser->window;
+}
+
+// The dialog's frame over |browser|'s window, by its insets.
+NSRect DialogFrame(Browser* browser) {
+  NSWindow* window = browser->window;
+  if (NSEdgeInsetsEqual(g_dialog_insets, NSEdgeInsetsZero)) {
+    return window.frame;
+  }
+  NSRect content = [window contentRectForFrameRect:window.frame];
+  return NSMakeRect(NSMinX(content) + g_dialog_insets.left,
+                    NSMinY(content) + g_dialog_insets.bottom,
+                    NSWidth(content) - g_dialog_insets.left - g_dialog_insets.right,
+                    NSHeight(content) - g_dialog_insets.top - g_dialog_insets.bottom);
 }
 
 // Where the UI asked, from the top left of the browser window's content, which a window resized
@@ -1243,7 +1259,8 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
                                                   PlaceHud();
                                                 }
                                                 if (g_dialog_shown && g_dialog_over == browser) {
-                                                  [g_dialog setFrame:window.frame display:YES];
+                                                  [g_dialog setFrame:DialogFrame(browser)
+                                                             display:YES];
                                                 }
                                                 if (g_toast_shown && g_toast_over == browser) {
                                                   PlaceToast();
@@ -2115,33 +2132,47 @@ void host_add_dialog(void* dialog_view) {
   // of the browser window, which has its own shadow.
   g_dialog.hasShadow = NO;
   // The dialog is answered before anything else, as an alert is. Chromium makes its window key by
-  // itself, such as when a page commits, and the dialog takes the keyboard back.
-  [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification
-                                                  object:nil
-                                                   queue:nil
-                                              usingBlock:^(NSNotification* notification) {
-                                                if (g_dialog_shown &&
-                                                    notification.object != g_dialog &&
-                                                    !HostIsMenuWindow(notification.object)) {
-                                                  [g_dialog makeKeyWindow];
-                                                }
-                                              }];
+  // itself, such as when a page commits, and the dialog takes the keyboard back. A page's dialog
+  // holds only its tab, so another window may take the keyboard, and the dialog leaves.
+  [NSNotificationCenter.defaultCenter
+      addObserverForName:NSWindowDidBecomeKeyNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification* notification) {
+                if (g_dialog_shown && notification.object != g_dialog &&
+                    !HostIsMenuWindow(notification.object) &&
+                    (NSEdgeInsetsEqual(g_dialog_insets, NSEdgeInsetsZero) ||
+                     notification.object == g_dialog_over->window)) {
+                  [g_dialog makeKeyWindow];
+                }
+              }];
 }
 
-void host_show_dialog(void* ui_view) {
+void host_show_dialog(void* ui_view, double x, double y, double width, double height) {
   Browser* browser = BrowserWithView(ui_view);
-  if (!g_dialog || !browser || !browser->window || g_dialog_shown) {
+  if (!g_dialog || !browser || !browser->window) {
+    return;
+  }
+  NSRect content = [browser->window contentRectForFrameRect:browser->window.frame];
+  g_dialog_insets = width > 0 ? NSEdgeInsetsMake(y, x, NSHeight(content) - y - height,
+                                                 NSWidth(content) - x - width)
+                              : NSEdgeInsetsZero;
+  if (g_dialog_shown) {
+    // The card it's over moved, such as when the sidebar hid.
+    if (g_dialog_over == browser) {
+      [g_dialog setFrame:DialogFrame(browser) display:YES];
+    }
     return;
   }
   g_dialog_shown = true;
   g_dialog_over = browser;
-  // After the UI's update that asked, since the window draws here: at the browser window's frame,
-  // before it shows, since it keeps the last frame it drew.
+  // After the UI's update that asked, since the window draws here: at its frame, before it shows,
+  // since it keeps the last frame it drew.
   dispatch_async(dispatch_get_main_queue(), ^{
     if (!g_dialog_shown) {
       return;
     }
-    [g_dialog setFrame:browser->window.frame display:NO];
+    [g_dialog setFrame:DialogFrame(browser) display:NO];
     [g_dialog_view.layer setNeedsDisplay];
     [g_dialog_view.layer displayIfNeeded];
     AddOver(browser->window, g_dialog);
@@ -2156,9 +2187,13 @@ void host_hide_dialog(void) {
   }
   g_dialog_shown = false;
   Browser* browser = g_dialog_over;
+  // Unless another window took the keyboard, such as from a page's dialog.
+  const bool key = g_dialog.isKeyWindow || !NSApp.keyWindow;
   [browser->window removeChildWindow:g_dialog];
   [g_dialog orderOut:nil];
-  [KeyWindowOver(browser) makeKeyWindow];
+  if (key) {
+    [KeyWindowOver(browser) makeKeyWindow];
+  }
 }
 
 void host_add_site_controls(void* view, void (*dismissed)(void)) {

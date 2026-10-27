@@ -187,6 +187,18 @@ return-width = 30.0
 return-fill = 0.1
 return-border = 0.27
 return-glyph = 16.0
+# Ours, as Arc's dialog has no fields: a page's fields, such as a sign-in's, under the detail,
+# as tall as the buttons and in Cancel's look, with the text and placeholder at these, and a
+# checkbox under them, ticked in the action's colour.
+fields-top = 16.0
+field-gap = 8.0
+field-text = 0.9
+field-placeholder = 0.45
+check-top = 14.0
+check-box = 16.0
+check-radius = 6.0
+check-gap = 8.0
+check-glyph = 12.0
 # The red action's label and glyph.
 text = 0xffffff
 

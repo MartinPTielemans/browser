@@ -64,6 +64,27 @@ const filled = setInterval(() => {
 </script>' > "$out/site/login.html"
 printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
+# The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
+# page, and puts what the user answered in the title.
+printf '%s' '<title>loading</title>
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+onkeydown = e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) {
+    return;
+  }
+  if (e.key == "a") {
+    alert("The check says hello.");
+    document.title = "alerted";
+  }
+  if (e.key == "c") {
+    document.title = "confirm " + confirm("Go on?");
+  }
+  if (e.key == "p") {
+    document.title = "prompt " + prompt("Your name?", "Ada");
+  }
+};
+</script>' > "$out/site/dialogs.html"
 # The cookie page's title says whether it finds its cookie, c, never a value, since the app logs
 # every title, and how many times the server has sent its script, which the cache keeps for an
 # hour. Another run's cookies on the site don't count. "c" in it sets the cookie.
