@@ -27,7 +27,7 @@
 serve
 log="$out/restore.log"
 step=0
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 # A failed run leaves its downloads in the profile's history, and the recent downloads count them.
 history_db="$(dirname "$saved")/Default/History"
 if command -v sqlite3 > /dev/null && [ -f "$history_db" ]; then
@@ -451,7 +451,7 @@ restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restore
 # Auto-archive, 8 s instead of 12 hours. Tab a, then b, opens over the Spaces, and a isn't seen
 # after b shows. Past a's 8 s, the next launch archives a at once and b 8 s after c shows.
 log="$out/archive-a.log"
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 BROWSER_URL="${site}?a" "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
 pid=$!
 await "^browser: loaded [0-9]* ${site}?a\$" || fail "tab a didn't load"

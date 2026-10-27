@@ -22,7 +22,7 @@ regular_url="${site}private.html"
 private_url="${site}private.html?private-only"
 log="$out/private.log"
 step=0
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$regular_url" "$app/Contents/MacOS/Browser" < "$out/drive" \
   > "$log" 2>&1 &
 pid=$!

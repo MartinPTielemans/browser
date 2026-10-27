@@ -760,8 +760,10 @@ bool RestoreSavedWindow(Window& window, size_t index) {
     }
   }
   window.ShowSpace(space);
-  // The window is on screen already, so this is the transition the user would start.
-  if (saved.fullscreen && window.widget()) {
+  // The window is on screen already, so this is the transition the user would start. Only the
+  // front window's: one behind would take the user to its own macOS Space as the browser launches,
+  // so it comes back windowed, at the frame it had before full screen.
+  if (index == 0 && saved.fullscreen && window.widget()) {
     window.widget()->SetFullscreen(true);
   }
   return true;

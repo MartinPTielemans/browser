@@ -16,7 +16,7 @@
 serve
 log="$out/pinned.log"
 step=0
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
