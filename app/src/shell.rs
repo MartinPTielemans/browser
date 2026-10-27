@@ -1538,9 +1538,8 @@ impl Shell {
         }
         // A Space shown some other way slides in from its side, pushing the one before out. One a
         // swipe settles on is moving already, one a pull made shows where it is, and one shown as
-        // the Library moves, or as fingers carry on from it into the Library, shows in its place.
-        let carried = self.swipe.as_ref().is_some_and(|swipe| swipe.from == space);
-        let in_place = self.pulled_space_shown(space) || self.library_moving() || carried;
+        // the Library moves shows in its place under it.
+        let in_place = self.pulled_space_shown(space) || self.library_moving();
         let index = |id| self.spaces.iter().position(|other| other.id == id);
         let width = self.width();
         if !self.settle.as_ref().is_some_and(|settle| settle.space == space)
