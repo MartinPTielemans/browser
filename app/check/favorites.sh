@@ -320,6 +320,52 @@ expect '^browser: tiles stay put$' "the tiles in a window back at its height sti
 send doubleclick 161 400
 expect '^browser: sidebar width 228$' \
   "a double-click on the sidebar's edge didn't put its width back"
+# Three tiles across the sidebar with titles of very different widths, long, medium and short as
+# the owner's are: each tooltip hangs from its own tile, going along them and back, not placed from
+# the width of the one before. It's placed where the UI asked, drawn as wide as it was placed for,
+# and its middle is the tile's unless the window's edge is nearer than half its width.
+long="Creating A World That Doesn't Exist - YouTube"
+medium="Elon Musk on X: a post / X"
+short="Proton Mail: Sign-in"
+for page in long medium short; do
+  eval "printf '<title>%s</title>' \"\$$page\"" > "$out/site/$page.html"
+done
+for titled in "1 $a long" "2 $x medium" "3 $y short"; do
+  set -- $titled
+  switch "$1 cmd" "$2"
+  tab=$2
+  go_from_bar "${site#http://}$3.html"
+  eval "title=\$$3"
+  expect "^browser: title $2 $title\$" "the $3 page didn't give its title to tab $2"
+done
+# Resting on the tile at x ($1, across the middle), the tooltip saying $2 hangs from it.
+hangs() {
+  send move $1 110
+  expect "^browser: tooltip shown $2\$" "resting on the tile at $1 didn't show \"$2\""
+  expect '^browser: tooltip window shown$' "the tooltip of \"$2\" didn't fade in"
+  expect '^browser: tooltip drawn ' "the tooltip of \"$2\" wasn't drawn"
+  asked=$(since_move '^browser: tooltip at ')
+  placed=$(since_move '^browser: tooltip window at ')
+  drawn=$(since_move '^browser: tooltip drawn ')
+  echo "$asked $placed $drawn" | awk -v tile=$1 '
+    { want = tile - $6 / 2; if (want < 8) want = 8
+      along = $4 - want; across = $4 - $12; down = $5 - $13; wide = $6 - $17 }
+    END { exit !(NR == 1 && NF == 17 && along > -1 && along < 1 && across > -1 && across < 1 \
+      && down > -1 && down < 1 && wide > -1 && wide < 1) }' \
+    || fail "the tooltip of \"$2\" isn't hung from the tile at $1: asked \"$asked\", placed \"$placed\", drawn \"$drawn\""
+  width=$(echo "$asked" | cut -d' ' -f6)
+}
+hangs 41 "$long"
+long_width=$width
+hangs 114 "$medium"
+medium_width=$width
+hangs 187 "$short"
+short_width=$width
+[ "$(echo "$long_width > $medium_width && $medium_width > $short_width" | bc -l)" = 1 ] ||
+  fail "the tooltips aren't long, medium and short: $long_width, $medium_width, $short_width"
+../tools/window-screenshot.sh "$pid" "$out/favorite-tooltips.png" || fail "no window to capture"
+hangs 114 "$medium"
+hangs 41 "$long"
 # Settings kept the time, the haptics and the warning across the quit. ⌘, from the UI opens it,
 # its close button hides it, and More Settings… opens Chromium's settings in a tab.
 send click $sidebar_point
@@ -357,4 +403,4 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: dialog shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which names itself in a tooltip, as the Library and sidebar buttons do with their keys, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorite-tooltip.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which names itself in a tooltip, as the Library and sidebar buttons do with their keys, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Three tiles with a long, a medium and a short title each hang their tooltip from their own middle, along them and back, drawn as wide as it was placed for. Windows: $out/favorite-tooltip.png, $out/favorite-tooltips.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"

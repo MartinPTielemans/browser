@@ -142,6 +142,33 @@ fn the_next_tile_shows_at_once(cx: &mut TestAppContext) {
     assert_eq!(host.0.take(), [placed(cx, "Mail", tile_b())]);
 }
 
+/// Three tiles across a 228 pt sidebar in a wide window, the owner's: their tooltips of a long, a
+/// medium and a short title are each placed from their own width, never the last one's, going
+/// along them and back, each one's middle the tile's unless it would cross the window's edge.
+#[gpui::test]
+fn each_tooltip_is_placed_from_its_own_width_whichever_was_before_it(cx: &mut TestAppContext) {
+    let host = open_tooltip(cx);
+    let tile =
+        |middle: f32| Anchor::centred(frame(middle - 33., 90., 66., 41.), size(px(1400.), px(900.)));
+    let titles = [
+        ("Creating A World That Doesn't Exist", tile(41.)),
+        ("Elon Musk on X: a post / X", tile(114.)),
+        ("Proton Mail: Sign-in", tile(187.)),
+    ];
+    let widths: Vec<f32> = titles.iter().map(|&(text, _)| width(cx, text)).collect();
+    assert!(widths[0] > widths[1] && widths[1] > widths[2], "{widths:?}");
+    for index in [0, 1, 2, 1, 0] {
+        let (text, anchor) = titles[index];
+        // The pointer leaves the last tile and crosses to this one.
+        cx.update(dismiss);
+        hover_on(cx, text, anchor);
+        let mut shown = host.0.take();
+        shown.extend(after(cx, &host, DELAY));
+        let want = (anchor.x - widths[index] / 2.).max(EDGE_INSET);
+        assert_eq!(shown.last().unwrap(), &format!("show {want} {}", 131. + GAP), "{text}");
+    }
+}
+
 #[gpui::test]
 fn the_delay_starts_again_after_it_went(cx: &mut TestAppContext) {
     let host = open_tooltip(cx);
