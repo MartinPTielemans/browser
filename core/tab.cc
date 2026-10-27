@@ -12,6 +12,7 @@
 #include "base/time/time.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
+#include "browser_core/link_target.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/window.h"
@@ -66,6 +67,16 @@ bc_id Tab::IdOf(content::WebContents* contents) {
 content::WebContents* Tab::FromId(bc_id id) {
   auto it = Tabs().find(id);
   return it == Tabs().end() ? nullptr : it->second;
+}
+
+// static
+void Tab::LinkTargetChanged(BrowserWindowInterface* browser,
+                            content::WebContents* source,
+                            const GURL& url) {
+  // Other Browsers, such as a DevTools window's, aren't the app's.
+  if (Window::ForBrowser(browser)) {
+    GetOrCreateForWebContents(source)->ReportLinkTarget(url);
+  }
 }
 
 Tab::Tab(content::WebContents* contents)
@@ -174,6 +185,11 @@ void Tab::SetMuted(bool muted) {
 void Tab::DidStartNavigation(content::NavigationHandle* navigation) {
   if (navigation->IsInPrimaryMainFrame()) {
     StateChanged();
+    // The page under the pointer is going; the new one tells where the pointer is on it. A link
+    // that scrolls the same page keeps it.
+    if (!navigation->IsSameDocument()) {
+      ReportLinkTarget(GURL());
+    }
   }
 }
 
@@ -336,6 +352,20 @@ void Tab::DidGetUserInteraction(const blink::WebInputEvent& event) {
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&Window::OnPageClicked, id_));
   }
+}
+
+void Tab::ReportLinkTarget(const GURL& url) {
+  // Only as it changes: nothing is told while the pointer is on no link and none was shown.
+  if (url.is_empty() && !link_target_) {
+    return;
+  }
+  link_target_ = !url.is_empty();
+  if (!Host().tab_link_target) {
+    return;
+  }
+  const LinkTarget target = FormatLinkTarget(url);
+  Host().tab_link_target(Host().context, id_, target.text.c_str(), target.domain_begin,
+                         target.domain_end);
 }
 
 void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) {

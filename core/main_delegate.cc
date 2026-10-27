@@ -18,6 +18,7 @@
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
+#include "browser_core/tab.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_browser_main.h"
@@ -134,6 +135,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_can_dock_devtools = &Window::CanDockDevTools;
   g_browser_core_update_devtools = &Window::UpdateDevTools;
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
+  g_browser_core_update_target_url = &Tab::LinkTargetChanged;
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   g_browser_core_populate_frame_binders = &PopulateFrameBinders;

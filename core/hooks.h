@@ -83,5 +83,11 @@ extern void (*g_browser_core_password_prompt)(content::WebContents* contents, bo
 // Mail or an .html file from Finder, in place of Chrome's tabs for them. Those that launched the
 // browser come once it has finished launching, before the app has started.
 extern void (*g_browser_core_open_links)(const std::vector<GURL>& urls);
+// chrome/browser/ui/browser_web_contents_delegate/browser_web_contents_delegate.cc: the page of
+// |source|, a tab of |browser|, has the pointer on the link |url|, or on none and |url| is empty.
+// Chrome draws it in a status bubble, which the core's windows don't have.
+extern void (*g_browser_core_update_target_url)(BrowserWindowInterface* browser,
+                                                content::WebContents* source,
+                                                const GURL& url);
 
 #endif  // BROWSER_CORE_HOOKS_H_

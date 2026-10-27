@@ -490,6 +490,18 @@ typedef struct bc_host {
   // comes in tab_opened, and agents get no way to make the browser the system's default, which
   // only the user does, in the app's Settings or the system's.
   void (*open_links)(void* context, const char* const* urls, size_t count);
+  // The pointer is on a link in the page of |tab|, or has left it and |url| is "". |url| is the
+  // link's address as the app shows it: UTF-8, without https://, and a name in another script as
+  // Chrome's address bar shows it, which is as ASCII if it could pass for another site's. The
+  // bytes [|domain_begin|, |domain_end|) of it are the host's registrable domain, such as
+  // example.co.uk in login.example.co.uk, or the whole host if it has no registry; both are 0 for
+  // an address with no host. Told as the link changes, and "" when the page navigates away, never
+  // polled. The user's alone: agents have no pointer.
+  void (*tab_link_target)(void* context,
+                          bc_id tab,
+                          const char* url,
+                          size_t domain_begin,
+                          size_t domain_end);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

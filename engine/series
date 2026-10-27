@@ -21,3 +21,4 @@ ours/chromium-disk-check-period.patch
 ours/chromium-drm-request.patch
 ours/chromium-core-page-stretch.patch
 ours/chromium-core-open-links.patch
+ours/chromium-core-link-target.patch

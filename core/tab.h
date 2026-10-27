@@ -20,6 +20,8 @@
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
+class BrowserWindowInterface;
+
 namespace browser_core {
 
 // A tab's id, and what the app hears about its page.
@@ -35,6 +37,12 @@ class Tab : public content::WebContentsObserver,
   static bool Loaded(bc_id id);
   // The URL of the page |contents| is at, loaded or not, else of the one it's loading.
   static GURL PageUrl(content::WebContents* contents);
+  // The hook for Chrome's status bubble (hooks.h): |source|'s page has the pointer on the link
+  // |url|, or on none and it's empty. Tells the app, if |source| is a tab of one of the core's
+  // windows.
+  static void LinkTargetChanged(BrowserWindowInterface* browser,
+                                content::WebContents* source,
+                                const GURL& url);
 
   Tab(const Tab&) = delete;
   Tab& operator=(const Tab&) = delete;
@@ -128,6 +136,8 @@ class Tab : public content::WebContentsObserver,
   void ReportFavicon(bool loading);
   void ReportTitle();
   void LoadWaiting();
+  // Tells the app the link the pointer is on, if it's another than it was last told of.
+  void ReportLinkTarget(const GURL& url);
 
   const bc_id id_;
   std::string name_;
@@ -138,6 +148,8 @@ class Tab : public content::WebContentsObserver,
   int input_modifiers_ = 0;
   // Whether the app was last told the page is full screen.
   bool fullscreen_ = false;
+  // Whether the app was last told the pointer is on a link.
+  bool link_target_ = false;
   // The favicon the app was last told of.
   gfx::Image favicon_;
   base::ScopedObservation<favicon::FaviconDriver, favicon::FaviconDriverObserver>
