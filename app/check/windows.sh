@@ -80,7 +80,8 @@ send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar in the new window"
 expect '^browser: new tab plate 1$' "⌘T didn't give New Tab the selected plate"
 opened=$(grep -c '^browser: command new-tab via card$' "$log" || true)
-send click $page_point
+# Below the bar, which reaches y 410 and covers $page_point.
+send click 600 600
 expect '^browser: command bar hidden$' "a click on the card didn't close the command bar"
 expect '^browser: new tab plate 0$' "a click on the card left New Tab's plate"
 send window 2
