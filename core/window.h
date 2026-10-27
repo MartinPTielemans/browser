@@ -248,6 +248,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Opens a tab for |profile| loading |url|, not shown, or with |when_shown| an http(s) |url| only
   // once it's first shown. Null while the window is closing or Chromium is quitting.
   content::WebContents* OpenTab(Profile* profile, const GURL& url, bool when_shown);
+  // Opens |url| in a tab |pinned| opened, as a link opened in front, so it's at the top of the
+  // Today tabs, shown if the window shows its Space, and closing it shows |pinned| again. Null as
+  // OpenTab.
+  content::WebContents* OpenFromPinned(bc_id pinned, const GURL& url);
   // Opens a tab for |profile| with |history|, at its |current| page, not shown. It loads once it's
   // shown. Null while the window is closing or Chromium is quitting.
   content::WebContents* RestoreTab(Profile* profile,
