@@ -664,6 +664,7 @@ dependencies = [
  "cc",
  "emojis",
  "gpui",
+ "gpui_linux",
  "gpui_macos",
  "gpui_platform",
  "gpui_windows",
