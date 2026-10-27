@@ -3179,9 +3179,10 @@ fn still_clear(arrow: bool) -> gpui::Div {
     clear_label(glyph.into_any_element(), 1., CLEAR)
 }
 
-/// "+ New Tab": its plus and its label.
-fn new_tab_label() -> (gpui::Div, gpui::Div) {
-    let plus = div().text_size(px(18.)).text_color(rgba(NEW_TAB_PLUS)).child("+");
+/// "+ New Tab": its plus and its label. The plus is drawn as a favicon is, so it centres on the
+/// label as a favicon does on its title; a "+" set in text sat on its font's baseline, 2 pt low.
+fn new_tab_label() -> (gpui::Svg, gpui::Div) {
+    let plus = svg().path("icons/plus.svg").size(px(FAVICON_DRAWN)).text_color(rgba(NEW_TAB_PLUS));
     let label = div().text_size(px(14.)).text_color(rgba(NEW_TAB)).child("New Tab");
     (plus, label)
 }
