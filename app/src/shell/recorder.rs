@@ -97,7 +97,13 @@ impl Browser for Recorder {
 
     fn set_split_stacked(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn set_split_shares(&self, _: u64, _: Option<&[f64]>, _: &mut App) {}
+    fn set_split_shares(&self, tab: u64, shares: Option<&[f64]>, _: &mut App) {
+        let shares = shares.map_or_else(
+            || "even".to_string(),
+            |shares| shares.iter().map(f64::to_string).collect::<Vec<_>>().join(" "),
+        );
+        self.record(format!("split shares {tab} {shares}"))
+    }
 
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
 

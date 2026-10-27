@@ -112,6 +112,8 @@ const FOCUS_GLOW_ALPHA: f32 = 0.5;
 // and no more than 200, and snaps them even within 15 pt, as Chrome's does.
 const PANE_LEAST: (f32, f32) = (50., 200.);
 const PANE_SNAP: f32 = 15.;
+/// What Expand Current Split leaves each of the other pages (Arc 1.170.0 ax: 220 pt at any width).
+const EXPANDED_OTHER: f32 = 220.;
 
 // ⌘S hides and shows the sidebar on Arc's ease-out cubics (docs/ux-spec.md › Motion: Sidebar hide
 // and Sidebar show).

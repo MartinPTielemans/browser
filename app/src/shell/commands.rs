@@ -137,6 +137,8 @@ pub enum Command {
     FlipSplit,
     /// Stacks the split view's pages top to bottom, or puts them back side by side.
     ChangeOrientation,
+    /// Gives the split view's focused page the card, leaving the others 220 pt each.
+    ExpandSplit,
     /// Swaps the split view's focused page with the one on its left, or on its right.
     MovePaneLeft,
     MovePaneRight,
@@ -283,6 +285,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Add Split View", Command::AddSplit, &["side by side"]),
     ("Close this Split Pane", Command::CloseSplitPane, &[]),
     ("Separate Page from Split View", Command::SeparatePane, &[]),
+    ("Expand Current Split", Command::ExpandSplit, &[]),
     // Dia's (docs/ux-spec.md › Split view).
     ("Flip Split View", Command::FlipSplit, &[]),
     ("Change Orientation", Command::ChangeOrientation, &[]),
@@ -566,6 +569,7 @@ impl Command {
             Command::SeparateSplit => "separate-split",
             Command::FlipSplit => "flip-split",
             Command::ChangeOrientation => "change-orientation",
+            Command::ExpandSplit => "expand-split",
             Command::MovePaneLeft => "move-pane-left",
             Command::MovePaneRight => "move-pane-right",
             Command::NextPane => "next-pane",
@@ -792,6 +796,7 @@ impl Shell {
                 let stacked = self.stacked(self.selected);
                 return self.browser.set_split_stacked(self.selected, !stacked, cx);
             }
+            Command::ExpandSplit => return self.expand_split(cx),
             Command::MovePaneLeft | Command::MovePaneRight => {
                 let panes = self.panes(self.selected);
                 let at = panes.iter().position(|&tab| tab == self.selected).unwrap_or_default();
@@ -1016,7 +1021,7 @@ impl Shell {
     }
 
     /// Whether `command` would do something now, for the command bar to offer it.
-    fn offers(&self, command: Command) -> bool {
+    pub(super) fn offers(&self, command: Command) -> bool {
         if self.private && !private_runs(command) {
             return false;
         }
@@ -1035,7 +1040,8 @@ impl Shell {
             | Command::SeparatePane
             | Command::SeparateSplit
             | Command::FlipSplit
-            | Command::ChangeOrientation => self.panes(self.selected).len() > 1,
+            | Command::ChangeOrientation
+            | Command::ExpandSplit => self.panes(self.selected).len() > 1,
             Command::MovePaneLeft => self.panes(self.selected).first() != Some(&self.selected),
             Command::MovePaneRight => self.panes(self.selected).last() != Some(&self.selected),
             Command::CollapseFolders => self.shown_space().is_some_and(|space| {

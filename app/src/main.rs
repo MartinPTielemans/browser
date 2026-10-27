@@ -2334,6 +2334,8 @@ fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
                         item("JavaScript Console", Command::JavaScriptConsole),
                     ],
                 )),
+                MenuItem::separator(),
+                item("Expand Current Split", Command::ExpandSplit),
             ],
         ),
         menu(
