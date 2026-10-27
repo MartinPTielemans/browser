@@ -129,15 +129,16 @@ expect "^browser: selected $tab in " "the first tab wasn't shown"
 expect "^browser: loaded $tab ${site}busy.html\$" "the tab behind didn't load once shown"
 none_since "trouble crashed" || fail "the tab behind showed the crash card"
 
-# A host that doesn't resolve shows the core's error page, with no card and no mark. The host has
-# no address under a real domain, since the bar's first suggestion for a .invalid one is a search
-# (#265), and https, since over http Chromium's HTTPS-First warning would cover the page.
+# A host that doesn't resolve shows the core's error page, with no card and no mark. Typed with its
+# scheme, a .invalid host, which never resolves, is an address the bar goes to, where Chrome's would
+# search for it, and https, since over http Chromium's HTTPS-First warning would cover the page.
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
-send insert "https://nothing.example.com/"
+send insert "https://nothing.invalid/"
 send key return
+expect '^browser: command bar go https://nothing.invalid/$' "the bar didn't go to the address typed with its scheme"
 expect "^browser: page $tab trouble network -105\$" "a host that doesn't resolve wasn't a network error"
-await '^browser: title [0-9]* nothing.example.com$' || fail "the error page didn't take the host for its title"
+await '^browser: title [0-9]* nothing.invalid$' || fail "the error page didn't take the host for its title"
 ../tools/window-screenshot.sh "$pid" "$out/network-error.png" || fail "no window to capture"
 # Space on it starts no game, which only the offline page has. A click away from its Reload focuses
 # it; the refused step after gives a run that started time to say so.

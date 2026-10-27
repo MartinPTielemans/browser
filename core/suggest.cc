@@ -13,6 +13,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/popular_sites.h"
+#include "browser_core/search.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -158,6 +159,7 @@ void Suggestions::Report() {
     bc_id tab = 0;
     std::string keyword, site;
     bool typed_search = false;
+    bool typed_url = false;
     bool removable = false;
   };
   std::vector<Row> rows;
@@ -188,8 +190,17 @@ void Suggestions::Report() {
         .keyword = site_search ? base::UTF16ToUTF8(engine->keyword()) : std::string(),
         .site = site_search ? base::UTF16ToUTF8(engine->short_name()) : std::string(),
         .typed_search = match.type == AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
+        .typed_url = match.type == AutocompleteMatchType::URL_WHAT_YOU_TYPED,
         .removable = match.SupportsDeletion(),
     });
+  }
+  // Typed with its scheme, the address goes first, where ↩ goes, though Chrome's address bar puts
+  // the search first for a host that can't resolve (TypedWithScheme).
+  if (auto typed = std::ranges::find_if(rows, &Row::typed_url);
+      keyword_.empty() && typed != rows.end() && rows.front().typed_search &&
+      TypedWithScheme(base::UTF16ToUTF8(text_)).is_valid()) {
+    typed->tab = 0;
+    std::rotate(rows.begin(), typed, typed + 1);
   }
   // As Dia lists them: the search for what was typed right after the top row.
   if (auto search = std::ranges::find_if(rows, &Row::typed_search);
