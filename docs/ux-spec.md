@@ -16,9 +16,9 @@ Parts of this file and of `ux-parity.md` are adapted from Ardia (https://github.
 4. Where an Arc value hasn't been measured yet, the Dia value is the target and is marked *interim*. The Arc capture plan at the end lists what will replace it.
 5. Values marked **Ardia** are Ardia's own choices, not measurements of Dia or Arc. Treat them as placeholders.
 
-**Sources.** `D›X` is section X of Ardia's `docs/dia-spec.md`. `P§n` is section n of `docs/dia-feature-parity.md`. `O` is `docs/omnibox-ux.md`. Dia versions are 1.49.1, 1.50.1, 1.52 and 1.53.0. *bin* means read from Dia's binary or asset catalogs, *cap* a 2× screen capture, *rec* a 60–240 fps recording. **Arc (Ardia)** marks Arc values Ardia recorded: Ardia's owner's Arc recordings and measurements of 2026-10-06 and 2026-10-22, a user's screenshot, and Arc's binary (Arc 1.167 for themes). **Chrome** means Chromium's own behavior. **Flecha** marks behavior read from Flecha's site and code at v0.1.0 (https://flecha.dev, MIT). **Helium** marks Helium's. **Ours** marks our decisions or the `prototypes/arcish` reference.
+**Sources.** `D›X` is section X of Ardia's `docs/dia-spec.md`. `P§n` is section n of `docs/dia-feature-parity.md`. `O` is `docs/omnibox-ux.md`. Dia versions are 1.49.1, 1.50.1, 1.52 and 1.53.0. *bin* means read from Dia's or Arc's binary or asset catalogs, *cap* a 2× screen capture, *rec* a 60–240 fps recording. **Arc (Ardia)** marks Arc values Ardia recorded: Ardia's owner's Arc recordings and measurements of 2026-10-06 and 2026-10-22, a user's screenshot, and Arc's binary (Arc 1.167 for themes). **Chrome** means Chromium's own behavior. **Flecha** marks behavior read from Flecha's site and code at v0.1.0 (https://flecha.dev, MIT). **Helium** marks Helium's. **Ours** marks our decisions or the `prototypes/arcish` reference.
 
-**Units.** Sizes are points. Times are ms or s. Colours are sRGB unless marked P3. "white 0.16" means white at alpha 0.16. Where two values appear, dark comes first, then light. Dia was measured in dark mode, so light values are Dia's asset-catalog tokens and no light capture exists yet. Springs are given as response and damping ratio ζ (mass 1, stiffness (2π/response)², damping 4πζ/response). Curves are given as `cubic-bezier(x1, y1, x2, y2)` and a duration.
+**Units.** Sizes are points. Times are ms or s. Colours are sRGB unless marked P3. "white 0.16" means white at alpha 0.16. Where two values appear, dark comes first, then light. Arc and Dia were measured in dark mode, so light values are their asset-catalog tokens and no light capture exists yet. Springs are given as response and damping ratio ζ (mass 1, stiffness (2π/response)², damping 4πζ/response). Curves are given as `cubic-bezier(x1, y1, x2, y2)` and a duration.
 
 **Assets and names.** SF Symbol names identify a shape only. We draw our own icons, and they have to work off the Mac too. The names Little Arc, Top Apps and Dia's mark are references, not UI text. A feature named Peek is Arc's link preview. Ardia uses "peek" for the hidden sidebar sliding in, which this spec calls the *sidebar reveal*.
 
@@ -55,29 +55,35 @@ Material output measured over solid backdrops: black, sRGB grey levels 20 and 60
   - Where the window's look has to be opaque, it stands the material in with Dia's composite over grey 20 before the gradient, #131313, and puts the gradient over that. That's the reveal's panel over the page and a dragged row.
   - Base tint black 0.25, not 0.4. Material 29 reads darker in our window than in the table above: under black 0.4 our sidebar read 11 over black and 51 over white, the material at 18 and 85 against 24 and 104, two thirds of it in linear light at both ends. Under black 0.25 a check VM reads 23 / 27 / 34 / 70 over black / grey 20 / grey 60 / white, against Dia's 24 / 29 / 36 / 69. Ours is darker than Dia's over mid grey than at the ends, so no one tint puts all four within 2 levels; the `window` check fails past 3. The opaque fill of an inactive window and of Reduce Transparency is under the same lighter tint, unmeasured.
 
-### Colour tokens (Dia asset catalogs, unchanged 1.49.1 → 1.50.1, D›Color tokens)
+### Colour tokens (Arc 1.170 and Dia asset catalogs, D›Color tokens)
 
-| Token | Dark | Light |
-|---|---|---|
-| Tab hovered | white 0.16 | white 0.55 |
-| Tab pressed | white 0.31 | white 0.70 |
-| Tab selected (1.50) | #121212 0.5 | white 0.7 |
-| Tab selected, secondary (multi-select) | white 0.25 | white 0.70 |
-| Tab unselected | white 0.06 | black 0.06 |
-| Tab title selected / unselected | white 1 / 0.78 | black 1 / 0.68 |
-| Favorite tile resting fill / stroke | white 0.10 / 0.14 | black 0.05 / 0.18 |
-| Favorite tile default selection ring | white 0.45 | black 0.48 |
-| Menu item hovered | white 0.07 | black 0.07 |
-| Menu hairline border | white 0.30 | black 0.25 |
-| Command bar hover | white 0.05: (31,31,31) on the (19,19,19) panel (Arc 1.170 rec) | rgba(15,24,44,0.08) |
-| Command bar placeholder | white 0.53 | black 0.40 |
-| Command bar title / dim text | white 0.8 / white 0.35 (Arc cap; white and 0.5 on the plate) | — |
-| Command bar caret | #4A77D4 | #6395FC |
-| Command bar selected text | rgba(120,125,134,0.7) | — |
-| Downloads button tint | rgba(247,245,255,0.78) | black 0.78 |
-| Secondary text | white 0.60 | black 0.60 |
-| Subtle fill | white 0.12 | black 0.12 |
-| Separator line | P3 white 0.09 | P3 black 0.09 |
+Arc's tokens beside Dia's (unchanged 1.49.1 → 1.50.1), and the one ours uses, which the section named gives in full. Arc's whites and blacks are often P3 #FAFBFF and P3 #0E0F10 rather than pure, and it composites in P3. *guess* marks a match by value or name that no capture confirms. The token names are Arc's, kept to find them again in its catalogs; they never become ours.
+
+| Token | Arc 1.170 | Dia | Ours |
+|---|---|---|---|
+| Tab hovered | P3 #FAFBFF 0.10 / P3 #0E0F10 0.05 (`SidebarItemBackground`, *guess*) | white 0.16 / white 0.55 | white 0.12 (Tab rows) |
+| Tab pressed | P3 #FAFBFF 0.065 / P3 #0E0F10 0.065 (`TabCellBackgroundPressed`) | white 0.31 / white 0.70 | none: the selected fill at once, as Arc's rows show it (Tab rows) |
+| Tab selected | P3 #FAFBFF 0.20 / white 0.85 and a black 0.20 shadow in light (`TabCellBackgroundCurrent`; cap 0.200) | #121212 0.5 / white 0.7 | Arc's |
+| Tab selected, secondary (multi-select) | P3 #FAFBFF 0.10 / black 0.10 | white 0.25 / white 0.70 | Arc's |
+| Tab unselected | no fill (cap) | white 0.06 / black 0.06 | Arc's: a row has no fill until it's hovered or selected |
+| Tab title selected / unselected | — | white 1 / 0.78; black 1 / 0.68 | Dia's (Tab rows) |
+| Favorite tile resting fill / stroke | fill as Tab hovered, *guess*; no stroke | white 0.10 / 0.14; black 0.05 / 0.18 | Dia's |
+| Favorite tile default selection ring | — | white 0.45 / black 0.48 | Dia's |
+| Menu item hovered | — | white 0.07 / black 0.07 | Dia's |
+| Menu hairline border | — | white 0.30 / black 0.25 | Dia's |
+| Command bar row hover | white 0.05 / black 0.05: (31, 31, 31) on the (19, 19, 19) panel (rec) | rgba(120,125,134,0.32) / rgba(15,24,44,0.08) | Arc's |
+| Command bar Go pill | — | as Dia's row hover | Dia's |
+| Command bar placeholder | white ≈ 0.55 (cap) | white 0.53 / black 0.40 | Dia's |
+| Command bar title / dim text | white 0.8 / 0.35 (cap), white and 0.5 on the plate; black 0.80 / 0.33 | white / rgba(239,244,255,0.6); #0F182C / #0F182C 0.6 | Arc's |
+| Command bar caret | the system accent (cap) | #4A77D4 / #6395FC | Dia's (Command bar) |
+| Command bar selected text | — | rgba(120,125,134,0.7) / — | Dia's |
+| Downloads button tint | — | rgba(247,245,255,0.78) / black 0.78 | Dia's |
+| Secondary text, header glyphs | white 0.60 / black 0.60 (cap) | white 0.60 / black 0.60 | both |
+| Subtle fill | — | white 0.12 / black 0.12 | Dia's |
+| Separator, sidebar | white 0.15 / black 0.15 (`SidebarSeparator`; cap 0.14–0.16) | P3 white 0.09 / P3 black 0.09 | Arc's (Clear divider) |
+| Separator, panels | white 0.10 / black 0.10 (cap) | P3 white 0.09 / P3 black 0.09 | Arc's |
+
+Light values are tokens only, never captured. Arc's tokens with no row here are in its asset catalogs, which stay readable after Arc's servers close.
 
 ### Motion
 
@@ -257,6 +263,7 @@ Arc's layout: the URL field and back, forward and reload live in the sidebar, an
 | Button hover plate | 32 × 32, top edge 7.5 below the window top (Arc 1.170.0 ax), radius 6 (Ardia). Only the plate takes clicks; the rest of the row moves the window | Arc 1.170.0 ax, Ardia, P§4 |
 | Sidebar button, back, forward, reload | plates at x 77, 122, 156 and 190 in a 228 sidebar: the sidebar button 3 past the zoom button and 13 before back, then a 34 pt pitch. Arc labels the sidebar button Hide sidebar while docked and Lock sidebar while out. Ardia has them right-aligned (centres 137.75 / 171.75 / 205.75 at 227.5); whether Arc's move with the width: measure | Arc 1.170.0 ax, Ardia |
 | Narrow sidebar | reload goes first, then forward; back and forward stay together | Ardia, from Arc users |
+| Nav glyphs | white 0.60. In an inactive window all of them dim as a disabled one does. Reload turns to stop, ✕, while the page loads | Arc 1.170.0 cap |
 | Back, forward or reload when disabled | white 0.26, against the others' 0.60. Reload is disabled while no page is shown | Arc 1.170.0 cap |
 | Nav glyph size | Arc's, as drawn: the sidebar glyph 18.5 × 14.5, back and forward 14.5 × 12, reload 14 wide and 17 tall with its arrowhead, all with strokes ≈ 1.75 pt. Centred on the plate, the sidebar glyph 0.25 right and down, back and forward 0.25 left and 0.5 down. Ours: our own sidebar and arrow glyphs at those sizes, and Lucide's reload at Arc's width (14 × 14) | Arc 1.170.0 cap |
 | URL field top | 46 below the window top | Arc 1.170.0 cap, Arc (Ardia) P§4 |
@@ -343,6 +350,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 - They are rows that look like tab rows, sitting between the favorites and the Clear divider, 6 pt under the tiles (Ardia).
 - Closing one (⌘W or ✕) unloads its page and keeps the row. With no Today tab left, ⌘W on a pinned tab shows another pinned tab whose page is still loaded. Closing the last tab closes the window (Dia rec, P§2).
 - Away from its pinned URL, the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL". A click goes back, and so does ⌘↩ (Dia 1.53.0 bin). Ours: that click shows the tab, after it starts going back, and the press doesn't, so its old page never loads. Arc's look for a navigated-away pinned tab: measure.
+- A URL typed into a pinned tab (⌘L) doesn't replace its page: it opens as a new Today tab at the top, selected, and closing that tab goes back to the pinned one (Arc cap). Ours does the same (to build), so a pinned tab stays what it was pinned as.
 - A pinned tab has one live page. Selecting it in a second window moves the page there, with history and playing media intact. The first window keeps a frozen frame under a wash: white 0.40 in light mode (Dia cap), black 0.25 in dark mode (Ardia). Clicking the frozen frame pulls the page back (Dia, P§2).
 - Links ⌘-clicked in a pinned tab gather in a group just below the pinned tabs (Dia rec, P§2). Measure what Arc does: Peek covers some of these links.
 - ⌘D pins or unpins. Dragging a tab above the divider pins it, below unpins it, and onto the favorites makes it a favorite.
@@ -677,7 +685,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 
 Arc 1.170.0's values where measured (cap, ax, rec), Dia's (P§6, D›Dragging tabs and split targets) for the rest.
 
-- **Panes.** Up to 3 (Dia; Arc's maximum: measure), side by side, or stacked top to bottom after Change Orientation, 10 pt apart, sharing the card. Each has its own page, history and docked DevTools. The focused one has a 2 pt ring inside its edge and a ≈ 8 pt glow outside it (Arc), in the Space's colour, else the accent. Unfocused panes aren't dimmed (*interim*, measure). A page in full screen takes the window alone.
+- **Panes.** Up to 3 (Dia; Arc's maximum: measure), side by side, or stacked top to bottom after Change Orientation, 10 pt apart, sharing the card. Each has its own page, history and docked DevTools. The focused one has a 2 pt ring inside its edge and a ≈ 8 pt glow outside it (Arc), in the Space's colour, else the accent. Arc's read P3 (49, 57, 251) in the one capture, which doesn't show whether it follows the Space's colour. Unfocused panes aren't dimmed (*interim*, measure). A page in full screen takes the window alone.
 - **Focus.** A click in a pane focuses it. ⌘W and Close this Split Pane close the focused pane, and the one beside it takes focus. Separate Page from Split View puts the focused pane in its own row under the split, shown alone. The find bar, the zoom HUD and a tab's dialogs, such as print preview, go over the focused pane.
 - **Sizes.** The gap between two panes drags them wider and narrower, or taller and shorter stacked, under a resize cursor. Each keeps a tenth of the card, no less than 50 pt and no more than 200, and the gap snaps to even within 15 pt (Chrome's, *interim*: Arc's limits and the divider's motion aren't measured). A double-click on the gap evens them, as one on the sidebar's edge puts its width back. Sizes go with places, not tabs: Flip and Move Pane keep them where they were, Change Orientation turns them onto the new axis, and a tab joining or leaving evens them.
 - **In the sidebar.** A split is one row of equal segments with a 1 pt line between them: each segment's favicon (18) 7 into it, its title 10 after that, ending 5 before the next line (Arc). The row counts as one for ⌘1–⌘9, ⌃Tab and next or previous tab, which show the pane focused last. Its ✕ closes all its tabs, and on a pinned split it unloads them and the row stays a split. Moving or pinning the row moves the split; Move to Space takes one tab out.
