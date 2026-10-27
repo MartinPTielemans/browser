@@ -302,8 +302,8 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
     "a click on Safari's engine's page's row didn't show it in the new window"
   expect "^browser: window $first page elsewhere $d\$" \
     "the first window wasn't told Safari's engine's page went"
-  expect "^browser: tab $d captured [0-9]*: [1-9][0-9]*x[1-9][0-9]*, [1-9][0-9]* bytes\$" \
-    "Safari's engine gave no picture of its page: $(grep "^browser: tab $d captured" "$log" | tail -1)"
+  expect "^browser: tab $d pictured [0-9]*: [1-9][0-9]*x[1-9][0-9]*\$" \
+    "Safari's engine gave no picture of its page: $(grep "^browser: tab $d pictured" "$log" | tail -1)"
   expect "^browser: window $first pictures tab $d\$" \
     "the first window got no picture of Safari's engine's page"
   expect "^browser: window $first picture rests\$" \

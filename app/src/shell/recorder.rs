@@ -107,9 +107,9 @@ pub(super) struct Recorder {
     /// The platform has Apple's engine for a tab's page.
     /// The platform has Safari's engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
-    /// The shell it answers each picture asked of it for with this PNG, at once, inside the call
-    /// that asked, as a core that answers inline would.
-    pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, Vec<u8>)>>,
+    /// The shell it answers each picture asked of it for with this picture, at once, inside the
+    /// call that asked, as a core that answers inline would.
+    pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
 }
 
 impl Recorder {
@@ -700,13 +700,9 @@ impl Browser for Recorder {
 
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App) {
         self.record(format!("picture {tab}"));
-        if let Some((shell, png)) = self.pictures.borrow().clone() {
-            super::picture_answered(vec![shell], request, Some(png), &cx.to_async());
+        if let Some((shell, picture)) = self.pictures.borrow().clone() {
+            super::picture_answered(vec![shell], request, Some(picture), &cx.to_async());
         }
-    }
-
-    fn page_picture_end(&self, tab: u64, _: &mut App) {
-        self.record(format!("picture end {tab}"))
     }
 
     fn settings(&self, _: &mut App) {}

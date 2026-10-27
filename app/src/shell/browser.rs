@@ -366,8 +366,6 @@ pub trait Browser {
     /// Asks for a picture of `tab`'s page, as it was last drawn, whole, which the browser answers
     /// with `Shell::page_pictured` and `request`. For the window whose page another window shows.
     fn page_picture(&self, tab: u64, request: u64, cx: &mut App);
-    /// The browser can let go of what it held for the picture of `tab`'s page.
-    fn page_picture_end(&self, tab: u64, cx: &mut App);
     /// The browser's id for the window this shell draws, for the log. 0 where there is none.
     fn window(&self) -> u64 {
         0

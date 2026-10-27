@@ -943,6 +943,12 @@ void bc_tab_capture(bc_id id, uint64_t request, bool full_page, bc_rect rect) {
   }
 }
 
+void bc_tab_picture(bc_id id, uint64_t request) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::PicturePage(contents, request);
+  }
+}
+
 void bc_tab_capture_end(bc_id id) {
   content::WebContents* contents = browser_core::Tab::FromId(id);
   if (browser_core::PageCapture* capture =
