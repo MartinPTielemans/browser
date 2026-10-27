@@ -11,6 +11,7 @@
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
+#include "browser_core/leave_dialog.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
@@ -43,6 +44,8 @@ bc_host g_host;
 class ExtraParts : public ChromeBrowserMainExtraParts {
  public:
   void PreBrowserStart() override {
+    // A tab's "Leave site?" asks with the app's dialog, in place of the NSAlert Chrome installed.
+    LeaveDialog::Install();
     keep_alive_ = std::make_unique<ScopedKeepAlive>(KeepAliveOrigin::APP_CONTROLLER,
                                                     KeepAliveRestartOption::DISABLED);
     // A quit can start in Chrome too, such as from the Dock or the system logging out, and Chrome

@@ -34,7 +34,7 @@ onkeydown = e => {
 </script>' > "$out/site/index.html"
 printf 'notes\n' > "$out/site/notes.txt"
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
-# page, and puts what the user answered in the title.
+# page, and puts what the user answered in the title. "u" has it ask before it's left.
 printf '%s' '<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
@@ -51,6 +51,10 @@ onkeydown = e => {
   }
   if (e.key == "p") {
     document.title = "prompt " + prompt("Your name?", "Ada");
+  }
+  if (e.key == "u") {
+    onbeforeunload = e => e.preventDefault();
+    document.title = "armed";
   }
 };
 </script>' > "$out/site/dialogs.html"
