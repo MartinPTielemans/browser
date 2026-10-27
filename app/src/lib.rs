@@ -14,12 +14,35 @@ macro_rules! log {
 
 /// Milliseconds on macOS's uptime clock, the one Chromium's `TimeTicks` and the host's lines read,
 /// so a step timed across the core, the host and the UI is one subtraction.
+#[cfg(target_os = "macos")]
 pub fn uptime_ms() -> f64 {
     unsafe extern "C" {
         fn clock_gettime_nsec_np(clock_id: u32) -> u64;
     }
     const CLOCK_UPTIME_RAW: u32 = 8;
     unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) as f64 / 1e6 }
+}
+
+/// Milliseconds on the performance counter, the clock Chromium's `TimeTicks` reads on Windows.
+#[cfg(target_os = "windows")]
+pub fn uptime_ms() -> f64 {
+    unsafe extern "system" {
+        fn QueryPerformanceCounter(count: *mut i64) -> i32;
+        fn QueryPerformanceFrequency(frequency: *mut i64) -> i32;
+    }
+    let (mut count, mut frequency) = (0, 0);
+    unsafe {
+        QueryPerformanceCounter(&mut count);
+        QueryPerformanceFrequency(&mut frequency);
+    }
+    count as f64 * 1e3 / frequency as f64
+}
+
+/// The core's API, generated from core/public/browser_core.h. Here, rather than in the browser's
+/// own crate, for the Windows browser's crate too (windows/).
+#[allow(non_camel_case_types, dead_code)]
+pub mod bc {
+    include!(concat!(env!("OUT_DIR"), "/browser_core.rs"));
 }
 
 pub mod capture;

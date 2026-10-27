@@ -1,0 +1,200 @@
+diff --git a/crates/gpui_windows/src/events.rs b/crates/gpui_windows/src/events.rs
+index 08f91bd626..823cb8e731 100644
+--- a/crates/gpui_windows/src/events.rs
++++ b/crates/gpui_windows/src/events.rs
+@@ -146,6 +146,11 @@ impl WindowsWindowInner {
+             }
+             WM_MOUSEWHEEL => self.handle_mouse_wheel_msg(handle, wparam, lparam),
+             WM_MOUSEHWHEEL => self.handle_mouse_horizontal_wheel_msg(handle, wparam, lparam),
++            WM_KEYDOWN | WM_SYSKEYDOWN
++                if EMBEDDED.load(std::sync::atomic::Ordering::Relaxed) =>
++            {
++                self.handle_embedded_keydown_msg(handle, wparam, lparam)
++            }
+             WM_SYSKEYUP => self.handle_syskeyup_msg(wparam, lparam),
+             WM_KEYUP => self.handle_keyup_msg(wparam, lparam),
+             WM_CHAR => self.handle_char_msg(wparam),
+@@ -439,6 +444,28 @@ impl WindowsWindowInner {
+         if handled { Some(0) } else { Some(1) }
+     }
+ 
++    /// An embedder's message loop translates a key press before dispatching it, where GPUI's own
++    /// loop offers it to the window first. So the window takes it here, and a key it used loses the
++    /// character the translation queued, as it would in GPUI's loop.
++    fn handle_embedded_keydown_msg(
++        &self,
++        handle: HWND,
++        wparam: WPARAM,
++        lparam: LPARAM,
++    ) -> Option<isize> {
++        if self.handle_keydown_msg(wparam, lparam) != Some(0) {
++            return None;
++        }
++        let mut msg = MSG::default();
++        unsafe {
++            while PeekMessageW(&mut msg, Some(handle), WM_CHAR, WM_DEADCHAR, PM_REMOVE).as_bool() {}
++            while PeekMessageW(&mut msg, Some(handle), WM_SYSCHAR, WM_SYSDEADCHAR, PM_REMOVE)
++                .as_bool()
++            {}
++        }
++        Some(0)
++    }
++
+     fn handle_keyup_msg(&self, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
+         let Some(input) = handle_key_event(wparam, lparam, &self.state, |keystroke, _| {
+             PlatformInput::KeyUp(KeyUpEvent { keystroke })
+diff --git a/crates/gpui_windows/src/gpui_windows.rs b/crates/gpui_windows/src/gpui_windows.rs
+index e7a45a034d..0f2c31b687 100644
+--- a/crates/gpui_windows/src/gpui_windows.rs
++++ b/crates/gpui_windows/src/gpui_windows.rs
+@@ -20,6 +20,9 @@ mod vsync;
+ mod window;
+ mod wrapper;
+ 
++pub use platform::embed;
++pub use window::open_next_window_in;
++
+ pub(crate) use clipboard::*;
+ pub(crate) use destination_list::*;
+ pub(crate) use direct_write::*;
+diff --git a/crates/gpui_windows/src/platform.rs b/crates/gpui_windows/src/platform.rs
+index 095e009e23..32e8217aad 100644
+--- a/crates/gpui_windows/src/platform.rs
++++ b/crates/gpui_windows/src/platform.rs
+@@ -587,6 +587,11 @@ impl Platform for WindowsPlatform {
+         }
+         on_finish_launching();
+ 
++        // An embedder's message loop, such as a browser engine's, dispatches GPUI's messages.
++        if EMBEDDED.load(std::sync::atomic::Ordering::Relaxed) {
++            return;
++        }
++
+         let mut msg = MSG::default();
+         unsafe {
+             while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+@@ -1980,3 +1985,12 @@ mod tests {
+         );
+     }
+ }
++
++pub(crate) static EMBEDDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
++
++/// Lets an embedder that runs the thread's message loop, such as a browser engine, run GPUI:
++/// `Application::run_embedded` returns once GPUI has launched, rather than running a loop of its
++/// own, and windows take their key presses from the embedder's dispatch. Call it before starting.
++pub fn embed() {
++    EMBEDDED.store(true, std::sync::atomic::Ordering::Relaxed);
++}
+diff --git a/crates/gpui_windows/src/window.rs b/crates/gpui_windows/src/window.rs
+index c467101fc8..2297f0db31 100644
+--- a/crates/gpui_windows/src/window.rs
++++ b/crates/gpui_windows/src/window.rs
+@@ -32,6 +32,18 @@ use crate::direct_manipulation::DirectManipulationHandler;
+ use crate::*;
+ use gpui::*;
+ 
++thread_local! {
++    static NEXT_HOST_WINDOW: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
++}
++
++/// Makes the next window GPUI opens a child of `host_window`, an HWND that something else owns,
++/// such as a browser engine, instead of a window of its own. It fills the host's client area when
++/// it opens and has no frame; the host sizes it from then on. The window's options that describe a
++/// top-level window, such as its bounds, kind and title bar, don't apply.
++pub fn open_next_window_in(host_window: *mut std::ffi::c_void) {
++    NEXT_HOST_WINDOW.set(host_window as isize);
++}
++
+ pub(crate) struct WindowsWindow(pub Rc<WindowsWindowInner>);
+ 
+ impl std::ops::Deref for WindowsWindow {
+@@ -489,7 +501,19 @@ impl WindowsWindow {
+                 .unwrap_or(""),
+         );
+ 
+-        let (mut dwexstyle, dwstyle) = if params.kind == WindowKind::PopUp {
++        let host_window = Some(NEXT_HOST_WINDOW.replace(0))
++            .filter(|&host| host != 0)
++            .map(|host| HWND(host as _));
++        let parent_hwnd = host_window.or(parent_hwnd);
++        // A child window leaves its frame, and moving and sizing it, to its host.
++        let hide_title_bar = hide_title_bar && host_window.is_none();
++        let (is_movable, is_resizable, is_minimizable) = if host_window.is_some() {
++            (false, false, false)
++        } else {
++            (params.is_movable, params.is_resizable, params.is_minimizable)
++        };
++
++        let (dwexstyle, dwstyle) = if params.kind == WindowKind::PopUp {
+             (WS_EX_TOOLWINDOW | WS_EX_TOPMOST, WINDOW_STYLE(0x0))
+         } else {
+             let mut dwstyle = WS_SYSMENU;
+@@ -510,6 +534,11 @@ impl WindowsWindow {
+ 
+             (dwexstyle, dwstyle)
+         };
++        let (mut dwexstyle, dwstyle) = if host_window.is_some() {
++            (WINDOW_EX_STYLE(0), WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN)
++        } else {
++            (dwexstyle, dwstyle)
++        };
+         if !disable_direct_composition {
+             dwexstyle |= WS_EX_NOREDIRECTIONBITMAP;
+         }
+@@ -528,9 +557,9 @@ impl WindowsWindow {
+             handle,
+             hide_title_bar,
+             display,
+-            is_movable: params.is_movable,
+-            is_resizable: params.is_resizable,
+-            is_minimizable: params.is_minimizable,
++            is_movable,
++            is_resizable,
++            is_minimizable,
+             min_size: params.window_min_size,
+             executor,
+             current_cursor,
+@@ -546,16 +575,25 @@ impl WindowsWindow {
+             draw_coordinator,
+             parent_hwnd,
+         };
++        // A child window fills its host's client area.
++        let (x, y, width, height) = match host_window {
++            Some(host) => {
++                let mut client = RECT::default();
++                unsafe { GetClientRect(host, &mut client)? };
++                (0, 0, client.right, client.bottom)
++            }
++            None => (CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT),
++        };
+         let creation_result = unsafe {
+             CreateWindowExW(
+                 dwexstyle,
+                 WINDOW_CLASS_NAME,
+                 &window_name,
+                 dwstyle,
+-                CW_USEDEFAULT,
+-                CW_USEDEFAULT,
+-                CW_USEDEFAULT,
+-                CW_USEDEFAULT,
++                x,
++                y,
++                width,
++                height,
+                 parent_hwnd,
+                 None,
+                 Some(hinstance.into()),
+@@ -570,6 +608,12 @@ impl WindowsWindow {
+         let this = this.unwrap();
+ 
+         register_drag_drop(&this)?;
++        if host_window.is_some() {
++            if params.show {
++                unsafe { _ = ShowWindow(hwnd, SW_SHOWNA) };
++            }
++            return Ok(Self(this));
++        }
+         set_non_rude_hwnd(hwnd, true);
+         configure_dwm_dark_mode(hwnd, appearance);
+         this.state.border_offset.update(hwnd)?;
