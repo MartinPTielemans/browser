@@ -413,8 +413,8 @@ fn the_engine_row_turns_safaris_engine_off(cx: &mut TestAppContext) {
     assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", &format!("set {TAB} {WINDOWS} Block")]);
 }
 
-/// A site the core offers Safari's engine for, as a page asked for what it plays or the user closed
-/// the site's note, lists it off, and its menu's On turns it on, as the note's button does; Off,
+/// A site the core offers Safari's engine for, as a page asked for what it plays, or the user closed
+/// the site's note or turned it off, lists it off, and its menu's On turns it on, as the note's button does; Off,
 /// which it is, does nothing. The core then reports the site kept, and the row says On.
 #[gpui::test]
 fn the_engine_row_offers_safaris_engine(cx: &mut TestAppContext) {
@@ -431,6 +431,21 @@ fn the_engine_row_offers_safaris_engine(cx: &mut TestAppContext) {
     panel.host.answer.set(None);
     panel.click(row(0));
     assert_eq!(panel.calls(), ["menu On*, Off"]);
+}
+
+/// A site turned off stays offered, as the core reports it after Off, so On brings it back.
+#[gpui::test]
+fn after_off_the_engine_row_offers_on(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, Site { system_engine: Some(true), ..site() });
+    panel.calls();
+    panel.host.answer.set(Some(1));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On*, Off", &format!("system engine {TAB} false")]);
+    panel.changed(Site { system_engine: Some(false), ..site() });
+    panel.calls();
+    panel.host.answer.set(Some(0));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On, Off*", &format!("system engine {TAB} true")]);
 }
 
 /// A site the core neither keeps nor offers Safari's engine for has no row for it: its first row is

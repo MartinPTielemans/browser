@@ -240,7 +240,7 @@ void SiteControls::Read() {
   Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
   system_engine_ = system_engine::Remembered(profile, url);
   // Where the protected-media note's button would show the page there: a page of the tab asked,
-  // or the user closed the site's note, which this is the way back from.
+  // or the user closed the site's note or turned the site off, which this is the way back from.
   system_engine_offered_ =
       !system_engine_ && !page && system_engine::Allowed(tab_) &&
       (MediaUnsupported(web_contents()) || system_engine::NoteClosed(profile, url));
