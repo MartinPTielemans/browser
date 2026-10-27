@@ -264,7 +264,7 @@ impl Shell {
     /// line marks the place, in the pinned tabs or Today, nearest where it's drawn. Where that's
     /// at the end of folders or after one, the pointer moved right takes it into them, a row in for
     /// each FOLDER_INDENT. A split view's row stays in the list, and a folder's in the pinned tabs.
-    fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+    pub(super) fn drag_to(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
         let Some(drag) = self.drag.as_ref().filter(|drag| !drag.dropped && !drag.held) else {
             return;
         };
@@ -611,6 +611,7 @@ impl Shell {
         let tiles = self.drawn();
         self.move_rows(self.layout(), Curve::Slide);
         self.drag = None;
+        self.retip = true;
         self.move_tiles(tiles, Curve::Slide);
     }
 
@@ -637,6 +638,7 @@ impl Shell {
             return false;
         }
         self.drag = None;
+        self.retip = true;
         true
     }
 

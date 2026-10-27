@@ -2,10 +2,10 @@
 
 use std::rc::Rc;
 
-use gpui::{Modifiers, TestAppContext, VisualTestContext};
+use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
 
 use crate::{
-    shell::{Shell, recorder::Recorder},
+    shell::{Folders, Row, Shell, TILE_HEIGHT, recorder::Recorder},
     tooltip::{Anchor, GAP, place},
 };
 
@@ -85,4 +85,60 @@ fn a_narrow_sidebars_tiles_hang_from_their_own_middles(cx: &mut TestAppContext) 
         let (anchor, middle) = hover_tile(&shell, cx, &host, tab);
         assert_eq!((anchor.x, anchor.bottom), (middle, bottom), "tile {tab}");
     }
+}
+
+/// A drawn shell with the favorite 10, Docs, and the Today tabs 1 and 2.
+fn with_docs(
+    cx: &mut TestAppContext,
+) -> (gpui::Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![(1, "Work".into(), None, 0, "".into(), "".into())], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, Vec::new(), vec![1, 2], Vec::new(), Folders::default(), cx);
+        shell.set_favorites(vec![(10, 0)], cx);
+        shell.set_title(10, "Docs".into(), cx);
+    });
+    cx.run_until_parked();
+    (shell, cx, host)
+}
+
+/// A drop that leaves the pointer on a tile, which the drag had it hover, gives the tile's
+/// tooltip once the tile has settled: no hover change comes to ask for it, and not before, as
+/// a tile still sliding would hang it from where the tile was.
+#[gpui::test]
+fn a_tile_under_the_pointer_after_a_drag_names_itself(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_docs(cx);
+    let (x, y) = shell.update(cx, |shell, _| {
+        let [left, top, width] = shell.tile_places(1)[0];
+        (left + width / 2., shell.tiles_top() + top + TILE_HEIGHT / 2.)
+    });
+    shell.update(cx, |shell, _| shell.press_tile(10, point(px(x), px(y))));
+    shell.update(cx, |shell, cx| shell.drag_to(point(px(x), px(y + 30.)), cx));
+    assert!(shell.read_with(cx, |shell, _| shell.dragging().is_some()));
+    // The tile is hovered under the drag, which keeps its tooltip.
+    shell.update(cx, |shell, cx| shell.hover(Row::Tab(10), true, cx));
+    cx.run_until_parked();
+    assert!(!host.take().iter().any(|call| call.starts_with("tooltip Docs")));
+
+    shell.update(cx, |shell, cx| {
+        assert!(shell.cancel_drag(cx));
+        // Its tile is still sliding home.
+        shell.tile_slides.insert(10, ([0.; 3], std::time::Instant::now(), crate::shell::Curve::Slide));
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert!(!host.take().iter().any(|call| call.starts_with("tooltip Docs")), "while it slides");
+
+    shell.update(cx, |shell, cx| {
+        shell.tile_slides.clear();
+        cx.notify();
+    });
+    cx.run_until_parked();
+    assert_eq!(host.take().iter().filter(|call| call.starts_with("tooltip Docs")).count(), 1);
+    shell.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    assert!(!host.take().iter().any(|call| call.starts_with("tooltip Docs")), "only once");
 }
