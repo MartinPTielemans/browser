@@ -269,7 +269,8 @@ exec 4>&-
 wait "$network" || fail "DevTools' session ended badly: $(cat "$out/network.log")"
 
 # chrome://dino opens the offline page, and ⌘L stays the browser's over a run, since the page
-# keeps only Space and ↑.
+# keeps only Space and ↑. The command bar takes the keys, which ends the run while it's open, well
+# before an untouched run ends at the first column, 2.4 s in.
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send insert "chrome://dino"
@@ -280,9 +281,16 @@ send key space
 expect "browser: tab $tab game running\$" "Space didn't start a run at chrome://dino"
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar over a run"
+expect "browser: tab $tab game over\$" "the run at chrome://dino didn't end with the command bar open"
+# Chromium's prefix has the time of day, hhmmss.micro, after the date.
+run="$(grep -E "browser: tab $tab game (running|over)\$" "$log" | tail -2 |
+  sed -E 's|^[^/]*/([0-9]{2})([0-9]{2})([0-9.]+):.*|\1 \2 \3|' |
+  awk '{ t = $1 * 3600 + $2 * 60 + $3 } NR == 2 { printf "%.2f", t - last } { last = t }')"
+awk -v run="$run" 'BEGIN { exit !(run != "" && run < 2) }' ||
+  fail "the run at chrome://dino lasted ${run:-?} s: the command bar didn't end it"
 send key escape
-expect "browser: tab $tab game over\$" "the run at chrome://dino didn't end"
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
 
 quit_by_key
 exited
-echo "ok: a page that stops answering gets Not responding with Wait and Reload and goes by itself once it answers, Wait gives it longer and Reload ends its renderer and loads it again without the crash card, a dead page's pane shows This page stopped, whose Reload loads it again, a tab behind whose renderer dies is unloaded and loads once shown, a host that doesn't resolve shows the core's error page and a refused page loads by itself once its server comes. Offline, Space starts the game and a click doesn't, a page whose network comes back mid-run loads only once the run ends, chrome://dino opens it, and ⌘L opens the bar over a run. Windows: $out/hung.png, $out/crashed.png, $out/network-error.png, $out/offline.png, $out/offline-game.png"
+echo "ok: a page that stops answering gets Not responding with Wait and Reload and goes by itself once it answers, Wait gives it longer and Reload ends its renderer and loads it again without the crash card, a dead page's pane shows This page stopped, whose Reload loads it again, a tab behind whose renderer dies is unloaded and loads once shown, a host that doesn't resolve shows the core's error page and a refused page loads by itself once its server comes. Offline, Space starts the game and a click doesn't, a page whose network comes back mid-run loads only once the run ends, chrome://dino opens it, and ⌘L opens the bar over a run, which ends it. Windows: $out/hung.png, $out/crashed.png, $out/network-error.png, $out/offline.png, $out/offline-game.png"
