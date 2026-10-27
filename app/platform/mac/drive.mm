@@ -271,12 +271,17 @@ void Convert(NSWindow* from, NSWindow* to, double* x, double* y) {
 // The window of the app's that the pointer at (x, y) in |browser| is over, as the window server
 // picks it: the top one there, such as the sidebar reveal over the browser window's edge. A window
 // that clicks pass through, such as the command bar's shadow, is skipped, as the server skips it.
+// Another app's window is skipped too, such as a notification over the top right corner, since the
+// driver posts only to the app's own windows.
 NSWindow* WindowAt(NSWindow* browser, double x, double y) {
   NSPoint screen = [browser convertPointToScreen:NSMakePoint(x, NSHeight(browser.frame) - y)];
   NSInteger number = 0;
   while ((number = [NSWindow windowNumberAtPoint:screen belowWindowWithWindowNumber:number])) {
     NSWindow* window = [NSApp windowWithWindowNumber:number];
-    if (!window || !window.visible) {
+    if (!window) {
+      continue;
+    }
+    if (!window.visible) {
       break;
     }
     if (!window.ignoresMouseEvents) {
