@@ -243,6 +243,13 @@ pub trait Browser {
     fn watch_control(&self, cx: &mut App);
     /// Puts `text` on the clipboard.
     fn copy(&self, text: &str, cx: &mut App);
+    /// Whether the platform can open a page in Safari, which plays the protected video ilo can't.
+    /// Where it can't, the UI offers no button for it.
+    fn can_open_in_safari(&self) -> bool {
+        false
+    }
+    /// Opens `url` in Safari, leaving the tab as it is.
+    fn open_in_safari(&self, _url: &str, _cx: &mut App) {}
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
     /// words after it if there's a key.
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);
