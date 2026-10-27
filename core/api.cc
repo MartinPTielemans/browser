@@ -14,6 +14,7 @@
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
 #include "browser_core/downloads.h"
+#include "browser_core/drm_request.h"
 #include "browser_core/extensions.h"
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
@@ -753,6 +754,12 @@ bool bc_tab_set_system_engine(bc_id id, bool on) {
   browser_core::system_engine::Forget(profile, url);
   browser_core::system_engine::ReturnToChromium(profile, url);
   return true;
+}
+
+void bc_tab_close_media_note(bc_id id) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::CloseMediaNote(contents);
+  }
 }
 
 void bc_tab_stop(bc_id id) {

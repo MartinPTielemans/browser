@@ -32,6 +32,8 @@ pub(super) const BUTTONS_TOP: f32 = 12.;
 const CLOSE: f32 = 22.;
 const CLOSE_INSET: f32 = 7.;
 const CLOSE_GLYPH: f32 = 12.;
+/// The room a card's first line leaves for its ×.
+pub(super) const BESIDE_CLOSE: f32 = CLOSE + CLOSE_INSET - PADDING;
 
 /// What a tab's page asks, as the core reports it.
 #[derive(Clone, PartialEq, Debug)]
@@ -91,26 +93,15 @@ impl Shell {
             card_button(id, label)
                 .on_click(cx.listener(move |shell, _, _, cx| shell.answer(answer, cx)))
         };
-        let close = div()
-            .id("question-close")
-            .absolute()
-            .top(px(CLOSE_INSET))
-            .right(px(CLOSE_INSET))
-            .size(px(CLOSE))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(NAV_RADIUS))
-            .hover(|style| style.bg(rgba(NAV_HOVERED)))
-            .on_click(cx.listener(|shell, _, _, cx| shell.answer(Answer::Dismiss, cx)))
-            .child(svg().path("icons/x.svg").size(px(CLOSE_GLYPH)).text_color(rgba(NAV)));
+        let close = card_close("question-close")
+            .on_click(cx.listener(|shell, _, _, cx| shell.answer(Answer::Dismiss, cx)));
         let listener = card_listener("question", &self.question_drawn, self.selected);
         Some(
             self.plate("question")
                 .child(listener)
                 .child(
                     div()
-                        .pr(px(CLOSE + CLOSE_INSET - PADDING))
+                        .pr(px(BESIDE_CLOSE))
                         .text_color(rgba(TITLE))
                         .font_weight(FontWeight::MEDIUM)
                         // Kept together, so "to" doesn't wrap alone under a long site.
@@ -130,6 +121,22 @@ impl Shell {
                 .child(close),
         )
     }
+}
+
+/// A card's ×, in its top corner, its glyph's edge on the text's.
+pub(super) fn card_close(id: &'static str) -> Stateful<Div> {
+    div()
+        .id(id)
+        .absolute()
+        .top(px(CLOSE_INSET))
+        .right(px(CLOSE_INSET))
+        .size(px(CLOSE))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(NAV_RADIUS))
+        .hover(|style| style.bg(rgba(NAV_HOVERED)))
+        .child(svg().path("icons/x.svg").size(px(CLOSE_GLYPH)).text_color(rgba(NAV)))
 }
 
 /// A button on a card, as wide as its share of the row, as tall as a line of text and a half, and

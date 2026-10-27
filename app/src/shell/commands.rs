@@ -13,7 +13,7 @@ use gpui::{
 use super::{
     COPIED_TIME, Edit, Section, Shell, Swapped, UserKeys, What,
     browser::WindowButton,
-    clean_link, extensions, keys,
+    clean_link, drm_note, extensions, keys,
     panes::pane_frames,
     swap::{CHECK, LINK},
     user_keys,
@@ -628,6 +628,7 @@ pub fn bind_keys(cx: &mut App) {
         }
     });
     extensions::bind(cx);
+    drm_note::bind(cx);
 }
 
 /// The command bar is about to show a page in the pane being added, if one is: the pages shown take
