@@ -14,6 +14,7 @@
 #include "base/logging.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/scoped_observation.h"
@@ -162,8 +163,32 @@ void ApplyOffSites(Profile* profile, const extensions::Extension& extension) {
       &extension, sites, extensions::PermissionsData::GetDefaultPolicyAllowedHosts(context));
 }
 
-// Follows it in a profile: Chrome sets its permissions afresh each time it loads, and a profile
-// made with ad blocking off everywhere has to turn it off.
+// Loads it into |profile| from the framework's resources, as --load-extension would: synchronously,
+// and kept for this launch only, so the next one loads the version the browser comes with then.
+void Load(Profile* profile) {
+  base::FilePath resources;
+  if (!base::PathService::Get(base::DIR_ASSETS, &resources)) {
+    return;
+  }
+  scoped_refptr<extensions::UnpackedInstaller> installer =
+      extensions::UnpackedInstaller::Create(profile);
+  // Chrome's dialog for a failure is Chrome's UI, and a build without it, as a spike's, just logs.
+  installer->set_be_noisy_on_failure(false);
+  // Its own instance in private windows ("incognito": "split"), even if the user took it away
+  // there in Chrome's extensions page.
+  installer->set_allow_incognito_access(true);
+  std::string id;
+  if (installer->LoadFromCommandLine(resources.Append(FILE_PATH_LITERAL("ublock")), &id,
+                                     /*only_allow_apps=*/false) &&
+      id != kId) {
+    LOG(ERROR) << "uBlock Origin loaded as " << id << ", not " << kId
+               << ": its manifest lacks app/ublock.ini's key";
+  }
+}
+
+// Follows it in a profile: Chrome sets its permissions afresh each time it loads, a profile made
+// with ad blocking off everywhere has to turn it off, and it has to be loaded again when it reloads
+// itself.
 class Follower : public extensions::ExtensionRegistryObserver {
  public:
   explicit Follower(Profile* profile) : profile_(profile) {
@@ -183,12 +208,38 @@ class Follower : public extensions::ExtensionRegistryObserver {
           FROM_HERE, base::BindOnce(&ApplyAdBlocking));
     }
   }
+  void OnExtensionInstalled(content::BrowserContext* browser_context,
+                            const extensions::Extension* extension,
+                            bool is_update) override {
+    if (extension->id() != kId) {
+      return;
+    }
+    if (extension->location() != extensions::mojom::ManifestLocation::kCommandLine) {
+      // It reloads itself as it first starts in a profile, and when the user restores or resets its
+      // settings. Chrome loads it back as one from its extensions page, which its policy turns off
+      // while developer mode is, so it would block nothing until the next launch. Not inside the
+      // registry's notification.
+      reloaded_ = true;
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE, base::BindOnce(&Follower::LoadAgain, weak_factory_.GetWeakPtr()));
+    } else if (std::exchange(reloaded_, false)) {
+      // Loaded again, it keeps the reason Chrome turned it off for, which the user's setting
+      // clears.
+      base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+          FROM_HERE, base::BindOnce(&ApplyAdBlocking));
+    }
+  }
   void OnShutdown(extensions::ExtensionRegistry* registry) override;
 
  private:
+  void LoadAgain() { Load(profile_); }
+
   const raw_ptr<Profile> profile_;
+  // Whether it reloaded itself and hasn't been loaded again since.
+  bool reloaded_ = false;
   base::ScopedObservation<extensions::ExtensionRegistry, extensions::ExtensionRegistryObserver>
       observation_{this};
+  base::WeakPtrFactory<Follower> weak_factory_{this};
 };
 
 std::map<Profile*, std::unique_ptr<Follower>>& Followers() {
@@ -201,29 +252,13 @@ void Follower::OnShutdown(extensions::ExtensionRegistry* registry) {
   Followers().erase(profile_);
 }
 
-// Loads it into |profile| from the framework's resources, as --load-extension would: synchronously,
-// once its saved extensions have loaded, and kept for this launch only, so the next one loads the
-// version the browser comes with then.
+// Loads it into |profile| once its saved extensions have loaded, and follows it there.
 void LoadInto(Profile* profile) {
-  base::FilePath resources;
-  if (profile->IsOffTheRecord() || !base::PathService::Get(base::DIR_ASSETS, &resources)) {
+  if (profile->IsOffTheRecord()) {
     return;
   }
   Followers()[profile] = std::make_unique<Follower>(profile);
-  scoped_refptr<extensions::UnpackedInstaller> installer =
-      extensions::UnpackedInstaller::Create(profile);
-  // Chrome's dialog for a failure is Chrome's UI, and a build without it, as a spike's, just logs.
-  installer->set_be_noisy_on_failure(false);
-  // Its own instance in private windows ("incognito": "split"), even if the user took it away
-  // there in Chrome's extensions page.
-  installer->set_allow_incognito_access(true);
-  std::string id;
-  if (installer->LoadFromCommandLine(resources.Append(FILE_PATH_LITERAL("ublock")), &id,
-                                     /*only_allow_apps=*/false) &&
-      id != kId) {
-    LOG(ERROR) << "uBlock Origin loaded as " << id << ", not " << kId
-               << ": its manifest lacks app/ublock.ini's key";
-  }
+  Load(profile);
 }
 
 }  // namespace
