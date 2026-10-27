@@ -100,9 +100,13 @@ impl Shell {
     }
 
     /// Shows the dialog of the tab shown over its card, from the window's draw, or takes back the
-    /// one shown once its tab no longer shows or its page no longer asks.
+    /// one shown once its tab no longer shows or its page no longer asks. A tab showing its page in
+    /// Safari's engine keeps Chromium's dialog back, as its page isn't the one that asks, until the
+    /// tab is back in Chromium.
     pub(super) fn show_page_dialog(&mut self, cx: &mut Context<Self>) {
-        let wanted = match (self.page_dialogs.get(&self.selected), self.page_laid) {
+        let asked = self.page_dialogs.get(&self.selected);
+        let asked = asked.filter(|_| !self.page(self.selected).system_engine);
+        let wanted = match (asked, self.page_laid) {
             (Some(dialog), Some(over)) => Some((self.selected, dialog.clone(), over)),
             _ => None,
         };
