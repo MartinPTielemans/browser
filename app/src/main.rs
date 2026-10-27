@@ -17,8 +17,8 @@ use browser::{
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, SidePanel,
-    Split, Trouble, WindowButton,
+    ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, PagePicture, Shell,
+    SidePanel, Split, Trouble, WindowButton,
 };
 use browser::text_input::{
     Chosen, Copy, Cut, FieldMenu, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
@@ -961,13 +961,24 @@ unsafe extern "C" fn tab_captured(
     // check.sh reads this line.
     log!("browser: tab {tab} captured {request}: {width}x{height}, {size} bytes");
     let png = (!png.is_null()).then(|| unsafe { std::slice::from_raw_parts(png, size) }.to_vec());
-    // A window's picture of a page another window shows, not capture mode's.
-    if shell::is_picture(request) {
-        browser::log_handover("picture in", &format!("tab {tab}, {size} bytes"));
-        update_shells(|shell, cx| shell.page_pictured(request, png.clone(), cx));
-        return;
-    }
     update_app_later(move |cx| capture::captured(tab, request, png, cx));
+}
+
+unsafe extern "C" fn tab_pictured(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    request: u64,
+    bgra: *const u8,
+    width: i32,
+    height: i32,
+) {
+    browser::log_handover("picture in", &format!("tab {tab}, {width}x{height}"));
+    let (width, height) = (width.max(0) as u32, height.max(0) as u32);
+    let size = width as usize * height as usize * 4;
+    let picture = (!bgra.is_null() && size > 0)
+        .then(|| unsafe { std::slice::from_raw_parts(bgra, size) }.to_vec())
+        .and_then(|bgra| PagePicture::from_bgra(bgra, width, height));
+    update_shells(|shell, cx| shell.page_pictured(request, picture.clone(), cx));
 }
 
 /// The zoom HUD's requests, to the host's HUD window, over the browser window it names.
@@ -1965,12 +1976,7 @@ impl Browser for Engine {
 
     fn page_picture(&self, tab: u64, request: u64, _: &mut App) {
         // The page's whole view, which is the shape it has where it's live; the card fits it.
-        let whole = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
-        unsafe { bc::bc_tab_capture(tab, request, false, whole) };
-    }
-
-    fn page_picture_end(&self, tab: u64, _: &mut App) {
-        unsafe { bc::bc_tab_capture_end(tab) };
+        unsafe { bc::bc_tab_picture(tab, request) };
     }
 
     fn window(&self) -> u64 {
@@ -3978,6 +3984,7 @@ fn main() {
         tab_element_box: Some(tab_element_box),
         tab_link_target: Some(tab_link_target),
         tab_captured: Some(tab_captured),
+        tab_pictured: Some(tab_pictured),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
