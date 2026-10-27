@@ -451,7 +451,10 @@ bool DeleteProfile(bc_id profile) {
       DirOf(loaded) == dir && loaded->HasPrimaryOTRProfile()) {
     return false;
   }
-  // Let go first: Chrome deletes it once it's unloaded.
+  // Let go first: Chrome deletes it once it's unloaded, and a window may have built on it.
+  if (Profile* loaded = ProfileFor(dir); DirOf(loaded) == dir) {
+    Window::LetProfileGo(loaded);
+  }
   Used().erase(dir);
   manager->GetDeleteProfileHelper().MaybeScheduleProfileForDeletion(
       PathOf(dir), base::DoNothing(), ProfileMetrics::DELETE_PROFILE_SETTINGS);

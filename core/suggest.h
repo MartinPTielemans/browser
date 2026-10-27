@@ -8,6 +8,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "browser_core/public/browser_core.h"
+#include "chrome/browser/profiles/profile_observer.h"
 #include "components/omnibox/browser/autocomplete_controller.h"
 #include "url/gurl.h"
 
@@ -18,8 +19,9 @@ namespace browser_core {
 
 // A window's command bar suggestions: what Chrome's address bar lists for the text typed, from the
 // profile's history, bookmarks and search engines. Nothing is asked of the search engine, since
-// ungoogled-chromium turns search suggestions off, so what's typed stays on the device.
-class Suggestions : public AutocompleteController::Observer {
+// ungoogled-chromium turns search suggestions off, so what's typed stays on the device. Built on
+// the profile, so the window lets it go before it lets the profile go (Window::LetProfileGo).
+class Suggestions : public AutocompleteController::Observer, public ProfileObserver {
  public:
   Suggestions(bc_id window, Profile* profile);
   Suggestions(const Suggestions&) = delete;
@@ -41,6 +43,10 @@ class Suggestions : public AutocompleteController::Observer {
   // AutocompleteController::Observer:
   void OnResultChanged(AutocompleteController* controller, bool default_match_changed) override;
 
+  // ProfileObserver: Chrome tells this before it destroys the profile, even when it then waits for
+  // the profile's pages, so a window that let it go too late fails here in every build.
+  void OnProfileWillBeDestroyed(Profile* profile) override;
+
   // Tells the app from a task of its own, so a burst of changes is one call, and none comes during
   // the app's call that made them.
   void Changed();
@@ -55,6 +61,7 @@ class Suggestions : public AutocompleteController::Observer {
   bool report_posted_ = false;
   base::ScopedObservation<AutocompleteController, AutocompleteController::Observer> observation_{
       this};
+  base::ScopedObservation<Profile, ProfileObserver> profile_observation_{this};
   base::WeakPtrFactory<Suggestions> weak_factory_{this};
 };
 

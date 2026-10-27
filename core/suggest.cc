@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "base/functional/bind.h"
+#include "base/notreached.h"
 #include "base/strings/escape.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
@@ -93,9 +94,14 @@ Suggestions::Suggestions(bc_id window, Profile* profile)
       controller_(std::make_unique<ChromeAutocompleteProviderClient>(profile),
                   AutocompleteControllerConfig{.provider_types = kProviders}) {
   observation_.Observe(&controller_);
+  profile_observation_.Observe(profile);
 }
 
 Suggestions::~Suggestions() = default;
+
+void Suggestions::OnProfileWillBeDestroyed(Profile* profile) {
+  NOTREACHED() << "browser: window " << window_ << "'s suggestions outlived their profile";
+}
 
 void Suggestions::Start(const std::u16string& keyword,
                         const std::u16string& text,
