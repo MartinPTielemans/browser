@@ -563,7 +563,8 @@ expect '^browser: window opened [0-9]' "⌘N didn't open a window"
 other=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
 send window 1
 post rightclick 131 $dots_y
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $empty_profile, Delete Space\$" \
+# ⌘Z brought the Space back with its theme.
+expect "^browser: menu shown Rename Space, Change Icon…, $themed, $empty_profile, Delete Space\$" \
   "a right-click on a dot in the first window didn't show its Space's menu"
 send choose Delete Space
 expect "^browser: spaces $first\$" "Delete in the first window didn't delete the Space"
