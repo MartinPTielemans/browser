@@ -237,12 +237,14 @@ const TILE_RADIUS: f32 = 10.;
 const TALL_FAVORITES: f32 = 0.4;
 // The Space's name, over its tabs.
 const NAME_HEIGHT: f32 = 44.;
-// Arc's name starts at 41, 2 pt before its titles at 43 (ax): measured, so it stays off the tab
-// column.
+// The name's left edge. After an icon it's Arc's 41, 2 pt before its titles at 43 (ax, measured on
+// a Space with an icon). With none, nothing stands in the icon column, so the name starts on it, at
+// the favicons' left edge (ours).
 const NAME_X: f32 = 41.;
+const ICONLESS_NAME_X: f32 = FAVICON_X + (FAVICON_SIZE - FAVICON_DRAWN) / 2.;
 // A Space's icon before its name. Arc's frame is 26 wide at x 13, centred on its favicons' (ax),
-// so ours is centred there too; its size and look are *interim*, as Arc's isn't recorded. The name
-// stays at 41 with or without one, so none moves when a Space gets one. The emoji is a tab's size,
+// so ours is centred there too; its size and look are *interim*, as Arc's isn't recorded. The emoji
+// is a tab's size,
 // so it sits on the name's cap height as a tab's does on its title; bigger, it outweighed the name
 // and sat below its middle.
 const SPACE_ICON_SLOT: f32 = 20.;
@@ -2729,6 +2731,7 @@ impl Shell {
             )
         };
         let (plus, new_tab) = new_tab_label();
+        let icon = space_icon(&space.icon);
         let (pinned, today) = space.rows();
         let room = self.tiles_room();
         div()
@@ -2737,8 +2740,8 @@ impl Shell {
             .flex_col()
             .when(room > 0., |page| page.child(div().flex_none().h(px(room))))
             .child(
-                name_box()
-                    .children(space_icon(&space.icon))
+                name_box(icon.is_some())
+                    .children(icon)
                     .child(div().truncate().child(space.name.clone())),
             )
             .children(pinned.into_iter().map(row))
@@ -3078,14 +3081,15 @@ fn row_box() -> gpui::Div {
         .py(px((ROW_HEIGHT - PLATE_HEIGHT) / 2.))
 }
 
-/// The row with the Space's name, over its tabs.
-fn name_box() -> gpui::Div {
+/// The row with the Space's name, over its tabs, with room before the name for the Space's icon if
+/// it has one.
+fn name_box(icon: bool) -> gpui::Div {
     div()
         .flex_none()
         .h(px(NAME_HEIGHT))
         .flex()
         .items_center()
-        .pl(px(NAME_X))
+        .pl(px(if icon { NAME_X } else { ICONLESS_NAME_X }))
         .pr(px(FAVICON_X))
         .text_size(px(13.))
         .font_weight(FontWeight::SEMIBOLD)
