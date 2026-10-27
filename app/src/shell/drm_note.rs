@@ -4,15 +4,16 @@
 //! in the tab, and the profile keeps the site for it: its pages open there from then on, with no
 //! note, until the Site Controls turn it off (decision 1). Where the Mac has no engine to give, on
 //! macOS 13, and in an agent's Space, whose tabs never switch, it opens the page in Safari instead
-//! and leaves the tab as it is. There's nothing to dismiss: the site's own error stays in the page,
-//! and this says why. Agents get no path: it hands the user's page to another engine or app. The
-//! core reports it (tab_media_unsupported).
+//! and leaves the tab as it is. Its ×, shown under the pointer, and escape while the UI has the
+//! keyboard close it for the tab until the tab goes to another site, and a page there asking brings
+//! it back; the site's own error stays in the page. Agents get no path: it hands the user's page to
+//! another engine or app. The core reports it (tab_media_unsupported).
 
-use gpui::{Context, FontWeight, SharedString, div, prelude::*, px, rgba};
+use gpui::{App, Context, FontWeight, KeyBinding, SharedString, actions, div, prelude::*, px, rgba};
 
 use super::{
-    Shell, TITLE,
-    permission::{BUTTONS_TOP, card_button, card_listener},
+    KEY_CONTEXT, Shell, ShellHandle, TITLE,
+    permission::{BESIDE_CLOSE, BUTTONS_TOP, card_button, card_close, card_listener},
 };
 
 /// Ours, as neither Arc nor Dia has protected media to explain: short and plain. It says the video
@@ -28,12 +29,32 @@ const OPEN: &str = "Open in Safari";
 /// A private window's page leaves it for Safari's own window, which keeps history.
 const OPEN_PRIVATE: &str = "Open in Safari, not private";
 
+actions!(drm_note, [CloseNote]);
+
+/// Escape while the UI has the keyboard, over Stop's, which it falls through to unless it closes
+/// the note. The page keeps its own escape, which reaches Stop if it hands it back.
+pub(super) fn escape_binding() -> KeyBinding {
+    KeyBinding::new("escape", CloseNote, Some(KEY_CONTEXT))
+}
+
+pub(super) fn bind(cx: &mut App) {
+    cx.bind_keys([escape_binding()]);
+    cx.on_action(|_: &CloseNote, cx| {
+        let shell = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone());
+        let closed = shell.and_then(|shell| shell.update(cx, Shell::escape_drm_note).ok());
+        if !closed.unwrap_or(false) {
+            cx.propagate();
+        }
+    });
+}
+
 impl Shell {
     /// The core reports the protected-media key system `tab`'s page asked for that ilo can't play,
     /// or that there's no note any more (empty).
     pub fn set_media_unsupported(&mut self, tab: u64, key_system: &str, cx: &mut Context<Self>) {
         let changed = match key_system.is_empty() {
-            true => self.drm_notes.remove(&tab).is_some(),
+            // The tab is at another site, or in Safari's engine: a note there is a new one.
+            true => self.drm_closed.remove(&tab) | self.drm_notes.remove(&tab).is_some(),
             false => self.drm_notes.insert(tab, key_system.to_owned().into()).as_deref()
                 != Some(key_system),
         };
@@ -42,11 +63,35 @@ impl Shell {
         }
     }
 
-    /// The key system behind the note of the tab shown, if its page needs one. A page's question
-    /// takes the note's place until it's answered, as both hang from the same place.
+    /// The key system behind the note of the tab shown, if its page needs one and the user hasn't
+    /// closed it. A page's question takes the note's place until it's answered, as both hang from
+    /// the same place.
     pub(super) fn drm_note(&self) -> Option<&SharedString> {
         let playing = self.page(self.selected).system_engine;
-        self.drm_notes.get(&self.selected).filter(|_| !playing && self.question().is_none())
+        let hidden = playing || self.drm_closed.contains(&self.selected);
+        self.drm_notes.get(&self.selected).filter(|_| !hidden && self.question().is_none())
+    }
+
+    /// Closes the note of the tab shown, until the tab goes to another site.
+    fn close_drm_note(&mut self, cx: &mut Context<Self>) {
+        if self.drm_note().is_none() {
+            return;
+        }
+        // check.sh reads this line.
+        log!("browser: drm note {} closed", self.selected);
+        self.drm_closed.insert(self.selected);
+        cx.notify();
+    }
+
+    /// Escape closes the note when it's what the sidebar shows in front, and says whether it did.
+    fn escape_drm_note(&mut self, cx: &mut Context<Self>) -> bool {
+        let shown = !self.sidebar_hidden || self.revealed;
+        let in_front = shown && self.library.is_none() && self.form().is_none();
+        if !in_front || self.drm_note().is_none() {
+            return false;
+        }
+        self.close_drm_note(cx);
+        true
     }
 
     /// Whether the note's button shows the page in Safari's engine, in the tab: where the Mac has
@@ -79,7 +124,10 @@ impl Shell {
     ) -> Option<impl IntoElement + use<>> {
         if self.drm_note().is_none() {
             // Drawn again, it's logged again.
-            self.drm_drawn.set(None);
+            if self.drm_drawn.take().is_some() {
+                // check.sh waits for this line.
+                log!("browser: drm note hidden");
+            }
             return None;
         }
         let switch = self.can_switch();
@@ -97,11 +145,26 @@ impl Shell {
             })
         };
         let words = if switch { SWITCH_WORDS } else { WORDS };
+        // Shown under the pointer, as a row's ×, and always to VoiceOver's cursor, which is no
+        // pointer. It takes clicks either way, as the pointer is over the card to click it.
+        let close = card_close("drm-note-close")
+            .when(!self.a11y, |close| {
+                close.opacity(0.).group_hover("drm-note", |style| style.opacity(1.))
+            })
+            .on_click(cx.listener(|shell, _, _, cx| shell.close_drm_note(cx)));
         Some(
             self.plate("drm-note")
+                .group("drm-note")
                 .child(card_listener("drm note", &self.drm_drawn, self.selected))
-                .child(div().text_color(rgba(TITLE)).font_weight(FontWeight::MEDIUM).child(words))
-                .children(button.map(|button| div().mt(px(BUTTONS_TOP)).flex().child(button))),
+                .child(
+                    div()
+                        .pr(px(BESIDE_CLOSE))
+                        .text_color(rgba(TITLE))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(words),
+                )
+                .children(button.map(|button| div().mt(px(BUTTONS_TOP)).flex().child(button)))
+                .child(close),
         )
     }
 }
@@ -112,7 +175,7 @@ mod tests {
 
     use gpui::{AppContext, TestAppContext};
 
-    use crate::shell::{Folders, Page, Question, Shell, recorder::Recorder};
+    use crate::shell::{Folders, Page, Question, Shell, bind_keys, recorder::Recorder};
 
     fn window_with_tabs(cx: &mut TestAppContext) -> (gpui::Entity<Shell>, Rc<Recorder>) {
         let host = Rc::new(Recorder::default());
@@ -223,5 +286,73 @@ mod tests {
         assert_eq!(host.take(), ["open in safari https://www.netflix.com/browse"]);
         // The tab keeps its page and its note.
         shell.update(cx, |shell, _| assert!(shell.drm_note().is_some()));
+    }
+
+    #[gpui::test]
+    fn closing_the_note_hides_it_for_that_tab_only(cx: &mut TestAppContext) {
+        let (shell, _) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            shell.set_media_unsupported(11, "com.widevine.alpha", cx);
+            shell.close_drm_note(cx);
+            assert!(shell.drm_note().is_none());
+            shell.set_selected(11, cx);
+            assert!(shell.drm_note().is_some(), "closing one tab's note closed another's");
+            shell.set_selected(10, cx);
+            assert!(shell.drm_note().is_none(), "the note came back with its tab");
+        });
+    }
+
+    #[gpui::test]
+    fn the_site_asking_again_leaves_the_note_closed(cx: &mut TestAppContext) {
+        let (shell, _) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            shell.close_drm_note(cx);
+            // Another of the site's pages asks for another system, while the tab is still there.
+            shell.set_media_unsupported(10, "com.microsoft.playready", cx);
+            assert!(shell.drm_note().is_none());
+        });
+    }
+
+    #[gpui::test]
+    fn the_note_comes_back_once_the_tab_has_been_at_another_site(cx: &mut TestAppContext) {
+        let (shell, _) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            shell.close_drm_note(cx);
+            // The core takes the note back as the tab leaves the site, and reports it again once a
+            // page there asks.
+            shell.set_media_unsupported(10, "", cx);
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            assert!(shell.drm_note().is_some());
+        });
+    }
+
+    /// Escape with the UI focused closes the note in front, and with none it stops, as before:
+    /// here, in full screen with nothing loading, it leaves full screen.
+    #[gpui::test]
+    fn escape_closes_the_note_and_otherwise_stops(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(bind_keys);
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_space(1, cx);
+            let page = Page { url: "https://www.netflix.com/browse".into(), ..Page::default() };
+            shell.set_page(10, page, cx);
+            shell.set_selected(10, cx);
+            shell.set_full_screen(true, cx);
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+        });
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        host.take();
+        cx.simulate_keystrokes("escape");
+        shell.read_with(cx, |shell, _| assert!(shell.drm_note().is_none()));
+        assert!(!host.take().contains(&"window button zoom".to_string()), "escape also stopped");
+        cx.simulate_keystrokes("escape");
+        assert!(host.take().contains(&"window button zoom".to_string()));
     }
 }

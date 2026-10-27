@@ -1108,6 +1108,8 @@ pub struct Shell {
     /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
     /// goes to another site.
     drm_notes: HashMap<u64, SharedString>,
+    /// The tabs whose note the user closed, until the tab goes to another site.
+    drm_closed: HashSet<u64>,
     /// Where the note's card was drawn last, which the log says when it changes.
     drm_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The card of each tab whose page died while this window showed it, until it loads again.
@@ -1268,6 +1270,7 @@ impl Shell {
             questions: HashMap::new(),
             question_drawn: Rc::default(),
             drm_notes: HashMap::new(),
+            drm_closed: HashSet::new(),
             drm_drawn: Rc::default(),
             crash_cards: HashMap::new(),
             crash_drawn: Rc::default(),
@@ -1344,6 +1347,7 @@ impl Shell {
         shell.extensions = from.extensions.clone();
         shell.questions = from.questions.clone();
         shell.drm_notes = from.drm_notes.clone();
+        shell.drm_closed = from.drm_closed.clone();
         shell.crash_cards = from.crash_cards.keys().map(|&tab| (tab, Default::default())).collect();
         shell
     }
