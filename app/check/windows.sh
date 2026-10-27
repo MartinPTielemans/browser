@@ -1,8 +1,9 @@
-# ⌘N opens another window on the same Spaces, showing the key window's Space with no page, and
-# never another window's page: a Space it switches to and back shows the first tab no window
-# shows. The Spaces menu acts on the window in front. A click on a row whose page another window
-# shows moves the page there live, with no second load, and the window it left keeps its rows and
-# draws a picture of the page in its card, which a click on takes the page back from, live.
+# ⌘N opens another window on the same Spaces, showing the key window's Space with no page, whose
+# card shows its one line, and never another window's page: a Space it switches to and back shows
+# the first tab no window shows. The Spaces menu acts on the window in front. A click on a row whose
+# page another window shows moves the page there live, with no second load, and the window it left
+# keeps its rows and draws a picture of the page in its card, which a click on takes the page back
+# from, live.
 # ⇧⌘W closes a window and gives its tabs to the one that was in front before it, live, which shows
 # its page again; in the last window it quits. ⇧↩ in the command bar opens its page in a new
 # window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
@@ -52,6 +53,7 @@ expect "^browser: window $first shows $b\$" "the tab the page opened didn't show
 send click $(row 0)
 expect "^browser: window $first shows $a\$" "a click on the counting page's row didn't show it"
 
+empties=$(grep -c '^browser: empty card shown$' "$log" || true)
 send key n cmd
 expect '^browser: command new-window via ' "⌘N didn't run New Window"
 expect '^browser: window opened [0-9]' "⌘N didn't open a window"
@@ -62,6 +64,15 @@ none_since "^browser: window $first shows" || fail "⌘N changed what the first 
 shown_first=$(grep -c "^browser: window $first shows" "$log")
 send window 2
 ../tools/window-screenshot.sh "$pid" "$out/windows-new.png" all || fail "no window to capture"
+# The new window's card shows its line once the fade has ended, as the shell says in the log. The
+# first window shows a page, so the line is the new window's.
+for _ in $(seq 100); do
+  [ "$(grep -c '^browser: empty card shown$' "$log")" -gt "$empties" ] && break
+  sleep 0.1
+done
+[ "$(grep -c '^browser: empty card shown$' "$log")" -gt "$empties" ] ||
+  fail "the new window's empty card didn't show its line"
+../tools/window-screenshot.sh "$pid" "$out/empty-window.png" all || fail "no window to capture"
 
 # A Space the new window makes and leaves: back in the first Space it shows the first tab no other
 # window shows, the one the page opened, and the first window keeps the page.
@@ -176,4 +187,4 @@ post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
-echo "ok: ⌘N opens a window on the same Spaces with no page, which never takes another window's page on a Space switch, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"
+echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, which never takes another window's page on a Space switch, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"

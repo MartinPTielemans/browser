@@ -1,0 +1,81 @@
+//! The card of a window with no page, on a host that records what the shell asks of the core.
+
+use std::{
+    rc::Rc,
+    time::{Duration, Instant},
+};
+
+use gpui::{Entity, Modifiers, Point, Pixels, TestAppContext, VisualTestContext};
+
+use crate::shell::{Folders, Shell, empty::FADE, recorder::Recorder};
+
+/// A drawn shell showing one Space with Today tabs 1 and 2, and no tab shown, as a fresh window.
+fn window_with_no_tab(
+    cx: &mut TestAppContext,
+) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![(1, "Space".into(), None, 0, "".into(), "".into())], cx);
+        shell.set_space(1, cx);
+        shell.set_tabs(1, Vec::new(), vec![1, 2], Vec::new(), Folders::default(), cx);
+    });
+    cx.run_until_parked();
+    (shell, cx, host)
+}
+
+/// The middle of the card, where a click is as far from the sidebar as from the window's edge.
+fn middle(shell: &Entity<Shell>, cx: &VisualTestContext) -> Point<Pixels> {
+    shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport).0.center())
+}
+
+/// The line is there with no tab selected, from nothing to all of it over the fade, and gone with
+/// the next frame once a tab is selected, without waiting for the fade to end.
+#[gpui::test]
+fn the_line_shows_only_while_no_tab_is_selected(cx: &mut TestAppContext) {
+    let (shell, cx, _) = window_with_no_tab(cx);
+    let start = Instant::now() - Duration::from_secs(10);
+    shell.update(cx, |shell, _| shell.empty_since = Some(start));
+    let opacity = |cx: &VisualTestContext, at| {
+        shell.read_with(cx, |shell, _| shell.empty_opacity(at))
+    };
+    let fade = Duration::from_secs_f32(FADE);
+    assert!(opacity(cx, start) < 1e-3, "it starts from nothing");
+    let halfway = opacity(cx, start + fade / 2);
+    assert!(halfway > 0. && halfway < 1., "halfway through the fade it's at {halfway}");
+    assert!(opacity(cx, start + fade) > 0.999);
+
+    shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.empty_since.is_none()));
+    assert_eq!(opacity(cx, Instant::now()), 0., "a page shown has no line, not a fading one");
+
+    // The card is empty again once the page goes, and the fade starts over.
+    shell.update(cx, |shell, cx| shell.set_selected(0, cx));
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.empty_since.is_some()));
+}
+
+/// A click anywhere on the empty card opens the command bar as ⌘T does, centred on the window.
+#[gpui::test]
+fn a_click_on_the_empty_card_opens_the_command_bar(cx: &mut TestAppContext) {
+    let (shell, cx, host) = window_with_no_tab(cx);
+    let frame = shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport).0);
+    let corner = Point::new(frame.right() - gpui::px(20.), frame.bottom() - gpui::px(20.));
+    for at in [middle(&shell, cx), corner] {
+        cx.simulate_click(at, Modifiers::none());
+        assert_eq!(host.command_bars.take(), [None], "a click at {at:?}");
+    }
+    assert!(shell.read_with(cx, |shell, _| shell.new_tab), "New Tab takes the selected plate");
+}
+
+/// With a tab selected the same place is the page's, so the card takes no click.
+#[gpui::test]
+fn a_page_shown_takes_the_card_away(cx: &mut TestAppContext) {
+    let (shell, cx, host) = window_with_no_tab(cx);
+    shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+    cx.run_until_parked();
+    cx.simulate_click(middle(&shell, cx), Modifiers::none());
+    assert!(host.command_bars.take().is_empty());
+}
