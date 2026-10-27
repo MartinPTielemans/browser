@@ -198,7 +198,9 @@ names and groups, which are Unicode's and CLDR's, and their shortcodes, which ar
   authorization of the copyright holder.
 
 uBlock Origin (https://github.com/gorhill/uBlock), GNU General Public License v3.0 or later
-Shipped unchanged but for the "key" app/fetch-ublock.sh adds to its manifest, in the app's
+Shipped unchanged but for the "key" app/fetch-ublock.sh adds to its manifest and the lines it
+changes in js/tab.js, js/storage.js and js/traffic.js so its housekeeping doesn't wake an idle
+browser (modified 2026-10-28), in the app's
 framework's resources, as app/build.sh puts it there: release 1.75.0, the version and sha256
 app/ublock.ini pins, whose source is at https://github.com/gorhill/uBlock/tree/1.75.0. The license
 travels with it, as its LICENSE.txt, and the filter lists it bundles keep their own.

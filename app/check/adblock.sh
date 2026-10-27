@@ -157,5 +157,11 @@ send click $page_point
 reload_until "$blocked" "the private window didn't block the ad"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-private.png" all || fail "no window to capture"
 
+# The uBlock Origin it ran is the one fetch-ublock.sh took off its housekeeping timers (#252).
+ublock_js=$(echo "$app"/Contents/Frameworks/*Framework.framework/Resources/ublock/js)
+grep -qF ilo-commit "$ublock_js/tab.js" && grep -qF ilo-commit "$ublock_js/storage.js" &&
+  ! grep -qxF '        gcTimer.on(30011);' "$ublock_js/traffic.js" ||
+  fail "the app's uBlock Origin still runs its housekeeping on timers that wake an idle browser"
+
 quit
 echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad, with uBlock Origin still in the menu after it reloads itself; its own lists take fbclid out of an address. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too. Windows: $out/adblock-blocked.png, $out/adblock-off-for-site.png, $out/adblock-settings.png, $out/adblock-private.png"
