@@ -203,7 +203,9 @@ expect "^browser: title $d cookie none\$" "the tab moved back still saw the firs
 # removed from the favorites, its twin goes too, and ⌘Z brings back both, each going back to the
 # favorite's URL in its own profile.
 printf '%s' '<title>away</title>' > "$out/site/away.html"
+printf '%s' '<title>elsewhere</title>' > "$out/site/elsewhere.html"
 away_page="$(echo "$site" | sed 's/127\.0\.0\.1/localhost/')away.html"
+elsewhere_page="$(echo "$site" | sed 's/127\.0\.0\.1/localhost/')elsewhere.html"
 tile="114 110"
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show Settings on its General tab"
@@ -244,8 +246,9 @@ twin=$(grep '^browser: favorites' "$log" | tail -1 | cut -d' ' -f3)
 [ "$twin" != "$a" ] || fail "the other profile's Space shows the first profile's favorite itself"
 send click $tile
 expect "^browser: selected $twin\( in .*\)\{0,1\}\$" "a click on the twin's tile didn't show it"
-go_from_bar "$away_page"
-expect "^browser: title $twin away\$" "the twin didn't go to another page"
+# The twin opens where the favorite is, so it goes to a page of its own.
+go_from_bar "$elsewhere_page"
+expect "^browser: title $twin elsewhere\$" "the twin didn't go to another page"
 post rightclick $tile
 expect '^browser: menu shown Back to Favorite URL, ' "the twin away from its URL didn't offer it back"
 send choose Back to Favorite URL
