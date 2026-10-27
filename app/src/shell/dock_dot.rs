@@ -70,3 +70,41 @@ fn the_dot_follows_the_key_windows_space(cx: &mut TestAppContext) {
     first.update(cx, |shell, cx| shell.set_space(2, cx));
     assert_eq!(shown(cx, &dot), [None]);
 }
+
+/// The launch brings saved windows back behind the key one, which macOS doesn't report as becoming
+/// key again: the dot and ⌘N stay with the window in front.
+#[gpui::test]
+fn a_window_opened_behind_leaves_the_key_window_in_charge(cx: &mut TestAppContext) {
+    use crate::shell::{Command, commands::Run};
+    use gpui::VisualTestContext;
+
+    let dot = Rc::new(Dot::default());
+    cx.update(|cx| {
+        dock_dot::open(dot.clone(), cx);
+        crate::shell::bind_keys(cx);
+    });
+    let front_host = Rc::new(Recorder::default());
+    let browser = front_host.clone();
+    let (front, cx): (Entity<Shell>, &mut VisualTestContext) =
+        cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    front.update(cx, |shell, cx| {
+        let spaces = vec![
+            (1, "Space 1".into(), Some(PURPLE), 0, "".into(), "".into()),
+            (2, "Space 2".into(), Some(RED), 0, "".into(), "".into()),
+        ];
+        shell.set_spaces(spaces, cx);
+        shell.set_space(1, cx);
+    });
+    let behind_host = Rc::new(Recorder::default());
+    let behind = cx.new(|cx| Shell::seeded_behind(&front, behind_host.clone(), cx));
+    behind.update(cx, |shell, cx| shell.set_space(2, cx));
+    cx.executor().advance_clock(QUIET);
+    cx.run_until_parked();
+    assert_eq!(dot.0.take().last(), Some(&Some(PURPLE)));
+
+    front_host.take();
+    behind_host.take();
+    cx.dispatch_action(Run(Command::NewWindow));
+    assert_eq!(front_host.take(), ["new window"]);
+    assert!(behind_host.take().is_empty());
+}
