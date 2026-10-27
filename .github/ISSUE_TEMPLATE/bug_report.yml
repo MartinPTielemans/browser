@@ -1,0 +1,130 @@
+# Adapted from T3 Code (https://github.com/pingdotgg/t3code, MIT) at commit
+# 570d4b03eef879bd60be3d74444046858c94dacd.
+name: Bug report
+description: Something in ilo is broken, regressed, or behaves differently from Arc.
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One problem per issue. Search existing issues first.
+        A site that breaks, a crash or hang, and agents each have their own form.
+
+        **Public steps only.** Use public pages to reproduce. Never paste private URLs, cookies,
+        tokens, account details, or what a logged-in page shows. Redact screenshots and recordings.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and found no duplicate.
+          required: true
+        - label: My steps and attachments hold no private pages, cookies or account data.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Sidebar, tabs, pinned tabs or folders
+        - Spaces or profiles
+        - Command bar or find
+        - Split view, Peek or popup windows
+        - Downloads, history or archive
+        - Extensions
+        - Passwords and autofill
+        - Keyboard, shortcuts or text input (IME)
+        - Window, resize or full screen
+        - Building from source
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The fewest steps that show it, from a new window. Public URLs only.
+      placeholder: |
+        1. Open https://example.com in a new Space
+        2. Pin the tab
+        3. Press ⌘W with the page focused
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen. If you're comparing with Arc, say what Arc does.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chrome
+    attributes:
+      label: Does it happen in Chrome too?
+      description: If it does, it's Chromium's bug. Report it on Chromium's tracker instead.
+      options:
+        - "No, only in ilo"
+        - "Not applicable: Chrome has no such feature"
+        - "Didn't check"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ilo commit
+      description: ilo has no releases yet. The commit you built (`git rev-parse --short HEAD`).
+      placeholder: a9a6941a
+    validations:
+      required: true
+
+  - type: input
+    id: chromium
+    attributes:
+      label: Chromium version
+      description: "`chromium.version` in `engine/pins.ini` at that commit."
+      placeholder: 155.0.8059.84
+
+  - type: input
+    id: os
+    attributes:
+      label: macOS version and chip
+      description: "`sw_vers -productVersion` and `uname -m`."
+      placeholder: 26.1, arm64
+    validations:
+      required: true
+
+  - type: textarea
+    id: setup
+    attributes:
+      label: Extensions, Spaces and profiles
+      description: The extensions installed, and the Space or profile if it matters (more than one profile, a Space's theme).
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: Screenshots or recordings
+      description: For anything that moves (animation, drag, timing), a short screen recording. Redact first.
+    validations:
+      required: false
+      accept: ".png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.webm,.txt,.log"
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround
+      description: Anything that gets you past it.
