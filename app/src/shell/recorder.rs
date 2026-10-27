@@ -632,10 +632,6 @@ impl Browser for Recorder {
         self.record(format!("picture {tab}"))
     }
 
-    fn page_picture_end(&self, tab: u64, _: &mut App) {
-        self.record(format!("picture end {tab}"))
-    }
-
     fn settings(&self, _: &mut App) {}
 
     fn shortcuts(&self, _: &mut App) {}

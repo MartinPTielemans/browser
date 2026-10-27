@@ -491,9 +491,18 @@ typedef struct bc_host {
   // The page of |tab|, the tab |window| has selected, went to another window, which shows it live,
   // and |window| shows no page; or |tab| is 0, and |window| shows a page again, or has selected
   // another tab. Once for each change. window_selected doesn't say it: the tab stays selected.
-  // bc_tab_capture still gives a picture of the page, for the window to show in its place. The
-  // user's alone: agents have no windows.
+  // bc_tab_picture gives a picture of the page, for the window to show in its place. The user's
+  // alone: agents have no windows.
   void (*window_page_elsewhere)(void* context, bc_id window, bc_id tab);
+  // The picture bc_tab_picture asked for as |request|: |width| by |height| pixels, row after row,
+  // each 4 bytes in BGRA order, in sRGB, or null and 0 if the page couldn't give one. The pixels
+  // are the app's to copy during the call.
+  void (*tab_pictured)(void* context,
+                       bc_id tab,
+                       uint64_t request,
+                       const uint8_t* bgra,
+                       int width,
+                       int height);
   // Chrome asks the user to confirm an extension's install, its re-enabling once it asks for more
   // permissions, or more permissions it asks for, over the window, in place of its dialog. Answer
   // with bc_extension_answer. A window asks one at a time, and this comes again once the question
@@ -1084,6 +1093,12 @@ BC_EXPORT void bc_tab_element_at(bc_id tab, double x, double y);
 // The user's: agents get none, as a picture shows what a page holds, and agents read pages through
 // their own tool, by its rules.
 BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_rect rect);
+
+// Pictures the tab's whole view as the compositor last drew it, in pixels at the display's scale,
+// for a window to show in place of a page another window shows: then tab_pictured with |request|.
+// Its pixels as GPUI draws them rather than a PNG, which takes longer to make and to read than the
+// move it's shown for. The user's: agents get none, as with bc_tab_capture.
+BC_EXPORT void bc_tab_picture(bc_id tab, uint64_t request);
 
 // Ends what bc_tab_element_at and bc_tab_capture began: drops their questions and lets go of the
 // page's DevTools, so a page that isn't being captured pays nothing.

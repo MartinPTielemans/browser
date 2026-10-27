@@ -324,6 +324,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Shows no page, keeping the tab selected, as another window took its page, and says so
   // (window_page_elsewhere) unless |tell| is false.
   void LetGo(bool tell = true);
+  // Keeps each page this window shows that another window has a picture of drawn, as it leaves
+  // here for that window (MovingPages in window.cc).
+  void HoldPictured();
   // Sets let_go_, and tells the app when it changes.
   void SetLetGo(bool let_go);
   // Moves every tab of this window's Browsers into |to|'s, unshown, which empties them.
