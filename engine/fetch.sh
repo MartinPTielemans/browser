@@ -1,6 +1,8 @@
 #!/bin/bash
-# Downloads the prebuilt engine prebuilt.ini names, checked against its hash, into .deps/prebuilt,
-# and prints the path of its Chromium.app. publish.sh makes one.
+# Downloads the prebuilt engine, checked against its hash, into .deps/prebuilt, and prints the
+# path of its Chromium.app, or on Linux its Chromium directory. On the Mac it's the one
+# prebuilt.ini names, which publish.sh makes. On Linux it's the newest engine-linux release built
+# from a commit in this checkout's history, which .github/workflows/engine-linux.yml makes.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -9,11 +11,36 @@ fail() {
   exit 1
 }
 
-[ -e prebuilt.ini ] || fail "no prebuilt engine is published yet. Build one with engine/build.sh."
-[ "$(uname -sm)" = "Darwin arm64" ] || fail "the prebuilt engine is for Macs with Apple silicon."
-commit=$(git config -f prebuilt.ini prebuilt.commit)
-url=$(git config -f prebuilt.ini prebuilt.url)
-sha256=$(git config -f prebuilt.ini prebuilt.sha256)
+case $(uname -sm) in
+"Darwin arm64")
+  [ -e prebuilt.ini ] || fail "no prebuilt engine is published yet. Build one with engine/build.sh."
+  commit=$(git config -f prebuilt.ini prebuilt.commit)
+  url=$(git config -f prebuilt.ini prebuilt.url)
+  sha256=$(git config -f prebuilt.ini prebuilt.sha256)
+  app=Chromium.app
+  sha256sum() { shasum -a 256 "$@"; }
+  ;;
+"Linux x86_64")
+  repo=$(git config -f prebuilt.ini prebuilt.url | sed -E 's#^(https://github.com/[^/]+/[^/]+)/.*#\1#')
+  # The release's tag is on the commit it was built from. The nearest one in this history wins.
+  commit=
+  best=
+  while read -r tagged _; do
+    git merge-base --is-ancestor "$tagged" HEAD 2>/dev/null || continue
+    distance=$(git rev-list --count "$tagged..HEAD")
+    if [ -z "$best" ] || [ "$distance" -lt "$best" ]; then
+      commit=$tagged
+      best=$distance
+    fi
+  done < <(git ls-remote --tags "$repo.git" 'refs/tags/engine-linux-*')
+  [ -n "$commit" ] ||
+    fail "no prebuilt Linux engine was built from this checkout's history. Fetch the history with git fetch --unshallow, or run the Engine on Linux workflow."
+  url=$repo/releases/download/engine-linux-${commit:0:12}/Chromium-linux-x64.tar.xz
+  sha256=$(curl -fsSL "$url.sha256") || fail "the release engine-linux-${commit:0:12} has no engine yet."
+  app=Chromium
+  ;;
+*) fail "there's a prebuilt engine for Macs with Apple silicon and for x86-64 Linux only." ;;
+esac
 
 # The engine holds the core of the commit it was built from. A different header would bind the app
 # to functions or layouts the engine doesn't have.
@@ -28,8 +55,8 @@ if [ ! -d "$dir" ]; then
   archive=$dir.tar.xz
   echo "fetch: downloading the prebuilt engine (${commit:0:12})" >&2
   curl -fL --progress-bar -o "$archive" "$url"
-  echo "$sha256  $archive" | shasum -a 256 -c --status ||
-    { rm -f "$archive"; fail "the download doesn't match prebuilt.ini's sha256."; }
+  echo "$sha256  $archive" | sha256sum -c --status ||
+    { rm -f "$archive"; fail "the download doesn't match its sha256."; }
   rm -rf "$dir.part"
   mkdir "$dir.part"
   tar -xf "$archive" -C "$dir.part"
@@ -38,4 +65,4 @@ if [ ! -d "$dir" ]; then
   # Earlier prebuilt engines go. A built spike keeps its own copy.
   find .deps/prebuilt -mindepth 1 -maxdepth 1 ! -name "$sha256" -exec rm -rf {} +
 fi
-echo "$dir/Chromium.app"
+echo "$dir/$app"
