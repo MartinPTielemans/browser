@@ -212,10 +212,10 @@ expect "^browser: menu shown In Every Space, In Each Profile's Spaces (checked),
   "a click on Favorites didn't show the choices"
 send choose In Every Space
 expect "^browser: favorites scope In Every Space\$" "choosing In Every Space in Settings didn't set it"
-send key w cmd
-expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 expect '^browser: favorites [0-9][0-9]*$' "the favorite has no twin in the other profile's Space"
 twin=$(grep '^browser: favorites' "$log" | tail -1 | cut -d' ' -f3)
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 [ "$twin" != "$a" ] || fail "the other profile's Space shows the first profile's favorite itself"
 send key 1 ctrl
 expect "^browser: space $first in " "⌃1 didn't show the first Space"
