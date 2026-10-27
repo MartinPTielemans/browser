@@ -28,6 +28,7 @@
 #include "browser_core/password_offer.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
 #include "browser_core/search.h"
@@ -766,6 +767,15 @@ void bc_set_haptics(bool haptics) {
   browser_core::SessionChanged();
 }
 
+bool bc_link_previews(void) {
+  return browser_core::UserSettings().link_previews;
+}
+
+void bc_set_link_previews(bool previews) {
+  browser_core::UserSettings().link_previews = previews;
+  browser_core::SessionChanged();
+}
+
 bool bc_warn_before_quitting(void) {
   return browser_core::UserSettings().warn_before_quitting;
 }
@@ -846,6 +856,37 @@ size_t bc_search_url(const char* keyword, const char* text, char* url, size_t ca
   const std::u16string engine = keyword ? base::UTF8ToUTF16(keyword) : std::u16string();
   const GURL search = profile && text ? browser_core::SearchUrl(profile, engine, text) : GURL();
   return search.is_valid() ? CopyString(search.spec(), url, capacity) : 0;
+}
+
+bc_id bc_tab_open_preview(bc_id opener_id, const char* url) {
+  content::WebContents* opener = browser_core::Tab::FromId(opener_id);
+  tabs::TabInterface* tab = opener ? tabs::TabInterface::MaybeGetFromContents(opener) : nullptr;
+  browser_core::Window* window =
+      tab ? browser_core::Window::ForBrowser(tab->GetBrowserWindowInterface()) : nullptr;
+  content::WebContents* preview = window && url ? window->OpenPreview(*opener, GURL(url)) : nullptr;
+  return preview ? browser_core::Tab::IdOf(preview) : 0;
+}
+
+void bc_tab_show_in(bc_id id, void* view, bc_rect frame, double corner_radius) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  // A page a window shows stays there.
+  if (!contents || !view || browser_core::Window::Showing(id)) {
+    return;
+  }
+  browser_core::platform::ShowPageIn(contents->GetNativeView(), view, ToRect(frame),
+                                     corner_radius);
+  contents->Focus();
+}
+
+void bc_window_keep_preview(bc_id window_id, bc_id id) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  browser_core::Space* space = window ? browser_core::Space::FromId(window->space()) : nullptr;
+  if (!space || !browser_core::Tab::FromId(id) || browser_core::Space::Holding(id) ||
+      browser_core::Favorites::Has(id)) {
+    return;
+  }
+  space->Add(id, /*opener=*/0, /*foreground=*/true);
+  window->Select(id);
 }
 
 void bc_tab_show(bc_id id, bc_rect frame) {

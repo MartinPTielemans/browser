@@ -148,6 +148,8 @@ struct Settings {
   int favorites_scope = BC_FAVORITES_PROFILE;
   // Whether a tab no window has shown for a while lets go of its page (UnloadIdleTabsSoon).
   bool unload_idle_tabs = true;
+  // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
+  bool link_previews = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.
