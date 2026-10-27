@@ -162,7 +162,9 @@ unpinned=$c
 c=$a
 a=$unpinned
 
-# Away from its pinned URL, ⌘↩ goes back there, from the page and the UI.
+# Away from its pinned URL, ⌘↩ goes back there, from the page and the UI. A key in the UI hides
+# the sidebar's hover until the pointer moves, so the pointer leaves the row before clicking it again.
+send move 600 400
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the unloaded pinned tab didn't show it"
 expect "^browser: loaded $c $site\$" "the unloaded pinned tab didn't load once shown"
