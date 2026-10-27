@@ -6,6 +6,7 @@
 #include <memory>
 #include <vector>
 
+#include "base/functional/callback_forward.h"
 #include "components/permissions/permission_prompt.h"
 #include "extensions/browser/extension_install_prompt_client.h"
 
@@ -21,6 +22,7 @@ struct NavigateParams;
 
 namespace content {
 class RenderFrameHost;
+class RenderWidgetHost;
 class WebContents;
 }
 
@@ -89,5 +91,12 @@ extern void (*g_browser_core_open_links)(const std::vector<GURL>& urls);
 extern void (*g_browser_core_update_target_url)(BrowserWindowInterface* browser,
                                                 content::WebContents* source,
                                                 const GURL& url);
+
+// chrome/browser/ui/views/tab_dialogs_views.cc: |contents|'s page hasn't answered input for
+// Chrome's hang timeout, in place of Chrome's Page Unresponsive dialog, a tab-modal dialog the
+// core's windows would show over the page. |restart_hang_monitor| is Chrome's Wait.
+extern void (*g_browser_core_page_hung)(content::WebContents* contents,
+                                        content::RenderWidgetHost* widget,
+                                        base::RepeatingClosure restart_hang_monitor);
 
 #endif  // BROWSER_CORE_HOOKS_H_

@@ -6,6 +6,7 @@
 #include <string>
 
 #include "base/callback_list.h"
+#include "base/functional/callback.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -21,6 +22,9 @@
 #include "url/gurl.h"
 
 class BrowserWindowInterface;
+namespace content {
+class RenderWidgetHost;
+}
 
 namespace browser_core {
 
@@ -90,6 +94,22 @@ class Tab : public content::WebContentsObserver,
   // swaps in takes it too, which Chrome's views do on their own only off the Mac.
   void SetPageColor(SkColor color);
 
+  // For g_browser_core_page_hung (//browser_core/hooks.h): |contents|'s page hasn't answered input
+  // for Chrome's hang timeout. Its tab is BC_PAGE_HUNG until it answers, or until Wait or Reload.
+  static void PageHung(content::WebContents* contents,
+                       content::RenderWidgetHost* widget,
+                       base::RepeatingClosure restart_hang_monitor);
+  // Loads the page again, as bc_tab_reload says, ending a hung page's renderer first.
+  void Reload(bool bypass_cache);
+  // Gives a hung page Chrome's hang timeout again, as Chrome's Wait does.
+  void Wait();
+  // For a window that stopped showing the tab: a page whose renderer died is unloaded rather than
+  // kept with nothing to show, so it loads again once it's shown.
+  void LeftWindow();
+  // Whether the page's renderer died while a window showed it, so its pane shows the app's card in
+  // place of the page until it's loaded again.
+  bool crashed() const { return crashed_; }
+
   // The modifier keys held at the user's last click or key in the page, as blink::WebInputEvent's
   // flags: what a link it opens was opened with.
   int input_modifiers() const { return input_modifiers_; }
@@ -114,6 +134,7 @@ class Tab : public content::WebContentsObserver,
                               content::RenderFrameHost* new_host) override;
   void RenderViewReady() override;
   void PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) override;
+  void OnRendererResponsive(content::RenderProcessHost* process) override;
   void TitleWasSet(content::NavigationEntry* entry) override;
   void DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause_resize) override;
   void DidUpdateAudioMutingState(bool muted) override;
@@ -138,6 +159,15 @@ class Tab : public content::WebContentsObserver,
   void LoadWaiting();
   // Tells the app the link the pointer is on, if it's another than it was last told of.
   void ReportLinkTarget(const GURL& url);
+  // A BC_PAGE_ value, for the app and agents.
+  int Trouble() const;
+  // Says the page is fine again if it hung, without telling the app.
+  void ClearHang();
+  // Lays out each window showing the tab, from a task of its own, so a crashed page's pane shows
+  // the app's card, or the page again.
+  void LayOutSoon();
+  // Puts the core's error page on the pane's colour, and every other page back on Chrome's white.
+  void ShowOnPageColor();
 
   const bc_id id_;
   std::string name_;
@@ -156,6 +186,16 @@ class Tab : public content::WebContentsObserver,
       favicon_observation_{this};
   base::CallbackListSubscription audible_subscription_;
   std::unique_ptr<content::NavigationController::LoadURLParams> waiting_;
+  bool crashed_ = false;
+  // While the page is hung: Chrome's Wait, and the id of the renderer that hung, which Reload ends.
+  base::RepeatingClosure restart_hang_monitor_;
+  int hung_process_ = 0;
+  // A reload waiting for the hung renderer Reload ended to go.
+  std::optional<bool> reload_after_kill_;
+  // Chromium's net error code while the page is its error page, else 0.
+  int net_error_ = 0;
+  // The page base colour the tab last gave its pages, if not Chrome's.
+  std::optional<SkColor> shown_on_;
   base::CancelableTaskTracker favicon_tracker_;
   base::WeakPtrFactory<Tab> weak_factory_{this};
 

@@ -1,0 +1,33 @@
+Says a page hung through the core (//browser_core/hooks.h), in place of Chrome's Page Unresponsive
+dialog: a tab-modal dialog the core's windows would show over the page. The app says it in its own
+way, with Wait, which runs Chrome's hang monitor restarter, and Reload. Hiding it needs no hook:
+the core hears the page answer again as Chrome's dialog does, through WebContentsObserver.
+
+--- a/chrome/browser/ui/views/tab_dialogs_views.cc
++++ b/chrome/browser/ui/views/tab_dialogs_views.cc
+@@ -25,6 +25,13 @@
+ void (*g_browser_core_password_prompt)(content::WebContents* contents,
+                                        bool show) = nullptr;
+ 
++// browser_core: the core's windows say a page hung in the app's own way
++// (//browser_core/hooks.h).
++void (*g_browser_core_page_hung)(content::WebContents* contents,
++                                 content::RenderWidgetHost* widget,
++                                 base::RepeatingClosure restart_hang_monitor) =
++    nullptr;
++
+ // static
+ void TabDialogs::CreateForWebContents(content::WebContents* contents) {
+   DCHECK(contents);
+@@ -53,6 +60,11 @@
+ void TabDialogsViews::ShowHungRendererDialog(
+     content::RenderWidgetHost* render_widget_host,
+     base::RepeatingClosure hang_monitor_restarter) {
++  if (g_browser_core_page_hung) {
++    g_browser_core_page_hung(web_contents_, render_widget_host,
++                             std::move(hang_monitor_restarter));
++    return;
++  }
+   HungRendererDialogView::Show(web_contents_, render_widget_host,
+                                std::move(hang_monitor_restarter));
+ }

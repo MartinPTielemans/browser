@@ -228,6 +228,7 @@ bool OffTheRecord(content::WebContents* contents) {
 void Seen(content::WebContents* contents) {
   if (Tab* tab = contents ? Tab::FromWebContents(contents) : nullptr) {
     tab->set_last_seen(base::Time::Now());
+    tab->LeftWindow();
   }
   ScheduleAutoArchive();
 }
@@ -353,6 +354,15 @@ void Window::PanesChanged() {
       window->Select(selected);
     } else if (space && (space->Stacked(selected) != window->stacked_ ||
                          space->Shares(selected) != window->shares_)) {
+      window->LayOutPage();
+    }
+  }
+}
+
+// static
+void Window::LayOutShowing(bc_id tab) {
+  for (auto& [id, window] : Windows()) {
+    if (std::ranges::contains(window->panes_, tab)) {
       window->LayOutPage();
     }
   }
@@ -951,6 +961,7 @@ void Window::LayOutPage() {
   shares_ = space ? space->Shares(panes_.front()) : std::vector<double>();
   std::vector<platform::Pane> panes;
   size_t focused = 0;
+  std::optional<gfx::Rect> focused_frame;
   const int count = static_cast<int>(shown.size());
   // Side by side or stacked, each page takes its share of the frame with the gap after it, else
   // is as wide or as tall as the others. A page full screen, alone, takes the whole frame.
@@ -964,21 +975,29 @@ void Window::LayOutPage() {
   };
   for (int i = 0; i < count; ++i) {
     content::WebContents* contents = shown[i];
+    Tab* tab = Tab::FromWebContents(contents);
+    const int from = edge(i);
+    const int to = edge(i + 1) - kSplitGap;
+    const gfx::Rect frame =
+        stacked_ ? gfx::Rect(page_frame_.x(), from, page_frame_.width(), to - from)
+                 : gfx::Rect(from, page_frame_.y(), to - from, page_frame_.height());
+    const bool died = tab && tab->crashed();
     if (contents == shown_.get()) {
-      focused = i;
+      // Past the last pane while it's a page that died, so the ring stays where it was.
+      focused = died ? shown.size() : panes.size();
+      focused_frame = frame;
     }
-    if (Tab* tab = Tab::FromWebContents(contents); tab && page_color_) {
+    // A page that died leaves its pane to the app's card under it until it loads again.
+    if (died) {
+      continue;
+    }
+    if (tab && page_color_) {
       tab->SetPageColor(SkColorSetRGB(*page_color_ >> 16, *page_color_ >> 8 & 0xff,
                                       *page_color_ & 0xff));
     }
     // At each layout, for a page whose view changed or that comes back, before it resizes.
     StretchOnResize(contents, page_moving_);
-    const int from = edge(i);
-    const int to = edge(i + 1) - kSplitGap;
-    platform::Pane& pane = panes.emplace_back(
-        contents->GetNativeView(),
-        stacked_ ? gfx::Rect(page_frame_.x(), from, page_frame_.width(), to - from)
-                 : gfx::Rect(from, page_frame_.y(), to - from, page_frame_.height()));
+    platform::Pane& pane = panes.emplace_back(contents->GetNativeView(), frame);
     DevToolsContentsResizingStrategy strategy;
     if (content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy)) {
       // As Chrome's window does: DevTools fill the frame, and the page goes where they leave it.
@@ -1005,9 +1024,11 @@ void Window::LayOutPage() {
     side_panel_laid_out_ = panel_page ? panel_page->GetWeakPtr() : nullptr;
     ReportSidePanelSoon();
   }
-  const gfx::Rect focused_frame = panes.empty() ? page_frame_ : panes[focused].frame;
-  if (focused_frame != focused_frame_) {
-    focused_frame_ = focused_frame;
+  if (!focused_frame) {
+    focused_frame = panes.empty() ? page_frame_ : panes.front().frame;
+  }
+  if (*focused_frame != focused_frame_) {
+    focused_frame_ = *focused_frame;
     for (web_modal::ModalDialogHostObserver& observer : dialog_observers_) {
       observer.OnPositionRequiresUpdate();
     }

@@ -12,6 +12,16 @@ mojom("drm_request") {
   generate_blink = true
 }
 
+# The page a tab shows for a load that failed. Chrome's renderer calls it
+# (engine/patches/ours/chromium-core-error-page.patch), so it's apart from the browser's code.
+source_set("error_page") {
+  sources = [
+    "error_page.cc",
+    "error_page.h",
+  ]
+  deps = [ "//base" ]
+}
+
 config("exports") {
   # The framework exports only what chrome/app/framework.exports lists. This adds the C API.
   ldflags = [ "-Wl,-exported_symbols_list," + rebase_path("exports.txt", root_build_dir) ]
