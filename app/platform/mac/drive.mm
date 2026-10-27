@@ -94,27 +94,39 @@
 //                                         to the tab, as "browser: agent <agent> may act on
 //                                         <tab>: <0|1>", and if not "browser: agent <agent>
 //                                         refused <tab>: <reason>"
+//   now <command>                         <command> at once, though the app isn't quiet, and its
+//                                         done line too, for a step that acts while motion runs
 //
 // Clicks, drags and moves go to the app's window on top at that point of the browser window
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
-// driven, and keys and clickkey to the key window. It logs "browser: drive <n>: <command>" when
-// command n arrives and "browser: drive <n> done, key <window class>, focus <view class>, active
-// <0|1>, marked <location,length|none>" once AppKit has handled its events, "browser: menu
-// tracked <titles>" as a menu opens, such as the page's, "browser: modal shown <texts and
-// buttons>" as an alert does, and "browser: desktop space changed" once macOS has slid to another
-// Space. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
-// background process make it active.
+// driven, and keys and clickkey to the key window. A click or a press moves the pointer there
+// first, as a real mouse does. A command waits until the app is quiet: no GPUI window on screen
+// has motion in flight or a frame it hasn't drawn, such as an overlay's first. It logs "browser:
+// drive <n>: <command>" when command n runs and "browser: drive <n> done, key <window class>,
+// focus <view class>, active <0|1>, marked <location,length|none>" once AppKit has handled its
+// events and the app is quiet again, or after 3 s of motion with "browser: drive <n> not quiet:
+// <window class> <width>x<height> wants a frame" first, "browser: menu tracked <titles>" as a menu
+// opens, such as the page's, "browser: modal shown <texts and buttons>" as an alert does, and
+// "browser: desktop space changed" once macOS has slid to another Space. A page ignores clicks
+// while the app isn't the active app, and macOS doesn't let a background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
 #include <cstdio>
+#include <deque>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
 
 #include "browser_core.h"
 #include "host.h"
+
+// What our GPUI patch adds to its view: whether GPUI has asked for a frame it hasn't drawn yet.
+@interface NSView (GPUIFrames)
+- (BOOL)gpuiWantsFrame;
+@end
 
 // A drag from another app, as AppKit describes it to the view under the pointer: what it carries
 // and where it is.
@@ -199,6 +211,8 @@ NSWindow* g_backdrop;
 // The menu AppKit tracks, such as a page's context menu, which Chrome shows. choose picks from it
 // when none of the app's own menus is showing.
 __weak NSMenu* g_tracked;
+// The menus AppKit is tracking now, the main menu's too. GPUI draws no frames while one is open.
+NSMutableSet<NSMenu*>* g_tracking;
 
 // The window a full-screen transition AppKit announced is moving, and which way, until it's done.
 __weak NSWindow* g_full_screen_window;
@@ -310,7 +324,32 @@ NSWindow* WindowAt(NSWindow* browser, double x, double y) {
   return browser;
 }
 
+// Moves the pointer to (x, y) in |window|, from its top-left corner. The move goes to the view
+// under the pointer and to the tracking areas holding it, as a real move does, which is how GPUI's
+// view, under the page's, hears the pointer over the page. It's also posted, for the app's event
+// monitors.
+void Move(NSWindow* window, double x, double y) {
+  NSEvent* move = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
+                                     location:NSMakePoint(x, NSHeight(window.frame) - y)
+                                modifierFlags:0
+                                    timestamp:NSProcessInfo.processInfo.systemUptime
+                                 windowNumber:window.windowNumber
+                                      context:nil
+                                  eventNumber:0
+                                   clickCount:0
+                                     pressure:0];
+  NSView* content = window.contentView;
+  NSView* hit = [content hitTest:[content.superview convertPoint:move.locationInWindow
+                                                        fromView:nil]];
+  [hit mouseMoved:move];
+  TrackMove(content, move, hit);
+  [NSApp postEvent:move atStart:NO];
+}
+
+// A click moves the pointer there first, as a real mouse does, so what's under it shows its hover
+// as it would for the user.
 void Click(NSWindow* window, double x, double y, int count, NSEventModifierFlags flags = 0) {
+  Move(window, x, y);
   PostMouse(window, NSEventTypeLeftMouseDown, x, y, count, flags);
   PostMouse(window, NSEventTypeLeftMouseUp, x, y, count, flags);
 }
@@ -836,6 +875,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!NSApp.keyWindow || !(words >> x >> y)) {
       return false;
     }
+    Move(NSApp.keyWindow, x, y);
     PostMouse(NSApp.keyWindow, NSEventTypeRightMouseDown, x, y, 1);
     PostMouse(NSApp.keyWindow, NSEventTypeRightMouseUp, x, y, 1);
     done();
@@ -848,6 +888,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     NSWindow* target = WindowAt(window, x, y);
     Convert(window, target, &x, &y);
+    Move(target, x, y);
     PostMouse(target, NSEventTypeRightMouseDown, x, y, 1);
     PostMouse(target, NSEventTypeRightMouseUp, x, y, 1);
     done();
@@ -873,6 +914,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     NSWindow* target = WindowAt(window, x, y);
     Convert(window, target, &x, &y);
     Convert(window, target, &x2, &y2);
+    Move(target, x, y);
     PostMouse(target, NSEventTypeLeftMouseDown, x, y, 1);
     PostMouse(target, NSEventTypeLeftMouseDragged, x2, y2, 1);
     PostMouse(target, NSEventTypeLeftMouseUp, x2, y2, 1);
@@ -894,6 +936,9 @@ bool Run(const std::string& line, void (^done)(void)) {
     NSEventType type = action == "press"    ? NSEventTypeLeftMouseDown
                        : action == "dragto" ? NSEventTypeLeftMouseDragged
                                             : NSEventTypeLeftMouseUp;
+    if (action == "press") {
+      Move(target, x, y);
+    }
     PostMouse(target, type, x, y, 1);
     if (action == "release") {
       pressed = nil;
@@ -908,24 +953,7 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     NSWindow* target = WindowAt(window, x, y);
     Convert(window, target, &x, &y);
-    NSEvent* move = [NSEvent mouseEventWithType:NSEventTypeMouseMoved
-                                       location:NSMakePoint(x, NSHeight(target.frame) - y)
-                                  modifierFlags:0
-                                      timestamp:NSProcessInfo.processInfo.systemUptime
-                                   windowNumber:target.windowNumber
-                                        context:nil
-                                    eventNumber:0
-                                     clickCount:0
-                                       pressure:0];
-    // It goes to the view under the pointer and to the tracking areas holding it, as a real move
-    // does, which is how GPUI's view, under the page's, hears the pointer over the page. It's also
-    // posted, for the app's event monitors.
-    NSView* content = target.contentView;
-    NSView* hit = [content hitTest:[content.superview convertPoint:move.locationInWindow
-                                                          fromView:nil]];
-    [hit mouseMoved:move];
-    TrackMove(content, move, hit);
-    [NSApp postEvent:move atStart:NO];
+    Move(target, x, y);
     done();
     return true;
   }
@@ -1219,6 +1247,171 @@ bool Run(const std::string& line, void (^done)(void)) {
   return false;
 }
 
+// Whether GPUI in |view|, or in a view under it, has asked for a frame it hasn't drawn yet.
+bool WantsFrame(NSView* view) {
+  if (view.hidden) {
+    return false;
+  }
+  if ([view respondsToSelector:@selector(gpuiWantsFrame)] && [view gpuiWantsFrame]) {
+    return true;
+  }
+  for (NSView* subview in view.subviews) {
+    if (WantsFrame(subview)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The app's window on screen with motion in flight or a frame still to draw, such as an overlay
+// AppKit has put on screen and GPUI hasn't drawn there yet, or nil once the app is quiet. While a
+// menu is open GPUI draws nothing, and an alert takes the input, so either counts as quiet.
+NSWindow* Busy() {
+  if (g_tracking.count || NSApp.modalWindow || NSApp.hidden) {
+    return nil;
+  }
+  for (NSWindow* window in NSApp.windows) {
+    if (window.visible && window.onActiveSpace && !window.miniaturized &&
+        WantsFrame(window.contentView.superview ?: window.contentView)) {
+      return window;
+    }
+  }
+  return nil;
+}
+
+// A command and its done line each wait until the app is quiet, so a command never lands while
+// motion runs or before an overlay's first frame, and what the done line reports has settled. A
+// command sent as "now <command>" doesn't wait, nor does its done line, for steps that act while
+// motion runs. Commands keep their order. Motion that never ends waits only kQuietLimit, with a
+// line saying which window kept the app busy.
+struct Command {
+  long number;
+  std::string line;
+};
+std::deque<Command> g_commands;
+std::deque<long> g_dones;
+std::set<long> g_now;
+constexpr CFTimeInterval kQuietLimit = 3;
+// When the driver started waiting for the app to be quiet, or 0.
+CFAbsoluteTime g_busy_since = 0;
+CFRunLoopObserverRef g_quiet_observer;
+CFRunLoopTimerRef g_quiet_limit;
+
+void PostDone(long number);
+void Pump();
+
+void RunCommand(const Command& command, bool now) {
+  if (now) {
+    g_now.insert(command.number);
+  }
+  long n = command.number;
+  fprintf(stderr, "browser: drive %ld: %s%s\n", n, now ? "now " : "", command.line.c_str());
+  if (!Run(command.line, ^{
+        PostDone(n);
+      })) {
+    fprintf(stderr, "browser: drive %ld: can't do that\n", n);
+    PostDone(n);
+  }
+}
+
+void ReportDone(long number) {
+  NSWindow* key = NSApp.keyWindow;
+  NSResponder* focus = (key ?: MainWindow()).firstResponder;
+  NSString* marked = @"none";
+  if ([focus conformsToProtocol:@protocol(NSTextInputClient)]) {
+    NSRange range = [(id<NSTextInputClient>)focus markedRange];
+    if (range.location != NSNotFound) {
+      marked = [NSString stringWithFormat:@"%lu,%lu", range.location, range.length];
+    }
+  }
+  fprintf(stderr, "browser: drive %ld done, key %s, focus %s, active %d, marked %s\n", number,
+          key ? NSStringFromClass(key.class).UTF8String : "none",
+          NSStringFromClass(focus.class).UTF8String, NSApp.active, marked.UTF8String);
+}
+
+// Checks again each time the run loop is about to sleep, after a frame or an event, and once the
+// limit is up. Neither is there while nothing waits, so an idle app stays asleep.
+void WaitForQuiet() {
+  if (!g_quiet_observer) {
+    g_quiet_observer = CFRunLoopObserverCreateWithHandler(
+        nullptr, kCFRunLoopBeforeWaiting, true, 0, ^(CFRunLoopObserverRef, CFRunLoopActivity) {
+          Pump();
+        });
+    CFRunLoopAddObserver(CFRunLoopGetMain(), g_quiet_observer, kCFRunLoopCommonModes);
+  }
+  if (!g_quiet_limit) {
+    g_quiet_limit = CFRunLoopTimerCreateWithHandler(nullptr, g_busy_since + kQuietLimit, 0, 0, 0,
+                                                    ^(CFRunLoopTimerRef) {
+                                                      CFRelease(g_quiet_limit);
+                                                      g_quiet_limit = nullptr;
+                                                      Pump();
+                                                    });
+    CFRunLoopAddTimer(CFRunLoopGetMain(), g_quiet_limit, kCFRunLoopCommonModes);
+  }
+}
+
+void StopWaiting() {
+  g_busy_since = 0;
+  if (g_quiet_observer) {
+    CFRunLoopObserverInvalidate(g_quiet_observer);
+    CFRelease(g_quiet_observer);
+    g_quiet_observer = nullptr;
+  }
+  if (g_quiet_limit) {
+    CFRunLoopTimerInvalidate(g_quiet_limit);
+    CFRelease(g_quiet_limit);
+    g_quiet_limit = nullptr;
+  }
+}
+
+// Commands sent with "now" at the front go at once, right behind the one before them.
+void RunNow() {
+  while (!g_commands.empty() && g_commands.front().line.rfind("now ", 0) == 0) {
+    Command command = g_commands.front();
+    g_commands.pop_front();
+    command.line.erase(0, 4);
+    RunCommand(command, true);
+  }
+}
+
+void Pump() {
+  RunNow();
+  if (g_commands.empty() && g_dones.empty()) {
+    StopWaiting();
+    return;
+  }
+  if (NSWindow* busy = Busy()) {
+    CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
+    if (!g_busy_since) {
+      g_busy_since = now;
+    }
+    if (now - g_busy_since < kQuietLimit) {
+      WaitForQuiet();
+      return;
+    }
+    long n = g_commands.empty() ? g_dones.front() : g_commands.front().number;
+    fprintf(stderr, "browser: drive %ld not quiet: %s %.0fx%.0f wants a frame\n", n,
+            NSStringFromClass(busy.class).UTF8String, NSWidth(busy.frame), NSHeight(busy.frame));
+  }
+  // Quiet: every done line waiting, and one command, whose events AppKit handles before the next
+  // goes.
+  while (!g_dones.empty()) {
+    ReportDone(g_dones.front());
+    g_dones.pop_front();
+  }
+  if (!g_commands.empty()) {
+    Command command = g_commands.front();
+    g_commands.pop_front();
+    RunCommand(command, false);
+    RunNow();
+  }
+  StopWaiting();
+  if (!g_commands.empty()) {
+    g_busy_since = CFAbsoluteTimeGetCurrent();
+    WaitForQuiet();
+  }
+}
+
 void PostDone(long number) {
   [NSApp postEvent:[NSEvent otherEventWithType:NSEventTypeApplicationDefined
                                       location:NSZeroPoint
@@ -1239,18 +1432,13 @@ void drive_start(void) {
     if (event.subtype != kDoneSubtype) {
       return event;
     }
-    NSWindow* key = NSApp.keyWindow;
-    NSResponder* focus = (key ?: MainWindow()).firstResponder;
-    NSString* marked = @"none";
-    if ([focus conformsToProtocol:@protocol(NSTextInputClient)]) {
-      NSRange range = [(id<NSTextInputClient>)focus markedRange];
-      if (range.location != NSNotFound) {
-        marked = [NSString stringWithFormat:@"%lu,%lu", range.location, range.length];
-      }
+    long number = event.data1;
+    if (g_now.erase(number)) {
+      ReportDone(number);
+    } else {
+      g_dones.push_back(number);
+      Pump();
     }
-    fprintf(stderr, "browser: drive %ld done, key %s, focus %s, active %d, marked %s\n",
-            (long)event.data1, key ? NSStringFromClass(key.class).UTF8String : "none",
-            NSStringFromClass(focus.class).UTF8String, NSApp.active, marked.UTF8String);
     return nil;
   };
   [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskApplicationDefined handler:report_done];
@@ -1303,6 +1491,20 @@ void drive_start(void) {
                   LogFullScreenStep(g_full_screen_entering, "resized", window);
                 }
               }];
+  g_tracking = [NSMutableSet set];
+  [NSNotificationCenter.defaultCenter addObserverForName:NSMenuDidBeginTrackingNotification
+                                                  object:nil
+                                                   queue:nil
+                                              usingBlock:^(NSNotification* notification) {
+                                                [g_tracking addObject:notification.object];
+                                              }];
+  [NSNotificationCenter.defaultCenter addObserverForName:NSMenuDidEndTrackingNotification
+                                                  object:nil
+                                                   queue:nil
+                                              usingBlock:^(NSNotification* notification) {
+                                                [g_tracking removeObject:notification.object];
+                                                Pump();
+                                              }];
   // A menu AppKit starts tracking, such as a page's context menu, which Chrome shows: its items,
   // for check.sh to wait for and read, as the app's own menus log theirs.
   [NSNotificationCenter.defaultCenter
@@ -1374,13 +1576,8 @@ void drive_start(void) {
       // In the run loop's common modes, so a command also runs while a menu is open. GCD's main
       // queue waits until it closes.
       CFRunLoopPerformBlock(CFRunLoopGetMain(), kCFRunLoopCommonModes, ^{
-        fprintf(stderr, "browser: drive %ld: %s\n", n, line.c_str());
-        if (!Run(line, ^{
-              PostDone(n);
-            })) {
-          fprintf(stderr, "browser: drive %ld: can't do that\n", n);
-          PostDone(n);
-        }
+        g_commands.push_back({n, line});
+        Pump();
       });
       CFRunLoopWakeUp(CFRunLoopGetMain());
     }

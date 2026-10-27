@@ -67,7 +67,7 @@ check_find_bar() {
 # What's typed right after ⌘F, with no wait, lands in the bar, though the page has ⌘F first and the
 # keys come before the bar has the keyboard. All of it in the bar is none of it in the page.
 post key f cmd
-send type apple
+send now type apple
 expect '^browser: command find via page$' "⌘F with the page focused didn't reach the UI"
 expect '^browser: find bar shown$' "⌘F didn't open the find bar"
 expect '^browser: held [0-9]* key events for GPUIPanel$' \

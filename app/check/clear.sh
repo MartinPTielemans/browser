@@ -97,17 +97,12 @@ field_point="600 760"
 # What the sidebar last logged of $1, "sidebar hovered" or "sidebar tools": 1 or shown, 0 or hidden,
 # or nothing before its first change.
 last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
-# The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
-# where the sidebar last saw the pointer depends on the steps before. This moves it to the page and
-# waits until the sidebar has seen it go and its tools have faded out, whether or not this move was
-# what changed them, so the next move over the sidebar shows them anew.
+# Moves the pointer to the page, for a step that starts with it off the sidebar. The driver's done
+# line waits for the tools' fade, so the next move over the sidebar shows them anew.
 away() {
   send move $page_point
-  for _ in $(seq 100); do
-    [ "$(last 'sidebar hovered')" != 1 ] && [ "$(last 'sidebar tools')" != shown ] && return 0
-    sleep 0.1
-  done
-  fail "Clear and the URL field's buttons stayed with the pointer over the page"
+  [ "$(last 'sidebar hovered')" != 1 ] && [ "$(last 'sidebar tools')" != shown ] ||
+    fail "Clear and the URL field's buttons stayed with the pointer over the page"
 }
 open_from_bar example.com
 b=$tab
@@ -527,7 +522,6 @@ expect "^browser: loaded $r http://localhost:$port/index.html\$" "localhost didn
 send click $page_point
 send key a
 asks "http://localhost:$port" "another site's question didn't come"
-away
 send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Allow didn't take the question down"
 expect "^browser: title $r granted\$" "Allow didn't grant the page"

@@ -266,7 +266,7 @@ expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post key 2 ctrl
 slide=$step
 expect_soon "^browser: space $second in " "⌃2 didn't show the second Space"
-post rightclick 12 $(row 0 | cut -d' ' -f2)
+post now rightclick 12 $(row 0 | cut -d' ' -f2)
 expect '^browser: menu shown Copy Link, ' "a right-click while the second Space's rows slid in showed no menu"
 # Settled before the menu showed, and the press came too late to be a test of the slide.
 sed -n "/^browser: drive $slide: /,\$p" "$log" |

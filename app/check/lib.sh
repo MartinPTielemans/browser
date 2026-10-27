@@ -81,7 +81,9 @@ quit() {
   exited "$@"
 }
 
-# Sends a command to the app's driver (platform/mac/drive.mm) and waits until AppKit has handled it.
+# Sends a command to the app's driver (platform/mac/drive.mm) and waits until AppKit has handled it
+# and the app is quiet. The driver waits for quiet before it runs a command too, unless it's sent
+# as "now <command>", for a step that acts while motion runs.
 send() {
   step=$((step + 1))
   echo "$*" >&3
@@ -105,7 +107,7 @@ post() {
 # A Today tab's Share as its menu logs it: this Mac's share services, or dimmed with none. A check
 # reads past them and never chooses one.
 share='\(Share (disabled)\|Share › [^,]*\(, Share › [^,]*\)*\)'
-# Waits up to 10 s for a line matching $1 logged after the last command was sent.
+# Waits up to 10 s for a line matching $1 logged after the last command ran.
 expect() {
   "$out/logwait" -f "browser: drive $step: " -p "${pid:-0}" 10000 "$log" "$1" > /dev/null ||
     fail "$2"
@@ -115,7 +117,7 @@ expect() {
 expect_soon() {
   expect "$@"
 }
-# Nothing logged since the last command was sent matches $1.
+# Nothing logged since the last command ran matches $1.
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"
 }

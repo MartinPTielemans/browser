@@ -167,7 +167,7 @@ expect '^browser: title [0-9]* value y$' "⌘A in the page didn't select all"
 # before the bar has the keyboard, and the app says it held them for it.
 typed_after() {
   post key "$1" cmd
-  send type "$2"
+  send now type "$2"
   expect '^browser: held [0-9]* key events for GPUIPanel$' \
     "keys typed right after ⌘$(echo "$1" | tr a-z A-Z) $3 didn't wait for its bar"
 }
@@ -218,7 +218,7 @@ expect '^browser: find bar hidden$' "escape didn't close the find bar"
 send click $page_point
 in_browser RenderWidgetHostViewCocoa "after a click on the page"
 post key f cmd
-send type abc
+send now type abc
 title=$(grep '^browser: title' "$log" | tail -1)
 expect '^browser: title [0-9]* value yabc$' \
   "the page that keeps ⌘F didn't get the keys after it, or got a bar's: $title"
