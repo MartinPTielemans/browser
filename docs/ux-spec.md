@@ -615,7 +615,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 
 **Rows**
 
-- The Enter target is the inline match, else a typed URL, else a search for what was typed, except where an open tab takes row 0 (below). Page titles are never the default (Chrome). Dia's "Use website first" setting puts a strongly matching page first instead, and "Prefer search engine" turns that off.
+- The Enter target is the inline match, else a typed URL, else a search for what was typed, except where an open tab takes row 0 (below). Page titles are never the default (Chrome). Typed with http:// or https://, an address is a typed URL whatever its host, so one that can't resolve shows the error page (ours: Chrome searches for a .invalid host or one it finds malformed). Dia's "Use website first" setting puts a strongly matching page first instead, and "Prefer search engine" turns that off.
 - The search row comes right after the top hit (Dia 1.49).
 - Row 0 is computed from local data only; remote suggestions append below it, so row 0 never flickers (Chrome).
 - Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia). Ours (*interim*, as Chrome's): a row for a tab another window shows live brings that window forward with the keyboard, rather than taking its page; any other comes to this window. Whether Arc raises or moves: measure.
