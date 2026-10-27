@@ -9,17 +9,18 @@
 
 serve
 # Typing w in it keeps its renderer busy for 20 s, past Chrome's 15 s hang timeout, then the title
-# says so.
+# says so, counted, since a title that doesn't change logs nothing.
 printf '%s' '<title>loading</title><body style="background:#333">
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+let wakes = 0;
 onkeydown = e => {
   if (e.key != "w") {
     return;
   }
   const end = Date.now() + 20000;
   while (Date.now() < end) {}
-  document.title = "woke";
+  document.title = "woke " + ++wakes;
 };
 </script>' > "$out/site/busy.html"
 log="$out/trouble.log"
@@ -69,7 +70,7 @@ hang() {
 # Hung, the note shows with the row's mark, and goes by itself once the page answers.
 hang "hung"
 ../tools/window-screenshot.sh "$pid" "$out/hung.png" || fail "no window to capture"
-expect_late "^browser: title $tab woke\$" "the busy page didn't wake"
+expect_late "^browser: title $tab woke 1\$" "the busy page didn't wake"
 expect "^browser: page $tab trouble fine\$" "the page answering didn't make it fine"
 expect '^browser: toast hidden$' "the note stayed once the page answered"
 
@@ -78,7 +79,7 @@ hang "wait"
 send click $toast_wait
 expect '^browser: toast button wait$' "Wait wasn't pressed at $toast_wait"
 expect "^browser: page $tab trouble fine\$" "Wait didn't make the page fine"
-expect_late "^browser: title $tab woke\$" "the busy page didn't wake after Wait"
+expect_late "^browser: title $tab woke 2\$" "the busy page didn't wake after Wait"
 none_since "page $tab trouble hung" || fail "the page was called hung again within Wait's time"
 
 # Reload ends the renderer and loads the page again, without the crash card.
