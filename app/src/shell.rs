@@ -618,6 +618,12 @@ impl Space {
         split.map_or_else(Vec::new, |split| split.shares.clone())
     }
 
+    /// The tab of `tab`'s split view that took the card, else 0.
+    fn expanded(&self, tab: u64) -> u64 {
+        let split = self.splits.iter().find(|split| split.tabs.contains(&tab));
+        split.map_or(0, |split| split.expanded)
+    }
+
     /// Where its rows are in the list, from its top.
     fn slots(&self) -> HashMap<Slot, f32> {
         let (pinned, today) = self.rows();
@@ -1418,9 +1424,27 @@ impl Shell {
         self.shown_space().is_some_and(|space| space.stacked(tab))
     }
 
-    /// The shares of `tab`'s split view in the Space shown, or none while they're even.
+    /// The tab of `tab`'s split view in the Space shown that took the card, else 0.
+    fn expanded(&self, tab: u64) -> u64 {
+        self.shown_space().map_or(0, |space| space.expanded(tab))
+    }
+
+    /// The shares of `tab`'s split view in the Space shown, or none while they're even. An
+    /// expanded one's come from the page's frame, as the core's do at its layout.
     fn shares(&self, tab: u64) -> Vec<f64> {
-        self.shown_space().map_or_else(Vec::new, |space| space.shares(tab))
+        let expanded = self.expanded(tab);
+        let panes = self.panes(tab);
+        match panes.iter().position(|&pane| pane == expanded) {
+            Some(focused) => {
+                let (frame, _) = self.page_frame(self.viewport);
+                let length = match self.stacked(tab) {
+                    true => frame.size.height,
+                    false => frame.size.width,
+                };
+                panes::expanded_shares(panes.len(), focused, f32::from(length))
+            }
+            None => self.shown_space().map_or_else(Vec::new, |space| space.shares(tab)),
+        }
     }
 
     /// The tab whose row is `tab`'s: its split's first.

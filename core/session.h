@@ -41,6 +41,9 @@ struct SavedTab {
   bool stacked = false;
   // Its share of its split view, or 0 while the split's shares are even.
   double share = 0;
+  // Whether its page took its split view's card, the other pages keeping 220 pt, which the shares
+  // aren't kept for.
+  bool expanded = false;
   // How many folders it's in, among the pinned tabs.
   int depth = 0;
   // Whether it was muted, for a tab closed and reopened. The session file doesn't keep it.
