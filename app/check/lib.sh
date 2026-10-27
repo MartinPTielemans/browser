@@ -259,6 +259,14 @@ pinned_favicon() {
 serve() {
   [ -n "${site:-}" ] || . check/site.sh
 }
+# Waits for the check's server to log a request matching $1, as site.sh writes them.
+served() {
+  for _ in $(seq 100); do
+    grep -q "$1" "$out/site.log" && return 0
+    sleep 0.1
+  done
+  fail "$2"
+}
 # The colour at ($2, $3), as fractions of the width and height, in the capture $1: "r g b".
 pixel() {
   sips -s format bmp "$1" --out "$out/pixel.bmp" > /dev/null || fail "sips couldn't read $1"

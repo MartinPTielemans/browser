@@ -329,6 +329,16 @@ bool Tab::UseSystemEngine(const GURL& url) {
   // The note offered this, and its question is answered.
   ForgetMediaUnsupported(web_contents());
   EngineChanged();
+  // The user's session with the site comes too, before the page's first load (decision 1).
+  system_engine::CopyToSystemEngine(
+      profile, url,
+      base::BindOnce(
+          [](base::WeakPtr<Tab> tab, int page, platform::StorageByOrigin storage) {
+            if (tab && tab->system_page_ && tab->system_pages_ == page) {
+              tab->system_page_->Start(std::move(storage));
+            }
+          },
+          weak_factory_.GetWeakPtr(), ++system_pages_));
   return true;
 }
 

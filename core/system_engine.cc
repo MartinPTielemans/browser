@@ -1,14 +1,21 @@
 #include "browser_core/system_engine.h"
 
+#include <stdio.h>
+
 #include <algorithm>
 #include <memory>
+#include <optional>
+#include <set>
 #include <string>
 #include <utility>
+#include <vector>
 
+#include "base/barrier_callback.h"
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/hash/sha1.h"
+#include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
@@ -29,11 +36,24 @@
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "components/services/storage/public/mojom/local_storage_control.mojom.h"
+#include "components/services/storage/public/mojom/storage_usage_info.mojom.h"
 #include "content/public/browser/navigation_handle.h"
 #include "content/public/browser/navigation_throttle.h"
 #include "content/public/browser/navigation_throttle_registry.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "mojo/public/cpp/bindings/callback_helpers.h"
+#include "mojo/public/cpp/bindings/remote.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_access_result.h"
+#include "net/cookies/cookie_options.h"
+#include "services/network/public/mojom/cookie_manager.mojom.h"
+#include "third_party/blink/public/common/storage_key/storage_key.h"
+#include "third_party/blink/public/mojom/dom_storage/storage_area.mojom.h"
+#include "url/origin.h"
+#include "url/url_constants.h"
 
 namespace browser_core::system_engine {
 
@@ -102,6 +122,260 @@ std::string StoreOnDisk(const base::FilePath& path) {
 void DeleteStoreOf(const std::string& id) {
   if (!id.empty()) {
     platform::SystemPage::DeleteStore(id);
+  }
+}
+
+// localStorage as Blink keeps it, which the browser can't include (cached_storage_area.cc in
+// third_party/blink/renderer/modules/storage): a byte for Latin-1 (1) or UTF-16 (0), then the
+// characters.
+std::vector<uint8_t> StorageBytes(const std::u16string& text) {
+  const bool latin1 = std::ranges::all_of(text, [](char16_t c) { return c <= 0xff; });
+  std::vector<uint8_t> bytes = {static_cast<uint8_t>(latin1 ? 1 : 0)};
+  for (char16_t c : text) {
+    bytes.push_back(static_cast<uint8_t>(c & 0xff));
+    if (!latin1) {
+      bytes.push_back(static_cast<uint8_t>(c >> 8));
+    }
+  }
+  return bytes;
+}
+
+std::optional<std::u16string> StorageText(const std::vector<uint8_t>& bytes) {
+  if (bytes.empty()) {
+    return std::u16string();
+  }
+  std::u16string text;
+  if (bytes[0] == 1) {
+    for (size_t i = 1; i < bytes.size(); ++i) {
+      text.push_back(bytes[i]);
+    }
+    return text;
+  }
+  if (bytes[0] != 0 || bytes.size() % 2 != 1) {
+    return std::nullopt;
+  }
+  for (size_t i = 1; i + 1 < bytes.size(); i += 2) {
+    text.push_back(static_cast<char16_t>(bytes[i] | bytes[i + 1] << 8));
+  }
+  return text;
+}
+
+// Whether |origin| is a page's of |site|.
+bool OriginOfSite(const url::Origin& origin, const std::string& site) {
+  return (origin.scheme() == url::kHttpScheme || origin.scheme() == url::kHttpsScheme) &&
+         platform::HostOfSite(origin.host(), site);
+}
+
+size_t ItemsIn(const platform::StorageByOrigin& storage) {
+  size_t items = 0;
+  for (const auto& [origin, each] : storage) {
+    items += each.size();
+  }
+  return items;
+}
+
+// Reads a site's cookies and localStorage from a profile's Chromium store, then deletes itself.
+// What the store doesn't answer, as when its service or its profile goes, comes back empty.
+class ChromiumReader {
+ public:
+  using Done =
+      base::OnceCallback<void(std::vector<net::CanonicalCookie>, platform::StorageByOrigin)>;
+
+  // |page|'s origin is read whether or not the store has written it to disk yet.
+  static void Run(Profile* profile, const std::string& site, const url::Origin& page, Done done) {
+    new ChromiumReader(profile, site, page, std::move(done));
+  }
+
+ private:
+  ChromiumReader(Profile* profile, const std::string& site, const url::Origin& page, Done done)
+      : profile_(profile->GetWeakPtr()), site_(site), page_(page), done_(std::move(done)) {
+    profile->GetDefaultStoragePartition()->GetCookieManagerForBrowserProcess()->GetAllCookies(
+        mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+            base::BindOnce(&ChromiumReader::GotCookies, weak_factory_.GetWeakPtr()),
+            net::CookieList()));
+  }
+
+  void GotCookies(const net::CookieList& all) {
+    for (const net::CanonicalCookie& cookie : all) {
+      // A cookie kept for the site inside another one's pages stays: WebKit keeps none that way.
+      if (!cookie.IsPartitioned() && platform::HostOfSite(cookie.DomainWithoutDot(), site_)) {
+        cookies_.push_back(cookie);
+      }
+    }
+    storage::mojom::LocalStorageControl* control = Control();
+    if (!control) {
+      Finish();
+      return;
+    }
+    control->GetUsage(mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+        base::BindOnce(&ChromiumReader::GotOrigins, weak_factory_.GetWeakPtr()),
+        std::vector<storage::mojom::StorageUsageInfoPtr>()));
+  }
+
+  void GotOrigins(std::vector<storage::mojom::StorageUsageInfoPtr> usage) {
+    std::set<url::Origin> origins;
+    if (OriginOfSite(page_, site_)) {
+      origins.insert(page_);
+    }
+    for (const storage::mojom::StorageUsageInfoPtr& each : usage) {
+      // Only the site's own pages': its storage inside other sites' pages is kept apart.
+      if (each->storage_key.IsFirstPartyContext() &&
+          OriginOfSite(each->storage_key.origin(), site_)) {
+        origins.insert(each->storage_key.origin());
+      }
+    }
+    storage::mojom::LocalStorageControl* control = Control();
+    if (origins.empty() || !control) {
+      Finish();
+      return;
+    }
+    pending_ = origins.size();
+    areas_.reserve(origins.size());
+    for (const url::Origin& origin : origins) {
+      mojo::Remote<blink::mojom::StorageArea>& area = areas_.emplace_back();
+      control->BindStorageArea(blink::StorageKey::CreateFirstParty(origin),
+                               area.BindNewPipeAndPassReceiver());
+      area->GetAll(/*new_observer=*/mojo::NullRemote(),
+                   mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+                       base::BindOnce(&ChromiumReader::GotItems, weak_factory_.GetWeakPtr(),
+                                      origin),
+                       std::vector<blink::mojom::KeyValuePtr>()));
+    }
+  }
+
+  void GotItems(const url::Origin& origin, std::vector<blink::mojom::KeyValuePtr> data) {
+    platform::StorageItems items;
+    for (const blink::mojom::KeyValuePtr& each : data) {
+      std::optional<std::u16string> key = StorageText(each->key);
+      std::optional<std::u16string> value = StorageText(each->value);
+      if (key && value) {
+        items[*key] = *value;
+      }
+    }
+    if (!items.empty()) {
+      storage_[origin] = std::move(items);
+    }
+    if (--pending_ == 0) {
+      Finish();
+    }
+  }
+
+  // The profile's, unless it went: its store's callbacks run as the store goes, after it.
+  storage::mojom::LocalStorageControl* Control() {
+    return profile_ ? profile_->GetDefaultStoragePartition()->GetLocalStorageControl() : nullptr;
+  }
+
+  void Finish() {
+    std::move(done_).Run(std::move(cookies_), std::move(storage_));
+    delete this;
+  }
+
+  const base::WeakPtr<Profile> profile_;
+  const std::string site_;
+  const url::Origin page_;
+  Done done_;
+  std::vector<net::CanonicalCookie> cookies_;
+  platform::StorageByOrigin storage_;
+  std::vector<mojo::Remote<blink::mojom::StorageArea>> areas_;
+  size_t pending_ = 0;
+  // Last, so the callbacks the areas drop as they go find it gone.
+  base::WeakPtrFactory<ChromiumReader> weak_factory_{this};
+};
+
+// Writes cookies and localStorage into a profile's Chromium store, then runs its callback with how
+// many of each the store took, and deletes itself.
+class ChromiumWriter {
+ public:
+  using Done = base::OnceCallback<void(size_t cookies, size_t items)>;
+
+  static void Run(content::StoragePartition* partition,
+                  const std::vector<net::CanonicalCookie>& cookies,
+                  const platform::StorageByOrigin& storage,
+                  Done done) {
+    (new ChromiumWriter(std::move(done)))->Write(partition, cookies, storage);
+  }
+
+ private:
+  explicit ChromiumWriter(Done done) : done_(std::move(done)) {}
+
+  void Write(content::StoragePartition* partition,
+             const std::vector<net::CanonicalCookie>& cookies,
+             const platform::StorageByOrigin& storage) {
+    for (const net::CanonicalCookie& cookie : cookies) {
+      ++pending_;
+      // As the cookie's own site would set it, HttpOnly and SameSite included.
+      const GURL source((cookie.SecureAttribute() ? "https://" : "http://") +
+                        cookie.DomainWithoutDot() + cookie.Path());
+      partition->GetCookieManagerForBrowserProcess()->SetCanonicalCookie(
+          cookie, source, net::CookieOptions::MakeAllInclusive(),
+          mojo::WrapCallbackWithDropHandler(
+              base::BindOnce(&ChromiumWriter::CookieSet, weak_factory_.GetWeakPtr()),
+              base::BindOnce(&ChromiumWriter::Wrote, weak_factory_.GetWeakPtr(),
+                             /*cookie=*/true, /*took=*/false)));
+    }
+    storage::mojom::LocalStorageControl* control = partition->GetLocalStorageControl();
+    for (const auto& [origin, items] : storage) {
+      if (!control) {
+        break;
+      }
+      mojo::Remote<blink::mojom::StorageArea>& area = areas_.emplace_back();
+      control->BindStorageArea(blink::StorageKey::CreateFirstParty(origin),
+                               area.BindNewPipeAndPassReceiver());
+      for (const auto& [key, value] : items) {
+        ++pending_;
+        // No old value: the storage service reads it, for the pages its observers tell.
+        area->Put(StorageBytes(key), StorageBytes(value), /*client_old_value=*/std::nullopt,
+                  /*source=*/nullptr,
+                  mojo::WrapCallbackWithDefaultInvokeIfNotRun(
+                      base::BindOnce(&ChromiumWriter::Wrote, weak_factory_.GetWeakPtr(),
+                                     /*cookie=*/false),
+                      false));
+      }
+    }
+    if (pending_ == 0) {
+      Finish();
+    }
+  }
+
+  void CookieSet(net::CookieAccessResult result) {
+    Wrote(/*cookie=*/true, result.status.IsInclude());
+  }
+
+  void Wrote(bool cookie, bool took) {
+    if (took) {
+      ++(cookie ? cookies_ : items_);
+    }
+    if (--pending_ == 0) {
+      Finish();
+    }
+  }
+
+  void Finish() {
+    std::move(done_).Run(cookies_, items_);
+    delete this;
+  }
+
+  Done done_;
+  std::vector<mojo::Remote<blink::mojom::StorageArea>> areas_;
+  size_t pending_ = 0;
+  size_t cookies_ = 0;
+  size_t items_ = 0;
+  base::WeakPtrFactory<ChromiumWriter> weak_factory_{this};
+};
+
+// Has |tabs| show their pages in Chromium, those still at |site| in the system's engine, once
+// their session is there.
+void HandBack(base::WeakPtr<Profile> profile,
+              const std::string& site,
+              const std::vector<bc_id>& tabs) {
+  for (bc_id id : tabs) {
+    content::WebContents* contents = Tab::FromId(id);
+    Tab* tab = contents ? Tab::FromWebContents(contents) : nullptr;
+    platform::SystemPage* page = tab ? tab->system_page() : nullptr;
+    // The site turned on again in the meantime keeps it.
+    if (page && profile && SiteOf(page->url()) == site && !Remembered(profile.get(), page->url())) {
+      tab->UseChromium(page->url());
+    }
   }
 }
 
@@ -253,6 +527,106 @@ void StoreMade(Profile* profile) {
 bool StoreUsed(Profile* profile) {
   return profile->IsOffTheRecord() ? profile->GetUserData(PrivateStore::kKey) != nullptr
                                    : !profile->GetPrefs()->GetString(kStore).empty();
+}
+
+void CopyToSystemEngine(Profile* profile,
+                        const GURL& url,
+                        base::OnceCallback<void(platform::StorageByOrigin)> done) {
+  const std::string site = SiteOf(url);
+  ChromiumReader::Run(
+      profile, site, url::Origin::Create(url),
+      base::BindOnce(
+          [](base::WeakPtr<Profile> profile, const platform::SystemStore& store,
+             const std::string& site, base::OnceCallback<void(platform::StorageByOrigin)> done,
+             std::vector<net::CanonicalCookie> cookies, platform::StorageByOrigin storage) {
+            // Gone with its profile, which a private one's store was let go with.
+            if (!profile) {
+              return;
+            }
+            platform::SystemPage::SetCookies(
+                store, cookies,
+                base::BindOnce(
+                    [](const std::string& site,
+                       base::OnceCallback<void(platform::StorageByOrigin)> done,
+                       platform::StorageByOrigin storage, size_t copied) {
+                      // check.sh reads this line. Counts only: never a name or a value.
+                      fprintf(stderr,
+                              "browser: copied %zu cookies and %zu storage items for %s into "
+                              "the system's engine\n",
+                              copied, ItemsIn(storage), site.c_str());
+                      std::move(done).Run(std::move(storage));
+                    },
+                    site, std::move(done), std::move(storage)));
+          },
+          profile->GetWeakPtr(), StoreOf(profile), site, std::move(done)));
+}
+
+void ReturnToChromium(Profile* profile, const GURL& url) {
+  const std::string site = SiteOf(url);
+  std::vector<bc_id> tabs;
+  std::vector<platform::SystemPage*> pages;
+  for (content::WebContents* each : Tab::All()) {
+    platform::SystemPage* page = Tab::FromWebContents(each)->system_page();
+    if (each->GetBrowserContext() == profile && page && SiteOf(page->url()) == site) {
+      tabs.push_back(Tab::IdOf(each));
+      pages.push_back(page);
+    }
+  }
+  using Read = std::pair<url::Origin, platform::StorageItems>;
+  // The pages' localStorage, then the store's cookies, then both into Chromium's store, and then
+  // the pages there.
+  auto write = base::BindOnce(
+      [](base::WeakPtr<Profile> profile, const std::string& site, std::vector<bc_id> tabs,
+         std::vector<Read> reads, std::vector<net::CanonicalCookie> cookies) {
+        if (!profile) {
+          return;
+        }
+        platform::StorageByOrigin storage;
+        for (auto& [origin, items] : reads) {
+          if (OriginOfSite(origin, site)) {
+            storage[origin].merge(items);
+          }
+        }
+        ChromiumWriter::Run(
+            profile->GetDefaultStoragePartition(), cookies, storage,
+            base::BindOnce(
+                [](base::WeakPtr<Profile> profile, const std::string& site,
+                   const std::vector<bc_id>& tabs, size_t cookies, size_t items) {
+                  // check.sh reads this line. Counts only: never a name or a value.
+                  fprintf(stderr,
+                          "browser: copied %zu cookies and %zu storage items for %s back to "
+                          "Chromium\n",
+                          cookies, items, site.c_str());
+                  HandBack(profile, site, tabs);
+                },
+                profile, site, std::move(tabs)));
+      },
+      profile->GetWeakPtr(), site, std::move(tabs));
+  auto read_cookies = base::BindOnce(
+      [](base::WeakPtr<Profile> profile, const std::string& site,
+         base::OnceCallback<void(std::vector<Read>, std::vector<net::CanonicalCookie>)> write,
+         std::vector<Read> reads) {
+        if (!profile) {
+          return;
+        }
+        // A store never made has nothing, and the system's engine stays unloaded.
+        if (!StoreUsed(profile.get())) {
+          std::move(write).Run(std::move(reads), {});
+          return;
+        }
+        platform::SystemPage::GetCookies(StoreOf(profile.get()), site,
+                                         base::BindOnce(std::move(write), std::move(reads)));
+      },
+      profile->GetWeakPtr(), site, std::move(write));
+  // Each page answers, or a moment passes.
+  base::RepeatingCallback<void(Read)> read =
+      base::BarrierCallback<Read>(pages.size(), std::move(read_cookies));
+  for (platform::SystemPage* page : pages) {
+    page->GetStorage(base::BindOnce(
+        [](base::RepeatingCallback<void(Read)> read, url::Origin origin,
+           platform::StorageItems items) { read.Run({std::move(origin), std::move(items)}); },
+        read));
+  }
 }
 
 void DeleteStore(const base::FilePath& path, base::OnceClosure then) {

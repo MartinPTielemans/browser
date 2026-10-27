@@ -6,12 +6,17 @@
 #ifndef BROWSER_CORE_PLATFORM_SYSTEM_PAGE_H_
 #define BROWSER_CORE_PLATFORM_SYSTEM_PAGE_H_
 
+#include <map>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "base/functional/callback_forward.h"
+#include "net/cookies/canonical_cookie.h"
 #include "ui/gfx/native_ui_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 namespace input {
 struct NativeWebKeyboardEvent;
@@ -27,6 +32,17 @@ struct SystemStore {
   bool persistent;
 };
 
+// An origin's localStorage, keys to values, as the page's script has them.
+using StorageItems = std::map<std::u16string, std::u16string>;
+using StorageByOrigin = std::map<url::Origin, StorageItems>;
+
+// Whether |host|, an origin's or a cookie's domain without its dot, is |site| or a host under it,
+// so a site's data moves with each of its subdomains'.
+inline bool HostOfSite(std::string_view host, std::string_view site) {
+  return host == site || (host.size() > site.size() && host.ends_with(site) &&
+                          host[host.size() - site.size() - 1] == '.');
+}
+
 class SystemPage {
  public:
   // What the page tells its tab, on the main thread. SystemPageChanged can come inside the tab's
@@ -39,8 +55,9 @@ class SystemPage {
     virtual void SystemPageCommitted() = 0;
     // That document finished loading.
     virtual void SystemPageLoaded() = 0;
-    // The user followed a link to |url|, on another site, in the page's main frame. The page
-    // doesn't load it: the tab loads it, here or in Chromium.
+    // The user followed a link to |url|, on another site, in the page's main frame, or a link
+    // to the page's own site whose redirects ended there. The page doesn't load it: the tab
+    // loads it, here or in Chromium.
     virtual void SystemPageLeft(const GURL& url) = 0;
     // The page asked for |url| in a new window, as a link with a target or window.open do.
     virtual void SystemPageOpen(const GURL& url) = 0;
@@ -60,11 +77,21 @@ class SystemPage {
   // Whether the platform has a system engine that keeps a store per profile: macOS 14 or later.
   // Answers without loading it.
   static bool Available();
-  // A page loading |url| in |store|, with the system's engine loaded the first time. Null where
-  // there's none.
+  // A page for |url| in |store|, with the system's engine loaded the first time. It loads nothing
+  // until Start. Null where there's none.
   static std::unique_ptr<SystemPage> Create(const SystemStore& store,
                                             const GURL& url,
                                             Delegate* delegate);
+  // Writes |cookies| into |store|, each with its domain, path, expiry, Secure, HttpOnly and
+  // SameSite, then runs |done| with how many it took. Loads the system's engine, as DeleteStore.
+  static void SetCookies(const SystemStore& store,
+                         const std::vector<net::CanonicalCookie>& cookies,
+                         base::OnceCallback<void(size_t)> done);
+  // Reads |store|'s cookies of |site|, a registrable domain or a host, and of the hosts under it.
+  // Loads the system's engine, as DeleteStore.
+  static void GetCookies(const SystemStore& store,
+                         const std::string& site,
+                         base::OnceCallback<void(std::vector<net::CanonicalCookie>)> done);
   // Deletes |id|'s persistent store from the disk, as its profile goes. Loads the system's engine:
   // call it only for a store a page made.
   static void DeleteStore(const std::string& id);
@@ -85,6 +112,13 @@ class SystemPage {
   virtual gfx::NativeView view() = 0;
   // Gives the page the keyboard.
   virtual void Focus() = 0;
+
+  // Starts the page's first load, which |storage| goes into: each origin's items are set before
+  // the scripts of its first document in that load run. A Load before it changes what it loads.
+  virtual void Start(StorageByOrigin storage) = 0;
+  // Reads the localStorage of the origin the page shows, then runs |done| with it: nothing for a
+  // page that has none, or doesn't answer within a moment.
+  virtual void GetStorage(base::OnceCallback<void(url::Origin, StorageItems)> done) = 0;
 
   virtual GURL url() = 0;
   virtual std::u16string title() = 0;

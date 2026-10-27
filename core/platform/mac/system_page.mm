@@ -6,7 +6,11 @@
 #include <objc/message.h>
 #include <stdio.h>
 
+#include <memory>
+#include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "base/apple/owned_objc.h"
 #include "base/command_line.h"
@@ -17,11 +21,15 @@
 #include "base/memory/weak_ptr.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "components/input/native_web_keyboard_event.h"
 #include "media/base/media_switches.h"
 #include "net/base/apple/url_conversions.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
+#include "net/cookies/canonical_cookie.h"
+#include "net/cookies/cookie_constants.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 // The core never links WebKit, and starts none of it, no view, store or WebKit process, before the
 // first system page, or before it clears or deletes a store a profile made in an earlier run. Its
@@ -38,7 +46,7 @@ namespace {
 constexpr char kWebKitPath[] = "/System/Library/Frameworks/WebKit.framework/WebKit";
 void* g_webkit = nullptr;
 
-// Loads WebKit, once. Only the three calls below that need it do, each saying why.
+// Loads WebKit, once. Only the calls below that need it do, each saying why.
 bool LoadWebKit(const char* why) {
   if (!g_webkit) {
     // Whether something else mapped it first, such as a system framework of Chromium's.
@@ -104,6 +112,128 @@ NSString* SafariName() {
   return name;
 }
 
+// The world the browser's own scripts run in, which the page's can't see or reach. localStorage is
+// the origin's, the same in each world.
+WKContentWorld* BrowserWorld() {
+  return [WebKitClass(@"WKContentWorld") worldWithName:@"ilo"];
+}
+
+// Whether |action| is a server's redirect of a navigation already under way. WebKit's own, not
+// public; without it, a redirect is taken for the navigation it continues.
+bool IsRedirect(WKNavigationAction* action) {
+  SEL redirect = NSSelectorFromString(@"_isRedirect");
+  return [action respondsToSelector:redirect] &&
+         reinterpret_cast<BOOL (*)(id, SEL)>(objc_msgSend)(action, redirect);
+}
+
+// |cookie| as WebKit's store takes it, or nil for one Foundation can't hold.
+NSHTTPCookie* WebKitCookie(const net::CanonicalCookie& cookie) {
+  NSString* name = base::SysUTF8ToNSString(cookie.Name());
+  NSString* value = base::SysUTF8ToNSString(cookie.Value());
+  // With a leading dot for a domain cookie; without, it goes to its host alone, as Chromium's
+  // host cookie does.
+  NSString* domain = base::SysUTF8ToNSString(cookie.Domain());
+  NSString* path = base::SysUTF8ToNSString(cookie.Path());
+  if (!name || !value || !domain || !path) {
+    return nil;
+  }
+  NSMutableDictionary<NSHTTPCookiePropertyKey, id>* properties = [@{
+    NSHTTPCookieName : name,
+    NSHTTPCookieValue : value,
+    NSHTTPCookieDomain : domain,
+    NSHTTPCookiePath : path,
+  } mutableCopy];
+  if (cookie.SecureAttribute()) {
+    properties[NSHTTPCookieSecure] = @"TRUE";
+  }
+  // CFNetwork's attribute, which NSHTTPCookie reads into isHTTPOnly: Foundation names no key.
+  if (cookie.IsHttpOnly()) {
+    properties[@"HttpOnly"] = @"TRUE";
+  }
+  if (cookie.IsPersistent()) {
+    properties[NSHTTPCookieExpires] = cookie.ExpiryDate().ToNSDate();
+  } else {
+    properties[NSHTTPCookieDiscard] = @"TRUE";
+  }
+  if (cookie.SameSite() == net::CookieSameSite::STRICT_MODE) {
+    properties[NSHTTPCookieSameSitePolicy] = NSHTTPCookieSameSiteStrict;
+  } else if (cookie.SameSite() == net::CookieSameSite::LAX_MODE) {
+    properties[NSHTTPCookieSameSitePolicy] = NSHTTPCookieSameSiteLax;
+  }
+  return [NSHTTPCookie cookieWithProperties:properties];
+}
+
+// |cookie| as Chromium's store takes it, or null for one it wouldn't.
+std::unique_ptr<net::CanonicalCookie> ChromiumCookie(NSHTTPCookie* cookie) {
+  const base::Time now = base::Time::Now();
+  const base::Time expiry =
+      cookie.expiresDate ? base::Time::FromNSDate(cookie.expiresDate) : base::Time();
+  if (!expiry.is_null() && expiry <= now) {
+    return nullptr;
+  }
+  const std::string domain = base::SysNSStringToUTF8(cookie.domain);
+  const bool host_only = !domain.starts_with('.');
+  const GURL url(std::string(cookie.secure ? "https://" : "http://") +
+                 (host_only ? domain : domain.substr(1)) + "/");
+  // Foundation has no word for SameSite=None, which Chromium takes only from a secure cookie.
+  net::CookieSameSite same_site =
+      cookie.secure ? net::CookieSameSite::NO_RESTRICTION : net::CookieSameSite::UNSPECIFIED;
+  if ([cookie.sameSitePolicy isEqualToString:NSHTTPCookieSameSiteStrict]) {
+    same_site = net::CookieSameSite::STRICT_MODE;
+  } else if ([cookie.sameSitePolicy isEqualToString:NSHTTPCookieSameSiteLax]) {
+    same_site = net::CookieSameSite::LAX_MODE;
+  }
+  return net::CanonicalCookie::CreateSanitizedCookie(
+      url, base::SysNSStringToUTF8(cookie.name), base::SysNSStringToUTF8(cookie.value),
+      host_only ? std::string() : domain, base::SysNSStringToUTF8(cookie.path), now, expiry, now,
+      cookie.secure, cookie.HTTPOnly, same_site, net::COOKIE_PRIORITY_DEFAULT,
+      /*partition_key=*/std::nullopt, /*status=*/nullptr);
+}
+
+// A script for the first load of a page, in the browser's world at each document's start, that
+// sets the items |storage| has for the document's origin and no other's. Arrays, not an object, so
+// no key the page used can name a prototype. Nil if Foundation can't write a string as JSON.
+NSString* StorageScript(const browser_core::platform::StorageByOrigin& storage) {
+  NSMutableArray* origins = [NSMutableArray array];
+  for (const auto& [origin, items] : storage) {
+    NSMutableArray* pairs = [NSMutableArray array];
+    for (const auto& [key, value] : items) {
+      [pairs addObject:@[ base::SysUTF16ToNSString(key), base::SysUTF16ToNSString(value) ]];
+    }
+    [origins addObject:@[ base::SysUTF8ToNSString(origin.Serialize()), pairs ]];
+  }
+  if (![NSJSONSerialization isValidJSONObject:origins]) {
+    return nil;
+  }
+  NSData* json = [NSJSONSerialization dataWithJSONObject:origins options:0 error:nil];
+  if (!json) {
+    return nil;
+  }
+  return [NSString
+      stringWithFormat:@"(() => {\n"
+                        "  const items = new Map(%@).get(location.origin) || [];\n"
+                        "  for (const [key, value] of items) {\n"
+                        "    try { localStorage.setItem(key, value); } catch (e) {}\n"
+                        "  }\n"
+                        "})();",
+                       [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding]];
+}
+
+// Reads the localStorage of the document it runs in, as [origin, [[key, value], …]].
+NSString* const kReadStorage =
+    @"(() => {\n"
+     "  const items = [];\n"
+     "  for (let i = 0; i < localStorage.length; i++) {\n"
+     "    const key = localStorage.key(i);\n"
+     "    items.push([key, localStorage.getItem(key)]);\n"
+     "  }\n"
+     "  return [location.origin, items];\n"
+     "})()";
+
+// How long a page has to answer for its localStorage, before its tab goes back to Chromium
+// without it.
+constexpr int64_t kStorageWaitSeconds = 2;
+
 // The WebKit page's own keys, which KVO reports.
 NSArray<NSString*>* ObservedKeys(WKWebView* web) {
   NSMutableArray<NSString*>* keys = [@[
@@ -140,7 +270,7 @@ namespace browser_core::platform {
 class SystemPageMac : public SystemPage {
  public:
   SystemPageMac(WKWebsiteDataStore* store, const GURL& url, Delegate* delegate)
-      : delegate_(delegate) {
+      : delegate_(delegate), first_url_(url) {
     WKWebViewConfiguration* config = [[WebKitClass(@"WKWebViewConfiguration") alloc] init];
     config.websiteDataStore = store;
     config.applicationNameForUserAgent = SafariName();
@@ -165,9 +295,6 @@ class SystemPageMac : public SystemPage {
     view_->_owner = this;
     web_.frame = view_.bounds;
     [view_ addSubview:web_];
-    // Before KVO: WebKit reports the load starting while the tab is still making the page, and the
-    // tab reads the page's state once it has it.
-    Load(url);
     for (NSString* key in ObservedKeys(web_)) {
       [web_ addObserver:delegates_ forKeyPath:key options:0 context:nullptr];
     }
@@ -209,9 +336,62 @@ class SystemPageMac : public SystemPage {
     }
   }
 
-  GURL url() override { return net::GURLWithNSURL(web_.URL); }
+  void Start(StorageByOrigin storage) override {
+    if (started_) {
+      return;
+    }
+    started_ = true;
+    if (NSString* source = storage.empty() ? nil : StorageScript(storage)) {
+      WKUserScript* script = [[WebKitClass(@"WKUserScript") alloc]
+            initWithSource:source
+             injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+          forMainFrameOnly:NO
+            inContentWorld:BrowserWorld()];
+      [web_.configuration.userContentController addUserScript:script];
+      seeding_ = true;
+    }
+    Load(first_url_);
+  }
+
+  void GetStorage(base::OnceCallback<void(url::Origin, StorageItems)> done) override {
+    // Whichever comes first, the page's answer or the wait's end, answers.
+    __block base::OnceCallback<void(url::Origin, StorageItems)> then = std::move(done);
+    [web_ evaluateJavaScript:kReadStorage
+                     inFrame:nil
+              inContentWorld:BrowserWorld()
+           completionHandler:^(id result, NSError* error) {
+             if (!then) {
+               return;
+             }
+             NSArray* answer = [result isKindOfClass:[NSArray class]] ? result : nil;
+             NSString* origin = answer.count == 2 && [answer[0] isKindOfClass:[NSString class]]
+                                    ? answer[0]
+                                    : nil;
+             NSArray* pairs = origin && [answer[1] isKindOfClass:[NSArray class]] ? answer[1] : nil;
+             StorageItems items;
+             for (NSArray* pair in pairs) {
+               if ([pair isKindOfClass:[NSArray class]] && pair.count == 2 &&
+                   [pair[0] isKindOfClass:[NSString class]] &&
+                   [pair[1] isKindOfClass:[NSString class]]) {
+                 items[base::SysNSStringToUTF16(pair[0])] = base::SysNSStringToUTF16(pair[1]);
+               }
+             }
+             std::move(then).Run(
+                 url::Origin::Create(GURL(base::SysNSStringToUTF8(origin ?: @""))),
+                 std::move(items));
+           }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, kStorageWaitSeconds * NSEC_PER_SEC),
+                   dispatch_get_main_queue(), ^{
+                     if (then) {
+                       std::move(then).Run(url::Origin(), StorageItems());
+                     }
+                   });
+  }
+
+  // Until Start, the URL it will load, which WebKit reports once its load starts.
+  GURL url() override { return web_.URL ? net::GURLWithNSURL(web_.URL) : first_url_; }
   std::u16string title() override { return base::SysNSStringToUTF16(web_.title ?: @""); }
-  bool loading() override { return web_.loading; }
+  bool loading() override { return !started_ || web_.loading; }
   bool can_go_back() override { return web_.canGoBack; }
   bool can_go_forward() override { return web_.canGoForward; }
   bool secure() override {
@@ -225,6 +405,10 @@ class SystemPageMac : public SystemPage {
   bool muted() override { return muted_; }
 
   void Load(const GURL& url) override {
+    if (!started_) {
+      first_url_ = url;
+      return;
+    }
     if (NSURL* page = net::NSURLWithGURL(url)) {
       [web_ loadRequest:[NSURLRequest requestWithURL:page]];
     }
@@ -255,7 +439,17 @@ class SystemPageMac : public SystemPage {
   // From the views and delegates above.
   void Changed() { delegate_->SystemPageChanged(); }
   void Committed() { Soon(base::BindOnce(&Delegate::SystemPageCommitted)); }
-  void Loaded() { Soon(base::BindOnce(&Delegate::SystemPageLoaded)); }
+  void Loaded() {
+    Seeded();
+    Soon(base::BindOnce(&Delegate::SystemPageLoaded));
+  }
+  // The first load ended, past its commit: the storage it took is set, and later loads take none.
+  void Seeded() {
+    if (seeding_) {
+      seeding_ = false;
+      [web_.configuration.userContentController removeAllUserScripts];
+    }
+  }
   void Open(const GURL& url) {
     Soon(base::BindOnce([](const GURL& url, Delegate* delegate) { delegate->SystemPageOpen(url); },
                         url));
@@ -263,16 +457,28 @@ class SystemPageMac : public SystemPage {
   // As Chromium's page's click is: the window is part way through the event.
   void ClickedSoon() { Soon(base::BindOnce(&Delegate::SystemPageClicked)); }
 
-  // Whether the page loads |url| in its main frame for a link the user followed: a page of its own
-  // site does, and the tab takes another site's.
-  bool Follows(const GURL& url) {
-    if (net::registry_controlled_domains::SameDomainOrHost(
-            url, net::GURLWithNSURL(web_.URL),
-            net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES)) {
+  // Whether the page starts loading |url| in its main frame, not as a redirect: a link the user
+  // followed to a page of its own site does, and the tab takes another site's. Any other
+  // navigation, a form's, a script's or the tab's own, loads where it goes.
+  bool Navigates(const GURL& url, bool link) {
+    const GURL from = net::GURLWithNSURL(web_.URL);
+    link_from_ = link ? from : GURL();
+    if (!link || SameSite(url, from)) {
       return true;
     }
-    Soon(base::BindOnce([](const GURL& url, Delegate* delegate) { delegate->SystemPageLeft(url); },
-                        url));
+    Leave(url);
+    return false;
+  }
+
+  // Whether the page shows the main frame's answer from |url|, where its redirects ended. A link
+  // the user followed on the page's site that ended at another site leaves for it, as a link
+  // there would; one through other sites and back, as a sign-in goes, stays.
+  bool Lands(const GURL& url) {
+    const GURL from = std::exchange(link_from_, GURL());
+    if (!from.is_valid() || !url.SchemeIsHTTPOrHTTPS() || SameSite(url, from)) {
+      return true;
+    }
+    Leave(url);
     return false;
   }
 
@@ -297,6 +503,16 @@ class SystemPageMac : public SystemPage {
   }
 
  private:
+  static bool SameSite(const GURL& a, const GURL& b) {
+    return net::registry_controlled_domains::SameDomainOrHost(
+        a, b, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+  }
+
+  void Leave(const GURL& url) {
+    Soon(base::BindOnce([](const GURL& url, Delegate* delegate) { delegate->SystemPageLeft(url); },
+                        url));
+  }
+
   // Tells the tab from a task of its own: WebKit is part way through its call, and the tab may let
   // the page go.
   void Soon(base::OnceCallback<void(Delegate*)> call) {
@@ -315,6 +531,13 @@ class SystemPageMac : public SystemPage {
   WKWebView* __strong web_;
   BrowserCoreSystemPageView* __strong view_;
   BrowserCoreWebKitDelegate* __strong delegates_;
+  // What the first load loads, once Start has the page's storage in place.
+  GURL first_url_;
+  bool started_ = false;
+  // The first load's storage script is in place.
+  bool seeding_ = false;
+  // The page a link the user followed in the main frame left, until its answer comes.
+  GURL link_from_;
   bool muted_ = false;
   base::WeakPtrFactory<SystemPageMac> weak_factory_{this};
 };
@@ -401,9 +624,14 @@ class SystemPageMac : public SystemPage {
     decide(WKNavigationActionPolicyCancel);
     return;
   }
-  // A link the user followed to another site can leave the engine. A redirect, a form and the
-  // page's own script stay in it: sign-ins go through other sites.
-  if (action.navigationType == WKNavigationTypeLinkActivated && !_owner->Follows(url)) {
+  // A server's redirect goes where it goes, and its answer says where the navigation ended.
+  if (IsRedirect(action)) {
+    decide(WKNavigationActionPolicyAllow);
+    return;
+  }
+  // A link the user followed to another site can leave the engine. A form and the page's own
+  // script stay in it: sign-ins go through other sites.
+  if (!_owner->Navigates(url, action.navigationType == WKNavigationTypeLinkActivated)) {
     decide(WKNavigationActionPolicyCancel);
     return;
   }
@@ -413,6 +641,11 @@ class SystemPageMac : public SystemPage {
 - (void)webView:(WKWebView*)web
     decidePolicyForNavigationResponse:(WKNavigationResponse*)response
                       decisionHandler:(void (^)(WKNavigationResponsePolicy))decide {
+  if (_owner && response.forMainFrame &&
+      !_owner->Lands(net::GURLWithNSURL(response.response.URL))) {
+    decide(WKNavigationResponsePolicyCancel);
+    return;
+  }
   // What the page can't show would be a download, which this engine doesn't do.
   if (response.forMainFrame && !response.canShowMIMEType) {
     LOG(WARNING) << "browser: system page refused a download of "
@@ -434,6 +667,15 @@ class SystemPageMac : public SystemPage {
 - (void)webView:(WKWebView*)web didFinishNavigation:(WKNavigation*)navigation {
   if (_owner) {
     _owner->Loaded();
+  }
+}
+
+// A load that failed after its commit ends the first load too.
+- (void)webView:(WKWebView*)web
+    didFailNavigation:(WKNavigation*)navigation
+            withError:(NSError*)error {
+  if (_owner) {
+    _owner->Seeded();
   }
 }
 
@@ -556,6 +798,59 @@ void SystemPage::ClearSite(const SystemStore& store,
                         std::move(then).Run();
                       }];
               }];
+}
+
+// static
+void SystemPage::SetCookies(const SystemStore& store,
+                            const std::vector<net::CanonicalCookie>& cookies,
+                            base::OnceCallback<void(size_t)> done) {
+  WKWebsiteDataStore* data =
+      Available() && !cookies.empty() && LoadWebKit("copying cookies") ? StoreFor(store) : nil;
+  NSMutableArray<NSHTTPCookie*>* made = [NSMutableArray array];
+  for (const net::CanonicalCookie& cookie : cookies) {
+    if (NSHTTPCookie* each = WebKitCookie(cookie)) {
+      [made addObject:each];
+    }
+  }
+  if (!data || made.count == 0) {
+    std::move(done).Run(0);
+    return;
+  }
+  __block base::OnceCallback<void(size_t)> then = std::move(done);
+  __block NSUInteger left = made.count;
+  for (NSHTTPCookie* cookie in made) {
+    [data.httpCookieStore setCookie:cookie
+                  completionHandler:^{
+                    if (--left == 0) {
+                      std::move(then).Run(made.count);
+                    }
+                  }];
+  }
+}
+
+// static
+void SystemPage::GetCookies(const SystemStore& store,
+                            const std::string& site,
+                            base::OnceCallback<void(std::vector<net::CanonicalCookie>)> done) {
+  WKWebsiteDataStore* data = Available() && LoadWebKit("copying cookies") ? StoreFor(store) : nil;
+  if (!data) {
+    std::move(done).Run({});
+    return;
+  }
+  __block base::OnceCallback<void(std::vector<net::CanonicalCookie>)> then = std::move(done);
+  [data.httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie*>* all) {
+    std::vector<net::CanonicalCookie> of_site;
+    for (NSHTTPCookie* cookie in all) {
+      std::string domain = base::SysNSStringToUTF8(cookie.domain);
+      if (!HostOfSite(domain.starts_with('.') ? domain.substr(1) : domain, site)) {
+        continue;
+      }
+      if (std::unique_ptr<net::CanonicalCookie> made = ChromiumCookie(cookie)) {
+        of_site.push_back(std::move(*made));
+      }
+    }
+    std::move(then).Run(std::move(of_site));
+  }];
 }
 
 }  // namespace browser_core::platform
