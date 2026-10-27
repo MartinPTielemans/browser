@@ -934,6 +934,18 @@ BC_EXPORT double bc_tab_split_share(bc_id tab);
 // space_changed.
 BC_EXPORT bool bc_tab_set_split_shares(bc_id tab, const double* shares, size_t count);
 
+// The tab of |tab|'s split view whose page took the card by bc_tab_set_split_expanded, else 0 while
+// the split isn't expanded or |tab| is in none. The pages of an expanded split keep their widths
+// as the window changes, and bc_tab_split_share doesn't tell them: the others are 220 pt each, or
+// an even share of a card too short for that, and the expanded one has the rest. A tab joining or
+// leaving the split, and bc_tab_set_split_shares, end it. Kept after a quit.
+BC_EXPORT bc_id bc_tab_split_expanded(bc_id tab);
+
+// Gives |tab|'s page the card of its split view, the others keeping 220 pt each, or if |expanded|
+// is false ends that and leaves the pages even: a window showing it lays it out so. Returns false,
+// doing nothing, if |tab| is in no split view. Then space_changed.
+BC_EXPORT bool bc_tab_set_split_expanded(bc_id tab, bool expanded);
+
 // Makes |space| the one the window shows: its tabs are the ones bc_window_select shows, and the
 // window's new tabs go in it. The window shows the tab it last showed there, else the Space's top
 // Today tab, else its top pinned tab, else no page, passing over tabs another window shows. Then

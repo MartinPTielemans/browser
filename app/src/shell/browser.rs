@@ -59,6 +59,9 @@ pub trait Browser {
     fn set_split_stacked(&self, tab: u64, stacked: bool, cx: &mut App);
     /// Gives the pages of `tab`'s split view `shares` of it, in their order, or even shares.
     fn set_split_shares(&self, tab: u64, shares: Option<&[f64]>, cx: &mut App);
+    /// Gives `tab`'s page its split's card, the other pages kept at 220 pt however wide it is, or
+    /// ends that and evens them.
+    fn set_split_expanded(&self, tab: u64, expanded: bool, cx: &mut App);
     /// Puts `tab` in a split view with `with`, at its left end if `left`, else its right end, and
     /// shows it there.
     fn split_with(&self, tab: u64, with: u64, left: bool, cx: &mut App);
@@ -443,6 +446,9 @@ pub struct Split {
     /// Each tab's share of the split's length with the gap after it, adding up to 1, or none
     /// while they're even.
     pub shares: Vec<f64>,
+    /// The tab whose page took the card with the others kept at 220 pt, else 0. The shares then
+    /// stay even, as the core works the widths out from this at every layout.
+    pub expanded: u64,
 }
 
 /// A Space's folders in its pinned tabs. What's in each follows it there.
