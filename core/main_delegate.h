@@ -25,6 +25,7 @@ class MainDelegate : public ChromeMainDelegate {
 
  protected:
   std::optional<int> BasicStartupComplete() override;
+  std::optional<int> PreBrowserMain() override;
   content::ContentBrowserClient* CreateContentBrowserClient() override;
 };
 

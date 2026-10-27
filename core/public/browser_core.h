@@ -289,6 +289,9 @@ typedef struct bc_side_panel {
 typedef struct bc_host {
   // Passed back to every callback.
   void* context;
+  // Chromium has made NSApp and the browser is about to start: the first moment the app can put a
+  // window on screen. None of the core's calls work yet.
+  void (*launching)(void* context);
   // Chromium's run loop is running and the core's other calls work, bc_window_restore included.
   void (*started)(void* context);
   // Chromium is quitting. The core's calls stop working once this returns.

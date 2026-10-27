@@ -19,6 +19,20 @@ void drive_start(void);
 // top-left corner.
 void host_centered(double width, double height, double* x, double* y);
 
+// Puts a window on screen where the first browser window will open, |width| by |height|, with
+// the window's material and the sidebar as it was when the app last quit, from |profile_dir|.
+// For the moment between NSApp being made and the browser starting.
+void host_show_launch_window(const char* profile_dir, double width, double height);
+
+// Takes the launch window's sidebar picture off the browser window, once the UI has drawn under
+// it, and the launch window off screen if the browser window never came.
+void host_close_launch_window(void);
+
+// Keeps the first |width| points of |ui_view|'s window, its sidebar, in |profile_dir| for the next
+// launch's window, unless the window is hidden or full screen, and says whether it took it. The
+// file is written in the background.
+bool host_save_launch_picture(void* ui_view, const char* profile_dir, double width);
+
 // Makes the view the UI draws in, for bc_window_open, which sizes it to fill the window. The
 // functions below that take a |ui_view| act on the browser window it's in.
 void* host_ui_view(void);
@@ -46,6 +60,9 @@ void host_watch_key_window(void (*changed)(void* ui_view));
 // Calls |changed| with the view of each browser window that has gone full screen, or left it, once
 // macOS's transition is over.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
+
+// Calls |resigning| as the app is about to stop being the active one, its windows still shown.
+void host_watch_resigning_active(void (*resigning)(void));
 
 // The browser window of |ui_view| has closed: what showed over it hides, and its windows go.
 void host_forget_window(void* ui_view);
