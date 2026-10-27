@@ -1,7 +1,8 @@
 # Clicks move keyboard focus between the page and the UI, and typing goes where the focus is. With
 # the page focused, the browser's reserved shortcuts reach the UI and never the page, and the others
 # reach the page first, which can keep them. ⌘N, from the page and the UI, opens a window whose UI
-# has the keyboard, and ⇧⌘W, from either, closes it, giving back the page it took, live. ⌘Q asks
+# has the keyboard, and ⇧⌘W, from either, closes it, giving back the page it took, live, as ⌘W does
+# in a window with no page. ⌘Q asks
 # first: Cancel keeps the browser, and Quit, and don't ask again quits and turns the warning off.
 # The command bar opens over the page with the keyboard, never showing the last query, gives the
 # keyboard back when it closes, and loads what's typed in it, over https for a host typed without
@@ -84,6 +85,15 @@ in_browser AccessKitSubclassOfGPUIView "in the window ⌘N opened"
 send key w cmd shift
 expect '^browser: command close-window via ui$' "⇧⌘W with the UI focused didn't reach the UI"
 expect '^browser: window closed [0-9]' "⇧⌘W with the UI focused didn't close the window"
+send window 1
+# ⌘W in a window with no page closes it too, as ⇧⌘W does.
+send click $page_point
+in_browser RenderWidgetHostViewCocoa "before ⌘N opened a window for ⌘W"
+page_shortcut n new-window
+expect '^browser: window opened [0-9]' "⌘N with the page focused didn't open a window"
+send key w cmd
+expect '^browser: command close-tab via ui$' "⌘W with the UI focused didn't reach the UI"
+expect '^browser: window closed [0-9]' "⌘W in a window with no page didn't close it"
 send window 1
 
 send click $sidebar_point

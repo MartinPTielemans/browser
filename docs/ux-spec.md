@@ -148,7 +148,7 @@ Arc's note at the window's top right, after something done without showing it (A
 |---|---|---|---|
 | New tab / window / incognito window | ⌘T / ⌘N / ⇧⌘N (menus); Blank Window ⌃⌘N | ⌘T / ⌘N / ⇧⌘N | ⌘T / ⌘N; ⇧⌘N comes with incognito |
 | Command bar on the current URL | ⌘L (menus) | ⌘L | ⌘L |
-| Close tab / window | ⌘W (Archive Tab) / ⇧⌘W (menus) | ⌘W / ⇧⌘W | ⌘W / ⇧⌘W. In the last window ⇧⌘W, like the close button, quits at once, past the Quit warning |
+| Close tab / window | ⌘W (Archive Tab) / ⇧⌘W (menus) | ⌘W / ⇧⌘W | ⌘W / ⇧⌘W. ⌘W in a window with no tab selected closes the window, as ⇧⌘W does. In the last window that closes it, and like the close button it quits at once, past the Quit warning |
 | Reopen closed tab | ⇧⌘T (menus) | ⇧⌘T | ⇧⌘T |
 | Clear Today tabs | ⇧⌘K | ⇧⌘K (Close All Tabs) | ⇧⌘K |
 | Pin / unpin tab | ⌘D | — (⌘D bookmarks) | ⌘D, *owner to confirm* |
