@@ -18,7 +18,8 @@
 # The URL field's Site Controls button and the command bar's Site Controls, from the page, open a
 # panel under the field that lists the site's permissions as Chrome's page info does. A value
 # changed there sticks, and its Reset permissions sets them back. Escape, a click outside and the
-# button close it.
+# button close it. A page that asks for Widevine brings a note under the field whose button opens
+# the page in Safari, which ClearKey doesn't, and the note goes once the tab is at another site.
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 serve
@@ -532,6 +533,34 @@ send choose 'All Site Settings…'
 expect '^browser: site controls run All Site Settings…$' "All Site Settings… didn't run"
 site_settings="chrome://settings/content/siteDetails?site=http%3A%2F%2Flocalhost%3A$port"
 expect "^browser: loaded [0-9]* $site_settings\$" "All Site Settings… didn't open them"
+
+# A page that asks for a key system ilo can't play, such as Widevine, brings a note under the URL
+# field whose button opens the page in Safari, which the driver only logs. ClearKey plays, so a page
+# asking for it brings none. The note stays after the button, and goes once the tab is at another
+# site. The tab is the one shown, which All Site Settings… opened.
+tab=$(grep '^browser: selected ' "$log" | tail -1 | cut -d' ' -f3)
+go_from_bar "127.0.0.1:$port/clearkey.html"
+expect "^browser: loaded $tab http://127.0.0.1:$port/clearkey.html\$" "the ClearKey page didn't load"
+expect "^browser: title $tab clearkey asked\$" "the ClearKey page's request wasn't answered"
+# The driver's round trip comes after the report the page's request would have made.
+send layout
+grep -q "^browser: page $tab needs " "$log" && fail "a page asking for ClearKey brought the note"
+go_from_bar "127.0.0.1:$port/drm.html"
+expect "^browser: loaded $tab http://127.0.0.1:$port/drm.html\$" "the Widevine page didn't load"
+expect "^browser: page $tab needs com.widevine.alpha\$" "the page asking for Widevine brought no note"
+expect "^browser: drm note $tab at " "the note wasn't drawn"
+send layout
+read -r nx ny nw nh <<EOF
+$(grep "^browser: drm note $tab at " "$log" | tail -1 | cut -d' ' -f6-)
+EOF
+../tools/window-screenshot.sh "$pid" "$out/drm-note.png" || fail "no window to capture"
+send click $((nx + nw / 2)) $((ny + nh - 26))
+expect "^browser: open in safari http://127.0.0.1:$port/drm.html\$" \
+  "the note's button didn't open the page in Safari"
+none_since "^browser: page $tab needs nothing\$" || fail "the button took the note away"
+go_from_bar "localhost:$port/index.html"
+expect "^browser: loaded $tab http://localhost:$port/index.html\$" "localhost didn't load again"
+expect "^browser: page $tab needs nothing\$" "the note stayed at another site"
 exec 3>&-
 quit
-echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. Windows: $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png"
+echo "ok: Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field whose button opens the page in Safari and leaves the note, while one that asks for ClearKey brings none, and the note goes once the tab is at another site. Windows: $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png"

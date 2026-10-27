@@ -8,8 +8,8 @@
 use std::{cell::Cell, rc::Rc};
 
 use gpui::{
-    Bounds, BoxShadow, Context, FontWeight, Pixels, SharedString, canvas, div, hsla, point,
-    prelude::*, px, rgba, svg,
+    Bounds, BoxShadow, Context, Div, FontWeight, Pixels, SharedString, Stateful, canvas, div, hsla,
+    point, prelude::*, px, rgba, svg,
 };
 
 use super::{
@@ -28,7 +28,7 @@ const DETAIL: u32 = 0xffff_ffc7;
 pub(super) const EDGE: u32 = 0xffff_ff1a;
 const BUTTON_HEIGHT: f32 = 28.;
 const BUTTON_GAP: f32 = 8.;
-const BUTTONS_TOP: f32 = 12.;
+pub(super) const BUTTONS_TOP: f32 = 12.;
 const CLOSE: f32 = 22.;
 const CLOSE_INSET: f32 = 7.;
 const CLOSE_GLYPH: f32 = 12.;
@@ -88,19 +88,7 @@ impl Shell {
             return None;
         };
         let button = |id: &'static str, label: &'static str, answer: Answer| {
-            div()
-                .id(id)
-                .flex_1()
-                .h(px(BUTTON_HEIGHT))
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(NAV_RADIUS))
-                .bg(rgba(URL_FIELD))
-                .hover(|style| style.bg(rgba(HOVERED)))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(rgba(TITLE))
-                .child(label)
+            card_button(id, label)
                 .on_click(cx.listener(move |shell, _, _, cx| shell.answer(answer, cx)))
         };
         let close = div()
@@ -116,40 +104,9 @@ impl Shell {
             .hover(|style| style.bg(rgba(NAV_HOVERED)))
             .on_click(cx.listener(|shell, _, _, cx| shell.answer(Answer::Dismiss, cx)))
             .child(svg().path("icons/x.svg").size(px(CLOSE_GLYPH)).text_color(rgba(NAV)));
-        // check.sh clicks the buttons from where the card is, inside its edge, which depends on how
-        // its text wraps.
-        let tab = self.selected;
-        let drawn = self.question_drawn.clone();
-        let listener = canvas(
-            move |bounds, _, _| logged_at(&drawn, tab, bounds),
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full();
+        let listener = card_listener("question", &self.question_drawn, self.selected);
         Some(
-            div()
-                .id("question")
-                .absolute()
-                .top(px(URL_FIELD_TOP + URL_FIELD_HEIGHT + GAP))
-                .left(px(PLATE_INSET))
-                .w(px(self.width() - 2. * PLATE_INSET))
-                .p(px(PADDING))
-                .rounded(px(RADIUS))
-                .bg(self.window_fill())
-                .border_1()
-                .border_color(rgba(EDGE))
-                .shadow(vec![BoxShadow {
-                    color: hsla(0., 0., 0., 0.35),
-                    offset: point(px(0.), px(6.)),
-                    blur_radius: px(18.),
-                    spread_radius: px(0.),
-                    inset: false,
-                }])
-                .block_mouse_except_scroll()
-                .text_size(px(13.))
-                .line_height(px(LINE))
+            self.plate("question")
                 .child(listener)
                 .child(
                     div()
@@ -175,15 +132,86 @@ impl Shell {
     }
 }
 
-/// Logs where the question's card is in its window when that changes.
-fn logged_at(drawn: &Rc<Cell<Option<Bounds<Pixels>>>>, tab: u64, bounds: Bounds<Pixels>) {
+/// A button on a card, as wide as its share of the row, as tall as a line of text and a half, and
+/// taller if its words wrap.
+pub(super) fn card_button(id: &'static str, label: &'static str) -> Stateful<Div> {
+    div()
+        .id(id)
+        .flex_1()
+        .min_h(px(BUTTON_HEIGHT))
+        .py(px((BUTTON_HEIGHT - LINE) / 2.))
+        .px(px(BUTTON_GAP))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_center()
+        .rounded(px(NAV_RADIUS))
+        .bg(rgba(URL_FIELD))
+        .hover(|style| style.bg(rgba(HOVERED)))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(rgba(TITLE))
+        .child(label)
+}
+
+impl Shell {
+    /// The card the page's question and the DRM note are: under the URL field, as wide as it, in
+    /// the window's fill with a line inside its edge.
+    pub(super) fn plate(&self, id: &'static str) -> Stateful<Div> {
+        div()
+            .id(id)
+            .absolute()
+            .top(px(URL_FIELD_TOP + URL_FIELD_HEIGHT + GAP))
+            .left(px(PLATE_INSET))
+            .w(px(self.width() - 2. * PLATE_INSET))
+            .p(px(PADDING))
+            .rounded(px(RADIUS))
+            .bg(self.window_fill())
+            .border_1()
+            .border_color(rgba(EDGE))
+            .shadow(vec![BoxShadow {
+                color: hsla(0., 0., 0., 0.35),
+                offset: point(px(0.), px(6.)),
+                blur_radius: px(18.),
+                spread_radius: px(0.),
+                inset: false,
+            }])
+            .block_mouse_except_scroll()
+            .text_size(px(13.))
+            .line_height(px(LINE))
+    }
+
+}
+
+/// Logs where a card is in its window, as `what` ("question") for `tab`, when that changes.
+/// check.sh clicks the buttons from where the card is, inside its edge, which depends on how its
+/// text wraps.
+pub(super) fn card_listener(
+    what: &'static str,
+    drawn: &Rc<Cell<Option<Bounds<Pixels>>>>,
+    tab: u64,
+) -> impl IntoElement + use<> {
+    let drawn = drawn.clone();
+    canvas(move |bounds, _, _| logged_at(what, &drawn, tab, bounds), |_, _, _, _| {})
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+}
+
+/// Logs where a card is in its window when that changes.
+fn logged_at(
+    what: &str,
+    drawn: &Rc<Cell<Option<Bounds<Pixels>>>>,
+    tab: u64,
+    bounds: Bounds<Pixels>,
+) {
     if drawn.get() == Some(bounds) {
         return;
     }
     drawn.set(Some(bounds));
     // check.sh reads this line.
     log!(
-        "browser: question {tab} at {:.0} {:.0} {:.0} {:.0}",
+        "browser: {what} {tab} at {:.0} {:.0} {:.0} {:.0}",
         f32::from(bounds.origin.x),
         f32::from(bounds.origin.y),
         f32::from(bounds.size.width),

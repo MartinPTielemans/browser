@@ -2429,6 +2429,29 @@ void host_copy(const char* text) {
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
 }
 
+void host_open_in_safari(const char* url) {
+  NSURL* page = [NSURL URLWithString:@(url)];
+  // Only web pages go to another app.
+  if (![page.scheme isEqualToString:@"http"] && ![page.scheme isEqualToString:@"https"]) {
+    return;
+  }
+  // check.sh reads this line. A driven run opens nothing, so checks never launch Safari.
+  fprintf(stderr, "browser: open in safari %s\n", url);
+  if (getenv("BROWSER_DRIVE")) {
+    return;
+  }
+  NSURL* safari =
+      [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:@"com.apple.Safari"];
+  if (!safari) {
+    fprintf(stderr, "browser: no Safari to open %s\n", url);
+    return;
+  }
+  [NSWorkspace.sharedWorkspace openURLs:@[ page ]
+                   withApplicationAtURL:safari
+                          configuration:[NSWorkspaceOpenConfiguration configuration]
+                      completionHandler:nil];
+}
+
 void host_share(void* ui_view,
                 double x,
                 double y,

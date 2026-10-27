@@ -45,6 +45,20 @@ onkeydown = e => {
   }
 };
 </script>' > "$out/site/clear.html"
+# Pages that ask for a key system as soon as they load, Widevine, which ilo can't play, and ClearKey,
+# which it can. Each puts "asked" in its title once the request is answered, either way.
+printf '%s' '<title>loading</title><script>
+navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{
+  initDataTypes: ["cenc"],
+  videoCapabilities: [{contentType: `video/mp4; codecs="avc1.42E01E"`}],
+}]).catch(() => 0).then(() => document.title = "drm asked");
+</script>' > "$out/site/drm.html"
+printf '%s' '<title>loading</title><script>
+navigator.requestMediaKeySystemAccess("org.w3.clearkey", [{
+  initDataTypes: ["webm"],
+  videoCapabilities: [{contentType: `video/webm; codecs="vp8"`}],
+}]).catch(() => 0).then(() => document.title = "clearkey asked");
+</script>' > "$out/site/clearkey.html"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
   base64 -D > "$out/site/icon.png"
 python3 -I -u -c '
