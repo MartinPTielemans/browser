@@ -1,5 +1,6 @@
 #include "browser_core/tab.h"
 
+#include <cstdio>
 #include <map>
 #include <string>
 
@@ -8,6 +9,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/session.h"
@@ -44,6 +46,13 @@ constexpr int kFaviconPixels = 32;
 std::map<bc_id, content::WebContents*>& Tabs() {
   static base::NoDestructor<std::map<bc_id, content::WebContents*>> tabs;
   return *tabs;
+}
+
+// The line check.sh times a page's full screen from, on the uptime clock the app's and the host's
+// lines read.
+void LogFullScreenAsked(bool entered) {
+  fprintf(stderr, "browser: full screen %s asked at %.1f ms\n", entered ? "enter" : "exit",
+          base::TimeTicks::Now().since_origin().InMillisecondsF());
 }
 
 }  // namespace
@@ -336,6 +345,7 @@ void Tab::DidToggleFullscreenModeForTab(bool entered_fullscreen, bool will_cause
     return;
   }
   fullscreen_ = entered_fullscreen;
+  LogFullScreenAsked(entered_fullscreen);
   // At once, as only the page's request takes it full screen: Chrome has asked the window to go
   // with it, in a task it posted, and the app lays the page out at the window's new size only if
   // it hears first.

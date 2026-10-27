@@ -826,6 +826,15 @@ struct Settle {
     next_door: bool,
 }
 
+/// A page's full screen resizing the window, while `Shell::full_screen_step` waits to time it.
+struct FullScreenTiming {
+    entering: bool,
+    /// The window's content size before.
+    before: Size<Pixels>,
+    laid: bool,
+    drawn: bool,
+}
+
 impl Settle {
     /// How much of the Space before's colour is left, for a switch next door.
     fn color_left(&self) -> Option<f32> {
@@ -959,6 +968,8 @@ pub struct Shell {
     /// While the window goes full screen with the page, or back: its content size before. The page
     /// stays where it is until the window's resize lays it out, once, at its new size.
     page_held: Option<Size<Pixels>>,
+    /// While a page's full screen resizes the window: the steps check.sh has yet to time.
+    full_screen_timing: Option<FullScreenTiming>,
     /// Whether ⌘S has hidden the sidebar.
     sidebar_hidden: bool,
     /// Whether the window's own buttons show (`window_buttons_shown`).
@@ -1148,6 +1159,7 @@ impl Shell {
             full_screen: false,
             window_for_page: false,
             page_held: None,
+            full_screen_timing: None,
             sidebar_hidden: false,
             window_buttons: true,
             sidebar_width,
@@ -1902,6 +1914,12 @@ impl Shell {
         };
         self.window_for_page = fullscreen && window_resizes;
         self.page_held = window_resizes.then(|| window.viewport_size());
+        self.full_screen_timing = window_resizes.then(|| FullScreenTiming {
+            entering: fullscreen,
+            before: window.viewport_size(),
+            laid: false,
+            drawn: false,
+        });
         self.page_fullscreen = fullscreen;
         if fullscreen {
             self.conceal_now(cx);
@@ -1909,6 +1927,32 @@ impl Shell {
             self.recent_downloads_gone(cx);
         }
         cx.notify();
+    }
+
+    /// Logs a `step` of the page's full screen, once, the first time it sees the window at a size
+    /// other than the one it started from: `"laid"` as the page goes to its frame there, and
+    /// `"drawn"` as the UI draws. check.sh times them against the core's and the host's lines.
+    pub fn full_screen_step(&mut self, step: &str, viewport: Size<Pixels>) {
+        let Some(timing) = &mut self.full_screen_timing else {
+            return;
+        };
+        let done = match step {
+            "laid" => &mut timing.laid,
+            _ => &mut timing.drawn,
+        };
+        if viewport == timing.before || std::mem::replace(done, true) {
+            return;
+        }
+        let way = if timing.entering { "enter" } else { "exit" };
+        log!(
+            "browser: full screen {way} {step} {}x{} at {:.1} ms",
+            f32::from(viewport.width),
+            f32::from(viewport.height),
+            crate::uptime_ms()
+        );
+        if timing.laid && timing.drawn {
+            self.full_screen_timing = None;
+        }
     }
 
     /// The window has gone full screen or left it: going, it says how to leave, as Arc's does,
@@ -2150,6 +2194,7 @@ impl Focusable for Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.full_screen_step("drawn", window.viewport_size());
         // check.sh reads this line. It comes as the rows are drawn, so a click it sends next goes
         // to what's drawn.
         if std::mem::take(&mut self.outline_changed) {

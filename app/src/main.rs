@@ -1998,6 +1998,7 @@ fn open_window(
                 let viewport = window.viewport_size();
                 if let Some(frame) = shell.window_page_frame(viewport) {
                     set_frames(id, shell, frame, viewport);
+                    shell.full_screen_step("laid", viewport);
                 }
             })
             .detach();
@@ -3025,6 +3026,12 @@ unsafe extern "C" fn window_suggestions(
 }
 
 unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, fullscreen: bool) {
+    // check.sh times the steps from the core's "asked" line to the window's and the UI's.
+    log!(
+        "browser: full screen {} told at {:.1} ms",
+        if fullscreen { "enter" } else { "exit" },
+        browser::uptime_ms()
+    );
     let Some(cx) = CX.with_borrow(Clone::clone) else {
         return;
     };
