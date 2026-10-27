@@ -95,6 +95,21 @@ clear_point="200 185"
 copy_point="178 64"
 site_controls_point="206 64"
 field_point="600 760"
+# What the sidebar last logged of $1, "sidebar hovered" or "sidebar tools": 1 or shown, 0 or hidden,
+# or nothing before its first change.
+last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
+# The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
+# where the sidebar last saw the pointer depends on the steps before. This moves it to the page and
+# waits until the sidebar has seen it go and its tools have faded out, whether or not this move was
+# what changed them, so the next move over the sidebar shows them anew.
+away() {
+  send move $page_point
+  for _ in $(seq 100); do
+    [ "$(last 'sidebar hovered')" != 1 ] && [ "$(last 'sidebar tools')" != shown ] && return 0
+    sleep 0.1
+  done
+  fail "Clear and the URL field's buttons stayed with the pointer over the page"
+}
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
@@ -121,9 +136,7 @@ expect '^browser: copied \[Example Domain](https://example.org/)$' \
 
 # Clear and the URL field's button fade in while the pointer is over the sidebar, and out when it
 # leaves. The button copies the URL, and doesn't open the command bar as the rest of the field does.
-# The click before put the pointer over the sidebar, so it goes to the page first.
-send move $page_point
-expect '^browser: sidebar hovered 0$' "the sidebar didn't see the pointer leave it"
+away
 send move $sidebar_point
 expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over it"
 expect '^browser: sidebar tools shown$' "Clear and the URL field's button didn't fade in"
@@ -515,12 +528,7 @@ expect "^browser: loaded $r http://localhost:$port/index.html\$" "localhost didn
 send click $page_point
 send key a
 asks "http://localhost:$port" "another site's question didn't come"
-# The driver's clicks on the page come with no move, so the pointer's place is the last move's. A
-# move to the page puts it there, and the tools are hidden once their fade ends, for Allow to show.
-send move $page_point
-tools() { grep '^browser: sidebar tools ' "$log" | tail -1 | cut -d' ' -f4; }
-for _ in $(seq 100); do [ "$(tools)" = hidden ] && break; sleep 0.1; done
-[ "$(tools)" = hidden ] || fail "Clear and the URL field's buttons stayed with the pointer over the page"
+away
 send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Allow didn't take the question down"
 expect "^browser: title $r granted\$" "Allow didn't grant the page"
@@ -568,7 +576,10 @@ send click 122 118
 expect '^browser: site controls run share$' "a click on Share didn't run it"
 expect "^browser: share http://localhost:$port/index.html\$" "Share didn't share the page"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave for Share"
-# The pointer was over their window, so the sidebar saw it leave: the way back is a move, as a hand's.
+# Hover still works once they've closed: the pointer out to the page hides the URL field's buttons,
+# and back over the sidebar shows them. While they were open the buttons stayed, as the pointer
+# over the sidebar keeps them.
+away
 send move $site_controls_point
 expect '^browser: sidebar tools shown$' "the URL field's buttons didn't show under the pointer again"
 send click $site_controls_point
@@ -862,8 +873,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect "^browser: title $tab engine safari\$" "the site's engine page left Safari's engine"
   # The Site Controls list it in the first row, and Off forgets it, brings its session back to
   # Chromium and shows the page there.
-  send move $page_point
-  expect '^browser: sidebar tools hidden$' "Clear and the URL field's buttons didn't fade out"
+  away
   send move $sidebar_point
   expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
   send click $site_controls_point
