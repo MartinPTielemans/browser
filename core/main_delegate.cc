@@ -14,6 +14,7 @@
 #include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
@@ -227,6 +228,7 @@ void Install(const bc_host& host) {
   g_browser_core_find_native_host = &FindNativeHost;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
+  SetUpAdBlock();
 }
 
 int Run(int argc, const char** argv, const bc_host& host) {
