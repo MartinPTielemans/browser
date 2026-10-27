@@ -515,6 +515,12 @@ expect "^browser: loaded $r http://localhost:$port/index.html\$" "localhost didn
 send click $page_point
 send key a
 asks "http://localhost:$port" "another site's question didn't come"
+# The driver's clicks on the page come with no move, so the sidebar still thinks the pointer is over
+# it from before. A move to the page takes it away, and the tools are hidden once their fade ends.
+send move $page_point
+tools() { grep '^browser: sidebar tools ' "$log" | tail -1 | cut -d' ' -f4; }
+for _ in $(seq 100); do [ "$(tools)" = hidden ] && break; sleep 0.1; done
+[ "$(tools)" = hidden ] || fail "Clear and the URL field's buttons stayed with the pointer over the page"
 send click $((qx + qw * 3 / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Allow didn't take the question down"
 expect "^browser: title $r granted\$" "Allow didn't grant the page"
