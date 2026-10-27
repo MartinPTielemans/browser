@@ -70,6 +70,13 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The window that shows |tab|'s page, focused or beside the tab it shows in a split view, else
   // null. A window whose page another window took doesn't show it.
   static Window* Showing(bc_id tab);
+  // The window whose Browser holds |tab|'s page, else, for a tab without its page, the one it would
+  // get it back in: the private window showing its Space, or the regular window active last. Null
+  // if there's none.
+  static Window* Holding(bc_id tab);
+  // |tab|'s page, given back first, not shown, in the window Holding names if it has none, for a
+  // call on its page that doesn't show it. Null if there's no window for it.
+  static content::WebContents* PageOf(bc_id tab);
   // Has each window whose shown tab's split changed show it as it is now.
   static void PanesChanged();
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
@@ -273,9 +280,12 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // while the window is closing or Chromium is quitting.
   BrowserWindowInterface* BrowserFor(Profile* profile);
 
-  // Opens |saved|, a closed tab, unloaded, at |index| in |space|'s Today tabs, else at the top of
-  // the Space the window shows. Returns its id, or 0.
+  // Opens |saved|, a closed tab, without its page, at |index| in |space|'s Today tabs, else at the
+  // top of the Space the window shows. Returns its id, or 0.
   bc_id Reopen(bc_id space, size_t index, const SavedTab& saved);
+  // A copy of |contents| in |browser|, one of the window's, not shown, with its tab's name, icon and
+  // mute. Returns its id.
+  bc_id CloneInto(BrowserWindowInterface& browser, content::WebContents& contents);
   // |split_with| is the tab whose page opened it to show beside it, or 0.
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with);
   // Opens the tab |params| asks for, behind, with nothing loaded until it's first shown.

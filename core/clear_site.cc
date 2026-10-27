@@ -7,6 +7,7 @@
 #include "base/scoped_observation.h"
 #include "base/time/time.h"
 #include "browser_core/tab.h"
+#include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browsing_data_filter_builder.h"
 #include "content/public/browser/browsing_data_remover.h"
@@ -48,11 +49,12 @@ class ReloadWhenCleared : public content::BrowsingDataRemover::Observer {
 }  // namespace
 
 void ClearSiteAndReload(bc_id tab, bool cookies) {
-  content::WebContents* contents = Tab::FromId(tab);
-  if (!contents) {
+  // A tab without its page has nothing to reload, and loads afresh once shown.
+  const Tab* clearing = Tab::Get(tab);
+  if (!clearing || !clearing->profile()) {
     return;
   }
-  const GURL url = Tab::PageUrl(contents);
+  const GURL url = clearing->Url();
   if (!url.SchemeIsHTTPOrHTTPS()) {
     return;
   }
@@ -66,7 +68,7 @@ void ClearSiteAndReload(bc_id tab, bool cookies) {
   auto filter = content::BrowsingDataFilterBuilder::Create(
       content::BrowsingDataFilterBuilder::Mode::kDelete);
   filter->AddRegisterableDomain(domain);
-  content::BrowsingDataRemover* remover = contents->GetBrowserContext()->GetBrowsingDataRemover();
+  content::BrowsingDataRemover* remover = clearing->profile()->GetBrowsingDataRemover();
   // The cache's reload also fetches again what the page loads from other sites.
   remover->RemoveWithFilterAndReply(
       base::Time(), base::Time::Max(),

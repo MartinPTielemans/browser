@@ -22,6 +22,7 @@
 #include "browser_core/extensions.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
+#include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
@@ -149,23 +150,20 @@ std::optional<DeletedSpace>& LastDeleted() {
   return *deleted;
 }
 
-// Keeps |contents|, a tab closing, for ReopenClosedTab, and archives it.
-void KeepClosed(content::WebContents* contents) {
-  const bc_id id = Tab::IdOf(contents);
+// Keeps |id|, a tab closing, for ReopenClosedTab, and archives it.
+void KeepClosed(bc_id id) {
+  Tab* tab = Tab::Get(id);
   Space* space = Space::Holding(id);
   // One not in a Space never showed, a pinned tab closes only when its page closes itself, and a
   // private window's leaves nothing behind.
-  if (!space || space->IsPinned(id) || space->off_the_record()) {
+  if (!tab || !space || space->IsPinned(id) || space->off_the_record()) {
     return;
   }
-  SavedTab saved = SaveTab(*contents);
+  SavedTab saved = tab->Save();
   if (saved.history.empty()) {
     return;
   }
-  saved.name = Tab::FromWebContents(contents)->name();
-  saved.icon = Tab::FromWebContents(contents)->icon();
-  saved.muted = contents->IsAudioMuted();
-  Archive(id, saved.history[saved.current].virtual_url(), Tab::FromWebContents(contents)->Title());
+  Archive(id, saved.history[saved.current].virtual_url(), tab->Title());
   const size_t index = std::ranges::find(space->today(), id) - space->today().begin();
   const std::vector<bc_id> panes = space->Panes(id);
   const size_t split_index = std::ranges::find(panes, id) - panes.begin();
@@ -193,41 +191,26 @@ std::optional<ClosedTab> TakeClosed(bc_id id) {
   return tab;
 }
 
-// A new tab in |dir|'s profile with |tab|'s history, name and mute, in no Space and not shown, or 0
-// if the profile isn't loaded.
+// A new tab in |dir|'s profile with |tab|'s history, name and mute, in no Space and without its
+// page, or 0 if the profile isn't loaded.
 bc_id CopyToProfile(bc_id tab, const std::string& dir) {
-  content::WebContents* contents = Tab::FromId(tab);
-  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  Window* window = in ? Window::ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
+  const Tab* from = Tab::Get(tab);
   Profile* profile = ProfileFor(dir);
-  if (!window || !profile || DirOf(profile) != dir) {
+  if (!from || !profile || DirOf(profile) != dir) {
     return 0;
   }
-  const SavedTab saved = SaveTab(*contents);
-  content::WebContents* copy =
-      saved.history.empty() ? nullptr : window->RestoreTab(profile, saved.history, saved.current);
-  if (!copy) {
-    return 0;
-  }
-  const bc_id id = Tab::IdOf(copy);
-  Tab::FromWebContents(copy)->set_name(Tab::FromWebContents(contents)->name());
-  Tab::FromWebContents(copy)->set_icon(Tab::FromWebContents(contents)->icon());
-  if (contents->IsAudioMuted()) {
-    Tab::FromWebContents(copy)->SetMuted(true);
-  }
-  Tab::FromWebContents(copy)->Restored();
-  return id;
+  return Tab::Restore(profile, from->Save());
 }
 
-// Whether |contents| is a private window's page, in an off-the-record profile.
-bool OffTheRecord(content::WebContents* contents) {
-  return contents && Profile::FromBrowserContext(contents->GetBrowserContext())->IsOffTheRecord();
+// Whether |tab| is a private window's, in an off-the-record profile.
+bool OffTheRecord(const Tab* tab) {
+  return tab && tab->profile() && tab->profile()->IsOffTheRecord();
 }
 
-// |contents|, leaving a window, was seen until now.
-void Seen(content::WebContents* contents) {
-  if (Tab* tab = contents ? Tab::FromWebContents(contents) : nullptr) {
-    tab->set_last_seen(base::Time::Now());
+// |tab|, leaving a window, was seen until now.
+void Seen(bc_id tab) {
+  if (Tab* seen = Tab::Get(tab)) {
+    seen->set_last_seen(base::Time::Now());
   }
   ScheduleAutoArchive();
 }
@@ -335,6 +318,38 @@ Window* Window::Showing(bc_id tab) {
     }
   }
   return nullptr;
+}
+
+// static
+Window* Window::Holding(bc_id tab) {
+  const Tab* held = Tab::Get(tab);
+  if (!held) {
+    return nullptr;
+  }
+  if (content::WebContents* contents = held->web_contents()) {
+    tabs::TabInterface* in = tabs::TabInterface::MaybeGetFromContents(contents);
+    return in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
+  }
+  const Space* space = Space::Holding(tab);
+  for (Window* window : All()) {
+    if (window->closing_ || window->off_the_record_ != OffTheRecord(held)) {
+      continue;
+    }
+    if (!window->off_the_record_ || (space && space->id() == window->space_)) {
+      return window;
+    }
+  }
+  return nullptr;
+}
+
+// static
+content::WebContents* Window::PageOf(bc_id tab) {
+  Tab* held = Tab::Get(tab);
+  if (!held || held->web_contents()) {
+    return held ? held->web_contents() : nullptr;
+  }
+  Window* window = Holding(tab);
+  return window ? held->Wake(*window) : nullptr;
 }
 
 // static
@@ -548,7 +563,7 @@ void Window::OnTabClosing(bc_id tab) {
 // static
 void Window::Unload(bc_id tab, bool split) {
   Space* space = Space::Holding(tab);
-  if ((space ? !space->IsPinned(tab) : !Favorites::Has(tab)) || !Tab::FromId(tab)) {
+  if ((space ? !space->IsPinned(tab) : !Favorites::Has(tab)) || !Tab::Get(tab)) {
     return;
   }
   const std::vector<bc_id> going = space && split ? space->Panes(tab) : std::vector<bc_id>{tab};
@@ -577,8 +592,8 @@ void Window::Unload(bc_id tab, bool split) {
   }
   PanesChanged();
   for (bc_id each : going) {
-    if (content::WebContents* contents = Tab::FromId(each)) {
-      Tab::FromWebContents(contents)->Unload();
+    if (Tab* unloading = Tab::Get(each)) {
+      unloading->Unload();
     }
   }
 }
@@ -589,10 +604,10 @@ void Window::MoveToFavorites(bc_id tab, size_t index) {
     Favorites::Move(tab, index);
     return;
   }
-  content::WebContents* contents = Tab::FromId(tab);
+  Tab* moving = Tab::Get(tab);
   Space* space = Space::Holding(tab);
   // A private window's tabs are never saved, as the favorites are.
-  if (!contents || !space || space->off_the_record()) {
+  if (!moving || !space || space->off_the_record()) {
     return;
   }
   // Under Each Space the favorites are the user's Spaces' own, and an agent's has none.
@@ -601,20 +616,19 @@ void Window::MoveToFavorites(bc_id tab, size_t index) {
   }
   // In the favorites before it leaves its Space, so the UI never hears of it in neither and
   // forgets its title.
-  Favorites::Add(tab, space->IsPinned(tab) ? space->PinnedUrl(tab) : Tab::PageUrl(contents),
-                 index, space->id());
+  Favorites::Add(tab, space->IsPinned(tab) ? space->PinnedUrl(tab) : moving->Url(), index,
+                 space->id());
   space->Remove(tab);
   // A window showing it beside the tab it shows shows the rest of the split.
   PanesChanged();
   // Whether it's away from its URL.
-  Tab::FromWebContents(contents)->StateChanged();
+  moving->StateChanged();
 }
 
 // static
 void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
-  content::WebContents* contents = Tab::FromId(tab);
-  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  Window* window = in ? ForBrowser(in->GetBrowserWindowInterface()) : nullptr;
+  Tab* moving = Tab::Get(tab);
+  Window* window = Holding(tab);
   Space* shown = window ? Space::FromId(window->space_) : nullptr;
   // A favorite is the user's, so it doesn't move into an agent's Space.
   if (!shown || shown->agent() || shown->off_the_record() || !Favorites::ShownIn(tab, *shown)) {
@@ -629,8 +643,8 @@ void Window::Unfavorite(bc_id tab, bool pinned, bc_id folder, size_t index) {
   // Under Every Space, the site's tabs in the other profiles close.
   Favorites::Unfavorite(tab);
   // So it isn't archived at once.
-  Tab::FromWebContents(contents)->set_last_seen(base::Time::Now());
-  Tab::FromWebContents(contents)->StateChanged();
+  moving->set_last_seen(base::Time::Now());
+  moving->StateChanged();
 }
 
 // static
@@ -675,6 +689,12 @@ void Window::HiddenFavoritesGone() {
 
 // static
 void Window::CloseTab(bc_id tab) {
+  // One without its page has no unload handlers to keep it.
+  if (Tab* closing = Tab::Get(tab); closing && !closing->web_contents()) {
+    KeepClosed(tab);
+    closing->Close();
+    return;
+  }
   content::WebContents* contents = Tab::FromId(tab);
   tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
   if (!in) {
@@ -922,7 +942,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   std::vector<bc_id> panes = space ? space->Panes(tab) : std::vector<bc_id>{tab};
   for (bc_id pane : panes_) {
     if (!std::ranges::contains(panes, pane)) {
-      Seen(Tab::FromId(pane));
+      Seen(pane);
     }
   }
   panes_ = std::move(panes);
@@ -1082,7 +1102,7 @@ void Window::SetSidebarWidth(double width) {
 void Window::ShowNothing() {
   selected_ = 0;
   for (bc_id pane : std::exchange(panes_, {})) {
-    Seen(Tab::FromId(pane));
+    Seen(pane);
   }
   shown_ = nullptr;
   SetLetGo(false);
@@ -1125,15 +1145,23 @@ void Window::SetPageMoving(bool moving) {
 }
 
 void Window::Select(bc_id tab) {
-  content::WebContents* contents = Tab::FromId(tab);
-  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  if (!in || !ForBrowser(in->GetBrowserWindowInterface())) {
-    return;
-  }
+  const Tab* selecting = Tab::Get(tab);
   // A private window shows its own tabs alone, and a regular one never shows them: Chrome never
   // moves a page between incognito and regular windows.
   const Space* holding = Space::Holding(tab);
-  if (off_the_record_ ? !holding || holding->id() != space_ : OffTheRecord(contents)) {
+  if (!selecting ||
+      (off_the_record_ ? !holding || holding->id() != space_ : OffTheRecord(selecting))) {
+    return;
+  }
+  // A tab without its page, and each of its split's, gets it back here, as it's shown.
+  for (bc_id pane : holding ? holding->Panes(tab) : std::vector<bc_id>{tab}) {
+    if (Tab* waking = Tab::Get(pane); waking && !waking->web_contents()) {
+      waking->Wake(*this);
+    }
+  }
+  content::WebContents* contents = Tab::FromId(tab);
+  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  if (!in || !ForBrowser(in->GetBrowserWindowInterface())) {
     return;
   }
   bc_id other_space = 0;
@@ -1162,6 +1190,7 @@ void Window::Select(bc_id tab) {
   selected_ = tab;
   Show(contents, page_frame_);
   ReportSelected();
+  UnloadIdleTabsSoon();
 }
 
 void Window::Adopt(bc_id tab) {
@@ -1383,7 +1412,7 @@ bc_id Window::ReopenClosedTab() {
   Space* space = Space::Holding(tab);
   const bool remade = space && space->Panes(closed.split_with).size() == 1;
   if (space && closed.split_with &&
-      space->Split(tab, closed.split_with, Tab::PageUrl(Tab::FromId(tab)), /*left=*/false)) {
+      space->Split(tab, closed.split_with, Tab::Get(tab)->Url(), /*left=*/false)) {
     space->MoveInSplit(tab, closed.split_index);
     // A split it remakes is as it was. One still open keeps how it's shown now.
     if (remade && closed.stacked) {
@@ -1577,36 +1606,50 @@ bc_id Window::RestoreArchived(bc_id id) {
 }
 
 bc_id Window::Duplicate(bc_id tab) {
-  content::WebContents* contents = Tab::FromId(tab);
-  tabs::TabInterface* in = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  const Tab* from = Tab::Get(tab);
   Space* space = Favorites::Has(tab) ? Space::FromId(space_) : Space::Holding(tab);
-  if (!in || !space || !ForBrowser(in->GetBrowserWindowInterface()) ||
-      DirOf(contents) != space->profile() || OffTheRecord(contents) != off_the_record_) {
+  if (!from || !from->profile() || !space || DirOf(from->profile()) != space->profile() ||
+      OffTheRecord(from) != off_the_record_) {
     return 0;
+  }
+  content::WebContents* contents = from->web_contents();
+  bc_id id = 0;
+  if (!contents) {
+    // A copy of what it keeps, whose page loads as it's shown.
+    id = Tab::Restore(from->profile(), from->Save());
   }
   // In this window's Browser, wherever |tab|'s page is, as it shows here.
-  BrowserWindowInterface* browser =
-      BrowserFor(Profile::FromBrowserContext(contents->GetBrowserContext()));
-  if (!browser) {
+  BrowserWindowInterface* browser = contents ? BrowserFor(from->profile()) : nullptr;
+  if (browser) {
+    id = CloneInto(*browser, *contents);
+  }
+  if (!id) {
     return 0;
   }
-  TabStripModel* tabs = browser->GetTabStripModel();
-  std::unique_ptr<content::WebContents> copy = contents->Clone();
+  auto at = std::ranges::find(space->today(), tab);
+  space->AddAt(id, at == space->today().end() ? 0 : at - space->today().begin() + 1);
+  Select(id);
+  return id;
+}
+
+bc_id Window::CloneInto(BrowserWindowInterface& browser, content::WebContents& contents) {
+  TabStripModel* tabs = browser.GetTabStripModel();
+  // With its session storage, as Chrome's duplicate.
+  std::unique_ptr<content::WebContents> copy = contents.Clone();
   content::WebContents* copied = copy.get();
   {
     base::AutoReset<bool> opening(&opening_tab_, true);
     tabs->InsertWebContentsAt(tabs->count(), std::move(copy), AddTabTypes::ADD_NONE);
   }
   const bc_id id = Tab::IdOf(copied);
-  Tab::FromWebContents(copied)->set_name(Tab::FromWebContents(contents)->name());
-  Tab::FromWebContents(copied)->set_icon(Tab::FromWebContents(contents)->icon());
-  if (contents->IsAudioMuted()) {
-    Tab::FromWebContents(copied)->SetMuted(true);
+  Tab* from = Tab::FromWebContents(&contents);
+  Tab* to = Tab::Get(id);
+  to->set_name(from->name());
+  to->set_icon(from->icon());
+  if (contents.IsAudioMuted()) {
+    to->SetMuted(true);
   }
-  Tab::FromWebContents(copied)->Restored();
-  auto at = std::ranges::find(space->today(), tab);
-  space->AddAt(id, at == space->today().end() ? 0 : at - space->today().begin() + 1);
-  Select(id);
+  to->Restored();
   return id;
 }
 
@@ -1617,25 +1660,18 @@ bc_id Window::Reopen(bc_id space_id, size_t index, const SavedTab& saved) {
     index = 0;
   }
   Profile* profile = space ? ProfileFor(space->profile()) : nullptr;
-  content::WebContents* contents =
-      space && profile ? RestoreTab(profile, saved.history, saved.current) : nullptr;
-  if (!contents) {
+  // Without its page, which it gets back once it's shown.
+  const bc_id tab = space && profile && !closing_ ? Tab::Restore(profile, saved) : 0;
+  if (!tab) {
     return 0;
   }
-  const bc_id tab = Tab::IdOf(contents);
-  Tab::FromWebContents(contents)->set_name(saved.name);
-  Tab::FromWebContents(contents)->set_icon(saved.icon);
-  if (saved.muted) {
-    Tab::FromWebContents(contents)->SetMuted(true);
-  }
-  Tab::FromWebContents(contents)->Restored();
   space->AddAt(tab, index);
   return tab;
 }
 
 void Window::SelectAfterClosing() {
   const bc_id next = std::exchange(next_after_closing_, 0);
-  if (next && Tab::FromId(next)) {
+  if (next && Tab::Get(next)) {
     Pick(next);
   } else {
     ReportSelected();
@@ -1714,6 +1750,20 @@ void Window::OnBrowserGone(BrowserWindowInterface* browser) {
 }
 
 void Window::Destroy() {
+  // Its tabs without pages close as its pages did: a private window's, and with the last regular
+  // window every regular one. Quitting, they stay for the next launch.
+  const bool last_regular = std::ranges::none_of(Windows(), [this](const auto& entry) {
+    return entry.second.get() != this && !entry.second->closing_ && !entry.second->off_the_record_;
+  });
+  if ((off_the_record_ || last_regular) && !browser_shutdown::IsTryingToQuit()) {
+    for (Tab* tab : Tab::All()) {
+      const Space* space = Space::Holding(tab->id());
+      const bool its = off_the_record_ ? space && space->id() == space_ : !OffTheRecord(tab);
+      if (!tab->web_contents() && its) {
+        tab->Close();
+      }
+    }
+  }
   // Out of the list first, so the app can't reach the window from its callback.
   std::erase(Order(), id_);
   auto it = Windows().find(id_);
@@ -1761,8 +1811,10 @@ void Window::OnTabStripModelChanged(TabStripModel* tab_strip_model,
       return;
     }
     for (const TabStripModelChange::RemovedTab& removed : change.GetRemove()->contents) {
-      if (removed.remove_reason == TabRemovedReason::kDeleted) {
-        KeepClosed(removed.contents);
+      // An unloaded tab's page goes, and the tab stays.
+      const Tab* tab = Tab::FromWebContents(removed.contents);
+      if (removed.remove_reason == TabRemovedReason::kDeleted && !(tab && tab->unloading())) {
+        KeepClosed(Tab::IdOf(removed.contents));
       }
     }
     return;
@@ -1792,6 +1844,7 @@ void Window::OnWidgetActivationChanged(views::Widget* widget, bool active) {
     if (ToFront(id_)) {
       SessionChanged();
     }
+    UnloadIdleTabsSoon();
   }
 }
 
@@ -1822,7 +1875,7 @@ content::WebContents* Window::OpenBehind(NavigateParams& params) {
                                                        AddTabTypes::ADD_NONE);
   }
   // The load Chrome would have started in it now.
-  Tab::GetOrCreateForWebContents(contents)->LoadWhenShown(
+  Tab::Get(Tab::IdOf(contents))->LoadWhenShown(
       LoadURLParamsFromNavigateParams(contents, &params));
   return contents;
 }

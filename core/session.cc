@@ -74,14 +74,12 @@ int DepthOf(const Space& space, bc_id id) {
 
 // The favorite |id| as the session keeps it, else empty history if it has no page to keep.
 SavedTab SaveFavorite(bc_id id) {
-  content::WebContents* contents = Tab::FromId(id);
-  SavedTab tab = contents ? SaveTab(*contents) : SavedTab();
+  const Tab* saving = Tab::Get(id);
+  SavedTab tab = saving ? saving->Save() : SavedTab();
   if (tab.history.empty()) {
     return tab;
   }
   tab.pinned_url = Favorites::Url(id);
-  tab.name = Tab::FromWebContents(contents)->name();
-  tab.icon = Tab::FromWebContents(contents)->icon();
   tab.profile = Favorites::ProfileOf(id);
   tab.site = Favorites::SiteOf(id);
   return tab;
@@ -166,8 +164,8 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
                               .at = to.pinned.size()});
         continue;
       }
-      content::WebContents* contents = Tab::FromId(id);
-      SavedTab tab = contents ? SaveTab(*contents) : SavedTab();
+      const Tab* saving = Tab::Get(id);
+      SavedTab tab = saving ? saving->Save() : SavedTab();
       if (tab.history.empty()) {
         continue;
       }
@@ -182,12 +180,9 @@ SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today)
       }
       above = id;
       tab.pinned_url = space.PinnedUrl(id);
-      tab.name = Tab::FromWebContents(contents)->name();
-      tab.icon = Tab::FromWebContents(contents)->icon();
       tab.depth = DepthOf(space, id);
       if (tabs == &to.today) {
-        tab.last_seen = Window::Showing(id) ? base::Time::Now()
-                                            : Tab::FromWebContents(contents)->last_seen();
+        tab.last_seen = Window::Showing(id) ? base::Time::Now() : saving->last_seen();
         if (today) {
           today->push_back(id);
         }
@@ -361,7 +356,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("haptics", saved.settings.haptics)
                            .Set("warn_before_quitting", saved.settings.warn_before_quitting)
                            .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
-                           .Set("favorites_scope", ScopeName(saved.settings.favorites_scope)));
+                           .Set("favorites_scope", ScopeName(saved.settings.favorites_scope))
+                           .Set("unload_idle_tabs", saved.settings.unload_idle_tabs));
   return base::WriteJson(root);
 }
 
@@ -542,6 +538,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     if (const std::string* scope = settings->FindString("favorites_scope")) {
       saved.settings.favorites_scope = ScopeFromName(*scope);
     }
+    saved.settings.unload_idle_tabs = settings->FindBool("unload_idle_tabs").value_or(true);
   }
   return saved;
 }
@@ -673,29 +670,14 @@ double SavedSidebarWidth() {
   return g_saver && g_saver->loaded() ? g_saver->loaded()->sidebar_width : 0;
 }
 
-bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
-  content::WebContents* contents = window.RestoreTab(profile, saved.history, saved.current);
-  if (!contents) {
-    return 0;
-  }
-  // Which makes its Tab.
-  const bc_id tab = Tab::IdOf(contents);
-  Tab::FromWebContents(contents)->set_name(saved.name);
-  Tab::FromWebContents(contents)->set_icon(saved.icon);
-  Tab::FromWebContents(contents)->Restored();
-  if (!saved.last_seen.is_null()) {
-    Tab::FromWebContents(contents)->set_last_seen(saved.last_seen);
-  }
-  return tab;
-}
-
 Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_space, bc_id id) {
   Space* space = Space::Create(saved_space.name, id, saved_space.agent);
   space->SetColor(saved_space.color);
   space->SetIcon(saved_space.icon);
   space->SetProfile(DirOf(profile));
   const auto restore = [&](const SavedTab& saved_tab, int index) -> bc_id {
-    const bc_id tab = RestoreSavedTab(window, profile, saved_tab);
+    // Without its page until it's first shown, which saves launch making a page for each tab.
+    const bc_id tab = Tab::Restore(profile, saved_tab);
     if (tab && index == saved_space.shown) {
       window.SetSelectedIn(space->id(), tab);
     }
@@ -736,7 +718,7 @@ Space* RestoreSpace(Window& window, Profile* profile, const SavedSpace& saved_sp
   // Under Each Space, its favorites, in its profile.
   for (size_t j = 0; j < saved_space.favorites.size(); ++j) {
     const SavedTab& saved_tab = saved_space.favorites[j];
-    if (bc_id tab = RestoreSavedTab(window, profile, saved_tab)) {
+    if (bc_id tab = Tab::Restore(profile, saved_tab)) {
       Favorites::Restore(tab,
                          saved_tab.pinned_url.is_valid()
                              ? saved_tab.pinned_url
@@ -786,7 +768,7 @@ bool RestoreSession(Window& window) {
   std::vector<bc_id> favorites;
   for (const SavedTab& saved_tab : saved->favorites) {
     const bc_id tab = favorites.emplace_back(
-        RestoreSavedTab(window, ProfileFor(saved_tab.profile), saved_tab));
+        Tab::Restore(ProfileFor(saved_tab.profile), saved_tab));
     if (tab) {
       Favorites::Restore(tab,
                          saved_tab.pinned_url.is_valid()
