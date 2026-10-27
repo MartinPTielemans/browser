@@ -1,4 +1,4 @@
-// The AppKit side of the app, called from Rust: what the core's API (core/public/browser_core.h)
+// The platform side of the app, called from Rust: what the core's API (core/public/browser_core.h)
 // leaves to the app. The core makes the browser window and puts the page in it; GPUI draws in a
 // view of the app's, under the page.
 #pragma once

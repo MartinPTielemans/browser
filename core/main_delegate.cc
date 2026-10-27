@@ -8,6 +8,7 @@
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/functional/bind.h"
+#include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
@@ -36,8 +37,16 @@
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
 
+#if BUILDFLAG(IS_WIN)
+#include <windows.h>
+
+#include "base/files/file_path.h"
+#include "base/path_service.h"
+#include "base/strings/utf_string_conversions.h"
+#else
 // chrome_main.cc's entry point, in the same framework.
 extern "C" int ChromeMain(int argc, const char** argv);
+#endif
 
 namespace browser_core {
 
@@ -143,7 +152,8 @@ bc_id NewId() {
   return ++last;
 }
 
-int Run(int argc, const char** argv, const bc_host& host) {
+// Keeps the app's callbacks and puts the core's hooks in Chrome.
+void Install(const bc_host& host) {
   g_host = host;
   g_browser_core_supplies_windows = true;
   g_browser_core_adjust_navigate = &Window::AdjustNavigate;
@@ -160,7 +170,42 @@ int Run(int argc, const char** argv, const bc_host& host) {
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
+}
+
+#if BUILDFLAG(IS_WIN)
+// chrome.exe runs ChromeMain itself, so the app, a DLL beside it, hands over its callbacks and
+// switches here instead of calling bc_main. Returns false with no app to run.
+bool LoadApp(base::CommandLine* command_line) {
+  base::FilePath dir;
+  base::PathService::Get(base::DIR_EXE, &dir);
+  HMODULE app = LoadLibraryW(dir.Append(BC_APP_DLL).value().c_str());
+  auto entry = app ? reinterpret_cast<bc_app_entry>(GetProcAddress(app, BC_APP_ENTRY)) : nullptr;
+  if (!entry) {
+    return false;
+  }
+  int argc = 0;
+  const char** argv = nullptr;
+  const bc_host* host = entry(&argc, &argv);
+  Install(host ? *host : bc_host{});
+  // The app's switches, as bc_main takes them. It repeats the ones chrome.exe was given after its
+  // own, so those still win.
+  base::CommandLine::StringVector app_argv;
+  for (int i = 0; i < argc; ++i) {
+    app_argv.push_back(base::UTF8ToWide(argv[i]));
+  }
+  command_line->AppendArguments(base::CommandLine(app_argv), /*include_program=*/false);
+  return true;
+}
+#endif
+
+int Run(int argc, const char** argv, const bc_host& host) {
+#if BUILDFLAG(IS_WIN)
+  // chrome.exe starts Chromium on Windows; see LoadApp.
+  return 1;
+#else
+  Install(host);
   return ChromeMain(argc, argv);
+#endif
 }
 
 void Quit() {
@@ -178,6 +223,13 @@ MainDelegate::~MainDelegate() = default;
 std::optional<int> MainDelegate::BasicStartupComplete() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!command_line->HasSwitch(switches::kProcessType)) {
+#if BUILDFLAG(IS_WIN)
+    // First, so the features below join the app's rather than being replaced by them.
+    if (!LoadApp(command_line)) {
+      LOG(ERROR) << "no app: " << BC_APP_DLL << " beside the engine has no " << BC_APP_ENTRY;
+      return 1;
+    }
+#endif
     // The app opens windows through the core, and Chrome's first run and default-browser prompts
     // are Chrome's UI, not ours.
     command_line->AppendSwitch(switches::kNoStartupWindow);

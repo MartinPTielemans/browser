@@ -213,4 +213,7 @@ source_set("browser_core") {
   } else {
     sources += [ "platform/system_page_none.cc" ]
   }
+  if (is_win) {
+    sources += [ "platform/win/window_views.cc" ]
+  }
 }

@@ -1,0 +1,28 @@
+[package]
+name = "browser-windows"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+# The browser on Windows: src/main.rs as Browser.dll, which the core loads into chrome.exe's browser
+# process (core/public/browser_core.h, bc_main), since the sandbox needs chrome.exe to start every
+# process.
+[lib]
+name = "Browser"
+path = "../src/main.rs"
+crate-type = ["cdylib"]
+
+[features]
+prod = ["browser/prod"]
+
+[dependencies]
+browser = { path = ".." }
+gpui = { path = "../.deps/zed/crates/gpui" }
+gpui_platform = { path = "../.deps/zed/crates/gpui_platform" }
+gpui_windows = { path = "../.deps/zed/crates/gpui_windows" }
+raw-window-handle = "0.6"
+
+# Its own, apart from the browser crate's, which has no workspace: Zed's crates in ../.deps would join one.
+# Seeded from ../Cargo.lock, so the two build the same versions.
+[workspace]

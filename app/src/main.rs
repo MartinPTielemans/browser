@@ -2,6 +2,9 @@
 //! in it, through its C API; GPUI draws the shell in a view inside that window, under the page.
 //! Chromium owns the application object and the run loop.
 
+// The Windows build names its crate Browser, for Browser.dll (windows/Cargo.toml).
+#![cfg_attr(target_os = "windows", allow(non_snake_case))]
+
 use std::{
     cell::{Cell, RefCell},
     ffi::{CStr, CString, c_char, c_int, c_void},
@@ -35,17 +38,13 @@ mod find_bar;
 mod reveal;
 mod settings;
 
-/// The host's overlays (platform/mac/host.h).
+/// The host's overlays (platform/host.h).
 const COMMAND_BAR: c_int = 0;
 const ICON_PICKER: c_int = 1;
 
-/// The core's API, generated from core/public/browser_core.h.
-#[allow(non_camel_case_types, dead_code)]
-mod bc {
-    include!(concat!(env!("OUT_DIR"), "/browser_core.rs"));
-}
+use browser::bc;
 
-/// The AppKit side, in platform/mac/.
+/// The AppKit side, in platform/mac/, or its Windows counterpart in platform/windows/.
 mod platform {
     use std::ffi::{c_char, c_int, c_void};
 
@@ -496,7 +495,8 @@ fn update_app_later(change: impl FnOnce(&mut App) + 'static) {
 fn ns_view(window: &Window) -> *mut c_void {
     match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
         Ok(RawWindowHandle::AppKit(handle)) => handle.ns_view.as_ptr(),
-        _ => panic!("the window has no AppKit view"),
+        Ok(RawWindowHandle::Win32(handle)) => handle.hwnd.get() as *mut c_void,
+        _ => panic!("the window has no native view"),
     }
 }
 
@@ -2322,7 +2322,10 @@ fn open_window(
         let width = unsafe { bc::bc_window_sidebar_width(from.id) };
         unsafe { bc::bc_window_set_sidebar_width(id, width) };
     }
+    #[cfg(target_os = "macos")]
     gpui_macos::open_next_window_in(ui_view);
+    #[cfg(target_os = "windows")]
+    gpui_windows::open_next_window_in(ui_view);
     // Transparent, over the window's material.
     let options = WindowOptions {
         window_background: WindowBackgroundAppearance::Transparent,
@@ -2573,6 +2576,9 @@ fn finish_opening(
 }
 
 unsafe extern "C" fn started(_: *mut c_void) {
+    // Chromium's message loop dispatches GPUI's messages, as its run loop does on the Mac.
+    #[cfg(target_os = "windows")]
+    gpui_windows::embed();
     let app = gpui_platform::application().with_assets(shell::Assets).run_embedded(|cx| {
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
@@ -3616,12 +3622,20 @@ unsafe extern "C" fn tab_fullscreen_changed(_: *mut c_void, tab: bc::bc_id, full
 
 /// Where Chromium keeps the profiles, and the app the user's keys. A dev build keeps a profile of
 /// its own, never the owner's, since the checks delete what the last run saved. The prod build
-/// keeps the user's in Application Support, under the product's name.
+/// keeps the user's in Application Support, under the product's name, or in Local AppData on
+/// Windows.
 fn profile_dir() -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     let name = include_str!("../branding/name").trim();
     std::env::var("BROWSER_PROFILE_DIR").unwrap_or_else(|_| {
-        if cfg!(feature = "prod") {
+        if cfg!(target_os = "windows") {
+            let local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+            if cfg!(feature = "prod") {
+                format!(r"{local}\{name}\User Data")
+            } else {
+                format!(r"{local}\browser-app")
+            }
+        } else if cfg!(feature = "prod") {
             format!("{home}/Library/Application Support/{name}")
         } else {
             format!("{home}/Library/Caches/browser-app")
@@ -3629,7 +3643,8 @@ fn profile_dir() -> String {
     })
 }
 
-fn main() {
+/// What the app gives the core to start with: Chromium's switches, and the callbacks.
+fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     let mut args: Vec<String> = std::env::args().take(1).collect();
     let profile = profile_dir();
     args.extend([
@@ -3659,7 +3674,6 @@ fn main() {
     if std::env::var_os("BROWSER_DRIVE").is_some() {
         unsafe { platform::drive_start() };
     }
-    let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let host = bc::bc_host {
         launching: Some(launching),
         started: Some(started),
@@ -3705,6 +3719,36 @@ fn main() {
         agent_activity: Some(agent_activity),
         ..Default::default()
     };
+    (args, host)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn main() {
+    let (args, host) = switches_and_host();
+    let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
     std::process::exit(code);
+}
+
+/// On Windows this program only says where the browser is: chrome.exe runs it from Browser.dll.
+#[cfg(target_os = "windows")]
+#[allow(dead_code)]
+fn main() {
+    log!("browser: on Windows, run chrome.exe beside Browser.dll, which windows/ builds");
+    std::process::exit(1);
+}
+
+/// On Windows the browser is this DLL, which chrome.exe's core loads as Chromium starts, in place of
+/// a main that calls bc_main (core/public/browser_core.h). What it returns lasts as long as the
+/// process.
+#[cfg(target_os = "windows")]
+#[unsafe(no_mangle)]
+pub extern "C" fn bc_app_host(argc: *mut c_int, argv: *mut *const *const c_char) -> *const bc::bc_host {
+    let (args, host) = switches_and_host();
+    let pointers: Vec<*const c_char> = args.leak().iter().map(|arg| arg.as_ptr()).collect();
+    unsafe {
+        *argc = pointers.len() as c_int;
+        *argv = pointers.leak().as_ptr();
+    }
+    Box::leak(Box::new(host))
 }

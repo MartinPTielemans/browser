@@ -1,8 +1,17 @@
-Links the core (//browser_core, the repository's core/) into Chrome's framework on Mac.
+Links the core (//browser_core, the repository's core/) into Chrome's framework: chrome.dll on
+Windows, the framework on Mac.
 
 --- a/chrome/BUILD.gn
 +++ b/chrome/BUILD.gn
-@@ -1311,6 +1311,7 @@
+@@ -436,6 +436,7 @@
+       ":chrome_dll_manifest",
+       ":chrome_dll_version",
+       ":dependencies",
++      "//browser_core",
+       "//chrome/app:chrome_dll_resources",
+       "//chrome/app:command_ids",
+       "//chrome/app/theme:chrome_unscaled_resources",
+@@ -1311,6 +1312,7 @@
  
      deps = [
        ":dependencies",
