@@ -412,6 +412,7 @@ fn heading(x: f32, velocity: f32, width: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
+    use std::time::{Duration, Instant};
 
     use gpui::{
         AppContext, Context, Entity, Modifiers, ScrollDelta, ScrollEvent, TestAppContext, TouchPhase,
@@ -540,6 +541,32 @@ mod tests {
             assert!(shell.library_open, "the next swipe left the Library closed");
         });
         assert_eq!(*host.shown.borrow(), [1]);
+    }
+
+    /// The sidebar under the Library fades out whole and the Library fades in over it by what the
+    /// sidebar has lost, never a whole sheet over a half-faded sidebar, which would show only cut
+    /// along its edge: with fingers part of the way out, and on a click's close as the sidebar
+    /// comes back.
+    #[gpui::test]
+    fn the_library_fades_in_over_the_sidebar_both_ways(cx: &mut TestAppContext) {
+        let (shell, _, cx) = three_spaces(cx, 1);
+        let crossing = |shell: &Shell| {
+            let (sidebar, library) = (shell.sidebar_opacity(), shell.library_opacity());
+            sidebar > 0. && sidebar < 1. && (sidebar + library - 1.).abs() < 1e-6
+        };
+        shell.update_in(cx, |shell, window, cx| {
+            fingers(shell, 0.2 * shell.library_width(), false, window, cx);
+            assert!(crossing(shell), "fingers: the sidebar {}", shell.sidebar_opacity());
+            fingers(shell, 0.9 * shell.library_width(), true, window, cx);
+            assert!(shell.library_open, "the swipe left the Library closed");
+            shell.library_motion = None;
+            shell.sidebar_fade = None;
+            shell.set_library(false, cx);
+            // Halfway through the sidebar's fade back in.
+            let start = Instant::now() - Duration::from_millis(145);
+            shell.sidebar_fade = shell.sidebar_fade.map(|(from, _)| (from, start));
+            assert!(crossing(shell), "a click: the sidebar {}", shell.sidebar_opacity());
+        });
     }
 
     /// Back off the form, the URL field and the favorites are drawn from the first frame, at the

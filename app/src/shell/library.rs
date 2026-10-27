@@ -38,9 +38,9 @@ const SIDEBAR_FADE_IN: f32 = 0.13;
 /// Moved by fingers, and on after they let go, the sidebar recedes as the card goes: it fades out
 /// by 0.48 of the way, and shrinks by 0.076 of its size over the way, about a point at the window's
 /// middle 128 right of its edge, so it goes down and right at the top and up and right at the
-/// bottom. The Library is one opaque sheet over it, coming from its width to the left at the
-/// card's pace (Arc 1.170 rec at 2×, frame by frame: Spaces with one Space and with three, both
-/// ways, and Media closing).
+/// bottom. The Library is one sheet, coming from its width to the left at the card's pace (Arc
+/// 1.170 rec at 2×, frame by frame: Spaces with one Space and with three, both ways, and Media
+/// closing).
 const RECEDE_SPAN: f32 = 0.48;
 const RECEDE_SCALE: f32 = 0.076;
 pub(super) const RECEDE_X: f32 = 128.;
@@ -509,13 +509,12 @@ impl Shell {
         }
     }
 
-    /// Where the Library cuts the sidebar off, in the sidebar's own points: at its edge, which
-    /// comes with the card, as Arc's opaque sheet covers it there. Receding, the sidebar is
-    /// smaller, so the cut is where that edge falls on it.
-    pub(super) fn sidebar_cut(&self) -> f32 {
-        let edge = self.library_edge() * self.library_width() + self.library_past();
-        let origin = self.width() + RECEDE_X;
-        (origin - (origin - edge) / self.sidebar_scale()).max(0.)
+    /// The Library's opacity: what the sidebar under it has lost, on every way in and out. Arc's
+    /// is a sheet that covers the sidebar up to its edge, but ours has no fill, and cut there the
+    /// half-faded sidebar looks sliced along a line with nothing on it, so the sidebar fades out
+    /// whole and the Library fades in over it.
+    pub(super) fn library_opacity(&self) -> f32 {
+        1. - self.sidebar_opacity()
     }
 
     /// Whether the Library's panel is at rest where it opens, or past it with the card, to within
@@ -912,6 +911,7 @@ impl Shell {
             .top_0()
             .bottom_0()
             .w(px(width))
+            .opacity(self.library_opacity())
             .child(column)
             .child(edge);
         if spaces {
@@ -1729,7 +1729,7 @@ mod tests {
         (out.min(1.) - 1.) * width + past_end(out, width)
     }
 
-    /// Every section Arc's recordings show moving comes in as one opaque sheet at the card's pace,
+    /// Every section Arc's recordings show moving comes in as one sheet at the card's pace,
     /// the sidebar gone by 0.48 of the way: Spaces with one Space, opening from a sidebar 228 wide
     /// to 480 (the + measured), and Media closing from 417 (its search field measured).
     #[test]
@@ -1768,7 +1768,7 @@ mod tests {
     }
 
     /// With three Spaces in Arc's 1800-wide window, the card going from 288 to 1008, the Library
-    /// is one opaque sheet whose edge keeps the card's pace, as measured frame by frame, the
+    /// is one sheet whose edge keeps the card's pace, as measured frame by frame, the
     /// sidebar under it gone by 0.48 of the way, and past where it opens it goes on 1.4 times as
     /// far as the card.
     #[test]
