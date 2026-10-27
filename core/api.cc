@@ -485,19 +485,19 @@ void bc_window_select(bc_id window_id, bc_id tab) {
   }
 }
 
-size_t bc_window_clear(bc_id window_id) {
+bc_id bc_window_clear(bc_id window_id) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window ? window->Clear() : 0;
 }
 
-size_t bc_window_undo_clear(bc_id window_id) {
+size_t bc_window_undo_clear(bc_id window_id, bc_id clear) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
-  return window ? window->UndoClear() : 0;
+  return window ? window->UndoClear(clear) : 0;
 }
 
-bc_id bc_window_undo_delete_space(bc_id window_id) {
+bc_id bc_window_undo_delete_space(bc_id window_id, bc_id space) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
-  return window ? window->UndoDeleteSpace() : 0;
+  return window ? window->UndoDeleteSpace(space) : 0;
 }
 
 bc_id bc_window_reopen_closed_tab(bc_id window_id) {
@@ -544,16 +544,16 @@ bool bc_window_run_extension_command(bc_id window_id, const char* id, const char
   return window && id && name && window->RunExtensionCommand(id, name);
 }
 
-void bc_archive_clear(void) {
-  browser_core::RemoveAllArchived();
+bc_id bc_archive_clear(void) {
+  return browser_core::RemoveAllArchived();
 }
 
-void bc_archive_remove(bc_id archived) {
-  browser_core::RemoveArchived(archived);
+bc_id bc_archive_remove(bc_id archived) {
+  return browser_core::RemoveArchived(archived);
 }
 
-size_t bc_archive_undo_remove(void) {
-  return browser_core::UndoRemoved();
+size_t bc_archive_undo_remove(bc_id removal) {
+  return browser_core::UndoRemoved(removal);
 }
 
 double bc_archive_after(void) {

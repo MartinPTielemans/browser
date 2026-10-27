@@ -137,22 +137,24 @@ pub(super) enum Edit {
     Separate(u64),
     /// Gives a name, an icon or a colour back.
     Set(Prop, Value),
-    /// Brings back the tabs the last Clear closed.
-    UndoClear(u64),
+    /// Brings back the tabs the window's Clear `clear` closed in `space`. Each of these three asks
+    /// the core for its own step by id, so it never takes one that another window made.
+    UndoClear {
+        space: u64,
+        clear: u64,
+    },
     /// Clears the Space shown again, if it's this one.
     Clear(u64),
-    /// Brings back the Space deleted last, which `Delete` of this id deleted.
+    /// Brings back the Space, which `DeleteSpace` deleted.
     UndoDeleteSpace(u64),
     DeleteSpace(u64),
-    /// Puts back what the archive's last Delete or Clear took out.
+    /// Puts back what the archive removal `removal` took out: the archived tab `id`, or all.
     UndoArchive {
-        ids: Vec<u64>,
-        all: bool,
+        removal: u64,
+        id: Option<u64>,
     },
-    Archive {
-        ids: Vec<u64>,
-        all: bool,
-    },
+    /// Takes the archived tab out of the archive, or all of them.
+    Archive(Option<u64>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -213,12 +215,12 @@ impl Edit {
                 Prop::TabName(each) | Prop::TabIcon(each) | Prop::FolderName(each) => id(each),
                 Prop::SpaceName(_) | Prop::SpaceIcon(_) | Prop::SpaceColor(_) => {}
             },
-            Edit::UndoClear(_)
+            Edit::UndoClear { .. }
             | Edit::Clear(_)
             | Edit::UndoDeleteSpace(_)
             | Edit::DeleteSpace(_)
             | Edit::UndoArchive { .. }
-            | Edit::Archive { .. } => {}
+            | Edit::Archive(_) => {}
         }
     }
 
@@ -283,31 +285,33 @@ impl Edit {
                 shell.set_prop(prop, &value, cx);
                 Some(Edit::Set(prop, now))
             }
-            Edit::UndoClear(space) => {
-                (shell.browser.undo_clear(cx) > 0).then_some(Edit::Clear(space))
+            Edit::UndoClear { space, clear } => {
+                (shell.browser.undo_clear(clear, cx) > 0).then_some(Edit::Clear(space))
             }
             Edit::Clear(space) => {
-                (shell.space == space && shell.clear_now(cx)).then_some(Edit::UndoClear(space))
+                if shell.space != space {
+                    return None;
+                }
+                let clear = shell.clear_now(cx)?;
+                Some(Edit::UndoClear { space, clear })
             }
             Edit::UndoDeleteSpace(space) => shell
                 .browser
-                .undo_delete_space(cx)
+                .undo_delete_space(space, cx)
                 .then_some(Edit::DeleteSpace(space)),
             Edit::DeleteSpace(space) => shell
                 .browser
                 .delete_space(space, cx)
                 .then_some(Edit::UndoDeleteSpace(space)),
-            Edit::UndoArchive { ids, all } => {
-                (shell.browser.undo_archive_remove(cx) > 0).then_some(Edit::Archive { ids, all })
+            Edit::UndoArchive { removal, id } => {
+                (shell.browser.undo_archive_remove(removal, cx) > 0).then_some(Edit::Archive(id))
             }
-            Edit::Archive { ids, all } => {
-                if all {
-                    shell.browser.clear_archive(cx);
-                } else {
-                    ids.iter()
-                        .for_each(|&id| shell.browser.remove_archived(id, cx));
-                }
-                Some(Edit::UndoArchive { ids, all })
+            Edit::Archive(id) => {
+                let removal = match id {
+                    Some(id) => shell.browser.remove_archived(id, cx),
+                    None => shell.browser.clear_archive(cx),
+                };
+                (removal != 0).then_some(Edit::UndoArchive { removal, id })
             }
         }
     }
@@ -550,22 +554,18 @@ impl Shell {
 
     /// Takes the archived tab out of the archive.
     pub(super) fn delete_archived(&mut self, id: u64, cx: &mut Context<Self>) {
-        self.browser.remove_archived(id, cx);
-        self.keep(
-            What::DELETE_ARCHIVED,
-            Some(Edit::UndoArchive {
-                ids: vec![id],
-                all: false,
-            }),
-            cx,
-        );
+        let removal = self.browser.remove_archived(id, cx);
+        let edit = (removal != 0).then_some(Edit::UndoArchive {
+            removal,
+            id: Some(id),
+        });
+        self.keep(What::DELETE_ARCHIVED, edit, cx);
     }
 
     /// Empties the archive.
     pub(super) fn empty_archive(&mut self, cx: &mut Context<Self>) {
-        let ids = self.archive.iter().map(|tab| tab.id).collect::<Vec<_>>();
-        self.browser.clear_archive(cx);
-        let edit = (!ids.is_empty()).then_some(Edit::UndoArchive { ids, all: true });
+        let removal = self.browser.clear_archive(cx);
+        let edit = (removal != 0).then_some(Edit::UndoArchive { removal, id: None });
         self.keep(What::CLEAR_ARCHIVE, edit, cx);
     }
 

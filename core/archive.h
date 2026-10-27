@@ -42,13 +42,14 @@ std::optional<ArchivedTab> TakeArchived(bc_id id);
 void ClearArchive();
 
 // As TakeArchived without returning it, and ClearArchive, for the user's Delete and Clear in the
-// Library, which UndoRemoved brings back. Then archive_changed.
-void RemoveArchived(bc_id id);
-void RemoveAllArchived();
+// Library, which UndoRemoved brings back. Then archive_changed. Return the removal's id, or 0 if
+// there was nothing to remove. The last 25 are kept, whichever window made them.
+bc_id RemoveArchived(bc_id id);
+bc_id RemoveAllArchived();
 
-// Puts back what the last RemoveArchived or RemoveAllArchived took out, each tab with its id at the
-// place it had, or the end if the archive is shorter now. Then archive_changed. Returns how many.
-size_t UndoRemoved();
+// Puts back what the removal |removal| took out, each tab with its id at the place it had, or the
+// end if the archive is shorter now. Then archive_changed. Returns how many, 0 if it is gone.
+size_t UndoRemoved(bc_id removal);
 
 }  // namespace browser_core
 

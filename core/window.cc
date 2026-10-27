@@ -1291,7 +1291,7 @@ void Window::Pick(bc_id tab) {
   }
 }
 
-size_t Window::Clear() {
+bc_id Window::Clear() {
   Space* space = Space::FromId(space_);
   if (!space) {
     return 0;
@@ -1312,22 +1312,24 @@ size_t Window::Clear() {
   for (auto cleared = frame.rbegin(); cleared != frame.rend(); ++cleared) {
     CloseTab(cleared->tab);
   }
-  const size_t count = frame.size();
-  if (count > 0) {
-    cleared_.push_back(std::move(frame));
-    if (cleared_.size() > kMaxClears) {
-      cleared_.erase(cleared_.begin());
-    }
-  }
-  return count;
-}
-
-size_t Window::UndoClear() {
-  if (cleared_.empty()) {
+  if (frame.empty()) {
     return 0;
   }
-  std::vector<Cleared> frame = std::move(cleared_.back());
-  cleared_.pop_back();
+  const bc_id id = NewId();
+  cleared_.push_back({id, std::move(frame)});
+  if (cleared_.size() > kMaxClears) {
+    cleared_.erase(cleared_.begin());
+  }
+  return id;
+}
+
+size_t Window::UndoClear(bc_id clear) {
+  auto it = std::ranges::find(cleared_, clear, &ClearedTabs::id);
+  if (it == cleared_.end()) {
+    return 0;
+  }
+  std::vector<Cleared> frame = std::move(it->tabs);
+  cleared_.erase(it);
   size_t reopened = 0;
   bc_id above = 0;
   bc_id shown = 0;
@@ -1356,19 +1358,20 @@ size_t Window::UndoClear() {
   return reopened;
 }
 
-bc_id Window::UndoDeleteSpace() {
+bc_id Window::UndoDeleteSpace(bc_id id) {
   // The regular windows' Spaces, which a private window never shows.
   if (off_the_record_) {
     return 0;
   }
   std::vector<DeletedSpace>& deleted = DeletedSpaces();
-  Profile* profile = deleted.empty() ? nullptr : ProfileFor(deleted.back().saved.profile);
+  auto it = std::ranges::find(deleted, id, &DeletedSpace::id);
+  Profile* profile = it == deleted.end() ? nullptr : ProfileFor(it->saved.profile);
   // Not while a page keeps one of its tabs open, which keeps the Space.
-  if (!profile || Space::FromId(deleted.back().id)) {
+  if (!profile || Space::FromId(id)) {
     return 0;
   }
-  DeletedSpace space = std::move(deleted.back());
-  deleted.pop_back();
+  DeletedSpace space = std::move(*it);
+  deleted.erase(it);
   // Its Today tabs leave the archive and the closed tabs as they come back, but for those that
   // came back some other way, such as ⇧⌘T, or left the archive.
   const int pinned = static_cast<int>(space.saved.pinned.size());

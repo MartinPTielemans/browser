@@ -443,7 +443,7 @@ impl Browser for Fake {
     }
 
     // As the core does, without the undo or split views.
-    fn clear(&self, cx: &mut App) {
+    fn clear(&self, cx: &mut App) -> u64 {
         self.later(cx, |shell, cx| {
             let selected = shell.selected();
             let all = shell.today().to_vec();
@@ -451,13 +451,14 @@ impl Browser for Fake {
             let today = today.into_iter().filter(|&tab| tab == selected).collect();
             set_today(shell, today, cx);
         });
-    }
-
-    fn undo_clear(&self, _: &mut App) -> usize {
         0
     }
 
-    fn undo_delete_space(&self, _: &mut App) -> bool {
+    fn undo_clear(&self, _: u64, _: &mut App) -> usize {
+        0
+    }
+
+    fn undo_delete_space(&self, _: u64, _: &mut App) -> bool {
         false
     }
 
@@ -477,7 +478,7 @@ impl Browser for Fake {
         String::new()
     }
 
-    fn undo_archive_remove(&self, _: &mut App) -> usize {
+    fn undo_archive_remove(&self, _: u64, _: &mut App) -> usize {
         0
     }
 
@@ -487,14 +488,17 @@ impl Browser for Fake {
         self.report_archive(cx);
     }
 
-    fn remove_archived(&self, archived: u64, cx: &mut App) {
+    // The preview has nothing to undo, so no removal has an id.
+    fn remove_archived(&self, archived: u64, cx: &mut App) -> u64 {
         self.archive.borrow_mut().retain(|&(id, ..)| id != archived);
         self.report_archive(cx);
+        0
     }
 
-    fn clear_archive(&self, cx: &mut App) {
+    fn clear_archive(&self, cx: &mut App) -> u64 {
         self.archive.borrow_mut().clear();
         self.report_archive(cx);
+        0
     }
 
     // Opening and showing a file do nothing here.
