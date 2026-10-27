@@ -34,7 +34,7 @@ Steps 1–3 change the tree and run once; a run that stopped in one of them mean
 
 `setup.sh` names what it needs and isn't installed: Homebrew's `ninja`, `go`, `esbuild`, `typescript`, `coreutils` and `uv`, and Apple's Metal toolchain. It builds with Python 3.13, as ungoogled-chromium-macos does, through `uv`.
 
-It also needs the macOS SDK of Chromium's official builds (`mac_sdk_official_version` in `build/config/mac/mac_sdk.gni`: 26.5 for Chromium 155), from Xcode or the Command Line Tools, even when a newer Xcode is installed. The pinned LLVM's linker can't read newer SDKs.
+It also needs the macOS SDK of Chromium's official builds (`mac_sdk_official_version` in `build/config/mac/mac_sdk.gni`: 26.5 for Chromium 156), from Xcode or the Command Line Tools, even when a newer Xcode is installed. The pinned LLVM's linker can't read newer SDKs.
 
 ## Linux
 
@@ -46,4 +46,4 @@ CI (`.github/workflows/core-linux.yml`) runs `check-linux.sh` on pushes that cha
 - One concern per patch, named `chromium-<area>-<what>.patch`.
 - Each release, diff Helium's and Ardia's series against ours for anything worth taking.
 - A new Chromium version, or a change to the GN args, means a full build.
-- An Xcode update doesn't, because `chromium-xcode-build-define.patch` and `setup.sh` pin the Xcode build in the `CR_XCODE_BUILD` define, which every object is compiled with. At the next Chromium bump, which recompiles everything anyway, drop the patch and `setup.sh`'s `mac_xcode_build_define` line, and patch the define out of `build/config/mac/BUILD.gn` outright.
+- An Xcode update doesn't: `chromium-xcode-build-define.patch` drops the `CR_XCODE_BUILD` define, which upstream compiles every object with only so that one does.
