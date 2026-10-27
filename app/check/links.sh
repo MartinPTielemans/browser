@@ -5,7 +5,8 @@
 # says the browser isn't the default, as a dev build never is: it declares no links (build.sh), and
 # making it the default asks in a system dialog the driver can't answer. A link that launches the
 # browser opens over the Spaces it brings back, before the UI comes out from under the launch
-# picture. Reports the launch times from the process's start, without a link and with one.
+# picture. ⌘Q keeps the sidebar's picture, which both the launch without a link and the one with it
+# show. Reports the launch times from the process's start, without a link and with one.
 
 serve
 log="$out/links.log"
@@ -58,8 +59,12 @@ if [ "$driven" = 1 ]; then
   grep -q "^browser: link from another app .* of window $private\$" "$log" &&
     fail "a link from another app opened in the private window"
 fi
-exec 3>&-
-quit
+# The sidebar's picture, which the launches below show until their UI has drawn.
+quit_by_key
+grep -q '^browser: launch picture taken$' "$log" || fail "⌘Q didn't keep the sidebar's picture for the next launch"
+exited
+ls "$(dirname "$saved")"/launch-picture-*.png > /dev/null 2>&1 ||
+  fail "the sidebar's picture ⌘Q took wasn't on disk once the app quit"
 
 # Launched by `open`, as macOS launches the default browser, the app logs to $1 and is $pid once
 # it runs. Then $2, if given, is the link that launched it.
@@ -98,6 +103,7 @@ at() {
 
 launch "$out/links-plain.log"
 await '^browser: restored in ' || fail "the Spaces didn't come back"
+grep -q '^browser: launch picture shown$' "$log" || fail "the launch without a link didn't show the sidebar's picture"
 plain="launch window $(at 'launch window') ms, started $(at 'started') ms, first frame $(at 'first frame') ms, UI shown $(at 'UI shown') ms"
 quit_launched
 
@@ -106,6 +112,7 @@ quit_launched
 # frame can come before the link, under the picture.
 launch "$out/links-cold.log" "${site}?cold"
 await '^browser: restored in ' || fail "the Spaces didn't come back under the link"
+grep -q '^browser: launch picture shown$' "$log" || fail "the launch by a link didn't show the sidebar's picture"
 await "$(link_line "?cold" "[0-9]*" "[0-9]*")" || fail "the link that launched the browser didn't open"
 tab=$(grep "$(link_line "?cold" "[0-9]*" "[0-9]*")" "$log" | sed 's/.*: tab \([0-9]*\) .*/\1/')
 await "^browser: loaded $tab ${site}?cold\$" || fail "the link that launched the browser didn't load"
@@ -123,5 +130,5 @@ else
   echo "ok: a link from another app opens as a new tab in the front window's Space and loads there."
   echo "skip: the agent's Space, the private window and Settings. Browser wasn't the active app, so the page ignored the click."
 fi
-echo "ok: a link that launches the browser opens over the Spaces it brings back, before the UI comes out from under the launch picture, and loads. Window: $out/links-cold.png"
+echo "ok: a link that launches the browser opens over the Spaces it brings back, before the UI comes out from under the launch picture, and loads, and both launches show the sidebar's picture. Window: $out/links-cold.png"
 echo "  Launch without a link: $plain; with one: $cold"
