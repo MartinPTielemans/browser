@@ -490,9 +490,13 @@ impl Settings {
             );
         let warn = unsafe { bc::bc_warn_before_quitting() };
         let warn = self.toggle("warn before quitting", warn, set_warn_before_quitting, accent, cx);
+        let ad_blocking = unsafe { bc::bc_ad_blocking() };
+        let ad_blocking = self.toggle("ad blocking", ad_blocking, set_ad_blocking, accent, cx);
+        // Ad blocking under the pop-up, which popup_text finds second.
         group([
             row(None, "Warn before quitting", warn),
             row(None, "Archive tabs after", popup.into_any_element()),
+            row(None, "Block ads and trackers", ad_blocking),
         ])
         .into_any_element()
     }
@@ -884,6 +888,11 @@ fn popup_text() -> gpui::Point<gpui::Pixels> {
 
 fn set_warn_before_quitting(warn: bool) {
     unsafe { bc::bc_set_warn_before_quitting(warn) };
+}
+
+/// In every profile; a site's own stays as the user set it in the Site Controls.
+fn set_ad_blocking(on: bool) {
+    unsafe { bc::bc_set_ad_blocking(on) };
 }
 
 fn set_haptics(haptics: bool) {
