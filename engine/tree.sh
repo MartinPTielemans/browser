@@ -18,10 +18,21 @@ remove_agent_instructions() {
 
 # Checks that a platform repository's ungoogled-chromium submodule builds the pinned tag, or a
 # later commit after it (ungoogled-chromium-macos 156.0.8078.47 builds one that fixes the tag's
-# patches), for the pinned Chromium version. Takes the submodule's path and the platform tag.
+# patches), for the pinned Chromium version. A platform whose tag names another version lags the
+# Mac's point release, or is Windows, and is checked against its tag alone. Takes the submodule's
+# path and "<repository> <tag>".
 check_ungoogled() {
-  local uc=$1 platform_tag=$2 version uc_tag pinned
+  local uc=$1 platform_tag=$2 version uc_tag pinned tag_version
   version=$(git config -f "$engine/pins.ini" chromium.version)
+  tag_version=${platform_tag##* }
+  tag_version=${tag_version%%-*}
+  if [ "$tag_version" != "$version" ]; then
+    if [ "$(cat "$uc/chromium_version.txt")" != "$tag_version" ]; then
+      echo "$platform_tag builds Chromium $(cat "$uc/chromium_version.txt"), not $tag_version" >&2
+      exit 1
+    fi
+    return
+  fi
   uc_tag=$(git config -f "$engine/pins.ini" ungoogled-chromium.tag)
   pinned=$(git ls-remote https://github.com/ungoogled-software/ungoogled-chromium.git \
     "refs/tags/$uc_tag^{}" | cut -f1)
