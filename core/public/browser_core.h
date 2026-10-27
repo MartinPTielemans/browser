@@ -672,6 +672,13 @@ typedef struct bc_host {
   // the agent can't answer: a sign-in is the user's to give. A page in an agent's Space never opens
   // another app, so it asks none.
   void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
+  // The user clicked a link in the tab's page to |url|, on another site than the page's, which is
+  // about to load in the tab: a plain click, as a link opened with a modifier goes to a new tab,
+  // and not a form or a page's script without a click. |x|, |y| is where the user last pressed in
+  // the page, in points from the top-left of its view. Return true to keep it from the tab, and
+  // open it in a link preview with bc_tab_open_preview after this call returns. A site is a
+  // registrable domain, such as example.co.uk.
+  bool (*tab_link_to_site)(void* context, bc_id tab, const char* url, double x, double y);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1182,6 +1189,10 @@ BC_EXPORT void bc_set_haptics(bool haptics);
 // Spaces.
 BC_EXPORT bool bc_warn_before_quitting(void);
 BC_EXPORT void bc_set_warn_before_quitting(bool warn);
+// Whether a link to another site clicked in a pinned tab or a favorite opens in a link preview
+// (bc_tab_open_preview), as the user chose. The core keeps it with the Spaces.
+BC_EXPORT bool bc_link_previews(void);
+BC_EXPORT void bc_set_link_previews(bool previews);
 // Whether the app warns before moving a tab to another profile's Space, which it does once, as Dia
 // does. The core keeps it with the Spaces.
 BC_EXPORT bool bc_warn_moving_profiles(void);
@@ -1278,6 +1289,26 @@ BC_EXPORT size_t bc_typed_url(const char* text, char* url, size_t capacity);
 // |keyword|, or the default one if that's null, even when |text| names a page. Returns 0 if there's
 // no such engine.
 BC_EXPORT size_t bc_search_url(const char* keyword, const char* text, char* url, size_t capacity);
+
+// Link previews: a page over the window, from a link the user clicked in a pinned tab or a
+// favorite, which the user closes or keeps as a tab. The user's: agents get none, as a preview takes
+// the window's keyboard. An agent's links open in its own Space, as the page asks.
+
+// Opens |url| in a tab in no Space, in |opener|'s window and profile, loading it at once as the link
+// in |opener|'s page would have, for the app to show with bc_tab_show_in. bc_tab_close closes it,
+// which no archive or ⇧⌘T keeps, and bc_window_keep_preview keeps it. Quitting closes it. Returns 0
+// if |opener|'s window is closing or gone.
+BC_EXPORT bc_id bc_tab_open_preview(bc_id opener, const char* url);
+
+// Shows the page of |tab|, which no window shows, such as bc_tab_open_preview's, in |view|, an
+// NSView of the app's on the Mac, which keeps it from then on: at |frame| in points from the view's
+// top-left, over what the view draws, with corners of |corner_radius|, and with the keyboard. Call
+// it again as the frame changes.
+BC_EXPORT void bc_tab_show_in(bc_id tab, void* view, bc_rect frame, double corner_radius);
+
+// Puts |tab|, a link preview, at the top of the Today tabs of the Space the window shows, and shows
+// it there, as it is: its page doesn't load again. Then space_changed and window_selected.
+BC_EXPORT void bc_window_keep_preview(bc_id window, bc_id tab);
 
 // Shows the tab's page at |frame| in its window, in place of the page the window showed. It keeps
 // its distance from the window's edges as the window resizes, and takes the keyboard if that page

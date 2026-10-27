@@ -169,6 +169,22 @@ void StripTint(CALayer* layer) {
 }
 @end
 
+// The view the link preview's page goes in, over the UI's: flipped, so the core places the page
+// from its top left at any size, and the mouse goes through it but for the page.
+@interface HostPageHolder : NSView
+@end
+
+@implementation HostPageHolder
+- (BOOL)isFlipped {
+  return YES;
+}
+
+- (NSView*)hitTest:(NSPoint)point {
+  NSView* hit = [super hitTest:point];
+  return hit == self ? nil : hit;
+}
+@end
+
 // Gives the service the user picks in the share menu the page's title, as a mail's subject.
 @interface HostShareDelegate : NSObject <NSSharingServicePickerDelegate>
 @property(copy) NSString* title;
@@ -349,6 +365,16 @@ bool g_site_controls_released = false;
 double g_site_controls_left;
 double g_site_controls_top;
 void (*g_site_controls_dismissed)(void);
+
+// The link preview's window, view and the view its page goes in, and the browser it shows over.
+// Released, it's on screen only for the motion of its leaving, and takes no clicks.
+Browser* g_link_preview_over;
+NSWindow* g_link_preview;
+NSView* g_link_preview_view;
+HostPageHolder* g_link_preview_page;
+bool g_link_preview_shown = false;
+bool g_link_preview_released = false;
+void (*g_link_preview_dismissed)(void);
 
 // Capture's window and view, the browser it shows over, where it goes there, the camera pointer,
 // and while it shows, the monitor that keeps the pointer the camera.
@@ -659,6 +685,20 @@ void DismissSiteControls() {
   if (g_site_controls_dismissed) {
     dispatch_async(dispatch_get_main_queue(), ^{
       g_site_controls_dismissed();
+    });
+  }
+}
+
+// The user left the link preview for another window. Posted: the UI may be handling the event
+// that left it.
+void DismissLinkPreview() {
+  if (!g_link_preview_shown || g_link_preview_released) {
+    return;
+  }
+  host_release_link_preview();
+  if (g_link_preview_dismissed) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      g_link_preview_dismissed();
     });
   }
 }
@@ -1305,6 +1345,11 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
                                             if (event.window != g_capture) {
                                               DismissCapture();
                                             }
+                                            // Its dim covers its own browser window, so a click
+                                            // outside it is in another window.
+                                            if (event.window != g_link_preview) {
+                                              DismissLinkPreview();
+                                            }
                                             return event;
                                           }];
   }
@@ -1338,6 +1383,13 @@ void host_show_window_behind(void* ui_view, void* above_ui_view) {
                                                 if (g_capture_shown &&
                                                     g_capture_over == browser) {
                                                   DismissCapture();
+                                                }
+                                                // The UI moves its page with the window's
+                                                // (link_preview::page_moved).
+                                                if (g_link_preview_shown &&
+                                                    g_link_preview_over == browser) {
+                                                  [g_link_preview setFrame:window.frame
+                                                                   display:YES];
                                                 }
                                               }];
 }
@@ -2473,6 +2525,134 @@ void host_hide_site_controls(void) {
   [g_site_controls orderOut:nil];
   g_site_controls_overlay.shadow.alphaValue = 0;
   fprintf(stderr, "browser: site controls hidden\n");
+}
+
+void* host_add_link_preview(void* view, void (*dismissed)(void)) {
+  g_link_preview_view = (__bridge NSView*)view;
+  g_link_preview = g_link_preview_view.window;
+  g_link_preview_dismissed = dismissed;
+  MakeOverlay(g_link_preview);
+  // Titled, as GPUI made it, so its corners are the browser window's, as the dialog's are. It
+  // draws the dim over all of the browser window, which has its own shadow.
+  g_link_preview.hasShadow = NO;
+  g_link_preview_page = [[HostPageHolder alloc] initWithFrame:g_link_preview_view.frame];
+  g_link_preview_page.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+  g_link_preview_page.wantsLayer = YES;
+  [g_link_preview_view.superview addSubview:g_link_preview_page
+                                 positioned:NSWindowAbove
+                                 relativeTo:g_link_preview_view];
+  // Chromium makes its window key by itself, such as when a page commits. That isn't the user
+  // leaving, so the preview takes the keyboard back; another window becoming key is. Switching
+  // apps isn't: the preview stays, as closing it would close its page.
+  [NSNotificationCenter.defaultCenter
+      addObserverForName:NSWindowDidBecomeKeyNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification* notification) {
+                NSWindow* window = notification.object;
+                if (!g_link_preview_shown || g_link_preview_released ||
+                    window == g_link_preview || !g_link_preview.visible) {
+                  return;
+                }
+                if (BrowserOf(window) == g_link_preview_over) {
+                  [g_link_preview makeKeyWindow];
+                } else {
+                  DismissLinkPreview();
+                }
+              }];
+  return (__bridge void*)g_link_preview_page;
+}
+
+void host_show_link_preview(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_link_preview || !browser || !browser->window) {
+    return;
+  }
+  if (g_link_preview_shown && g_link_preview_over != browser) {
+    host_hide_link_preview();
+  }
+  g_link_preview_shown = true;
+  g_link_preview_released = false;
+  g_link_preview_over = browser;
+  g_link_preview.ignoresMouseEvents = NO;
+  // The page comes in with the UI's first frame (host_link_preview_drew).
+  g_link_preview_page.alphaValue = 0;
+  // As the dialog does: on screen at the browser window's frame once the UI has drawn it as it is
+  // now, which it can't while it handles the click that opened it.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (!g_link_preview_shown || g_link_preview_released || g_link_preview_over != browser) {
+      return;
+    }
+    NSWindow* window = browser->window;
+    [g_link_preview setFrame:window.frame display:NO];
+    [g_link_preview_view.layer setNeedsDisplay];
+    [g_link_preview_view.layer displayIfNeeded];
+    AddOver(window, g_link_preview);
+    [g_link_preview makeKeyAndOrderFront:nil];
+    // check.sh reads this line.
+    fprintf(stderr, "browser: link preview shown\n");
+  });
+}
+
+void host_link_preview_drew(double left, double top, double width, double height,
+                            double opacity) {
+  // Posted, so the page takes the frame the UI is drawing now.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    NSView* page = g_link_preview_page.subviews.firstObject;
+    if (!g_link_preview_shown || !page || NSWidth(page.frame) <= 0 || NSHeight(page.frame) <= 0) {
+      return;
+    }
+    // The page is laid out at its frame at rest, and drawn at the UI's frame by the holder's
+    // sublayer transform, as relayout on each frame would make the page draw again.
+    CALayer* layer = g_link_preview_page.layer;
+    const NSRect rest = page.frame;
+    const NSSize size = g_link_preview_page.bounds.size;
+    // A layer's y goes up unless its geometry is flipped, and the transform applies about its
+    // anchor point.
+    const bool down = layer.geometryFlipped;
+    auto up = [&](double y, double height) { return down ? y : size.height - y - height; };
+    const double scale_x = width / NSWidth(rest);
+    const double scale_y = height / NSHeight(rest);
+    const double anchor_x = layer.anchorPoint.x * size.width;
+    const double anchor_y = layer.anchorPoint.y * size.height;
+    const double rest_y = up(NSMinY(rest), NSHeight(rest));
+    const double now_y = up(top, height);
+    const double dx = left - scale_x * NSMinX(rest) - anchor_x * (1 - scale_x);
+    const double dy = now_y - scale_y * rest_y - anchor_y * (1 - scale_y);
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    layer.sublayerTransform = scale_x == 1 && scale_y == 1 && dx == 0 && dy == 0
+                                  ? CATransform3DIdentity
+                                  : CATransform3DScale(CATransform3DMakeTranslation(dx, dy, 0),
+                                                       scale_x, scale_y, 1);
+    [CATransaction commit];
+    g_link_preview_page.alphaValue = opacity;
+  });
+}
+
+void host_release_link_preview(void) {
+  if (!g_link_preview_shown || g_link_preview_released) {
+    return;
+  }
+  g_link_preview_released = true;
+  g_link_preview.ignoresMouseEvents = YES;
+  if (g_link_preview.keyWindow) {
+    [KeyWindowOver(g_link_preview_over) makeKeyWindow];
+  }
+  fprintf(stderr, "browser: link preview released\n");
+}
+
+void host_hide_link_preview(void) {
+  if (!g_link_preview_shown) {
+    return;
+  }
+  host_release_link_preview();
+  g_link_preview_shown = false;
+  [g_link_preview_over->window removeChildWindow:g_link_preview];
+  [g_link_preview orderOut:nil];
+  g_link_preview_page.layer.sublayerTransform = CATransform3DIdentity;
+  g_link_preview_page.alphaValue = 1;
+  fprintf(stderr, "browser: link preview hidden\n");
 }
 
 void host_add_capture(void* view, void (*dismissed)(void)) {

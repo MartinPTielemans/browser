@@ -19,7 +19,7 @@ use std::{
 
 use browser::window_frames::{self, Frame};
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, icon_picker, link_target, log, menu, offer, site_controls,
+    capture, command_bar, dialog, dock_dot, elevation::Level, icon_picker, link_preview, link_target, log, menu, offer, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -281,6 +281,14 @@ mod platform {
         pub fn host_site_controls_drew(scale: f64, opacity: f64, x: f64, y: f64);
         pub fn host_release_site_controls();
         pub fn host_hide_site_controls();
+        pub fn host_add_link_preview(
+            view: *mut c_void,
+            dismissed: extern "C" fn(),
+        ) -> *mut c_void;
+        pub fn host_show_link_preview(ui_view: *mut c_void);
+        pub fn host_link_preview_drew(left: f64, top: f64, width: f64, height: f64, opacity: f64);
+        pub fn host_release_link_preview();
+        pub fn host_hide_link_preview();
         pub fn host_add_capture(view: *mut c_void, dismissed: extern "C" fn());
         pub fn host_show_capture(
             ui_view: *mut c_void,
@@ -896,6 +904,109 @@ extern "C" fn menu_choose(title: *const c_char) -> bool {
 /// The user left the Site Controls: a click outside them, another window or another app.
 extern "C" fn site_controls_dismissed() {
     update_app(site_controls::dismissed);
+}
+
+/// The link preview's requests, to the host's preview window and the core.
+struct LinkPreviewHost {
+    /// The view the host puts the preview's page in.
+    holder: Cell<*mut c_void>,
+}
+
+impl link_preview::Host for LinkPreviewHost {
+    fn place(&self, tab: u64, page: Bounds<Pixels>, radius: f32) {
+        unsafe { bc::bc_tab_show_in(tab, self.holder.get(), rect(page), f64::from(radius)) };
+    }
+
+    fn show(&self, window: u64) {
+        let ui_view = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|each| each.id == window).map(|each| each.ui_view)
+        });
+        if let Some(ui_view) = ui_view {
+            unsafe { platform::host_show_link_preview(ui_view) };
+        }
+    }
+
+    fn drew(&self, page: Bounds<Pixels>, opacity: f32) {
+        let (left, top) = (f64::from(page.origin.x), f64::from(page.origin.y));
+        let (width, height) = (f64::from(page.size.width), f64::from(page.size.height));
+        unsafe { platform::host_link_preview_drew(left, top, width, height, f64::from(opacity)) };
+    }
+
+    fn release(&self) {
+        unsafe { platform::host_release_link_preview() };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_link_preview() };
+    }
+
+    fn close(&self, tab: u64) {
+        unsafe { bc::bc_tab_close(tab, false) };
+    }
+
+    fn keep(&self, window: u64, tab: u64) {
+        unsafe { bc::bc_window_keep_preview(window, tab) };
+    }
+}
+
+extern "C" fn link_preview_dismissed() {
+    update_app(link_preview::dismissed);
+}
+
+thread_local! {
+    /// Whether the host has a view for a link preview's page, which only the Mac's has so far.
+    static LINK_PREVIEWS: Cell<bool> = const { Cell::new(false) };
+}
+
+/// A link clicked in `tab`'s page leads to another site. A pinned tab's or a favorite's opens in
+/// the link preview, over the window showing the tab, unless the user turned previews off.
+unsafe extern "C" fn tab_link_to_site(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    url: *const c_char,
+    x: f64,
+    y: f64,
+) -> bool {
+    if !LINK_PREVIEWS.get() || !unsafe { bc::bc_link_previews() } {
+        return false;
+    }
+    let Some(cx) = CX.with_borrow(Clone::clone) else {
+        return false;
+    };
+    let over = cx.update(|cx| {
+        let window = tab_window(tab, cx)?;
+        let shell = window.shell.upgrade()?;
+        let shell = shell.read(cx);
+        let page = shell.page_laid().filter(|_| shell.shows(tab) && shell.previews_links_of(tab));
+        Some((window.id, page?))
+    });
+    let Some((window, page)) = over else {
+        return false;
+    };
+    let url = unsafe { CStr::from_ptr(url) }.to_owned();
+    // Outside the navigation that asked, which the core cancels once this returns.
+    update_app_later(move |cx| {
+        let preview = unsafe { bc::bc_tab_open_preview(tab, url.as_ptr()) };
+        if preview == 0 {
+            log!("browser: link preview from {tab} not opened");
+            return;
+        }
+        let link = page.0.origin + point(px(x as f32), px(y as f32));
+        let url = url.to_string_lossy().into_owned().into();
+        link_preview::show(window, preview, url, page, link, cx);
+    });
+    true
+}
+
+/// A key from the link preview's page acts on the preview alone, if `tab` is its: done, and
+/// whether the page loses it. A page in no window may be the preview's.
+fn link_preview_key(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> Option<bool> {
+    if unsafe { bc::bc_tab_window(tab) } != 0 {
+        return None;
+    }
+    let keystroke = keystroke(unsafe { &*key });
+    let cx = CX.with_borrow(Clone::clone)?;
+    cx.update(|cx| link_preview::key(tab, &keystroke, reserved, cx))
 }
 
 /// The toast's requests, to the host's toast window.
@@ -1936,8 +2047,11 @@ impl Browser for Engine {
         unsafe { bc::bc_window_focus_page(self.window) };
     }
 
-    fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, _: &mut App) {
+    fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, cx: &mut App) {
         set_page_frame(self.window, (frame, radius));
+        // After the shell's update, which may be drawing its window.
+        let window = self.window;
+        cx.defer(move |cx| link_preview::page_moved(window, (frame, radius), cx));
     }
 
     fn set_focus_color(&self, color: u32, _: &mut App) {
@@ -2335,6 +2449,9 @@ unsafe extern "C" fn tab_key_before_page(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    if let Some(lost) = link_preview_key(tab, key, true) {
+        return lost;
+    }
     // As in Chrome, the reserved shortcuts come first, then the extensions' keys.
     if run_page_shortcut(tab, key, true) {
         return true;
@@ -2361,7 +2478,7 @@ unsafe extern "C" fn tab_key_unhandled(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
-    run_page_shortcut(tab, key, false)
+    link_preview_key(tab, key, false).unwrap_or_else(|| run_page_shortcut(tab, key, false))
 }
 
 /// Opens a browser window and returns its id, with `ui_view` filling it under the page: the first
@@ -3010,6 +3127,14 @@ fn finish_opening(
         && let Ok(view) = capture.update(cx, |_, window, _| ns_view(window))
     {
         unsafe { platform::host_add_capture(view, capture_dismissed) };
+    }
+    let host = Rc::new(LinkPreviewHost { holder: Cell::new(std::ptr::null_mut()) });
+    if let Some(preview) = link_preview::open(host.clone(), cx)
+        && let Ok(view) = preview.update(cx, |_, window, _| ns_view(window))
+    {
+        let holder = unsafe { platform::host_add_link_preview(view, link_preview_dismissed) };
+        host.holder.set(holder);
+        LINK_PREVIEWS.set(!holder.is_null());
     }
     let host = Rc::new(SiteControlsHost { view: Cell::new(std::ptr::null_mut()) });
     if let Some(panel) = site_controls::open(host.clone(), cx)
@@ -3735,6 +3860,9 @@ unsafe extern "C" fn tab_state_changed(
         },
         system_engine: state.system_engine,
     };
+    if unsafe { bc::bc_tab_window(tab) } == 0 {
+        update_app(|cx| link_preview::set_url(tab, page.url.clone(), cx));
+    }
     update_shells(|shell, cx| shell.set_page(tab, page.clone(), cx));
 }
 
@@ -4040,6 +4168,7 @@ unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
                 cx.update(|cx| {
                     site_controls::tab_closed(tab, cx);
                     capture::tab_closed(tab, cx);
+                    link_preview::tab_closed(tab, cx);
                 })
             })
             .detach();
@@ -4513,6 +4642,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         window_resized: Some(window_resized),
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
+        tab_link_to_site: Some(tab_link_to_site),
         ..Default::default()
     };
     (args, host)

@@ -1,0 +1,246 @@
+//! The link preview's geometry, keys and clicks, on a host that records what it asks of its window
+//! and the core.
+
+use std::cell::RefCell;
+
+use gpui::{Modifiers, TestAppContext, VisualTestContext};
+
+use super::*;
+
+#[derive(Default)]
+struct Recorder {
+    calls: RefCell<Vec<String>>,
+}
+
+impl Recorder {
+    fn push(&self, call: String) {
+        self.calls.borrow_mut().push(call);
+    }
+}
+
+fn describe(frame: Bounds<Pixels>) -> String {
+    let (x, y) = (f32::from(frame.origin.x), f32::from(frame.origin.y));
+    format!("{x} {y} {} {}", f32::from(frame.size.width), f32::from(frame.size.height))
+}
+
+impl Host for Recorder {
+    fn place(&self, tab: u64, page: Bounds<Pixels>, radius: f32) {
+        self.push(format!("place {tab} {} r{radius}", describe(page)));
+    }
+    fn show(&self, window: u64) {
+        self.push(format!("show {window}"));
+    }
+    // A frame of the motion, which tells nothing of what the user did.
+    fn drew(&self, _: Bounds<Pixels>, _: f32) {}
+    fn release(&self) {
+        self.push("release".into());
+    }
+    fn hide(&self) {
+        self.push("hide".into());
+    }
+    fn close(&self, tab: u64) {
+        self.push(format!("close {tab}"));
+    }
+    fn keep(&self, window: u64, tab: u64) {
+        self.push(format!("keep {window} {tab}"));
+    }
+}
+
+const WINDOW: u64 = 1;
+const TAB: u64 = 7;
+
+fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
+    Bounds::new(point(px(x), px(y)), size(px(width), px(height)))
+}
+
+/// The window's page, right of a 240 pt sidebar in an 800 by 600 window, inset 10 as the card is.
+fn page() -> Bounds<Pixels> {
+    bounds(240., 10., 550., 580.)
+}
+
+// Over that page the card is inset 27.5, 5% of its width: from x 267.5 to 762.5 and y 37.5 to
+// 562.5, its header 36 tall over the page, which is 6 in from its sides and bottom.
+const PLACED: &str = "place 7 273.5 73.5 483 483 r6";
+const DIM_SPOT: (f32, f32) = (100., 300.);
+const KEEP_BUTTON: (f32, f32) = (710., 56.);
+const CLOSE_BUTTON: (f32, f32) = (743., 56.);
+
+/// A preview opened from a link at 400, 200 in the window.
+struct Shown {
+    cx: VisualTestContext,
+    host: Rc<Recorder>,
+}
+
+impl Shown {
+    fn new(cx: &mut TestAppContext) -> Self {
+        let host = Rc::new(Recorder::default());
+        let window = cx.update(|cx| open(host.clone(), cx));
+        let window = window.expect("no window for the link preview");
+        let cx = VisualTestContext::from_window(window.into(), cx);
+        cx.simulate_resize(size(px(800.), px(600.)));
+        let mut shown = Shown { cx, host };
+        shown.show(TAB);
+        assert_eq!(shown.calls(), [PLACED, "show 1"]);
+        shown
+    }
+
+    fn show(&mut self, tab: u64) {
+        let link = point(px(400.), px(200.));
+        let url = "https://www.example.org/a".into();
+        self.cx.cx.update(|cx| show(WINDOW, tab, url, (page(), 6.), link, cx));
+        self.cx.run_until_parked();
+    }
+
+    fn keys(&mut self, keys: &str) {
+        self.cx.simulate_keystrokes(keys);
+        self.cx.run_until_parked();
+    }
+
+    fn click(&mut self, (x, y): (f32, f32)) {
+        self.cx.simulate_click(point(px(x), px(y)), Modifiers::none());
+        self.cx.run_until_parked();
+    }
+
+    /// What the preview asked since the last time, once it has had time to leave.
+    fn calls(&mut self) -> Vec<String> {
+        self.cx.executor().advance_clock(Duration::from_secs_f32(KEEP.max(CLOSE)));
+        self.cx.run_until_parked();
+        self.host.calls.take()
+    }
+}
+
+/// The card sits over the window's page, inset by a share of it within its bounds, with the page
+/// under its header, and kept, the page lands exactly on the window's.
+#[test]
+fn the_card_sits_over_the_page_and_grows_into_it() {
+    assert_eq!(card(page()), bounds(267.5, 37.5, 495., 525.));
+    assert_eq!(card(bounds(0., 0., 200., 150.)), bounds(16., 16., 168., 118.));
+    assert_eq!(card(bounds(0., 0., 3000., 2000.)), bounds(48., 48., 2904., 1904.));
+    assert_eq!(page_in(card(page())), bounds(273.5, 73.5, 483., 483.));
+    assert_eq!(card_around(page_in(card(page()))), card(page()));
+    let link = point(px(400.), px(200.));
+    let rest = Pose { scale: 1., kept: 0., page: 1., card: 1., dim: 1. };
+    assert_eq!(frames(rest, page(), link).2, page_in(card(page())));
+    let kept = rest.keeping(KEEP);
+    assert_eq!(kept.card, 0.);
+    let (card_frame, _, shown) = frames(kept, page(), link);
+    assert_eq!(shown, page());
+    assert_eq!(card_frame, card_around(page()));
+}
+
+/// It grows from the link, at half its size, and a link outside the card, as in the sidebar's
+/// favorites, grows it from the card's nearest edge.
+#[test]
+fn it_grows_from_the_link() {
+    let start = Pose::arriving(0.);
+    assert_eq!((start.scale, start.page, start.dim), (FROM_SCALE, 0., 0.));
+    let (_, about, shown) = frames(start, page(), point(px(400.), px(200.)));
+    assert_eq!(about, point(px(400.), px(200.)));
+    assert_eq!(shown, bounds(336.75, 136.75, 241.5, 241.5));
+    let (_, about, _) = frames(start, page(), point(px(100.), px(20.)));
+    assert_eq!(about, point(px(267.5), px(37.5)));
+    let open = Pose::arriving(OPEN);
+    assert_eq!((open.scale, open.page, open.dim), (1., 1., 1.));
+    let closed = open.closing(CLOSE);
+    assert_eq!((closed.scale, closed.page, closed.dim), (FROM_SCALE, 0., 0.));
+}
+
+#[test]
+fn its_keys() {
+    assert_eq!(key_action("escape", false), Some(KeyAction::Close));
+    assert_eq!(key_action("cmd-enter", false), Some(KeyAction::Keep));
+    assert_eq!(key_action("cmd-w", true), Some(KeyAction::Close));
+    // A page that keeps Esc, as a page's own dialog does, has it.
+    assert_eq!(key_action("escape", true), None);
+    assert_eq!(key_action("cmd-l", false), None);
+    assert_eq!(key_action("cmd-t", true), None);
+}
+
+#[test]
+fn the_header_shows_the_site() {
+    assert_eq!(site_of("https://www.example.org/a?b#c"), "example.org");
+    assert_eq!(site_of("http://user@news.example.com:8080/"), "news.example.com:8080");
+    assert_eq!(site_of("https://example.org"), "example.org");
+}
+
+/// Esc closes it back into the link, and its page once it has left.
+#[gpui::test]
+fn escape_closes_it(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    shown.keys("escape");
+    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+}
+
+/// ⌘↩ grows it into the tab's place, then keeps its page as a Today tab, as it is.
+#[gpui::test]
+fn cmd_enter_keeps_it(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    shown.keys("cmd-enter");
+    assert_eq!(shown.calls(), ["release", "keep 1 7", "hide"]);
+}
+
+#[gpui::test]
+fn its_buttons_keep_and_close_it(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    shown.click(KEEP_BUTTON);
+    assert_eq!(shown.calls(), ["release", "keep 1 7", "hide"]);
+    shown.show(TAB);
+    shown.calls();
+    shown.click(CLOSE_BUTTON);
+    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+}
+
+/// A click on the dim closes it; one on the card doesn't.
+#[gpui::test]
+fn a_click_outside_closes_it(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    shown.click((400., 50.));
+    assert_eq!(shown.calls(), Vec::<String>::new());
+    shown.click(DIM_SPOT);
+    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+}
+
+/// Keys from its page come here and nowhere else: its own act on it, and the window's don't act
+/// on the window's tab.
+#[gpui::test]
+fn its_pages_keys_stay_in_it(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    let key = |tab, keystroke: &str, reserved| {
+        shown.cx.cx.update(|cx| key(tab, keystroke, reserved, cx))
+    };
+    assert_eq!(key(3, "escape", false), None);
+    assert_eq!(key(TAB, "cmd-l", false), Some(false));
+    assert_eq!(key(TAB, "escape", false), Some(true));
+    // Once it's leaving, nothing more does.
+    assert_eq!(key(TAB, "cmd-enter", false), Some(false));
+    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
+    assert_eq!(shown.cx.cx.update(|cx| tab(cx)), None);
+}
+
+/// A second link's preview takes the place of the first, whose page closes at once.
+#[gpui::test]
+fn a_second_preview_takes_the_firsts_place(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    shown.show(8);
+    assert_eq!(shown.calls(), ["hide", "close 7", "place 8 273.5 73.5 483 483 r6", "show 1"]);
+    assert_eq!(shown.cx.cx.update(|cx| tab(cx)), Some(8));
+}
+
+/// Its tab closing, as the page closing itself does, takes it away at once.
+#[gpui::test]
+fn its_tab_closing_takes_it_away(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    shown.cx.cx.update(|cx| tab_closed(3, cx));
+    shown.cx.cx.update(|cx| tab_closed(TAB, cx));
+    assert_eq!(shown.calls(), ["hide"]);
+}
+
+/// Its window resizing moves its page with the window's.
+#[gpui::test]
+fn it_follows_the_window(cx: &mut TestAppContext) {
+    let mut shown = Shown::new(cx);
+    shown.cx.cx.update(|cx| page_moved(2, (bounds(0., 0., 100., 100.), 6.), cx));
+    shown.cx.cx.update(|cx| page_moved(WINDOW, (page(), 6.), cx));
+    shown.cx.cx.update(|cx| page_moved(WINDOW, (bounds(240., 10., 750., 580.), 6.), cx));
+    assert_eq!(shown.calls(), ["place 7 275 75 680 480 r6"]);
+}
