@@ -70,11 +70,11 @@ expect "^browser: title $a cookie [^ ]* cache 1\$" "k in the served page didn't 
 send key c
 expect "^browser: title $a cookie set\$" "c in the cookie page didn't set a cookie"
 send key r cmd
-expect "^browser: title $a cookie c=1 cache 1\$" \
+expect "^browser: title $a cookie c cache 1\$" \
   "⌘R lost the cookie or fetched the cached script again: $(grep '^browser: title' "$log" | tail -1)"
 send menu Clear Cache and Refresh
 expect '^browser: command clear-cache-and-refresh via ui$' "Clear Cache and Refresh didn't run"
-expect "^browser: title $a cookie c=1 cache 2\$" \
+expect "^browser: title $a cookie c cache 2\$" \
   "Clear Cache and Refresh didn't fetch the script again, or lost the cookie: $(grep '^browser: title' "$log" | tail -1)"
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"

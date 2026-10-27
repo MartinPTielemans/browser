@@ -57,11 +57,13 @@ const filled = setInterval(() => {
 </script>' > "$out/site/login.html"
 printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
-# The cookie page's title shows the site's cookie and how many times the server has sent its
-# script, which the cache keeps for an hour. "c" in it sets a cookie.
+# The cookie page's title says whether it finds its cookie, c, never a value, since the app logs
+# every title, and how many times the server has sent its script, which the cache keeps for an
+# hour. Another run's cookies on the site don't count. "c" in it sets the cookie.
 printf '%s' '<title>loading</title><script src="count.js"></script>
 <script>
-document.title = "cookie " + (document.cookie || "none") + " cache " + count;
+document.title = "cookie " + (document.cookie.split("; ").includes("c=1") ? "c" : "none") +
+  " cache " + count;
 onkeydown = e => {
   if (e.key == "c") {
     document.cookie = "c=1";
