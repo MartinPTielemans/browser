@@ -1,6 +1,7 @@
 #include "browser_core/window.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <iterator>
 #include <numeric>
 #include <optional>
@@ -14,6 +15,8 @@
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/strings/strcat.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
@@ -65,6 +68,7 @@
 #include "components/sessions/core/serialized_navigation_entry.h"
 #include "components/sessions/core/serialized_user_agent_override.h"
 #include "components/tabs/public/tab_interface.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/extension_registry.h"
@@ -260,7 +264,32 @@ void StretchOnResize(content::WebContents* contents, bool stretch) {
   }
 }
 
+// When the app last asked a window to select a tab.
+base::TimeTicks g_handover_click;
+// The tab whose page Adopt last moved, until the window taking it has shown it, and the size of the
+// pane it had in the window it left, for the handover lines.
+bc_id g_adopted = 0;
+gfx::Size g_left_size;
+
+std::string Handing(bc_id window, bc_id tab) {
+  return base::StrCat(
+      {"window ", base::NumberToString(window), ", tab ", base::NumberToString(tab)});
+}
+
 }  // namespace
+
+void HandoverClicked() {
+  g_handover_click = base::TimeTicks::Now();
+}
+
+void LogHandover(const char* stage, const std::string& detail) {
+  const base::TimeDelta since = base::TimeTicks::Now() - g_handover_click;
+  if (g_handover_click.is_null() || since > base::Seconds(3)) {
+    return;
+  }
+  fprintf(stderr, "browser: handover %s +%.1f ms (%s)\n", stage, since.InMillisecondsF(),
+          detail.c_str());
+}
 
 // Makes the window's close button Window::Close, so pages get their unload handlers first.
 class Window::ClientView : public views::ClientView {
@@ -1064,7 +1093,8 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   // (AdoptFreedPages), and its offer, which Chrome hides here, with it.
   content::WebContents* leaving = tabs->GetActiveWebContents();
   const bc_id left = leaving && leaving != contents ? Tab::IdOf(leaving) : 0;
-  PasswordOffer::Moving moving(left && Picturing(left) ? left : 0);
+  const bc_id freed = left && Picturing(left) ? left : 0;
+  PasswordOffer::Moving moving(freed);
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
@@ -1078,9 +1108,24 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   shown_ = contents->GetWeakPtr();
   SetLetGo(false);
   page_frame_ = frame;
+  if (freed) {
+    g_left_size = focused_frame_.size();
+  }
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
   // new page takes it.
   LayOutPage();
+  if (freed) {
+    LogHandover("giver let go", Handing(id_, freed));
+  }
+  if (tab == g_adopted) {
+    g_adopted = 0;
+    const std::string detail = base::StrCat({Handing(id_, tab), ", ", g_left_size.ToString(),
+                                             " to ", focused_frame_.size().ToString()});
+    LogHandover("taker laid out the page", detail);
+    contents->GetPrimaryMainFrame()->InsertVisualStateCallback(base::BindOnce(
+        [](const std::string& detail, bool) { LogHandover("taker's page drew a frame", detail); },
+        detail));
+  }
   FocusPageSoon();
   // A page of another profile makes its Browser the active one.
   ReportActiveBrowser();
@@ -1357,8 +1402,16 @@ void Window::Adopt(bc_id tab) {
     if (!to) {
       return;
     }
+    if (pane == tab) {
+      LogHandover("taker takes the tab", Handing(id_, tab));
+      g_adopted = tab;
+    }
     if (Window* showing = Showing(pane); showing && showing != this) {
+      if (pane == tab) {
+        g_left_size = showing->focused_frame_.size();
+      }
       showing->LetGo();
+      LogHandover("giver let go", Handing(showing->id(), pane));
     }
     TabStripModel* tabs = from->GetTabStripModel();
     // Its offer, which Chrome hides as the tab leaves, comes with it.
@@ -1369,6 +1422,7 @@ void Window::Adopt(bc_id tab) {
     base::AutoReset<bool> opening(&opening_tab_, true);
     to->GetTabStripModel()->InsertDetachedTabAt(to->GetTabStripModel()->count(), std::move(moved),
                                                 AddTabTypes::ADD_NONE);
+    LogHandover("tab moved between Browsers", Handing(id_, pane));
   }
 }
 

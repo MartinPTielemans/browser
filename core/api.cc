@@ -650,6 +650,7 @@ void bc_window_page_moving(bc_id window_id, bool moving) {
 }
 
 void bc_window_select(bc_id window_id, bc_id tab) {
+  browser_core::HandoverClicked();
   if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
     // The user's switch, which Chrome's tab strip judges by where the two tabs came from. The
     // core's own, as after a close, leave the openers be.
