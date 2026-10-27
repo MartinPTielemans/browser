@@ -58,7 +58,7 @@ const filled = setInterval(() => {
 printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
-# page, and puts what the user answered in the title.
+# page, and puts what the user answered in the title. "u" has it ask before it's left.
 printf '%s' '<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
@@ -75,6 +75,10 @@ onkeydown = e => {
   }
   if (e.key == "p") {
     document.title = "prompt " + prompt("Your name?", "Ada");
+  }
+  if (e.key == "u") {
+    onbeforeunload = e => e.preventDefault();
+    document.title = "armed";
   }
 };
 </script>' > "$out/site/dialogs.html"
