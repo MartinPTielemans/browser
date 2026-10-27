@@ -145,6 +145,16 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
   return ChromeMainDelegate::BasicStartupComplete();
 }
 
+std::optional<int> MainDelegate::PreBrowserMain() {
+  std::optional<int> exit_code = ChromeMainDelegate::PreBrowserMain();
+  // Chrome's PreBrowserMain made NSApp, which the app can't make before it: Chrome's class reads
+  // the command line as it's made.
+  if (!exit_code && g_host.launching) {
+    g_host.launching(g_host.context);
+  }
+  return exit_code;
+}
+
 content::ContentBrowserClient* MainDelegate::CreateContentBrowserClient() {
   // As ChromeMainDelegate's, with our client in place of Chrome's.
   chrome_content_browser_client_ = std::make_unique<ContentBrowserClient>();

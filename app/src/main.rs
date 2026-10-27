@@ -22,8 +22,8 @@ use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, 
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
     ImageFormat, KeyBinding, Menu, MenuItem, OsAction, Pixels, Point, SharedString, SystemMenuType,
-    WeakEntity, Window, WindowBackgroundAppearance, WindowOptions, actions, point, prelude::*, px,
-    size,
+    WeakEntity, Window, WindowBackgroundAppearance, WindowHandle, WindowOptions, actions, point,
+    prelude::*, px, size,
 };
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
@@ -51,6 +51,13 @@ mod platform {
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
         pub fn host_ui_view() -> *mut c_void;
         pub fn host_show_window(ui_view: *mut c_void);
+        pub fn host_show_launch_window(profile_dir: *const c_char, width: f64, height: f64);
+        pub fn host_close_launch_window();
+        pub fn host_save_launch_picture(
+            ui_view: *mut c_void,
+            profile_dir: *const c_char,
+            width: f64,
+        ) -> bool;
         pub fn host_cascaded(
             ui_view: *mut c_void,
             x: *mut f64,
@@ -62,6 +69,7 @@ mod platform {
         pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
+        pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_forget_window(ui_view: *mut c_void);
         pub fn host_add_overlay(
             overlay: c_int,
@@ -1653,6 +1661,9 @@ impl Browser for Engine {
     /// Asks first, as Arc does, unless the user said not to. Only the user's Quit asks: a quit from
     /// the Dock or at logout doesn't come here.
     fn quit(&self, cx: &mut App) {
+        // Once the shell that asked is done, as it reads the shell. Chromium's quit is posted, so
+        // comes after.
+        cx.defer(save_launch_picture);
         // With no window to ask over, there's nothing open to lose.
         if !unsafe { bc::bc_warn_before_quitting() } || front().1.is_null() {
             unsafe { bc::bc_quit() };
@@ -1988,8 +1999,60 @@ fn open_window(
         // Its Space drawn before it's on screen, rather than once the core's report comes.
         window.update(cx, |shell, _, cx| shell.set_space(space, cx)).ok();
     }
+    let first = from.is_none();
+    if first {
+        // Once the page frame is set, so the tab shown loads at its size, and before the window is
+        // on screen, so the core's reports of its tabs can come before its first frame.
+        restore_spaces(id);
+    }
     unsafe { platform::host_show_window(ui_view) };
-    let shell = window.entity(cx).ok()?;
+    if !first {
+        finish_opening(id, ui_view, window, true, private, cx);
+        return Some(id);
+    }
+    // Making the overlays' windows takes the main thread for a while, so at launch they wait for
+    // the frame after the first: the window goes on screen with its sidebar drawn, then they're
+    // made. Later windows don't wait, as a page may open in them at once. A window that isn't
+    // visible (another desktop, launched hidden) draws no frames, so a timer makes them if the
+    // frames haven't.
+    let pending = Rc::new(Cell::new(true));
+    let finish = {
+        let pending = pending.clone();
+        move |cx: &mut App| {
+            if pending.replace(false) {
+                finish_opening(id, ui_view, window, false, private, cx);
+            }
+        }
+    };
+    let on_frame = finish.clone();
+    window
+        .update(cx, |_, window, _| {
+            // Deferred, as the shell's window is borrowed while it draws.
+            window.on_next_frame(move |window, _| {
+                window.on_next_frame(move |_, cx| cx.defer(on_frame))
+            })
+        })
+        .ok();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(Duration::from_millis(500)).await;
+        cx.update(finish)
+    })
+    .detach();
+    Some(id)
+}
+
+fn finish_opening(
+    id: bc::bc_id,
+    ui_view: *mut c_void,
+    window: WindowHandle<Shell>,
+    seeded: bool,
+    private: Option<bc::bc_id>,
+    cx: &mut App,
+) {
+    unsafe { platform::host_close_launch_window() };
+    let Ok(shell) = window.entity(cx) else {
+        return;
+    };
     let children: Vec<AnyWindowHandle> =
         [find_bar::open(id, ui_view, cx), reveal::open(shell, ui_view, cx)]
             .into_iter()
@@ -2007,18 +2070,19 @@ fn open_window(
         // The core showed its Space before there was a window to title.
         title_windows();
     }
-    if from.is_some() {
+    if seeded {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
         if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
             unsafe { platform::host_focus(view) };
         }
-        return Some(id);
+        return;
     }
     unsafe {
         platform::host_watch_accent_color(accent_color_changed);
         platform::host_take_drops(dragged);
         platform::host_watch_key_window(key_window_changed);
         platform::host_watch_full_screen(full_screen_changed);
+        platform::host_watch_resigning_active(launch_picture_on_resigning);
     }
     if let Some(bar) = command_bar::open(Rc::new(Bar), cx)
         && let Ok(view) = bar.update(cx, |_, window, _| ns_view(window))
@@ -2083,9 +2147,6 @@ fn open_window(
         unsafe { platform::host_add_hud(view, f64::from(right), f64::from(top), margin) };
     }
     drop_targets::open(cx);
-    // Once the page frame is set, so the tab shown loads at its size.
-    restore_spaces(id);
-    Some(id)
 }
 
 unsafe extern "C" fn started(_: *mut c_void) {
@@ -2339,8 +2400,40 @@ unsafe extern "C" fn window_open_link(
     });
 }
 
+unsafe extern "C" fn launching(_: *mut c_void) {
+    let Ok(profile) = CString::new(profile_dir()) else {
+        return;
+    };
+    let (width, height) = WINDOW_SIZE;
+    unsafe { platform::host_show_launch_window(profile.as_ptr(), width, height) };
+}
+
 unsafe extern "C" fn stopping(_: *mut c_void) {
     log!("browser: stopping");
+}
+
+// The next launch shows the front window's sidebar until its UI has drawn. Taken as the app stops
+// being the active one and on the user's Quit, as a window is already hidden when it closes. A
+// private window's isn't kept.
+extern "C" fn launch_picture_on_resigning() {
+    if let Some(cx) = CX.with_borrow(Clone::clone) {
+        cx.update(save_launch_picture);
+    }
+}
+
+fn save_launch_picture(cx: &mut App) {
+    let Some(window) = WINDOWS.with_borrow(|windows| windows.first().cloned()) else {
+        return;
+    };
+    let shell = window.shell.upgrade().filter(|_| !window.private);
+    let width = shell.map_or(0., |shell| shell.read(cx).card_left());
+    let Ok(profile) = CString::new(profile_dir()) else {
+        return;
+    };
+    let profile = profile.as_ptr();
+    let taken = unsafe { platform::host_save_launch_picture(window.ui_view, profile, width.into()) };
+    // check.sh reads this line.
+    log!("browser: launch picture {}", if taken { "taken" } else { "not taken" });
 }
 
 /// A Space's or a folder's name, or a Space's icon, which `copy` copies as bc_space_name does.
@@ -2921,6 +3014,11 @@ fn main() {
         // Chrome would copy the app bundle to check its signature against, which an
         // ad-hoc-signed build doesn't need.
         "--disable-features=MacAppCodeSignClone".into(),
+        // An idle browser shouldn't wake: Chrome's stack sampling feeds metrics nobody receives,
+        // and the allocator's memory reclaim backs off from every 4 s while there's little to give
+        // back.
+        "--disable-stack-profiler".into(),
+        "--enable-features=PartitionAllocAdaptiveMemoryReclaimInterval".into(),
     ]);
     // Chromium keeps its cookie encryption key in the Keychain. An ad-hoc-signed dev build asking
     // for it gets a password prompt after every build, and every request that uses cookies waits.
@@ -2940,6 +3038,7 @@ fn main() {
     }
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let host = bc::bc_host {
+        launching: Some(launching),
         started: Some(started),
         stopping: Some(stopping),
         window_closed: Some(window_closed),
