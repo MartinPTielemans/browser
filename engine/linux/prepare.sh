@@ -29,6 +29,9 @@ done
 # Where portablelinux's scripts expect npm's global esbuild.
 [ -d /usr/lib/node_modules/esbuild ] || fail "esbuild is missing: sudo npm install -g --prefix /usr esbuild"
 
+# setup_toolchain points the compiler flags at the tree it set up; these are where they started.
+flags=("${CFLAGS:-}" "${CXXFLAGS:-}" "${CPPFLAGS:-}")
+
 tag=$(git config -f "$engine/pins.ini" ungoogled-chromium-portablelinux.tag)
 ucl=$work/ucl
 if [ "$(git -C "$ucl" describe --tags --exact-match 2>/dev/null)" != "$tag" ]; then
@@ -75,6 +78,12 @@ args=$(mktemp -d)
 trap 'rm -rf "$args"' EXIT
 _out_dir=$args write_gn_args >/dev/null
 cmp -s "$args/args.gn" "$src/out/Default/args.gn" || cp "$args/args.gn" "$src/out/Default/args.gn"
+
+# The toolchain as setup_toolchain gives it to gn's bootstrap, in the tree it's now in.
+clang=$src/third_party/llvm-build/Release+Asserts/bin
+export CC=$clang/clang CXX=$clang/clang++ AR=$clang/llvm-ar NM=$clang/llvm-nm LLVM_BIN=$clang
+resource="-resource-dir=$("$CC" --print-resource-dir) -B$clang"
+export CFLAGS="${flags[0]} $resource" CXXFLAGS="${flags[1]} $resource" CPPFLAGS="${flags[2]} $resource"
 
 cd "$src"
 [ -x out/Default/gn ] || ./tools/gn/bootstrap/bootstrap.py -o out/Default/gn --skip-generate-buildfiles
