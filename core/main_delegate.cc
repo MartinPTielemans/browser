@@ -11,9 +11,11 @@
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/permission_question.h"
+#include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
 #include "browser_core/window.h"
+#include "build/build_config.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/chrome_browser_main_extra_parts.h"
 #include "chrome/browser/chrome_content_browser_client.h"
@@ -136,6 +138,9 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
     features += features.empty() ? "" : ",";
     command_line->AppendSwitchASCII(switches::kEnableFeatures,
                                     features + features::kWebContentsDiscard.name);
+#if BUILDFLAG(IS_MAC)
+    platform::NameKeychainItem();
+#endif
   }
   return ChromeMainDelegate::BasicStartupComplete();
 }
