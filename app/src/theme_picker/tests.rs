@@ -141,6 +141,47 @@ fn a_click_up_before_the_next_frame_still_keeps_the_colour(cx: &mut TestAppConte
     assert!(close((theme.x, theme.y), (0.2, 0.45)), "followed to {}, {}", theme.x, theme.y);
 }
 
+/// A click as the picker first appears, before it has drawn a frame of itself open, still places
+/// the colour: GPUI hands it to the empty frame drawn as the window was made.
+#[gpui::test]
+fn a_click_before_the_first_frame_still_places_the_colour(cx: &mut TestAppContext) {
+    let host = Rc::new(Recorder::default());
+    let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the picker");
+    let recorded = host.clone();
+    let changed: Changed =
+        Rc::new(move |theme, done, _| recorded.themes.borrow_mut().push((theme, done)));
+    let (x, y) = Picker::in_field(0.2, 0.45);
+    let at = Picker::at(x, y);
+    // One update, so no frame comes between the opening and the click. Through the window rather
+    // than its view, which the press updates.
+    cx.update(|cx| {
+        show(7, None, point(262., 300.), 900., changed, cx);
+        cx.update_window(window.into(), |_, window, cx| {
+            let down = MouseDownEvent {
+                position: at,
+                modifiers: Modifiers::none(),
+                button: MouseButton::Left,
+                click_count: 1,
+                first_mouse: false,
+            };
+            window.dispatch_event(PlatformInput::MouseDown(down), cx);
+            let up = MouseUpEvent {
+                position: at,
+                modifiers: Modifiers::none(),
+                button: MouseButton::Left,
+                click_count: 1,
+            };
+            window.dispatch_event(PlatformInput::MouseUp(up), cx);
+        })
+        .unwrap();
+    });
+    let mut picker = Picker { cx: VisualTestContext::from_window(window.into(), cx), window, host };
+    picker.cx.run_until_parked();
+    assert_eq!(picker.handed_on(), vec![false, true]);
+    let theme = picker.theme().expect("no colour placed");
+    assert!(close((theme.x, theme.y), (0.2, 0.45)), "at {}, {}", theme.x, theme.y);
+}
+
 #[gpui::test]
 fn dragging_a_handle_moves_every_colour_and_keeps_them_on_letting_go(cx: &mut TestAppContext) {
     let mut picker = Picker::new(Some(Theme::at(0.5, 0.).with_count(3)), cx);

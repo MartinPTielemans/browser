@@ -175,6 +175,8 @@ struct Editing {
     glide: Option<(f32, f32, Instant)>,
     /// − or + while it's pressed.
     pressed: Option<Target>,
+    /// Whether a frame of it has been drawn on screen since it opened.
+    drawn: bool,
 }
 
 pub struct ThemePicker {
@@ -281,6 +283,7 @@ pub fn show(
                 press: None,
                 glide: None,
                 pressed: None,
+                drawn: false,
             });
             window.focus(&picker.focus, cx);
             picker.host.show(left, top, &corners(arrow_y));
@@ -631,12 +634,68 @@ impl Focusable for ThemePicker {
 impl Render for ThemePicker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let root = div().key_context(KEY_CONTEXT).size_full().font_family(".SystemUIFont");
-        let Some(editing) = &self.editing else {
-            return root;
+        // The pointer's moves anywhere in the window, while something is dragged, and its release
+        // always: a press and its release can both come before the next frame, which would
+        // otherwise be drawn without a listener for the release.
+        let dragging = self
+            .editing
+            .as_ref()
+            .is_some_and(|editing| editing.drag.is_some() || editing.pressed.is_some());
+        let entity = cx.weak_entity();
+        let listener = canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                if dragging {
+                    let moved = entity.clone();
+                    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                        if phase == DispatchPhase::Capture {
+                            moved.update(cx, |picker, cx| picker.drag(event.position, cx)).ok();
+                        }
+                    });
+                }
+                let released = entity.clone();
+                window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
+                        released.update(cx, |picker, cx| picker.release(cx)).ok();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_0();
+        // GPUI hands a press to what the last frame drew, which before an opening's first frame is
+        // the empty one drawn as the window was made. So every frame takes the keys, the press and
+        // the release, the press read against the picker as it is now, and a click as the picker
+        // appears isn't lost.
+        let picker = div()
+            .key_context("ThemePicker")
+            .track_focus(&self.focus)
+            .on_action(cx.listener(Self::dismiss))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|picker, event: &MouseDownEvent, _, cx| picker.press(event, cx)),
+            )
+            .relative()
+            .size_full()
+            .child(listener);
+        let Some(editing) = &mut self.editing else {
+            return root.child(picker);
         };
         if editing.moving() {
             window.request_animation_frame();
         }
+        // AppKit puts the window on screen some frames after it's asked to, and only then does
+        // GPUI draw it.
+        if editing.open && !editing.drawn {
+            if window.is_visible() {
+                editing.drawn = true;
+                // check.sh waits for this line.
+                log!("browser: theme picker drawn");
+            } else {
+                window.request_animation_frame();
+            }
+        }
+        let editing = &*editing;
         let theme = editing.theme;
         let card_x = |x: f32| px(ARROW + x);
         let arrow_y = editing.arrow_y;
@@ -895,44 +954,8 @@ impl Render for ThemePicker {
                 )
         });
 
-        // The pointer's moves anywhere in the window, while something is dragged, and its release
-        // always: a press and its release can both come before the next frame, which would
-        // otherwise be drawn without a listener for the release.
-        let dragging = editing.drag.is_some() || editing.pressed.is_some();
-        let picker = cx.weak_entity();
-        let listener = canvas(
-            |_, _, _| {},
-            move |_, _, window, _| {
-                if dragging {
-                    let moved = picker.clone();
-                    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
-                        if phase == DispatchPhase::Capture {
-                            moved.update(cx, |picker, cx| picker.drag(event.position, cx)).ok();
-                        }
-                    });
-                }
-                let released = picker.clone();
-                window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
-                    if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
-                        released.update(cx, |picker, cx| picker.release(cx)).ok();
-                    }
-                });
-            },
-        )
-        .absolute()
-        .size_0();
-
         root.child(
-            div()
-                .key_context("ThemePicker")
-                .track_focus(&self.focus)
-                .on_action(cx.listener(Self::dismiss))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|picker, event: &MouseDownEvent, _, cx| picker.press(event, cx)),
-                )
-                .relative()
-                .size_full()
+            picker
                 .child(card)
                 .child(field)
                 .children(appearances)
@@ -940,8 +963,7 @@ impl Render for ThemePicker {
                 .child(add)
                 .children(swatches)
                 .child(controls)
-                .children(dial_grain)
-                .child(listener),
+                .children(dial_grain),
         )
     }
 }

@@ -464,6 +464,7 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
   expect '^browser: menu shown Rename Space' "a right-click on the Space's name showed no menu"
   send choose Edit Theme Color…
   expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
+  expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
   send clickkey 191.5 178.5
   expect '^browser: colored space [0-9]* 000000$' "the field's middle didn't colour the Space black"
   send key escape
