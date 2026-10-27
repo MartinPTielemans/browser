@@ -16,6 +16,7 @@
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
+#include "browser_core/sign_in_dialog.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_browser_main.h"
@@ -114,6 +115,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
+  g_browser_core_login_handler = &SignInDialog::Create;
   return ChromeMain(argc, argv);
 }
 

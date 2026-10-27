@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "components/permissions/permission_prompt.h"
+#include "content/public/browser/login_delegate.h"
 #include "extensions/browser/extension_install_prompt_client.h"
 
 // chrome/browser/ui/browser.cc: a Browser may be made with a window the core supplies, which has
@@ -15,6 +16,7 @@ extern bool g_browser_core_supplies_windows;
 
 class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
+class LoginHandler;
 struct NavigateParams;
 
 namespace content {
@@ -23,6 +25,10 @@ class WebContents;
 
 namespace extensions {
 class InstallPromptData;
+}
+
+namespace net {
+class AuthChallengeInfo;
 }
 
 namespace ui {
@@ -60,5 +66,12 @@ extern void (*g_browser_core_extension_install_dialog)(
     std::unique_ptr<ExtensionInstallPromptShowParams> show_params,
     extensions::ExtensionInstallPromptClient::DoneCallback done_callback,
     std::unique_ptr<extensions::InstallPromptData> prompt);
+
+// chrome/browser/ui/views/login_handler_views.cc: asks for a site's HTTP sign-in, in place of
+// Chrome's views dialog, which needs a dialog host the core's windows don't have.
+extern std::unique_ptr<LoginHandler> (*g_browser_core_login_handler)(
+    const net::AuthChallengeInfo& auth_info,
+    content::WebContents* web_contents,
+    content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback);
 
 #endif  // BROWSER_CORE_HOOKS_H_

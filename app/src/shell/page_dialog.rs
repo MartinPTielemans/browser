@@ -23,6 +23,9 @@ pub struct PageDialog {
     pub cancel: SharedString,
     /// A checkbox's label, or empty for none.
     pub check: SharedString,
+    /// A sign-in's labels for its fields, else empty.
+    pub username: SharedString,
+    pub password: SharedString,
 }
 
 /// What a page's dialog is.
@@ -33,6 +36,8 @@ pub enum DialogKind {
     Prompt,
     /// Whether to leave the page, which its beforeunload handler asks.
     Leave,
+    /// The user's name and password for the site's HTTP sign-in.
+    SignIn,
 }
 
 /// The user's answer to a page's dialog. What was typed is for the page alone, so it's left out
