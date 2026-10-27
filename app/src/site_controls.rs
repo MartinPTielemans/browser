@@ -83,10 +83,10 @@ const ON_GLYPH: u32 = 0x000000a8;
 const ROW_GLYPH: f32 = 17.;
 /// Ours: the reset row's glyph, as Chrome's page info's button has none.
 const RESET: &str = "icons/rotate-ccw-clock.svg";
-/// Ours: the row of a site the profile keeps for Apple's engine, first, as the URL field's mark
-/// for it. Named for the engine, not the app, as the user's pages play in ilo.
+/// Ours: the row of a site the profile keeps for Safari's engine, first, as the URL field's mark
+/// for it. Named for Safari, which people know, though the page plays here, in ilo's tab.
 const ENGINE: &str = "icons/compass.svg";
-const ENGINE_NAME: &str = "Apple's engine";
+const ENGINE_NAME: &str = "Safari's engine";
 /// Ours: a policy's row, which the user can't change.
 const MANAGED_OPACITY: f32 = 0.5;
 const DIVIDER: u32 = 0xffffff2b;
@@ -182,7 +182,7 @@ pub struct Site {
     /// Chrome's words for its button that sets the permissions back to their defaults, when it
     /// shows one.
     pub reset: Option<SharedString>,
-    /// The profile keeps the site for Apple's engine, which plays the protected video Chromium
+    /// The profile keeps the site for Safari's engine, which plays the protected video Chromium
     /// can't. Its row turns it off.
     pub system_engine: bool,
 }
@@ -355,7 +355,7 @@ pub trait Host {
     fn set_permission(&self, tab: u64, kind: i32, value: Value);
     /// Sets the site's permissions back to their defaults. The user's, as above.
     fn reset_permissions(&self, tab: u64);
-    /// Has the profile keep the site for Apple's engine or not, and the tab show its page there or
+    /// Has the profile keep the site for Safari's engine or not, and the tab show its page there or
     /// in Chromium. The user's, as above.
     fn set_system_engine(&self, tab: u64, on: bool);
     fn run(&self, run: Run, tab: u64, cx: &mut App);

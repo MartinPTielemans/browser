@@ -90,6 +90,7 @@ pub(super) struct Recorder {
     /// The Edit menu's Undo and Redo titles it was last given.
     pub(super) edit_titles: RefCell<(Option<String>, Option<String>)>,
     /// The platform has Apple's engine for a tab's page.
+    /// The platform has Safari's engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
 }
 

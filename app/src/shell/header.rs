@@ -315,7 +315,7 @@ impl Shell {
                         .text_color(rgba(NAV)),
                 )
         });
-        // A tab showing its page in Apple's engine says so after the host, quietly (ours): the
+        // A tab showing its page in Safari's engine says so after the host, quietly (ours): the
         // Site Controls name it and turn it off.
         let engine = (self.selected != 0 && self.page(self.selected).system_engine).then(|| {
             let mut quiet = Hsla::from(rgba(SECONDARY));
