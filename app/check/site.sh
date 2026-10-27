@@ -103,11 +103,11 @@ oncopy = () => document.title = "copy " + selected();
 f.addEventListener("compositionend", e => document.title = "committed " + e.data);
 </script>' > "$out/site/engine.html"
 # The session page, whose title says the engine showing it and which of the check's values its
-# script finds, in this order, or none: the cookies h, hw, n and w, and the localStorage items item
-# and back. It names what it found and never a value, since the app logs every title. At
-# /session?set the server sets an HttpOnly cookie, h, and the script a cookie, n, and item; at
-# /session?webkit the server sets hw and the script w and back. Each cookie's value is the
-# server's port, so a run finds only its own.
+# script finds, in this order, or none: the cookies h, hw, n, p and w, and the localStorage items
+# item, back and mine. It names what it found and never a value, since the app logs every title.
+# At /session?set the server sets an HttpOnly cookie, h, and the script a cookie, n, and item; at
+# /session?webkit the server sets hw and the script w and back; at /session?private the script
+# sets p and mine. Each cookie's value is the server's port, so a run finds only its own.
 printf '%s' '<title>loading</title><script>
 const port = location.port;
 if (location.search == "?set") {
@@ -116,10 +116,13 @@ if (location.search == "?set") {
 } else if (location.search == "?webkit") {
   document.cookie = `w=${port}; path=/; max-age=3600`;
   localStorage.back = "safari";
+} else if (location.search == "?private") {
+  document.cookie = `p=${port}; path=/; max-age=3600`;
+  localStorage.mine = "private";
 }
 const cookies = document.cookie.split("; ");
-const items = {item: "chromium", back: "safari"};
-const found = ["h", "hw", "n", "w"].filter(name => cookies.includes(`${name}=${port}`))
+const items = {item: "chromium", back: "safari", mine: "private"};
+const found = ["h", "hw", "n", "p", "w"].filter(name => cookies.includes(`${name}=${port}`))
   .concat(Object.keys(items).filter(name => localStorage[name] == items[name]));
 document.title = "session " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "safari") +
   " sees " + (found.join(" ") || "none");
