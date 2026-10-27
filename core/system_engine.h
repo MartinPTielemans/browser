@@ -51,6 +51,21 @@ void StoreMade(Profile* profile);
 // clear. Asks without loading the system's engine, which only a store made needs.
 bool StoreUsed(Profile* profile);
 
+// The user's session with a site goes with the tab from one engine to the other, inside the
+// profile: the cookies of the site and of its subdomains, and its origins' localStorage. Chromium's
+// come into the system's store as a tab enters it, and the system's back to Chromium's as the site
+// is turned off. A private window's go only between its own two stores, which keep nothing.
+
+// Copies |profile|'s cookies of |url|'s site from Chromium's store into its system store, then runs
+// |done| with the site's localStorage in Chromium, for a page's first load there to take.
+void CopyToSystemEngine(Profile* profile,
+                        const GURL& url,
+                        base::OnceCallback<void(platform::StorageByOrigin)> done);
+// Copies |profile|'s cookies of |url|'s site from its system store, and the localStorage of the
+// site's pages its tabs show there, into Chromium's store, then has those tabs show their pages in
+// Chromium. For a site the profile no longer keeps.
+void ReturnToChromium(Profile* profile, const GURL& url);
+
 // Deletes the store of the profile at |path|, if it made one, as the profile goes, then runs
 // |then|. The profile's directory must still be there: an unloaded profile's preferences say.
 void DeleteStore(const base::FilePath& path, base::OnceClosure then);

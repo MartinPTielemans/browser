@@ -20,9 +20,12 @@
 # changed there sticks, and its Reset permissions sets them back. Escape, a click outside and the
 # button close it. A page that asks for Widevine brings a note under the field, which ClearKey
 # doesn't. From macOS 14 its button shows the page in Safari's engine, in the tab, and the profile
-# keeps the site for it: another site goes back to Chromium, the site comes back to Safari's engine,
+# keeps the site for it: the site's cookies, HttpOnly too, and its localStorage go there with it
+# before the page's first request and script, another site goes back to Chromium, a link whose
+# redirects pass through another site and come back stays, the site comes back to Safari's engine,
 # keys and Japanese input work with its page focused, as they do in Chromium's, and the Site
-# Controls list it and turn it off. Before 14 the button opens the page in Safari, and the note goes
+# Controls list it and turn it off, which brings back to Chromium the cookies and the item its page
+# stored. Before 14 the button opens the page in Safari, and the note goes
 # once the tab is at another site. The pointer on a link shows its address in a plate in the card's
 # bottom left corner, which goes when it leaves.
 
@@ -592,6 +595,11 @@ expect "^browser: title $tab clearkey asked\$" "the ClearKey page's request wasn
 # The driver's round trip comes after the report the page's request would have made.
 send layout
 grep -q "^browser: page $tab needs " "$log" && fail "a page asking for ClearKey brought the note"
+# The session page stores in Chromium a cookie from its server, HttpOnly, one from its script and
+# an item, which go with the tab to Safari's engine below.
+go_from_bar "127.0.0.1:$port/session?set"
+expect "^browser: title $tab session chromium sees .*n=$port.* item chromium back none\$" \
+  "the session page didn't store its cookie and item in Chromium"
 go_from_bar "127.0.0.1:$port/drm.html"
 expect "^browser: loaded $tab http://127.0.0.1:$port/drm.html\$" "the Widevine page didn't load"
 expect "^browser: page $tab needs com.widevine.alpha\$" "the page asking for Widevine brought no note"
@@ -616,6 +624,18 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   grep -q '^browser: system engine loaded for ' "$log" || fail "Safari's engine's page didn't say WebKit loaded"
   expect "^browser: loaded $tab http://127.0.0.1:$port/drm.html\$" "Safari's engine didn't load the page"
   expect "^browser: title $tab drm asked\$" "Safari's engine didn't report the page's title"
+  # The site's session came first: the page's first request carried both cookies, and its script
+  # found the item.
+  copied="^browser: copied [0-9]* cookies and [0-9]* storage items for 127.0.0.1 into the system's engine\$"
+  expect "$copied" "the switch didn't copy the site's session into Safari's engine"
+  cookies=$(grep "$copied" "$log" | tail -1 | cut -d' ' -f3)
+  items=$(grep "$copied" "$log" | tail -1 | cut -d' ' -f6)
+  [ "$cookies" -ge 2 ] && [ "$items" -ge 1 ] ||
+    fail "the switch copied $cookies cookies and $items storage items, not the session page's"
+  served "^GET safari 127.0.0.1:$port/drm.html cookie .*h=$port; n=$port" \
+    "Safari's engine's first request didn't carry the site's cookies from Chromium"
+  served "^GET safari 127.0.0.1:$port/seen?item=chromium " \
+    "Safari's engine's page didn't find the item from Chromium as its script ran"
   # Chromium's page let go for the switch isn't a renderer lost, which a crash card would show.
   grep -q "^.*browser: tab $tab page gone" "$log" && fail "the switch to Safari's engine read as the page gone"
   ../tools/window-screenshot.sh "$pid" "$out/drm-engine.png" || fail "no window to capture"
@@ -627,6 +647,25 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
     "another site didn't take the tab back to Chromium"
   expect "^browser: title $tab engine chromium\$" "another site stayed in Safari's engine"
   # The profile kept the site, which opens in Safari's engine with no note.
+  go_from_bar "127.0.0.1:$port/engine.html"
+  expect "^browser: title $tab engine safari\$" "the site kept for Safari's engine opened in Chromium"
+  # A link on the site whose redirects pass through another site and come back, as a sign-in's
+  # through an identity site do, stays in Safari's engine. One whose redirects end at the other site
+  # goes back to Chromium, as a link there does.
+  go_from_bar "127.0.0.1:$port/hop.html"
+  expect "^browser: title $tab hop safari\$" "the site's hop page left Safari's engine"
+  send click $page_point
+  expect "^browser: title $tab engine safari\$" \
+    "a link's redirects through another site didn't come back in Safari's engine"
+  none_since "^browser: tab $tab back to Chromium" ||
+    fail "a link's redirects through another site took the tab back to Chromium"
+  served "^GET safari localhost:$port/bounce" "the redirects didn't pass through the other site in Safari's engine"
+  go_from_bar "127.0.0.1:$port/hop.html?away"
+  expect "^browser: title $tab hop safari\$" "the site's hop page left Safari's engine"
+  send click $page_point
+  expect "^browser: tab $tab back to Chromium for http://localhost:$port/engine.html\$" \
+    "a link whose redirects ended at another site didn't take the tab back to Chromium"
+  expect "^browser: title $tab engine chromium\$" "a link's redirects to another site stayed in Safari's engine"
   go_from_bar "127.0.0.1:$port/engine.html"
   expect "^browser: title $tab engine safari\$" "the site kept for Safari's engine opened in Chromium"
   # Keys with Safari's engine's page focused, as keys.sh has them with Chromium's. A click gives the
@@ -683,7 +722,17 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   [ "$tab" != "$closed" ] || fail "⌘W over Safari's engine left its tab shown"
   go_from_bar "127.0.0.1:$port/engine.html"
   expect "^browser: title $tab engine safari\$" "the site kept for Safari's engine opened in Chromium in another tab"
-  # The Site Controls list it in the first row, and Off forgets it and shows the page in Chromium.
+  # Safari's engine's page stores a cookie from its server, HttpOnly, one from its script and an
+  # item. Its script sees Chromium's cookie and item, and neither HttpOnly cookie.
+  go_from_bar "127.0.0.1:$port/session?webkit"
+  expect "^browser: title $tab session safari sees .*n=$port.*w=$port.* item chromium back safari\$" \
+    "Safari's engine's session page didn't see Chromium's cookie and item, or keep its own"
+  grep "^browser: title $tab session safari sees " "$log" | tail -1 | grep -qwE "h=$port|hw=$port" &&
+    fail "an HttpOnly cookie reached the script in Safari's engine"
+  go_from_bar "127.0.0.1:$port/engine.html"
+  expect "^browser: title $tab engine safari\$" "the site's engine page left Safari's engine"
+  # The Site Controls list it in the first row, and Off forgets it, brings its session back to
+  # Chromium and shows the page there.
   send move $page_point
   send move $sidebar_point
   expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
@@ -696,6 +745,8 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect "^browser: menu shown On (checked), Off\$" "Safari's engine's row didn't offer On and Off"
   send choose Off
   expect "^browser: site controls set Safari's engine Off\$" "Off in the menu didn't run"
+  expect "^browser: copied [0-9]* cookies and [0-9]* storage items for 127.0.0.1 back to Chromium\$" \
+    "Off didn't copy the site's session back to Chromium"
   expect "^browser: title $tab engine chromium\$" "Off didn't show the page in Chromium"
   # Chromium's page, taking the pane, may have closed them already.
   if none_since '^browser: site controls hidden$'; then
@@ -704,6 +755,15 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   fi
   go_from_bar "127.0.0.1:$port/engine.html"
   expect "^browser: title $tab engine chromium\$" "the site turned off went to Safari's engine again"
+  # Chromium has what Safari's engine's page stored: its request carries both of that page's
+  # cookies, and its script sees the one it may and the item.
+  go_from_bar "127.0.0.1:$port/session"
+  expect "^browser: title $tab session chromium sees .*w=$port.* item chromium back safari\$" \
+    "Chromium didn't get the cookie and the item Safari's engine's page stored"
+  grep "^browser: title $tab session chromium sees " "$log" | tail -1 | grep -qwE "h=$port|hw=$port" &&
+    fail "an HttpOnly cookie reached the script in Chromium"
+  served "^GET chromium 127.0.0.1:$port/session cookie .*hw=$port.*w=$port" \
+    "Chromium's request didn't carry the HttpOnly cookie Safari's engine's server set"
   go_from_bar "localhost:$port/index.html"
   expect "^browser: loaded $tab http://localhost:$port/index.html\$" "localhost didn't load again"
 else
@@ -717,4 +777,4 @@ else
 fi
 exec 3>&-
 quit
-echo "ok: the pointer on a link shows its address in a plate that goes when the pointer leaves it, Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field, while one that asks for ClearKey brings none. Its button used $drm_done: Safari's engine shows the page in the tab, keeps the site for it until the Site Controls turn it off, and gives another site back to Chromium, and with its page focused ⌘T, ⌘L and ⌘W reach the UI, a click closes the command bar without reaching the page, and in its text field ⌘A and ⌘C stay with the page and a Japanese composition commits; Safari opens the page there, leaving the note until the tab is at another site. ⇧⌘Z redoes Clear, and Close Tabs Below offers Undo, which brings back its tabs in place and shows the one that was shown, and ⇧⌘Z closes them again. Windows: $out/link-target.png, $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png, and from macOS 14 $out/drm-engine.png, $out/engine-ime.png and $out/site-controls-engine.png"
+echo "ok: the pointer on a link shows its address in a plate that goes when the pointer leaves it, Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu: Duplicate Tab copies the tab with its history and icon under it, Close Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, View Library and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field, while one that asks for ClearKey brings none. Its button used $drm_done: Safari's engine shows the page in the tab with the site's cookies, HttpOnly too, and localStorage from Chromium there before its first request and script, keeps the site for it until the Site Controls turn it off, which brings the cookies and the item its page stored back to Chromium, gives another site back to Chromium, keeps a link whose redirects pass through another site and come back, and gives back one whose redirects end there, and with its page focused ⌘T, ⌘L and ⌘W reach the UI, a click closes the command bar without reaching the page, and in its text field ⌘A and ⌘C stay with the page and a Japanese composition commits; Safari opens the page there, leaving the note until the tab is at another site. ⇧⌘Z redoes Clear, and Close Tabs Below offers Undo, which brings back its tabs in place and shows the one that was shown, and ⇧⌘Z closes them again. Windows: $out/link-target.png, $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png, and from macOS 14 $out/drm-engine.png, $out/engine-ime.png and $out/site-controls-engine.png"

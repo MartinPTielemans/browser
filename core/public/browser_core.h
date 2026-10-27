@@ -1037,10 +1037,13 @@ BC_EXPORT void bc_tab_clear_site(bc_id tab, bool cookies);
 // The system's engine, WebKit on the Mac, plays the protected video Chromium can't (decision 1).
 // A tab shows a site's pages in it once the user switches it there, from the protected-media note,
 // and the profile keeps the site: its pages open there from then on, in any of the profile's tabs,
-// until bc_tab_set_system_engine turns it off. Its own cookies, apart from Chromium's and Safari's,
-// one store a profile, and none kept for a private window's. A tab goes back to Chromium for a
-// link the user follows to another site, a URL typed for one, or back from its first page. Agents'
-// tabs never switch, and bc_agent_may_act refuses agents a tab that has.
+// until bc_tab_set_system_engine turns it off. Its own store, apart from Chromium's and Safari's,
+// one a profile, and one that keeps nothing for a private window. The user's session with the site
+// goes along inside the profile: the site's cookies and localStorage in Chromium are copied into
+// the system's store before a tab's first load there, and the system's back to Chromium as the
+// site is turned off. A tab goes back to Chromium for a link the user follows to another site,
+// a URL typed for one, or back from its first page; redirects through other sites, as a sign-in's,
+// stay. Agents' tabs never switch, and bc_agent_may_act refuses agents a tab that has.
 
 // Whether the platform has a system engine that keeps a store a profile: macOS 14 or later.
 // Answers without loading it.
@@ -1048,7 +1051,8 @@ BC_EXPORT bool bc_system_engine_available(void);
 
 // With |on|, shows the tab's page in the system's engine, loading its URL there, and has the
 // profile keep its site for it. Else has the profile forget the site, and each of the profile's
-// tabs that shows one of its pages there goes back to Chromium at that page. Returns whether it
+// tabs that shows one of its pages there goes back to Chromium at that page, once the site's
+// cookies and those pages' localStorage are in Chromium's store. Returns whether it
 // did: not for a page that isn't http(s), nor where there's no system engine, nor for an agent's
 // tab. Then tab_state_changed, tab_media_unsupported with an empty key system, and
 // tab_site_controls if watched. The user's: agents get none.

@@ -72,8 +72,10 @@ onkeydown = e => {
 # Pages that ask for a key system as soon as they load, Widevine, which ilo can't play, and ClearKey,
 # which it can. Each puts "asked" in its title once the request is answered, either way. Widevine's
 # is asked from a promise, so the title comes in an engine with no request, as Safari's may have none
-# for this page.
+# for this page. Widevine's first asks the server for /seen with the item the session page below
+# stored, as its script found it.
 printf '%s' '<title>loading</title><script>
+fetch("seen?item=" + localStorage.item);
 Promise.resolve().then(() => navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{
   initDataTypes: ["cenc"],
   videoCapabilities: [{contentType: `video/mp4; codecs="avc1.42E01E"`}],
@@ -100,10 +102,40 @@ f.onselect = document.onselectionchange = () => selected() && (document.title = 
 oncopy = () => document.title = "copy " + selected();
 f.addEventListener("compositionend", e => document.title = "committed " + e.data);
 </script>' > "$out/site/engine.html"
+# The session page, whose title says the engine showing it, the cookies its script sees, sorted,
+# and the items "item" and "back" in its localStorage. At /session?set the server sets an HttpOnly
+# cookie, h, and the script a cookie, n, and the item; at /session?webkit the server sets hw and
+# the script w and back. Each cookie's value is the server's port, so a run sees only its own.
+printf '%s' '<title>loading</title><script>
+const port = location.port;
+if (location.search == "?set") {
+  document.cookie = `n=${port}; path=/; max-age=3600`;
+  localStorage.item = "chromium";
+} else if (location.search == "?webkit") {
+  document.cookie = `w=${port}; path=/; max-age=3600`;
+  localStorage.back = "safari";
+}
+const cookies = document.cookie.split("; ").filter(Boolean).sort().join(" ") || "none";
+document.title = "session " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "safari") +
+  " sees " + cookies + " item " + (localStorage.item || "none") + " back " + (localStorage.back || "none");
+</script>' > "$out/site/session.html"
+# A page whose whole area is a link to /bounce, which the server redirects to another site,
+# localhost, and from there, at hop.html, back to this one's engine page, as a sign-in through an
+# identity site does, or at hop.html?away, to localhost's engine page, where it stays.
+printf '%s' '<title>loading</title><a id=a style="position:fixed;inset:0"></a><script>
+const other = "http://localhost:" + location.port;
+const back = "http://127.0.0.1:" + location.port + "/engine.html";
+const to = location.search == "?away" ? other + "/engine.html" :
+  other + "/bounce?to=" + encodeURIComponent(back);
+a.href = "/bounce?to=" + encodeURIComponent(to);
+document.title = "hop " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "safari");
+</script>' > "$out/site/hop.html"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
   base64 -D > "$out/site/icon.png"
+# The server logs each GET as "GET <engine> <host><path> cookie <cookies sorted, or none>", the
+# engine named by the user agent as the engine page does.
 python3 -I -u -c '
-import functools, http.server, sys, time
+import functools, http.server, sys, time, urllib.parse
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     sent = 0
@@ -114,6 +146,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     }
 
     def do_GET(self):
+        agent = self.headers.get("User-Agent", "")
+        cookies = sorted(c.strip() for c in self.headers.get("Cookie", "").split(";") if c.strip())
+        print("GET", "chromium" if "Chrome/" in agent else "safari",
+              self.headers.get("Host", "") + self.path, "cookie", "; ".join(cookies) or "none")
+        path, _, query = self.path.partition("?")
+        if path == "/bounce":
+            self.send_response(302)
+            self.send_header("Location", urllib.parse.parse_qs(query)["to"][0])
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if path == "/session":
+            body = open(sys.argv[1] + "/session.html", "rb").read()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            name = {"set": "h", "webkit": "hw"}.get(query)
+            if name:
+                self.send_header("Set-Cookie", "%s=%d; Path=/; Max-Age=3600; HttpOnly; SameSite=Lax"
+                                 % (name, self.server.server_address[1]))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == "/count.js":
             Handler.sent += 1
             body = b"var count = %d;" % Handler.sent
