@@ -478,6 +478,90 @@ NSRect Unconstrained(id, SEL, NSRect frame, NSScreen*) {
   return frame;
 }
 
+// Another app that asks which of ours is in front takes the first window at the normal level, in
+// the window server's order: T3 Code's window capture does, and so do others. Our windows over a
+// browser window are child windows, ahead of it in that order, so a tooltip or an overlay's shadow
+// on screen at alpha 0 was taken for it. Over the main window of the active app, they're a level
+// above, as AppKit's own help tags and menus are. Over any other window, and while another app is
+// active, they're at its level, so they don't cover another window or app over it.
+constexpr NSWindowLevel kOverLevel = NSNormalWindowLevel + 1;
+
+// Ours of a window's child windows: GPUI's panels and the overlays' shadows, not the bubbles
+// Chromium levels itself.
+bool IsOurs(NSWindow* child) {
+  static Class panel = NSClassFromString(@"GPUIPanel");
+  return [child isKindOfClass:panel] || child.class == NSWindow.class;
+}
+
+// A window above the normal level defaults to transient, which Spaces and Mission Control treat
+// apart from a normal window, so it's managed, as Chromium makes its own.
+void SetOverLevel(NSWindow* child, bool raised) {
+  const NSWindowLevel level = raised ? kOverLevel : NSNormalWindowLevel;
+  if (child.level != level) {
+    child.collectionBehavior |= NSWindowCollectionBehaviorManaged;
+    child.level = level;
+  }
+}
+
+// Puts ours of |parent|'s child windows at the level the rule above gives them, back to front, so
+// they keep their order.
+void LevelOver(NSWindow* parent, bool raised) {
+  NSArray<NSWindow*>* children = [parent.childWindows
+      sortedArrayUsingComparator:^NSComparisonResult(NSWindow* a, NSWindow* b) {
+        return a.orderedIndex > b.orderedIndex   ? NSOrderedAscending
+               : a.orderedIndex < b.orderedIndex ? NSOrderedDescending
+                                                 : NSOrderedSame;
+      }];
+  for (NSWindow* child in children) {
+    if (IsOurs(child)) {
+      SetOverLevel(child, raised);
+    }
+  }
+}
+
+// Puts |child| over |parent|, at the level of |parent|'s others.
+void AddOver(NSWindow* parent, NSWindow* child) {
+  SetOverLevel(child, NSApp.active && parent.mainWindow);
+  [parent addChildWindow:child ordered:NSWindowAbove];
+}
+
+// From the first browser window, the levels follow the main window and the active app.
+void WatchMainWindow() {
+  static bool watching = false;
+  if (watching) {
+    return;
+  }
+  watching = true;
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  [center addObserverForName:NSWindowDidBecomeMainNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    LevelOver(notification.object, NSApp.active);
+                  }];
+  [center addObserverForName:NSWindowDidResignMainNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    LevelOver(notification.object, false);
+                  }];
+  [center addObserverForName:NSApplicationDidBecomeActiveNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification*) {
+                    LevelOver(NSApp.mainWindow, true);
+                  }];
+  // Before the tooltip and Site Controls start fading out as the app goes.
+  [center addObserverForName:NSApplicationWillResignActiveNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification*) {
+                    for (NSWindow* window in NSApp.windows) {
+                      LevelOver(window, false);
+                    }
+                  }];
+}
+
 // GPUI gives a window a title bar. Keeping it (transparent) keeps the system's rounded corners;
 // only its buttons go. A child window stays above its parent, so it doesn't need GPUI's floating
 // level, which would also put it above other apps' windows.
@@ -1047,6 +1131,7 @@ void host_show_window(void* ui_view) {
       [view addSubview:g_launch_picture];
     }
   }
+  WatchMainWindow();
   [window makeKeyAndOrderFront:nil];
   [g_launch_window orderOut:nil];
   g_launch_window = nil;
@@ -1442,9 +1527,9 @@ void host_show_overlay(int index,
     overlay->shadow.alphaValue = 1;
     if (overlay->shadow.parentWindow != window) {
       [overlay->shadow.parentWindow removeChildWindow:overlay->shadow];
-      [window addChildWindow:overlay->shadow ordered:NSWindowAbove];
+      AddOver(window, overlay->shadow);
     }
-    [window addChildWindow:overlay->window ordered:NSWindowAbove];
+    AddOver(window, overlay->window);
     if (overlay->grows) {
       GrowOverlay(*overlay);
     }
@@ -1561,7 +1646,7 @@ void host_show_find_bar(void* ui_view, bool keyboard) {
     [browser->find_bar_view.layer displayIfNeeded];
     [find_bar invalidateShadow];
     PlaceFindBar(browser);
-    [browser->window addChildWindow:find_bar ordered:NSWindowAbove];
+    AddOver(browser->window, find_bar);
     if (browser->find_bar_keyboard) {
       // From the command bar too, which closes.
       [find_bar makeKeyAndOrderFront:nil];
@@ -1632,7 +1717,7 @@ void host_show_offer(void* ui_view) {
     [browser->offer_view.layer displayIfNeeded];
     [offer invalidateShadow];
     PlaceOffer(browser);
-    [browser->window addChildWindow:offer ordered:NSWindowAbove];
+    AddOver(browser->window, offer);
     RaiseOverlays(browser, offer);
     // The core reports an offer when it comes, which can be while a dialog covers the window.
     if (g_dialog_shown && g_dialog_over == browser && g_dialog.visible) {
@@ -1707,7 +1792,7 @@ void host_show_hud(void* ui_view) {
     PlaceHud();
     if (g_hud.parentWindow != browser->window) {
       [g_hud.parentWindow removeChildWindow:g_hud];
-      [browser->window addChildWindow:g_hud ordered:NSWindowAbove];
+      AddOver(browser->window, g_hud);
     }
     if (browser->find_bar_shown) {
       [g_hud orderWindow:NSWindowAbove relativeTo:browser->find_bar.windowNumber];
@@ -1762,7 +1847,7 @@ void host_show_drop_targets(void* ui_view) {
     [g_drop_targets setFrame:[window contentRectForFrameRect:window.frame] display:NO];
     [g_drop_targets_view.layer setNeedsDisplay];
     [g_drop_targets_view.layer displayIfNeeded];
-    [window addChildWindow:g_drop_targets ordered:NSWindowAbove];
+    AddOver(window, g_drop_targets);
     fprintf(stderr, "browser: drop targets shown\n");
   });
 }
@@ -1813,7 +1898,7 @@ void host_show_dialog(void* ui_view) {
     [g_dialog setFrame:browser->window.frame display:NO];
     [g_dialog_view.layer setNeedsDisplay];
     [g_dialog_view.layer displayIfNeeded];
-    [browser->window addChildWindow:g_dialog ordered:NSWindowAbove];
+    AddOver(browser->window, g_dialog);
     [g_dialog makeKeyAndOrderFront:nil];
     fprintf(stderr, "browser: dialog window shown\n");
   });
@@ -1924,9 +2009,9 @@ void host_show_site_controls(void* ui_view, double left, double top, double widt
     overlay.shadow.alphaValue = 0;
     if (overlay.shadow.parentWindow != window) {
       [overlay.shadow.parentWindow removeChildWindow:overlay.shadow];
-      [window addChildWindow:overlay.shadow ordered:NSWindowAbove];
+      AddOver(window, overlay.shadow);
     }
-    [window addChildWindow:g_site_controls ordered:NSWindowAbove];
+    AddOver(window, g_site_controls);
     [g_site_controls makeKeyAndOrderFront:nil];
     // check.sh reads these lines.
     fprintf(stderr, "browser: site controls at %g %g %g %g\n", left, top, width, height);
@@ -2066,7 +2151,7 @@ void host_show_capture(void* ui_view, double left, double top, double width, dou
     [g_capture setFrame:g_capture_frame display:NO];
     [g_capture_view.layer setNeedsDisplay];
     [g_capture_view.layer displayIfNeeded];
-    [window addChildWindow:g_capture ordered:NSWindowAbove];
+    AddOver(window, g_capture);
     [g_capture makeKeyAndOrderFront:nil];
     SetCaptureCursor();
     g_capture_monitor = [NSEvent
@@ -2232,7 +2317,7 @@ void host_show_toast(void* ui_view) {
     PlaceToast();
     [g_toast_view.layer setNeedsDisplay];
     [g_toast_view.layer displayIfNeeded];
-    [browser->window addChildWindow:g_toast ordered:NSWindowAbove];
+    AddOver(browser->window, g_toast);
     RaiseOverlays(browser, g_toast);
     fprintf(stderr, "browser: toast window shown\n");
   });
@@ -2256,6 +2341,8 @@ void host_add_tooltip(void* tooltip_view, void (*away)(void)) {
   g_tooltip.hasShadow = NO;
   // It takes neither a click nor the keyboard.
   g_tooltip.ignoresMouseEvents = YES;
+  // To accessibility it's a help tag, as AppKit's tooltips are, not one of the app's windows.
+  g_tooltip.accessibilityRole = NSAccessibilityHelpTagRole;
   // The user leaves the browser window for another or another app.
   NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
   void (^left_window)(NSNotification*) = ^(NSNotification*) {
@@ -2325,7 +2412,7 @@ void host_show_tooltip(void* ui_view, double left, double top, double fade) {
     if (g_tooltip.parentWindow != browser->window) {
       [g_tooltip.parentWindow removeChildWindow:g_tooltip];
       g_tooltip.alphaValue = 0;
-      [browser->window addChildWindow:g_tooltip ordered:NSWindowAbove];
+      AddOver(browser->window, g_tooltip);
       RaiseOverlays(browser, g_tooltip);
     }
     FadeTooltip(1, fade, ^{
@@ -2698,7 +2785,7 @@ void host_show_reveal(void* ui_view, double width) {
     PlaceReveal(browser);
     [browser->reveal_view.layer setNeedsDisplay];
     [browser->reveal_view.layer displayIfNeeded];
-    [browser->window addChildWindow:browser->reveal ordered:NSWindowAbove];
+    AddOver(browser->window, browser->reveal);
     // The page's view takes the pointer's moves while it's over the page, so the panel's view
     // doesn't hear them leave.
     browser->reveal_monitor = [NSEvent

@@ -51,6 +51,14 @@
 //   state                                 nothing, for the done line's report
 //   title                                 logs the key window's title, as "browser: key window
 //                                         titled <title>", such as a window of Chrome's
+//   front                                 logs which of the app's windows other apps take for
+//                                         the one in front, as "browser: front <first>, main
+//                                         <window>, key <window>, ax focused <window>, ax main
+//                                         <window>". <first> is its first window on screen at
+//                                         the normal level in the window server's order, which
+//                                         T3 Code's window capture takes. Each is "driven",
+//                                         "window <n>" for another browser window, "none", or
+//                                         "<class> <width>x<height> <accessibility role>"
 //   backdrop <grey>|off                   a window of the driver's in <grey> (0–255, sRGB) behind
 //                                         the browser window and 100 points past its edges, for
 //                                         the window's material to blur something known. Each
@@ -582,6 +590,43 @@ void AppendViews(NSMutableString* line, NSView* content, NSView* parent) {
   }
 }
 
+// A window as the front command names it.
+NSString* Describe(id element) {
+  if (!element) {
+    return @"none";
+  }
+  for (size_t index = 0; index < 64; index++) {
+    if ((__bridge void*)element == host_browser_window(index)) {
+      return index == g_driven ? @"driven" : [NSString stringWithFormat:@"window %zu", index + 1];
+    }
+  }
+  if ([element isKindOfClass:NSString.class]) {
+    return element;
+  }
+  if (![element isKindOfClass:NSWindow.class]) {
+    return NSStringFromClass([element class]);
+  }
+  NSWindow* window = element;
+  return [NSString stringWithFormat:@"%@ %.0fx%.0f %@", NSStringFromClass(window.class),
+                                    NSWidth(window.frame), NSHeight(window.frame),
+                                    window.accessibilityRole];
+}
+
+// The app's first window on screen at the normal level, front to back, as another app finds it.
+id FirstNormalWindow() {
+  NSArray* windows = CFBridgingRelease(CGWindowListCopyWindowInfo(
+      kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
+  for (NSDictionary* info in windows) {
+    if ([info[(id)kCGWindowOwnerPID] intValue] == getpid() &&
+        [info[(id)kCGWindowLayer] intValue] == 0) {
+      NSInteger number = [info[(id)kCGWindowNumber] integerValue];
+      return [NSApp windowWithWindowNumber:number]
+                 ?: [NSString stringWithFormat:@"number %ld", (long)number];
+    }
+  }
+  return nil;
+}
+
 void Layout(NSWindow* window) {
   NSView* content = window.contentView;
   NSMutableString* line = [NSMutableString
@@ -934,6 +979,15 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     fprintf(stderr, "browser: agent %s may act on %llu: %d\n", agent.c_str(),
             (unsigned long long)tab, bc_agent_may_act(agent.c_str(), tab));
+    done();
+    return true;
+  }
+  if (action == "front") {
+    fprintf(stderr, "browser: front %s, main %s, key %s, ax focused %s, ax main %s\n",
+            Describe(FirstNormalWindow()).UTF8String, Describe(NSApp.mainWindow).UTF8String,
+            Describe(NSApp.keyWindow).UTF8String,
+            Describe(NSApp.accessibilityFocusedWindow).UTF8String,
+            Describe(NSApp.accessibilityMainWindow).UTF8String);
     done();
     return true;
   }

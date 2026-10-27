@@ -7,7 +7,8 @@
 # ⇧⌘W closes a window and gives its tabs to the one that was in front before it, live, which shows
 # its page again; in the last window it quits. ⇧↩ in the command bar opens its page in a new
 # window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
-# forward rather than taking the page.
+# forward rather than taking the page. With the first window in full screen, other apps take the
+# second for the window in front once the user is in it.
 
 # The page counts in its title from its first frame, so a page that reloaded would count from 1
 # again. "o" in it opens a tab under it, as a link to a new tab does.
@@ -104,6 +105,30 @@ none_since "^browser: window $second shows $a\$" || fail "the new window took th
 [ "$(grep -c "^browser: window $first shows" "$log")" = "$shown_first" ] ||
   fail "the new window's Space switches changed what the first window shows"
 counting "with two windows"
+
+# With the first window in full screen, and the command bar's shadow left over it, the second is
+# the one another app takes for the window in front once the user is in it, as T3 Code's window
+# capture does: the first at the normal level, front to back.
+send window 1
+send fullscreen
+expect '^browser: window entered full screen$' "the first window didn't go full screen"
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar in full screen"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
+send window 2
+# The second window is on screen once its Space has slid in.
+for _ in $(seq 30); do
+  send front
+  grep '^browser: front ' "$log" | tail -1 | grep -q '^browser: front driven,' && break
+  sleep 0.1
+done
+expect '^browser: front driven, main driven, key driven, ax focused driven, ax main driven$' \
+  "with the first window in full screen, other apps take the wrong window: $(grep '^browser: front ' "$log" | tail -1)"
+send window 1
+send fullscreen
+expect '^browser: window left full screen$' "the first window didn't leave full screen"
+send window 2
 
 # A click on the page's row in the new window moves the page there, live.
 send click $(row 0)
@@ -202,4 +227,4 @@ post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
-echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"
+echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"
