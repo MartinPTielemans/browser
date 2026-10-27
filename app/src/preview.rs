@@ -566,6 +566,18 @@ impl Browser for Fake {
         });
     }
 
+    fn can_use_system_engine(&self) -> bool {
+        true
+    }
+
+    fn use_system_engine(&self, tab: u64, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            shell.set_media_unsupported(tab, "", cx);
+            let page = Page { system_engine: true, ..shell.page(tab) };
+            shell.set_page(tab, page, cx);
+        });
+    }
+
     fn set_icon(&self, tab: u64, icon: &str, cx: &mut App) {
         let icon: SharedString = icon.to_string().into();
         self.later(cx, move |shell, cx| {
@@ -1169,6 +1181,11 @@ fn main() {
                         ..Default::default()
                     };
                     shell.set_page(tab, page, cx);
+                }
+                // PREVIEW_DRM=1 has the first tab's page ask for video ilo plays only in Apple's
+                // engine, so its note shows.
+                if std::env::var_os("PREVIEW_DRM").is_some() {
+                    shell.set_media_unsupported(1, "com.widevine.alpha", cx);
                 }
                 // The second in a folder, and the last two in a split view.
                 let pinned = vec![1, folder, 2];

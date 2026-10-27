@@ -89,6 +89,8 @@ pub(super) struct Recorder {
     pub(super) undo_toast: RefCell<Option<Rc<dyn Fn(&mut App)>>>,
     /// The Edit menu's Undo and Redo titles it was last given.
     pub(super) edit_titles: RefCell<(Option<String>, Option<String>)>,
+    /// The platform has Apple's engine for a tab's page.
+    pub(super) system_engine: Cell<bool>,
 }
 
 impl Recorder {
@@ -331,6 +333,14 @@ impl Browser for Recorder {
 
     fn open_in_safari(&self, url: &str, _: &mut App) {
         self.record(format!("open in safari {url}"))
+    }
+
+    fn can_use_system_engine(&self) -> bool {
+        self.system_engine.get()
+    }
+
+    fn use_system_engine(&self, tab: u64, _: &mut App) {
+        self.record(format!("system engine {tab}"))
     }
 
     fn stop(&self, _: u64, _: &mut App) {}

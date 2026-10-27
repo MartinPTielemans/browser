@@ -83,6 +83,10 @@ const ON_GLYPH: u32 = 0x000000a8;
 const ROW_GLYPH: f32 = 17.;
 /// Ours: the reset row's glyph, as Chrome's page info's button has none.
 const RESET: &str = "icons/rotate-ccw-clock.svg";
+/// Ours: the row of a site the profile keeps for Apple's engine, first, as the URL field's mark
+/// for it. Named for the engine, not the app, as the user's pages play in ilo.
+const ENGINE: &str = "icons/compass.svg";
+const ENGINE_NAME: &str = "Apple's engine";
 /// Ours: a policy's row, which the user can't change.
 const MANAGED_OPACITY: f32 = 0.5;
 const DIVIDER: u32 = 0xffffff2b;
@@ -178,6 +182,9 @@ pub struct Site {
     /// Chrome's words for its button that sets the permissions back to their defaults, when it
     /// shows one.
     pub reset: Option<SharedString>,
+    /// The profile keeps the site for Apple's engine, which plays the protected video Chromium
+    /// can't. Its row turns it off.
+    pub system_engine: bool,
 }
 
 /// An extension acting on the tab's page, as the toolbar shows it.
@@ -348,6 +355,9 @@ pub trait Host {
     fn set_permission(&self, tab: u64, kind: i32, value: Value);
     /// Sets the site's permissions back to their defaults. The user's, as above.
     fn reset_permissions(&self, tab: u64);
+    /// Has the profile keep the site for Apple's engine or not, and the tab show its page there or
+    /// in Chromium. The user's, as above.
+    fn set_system_engine(&self, tab: u64, on: bool);
     fn run(&self, run: Run, tab: u64, cx: &mut App);
     /// Shows a menu of `items` at `position` in the panel's window, and returns the index of the
     /// one chosen once it closes. AppKit runs it in an event loop of its own, so it's called
@@ -443,7 +453,7 @@ fn layout(site: &Site, extensions: usize, beak: bool) -> Layout {
     let grid = extensions_cap + HEADING_TO_TILES;
     let lines = (extensions + 1).div_ceil(EXTENSIONS_PER_ROW) as f32;
     let grid_bottom = grid + lines * TILE_HEIGHT + (lines - 1.) * GAP;
-    let rows = site.permissions.len() + site.reset.is_some() as usize;
+    let rows = site.system_engine as usize + site.permissions.len() + site.reset.is_some() as usize;
     let (settings_cap, first, divider) = match rows {
         // Ours: with nothing to list, the heading goes, and the line follows the tiles.
         0 => (None, grid_bottom, grid_bottom + ROWS_TO_DIVIDER - CIRCLE),
@@ -647,10 +657,11 @@ fn describe(site: &Site) -> String {
         .map(|permission| format!("{} {}", permission.name, permission.value.label()))
         .collect();
     format!(
-        "{}: {}; {}",
+        "{}: {}; {}{}",
         site.site,
         site.connection_summary,
-        if permissions.is_empty() { "no permissions".into() } else { permissions.join(", ") }
+        if permissions.is_empty() { "no permissions".into() } else { permissions.join(", ") },
+        if site.system_engine { format!("; {ENGINE_NAME} on") } else { String::new() }
     )
 }
 
@@ -783,6 +794,34 @@ impl SiteControls {
             };
             let name = items[index].title.to_string();
             panel.update(cx, |panel, cx| panel.run(&name, run, cx)).ok();
+        })
+        .detach();
+    }
+
+    /// Shows the engine row's menu at `position`: On, checked, and Off, which turns it off.
+    fn choose_engine(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(tab) = self.open.as_ref().map(|open| open.tab) else {
+            return;
+        };
+        let items = [
+            MenuEntry { checked: true, ..MenuEntry::new("On".to_string(), true) },
+            MenuEntry::new("Off".to_string(), true),
+        ];
+        let host = self.host.clone();
+        cx.spawn(async move |panel, cx| {
+            if host.menu(&items, position) != Some(1) {
+                return;
+            }
+            panel
+                .update(cx, |panel, _| {
+                    let open = panel.open.as_ref();
+                    if open.is_some_and(|open| open.tab == tab && open.closing.is_none()) {
+                        // check.sh reads this line.
+                        log!("browser: site controls set {ENGINE_NAME} Off");
+                        panel.host.set_system_engine(tab, false);
+                    }
+                })
+                .ok();
         })
         .detach();
     }
@@ -1207,12 +1246,27 @@ impl Render for SiteControls {
         let settings = at.settings_cap.map(|cap| {
             let hovered = open.hovered == Some(Heading::Settings);
             let mut rows = vec![self.heading(Heading::Settings, cap, hovered, cx)];
+            let engine = site.system_engine as usize;
+            if site.system_engine {
+                let row = Self::row(
+                    "site-engine".into(),
+                    at.rows,
+                    ENGINE,
+                    true,
+                    ENGINE_NAME.into(),
+                    Some("On".into()),
+                );
+                let row = row.on_click(cx.listener(|panel, event: &ClickEvent, _, cx| {
+                    panel.choose_engine(event.position(), cx)
+                }));
+                rows.push(row.into_any_element());
+            }
             for (index, permission) in site.permissions.iter().enumerate() {
-                let y = at.rows + index as f32 * ROW_PITCH;
+                let y = at.rows + (engine + index) as f32 * ROW_PITCH;
                 rows.push(self.permission(index, permission, y, cx));
             }
             if let Some(label) = site.reset.clone() {
-                let y = at.rows + site.permissions.len() as f32 * ROW_PITCH;
+                let y = at.rows + (engine + site.permissions.len()) as f32 * ROW_PITCH;
                 let row = Self::row("site-permissions-reset".into(), y, RESET, false, label, None);
                 let row = row.on_click(cx.listener(|panel, _, _, cx| panel.reset(cx)));
                 rows.push(row.into_any_element());

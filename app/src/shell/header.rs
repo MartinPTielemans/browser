@@ -315,6 +315,13 @@ impl Shell {
                         .text_color(rgba(NAV)),
                 )
         });
+        // A tab showing its page in Apple's engine says so after the host, quietly (ours): the
+        // Site Controls name it and turn it off.
+        let engine = (self.selected != 0 && self.page(self.selected).system_engine).then(|| {
+            let mut quiet = Hsla::from(rgba(SECONDARY));
+            quiet.a *= 0.6;
+            svg().path("icons/compass.svg").flex_none().ml(px(5.)).size(px(12.)).text_color(quiet)
+        });
         let text_end = match tools {
             true => end + TOOL_PITCH + URL_BUTTON_SIZE,
             false if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
@@ -350,7 +357,8 @@ impl Shell {
             // It brightens under the pointer as a tile does, from the same white 0.10 (ours).
             .hover(|style| style.bg(hsla(0., 0., 1., TILE_HOVERED)))
             .text_size(px(13.))
-            .child(div().truncate().text_color(color).child(words))
+            .child(div().min_w(px(0.)).truncate().text_color(color).child(words))
+            .children(engine)
             .children(copy)
             .children(site_controls)
             .children(actions)
