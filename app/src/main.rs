@@ -220,7 +220,7 @@ mod platform {
             count: usize,
         ) -> i32;
         pub fn host_add_dialog(dialog_view: *mut c_void);
-        pub fn host_show_dialog(ui_view: *mut c_void);
+        pub fn host_show_dialog(ui_view: *mut c_void, x: f64, y: f64, width: f64, height: f64);
         pub fn host_hide_dialog();
         pub fn host_add_site_controls(view: *mut c_void, dismissed: extern "C" fn());
         pub fn host_show_site_controls(
@@ -697,8 +697,11 @@ fn url_for(text: &str, get: impl Fn(*const c_char, *mut c_char, usize) -> usize)
 struct DialogHost;
 
 impl dialog::Host for DialogHost {
-    fn show(&self) {
-        unsafe { platform::host_show_dialog(front().1) };
+    fn show(&self, over: Option<Bounds<Pixels>>) {
+        let over = rect(over.unwrap_or_default());
+        unsafe {
+            platform::host_show_dialog(front().1, over.x, over.y, over.width, over.height)
+        };
     }
 
     fn hide(&self) {
@@ -1502,6 +1505,65 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_answer_permission(tab, answer as i32) };
     }
 
+    fn show_page_dialog(&self, shown: Option<shell::ShownPageDialog>, cx: &mut App) {
+        // The dialog shows over the window last key, as the others do; another's waits for it.
+        if self.window != front().0 {
+            return;
+        }
+        let Some((tab, asked, over)) = shown else {
+            dialog::withdraw_page(cx);
+            return;
+        };
+        let fields = match asked.kind {
+            shell::DialogKind::Prompt => vec![dialog::Field {
+                placeholder: "".into(),
+                text: asked.text.clone(),
+                secure: false,
+            }],
+            _ => Vec::new(),
+        };
+        let question = dialog::Question {
+            icon: None,
+            message: asked.title.clone(),
+            detail: asked.message.clone(),
+            list: Vec::new(),
+            action: asked.accept.clone(),
+            cancel: asked.cancel.clone(),
+            // A page's answer takes nothing back.
+            tone: dialog::Tone::Accent,
+            also: None,
+            fields,
+            check: (!asked.check.is_empty()).then(|| asked.check.clone()),
+            return_cancels: false,
+        };
+        let window = self.window;
+        let kind = asked.kind;
+        let answered = Box::new(move |reply: dialog::Reply, cx: &mut App| {
+            let mut texts = reply.texts.into_iter();
+            let (text, password) = match kind {
+                shell::DialogKind::Prompt => (texts.next().unwrap_or_default(), String::new()),
+                _ => (String::new(), String::new()),
+            };
+            let reply =
+                shell::PageReply { accept: reply.accept, text, password, checked: reply.checked };
+            let shell = WINDOWS.with_borrow(|windows| {
+                windows.iter().find(|w| w.id == window).map(|w| w.shell.clone())
+            });
+            match shell.and_then(|shell| shell.upgrade()) {
+                Some(shell) => {
+                    shell.update(cx, |shell, cx| shell.answer_page_dialog(tab, asked.id, reply, cx))
+                }
+                // Its window closed while the dialog left, so the page isn't left waiting.
+                None => answer_page_dialog(tab, asked.id, reply),
+            }
+        });
+        dialog::ask_page((tab, asked.id), question, over, answered, cx);
+    }
+
+    fn answer_page_dialog(&self, tab: u64, id: u64, reply: shell::PageReply, _: &mut App) {
+        answer_page_dialog(tab, id, reply);
+    }
+
     fn stop(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_stop(tab) };
     }
@@ -2063,6 +2125,9 @@ impl Browser for Engine {
                     }
                 }),
             )),
+            fields: Vec::new(),
+            check: None,
+            return_cancels: false,
         };
         dialog::pose(question, Box::new(|_| unsafe { bc::bc_quit() }), cx);
     }
@@ -3556,6 +3621,9 @@ unsafe extern "C" fn window_extension_question(
         cancel: text(question.cancel).into(),
         tone: dialog::Tone::Accent,
         also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: false,
     };
     let mut asked = false;
     if window == front().0 {
@@ -3765,6 +3833,49 @@ unsafe extern "C" fn tab_offer_changed(
         }
     });
     update_app(|cx| offer::changed(tab, offer, cx));
+}
+
+/// Tells the core the user's answer to the dialog `id` of `tab`'s page.
+fn answer_page_dialog(tab: u64, id: u64, reply: shell::PageReply) {
+    let text = CString::new(reply.text).unwrap_or_default();
+    let password = CString::new(reply.password).unwrap_or_default();
+    unsafe {
+        bc::bc_tab_answer_dialog(
+            tab,
+            id,
+            reply.accept,
+            text.as_ptr(),
+            password.as_ptr(),
+            reply.checked,
+        )
+    };
+}
+
+/// A tab's page asks a dialog, such as its alert(), or no longer does (null).
+unsafe extern "C" fn tab_dialog(_: *mut c_void, tab: bc::bc_id, asked: *const bc::bc_page_dialog) {
+    let text = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let dialog = unsafe { asked.as_ref() }.map(|asked| shell::PageDialog {
+        id: asked.id,
+        kind: match asked.kind as u32 {
+            bc::BC_DIALOG_CONFIRM => shell::DialogKind::Confirm,
+            bc::BC_DIALOG_PROMPT => shell::DialogKind::Prompt,
+            _ => shell::DialogKind::Alert,
+        },
+        title: text(asked.title),
+        message: text(asked.message),
+        text: text(asked.text),
+        accept: text(asked.accept),
+        cancel: text(asked.cancel),
+        check: text(asked.check),
+    });
+    // check.sh waits for these lines.
+    match &dialog {
+        Some(dialog) => log!("browser: page {tab} dialog {:?} {}", dialog.kind, dialog.title),
+        None => log!("browser: page {tab} dialog none"),
+    }
+    update_shells(|shell, cx| shell.set_page_dialog(tab, dialog.clone(), cx));
 }
 
 unsafe extern "C" fn tab_permission_asked(
@@ -3977,6 +4088,7 @@ fn main() {
         tab_offer_changed: Some(tab_offer_changed),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),
+        tab_dialog: Some(tab_dialog),
         ..Default::default()
     };
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };

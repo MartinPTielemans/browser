@@ -23,6 +23,7 @@
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/password_offer.h"
+#include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -858,6 +859,20 @@ void bc_tab_capture_end(bc_id id) {
 
 void bc_tab_answer_permission(bc_id id, int answer) {
   browser_core::PermissionQuestion::Answer(id, answer);
+}
+
+void bc_tab_answer_dialog(bc_id tab,
+                          bc_id dialog,
+                          bool accept,
+                          const char* text,
+                          const char* password,
+                          bool checked) {
+  browser_core::PageDialog::Answer(
+      tab, dialog,
+      {.accept = accept,
+       .text = base::UTF8ToUTF16(text ? text : ""),
+       .password = base::UTF8ToUTF16(password ? password : ""),
+       .checked = checked});
 }
 
 void bc_tab_site_controls(bc_id id) {
