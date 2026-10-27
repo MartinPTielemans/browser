@@ -64,6 +64,7 @@
 #include "components/sessions/core/serialized_user_agent_override.h"
 #include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/referrer.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
@@ -1036,6 +1037,23 @@ content::WebContents* Window::OpenFromPinned(bc_id pinned, const GURL& url) {
     ReportTabOpened(Tab::IdOf(contents), pinned, /*foreground=*/true, /*split_with=*/0);
   }
   return contents;
+}
+
+content::WebContents* Window::OpenPreview(content::WebContents& opener, const GURL& url) {
+  BrowserWindowInterface* browser =
+      BrowserFor(Profile::FromBrowserContext(opener.GetBrowserContext()));
+  if (!browser) {
+    return nullptr;
+  }
+  NavigateParams params(browser, url, ui::PAGE_TRANSITION_LINK);
+  params.disposition = WindowOpenDisposition::NEW_BACKGROUND_TAB;
+  // What the page would have sent with the link, by the policy Chrome's pages default to.
+  params.referrer = content::Referrer(
+      opener.GetLastCommittedURL(), network::mojom::ReferrerPolicy::kStrictOriginWhenCrossOrigin);
+  // No Space takes it until the app keeps it, so the app isn't told of it as a tab opened.
+  base::AutoReset<bool> opening(&opening_tab_, true);
+  Navigate(&params);
+  return params.navigated_or_inserted_contents;
 }
 
 void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {

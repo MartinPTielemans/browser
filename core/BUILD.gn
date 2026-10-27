@@ -82,6 +82,8 @@ source_set("browser_core") {
     "host.h",
     "install_question.cc",
     "install_question.h",
+    "link_preview.cc",
+    "link_preview.h",
     "link_target.cc",
     "link_target.h",
     "main_delegate.cc",

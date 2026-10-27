@@ -312,6 +312,25 @@ void HidePages(views::Widget* widget) {
   view.sidePanel.page.hidden = YES;
 }
 
+void ShowPageIn(gfx::NativeView page, void* view, const gfx::Rect& frame, double corner_radius) {
+  NSView* holder = (__bridge NSView*)view;
+  NSView* page_view = page.GetNativeNSView();
+  if (!holder || !page_view) {
+    return;
+  }
+  Unhide(page_view, /*hidden=*/false);
+  RoundCorners(page_view, corner_radius, kAllCorners);
+  if (page_view.superview != holder) {
+    [holder addSubview:page_view];
+  }
+  NSRect rect = frame.ToCGRect();
+  if (!holder.isFlipped) {
+    rect.origin.y = NSHeight(holder.bounds) - NSMaxY(rect);
+  }
+  page_view.frame = rect;
+  UpdateOcclusion(holder.window);
+}
+
 bool KeyboardForPage(views::Widget* widget) {
   NSWindow* window = widget->GetNativeWindow().GetNativeNSWindow();
   // AppKit gives the keyboard to the window when the view that had it leaves, and views gives it to
