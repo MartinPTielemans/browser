@@ -76,6 +76,10 @@ void HidePages(views::Widget* widget);
 // panel.
 bool KeyboardForPage(views::Widget* widget);
 
+// Gives the keyboard in |widget|'s window to the window itself, which KeyboardForPage counts as
+// the page's.
+void ReleaseKeyboard(views::Widget* widget);
+
 // Runs |change|, which may move the keyboard in |widget|'s window, then gives the keyboard back to
 // what had it, if that's still in the window.
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change);
