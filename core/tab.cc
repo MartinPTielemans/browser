@@ -336,16 +336,18 @@ void Tab::UseChromium(const GURL& url) {
   if (!system_page_) {
     return;
   }
-  DropSystemPage();
-  if (url.is_valid()) {
-    web_contents()->GetController().LoadURL(url, content::Referrer(), ui::PAGE_TRANSITION_LINK,
-                                            std::string());
-  }
+  HandBack(url, [&] {
+    if (url.is_valid()) {
+      web_contents()->GetController().LoadURL(url, content::Referrer(), ui::PAGE_TRANSITION_LINK,
+                                              std::string());
+    }
+  });
 }
 
-bool Tab::LoadInSystemPage(const GURL& url) {
+void Tab::Load(const GURL& url, base::FunctionRef<void()> load) {
   if (!system_page_) {
-    return false;
+    load();
+    return;
   }
   Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
   if (url.SchemeIsHTTPOrHTTPS() &&
@@ -353,10 +355,9 @@ bool Tab::LoadInSystemPage(const GURL& url) {
            url, system_page_->url(), net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES) ||
        system_engine::Remembered(profile, url))) {
     system_page_->Load(url);
-    return true;
+    return;
   }
-  DropSystemPage();
-  return false;
+  HandBack(url, load);
 }
 
 bool Tab::CanGoBack() {
@@ -397,13 +398,14 @@ void Tab::GoBack() {
   }
   Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
   const bool past = system_engine::Remembered(profile, history.GetLastCommittedEntry()->GetURL());
-  DropSystemPage();
-  if (past) {
-    history.GoBack();
-  } else {
-    history.SetNeedsReload();
-    history.LoadIfNecessary();
-  }
+  HandBack(history.GetEntryAtOffset(past ? -1 : 0)->GetURL(), [&] {
+    if (past) {
+      history.GoBack();
+    } else {
+      history.SetNeedsReload();
+      history.LoadIfNecessary();
+    }
+  });
 }
 
 void Tab::GoForward() {
@@ -442,6 +444,18 @@ void Tab::DropSystemPage() {
   system_page_favicon_.clear();
   system_page_title_.clear();
   EngineChanged();
+}
+
+void Tab::HandBack(const GURL& url, base::FunctionRef<void()> load) {
+  // check.sh reads this line.
+  fprintf(stderr, "browser: tab %llu back to Chromium for %s\n",
+          static_cast<unsigned long long>(id_), url.spec().c_str());
+  // Chromium's page starts its load before its view is shown again. Shown with none under way, it
+  // reloads the page it kept, which at a site kept for the system's engine hands the tab straight
+  // back there in place of the load.
+  system_page_.reset();
+  load();
+  DropSystemPage();
 }
 
 void Tab::EngineChanged() {

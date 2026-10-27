@@ -101,13 +101,15 @@ Profile* ProfileOf(const browser_core::Window& window) {
 void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
   content::WebContents* contents = browser_core::Tab::FromId(id);
   tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  if (!tab || browser_core::Tab::FromWebContents(contents)->LoadInSystemPage(url)) {
+  if (!tab) {
     return;
   }
-  NavigateParams params(tab->GetBrowserWindowInterface(), url, transition);
-  params.disposition = WindowOpenDisposition::CURRENT_TAB;
-  params.source_contents = contents;
-  Navigate(&params);
+  browser_core::Tab::FromWebContents(contents)->Load(url, [&] {
+    NavigateParams params(tab->GetBrowserWindowInterface(), url, transition);
+    params.disposition = WindowOpenDisposition::CURRENT_TAB;
+    params.source_contents = contents;
+    Navigate(&params);
+  });
 }
 
 // The loaded profile |profile_id| names, or null.
