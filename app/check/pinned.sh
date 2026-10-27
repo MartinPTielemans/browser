@@ -47,8 +47,8 @@ expect_lists "$c $a" "$b" "after ⌘D from the UI"
 switch "1 cmd" "$c"
 switch "3 cmd" "$b"
 
-# Dragging a row moves its tab, in the pinned tabs and between them and Today, without showing it.
-# Today's top row is under the pinned rows, the divider and "+ New Tab".
+# Dragging a row moves its tab, in the pinned tabs and between them and Today, and its press shows
+# it, as Arc's does. Today's top row is under the pinned rows, the divider and "+ New Tab".
 today_top="100 $((90 + 44 + 41 * 2 + 15 + 41 + 20))"
 clicks=$(detents)
 send drag $(pinned_row 1) 100 150
@@ -57,7 +57,7 @@ expect "^browser: dragged $a to pinned 0\$" "a drag of the second pinned tab up 
 passed=$(($(detents) - clicks))
 [ "$passed" = 1 ] || fail "a row dragged past one gave $passed clicks"
 expect_lists "$a $c" "$b" "after dragging a pinned tab up"
-none_since '^browser: selected' || fail "dragging a tab showed it"
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "pressing the row dragged didn't show its tab"
 # In steps, as the pointer goes: Today's tab comes away, and over the pinned rows, which stay put,
 # a line marks where it would go.
 clicks=$(detents)
@@ -83,9 +83,12 @@ expect "^browser: dragged $b to today 0\$" "a drag of a pinned tab down didn't u
 expect_lists "$a $c" "$b" "after dragging a pinned tab into Today"
 send drag $(pinned_row 0) 100 200
 expect_lists "$c $a" "$b" "after dragging the first pinned tab down"
-none_since '^browser: selected' || fail "dragging a tab showed it"
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "pressing the row dragged didn't show its tab"
+# The press now shows its row's tab, so it waits for the rows to stop under the pointer.
+expect '^browser: rows settled$' "the pinned rows didn't settle after the drag down"
 # Escape puts a dragged row back.
 send press $(pinned_row 0)
+expect "^browser: selected $c\( in .*\)\{0,1\}\$" "pressing a row didn't show its tab"
 send dragto 100 250
 send key escape
 expect '^browser: command stop via ' "escape during a drag didn't reach the UI"
@@ -271,8 +274,13 @@ expect "^browser: outline $f+\\[\\] $c\$" "the tab dragged out is still in the f
 settled
 send drag $(pinned_row 0) 100 200
 expect "^browser: dragged $f to pinned 1\$" "a drag of the folder down didn't move it"
-expect "^browser: outline $c $f+\\[\\]\$" "the folder dragged down isn't under the tab: $(outline)"
+# Its press closed it, as a press on a folder does, and a click opens it again.
+expect "^browser: outline $c $f-\\[\\]\$" \
+  "the folder dragged down isn't under the tab, closed: $(outline)"
 settled
+send click $(pinned_row 1)
+expect "^browser: outline $c $f+\\[\\]\$" "a click on the folder dragged didn't open it: $(outline)"
+# It's empty, so no row moves to wait for.
 send press $(pinned_row 0)
 send dragto 110 180
 expect '^browser: detent$' "a row dragged under the folder and in didn't click the trackpad"

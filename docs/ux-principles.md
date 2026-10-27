@@ -66,9 +66,9 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 
 ## Delight on rare paths only
 
-- **Seen.** Making a Space plays an illustration for about 2 s, and the pull glows. Switching, closing and clearing tabs have no flourish, and Clear has no toast.
+- **Seen.** Making a Space plays an illustration for about 2 s, and the pull glows. Switching, closing and clearing tabs have no flourish, and Clear has no toast. A press on a row shows its tab, and one on a folder opens or closes it, before the release, 100 to 300 ms sooner than a click would (Sidebar › Behavior › Showing a tab).
 - **Reading.** What you do a hundred times a day has to be instant. What you do once a month can be a moment.
-- **Applies.** Decoration goes on rare paths. Hot paths stay plain and fast (the performance gate in [roadmap.md](roadmap.md)). We skip Arc's illustrations and their waits: the art is Arc's, and a 2 s wait isn't how we want it to feel.
+- **Applies.** Decoration goes on rare paths. Hot paths stay plain and fast (the performance gate in [roadmap.md](roadmap.md)), and act on the press when a drag that follows can carry what it did. We skip Arc's illustrations and their waits: the art is Arc's, and a 2 s wait isn't how we want it to feel.
 
 ## Pay when it's looked at
 

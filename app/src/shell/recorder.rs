@@ -103,7 +103,9 @@ impl Browser for Recorder {
 
     fn show_drop_targets(&self, _: bool, _: &mut App) {}
 
-    fn back_to_pinned_url(&self, _: u64, _: &mut App) {}
+    fn back_to_pinned_url(&self, tab: u64, _: &mut App) {
+        self.record(format!("back to pinned url {tab}"))
+    }
 
     fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
 

@@ -276,6 +276,8 @@ send drag $(tiled_row 0) 200 112
 expect "^browser: dragged $y to favorites 2\$" "a row dragged right of the tiles didn't go last"
 expect "^browser: favorites $a $x $y\$" "the tiles aren't three: the favorites are \"$(favorites)\""
 expect '^browser: tiles settled$' "the tiles didn't settle after the third drop"
+# The drag's press showed $y, so the click on its tile below has a tab to change from.
+switch "1 cmd" "$a"
 send drag 225 400 120 400
 expect '^browser: sidebar width 164$' "dragging the sidebar's edge didn't narrow it to 164"
 send layout
