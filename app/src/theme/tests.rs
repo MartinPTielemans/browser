@@ -25,7 +25,7 @@ fn the_field_gives_arcs_colours() {
         (535.2, 307.2, [255, 137, 62]),
     ] {
         let (x, y) = field(x, y);
-        let color = color_at(x, y);
+        let color = color_at(x, y, 1.);
         assert!(close(color, expected, 12), "{color:06x} for {expected:?}");
     }
 }
@@ -67,9 +67,9 @@ fn a_drag_moves_them_together() {
 /// The centre is black, and lightness grows outward.
 #[test]
 fn the_field_runs_from_black_to_white() {
-    assert_eq!(color_at(0., 0.), 0x000000);
-    assert_eq!(color_at(1., 0.), 0xffffff);
-    assert_eq!(color_at(0.5, 0.), 0xff0000);
+    assert_eq!(color_at(0., 0., 1.), 0x000000);
+    assert_eq!(color_at(1., 0., 1.), 0xffffff);
+    assert_eq!(color_at(0.5, 0., 1.), 0xff0000);
 }
 
 /// What the core keeps reads back as the same theme, and text without a place is no theme.
@@ -78,6 +78,7 @@ fn a_theme_survives_its_text() {
     let theme = Theme {
         x: -0.25,
         y: 0.5,
+        saturation: 0.6,
         count: 3,
         intensity: 0.4,
         grain: 0.7,
@@ -87,6 +88,10 @@ fn a_theme_survives_its_text() {
     assert!((back.x - theme.x).abs() < 1e-3 && (back.y - theme.y).abs() < 1e-3);
     assert_eq!((back.count, back.appearance), (3, Appearance::Dark));
     assert!((back.intensity - 0.4).abs() < 1e-3 && (back.grain - 0.7).abs() < 1e-3);
+    assert!((back.saturation - 0.6).abs() < 1e-3);
+    // The field's own saturation goes unsaid, as before swatches kept theirs.
+    assert!(!Theme::at(0.5, 0.).to_text().contains("saturation"));
+    assert_eq!(Theme::parse("x=0.5 y=0").unwrap().saturation, 1.);
     assert_eq!(Theme::parse(""), None);
     assert_eq!(Theme::parse("colors=2"), None);
     let partial = Theme::parse("x=0.1 y=0.2 colors=7 grain=bad").unwrap();
@@ -101,6 +106,23 @@ fn a_colour_finds_its_place() {
     let pink = Theme::of_color(0xbf556a);
     let hsla = Hsla::from(rgb(0xbf556a));
     assert!((pink.x.hypot(pink.y) - hsla.l).abs() < 1e-3);
+}
+
+/// A swatch's theme is the swatch's own colour, and its other colours keep its saturation; a
+/// handle dragged takes the field's colour.
+#[test]
+fn a_swatch_keeps_its_own_colour_until_a_drag() {
+    for swatch in crate::theme_picker::SWATCHES {
+        assert_eq!(Theme::of_color(swatch).main_color(), swatch, "{swatch:06x}");
+    }
+    let slate = Theme::of_color(0x656786).with_count(2);
+    let second = Hsla::from(rgb(slate.colors()[1]));
+    assert!((second.s - Hsla::from(rgb(0x656786)).s).abs() < 0.02, "{second:?}");
+    let dragged = slate.moved(0, slate.x + 0.1, slate.y);
+    assert_eq!(dragged.saturation, 1.);
+    assert_eq!(dragged.main_color(), color_at(dragged.x, dragged.y, 1.));
+    // A press that doesn't move it leaves the swatch's colour.
+    assert_eq!(slate.moved(0, slate.x, slate.y), slate);
 }
 
 /// The diagonal runs from the window's top left to its bottom right, its middle at the centre.
