@@ -8,7 +8,8 @@ ungoogled-chromium's fix-building-without-safebrowsing.patch cut along with Safe
 Browsing's own verdict handlers stay cut.
 
 Adapted: the declaration in extension_service.h sits after Shutdown(), since our tree has no
-Helium ToggleUBlockExtension() to follow.
+Helium ToggleUBlockExtension() to follow. In update_service.cc the check reads the update's state
+itself, since ungoogled-chromium's patch for Chromium 156 drops the flag that held it.
 
 --- a/chrome/browser/extensions/BUILD.gn
 +++ b/chrome/browser/extensions/BUILD.gn
@@ -102,11 +103,13 @@ Helium ToggleUBlockExtension() to follow.
    ForceInstalledTracker force_installed_tracker_;
 --- a/extensions/browser/updater/update_service.cc
 +++ b/extensions/browser/updater/update_service.cc
-@@ -131,6 +131,13 @@
+@@ -126,6 +126,15 @@
        break;
    }
  
-+  if (should_perform_action_on_omaha_attributes) {
++  // Custom attributes can only be sent for NOT_UPDATED/UPDATE_FOUND events.
++  if (item.state == update_client::ComponentState::kUpToDate ||
++      item.state == update_client::ComponentState::kCanUpdate) {
 +    base::DictValue attributes = GetExtensionOmahaAttributes(item);
 +    // Note that it's important to perform actions even if |attributes| is
 +    // empty, missing values may default to false and have associated logic.

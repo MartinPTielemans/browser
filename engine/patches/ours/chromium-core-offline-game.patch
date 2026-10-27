@@ -117,25 +117,26 @@ reload waits; what holds it, and when, is the core's.
  namespace chrome_browser_net {
  
  namespace {
-@@ -376,6 +382,18 @@
-     return;
-   }
+@@ -381,6 +387,19 @@
    easter_egg_high_score_.SetValue(0);
-+}
-+
+ }
+ 
 +void NetErrorTabHelper::SetGameRunning(bool running) {
 +  // Only the tab's own error page holds its reload. One on its way out ends
 +  // its run as it goes, which is no bad message.
-+  if (!IsValidEasterEggTarget(
-+          network_easter_egg_receivers_.CurrentTargetFrame())) {
++  content::RenderFrameHost& target_frame =
++      network_easter_egg_receivers_.CurrentTargetFrame();
++  if (!target_frame.IsErrorDocument() || !target_frame.IsInPrimaryMainFrame()) {
 +    return;
 +  }
 +  if (g_browser_core_offline_game) {
 +    g_browser_core_offline_game(web_contents(), running);
 +  }
- }
- 
++}
++
  WEB_CONTENTS_USER_DATA_KEY_IMPL(NetErrorTabHelper);
+ 
+ }  // namespace chrome_browser_net
 --- a/components/error_page/content/browser/net_error_auto_reloader.h
 +++ b/components/error_page/content/browser/net_error_auto_reloader.h
 @@ -73,6 +73,11 @@
