@@ -100,8 +100,8 @@ pub struct Question {
     pub fields: Vec<Field>,
     /// A checkbox under them, by its label, such as "Always allow…".
     pub check: Option<SharedString>,
-    /// ↩ cancels, and the action takes a click, as for a page opening an app, which Chrome won't
-    /// have a key the page can time choose.
+    /// ↩ cancels, and the action takes a click, as for a page opening an app, so a key press the
+    /// page timed can't choose it, as Chrome has it.
     pub return_cancels: bool,
 }
 

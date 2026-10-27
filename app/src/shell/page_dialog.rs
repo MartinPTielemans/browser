@@ -38,6 +38,8 @@ pub enum DialogKind {
     Leave,
     /// The user's name and password for the site's HTTP sign-in.
     SignIn,
+    /// Whether the page may open another app for a link, such as Mail for mailto:.
+    OpenApp,
 }
 
 /// The user's answer to a page's dialog. What was typed is for the page alone, so it's left out

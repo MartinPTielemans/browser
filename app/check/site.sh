@@ -66,7 +66,8 @@ const filled = setInterval(() => {
 printf '%s' '<title>welcome</title><p style="font:24px system-ui">Welcome</p>' \
   > "$out/site/welcome.html"
 # The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
-# page, and puts what the user answered in the title. "u" has it ask before it's left.
+# page, and puts what the user answered in the title. "u" has it ask before it's left, and "o" goes
+# to a maps: link, which macOS opens in Maps.
 printf '%s' '<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
@@ -87,6 +88,9 @@ onkeydown = e => {
   if (e.key == "u") {
     onbeforeunload = e => e.preventDefault();
     document.title = "armed";
+  }
+  if (e.key == "o") {
+    location = "maps:?q=check";
   }
 };
 </script>' > "$out/site/dialogs.html"
