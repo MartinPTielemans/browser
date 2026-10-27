@@ -22,6 +22,7 @@
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/password_offer.h"
+#include "browser_core/passwords.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
 #include "browser_core/public/browser_core.h"
@@ -835,6 +836,14 @@ void bc_tab_show_certificate(bc_id id) {
 
 void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
   browser_core::PasswordOffer::Answer(id, answer, username);
+}
+
+void bc_profile_read_logins(bc_id profile) {
+  browser_core::Passwords::Read(profile);
+}
+
+void bc_profile_remove_login(bc_id profile, const char* key, const char* username, bool never) {
+  browser_core::Passwords::Remove(profile, key ? key : "", username ? username : "", never);
 }
 
 void bc_tab_jump_to_selection(bc_id id) {

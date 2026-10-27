@@ -252,7 +252,7 @@ in_browser RenderWidgetHostViewCocoa "after the history tab closed"
 # the next keys pressed.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-send clickkey 365 60
+send clickkey 400 60
 expect '^browser: settings tab Shortcuts$' "a click on Shortcuts didn't show its tab"
 send clickkey 581 159
 expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't record them"

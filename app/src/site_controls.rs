@@ -1,10 +1,10 @@
 //! The Site Controls: the panel the URL field's Site Controls button opens, as Arc's Site
 //! Control Center (docs/ux-spec.md › Extensions › Site Controls). For the site of the page shown:
-//! the action tiles, the extensions that act on it, its permissions as Chrome's page info lists
-//! them, each changeable, and its connection. GPUI can't draw over the page's native view, so
-//! it's a window of its own that the host shows over the browser window, as its child, with the
-//! keyboard, as the command bar is, over a blur in its shape with a shadow. What it asks of its
-//! window and the core goes through `Host`.
+//! the action tiles, the extensions that act on it, its saved logins, its permissions as Chrome's
+//! page info lists them, each changeable, and its connection. GPUI can't draw over the page's
+//! native view, so it's a window of its own that the host shows over the browser window, as its
+//! child, with the keyboard, as the command bar is, over a blur in its shape with a shadow. What it
+//! asks of its window and the core goes through `Host`.
 
 use std::{
     rc::Rc,
@@ -21,6 +21,7 @@ use gpui::{
 
 use crate::{
     icon_picker,
+    passwords::{self, Login},
     shell::{Command, MenuEntry, cubic_bezier, scaled::scaled},
     tooltip,
 };
@@ -87,6 +88,9 @@ const RESET: &str = "icons/rotate-ccw-clock.svg";
 /// for it. Named for Safari, which people know, though the page plays here, in ilo's tab.
 const ENGINE: &str = "icons/compass.svg";
 const ENGINE_NAME: &str = "Safari's engine";
+/// Ours: the site's logins, in place of Chrome's key icon and its manage bubble.
+const PASSWORDS: &str = "icons/key-round.svg";
+const PASSWORDS_NAME: &str = "Passwords";
 /// Ours: a policy's row, which the user can't change.
 const MANAGED_OPACITY: f32 = 0.5;
 const DIVIDER: u32 = 0xffffff2b;
@@ -185,6 +189,8 @@ pub struct Site {
     /// The profile keeps the site for Safari's engine, which plays the protected video Chromium
     /// can't. Its row turns it off.
     pub system_engine: bool,
+    /// The logins the profile keeps for the site, and Never if it's set to it.
+    pub logins: Vec<Login>,
 }
 
 /// An extension acting on the tab's page, as the toolbar shows it.
@@ -217,6 +223,10 @@ pub enum Run {
     Extension(SharedString),
     /// The certificate the page came with, in the system's viewer.
     Certificate,
+    /// Removes the login, once the user confirms in the browser window's dialog.
+    RemoveLogin(Login),
+    /// Every login of the tab's profile, in Settings.
+    Passwords,
 }
 
 /// An action tile. Arc's row is Share, Boost, Capture a portion and Capture the full page; the
@@ -358,6 +368,8 @@ pub trait Host {
     /// Has the profile keep the site for Safari's engine or not, and the tab show its page there or
     /// in Chromium. The user's, as above.
     fn set_system_engine(&self, tab: u64, on: bool);
+    /// Takes the site, set to Never in the tab's profile, off Never. The user's, as above.
+    fn allow_saving(&self, tab: u64, login: &Login);
     fn run(&self, run: Run, tab: u64, cx: &mut App);
     /// Shows a menu of `items` at `position` in the panel's window, and returns the index of the
     /// one chosen once it closes. AppKit runs it in an event loop of its own, so it's called
@@ -453,7 +465,10 @@ fn layout(site: &Site, extensions: usize, beak: bool) -> Layout {
     let grid = extensions_cap + HEADING_TO_TILES;
     let lines = (extensions + 1).div_ceil(EXTENSIONS_PER_ROW) as f32;
     let grid_bottom = grid + lines * TILE_HEIGHT + (lines - 1.) * GAP;
-    let rows = site.system_engine as usize + site.permissions.len() + site.reset.is_some() as usize;
+    let rows = site.system_engine as usize
+        + passwords::state(&site.logins).is_some() as usize
+        + site.permissions.len()
+        + site.reset.is_some() as usize;
     let (settings_cap, first, divider) = match rows {
         // Ours: with nothing to list, the heading goes, and the line follows the tiles.
         0 => (None, grid_bottom, grid_bottom + ROWS_TO_DIVIDER - CIRCLE),
@@ -657,11 +672,15 @@ fn describe(site: &Site) -> String {
         .map(|permission| format!("{} {}", permission.name, permission.value.label()))
         .collect();
     format!(
-        "{}: {}; {}{}",
+        "{}: {}; {}{}{}",
         site.site,
         site.connection_summary,
         if permissions.is_empty() { "no permissions".into() } else { permissions.join(", ") },
-        if site.system_engine { format!("; {ENGINE_NAME} on") } else { String::new() }
+        if site.system_engine { format!("; {ENGINE_NAME} on") } else { String::new() },
+        match site.logins.is_empty() {
+            true => String::new(),
+            false => format!("; passwords {}", passwords::describe(&site.logins)),
+        }
     )
 }
 
@@ -819,6 +838,48 @@ impl SiteControls {
                         // check.sh reads this line.
                         log!("browser: site controls set {ENGINE_NAME} Off");
                         panel.host.set_system_engine(tab, false);
+                    }
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Shows the Passwords row's menu at `position`: Remove for each login, which closes the panel
+    /// for the browser window's dialog to ask, Never's way back, and every login in Settings.
+    fn choose_login(
+        &mut self,
+        logins: Vec<Login>,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.open.as_ref().map(|open| open.tab) else {
+            return;
+        };
+        let (items, actions): (Vec<MenuEntry>, Vec<Option<passwords::Action>>) =
+            passwords::menu(&logins).into_iter().unzip();
+        let host = self.host.clone();
+        cx.spawn(async move |panel, cx| {
+            let chosen = host.menu(&items, position).and_then(|index| actions.get(index).cloned());
+            let Some(Some(action)) = chosen else {
+                return;
+            };
+            panel
+                .update(cx, |panel, cx| {
+                    let open = panel.open.as_ref();
+                    if !open.is_some_and(|open| open.tab == tab && open.closing.is_none()) {
+                        return;
+                    }
+                    match action {
+                        passwords::Action::Remove(login) => {
+                            panel.run("remove-login", Run::RemoveLogin(login), cx)
+                        }
+                        passwords::Action::Allow(login) => {
+                            // check.sh reads this line.
+                            log!("browser: site controls allow saving {}", login.site);
+                            panel.host.allow_saving(tab, &login);
+                        }
+                        passwords::Action::ShowAll => panel.run("passwords", Run::Passwords, cx),
                     }
                 })
                 .ok();
@@ -1261,12 +1322,24 @@ impl Render for SiteControls {
                 }));
                 rows.push(row.into_any_element());
             }
+            let logins = passwords::state(&site.logins);
+            if let Some((state, on)) = logins.clone() {
+                let y = at.rows + engine as f32 * ROW_PITCH;
+                let name = PASSWORDS_NAME.into();
+                let row = Self::row("site-passwords".into(), y, PASSWORDS, on, name, Some(state));
+                let logins = site.logins.clone();
+                let row = row.on_click(cx.listener(move |panel, event: &ClickEvent, _, cx| {
+                    panel.choose_login(logins.clone(), event.position(), cx)
+                }));
+                rows.push(row.into_any_element());
+            }
+            let above = engine + logins.is_some() as usize;
             for (index, permission) in site.permissions.iter().enumerate() {
-                let y = at.rows + (engine + index) as f32 * ROW_PITCH;
+                let y = at.rows + (above + index) as f32 * ROW_PITCH;
                 rows.push(self.permission(index, permission, y, cx));
             }
             if let Some(label) = site.reset.clone() {
-                let y = at.rows + (engine + site.permissions.len()) as f32 * ROW_PITCH;
+                let y = at.rows + (above + site.permissions.len()) as f32 * ROW_PITCH;
                 let row = Self::row("site-permissions-reset".into(), y, RESET, false, label, None);
                 let row = row.on_click(cx.listener(|panel, _, _, cx| panel.reset(cx)));
                 rows.push(row.into_any_element());

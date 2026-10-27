@@ -3,12 +3,14 @@
 //! Settings). It opens on ⌘, and hides when closed, keeping its place and its tab until the
 //! browser quits.
 
+use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
 use std::time::Instant;
 
 use browser::default_browser::{self, DefaultBrowser};
 use browser::log;
+use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::TextInput;
 use gpui::{
@@ -81,6 +83,8 @@ const CHIP_WIDTH: f32 = 56.;
 const CHIP_GAP: f32 = 6.;
 /// Ours, for the Profiles tab: rows as tall as a button's, so they're even with and without one.
 const PROFILE_ROW: f32 = 40.;
+/// Ours, for the Passwords tab: a login's username under its site, a size down, in its row.
+const USERNAME_SIZE: f32 = 11.;
 
 const BAR: u32 = 0x282a2a;
 const BAR_LINE: u32 = 0x303131;
@@ -100,6 +104,8 @@ const KNOB: u32 = 0xe1e2e2;
 const KNOB_ON: u32 = 0xe1ebfe;
 const HAPTICS_TILE: u32 = 0x3f8ff7;
 const PROFILE_TILE: u32 = 0x8e8e93;
+/// Ours: System Settings' Passwords tile is grey too.
+const PASSWORD_TILE: u32 = 0x8e8e93;
 /// A row's detail, such as a profile's Spaces, in the toolbar's grey.
 const DETAIL: u32 = 0x9e9f9f;
 const CHIP: u32 = 0xffff_ff14;
@@ -117,17 +123,20 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
 enum Tab {
     General,
     Profiles,
+    Passwords,
     Shortcuts,
     Advanced,
 }
 
 impl Tab {
-    const ALL: [Tab; 4] = [Tab::General, Tab::Profiles, Tab::Shortcuts, Tab::Advanced];
+    const ALL: [Tab; 5] =
+        [Tab::General, Tab::Profiles, Tab::Passwords, Tab::Shortcuts, Tab::Advanced];
 
     fn name(self) -> &'static str {
         match self {
             Tab::General => "General",
             Tab::Profiles => "Profiles",
+            Tab::Passwords => "Passwords",
             Tab::Shortcuts => "Shortcuts",
             Tab::Advanced => "Advanced",
         }
@@ -137,6 +146,7 @@ impl Tab {
         match self {
             Tab::General => "icons/settings.svg",
             Tab::Profiles => "icons/user.svg",
+            Tab::Passwords => "icons/key-round.svg",
             Tab::Shortcuts => "icons/keyboard.svg",
             Tab::Advanced => "icons/sliders-horizontal.svg",
         }
@@ -260,6 +270,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
 enum Popup {
     ArchiveAfter,
     Favorites,
+    PasswordsProfile,
 }
 
 pub struct Settings {
@@ -278,6 +289,12 @@ pub struct Settings {
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
     default_browser: Entity<DefaultBrowser>,
+    /// The profile whose logins the Passwords tab lists, once the user has picked one.
+    passwords_profile: Option<u64>,
+    /// Each profile's logins, as the core last told them.
+    logins: HashMap<u64, Vec<Login>>,
+    /// The profiles whose logins were asked for since the Passwords tab showed.
+    asked: HashSet<u64>,
 }
 
 /// The system's default browser, for General's row.
@@ -344,6 +361,31 @@ pub fn show_shortcuts(cx: &mut App) {
             settings.show_tab(Tab::Shortcuts, window, cx)
         };
         window.update(cx, show).ok();
+    }
+}
+
+/// Shows the Settings window on its Passwords tab, with `profile`'s logins, or those it showed.
+pub fn show_passwords(profile: Option<u64>, cx: &mut App) {
+    show(cx);
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let show = move |settings: &mut Settings, window: &mut Window, cx: &mut Context<Settings>| {
+            settings.passwords_profile = profile.or(settings.passwords_profile);
+            settings.show_tab(Tab::Passwords, window, cx)
+        };
+        window.update(cx, show).ok();
+    }
+}
+
+/// The profile's logins, which the Passwords tab asked the core for, as they are now.
+pub fn logins_changed(profile: u64, logins: Vec<Login>, cx: &mut App) {
+    // check.sh waits for this line. The app has no passwords to log, only sites and usernames.
+    log!("browser: passwords {profile}: {}", passwords::describe(&logins));
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
+            settings.logins.insert(profile, logins);
+            cx.notify();
+        };
+        window.update(cx, changed).ok();
     }
 }
 
@@ -421,6 +463,9 @@ fn open(cx: &mut App) {
                 focus_renaming: false,
                 recording: None,
                 refused: None,
+                passwords_profile: None,
+                logins: HashMap::new(),
+                asked: HashSet::new(),
             }
         })
     });
@@ -456,6 +501,8 @@ impl Settings {
         self.keep_name(window, cx);
         self.recording = None;
         self.refused = None;
+        // Read again each time it shows: a profile closed since has the core forget it was asked.
+        self.asked.clear();
         // check.sh waits for this line.
         log!("browser: settings tab {}", tab.name());
         self.tab = tab;
@@ -830,6 +877,160 @@ impl Settings {
         .detach();
     }
 
+    /// The profile the Passwords tab lists: the one picked or asked for while it's there, or else
+    /// the one the browser started with.
+    fn passwords_profile(&self, profiles: &[Profile]) -> Option<u64> {
+        let picked = self.passwords_profile.filter(|&id| profiles.iter().any(|each| each.id == id));
+        picked.or(profiles.first().map(|profile| profile.id))
+    }
+
+    /// The profile's logins: the saved ones in a box, each with its username under its site, and
+    /// the sites set to Never in another, each removable. A pop-up picks the profile, if there are
+    /// more than one, as each keeps its own.
+    fn passwords(&mut self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
+        let Some(profile) = self.passwords_profile(profiles) else {
+            return div().into_any_element();
+        };
+        if self.asked.insert(profile) {
+            unsafe { bc::bc_profile_read_logins(profile) };
+        }
+        let logins = self.logins.get(&profile).cloned().unwrap_or_default();
+        // As the Shortcuts tab's headers, the first at the top unless the pop-up is over it.
+        let header = |title: &'static str, first: bool| {
+            div()
+                .when(!first, |header| header.mt(px(SECTION_GAP)))
+                .mb(px(HEADER_GAP))
+                .pl(px(PADDING))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title)
+        };
+        let login_row = |index: usize, login: &Login, cx: &mut Context<Self>| {
+            let (site, username) = passwords::lines(login);
+            let login = login.clone();
+            let remove = button(("remove-login", index), "Remove").on_click(cx.listener(
+                move |settings, _, _, cx| settings.remove(profile, login.clone(), cx),
+            ));
+            div()
+                .h(px(PROFILE_ROW))
+                .px(px(PADDING))
+                .flex()
+                .items_center()
+                .child(tile(Tab::Passwords.icon(), PASSWORD_TILE))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().truncate().child(site))
+                        .children(username.map(|username| {
+                            div()
+                                .truncate()
+                                .text_size(px(USERNAME_SIZE))
+                                .text_color(rgb(DETAIL))
+                                .child(username)
+                        })),
+                )
+                .child(remove.ml(px(PADDING)))
+        };
+        let (saved, never): (Vec<_>, Vec<_>) =
+            logins.iter().enumerate().partition(|(_, login)| !login.never);
+        let saved: Vec<gpui::Div> =
+            saved.into_iter().map(|(index, login)| login_row(index, login, cx)).collect();
+        let never: Vec<gpui::Div> =
+            never.into_iter().map(|(index, login)| login_row(index, login, cx)).collect();
+        let saved = match saved.is_empty() {
+            true => vec![
+                div()
+                    .h(px(PROFILE_ROW))
+                    .px(px(PADDING))
+                    .flex()
+                    .items_center()
+                    .text_color(rgb(DETAIL))
+                    .child("Passwords you save are listed here."),
+            ],
+            false => saved,
+        };
+        let chooser = (profiles.len() > 1).then(|| {
+            let chosen = profiles.iter().position(|each| each.id == profile);
+            let names: Vec<SharedString> = profiles.iter().map(|each| each.name.clone()).collect();
+            let ids: Vec<u64> = profiles.iter().map(|each| each.id).collect();
+            let label = chosen.map(|index| names[index].clone()).unwrap_or_default();
+            let view = cx.entity().downgrade();
+            let popup = self.popup(Popup::PasswordsProfile, label, POPUP_WIDTH, move |_, _, cx| {
+                let (names, ids) = (names.clone(), ids.clone());
+                let choose = |settings: &mut Settings, cx: &mut Context<Settings>| {
+                    settings.choose_profile(names, ids, chosen, cx)
+                };
+                view.update(cx, choose).ok();
+            });
+            let icon = Some(("icons/user.svg", PROFILE_TILE));
+            group([row(icon, "Profile", popup.into_any_element())])
+        });
+        let first = chooser.is_none();
+        div()
+            .children(chooser)
+            .child(header("Saved", first))
+            .child(group(saved))
+            .when(!never.is_empty(), |tab| {
+                tab.child(header("Never Saved", false)).child(group(never))
+            })
+            .into_any_element()
+    }
+
+    /// Opens the profiles' pop-up menu over its button, as the archive's, and lists the profile
+    /// picked's logins.
+    fn choose_profile(
+        &mut self,
+        names: Vec<SharedString>,
+        ids: Vec<u64>,
+        chosen: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (names.iter().enumerate())
+            .map(|(index, name)| MenuEntry {
+                checked: Some(index) == chosen,
+                ..MenuEntry::new(name.to_string(), true)
+            })
+            .collect();
+        self.choosing = Some(Popup::PasswordsProfile);
+        cx.notify();
+        cx.spawn(async move |settings, cx| {
+            let ui_view = std::ptr::null_mut();
+            let at = popup_text(Popup::PasswordsProfile);
+            let picked = show_menu(ui_view, &items, at, platform::IN_SETTINGS, chosen);
+            settings
+                .update(cx, |settings, cx| {
+                    if let Some(&profile) = picked.and_then(|index| ids.get(index)) {
+                        // check.sh waits for this line.
+                        log!("browser: passwords profile {profile}");
+                        settings.passwords_profile = Some(profile);
+                    }
+                    settings.choosing = None;
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Removes a saved login once the user confirms, in an alert, as a profile's Delete asks, as
+    /// nothing brings it back. A site set to Never comes off it at once: the offer coming again is
+    /// its way back.
+    fn remove(&mut self, profile: u64, login: Login, cx: &mut Context<Self>) {
+        if login.never {
+            crate::remove_login(profile, &login);
+            return;
+        }
+        cx.spawn(async move |_, _| {
+            let (message, detail) = passwords::question(&login);
+            if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                crate::remove_login(profile, &login);
+            }
+        })
+        .detach();
+    }
+
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
@@ -1014,18 +1215,20 @@ impl Settings {
     }
 }
 
-/// Where `which`'s pop-up button's text starts in the window, in the first box under the switch's
-/// row, one row each.
+/// Where `which`'s pop-up button's text starts in the window: General's in the first box under the
+/// switch's row, one row each, and the Passwords tab's in its first row.
 fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
     let switch_row = PADDING + SWITCH_HEIGHT + PADDING + 1.;
     let popup_row = PADDING + CONTROL_HEIGHT + PADDING + 1.;
     let (width, above) = match which {
-        Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
-        Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row),
+        Popup::ArchiveAfter => (POPUP_WIDTH, switch_row),
+        Popup::Favorites => (FAVORITES_POPUP_WIDTH, switch_row + popup_row),
+        // The Passwords tab's first row.
+        Popup::PasswordsProfile => (POPUP_WIDTH, 0.),
     };
     point(
         px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),
-        px(TITLE_BAR + TOOLBAR + FIRST + 1. + switch_row + above + PADDING),
+        px(TITLE_BAR + TOOLBAR + FIRST + 1. + above + PADDING),
     )
 }
 
@@ -1213,6 +1416,7 @@ impl Render for Settings {
                 self.focus_field(&profiles, window, cx);
                 self.profiles(&profiles, cx)
             }
+            Tab::Passwords => self.passwords(&profiles(), cx),
             Tab::Shortcuts => self.shortcuts(accent, cx),
             Tab::Advanced => self.advanced(accent, cx),
         };

@@ -29,6 +29,7 @@ pub mod dialog;
 pub mod icon_picker;
 pub mod link_target;
 pub mod offer;
+pub mod passwords;
 pub mod shell;
 pub mod site_controls;
 pub mod space_icon;

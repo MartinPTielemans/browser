@@ -76,8 +76,9 @@ void PasswordOffer::Prompt(content::WebContents* contents, bool show) {
     return;
   }
   if (!IsOffer(delegate->GetState())) {
-    // Chrome's other password bubbles, such as the one confirming a save, have no prompt here yet.
-    // Each closes as soon as it shows, as if the user had closed it, so the BubbleManager moves on.
+    // Chrome's other password bubbles, such as the one confirming a save, show nothing: the Site
+    // Controls list a site's logins in place of its manage bubble, and Settings every one. Each
+    // closes as soon as it shows, as if the user had closed it, so the BubbleManager moves on.
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(
                        [](base::WeakPtr<PasswordsModelDelegate> delegate) {

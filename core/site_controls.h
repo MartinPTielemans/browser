@@ -9,8 +9,10 @@
 #include "components/page_info/page_info.h"
 #include "components/page_info/page_info_ui.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "url/gurl.h"
 
 class ChromePageInfoUiDelegate;
+class Profile;
 
 namespace browser_core {
 
@@ -30,6 +32,9 @@ class SiteControls : public PageInfoUI, public content::WebContentsObserver {
   // Reads |tab|'s site again if the panel shows it: its page went from one engine to the other, or
   // the system's engine committed a page, which Chromium doesn't see.
   static void PageChanged(bc_id tab);
+  // Reports the site's logins again if the panel shows a page of |profile|: they were read or
+  // changed.
+  static void LoginsChanged(Profile* profile);
 
   SiteControls(const SiteControls&) = delete;
   SiteControls& operator=(const SiteControls&) = delete;
@@ -65,6 +70,8 @@ class SiteControls : public PageInfoUI, public content::WebContentsObserver {
   // Null for a file or a browser page, which Chrome's page info shows no permissions for.
   std::unique_ptr<PageInfo> page_info_;
   PermissionInfoList permissions_;
+  // The page's URL, Chromium's or the system page's.
+  GURL url_;
   std::string site_;
   int connection_ = BC_CONNECTION_NOT_SECURE;
   std::u16string connection_summary_;

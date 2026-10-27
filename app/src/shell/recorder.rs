@@ -640,6 +640,10 @@ impl Browser for Recorder {
 
     fn shortcuts(&self, _: &mut App) {}
 
+    fn passwords(&self, space: u64, _: &mut App) {
+        self.record(format!("passwords {space}"));
+    }
+
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}

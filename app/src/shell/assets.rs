@@ -94,6 +94,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/globe.svg", include_bytes!("../../assets/icons/globe.svg")),
     ("icons/hand.svg", include_bytes!("../../assets/icons/hand.svg")),
     ("icons/image.svg", include_bytes!("../../assets/icons/image.svg")),
+    ("icons/key-round.svg", include_bytes!("../../assets/icons/key-round.svg")),
     ("icons/keyboard.svg", include_bytes!("../../assets/icons/keyboard.svg")),
     ("icons/library.svg", include_bytes!("../../assets/icons/library.svg")),
     ("icons/link.svg", include_bytes!("../../assets/icons/link.svg")),
