@@ -46,16 +46,17 @@ send drag $(row 0) 100 330
 expect "^browser: dragged $other to today 2\$" "a drag of the top row to the bottom didn't move it"
 expect "^browser: today $opener $popup $other\$" \
   "the dragged tab didn't go under the popup's: $(grep '^browser: today' "$log" | tail -1)"
-# The page's context menu is Chrome's, without the items for what the browser doesn't have yet
-# (other windows, incognito) or whose UI is in Chrome's own window (Cast, Reading Mode).
+# The page's context menu is Chrome's, with Arc's link items, without those Arc's leaves out or
+# whose UI is in Chrome's own window (Copy Link Text, Reading Mode, Lens, QR Code, Cast).
 send key 1 cmd
 expect "^browser: selected $opener in " "⌘1 didn't show the page again"
 post rightclick 250 30
-expect '^browser: menu tracked Open Link in New Tab, Open Link in Split View, Save Link As…, ' \
+expect '^browser: menu tracked Open Link in New Tab, Open Link in New Window, Open Link in Split View, Open Link in Incognito Window, Save Link As…, ' \
   "a right-click on the page's link didn't show the link's menu"
 menu=$(grep '^browser: menu tracked' "$log" | tail -1 | cut -d' ' -f4-)
 case "$menu" in
-*Window*) fail "the link's menu offers what the window can't do: $menu" ;;
+*"Link Text"* | *"Reading Mode"* | *Lens* | *"QR Code"* | *Cast*)
+  fail "the link's menu offers what Arc's leaves out: $menu" ;;
 esac
 ../tools/window-screenshot.sh "$pid" "$out/link-menu.png" || fail "no window to capture"
 send choose Open Link in New Tab
