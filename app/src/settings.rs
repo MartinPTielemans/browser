@@ -222,6 +222,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
             ("Next Pane", Keys::Of(Command::NextPane)),
             ("Previous Pane", Keys::Of(Command::PreviousPane)),
             ("Separate Page from Split View", Keys::Of(Command::SeparatePane)),
+            ("Expand Current Split", Keys::Of(Command::ExpandSplit)),
             ("Separate All Pages", Keys::Of(Command::SeparateSplit)),
             ("Flip Split View", Keys::Of(Command::FlipSplit)),
             ("Change Orientation", Keys::Of(Command::ChangeOrientation)),
