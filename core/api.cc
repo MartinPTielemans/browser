@@ -749,16 +749,9 @@ bool bc_tab_set_system_engine(bc_id id, bool on) {
     browser_core::system_engine::Remember(profile, url);
     return true;
   }
-  // Forgotten first, so Chromium doesn't hand the pages straight back.
+  // Forgotten first, so Chromium doesn't hand the pages straight back once they go there.
   browser_core::system_engine::Forget(profile, url);
-  const std::string site = browser_core::system_engine::SiteOf(url);
-  for (content::WebContents* each : browser_core::Tab::All()) {
-    browser_core::Tab* tab = browser_core::Tab::FromWebContents(each);
-    if (each->GetBrowserContext() == profile && tab->system_page() &&
-        browser_core::system_engine::SiteOf(tab->system_page()->url()) == site) {
-      tab->UseChromium(tab->system_page()->url());
-    }
-  }
+  browser_core::system_engine::ReturnToChromium(profile, url);
   return true;
 }
 

@@ -110,7 +110,8 @@ class Tab : public content::WebContentsObserver,
   // The page the system's engine shows in place of Chromium's (system_engine.h), else null. Its
   // WebContents stays, unloaded, with the history it had.
   platform::SystemPage* system_page() const { return system_page_.get(); }
-  // Shows |url| in the system's engine. Going back from its first page goes back to Chromium's.
+  // Shows |url| in the system's engine, whose first load waits for the profile's session with the
+  // site to come over from Chromium. Going back from its first page goes back to Chromium's.
   // False, doing nothing, if the tab may not.
   bool UseSystemEngine(const GURL& url);
   // Back to Chromium, which loads |url|, or if it's empty its page where it was.
@@ -255,6 +256,8 @@ class Tab : public content::WebContentsObserver,
   // The page base colour the tab last gave its pages, if not Chrome's.
   std::optional<SkColor> shown_on_;
   std::unique_ptr<platform::SystemPage> system_page_;
+  // How many system pages the tab has made, the last of them system_page_.
+  int system_pages_ = 0;
   // The system page's favicon, PNG, and its title, which the app was last told of.
   std::vector<uint8_t> system_page_favicon_;
   std::string system_page_title_;

@@ -2,11 +2,12 @@
 //! a card under the URL field, where a page's question shows, until the tab goes to another site.
 //! Safari's engine plays these sites with Apple's DRM, so its one button shows the tab's page there,
 //! in the tab, and the profile keeps the site for it: its pages open there from then on, with no
-//! note, until the Site Controls turn it off (decision 1). Where the Mac has no engine to give, on
-//! macOS 13, and in an agent's Space, whose tabs never switch, it opens the page in Safari instead
-//! and leaves the tab as it is. There's nothing to dismiss: the site's own error stays in the page,
-//! and this says why. Agents get no path: it hands the user's page to another engine or app. The
-//! core reports it (tab_media_unsupported).
+//! note, until the Site Controls turn it off (decision 1). The site's session goes with the tab, so
+//! the user stays signed in. Where the Mac has no engine to give, on macOS 13, and in an agent's
+//! Space, whose tabs never switch, it opens the page in Safari instead and leaves the tab as it is.
+//! There's nothing to dismiss: the site's own error stays in the page, and this says why. Agents get
+//! no path: it hands the user's page to another engine or app. The core reports it
+//! (tab_media_unsupported).
 
 use gpui::{Context, FontWeight, SharedString, div, prelude::*, px, rgba};
 
@@ -16,11 +17,9 @@ use super::{
 };
 
 /// Ours, as neither Arc nor Dia has protected media to explain: short and plain. It says the video
-/// plays here, in this tab, and warns of the sign-in Safari's engine asks for once, as it keeps its
-/// own cookies.
-const SWITCH_WORDS: &str =
-    "This site's video needs Safari's engine. Play it in this tab, and the site may ask you to sign \
-     in once more.";
+/// plays here, in this tab. There's no sign-in to warn of, as the core brings the site's cookies and
+/// localStorage over with the tab.
+const SWITCH_WORDS: &str = "This site's video needs Safari's engine. Play it in this tab.";
 const SWITCH: &str = "Play in This Tab";
 const WORDS: &str =
     concat!("This site's video needs a module ", env!("APP_NAME"), " doesn't have yet.");

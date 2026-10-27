@@ -24,4 +24,16 @@ void SystemPage::ClearSite(const SystemStore&, const std::string&, bool, base::O
   std::move(done).Run();
 }
 
+void SystemPage::SetCookies(const SystemStore&,
+                            const std::vector<net::CanonicalCookie>&,
+                            base::OnceCallback<void(size_t)> done) {
+  std::move(done).Run(0);
+}
+
+void SystemPage::GetCookies(const SystemStore&,
+                            const std::string&,
+                            base::OnceCallback<void(std::vector<net::CanonicalCookie>)> done) {
+  std::move(done).Run({});
+}
+
 }  // namespace browser_core::platform
