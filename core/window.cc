@@ -127,6 +127,21 @@ constexpr size_t kMaxClears = 10;
 // Between the pages of a split view, as in Arc.
 constexpr int kSplitGap = 10;
 
+// What Expand Current Split leaves each of the other pages of a split view, as Arc's.
+constexpr int kExpandedOther = 220;
+
+// The shares of |count| pages across |length|, with the |focused| one taking what the others
+// don't: kExpandedOther each, no more than an even share, so it's never the smaller one on a card
+// too short for both. The app works out the same in expanded_shares (app/src/shell/panes.rs),
+// since it draws the split's gaps and rings.
+std::vector<double> ExpandedShares(size_t count, size_t focused, int length) {
+  const double span = length + kSplitGap;
+  const double other = std::min<double>(kExpandedOther + kSplitGap, span / count) / span;
+  std::vector<double> shares(count, other);
+  shares[focused] = 1 - other * (count - 1);
+  return shares;
+}
+
 // The Spaces going once their last tab closes.
 std::set<bc_id>& DeletingSpaces() {
   static base::NoDestructor<std::set<bc_id>> deleting;
@@ -404,7 +419,8 @@ void Window::PanesChanged() {
                         window->panes_) {
       window->Select(selected);
     } else if (space && (space->Stacked(selected) != window->stacked_ ||
-                         space->Shares(selected) != window->shares_)) {
+                         space->Expanded(selected) != window->expanded_ ||
+                         (!window->expanded_ && space->Shares(selected) != window->shares_))) {
       window->LayOutPage();
     }
   }
@@ -1044,6 +1060,12 @@ void Window::LayOutPage() {
   // is as wide or as tall as the others. A page full screen, alone, takes the whole frame.
   const int start = stacked_ ? page_frame_.y() : page_frame_.x();
   const int span = (stacked_ ? page_frame_.height() : page_frame_.width()) + kSplitGap;
+  // An expanded split keeps the others at 220 pt whatever the frame, so its shares come from it.
+  expanded_ = space ? space->Expanded(panes_.front()) : 0;
+  if (const auto at = std::ranges::find(panes_, expanded_);
+      expanded_ && at != panes_.end() && shown.size() == panes_.size()) {
+    shares_ = ExpandedShares(shown.size(), at - panes_.begin(), span - kSplitGap);
+  }
   const bool even = shares_.size() != shown.size();
   auto edge = [&](int index) {
     return start + (even ? span * index / count
