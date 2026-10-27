@@ -18,6 +18,7 @@ extern bool g_browser_core_supplies_windows;
 class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
 class GURL;
+class Profile;
 struct NavigateParams;
 
 namespace content {
@@ -33,6 +34,10 @@ class InstallPromptData;
 namespace mojo {
 template <typename ContextType>
 class BinderMapWithContext;
+}
+
+namespace policy {
+class ConfigurationPolicyProvider;
 }
 
 namespace ui {
@@ -102,5 +107,14 @@ extern void (*g_browser_core_page_hung)(content::WebContents* contents,
 // chrome/browser/net/net_error_tab_helper.cc: the core's offline page says whether a run of its
 // game is going. Only the error document in the tab's main frame can say it.
 extern void (*g_browser_core_offline_game)(content::WebContents* contents, bool running);
+
+// chrome/browser/extensions/extension_service.cc: loads the extensions the browser comes with into
+// |profile|, after the ones the command line names and before its extensions are ready.
+extern void (*g_browser_core_load_bundled_extensions)(Profile* profile);
+
+// chrome/browser/policy/profile_policy_connector.cc: policy the core sets for every profile,
+// under the platform's and the command line's, as for the extensions the browser comes with.
+// The core keeps it for as long as the browser runs.
+extern policy::ConfigurationPolicyProvider* (*g_browser_core_policy_provider)();
 
 #endif  // BROWSER_CORE_HOOKS_H_

@@ -29,6 +29,8 @@ config("exports") {
 
 source_set("browser_core") {
   sources = [
+    "ad_block.cc",
+    "ad_block.h",
     "api.cc",
     "archive.cc",
     "archive.h",
@@ -155,6 +157,7 @@ source_set("browser_core") {
     "//components/password_manager/core/browser:password_form",
     "//components/password_manager/core/common",
     "//components/permissions",
+    "//components/policy/core/common",
     "//components/pref_registry",
     "//components/prefs",
     "//components/search_engines",
