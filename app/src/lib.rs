@@ -93,6 +93,7 @@ pub mod dock_dot;
 pub mod elevation;
 pub mod face;
 pub mod icon_picker;
+pub mod link_preview;
 pub mod link_target;
 pub mod menu;
 pub mod offer;
