@@ -169,7 +169,9 @@ impl Browser for Recorder {
 
     fn go_forward(&self, _: u64, _: &mut App) {}
 
-    fn reload(&self, _: u64, _: bool, _: &mut App) {}
+    fn reload(&self, tab: u64, bypass_cache: bool, _: &mut App) {
+        self.record(format!("reload {tab}{}", if bypass_cache { " bypassing cache" } else { "" }))
+    }
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
@@ -344,6 +346,10 @@ impl Browser for Recorder {
 
     fn full_screen_note(&self, shown: bool, _: &mut App) {
         self.record(format!("full screen note {}", if shown { "shown" } else { "hidden" }))
+    }
+
+    fn hang_note(&self, tab: u64, shown: bool, _: &mut App) {
+        self.record(format!("hang note {tab} {}", if shown { "shown" } else { "hidden" }))
     }
 
     fn tooltip(&self, tip: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, _: &mut App) {

@@ -259,6 +259,9 @@ pub trait Browser {
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);
     /// Shows the note on how to leave full screen in the toast, or takes it away if it shows.
     fn full_screen_note(&self, shown: bool, cx: &mut App);
+    /// Shows the note that `tab`'s page stopped answering in the toast, with Wait and Reload, until
+    /// one is pressed or it's taken away (`shown` false).
+    fn hang_note(&self, tab: u64, shown: bool, cx: &mut App);
     /// Shows `tip` in a tooltip after its delay, hung from `anchor` in the window, or at once if
     /// one shows; `None` ends it. The app does the same on the window losing the keyboard.
     fn tooltip(&self, tip: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, cx: &mut App);
@@ -362,6 +365,21 @@ pub struct Page {
     pub muted: bool,
     /// The emoji the user gave the tab to show in place of its page's favicon, or empty.
     pub icon: SharedString,
+    pub trouble: Trouble,
+}
+
+/// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the
+/// same.
+#[derive(Clone, Copy, Default, PartialEq, Debug)]
+pub enum Trouble {
+    #[default]
+    Fine,
+    /// Its renderer died while a window showed it: its pane shows the app's card, with Reload.
+    Crashed,
+    /// It hasn't answered input for Chrome's hang timeout: a note over it offers Wait and Reload.
+    Hung,
+    /// It's the core's error page for a load that failed, with Chromium's net error code.
+    NetworkError(i32),
 }
 
 /// A split view: its tabs in their order, which sit together in their list as one row, shown side
