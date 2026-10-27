@@ -248,7 +248,7 @@ send resize 1000 700
 expect '^browser: drawn at 1000x700$' "the window didn't draw at its new size"
 read_pages
 set -- $pages
-[ "${3%x*}" = 220 ] && [ "${6%%,*}" = "$((x + 230))" ] && [ "${8%x*}" -lt "$((w - 230))" ] ||
+[ "${3%x*}" = 220 ] && [ "${5%%,*}" = "$((x + 230))" ] && [ "${6%x*}" -lt "$((w - 230))" ] ||
   fail "resized, the left pane isn't 220 wide, with the right one beside it: $pages"
 send resize $size
 expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
