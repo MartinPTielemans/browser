@@ -1111,7 +1111,9 @@ BC_EXPORT size_t bc_search_url(const char* keyword, const char* text, char* url,
 // had it. For a window that shows no Space; one that does uses bc_window_select.
 BC_EXPORT void bc_tab_show(bc_id tab, bc_rect frame);
 
-// Loads |url| in the tab.
+// Loads |url| in the tab. A pinned tab keeps its page, as in Arc: an address other than its page's
+// opens in a tab it opened, at the top of its Space's Today tabs, shown if its window shows that
+// Space, and closing that tab shows the pinned one again.
 BC_EXPORT void bc_tab_navigate(bc_id tab, const char* url);
 
 // Goes back, or forward, in the tab's history, if it has a page that way.
