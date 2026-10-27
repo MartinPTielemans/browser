@@ -46,7 +46,9 @@ Agents (decision 8): the built-in local MCP server, Agent Spaces (their hidden t
 
 ## Phase 5: Windows, then Linux
 
-Per platform: the platform layer, packaging, updater, signing.
+Per platform: the platform layer, packaging, updater, signing. Linux first runs on X11, under XWayland on Wayland desktops, then on native Wayland (decision 3).
+
+**Done when** each platform's build passes the parity checklist's MVP items and the performance gate, and on Linux that holds on native Wayland as well as X11.
 
 ## Performance gate
 
