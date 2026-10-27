@@ -12,6 +12,7 @@ use gpui::{
 };
 
 use super::{
+    access::Accessible,
     BACK_X, Command, FORWARD_X, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS,
     NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY, SIDEBAR_BUTTON_X, Shell,
     Swapped, TILE_HOVERED, TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE,
@@ -67,6 +68,14 @@ impl Shell {
             .justify_center()
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll();
+        let name = self.button_name(command).unwrap_or(command.name());
+        let button = button.when(self.a11y, |button| {
+            button.button_named(name).a11y_synthetic_children(move |builder| {
+                if !enabled {
+                    builder.parent_node().set_disabled();
+                }
+            })
+        });
         // A dimmed one names itself too, as the system's tooltips do.
         self.with_tooltip(button, command, TipSide::Under, cx)
             .when(enabled, |button| {
@@ -138,7 +147,7 @@ impl Shell {
     /// What a sidebar button's tooltip calls `command`: the menus' name, as Arc's Library button
     /// says "View Library" where its command bar says "Open Library…", else the bar's. The sidebar
     /// button's is what Arc labels it, what a click does now.
-    fn button_name(&self, command: Command) -> Option<&'static str> {
+    pub(super) fn button_name(&self, command: Command) -> Option<&'static str> {
         match command {
             Command::ToggleSidebar if self.sidebar_hidden => Some("Lock Sidebar"),
             Command::ToggleSidebar => Some("Hide Sidebar"),
@@ -264,6 +273,7 @@ impl Shell {
         let end = self.site_controls_end();
         let copy = tools.then(|| {
             let button = self.field_tool("copy-url", end + TOOL_PITCH);
+            let button = button.when(self.a11y, |button| button.button_named("Copy URL"));
             self.with_tooltip(button, Command::CopyUrl, TipSide::Under, cx)
                 // Fading out, it takes no click.
                 .when(live, |button| {
@@ -281,6 +291,9 @@ impl Shell {
         });
         let site_controls = tools.then(|| {
             self.field_tool("site-controls", end)
+                .when(self.a11y, |button| {
+                    button.button_named("Site Controls").pressed_by_mouse_down(true, false)
+                })
                 .when(live, |button| {
                     button
                         .block_mouse_except_scroll()
@@ -307,8 +320,14 @@ impl Shell {
             false if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
             false => URL_BUTTON_INSET + buttons_width,
         };
-        div()
-            .id("url-field")
+        // A button, as it is: a press opens the command bar on the URL, where it's edited. It's
+        // called what it shows, the host.
+        let field = div().id("url-field").when(self.a11y, |field| {
+            field.button_named(words.clone()).a11y_synthetic_children(|builder| {
+                builder.parent_node().set_role_description("address")
+            })
+        });
+        field
             .absolute()
             .top(px(URL_FIELD_TOP))
             .left(px(PLATE_INSET))
@@ -344,14 +363,16 @@ impl Shell {
     }
 
     /// Whether they take clicks: while the pointer is over the sidebar, and not while they fade
-    /// out. The reveal's panel shows only under the pointer.
+    /// out. The reveal's panel shows only under the pointer. VoiceOver's cursor is no pointer,
+    /// so they stay for it.
     pub(super) fn tools_live(&self) -> bool {
-        self.sidebar_hovered || self.sidebar_hidden
+        self.sidebar_hovered || self.sidebar_hidden || self.a11y
     }
 
-    /// How far they've faded in. The reveal's panel shows them at once.
+    /// How far they've faded in. The reveal's panel shows them at once, as the sidebar does while
+    /// an assistive app reads it.
     pub(super) fn tools_opacity(&self) -> f32 {
-        if self.sidebar_hidden {
+        if self.sidebar_hidden || self.a11y {
             return 1.;
         }
         let to = if self.tools_on { 1. } else { 0. };

@@ -12,7 +12,7 @@ use std::{ops::Range, rc::Rc};
 use gpui::{
     Action, App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, ElementInputHandler,
     Entity, EntityInputHandler, FocusHandle, Focusable, Global, GlobalElementId, Hsla, KeyBinding,
-    LayoutId, MouseButton,
+    LayoutId, MouseButton, Role,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
     SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla,
     point, prelude::*, px, relative, rgba, size,
@@ -844,8 +844,16 @@ impl Element for TextElement {
 }
 
 impl Render for TextInput {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .id("text-input")
+            // A text field called what its placeholder asks for, saying what's typed in it, while
+            // an assistive app reads the window. Typing still goes through the input handler, so
+            // VoiceOver hears what IME commits.
+            .when(window.is_a11y_active(), |field| {
+                let name = self.placeholder.trim_end_matches('…').to_owned();
+                field.role(Role::TextInput).aria_label(name).aria_value(self.content.clone())
+            })
             .flex()
             .key_context("TextInput")
             .track_focus(&self.focus_handle(cx))

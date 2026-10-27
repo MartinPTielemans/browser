@@ -15,6 +15,7 @@ use gpui::{
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
     img, point, prelude::*, px, rgb, rgba, size, svg,
 };
+use gpui::{Role, accesskit::Live};
 
 use crate::{
     shell::{self, Match},
@@ -320,6 +321,8 @@ pub struct CommandBar {
     selected: usize,
     /// The row under the pointer, which keeps its plate as the keys move the selection (Arc).
     hovered: Option<usize>,
+    /// Whether an assistive app reads the bar's window, so its rows say what they are.
+    a11y: bool,
     /// Whether it shows over the URL field, from a click on it, rather than centred.
     over_field: bool,
     /// The URL it opened on, whose favicon the input shows until it's edited, as Arc's does.
@@ -429,6 +432,7 @@ pub fn open_at(
                 suggested: String::new(),
                 selected: 0,
                 hovered: None,
+                a11y: false,
                 over_field: false,
                 page: String::new(),
                 site: None,
@@ -1348,6 +1352,30 @@ impl CommandBar {
         )
     }
 
+    /// What VoiceOver reads for a row: what it says, then what ↩ does on it when that isn't to
+    /// open it.
+    fn spoken(&self, row: &Suggestion) -> String {
+        let mut spoken = row.text.to_string();
+        if !row.detail.is_empty() && !self.over_field {
+            spoken = format!("{spoken}, {}", row.detail);
+        }
+        if row.tab != 0 {
+            let action = match self.target {
+                Target::Beside(_) => "Add to Split View",
+                _ => "Switch to Tab",
+            };
+            spoken = format!("{spoken}, {action}");
+        }
+        spoken
+    }
+
+    /// The selected row and where it stands, which VoiceOver says as the keys move the selection
+    /// while the field keeps the keyboard, as Chrome's address bar does.
+    fn announced(&self) -> Option<String> {
+        let row = self.rows.get(self.selected)?;
+        Some(format!("{}, {} of {}", self.spoken(row), self.selected + 1, self.rows.len()))
+    }
+
     fn row(&self, index: usize, row: &Suggestion, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = index == self.selected;
         // The selected row keeps its accent under the pointer.
@@ -1399,6 +1427,13 @@ impl CommandBar {
         };
         div()
             .id(("suggestion", index))
+            .when(self.a11y, |line| {
+                line.role(Role::ListBoxOption)
+                    .aria_label(self.spoken(row))
+                    .aria_selected(selected)
+                    .aria_position_in_set(index + 1)
+                    .aria_size_of_set(self.rows.len())
+            })
             .h(px(ROW_HEIGHT - 2. * PLATE_INSET))
             .mx(px(PLATE_INSET))
             .my(px(PLATE_INSET))
@@ -1458,6 +1493,20 @@ impl CommandBar {
     }
 }
 
+impl CommandBar {
+    /// A live region that says the selected row as it changes, a polite one, so typing's echo
+    /// comes first.
+    fn announcer(&self) -> impl IntoElement + use<> {
+        div()
+            .id("selected-suggestion")
+            .absolute()
+            .size_0()
+            .role(Role::Status)
+            .when_some(self.announced(), |announcer, said| announcer.aria_value(said))
+            .a11y_synthetic_children(|builder| builder.parent_node().set_live(Live::Polite))
+    }
+}
+
 /// The glyph at `path`, `size` square, in `color`.
 fn glyph(path: &'static str, size: f32, color: Hsla) -> AnyElement {
     svg().path(path).size(px(size)).flex_none().text_color(color).into_any_element()
@@ -1475,6 +1524,7 @@ impl Render for CommandBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // check.sh reads these lines.
         log!("browser: command bar drew \"{}\"", self.input.read(cx).text());
+        self.a11y = window.is_a11y_active();
         let rows: Vec<_> = self
             .rows
             .iter()
@@ -1580,6 +1630,9 @@ impl Render for CommandBar {
                     bar.child(
                         div()
                             .id("suggestions")
+                            .when(self.a11y, |list| {
+                                list.role(Role::ListBox).aria_label("Suggestions")
+                            })
                             .mt(px(list_top))
                             .mx(px(LIST_X))
                             .h(px(shown * ROW_HEIGHT))
@@ -1591,6 +1644,7 @@ impl Render for CommandBar {
                             .children(rows),
                     )
                 })
+                .children(self.a11y.then(|| self.announcer()))
                 // Arc's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
                 .child(edge(0., hairline, OUTLINE))
                 .child(edge(hairline, 1., EDGE)),

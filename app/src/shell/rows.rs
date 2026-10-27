@@ -7,7 +7,7 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent, SharedString,
+    AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent, Role, SharedString,
     Transformation, canvas, div, percentage, prelude::*, px, rgb, rgba, svg,
 };
 
@@ -23,7 +23,10 @@ use super::{
     selected_plate, space_icon, split_plate, swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph},
     title,
 };
-use super::drag::in_sidebar;
+use super::{
+    access::{Accessible, NEW_TAB},
+    drag::in_sidebar,
+};
 use crate::icon_picker::{self, Subject};
 
 impl Shell {
@@ -119,7 +122,43 @@ impl Shell {
                 shell.hover(row, *hovered, cx);
                 shell.hover_tooltip(row, *hovered, cx)
             }))
+            // The ghost is a picture of a row that stays in the list.
+            .when(self.a11y && !ghost, |element| self.row_access(element, row, selected))
             .child(scaled_from_middle(plate, scale))
+    }
+
+    /// What assistive apps read of a row: a tab, selected or not, a folder, open or closed, or New
+    /// Tab. A split view's row is its segments, each a tab.
+    fn row_access(
+        &self,
+        element: gpui::Stateful<gpui::Div>,
+        row: Row,
+        selected: bool,
+    ) -> gpui::Stateful<gpui::Div> {
+        match row {
+            Row::NewTab => element.accessibility_id(NEW_TAB).button_named("New Tab"),
+            Row::Tab(folder) if self.is_folder(folder) => {
+                let open = self.shown_space().is_some_and(|space| space.is_open(folder));
+                element
+                    .role(Role::Button)
+                    .accessibility_id(Self::folder_access_id(folder))
+                    .aria_label(self.folder_name(folder))
+                    .aria_expanded(open)
+                    .a11y_synthetic_children(|builder| {
+                        let node = builder.parent_node();
+                        node.set_role_description("folder");
+                        node.add_action(gpui::AccessibleAction::Click);
+                        node.add_action(gpui::AccessibleAction::ShowContextMenu);
+                    })
+            }
+            Row::Tab(tab) if self.panes(tab).len() > 1 => element,
+            Row::Tab(tab) => element
+                .role(Role::Tab)
+                .accessibility_id(Self::tab_access_id(tab))
+                .aria_label(self.tab_label(tab))
+                .aria_selected(selected)
+                .pressed_by_mouse_down(true, true),
+        }
     }
 
     /// How full `row`'s hover fill is: full under the pointer or with its menu up, and for the
@@ -415,6 +454,14 @@ impl Shell {
     ) -> gpui::Stateful<gpui::Div> {
         self.segment(tab, width, first, focused)
             .id(("segment", tab))
+            .when(self.a11y, |segment| {
+                segment
+                    .role(Role::Tab)
+                    .accessibility_id(Self::tab_access_id(tab))
+                    .aria_label(format!("{}, split view", self.tab_label(tab)))
+                    .aria_selected(focused)
+                    .pressed_by_mouse_down(true, true)
+            })
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -636,6 +683,9 @@ impl Shell {
                 .size(px(SPACE_ICON_PLATE))
                 .rounded(px(NAV_RADIUS))
                 .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                .when(self.a11y, |plate| {
+                    plate.button_named("Change Icon").pressed_by_mouse_down(true, false)
+                })
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |shell, _: &MouseDownEvent, _, cx| {
@@ -653,8 +703,17 @@ impl Shell {
             .top_0()
             .left_0()
             .size_full();
+        let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
+        // A heading VoiceOver can jump to, whose menu is the Space's.
         let row = name_box()
             .id("space-name")
+            .when(self.a11y, |row| {
+                row.role(Role::Heading)
+                    .accessibility_id("space-name")
+                    .aria_label(name.clone())
+                    .aria_level(2)
+                    .pressed_by_mouse_down(false, true)
+            })
             .block_mouse_except_scroll()
             .child(bounds)
             .children(icon_plate)
@@ -673,7 +732,6 @@ impl Shell {
                 .text_color(rgb(FORM_TEXT))
                 .child(renaming.name.clone());
         }
-        let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
         row.on_mouse_down(
             MouseButton::Left,
             cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -703,6 +761,9 @@ impl Shell {
             let color = if live && self.clear_hovered { CLEAR_HOVERED } else { CLEAR };
             let glyph = self.swaps.glyph(what, arrow, CLEAR_ARROW, rgba(color).into());
             let clear = clear_label(glyph, room, color).id("clear").opacity(self.tools_opacity());
+            let clear = clear.when(self.a11y, |clear| {
+                clear.accessibility_id("clear").button_named("Clear Today")
+            });
             clear.when(live, |clear| {
                 clear
                     .block_mouse_except_scroll()

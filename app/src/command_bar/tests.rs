@@ -1136,3 +1136,42 @@ fn the_list_scrolls_to_keep_the_selection_in_view(cx: &mut TestAppContext) {
     assert!(in_view(&mut bar, 8));
     assert!(!in_view(&mut bar, 0));
 }
+
+/// VoiceOver finds the keyboard in a text field called what its placeholder says, and the rows in
+/// a list of suggestions with the selected one marked. As the keys move the selection while the
+/// field keeps the keyboard, a polite live region says the row and where it stands.
+#[gpui::test]
+fn voiceover_hears_the_selected_row_as_the_keys_move_it(cx: &mut TestAppContext) {
+    use gpui::accesskit::{Live, Role};
+    let mut bar = Bar::new(cx);
+    bar.cx.simulate_a11y_activation();
+    bar.type_text("do");
+    let docs = page("https://docs.test/");
+    let docs = Suggestion { text: "Docs".into(), detail: "docs.test".into(), tab: 7, ..docs };
+    bar.suggest("do", vec![Suggestion { text: "do".into(), ..searching("do") }, docs]);
+    let tree = bar.cx.a11y_tree().expect("GPUI built a tree");
+    let nodes = |role: Role| -> Vec<_> {
+        tree.nodes.iter().filter(|(_, node)| node.role() == role).cloned().collect()
+    };
+
+    let field = &nodes(Role::TextInput)[0];
+    assert_eq!(field.1.label(), Some("Search or Enter URL"));
+    assert_eq!(field.1.value(), Some("do"));
+    assert_eq!(tree.focus, field.0);
+    let list = &nodes(Role::ListBox)[0];
+    assert_eq!(list.1.label(), Some("Suggestions"));
+    let options: Vec<_> = (nodes(Role::ListBoxOption).iter())
+        .map(|(_, node)| (node.label().unwrap().to_owned(), node.is_selected()))
+        .collect();
+    assert_eq!(
+        options,
+        [("do".into(), Some(true)), ("Docs, docs.test, Switch to Tab".into(), Some(false))]
+    );
+    let status = &nodes(Role::Status)[0].1;
+    assert_eq!((status.live(), status.value()), (Some(Live::Polite), Some("do, 1 of 2")));
+
+    bar.keys("down");
+    let tree = bar.cx.a11y_tree().expect("GPUI built a tree");
+    let status = tree.nodes.iter().find(|(_, node)| node.role() == Role::Status).unwrap();
+    assert_eq!(status.1.value(), Some("Docs, docs.test, Switch to Tab, 2 of 2"));
+}

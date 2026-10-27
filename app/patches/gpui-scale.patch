@@ -1,3 +1,98 @@
+diff --git a/crates/gpui/src/app/test_context.rs b/crates/gpui/src/app/test_context.rs
+index 54b72a63ec..cf7cd404f3 100644
+--- a/crates/gpui/src/app/test_context.rs
++++ b/crates/gpui/src/app/test_context.rs
+@@ -1009,6 +1009,30 @@ impl VisualTestContext {
+         })
+     }
+ 
++    /// Turns accessibility on in the window, as an assistive app's first question does, and
++    /// draws the tree it then sends.
++    pub fn simulate_a11y_activation(&mut self) {
++        self.test_window(self.window).simulate_a11y_activation();
++        self.run_until_parked();
++    }
++
++    /// Asks for `action` on `node`, as an assistive app does, and runs what it starts.
++    pub fn simulate_a11y_action(&mut self, node: accesskit::NodeId, action: accesskit::Action) {
++        self.test_window(self.window)
++            .simulate_a11y_action(accesskit::ActionRequest {
++                action,
++                target_tree: accesskit::TreeId::ROOT,
++                target_node: node,
++                data: None,
++            });
++        self.run_until_parked();
++    }
++
++    /// The tree the window last sent to assistive apps, once accessibility is on.
++    pub fn a11y_tree(&self) -> Option<accesskit::TreeUpdate> {
++        self.test_window(self.window).a11y_tree()
++    }
++
+     /// Simulates the user resizing the window to the new size.
+     pub fn simulate_resize(&self, size: Size<Pixels>) {
+         self.simulate_window_resize(self.window, size)
+diff --git a/crates/gpui/src/platform/test/window.rs b/crates/gpui/src/platform/test/window.rs
+index 5692b1e7cb..97632c7ab2 100644
+--- a/crates/gpui/src/platform/test/window.rs
++++ b/crates/gpui/src/platform/test/window.rs
+@@ -58,6 +58,10 @@ pub(crate) struct TestWindowState {
+     appearance: WindowAppearance,
+     external_drag_files: Vec<(PathBuf, bool)>,
+     start_external_drag_result: bool,
++    /// What the window gave the platform's accessibility adapter, and the tree it sent last, so a
++    /// test can stand in for an assistive app.
++    a11y_callbacks: Option<crate::A11yCallbacks>,
++    a11y_tree: Option<accesskit::TreeUpdate>,
+ }
+ 
+ #[derive(Clone)]
+@@ -133,8 +137,29 @@ impl TestWindow {
+             appearance: WindowAppearance::Light,
+             external_drag_files: Vec::new(),
+             start_external_drag_result: false,
++            a11y_callbacks: None,
++            a11y_tree: None,
+         })))
+     }
++
++    /// Turns accessibility on, as an assistive app's first question does.
++    pub fn simulate_a11y_activation(&self) {
++        if let Some(callbacks) = self.0.lock().a11y_callbacks.as_ref() {
++            (callbacks.activation)();
++        }
++    }
++
++    /// Asks for an action, as an assistive app does.
++    pub fn simulate_a11y_action(&self, request: accesskit::ActionRequest) {
++        if let Some(callbacks) = self.0.lock().a11y_callbacks.as_ref() {
++            (callbacks.action)(request);
++        }
++    }
++
++    /// The tree the window sent last while accessibility was on.
++    pub fn a11y_tree(&self) -> Option<accesskit::TreeUpdate> {
++        self.0.lock().a11y_tree.clone()
++    }
+     pub fn simulate_scheduled_frame(&self) -> bool {
+         let callback = {
+             let mut state = self.0.lock();
+@@ -306,6 +331,14 @@ impl TestWindow {
+ }
+ 
+ impl PlatformWindow for TestWindow {
++    fn a11y_init(&self, callbacks: crate::A11yCallbacks) {
++        self.0.lock().a11y_callbacks = Some(callbacks);
++    }
++
++    fn a11y_tree_update(&self, tree_update: accesskit::TreeUpdate) {
++        self.0.lock().a11y_tree = Some(tree_update);
++    }
++
+     fn visual_viewport_bounds(&self) -> Bounds<Pixels> {
+         let state = self.0.lock();
+         state
 diff --git a/crates/gpui/src/scene.rs b/crates/gpui/src/scene.rs
 index 6cb33874b2..0066ba74a2 100644
 --- a/crates/gpui/src/scene.rs
@@ -135,7 +230,7 @@ index 6cb33874b2..0066ba74a2 100644
  
  #[cfg_attr(
 diff --git a/crates/gpui/src/window.rs b/crates/gpui/src/window.rs
-index c559412e56..432c5d9a2c 100644
+index c559412e56..1548bd627a 100644
 --- a/crates/gpui/src/window.rs
 +++ b/crates/gpui/src/window.rs
 @@ -4227,6 +4227,25 @@ impl Window {
@@ -164,3 +259,54 @@ index c559412e56..432c5d9a2c 100644
      pub(crate) fn with_element_opacity<R>(
          &mut self,
          opacity: Option<f32>,
+@@ -7097,18 +7116,24 @@ impl Window {
+ 
+         // Fall back to built-in action handling.
+         match request.action {
+-            accesskit::Action::Click => {
++            // A press is a click at the node's centre, and a request for its menu a right-click
++            // there, so an element's mouse listeners answer both.
++            accesskit::Action::Click | accesskit::Action::ShowContextMenu => {
++                let button = match request.action {
++                    accesskit::Action::Click => MouseButton::Left,
++                    _ => MouseButton::Right,
++                };
+                 if let Some(bounds) = self.a11y.node_bounds.get(&request.target_node).copied() {
+                     let center = bounds.center();
+                     let mouse_down = PlatformInput::MouseDown(crate::MouseDownEvent {
+-                        button: MouseButton::Left,
++                        button,
+                         position: center,
+                         modifiers: Modifiers::default(),
+                         click_count: 1,
+                         first_mouse: false,
+                     });
+                     let mouse_up = PlatformInput::MouseUp(MouseUpEvent {
+-                        button: MouseButton::Left,
++                        button,
+                         position: center,
+                         modifiers: Modifiers::default(),
+                         click_count: 1,
+diff --git a/crates/gpui/src/window/a11y.rs b/crates/gpui/src/window/a11y.rs
+index 5b63821232..cb7d8413de 100644
+--- a/crates/gpui/src/window/a11y.rs
++++ b/crates/gpui/src/window/a11y.rs
+@@ -360,6 +360,18 @@ impl<'a> A11ySubtreeBuilder<'a> {
+         pushed
+     }
+ 
++    /// A node built this frame that is done, such as one of this element's children, which
++    /// [`Self::parent_node`] lists, so they can be grouped by what they are and told where they
++    /// stand in the group.
++    pub fn built_node(&mut self, id: NodeId) -> Option<&mut accesskit::Node> {
++        self.nodes
++            .all_nodes
++            .iter_mut()
++            .rev()
++            .find(|(each, _)| *each == id)
++            .map(|(_, node)| node)
++    }
++
+     /// A mutable reference to the parent node.
+     pub fn parent_node(&mut self) -> &mut accesskit::Node {
+         self.nodes
