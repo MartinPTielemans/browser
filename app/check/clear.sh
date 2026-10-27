@@ -687,8 +687,20 @@ EOF
 # core no longer reports it, read from the line the log had before each page asked.
 none_after() { ! tail -n "+$(($1 + 1))" "$log" | grep -q "$2"; }
 go_from_bar "localhost:$port/drm.html"
-expect "^browser: drm note $tab at " "localhost's page asking for Widevine brought no note"
+expect "^browser: page $tab needs com.widevine.alpha\$" \
+  "localhost's page asking for Widevine brought no note"
+# 127.0.0.1's note goes as the tab leaves its site, but when localhost's page asks before the next
+# frame, the note stays drawn where it was, which logs no line. So it's the last line about it.
 send layout
+drawn=
+for _ in $(seq 20); do
+  if grep -E "^browser: drm note ($tab at |hidden\$)" "$log" | tail -1 | grep -q ' at '; then
+    drawn=1
+    break
+  fi
+  sleep 0.1
+done
+[ -n "$drawn" ] || fail "localhost's note wasn't drawn"
 read -r nx ny nw nh <<EOF
 $(grep "^browser: drm note $tab at " "$log" | tail -1 | cut -d' ' -f6-)
 EOF
