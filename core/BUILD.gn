@@ -11,6 +11,8 @@ config("exports") {
 
 source_set("browser_core") {
   sources = [
+    "ad_block.cc",
+    "ad_block.h",
     "api.cc",
     "archive.cc",
     "archive.h",
@@ -120,6 +122,7 @@ source_set("browser_core") {
     "//components/omnibox/browser",
     "//components/page_info",
     "//components/permissions",
+    "//components/policy/core/common",
     "//components/prefs",
     "//components/search_engines",
     "//components/sessions",

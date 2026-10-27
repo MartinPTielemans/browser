@@ -143,6 +143,9 @@ typedef struct bc_extension {
   const char* options;
   const bc_extension_command* commands;
   size_t command_count;
+  // Whether the user may remove it (bc_extension_remove). The ad blocker the browser comes with is
+  // turned off in Settings instead (bc_set_ad_blocking).
+  bool removable;
 } bc_extension;
 
 // An extension's action as a window shows it, for the tab it shows.
@@ -250,6 +253,13 @@ typedef struct bc_site_permission {
 #define BC_PICTURE_IN_PICTURE_ENTER 1
 #define BC_PICTURE_IN_PICTURE_EXIT 2
 
+// Whether the ad blocker runs on the site of a tab's page, as its Site Controls show: not the
+// user's to change there (a page that isn't http(s), a private window, or ad blocking off), on, or
+// turned off for the site.
+#define BC_AD_BLOCKING_NONE 0
+#define BC_AD_BLOCKING_ON 1
+#define BC_AD_BLOCKING_OFF 2
+
 // The site of a tab's page, for its Site Controls.
 typedef struct bc_site_controls {
   // The site as the user should see it, such as "example.com".
@@ -268,6 +278,8 @@ typedef struct bc_site_controls {
   int picture_in_picture;
   // The page came with a certificate, which bc_tab_show_certificate shows.
   bool certificate;
+  // A BC_AD_BLOCKING_ value, which bc_tab_set_ad_blocking changes.
+  int ad_blocking;
 } bc_site_controls;
 
 // An extension's side panel as a window shows it, beside the page of the tab it shows.
@@ -741,7 +753,7 @@ BC_EXPORT void bc_extension_set_pinned(bc_id profile, const char* id, bool pinne
 
 // Removes the extension from the profile, with the data it keeps, as Chrome's Remove does once the
 // user confirms, so the app asks first. Returns false if it can't be removed, as one that policy
-// installed. Then extensions_changed.
+// installed or the ad blocker the browser comes with. Then extensions_changed.
 BC_EXPORT bool bc_extension_remove(bc_id profile, const char* id);
 
 // Answers the question window_extension_question put, accepting it or not, if it's still asked:
@@ -782,6 +794,12 @@ BC_EXPORT void bc_set_warn_before_quitting(bool warn);
 // does. The core keeps it with the Spaces.
 BC_EXPORT bool bc_warn_moving_profiles(void);
 BC_EXPORT void bc_set_warn_moving_profiles(bool warn);
+// Whether the browser blocks ads and trackers, in every profile and its private windows, with the
+// uBlock Origin it comes with: on unless the user turned it off. Off turns uBlock Origin off in
+// each profile, as its switch in Chrome's extensions page does. The core keeps it with the Spaces.
+// The user's: agents get none, as it keeps trackers off the user's pages.
+BC_EXPORT bool bc_ad_blocking(void);
+BC_EXPORT void bc_set_ad_blocking(bool on);
 
 // What bc_download_act does: opens the file, or for one still running, opens it once it's done or
 // no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off
@@ -931,6 +949,12 @@ BC_EXPORT void bc_tab_set_site_permission(bc_id tab, int type, int value);
 // permissions" does, if bc_tab_site_controls is watching the tab. Then tab_site_controls. The
 // user's, as bc_tab_set_site_permission is.
 BC_EXPORT void bc_tab_reset_site_permissions(bc_id tab);
+
+// Lets the ad blocker run on the site of the tab's page or not, if bc_tab_site_controls is watching
+// the tab and bc_site_controls' ad_blocking isn't BC_AD_BLOCKING_NONE, and reloads the page. The
+// profile keeps it, for the site and its subdomains. Then tab_site_controls. The user's, as
+// bc_set_ad_blocking is.
+BC_EXPORT void bc_tab_set_ad_blocking(bc_id tab, bool on);
 
 // Takes the tab's playing video into Picture in Picture, or brings it back, as
 // bc_site_controls' picture_in_picture says it can. Then tab_site_controls.

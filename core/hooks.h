@@ -15,6 +15,7 @@ extern bool g_browser_core_supplies_windows;
 
 class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
+class Profile;
 struct NavigateParams;
 
 namespace content {
@@ -23,6 +24,10 @@ class WebContents;
 
 namespace extensions {
 class InstallPromptData;
+}
+
+namespace policy {
+class ConfigurationPolicyProvider;
 }
 
 namespace ui {
@@ -60,5 +65,14 @@ extern void (*g_browser_core_extension_install_dialog)(
     std::unique_ptr<ExtensionInstallPromptShowParams> show_params,
     extensions::ExtensionInstallPromptClient::DoneCallback done_callback,
     std::unique_ptr<extensions::InstallPromptData> prompt);
+
+// chrome/browser/extensions/extension_service.cc: loads the extensions the browser comes with into
+// |profile|, after the ones the command line names and before its extensions are ready.
+extern void (*g_browser_core_load_bundled_extensions)(Profile* profile);
+
+// chrome/browser/policy/profile_policy_connector.cc: policy the core sets for every profile,
+// under the platform's and the command line's, as for the extensions the browser comes with.
+// The core keeps it for as long as the browser runs.
+extern policy::ConfigurationPolicyProvider* (*g_browser_core_policy_provider)();
 
 #endif  // BROWSER_CORE_HOOKS_H_

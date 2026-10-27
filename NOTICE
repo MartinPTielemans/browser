@@ -16,7 +16,7 @@ corner-down-left, credit-card, database, download, ellipsis, external-link, file
 folder, folder-open, folder-plus, gamepad-2, glasses, globe, hand, image, keyboard, library, link,
 map-pin, maximize, megaphone, mic, mouse-pointer-2, network, nfc, paintbrush, panel-left, pencil,
 piano, picture-in-picture-2, pin, plus, printer, puzzle, rotate-ccw-clock, rotate-cw, save, search,
-settings, share, sliders-horizontal, speaker, square-mouse-pointer, terminal, text-search, trash,
+settings, share, shield, sliders-horizontal, speaker, square-mouse-pointer, terminal, text-search, trash,
 type, undo-2, usb, user, vibrate, video, volume-2, volume-x, x, zap, zoom-in and zoom-out,
 and rotate-cw and x scaled as nav-reload and nav-stop; and camera's path, drawn as Capture's
 pointer, in app/platform/mac/host.mm; at commit
@@ -99,3 +99,12 @@ at commit 2b75f3ad12b420c9504ef05df8d2564a28f8500e.
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
+
+uBlock Origin (https://github.com/gorhill/uBlock), GNU General Public License v3.0 or later
+Shipped unchanged but for the "key" app/fetch-ublock.sh adds to its manifest, in the app's
+framework's resources, as app/build.sh puts it there: release 1.75.0, the version and sha256
+app/ublock.ini pins, whose source is at https://github.com/gorhill/uBlock/tree/1.75.0. The license
+travels with it, as its LICENSE.txt, and the filter lists it bundles keep their own.
+
+  uBlock Origin - a comprehensive, efficient content blocker
+  Copyright (C) 2014-present Raymond Hill
