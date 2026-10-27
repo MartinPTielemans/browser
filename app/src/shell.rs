@@ -12,9 +12,9 @@ use std::{
 
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, DispatchPhase, Entity, FocusHandle, Focusable,
-    FontWeight, Hsla, Image, MouseButton, MouseExitEvent, MouseMoveEvent, MouseUpEvent, Pixels,
-    Point, Rgba, ScrollHandle, SharedString, Size, Subscription, Task, Window, canvas, div, img,
-    point, prelude::*, px, rgb, rgba, svg,
+    FontWeight, Hsla, Image, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, Rgba, ScrollHandle, SharedString, Size, Subscription, Task,
+    Window, canvas, div, img, point, prelude::*, px, rgb, rgba, svg,
 };
 
 use crate::{
@@ -2573,6 +2573,29 @@ impl Shell {
             .bottom(px(FOOTER_HEIGHT))
             .overflow_hidden()
             .children(pages)
+            .children(self.settle.is_some().then(|| self.settle_press_listener(cx)))
+    }
+
+    /// Hears a press while a Space's page slides in, ahead of the rows, for the part of it that
+    /// the page isn't over yet (`press_at_rest`).
+    fn settle_press_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let shell = cx.weak_entity();
+        canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
+                    if phase != DispatchPhase::Bubble {
+                        return;
+                    }
+                    let took = shell.update(cx, |shell, cx| shell.press_at_rest(event, cx));
+                    if took.unwrap_or(false) {
+                        cx.stop_propagation();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_full()
     }
 
     /// Another Space's page as it shows once shown, while it slides in or out: its name, and its
