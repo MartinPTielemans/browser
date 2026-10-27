@@ -114,7 +114,7 @@
 #include <thread>
 
 #include "browser_core.h"
-#include "host.h"
+#include "../host.h"
 
 // A drag from another app, as AppKit describes it to the view under the pointer: what it carries
 // and where it is.

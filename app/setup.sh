@@ -9,18 +9,21 @@ ZED_REV=b36b283021c48f1712714b8a0e2ad6ffb578920b
 mkdir -p .deps
 
 if [ ! -d .deps/zed ]; then
-  git clone --filter=blob:none --no-checkout https://github.com/zed-industries/zed .deps/zed
+  git clone -c core.autocrlf=false -c core.longpaths=true --filter=blob:none --no-checkout \
+    https://github.com/zed-industries/zed .deps/zed
   git -C .deps/zed checkout -q "$ZED_REV"
 fi
-git -C .deps/zed checkout -q -- crates/gpui crates/gpui_macos
+git -C .deps/zed checkout -q -- crates/gpui crates/gpui_macos crates/gpui_windows
 # A checkout made for an earlier pin moves to this one.
 if [ "$(git -C .deps/zed rev-parse HEAD)" != "$ZED_REV" ]; then
   git -C .deps/zed fetch -q origin "$ZED_REV"
   git -C .deps/zed checkout -q "$ZED_REV"
 fi
-# One patch a crate: gpui_macos's embeds GPUI in Chromium's window, gpui's scales what's painted,
-# lets the tests stand in for an assistive app and adds the Edit menu's Paste and Match Style.
-git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch" "$PWD/patches/gpui-scale.patch"
+# One patch a crate: gpui_macos's and gpui_windows's embed GPUI in Chromium's window, gpui's scales
+# what's painted, lets the tests stand in for an assistive app and adds the Edit menu's Paste and
+# Match Style.
+git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch" "$PWD/patches/gpui-windows-embedded.patch" \
+  "$PWD/patches/gpui-scale.patch"
 
 # GPUI's macOS accessibility adapter, at the version Cargo.lock has, with VoiceOver's menu action
 # and a folder's open state, which upstream lacks. A repository of its own, so a change to it
@@ -36,11 +39,18 @@ rm -rf .deps/accesskit_macos "${crate%.crate}"
 tar xzf "$crate" -C .deps
 mv "${crate%.crate}" .deps/accesskit_macos
 git -C .deps/accesskit_macos init -q
+git -C .deps/accesskit_macos config core.autocrlf false
 git -C .deps/accesskit_macos add -A
 git -C .deps/accesskit_macos -c user.name=setup -c user.email=setup@localhost commit -qm upstream
 git -C .deps/accesskit_macos apply "$PWD/patches/accesskit-macos-actions.patch"
 
 engines=$(cd .. && pwd)/engine
+if [ "$(uname -s | cut -c1-5)" = MINGW ]; then
+  # shortcut: no prebuilt Windows engine to fetch yet; publish engine-windows.yml's artifact as
+  # fetch.sh's download for Windows once it builds.
+  [ -d .deps/engine ] || echo "No engine in .deps/engine: unzip the chromium artifact of
+.github/workflows/engine-windows.yml there to build the browser. The preview runs without it." >&2
+else
 case ${1:-} in
   "")
     engine=$engines/.deps/src/out/Release/Chromium.app
@@ -52,6 +62,7 @@ case ${1:-} in
 esac
 [ -d "$engine" ] || { echo "No engine at $engine. Build it with engine/build.sh ${1:-}." >&2; exit 1; }
 ln -sfn "$engine" .deps/Chromium.app
+fi
 
 # Downloaded code can bring instructions for coding agents (Zed's tell agents to edit its
 # README). They're written for that project's contributors and don't apply to work here.

@@ -1,0 +1,17 @@
+# One stage of the Windows engine's build, which resumes the last stage's tree from an artifact
+# and runs build.py until it finishes or nears the job's time limit (engine-windows.yml).
+name: Engine build stage
+description: Runs build.py for up to 3.5 hours, handing the tree to the next stage
+inputs:
+  finished:
+    description: Whether an earlier stage finished the build, so this one has nothing to do
+    required: true
+  from_artifact:
+    description: Whether to resume from the tree the last stage uploaded
+    required: true
+outputs:
+  finished:
+    description: Whether the build has finished
+runs:
+  using: node24
+  main: index.js
