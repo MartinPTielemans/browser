@@ -4,8 +4,8 @@
 # a private window in front, in the regular window, which comes to the front. Settings › General
 # says the browser isn't the default, as a dev build never is: it declares no links (build.sh), and
 # making it the default asks in a system dialog the driver can't answer. A link that launches the
-# browser opens over the Spaces it brings back, before its window's first frame. Reports the launch
-# times from the process's start, without a link and with one.
+# browser opens over the Spaces it brings back, before the UI comes out from under the launch
+# picture. Reports the launch times from the process's start, without a link and with one.
 
 serve
 log="$out/links.log"
@@ -98,21 +98,23 @@ at() {
 
 launch "$out/links-plain.log"
 await '^browser: restored in ' || fail "the Spaces didn't come back"
-plain="launch window $(at 'launch window') ms, first frame $(at 'first frame') ms"
+plain="launch window $(at 'launch window') ms, started $(at 'started') ms, first frame $(at 'first frame') ms, UI shown $(at 'UI shown') ms"
 quit_launched
 
-# The link that launches the browser opens over the Spaces it brings back, before the window has
-# drawn, so the restored page never shows first.
+# The link that launches the browser opens over the Spaces it brings back, before the UI comes out
+# from under the launch picture, so the restored tab never shows selected first. The UI's first
+# frame can come before the link, under the picture.
 launch "$out/links-cold.log" "${site}?cold"
 await '^browser: restored in ' || fail "the Spaces didn't come back under the link"
 await "$(link_line "?cold" "[0-9]*" "[0-9]*")" || fail "the link that launched the browser didn't open"
 tab=$(grep "$(link_line "?cold" "[0-9]*" "[0-9]*")" "$log" | sed 's/.*: tab \([0-9]*\) .*/\1/')
 await "^browser: loaded $tab ${site}?cold\$" || fail "the link that launched the browser didn't load"
 opened=$(grep -n -m1 '^browser: link from another app ' "$log" | cut -d: -f1)
-drawn=$(grep -n -m1 '^browser: first frame at ' "$log" | cut -d: -f1)
-[ "$opened" -lt "$drawn" ] || fail "the link opened after the window's first frame"
+await '^browser: UI shown at ' || fail "the UI didn't come out from under the launch picture"
+shown=$(grep -n -m1 '^browser: UI shown at ' "$log" | cut -d: -f1)
+[ "$opened" -lt "$shown" ] || fail "the link opened after the UI came out from under the launch picture"
 ../tools/window-screenshot.sh "$pid" "$out/links-cold.png" || fail "no window to capture"
-cold="launch window $(at 'launch window') ms, first frame $(at 'first frame') ms"
+cold="launch window $(at 'launch window') ms, started $(at 'started') ms, first frame $(at 'first frame') ms, UI shown $(at 'UI shown') ms"
 quit_launched
 
 if [ "$driven" = 1 ]; then
@@ -121,5 +123,5 @@ else
   echo "ok: a link from another app opens as a new tab in the front window's Space and loads there."
   echo "skip: the agent's Space, the private window and Settings. Browser wasn't the active app, so the page ignored the click."
 fi
-echo "ok: a link that launches the browser opens over the Spaces it brings back, before the first frame, and loads. Window: $out/links-cold.png"
+echo "ok: a link that launches the browser opens over the Spaces it brings back, before the UI comes out from under the launch picture, and loads. Window: $out/links-cold.png"
 echo "  Launch without a link: $plain; with one: $cold"
