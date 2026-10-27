@@ -22,6 +22,8 @@ class PageDialog {
     std::string accept;
     std::string cancel;
     std::string check;
+    std::string username;
+    std::string password;
   };
 
   // The user's answer. The texts are what was typed, for whoever asked and no one else.
