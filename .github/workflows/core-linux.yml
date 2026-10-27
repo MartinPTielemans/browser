@@ -1,23 +1,24 @@
 # The core compiles on Linux (AGENTS.md, Hit every surface: Platforms). See engine/check-linux.sh.
+# ci.yml calls it when a change touches the core or the engine (.github/scripts/ci-changes.cjs).
 name: Core on Linux
 
 on:
-  push:
-    paths: [core/**, engine/**, .github/workflows/core-linux.yml, '!**/*.md']
-  pull_request:
-    paths: [core/**, engine/**, .github/workflows/core-linux.yml, '!**/*.md']
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   compile:
-    # A pull request from a branch here already ran on its push.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # Dawn's code generators need the Go its go.mod names, newer than Ubuntu's.
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.26'
           cache: false

@@ -1,0 +1,51 @@
+# Adapted from T3 Code (https://github.com/pingdotgg/t3code, MIT) at commit
+# 570d4b03eef879bd60be3d74444046858c94dacd.
+name: CI changes
+description: Decide which CI jobs a change needs. See .github/scripts/ci-changes.cjs.
+outputs:
+  core_linux:
+    value: ${{ steps.detect.outputs.core_linux }}
+  app_linux:
+    value: ${{ steps.detect.outputs.app_linux }}
+  engine_windows:
+    value: ${{ steps.detect.outputs.engine_windows }}
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BEFORE_SHA: ${{ github.event.before }}
+      run: |
+        set -uo pipefail
+
+        decide() {
+          node .github/scripts/ci-changes.cjs "$@" | tee -a "$GITHUB_OUTPUT"
+          exit "${PIPESTATUS[0]}"
+        }
+
+        fail_open() {
+          echo "$* Running every job."
+          decide
+        }
+
+        if [[ "$EVENT_NAME" == pull_request ]]; then
+          # GitHub's merge commit: its first parent is the base, so the diff is the whole pull request.
+          base=HEAD^1
+        elif [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+          # A new branch: what it adds to main.
+          base=$(git merge-base origin/main HEAD) || fail_open "No merge base with main."
+        else
+          # A push: what it adds to the branch. Runs don't cancel each other, so each push is checked.
+          git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null \
+            || git fetch --quiet --no-tags --filter=blob:none origin "$BEFORE_SHA" \
+            || fail_open "Could not fetch ${BEFORE_SHA}."
+          base=$BEFORE_SHA
+        fi
+
+        # --no-renames lists a rename as its old and new path, so moving a file out of core/ counts
+        # as a change to core/. Names only, so git reads trees and never fetches file contents.
+        git diff --name-only --no-renames "$base" HEAD > "$RUNNER_TEMP/changed-paths" \
+          || fail_open "Could not diff against ${base}."
+        decide --paths "$RUNNER_TEMP/changed-paths"
