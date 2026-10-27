@@ -425,7 +425,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
                            .Set("favorites_scope", ScopeName(saved.settings.favorites_scope))
                            .Set("unload_idle_tabs", saved.settings.unload_idle_tabs)
-                           .Set("ad_blocking", saved.settings.ad_blocking));
+                           .Set("ad_blocking", saved.settings.ad_blocking)
+                           .Set("link_previews", saved.settings.link_previews));
   return base::WriteJson(root);
 }
 
@@ -633,6 +634,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     }
     saved.settings.unload_idle_tabs = settings->FindBool("unload_idle_tabs").value_or(true);
     saved.settings.ad_blocking = settings->FindBool("ad_blocking").value_or(true);
+    saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
   }
   return saved;
 }

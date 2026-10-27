@@ -641,6 +641,9 @@ void HidePages(views::Widget* widget) {
   views->ShowThrough();
 }
 
+// The app's host has no view for a link preview's page here yet, so nothing calls it with one.
+void ShowPageIn(gfx::NativeView, void*, const gfx::Rect&, double) {}
+
 bool KeyboardForPage(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   if (views && views->ui_has_keyboard()) {

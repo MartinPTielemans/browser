@@ -218,6 +218,20 @@ void host_release_site_controls(void) {}
 
 void host_hide_site_controls(void) {}
 
+// No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
+// the tab.
+void* host_add_link_preview(void* view, void (*dismissed)(void)) {
+  return nullptr;
+}
+
+void host_show_link_preview(void* ui_view) {}
+
+void host_link_preview_drew(double left, double top, double width, double height, double opacity) {}
+
+void host_release_link_preview(void) {}
+
+void host_hide_link_preview(void) {}
+
 void host_add_capture(void* view, void (*dismissed)(void)) {}
 
 void host_show_capture(void* ui_view, double left, double top, double width, double height) {}

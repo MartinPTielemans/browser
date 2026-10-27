@@ -150,6 +150,8 @@ struct Settings {
   bool unload_idle_tabs = true;
   // Whether the browser blocks ads and trackers, in every profile.
   bool ad_blocking = true;
+  // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
+  bool link_previews = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.
