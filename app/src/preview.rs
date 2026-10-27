@@ -712,8 +712,6 @@ impl Browser for Fake {
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
 
-    fn page_picture_end(&self, _: u64, _: &mut App) {}
-
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}
