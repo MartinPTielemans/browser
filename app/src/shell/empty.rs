@@ -1,7 +1,7 @@
 //! The card of a window that shows no page, which is a fresh ⌘N window, a Space with no tab shown
 //! and what's left after the last Today tab closes (docs/ux-spec.md › Window › Card, no page).
 //! Nothing native covers it, since the core lays out no page view with no tab shown
-//! (`Window::ShowNothing`), so GPUI draws one quiet line on it and takes its clicks.
+//! (`Window::ShowNothing`), so GPUI draws ilo's mark and one quiet line on it and takes its clicks.
 
 use std::time::Instant;
 
@@ -9,8 +9,8 @@ use gpui::{Context, MouseButton, Pixels, Point, Stateful, Window, div, prelude::
 
 use super::{Command, SECONDARY, Shell, fade_at, keys::user_keys};
 
-/// The line fades in over this long on the scroll edge's curve, as the hover card's opacity does,
-/// from nothing, so a window that shows a page a frame later never shows it.
+/// The mark and the line fade in over this long on the scroll edge's curve, as the hover card's
+/// opacity does, from nothing, so a window that shows a page a frame later never shows them.
 pub(super) const FADE: f32 = 0.1;
 /// The sidebar's New Tab row is 14 pt.
 const WORDS_SIZE: f32 = 14.;
@@ -23,6 +23,19 @@ const KEYS_RADIUS: f32 = 6.5;
 const KEYS_FILL: u32 = 0xffff_ff14;
 /// From the words to their keys, as the toast sets its chip.
 const KEYS_GAP: f32 = 8.;
+/// ilo's mark, the app icon's lowercase i (branding/ilo.icon) drawn from its 1024 pt canvas at a
+/// sixteenth, so 39 tall: a 184.4 dot 81.9 over a 133.1 × 358.4 stem with round ends.
+const MARK_SCALE: f32 = 1. / 16.;
+const MARK_DOT: f32 = 184.4 * MARK_SCALE;
+const MARK_DOT_GAP: f32 = 81.9 * MARK_SCALE;
+const MARK_STEM_WIDTH: f32 = 133.1 * MARK_SCALE;
+const MARK_STEM_HEIGHT: f32 = 358.4 * MARK_SCALE;
+/// The icon's green dot, #0E9F55, the one colour on the card, and the stem at a tile's white 0.10
+/// plus a little, so it reads as pressed into the card rather than printed on it.
+const MARK_DOT_FILL: u32 = 0x0e9f_55ff;
+const MARK_STEM_FILL: u32 = 0xffff_ff24;
+/// From the mark's foot to the line, so they read as a sign and its caption, not one block.
+const MARK_GAP: f32 = 24.;
 
 impl Shell {
     /// Starts the fade as the card comes to show no page, and ends it as a page shows.
@@ -54,8 +67,9 @@ impl Shell {
         self.selected == 0 && self.page_frame(self.viewport).0.contains(&at)
     }
 
-    /// The card's one line, the next step and its key, centred, while no page is shown. A click
-    /// anywhere on the card does what that key does: ⌘T's command bar, centred on the window.
+    /// ilo's mark over the card's one line, the next step and its key, centred, while no page is
+    /// shown. A click anywhere on the card does what that key does: ⌘T's command bar, centred on
+    /// the window.
     pub(super) fn empty_card(&self, cx: &mut Context<Self>) -> Option<Stateful<gpui::Div>> {
         if self.selected != 0 {
             return None;
@@ -77,9 +91,29 @@ impl Shell {
             .items_center()
             .gap(px(KEYS_GAP))
             .text_color(rgba(SECONDARY))
-            .opacity(self.empty_opacity(Instant::now()))
             .child(div().text_size(px(WORDS_SIZE)).child("New Tab"))
             .children(keys);
+        let mark = div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(MARK_DOT_GAP))
+            .child(div().size(px(MARK_DOT)).rounded_full().bg(rgba(MARK_DOT_FILL)))
+            .child(
+                div()
+                    .w(px(MARK_STEM_WIDTH))
+                    .h(px(MARK_STEM_HEIGHT))
+                    .rounded_full()
+                    .bg(rgba(MARK_STEM_FILL)),
+            );
+        let sign = div()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap(px(MARK_GAP))
+            .opacity(self.empty_opacity(Instant::now()))
+            .child(mark)
+            .child(line);
         Some(
             div()
                 .id("empty-card")
@@ -99,7 +133,7 @@ impl Shell {
                 .on_click(cx.listener(|shell, _, _, cx| {
                     shell.clicked_bar_target(Command::NewTab, "card", cx)
                 }))
-                .child(line),
+                .child(sign),
         )
     }
 }

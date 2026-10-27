@@ -7,7 +7,8 @@ use std::{
 
 use gpui::{Entity, Modifiers, Pixels, Point, TestAppContext, VisualTestContext, point, px};
 
-use crate::shell::{Folders, ROW_HEIGHT, Shell, Slot, empty::FADE, recorder::Recorder};
+use crate::command_bar::PLACEHOLDER_TEXT;
+use crate::shell::{Folders, Page, ROW_HEIGHT, Shell, Slot, empty::FADE, recorder::Recorder};
 
 /// A drawn shell showing one Space with Today tabs 1 and 2, and no tab shown, as a fresh window.
 fn window_with_no_tab(
@@ -120,4 +121,38 @@ fn the_other_targets_that_open_the_bar_only_close_it_too(cx: &mut TestAppContext
         cx.simulate_click(at, Modifiers::none());
         assert!(host.command_bars.take().is_empty(), "a second click at {at:?} opened it again");
     }
+}
+
+/// With no page the URL field says what typing there does, in the command bar's words and fading
+/// in with the card's mark; a page shown puts its host there, and closing it brings the words back.
+#[gpui::test]
+fn the_url_field_says_what_to_type_only_with_no_page(cx: &mut TestAppContext) {
+    let (shell, cx, _) = window_with_no_tab(cx);
+    shell.update(cx, |shell, cx| {
+        let page = Page { url: "https://www.iana.org/domains".into(), ..Page::default() };
+        shell.set_page(1, page, cx);
+    });
+    let words = |cx: &VisualTestContext| {
+        shell.read_with(cx, |shell, _| {
+            let (words, color) = shell.url_field_words(&shell.url(shell.selected));
+            (words.to_string(), color.a)
+        })
+    };
+    shell.update(cx, |shell, _| shell.empty_since = Some(Instant::now()));
+    let (said, alpha) = words(cx);
+    assert_eq!(said, PLACEHOLDER_TEXT);
+    assert!(alpha < 0.1, "it starts from nothing with the mark, at {alpha}");
+    shell.update(cx, |shell, _| shell.empty_since = Some(Instant::now() - Duration::from_secs(1)));
+    let (_, faded_in) = words(cx);
+    assert!(faded_in > 0.3 && faded_in < 0.6, "dimmer than a host, at {faded_in}");
+
+    shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+    cx.run_until_parked();
+    let (said, alpha) = words(cx);
+    assert_eq!(said, "iana.org");
+    assert!(alpha > faded_in, "the host is brighter than the placeholder");
+
+    shell.update(cx, |shell, cx| shell.set_selected(0, cx));
+    cx.run_until_parked();
+    assert_eq!(words(cx).0, PLACEHOLDER_TEXT);
 }

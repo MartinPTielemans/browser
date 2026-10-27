@@ -99,7 +99,7 @@ const ARROW_TILE: u32 = 0xffff_ff0a;
 const ACCENT_LIGHTNESS: f32 = 0.55;
 /// The accent until the shell gives the Space's.
 const ACCENT: u32 = 0x4248cf;
-const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
+pub(crate) const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
 
 /// One of the core's suggestions for what's typed.
 #[derive(Default)]

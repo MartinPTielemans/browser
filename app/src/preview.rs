@@ -802,8 +802,9 @@ impl Browser for Fake {
 
     fn hide_reveal(&self, _: &mut App) {}
 
+    // PREVIEW_SIDEBAR=<width> starts the sidebar at that width, such as its narrowest, 164.
     fn saved_sidebar_width(&self) -> Option<f32> {
-        None
+        std::env::var("PREVIEW_SIDEBAR").ok()?.parse().ok()
     }
 
     fn set_sidebar_width(&self, _: f32, _: &mut App) {}
@@ -1019,7 +1020,14 @@ fn main() {
     gpui_platform::application().with_assets(shell::Assets).run(|cx| {
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
-        let (width, height) = (1280., 800.);
+        // PREVIEW_SIZE=<width>x<height> opens the window at that size.
+        let (width, height) = std::env::var("PREVIEW_SIZE")
+            .ok()
+            .and_then(|size| {
+                let (width, height) = size.split_once('x')?;
+                Some((width.parse().ok()?, height.parse().ok()?))
+            })
+            .unwrap_or((1280., 800.));
         let (mut x, mut y) = (0., 0.);
         unsafe { host_centered(width, height, &mut x, &mut y) };
         let bounds = Bounds::new(
@@ -1080,7 +1088,15 @@ fn main() {
                 });
                 browser.report_archive(cx);
                 browser.report_downloads(cx);
-                let mut shell = Shell::new(browser, cx);
+                // PREVIEW_EMPTY=1 shows no page, as a fresh ⌘N window does; =reading does so in the
+                // second Space, for its colour, and =private in a private window with no tabs.
+                let empty = std::env::var("PREVIEW_EMPTY").ok();
+                let mut shell = match empty.as_deref() {
+                    Some("private") => {
+                        Shell::private_window(browser, first_space, "Private".into(), 0, cx)
+                    }
+                    _ => Shell::new(browser, cx),
+                };
                 shell.set_profiles(vec![(0, "Default".into())], cx);
                 shell.set_spaces(spaces, cx);
                 shell.set_space(first_space, cx);
@@ -1131,9 +1147,19 @@ fn main() {
                     shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
                 }
                 let favorite = std::env::var("PREVIEW_FAVORITE").ok().and_then(|n| n.parse().ok());
-                match favorite.and_then(|n: usize| favorites.get(n)) {
-                    Some(&tab) => shell.set_selected(tab, cx),
-                    None => shell.set_selected(1, cx),
+                match (empty.as_deref(), favorite.and_then(|n: usize| favorites.get(n))) {
+                    (Some("private"), _) => {
+                        let none = Folders::default();
+                        shell.set_tabs(first_space, Vec::new(), Vec::new(), Vec::new(), none, cx);
+                        shell.set_selected(0, cx);
+                    }
+                    (Some("reading"), _) => {
+                        shell.set_space(first_space + 1, cx);
+                        shell.set_selected(0, cx);
+                    }
+                    (Some(_), _) => shell.set_selected(0, cx),
+                    (None, Some(&tab)) => shell.set_selected(tab, cx),
+                    (None, None) => shell.set_selected(1, cx),
                 }
                 shell
             });
