@@ -1,10 +1,24 @@
 #!/bin/sh
 # Builds build/Browser.app: the GPUI executable in a copy of our engine's Chromium.app, which holds
-# Chrome's framework with the core in it, and Chromium's helper apps.
+# Chrome's framework with the core in it, and Chromium's helper apps. `build.sh prod` builds the
+# copy for daily use instead, which tools/install.sh installs: the user's profile, the real
+# Keychain and the product's bundle id, on the Release engine.
 set -e
 cd "$(dirname "$0")"
 [ -e .deps/Chromium.app ] || ./setup.sh
-cargo build --release --bin Browser
+engine_out=$(dirname "$(cd .deps/Chromium.app && pwd -P)")
+id=dev.browser.app
+features=
+if [ "${1:-}" = prod ]; then
+  # The dev engine stops the browser on a failed DCHECK, where Release goes on.
+  if [ -e "$engine_out/libchrome_dll.dylib" ]; then
+    echo "A prod build needs the Release engine: ./setup.sh" >&2
+    exit 1
+  fi
+  id=$(cat branding/id)
+  features="--features prod"
+fi
+cargo build --release --bin Browser $features
 
 app=build/Browser.app
 rm -rf "$app"
@@ -16,14 +30,13 @@ cp target/release/Browser "$app/Contents/MacOS/"
 # The dev engine's framework and helpers load its component libraries from beside the app. These
 # are links, so a rebuilt dev engine's core reaches the built app at once.
 rm -f build/*.dylib
-engine_out=$(dirname "$(cd .deps/Chromium.app && pwd -P)")
 if [ -e "$engine_out/libchrome_dll.dylib" ]; then
   ln -s "$engine_out"/*.dylib build/
 fi
 
 plist=$app/Contents/Info.plist
 plutil -replace CFBundleExecutable -string Browser "$plist"
-plutil -replace CFBundleIdentifier -string dev.browser.app "$plist"
+plutil -replace CFBundleIdentifier -string "$id" "$plist"
 # The name and icon the user sees, from branding/ (icon.sh compiles the icon). Finder, the Dock
 # and ⌘-Tab name the app by its file, though, so this one shows as Browser there.
 name=$(cat branding/name)
@@ -38,9 +51,12 @@ plutil -replace CFBundleIconName -string "$name" "$plist"
 for strings in "$app"/Contents/Resources/*.lproj/InfoPlist.strings; do
   plutil -create binary1 "$strings"
 done
-# A dev build doesn't offer to open the owner's links and files.
-plutil -remove CFBundleURLTypes "$plist"
-plutil -remove CFBundleDocumentTypes "$plist"
+# A dev build doesn't offer to open the owner's links and files. The prod build does, so it can be
+# the default browser.
+if [ -z "$features" ]; then
+  plutil -remove CFBundleURLTypes "$plist"
+  plutil -remove CFBundleDocumentTypes "$plist"
+fi
 # Chromium touches Bluetooth, the camera, the microphone, location and the local network for
 # pages and for its own metrics. Without a usage description, macOS kills the app the first time
 # it does, instead of asking.

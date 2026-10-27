@@ -15,6 +15,10 @@ path = "src/main.rs"
 name = "preview"
 path = "src/preview.rs"
 
+[features]
+# The build for daily use (`build.sh prod`): the user's profile and the real Keychain.
+prod = []
+
 [dependencies]
 gpui = { path = ".deps/zed/crates/gpui" }
 gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
