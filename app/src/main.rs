@@ -11,8 +11,8 @@ use std::{
 };
 
 use browser::{
-    capture, command_bar, dialog, icon_picker, link_target, log, offer, site_controls, toast,
-    tooltip, zoom_hud,
+    capture, command_bar, dialog, dock_dot, icon_picker, link_target, log, offer, site_controls,
+    toast, tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -132,6 +132,8 @@ mod platform {
         pub fn host_detent();
         pub fn host_accent_color() -> u32;
         pub fn host_watch_accent_color(changed: extern "C" fn());
+        pub fn host_dock_dot_launch(profile_dir: *const c_char);
+        pub fn host_dock_dot(colored: bool, color: u32);
         pub fn host_watch_control(released: extern "C" fn());
         pub fn host_take_drops(
             dragged: extern "C" fn(
@@ -685,6 +687,15 @@ impl dialog::Host for DialogHost {
 
     fn hide(&self) {
         unsafe { platform::host_hide_dialog() };
+    }
+}
+
+/// The Dock icon's dot, swapped by the host (platform/mac/dock.mm).
+struct DockDot;
+
+impl dock_dot::Host for DockDot {
+    fn show(&self, color: Option<u32>) {
+        unsafe { platform::host_dock_dot(color.is_some(), color.unwrap_or(0)) };
     }
 }
 
@@ -2664,6 +2675,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
         cx.set_menus(menus(&shell::MenuBar::default(), None, None));
         // check.sh reads this line, as launches are timed from it.
         log!("browser: started at {:.1} ms", unsafe { platform::host_since_launch() });
+        dock_dot::open(Rc::new(DockDot), cx);
         open_window(None, None, cx);
     });
     APP.set(Some(app));
@@ -2958,6 +2970,7 @@ unsafe extern "C" fn launching(_: *mut c_void) {
     unsafe { platform::host_show_launch_window(profile.as_ptr(), width, height) };
     // The launch's times, from the process's start, for the performance gate.
     log!("browser: launch window at {:.1} ms", unsafe { platform::host_since_launch() });
+    unsafe { platform::host_dock_dot_launch(profile.as_ptr()) };
 }
 
 /// Back from another app, such as System Settings, where the user may have changed the default
