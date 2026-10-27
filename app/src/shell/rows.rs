@@ -709,7 +709,7 @@ impl Shell {
             .size_full();
         let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
         // A heading VoiceOver can jump to, whose menu is the Space's.
-        let row = name_box()
+        let row = name_box(icon.is_some())
             .id("space-name")
             .when(self.a11y, |row| {
                 row.role(Role::Heading)

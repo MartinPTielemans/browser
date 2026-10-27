@@ -1006,6 +1006,7 @@ impl Shell {
                 card_row(depth, split_plate(segments))
             }
         });
+        let icon = space_icon(&space.icon);
         let brush = div()
             .id(("space-brush", id))
             .absolute()
@@ -1056,10 +1057,10 @@ impl Shell {
                     .group_hover("space-card", |style| style.bg(rgba(SECTION_HOVERED))),
             )
             .child(
-                name_box()
+                name_box(icon.is_some())
                     .mt(px(CARD_NAME_TOP))
                     .h(px(CARD_NAME_HEIGHT))
-                    .children(space_icon(&space.icon))
+                    .children(icon)
                     .child(div().truncate().child(space.name.clone())),
             )
             .child(div().children(rows))
