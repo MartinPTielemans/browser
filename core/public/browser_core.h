@@ -274,8 +274,8 @@ typedef struct bc_site_permission {
 #define BC_PICTURE_IN_PICTURE_EXIT 2
 
 // Whether the ad blocker runs on the site of a tab's page, as its Site Controls show: not the
-// user's to change there (a page that isn't http(s), a private window, or ad blocking off), on, or
-// turned off for the site.
+// user's to change there (a page that isn't http(s), one the system's engine shows, a private
+// window, or ad blocking off), on, or turned off for the site.
 #define BC_AD_BLOCKING_NONE 0
 #define BC_AD_BLOCKING_ON 1
 #define BC_AD_BLOCKING_OFF 2
