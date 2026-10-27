@@ -35,6 +35,7 @@ mod browser;
 mod clean_link;
 mod commands;
 mod drag;
+mod empty;
 mod extensions;
 mod favorites;
 mod fly_in;
@@ -932,6 +933,10 @@ pub struct Shell {
     /// ⌘T's command bar is open, and "New Tab" has the selected plate in place of the tab shown
     /// (Arc).
     new_tab: bool,
+    /// When the card started to show no page, for the line on it to fade in from.
+    empty_since: Option<Instant>,
+    /// The fade has ended and said so.
+    empty_settled: bool,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
@@ -1135,6 +1140,8 @@ impl Shell {
             closing: Vec::new(),
             clearing: Vec::new(),
             new_tab: false,
+            empty_since: None,
+            empty_settled: false,
             drag: None,
             dragged: false,
             swipe: None,
@@ -2005,6 +2012,8 @@ impl Shell {
         let sidebar = !self.page_fullscreen && self.library.is_none() && self.form().is_none();
         if sidebar && below_rows {
             self.run(Command::NewTab, "sidebar", cx);
+        } else if self.empty_card_hit(at) {
+            // The empty card is a button, not a title bar: its first click opened the command bar.
         } else {
             window.titlebar_double_click();
         }
@@ -2285,6 +2294,7 @@ impl Render for Shell {
         self.step_form_going(cx);
         self.step_scroll_edge(window);
         self.step_tools(window);
+        self.step_empty(window);
         let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some());
         if drop_targets || self.drop_targets_shown {
             self.drop_targets_shown = drop_targets;
@@ -2418,6 +2428,7 @@ impl Render for Shell {
             // The page views go over the cards, as native views.
             .children(self.cards())
             .children(self.picture_element(cx))
+            .children(self.empty_card(cx))
             .children(self.pane_gaps(cx))
             .children(self.side_panel(cx))
             .children(under)
