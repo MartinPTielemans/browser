@@ -503,9 +503,11 @@ washed=$(echo "$at" | awk '{ print $1 + 13 + 100, $2 + 452 }')
 send press $knob
 send dragto $washed
 send release $washed
-expect "^browser: theme picker set $first $blue intensity=0.34[0-9] " \
+# The pointer lands on a whole point, and the card's left needn't be one, so the drag ends a little
+# either side.
+expect "^browser: theme picker set $first $blue intensity=0.3[45][0-9] " \
   "the wave's knob dragged left didn't wash the colour out"
-expect "^browser: themed space $first $blue intensity=0.34[0-9] " \
+expect "^browser: themed space $first $blue intensity=0.3[45][0-9] " \
   "the core didn't keep the theme's intensity"
 ../tools/window-screenshot.sh "$pid" "$out/space-theme.png" || fail "no window to capture"
 send click $page_point
