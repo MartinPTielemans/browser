@@ -583,6 +583,28 @@ void Favorites::Restore(bc_id tab, GURL url, bc_id space, int site) {
 }
 
 // static
+void Favorites::SetUrl(bc_id tab, GURL url) {
+  State& state = Get();
+  auto it = state.favs.find(tab);
+  if (it == state.favs.end() || it->second.doomed || !url.is_valid()) {
+    return;
+  }
+  // Under Every Space a site is one favorite in every profile, with the one URL, as Move moves it.
+  const int site = it->second.site;
+  bool changed = false;
+  for (auto& [other, fav] : state.favs) {
+    const bool same = other == tab || (CurrentScope() == BC_FAVORITES_EVERY && fav.site == site);
+    if (same && !fav.doomed && fav.url != url) {
+      fav.url = url;
+      changed = true;
+    }
+  }
+  if (changed) {
+    ReportChanged();
+  }
+}
+
+// static
 void Favorites::Move(bc_id tab, size_t index) {
   State& state = Get();
   auto it = state.favs.find(tab);

@@ -22,6 +22,17 @@ std::vector<ArchivedTab>& Tabs() {
   return *tabs;
 }
 
+// What one Delete or Clear took out, each tab with the place it had, in that order.
+using Removal = std::vector<std::pair<size_t, ArchivedTab>>;
+
+// Newest last, as many as the closed tabs.
+constexpr size_t kMaxRemovals = 25;
+
+std::vector<Removal>& Removals() {
+  static base::NoDestructor<std::vector<Removal>> removals;
+  return *removals;
+}
+
 bool g_report_posted = false;
 
 void Report() {
@@ -112,6 +123,52 @@ void ClearArchive() {
     Tabs().clear();
     Changed();
   }
+}
+
+void RemoveArchived(bc_id id) {
+  auto it = std::ranges::find(Tabs(), id, &ArchivedTab::id);
+  if (it == Tabs().end()) {
+    return;
+  }
+  Removal removal;
+  removal.emplace_back(static_cast<size_t>(it - Tabs().begin()), std::move(*it));
+  Tabs().erase(it);
+  Removals().push_back(std::move(removal));
+  if (Removals().size() > kMaxRemovals) {
+    Removals().erase(Removals().begin());
+  }
+  Changed();
+}
+
+void RemoveAllArchived() {
+  if (Tabs().empty()) {
+    return;
+  }
+  Removal removal;
+  for (size_t index = 0; index < Tabs().size(); ++index) {
+    removal.emplace_back(index, std::move(Tabs()[index]));
+  }
+  Tabs().clear();
+  Removals().push_back(std::move(removal));
+  if (Removals().size() > kMaxRemovals) {
+    Removals().erase(Removals().begin());
+  }
+  Changed();
+}
+
+size_t UndoRemoved() {
+  if (Removals().empty()) {
+    return 0;
+  }
+  Removal removal = std::move(Removals().back());
+  Removals().pop_back();
+  const size_t count = removal.size();
+  // In order of place, so each lands where it was.
+  for (auto& [index, tab] : removal) {
+    Tabs().insert(Tabs().begin() + std::min(index, Tabs().size()), std::move(tab));
+  }
+  Changed();
+  return count;
 }
 
 }  // namespace browser_core

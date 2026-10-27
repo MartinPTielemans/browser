@@ -355,6 +355,15 @@ expect '^browser: menu shown Rename Folder, Delete Folder$' "the folder's menu i
 send choose Delete Folder
 expect '^browser: command delete-folder via tab menu$' "Delete Folder didn't run delete-folder"
 expect "^browser: outline $c\$" "Delete Folder didn't leave its tab in its place: $(outline)"
+# The toast offers Undo; ⌘Z remakes the folder around its tab, under the name it had, and ⇧⌘Z
+# deletes it again.
+expect '^browser: toast shown Folder Deleted \[undo\]$' "Delete Folder didn't offer Undo"
+send key z cmd
+expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo Delete Folder"
+expect "^browser: outline [0-9][0-9]*[-+]\\[$c\\]\$" "⌘Z didn't put the folder back around its tab: $(outline)"
+send key z cmd shift
+expect '^browser: command redo via \(ui\|page\)$' "⇧⌘Z didn't redo Delete Folder"
+expect "^browser: outline $c\$" "⇧⌘Z didn't delete the folder again: $(outline)"
 
 # A file dragged over the pinned tab gets a line above it, and let go, it opens there pinned and
 # shows, titled by its name.
@@ -387,4 +396,4 @@ send dragleave
 none_since '^browser: dropped' || fail "dragged text that isn't a web link opened"
 exec 3>&-
 quit
-echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/drop-before.png, $out/drop-line.png, $out/dropped.png"
+echo "ok: ⌘D pins and unpins from the page and the UI, and ⌘1–⌘9 count pinned tabs first. Dragging a row moves its tab in the pinned tabs, pins it and unpins it, without showing it, and escape puts it back. ⌘W and ✕ unload a pinned tab and keep its row, showing the top Today tab, else a pinned tab still loaded, else no page, and an unloaded pinned tab loads once shown. Away from its pinned URL, ⌘↩ from the page and the UI, and a click on its favicon, go back there. Pinned tabs come back pinned, unloaded and at their page, still away. New Folder makes a folder its field names, a drag right and left takes a tab in and out of it, a folder drags as a row, a click closes and opens it, and the command bar finds Collapse All Folders, which closes it. It comes back closed, a double-click renames it, and Delete Folder leaves its tab in place. A link and a file dragged onto the list open as tabs where they're let go, Today or pinned, and show, and text that isn't a web link doesn't. Delete Folder offers Undo, ⌘Z remakes the folder around its tab and ⇧⌘Z deletes it again. Windows: $out/drag.png, $out/pinned.png, $out/pinned-unloaded.png, $out/pinned-away.png, $out/pinned-restored.png, $out/folder.png, $out/folder-restored.png, $out/drop-before.png, $out/drop-line.png, $out/dropped.png"

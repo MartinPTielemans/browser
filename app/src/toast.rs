@@ -39,6 +39,9 @@ const CHIP_FILL: u32 = 0xffff_ff1a;
 const CHIP_HOVERED: u32 = 0xffff_ff29;
 /// A button's glyph, as Arc's Share is (Capture's toast at 3×).
 const CHIP_GLYPH: f32 = 13.;
+const KEY_GAP: f32 = 5.;
+/// The key in an Undo button: white at 0.6, ours.
+const KEY_COLOR: u32 = 0xffff_ff99;
 /// A line of black 0.3 around it, half a point thick.
 const EDGE: u32 = 0x0000_004d;
 /// It darkens from the window's colour at its top to this much of it at its bottom (Arc's goes
@@ -64,6 +67,9 @@ const NOTE_TOP: f32 = 4.;
 const NOTE_RIGHT: f32 = CARD_INSET;
 const NOTE_TIME: Duration = Duration::from_millis(4800);
 
+/// The name of the Undo button, for the logs and the checks.
+const UNDO_BUTTON: &str = "undo";
+
 /// What the toast asks of its window.
 pub trait Host {
     /// Shows the toast's window at the browser window's top right.
@@ -80,6 +86,8 @@ pub enum Label {
     Text(SharedString),
     /// A glyph's path in the assets.
     Glyph(&'static str),
+    /// Words and a key's name after them, in the button's chip: Undo ⌘Z.
+    Keyed(SharedString, SharedString),
 }
 
 /// A button after the toast's words, such as Capture's Save. A click runs it with where the
@@ -241,6 +249,34 @@ pub fn hide_held(tab: u64, cx: &mut App) {
     window
         .update(cx, |toast, _, cx| {
             if toast.shown.as_ref().is_some_and(|shown| shown.held == Some(tab)) {
+                toast.leave(cx);
+            }
+        })
+        .ok();
+}
+
+/// Shows `text` with an Undo button after it, which runs `undo` as ⌘Z does, in place of any toast
+/// showing.
+pub fn show_undo(text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App) {
+    let undo = Button {
+        label: Label::Keyed("Undo".into(), "⌘Z".into()),
+        name: UNDO_BUTTON,
+        run: Rc::new(move |_, cx| undo(cx)),
+    };
+    show_with_buttons(text, vec![undo], time, cx);
+}
+
+/// The undo it offered has been done some other way: its toast goes, if it shows.
+pub fn hide_undo(cx: &mut App) {
+    let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
+        return;
+    };
+    window
+        .update(cx, |toast, _, cx| {
+            let undoing = toast.shown.as_ref().is_some_and(|shown| {
+                shown.buttons.iter().any(|button| button.name == UNDO_BUTTON)
+            });
+            if undoing {
                 toast.leave(cx);
             }
         })
@@ -457,6 +493,10 @@ impl Render for Toast {
                     Label::Text(text) => chip.child(text.clone()),
                     Label::Glyph(path) => chip.child(
                         svg().path(*path).size(px(CHIP_GLYPH)).text_color(rgb(0xffffff)),
+                    ),
+                    // The key is fainter than the word it goes with.
+                    Label::Keyed(text, key) => chip.gap(px(KEY_GAP)).child(text.clone()).child(
+                        div().text_color(rgba(KEY_COLOR)).child(key.clone()),
                     ),
                 }
             })

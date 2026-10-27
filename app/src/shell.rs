@@ -29,6 +29,7 @@ mod agent_spaces;
 mod close_tab;
 #[cfg(test)]
 mod favorites_scope;
+mod undo_tests;
 #[cfg(test)]
 mod full_screen;
 mod access;
@@ -69,6 +70,7 @@ mod swap;
 mod swipe;
 mod tile_theme;
 mod trouble;
+mod undo;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
@@ -103,6 +105,7 @@ use rows::Rings;
 use scaled::scaled;
 use swap::{ARROW_DOWN, Swapped, Swaps, UNLOAD};
 use tile_theme::TileTheme;
+use undo::{Edit, What};
 
 /// The docked sidebar's width at first, where the card starts.
 pub const SIDEBAR_WIDTH: f32 = 228.;
@@ -464,13 +467,6 @@ const WINDOW_BUTTONS: [(f32, u32); 3] = [(20., 0xe0604f), (43., 0xf3bf12), (66.,
 const WINDOW_BUTTON_Y: f32 = 24.;
 const WINDOW_BUTTON_SIZE: f32 = 14.;
 const WINDOW_BUTTON_GLYPH: u32 = 0x00000080;
-
-/// What ⌘Z undoes: the last of what the user did that it can.
-#[derive(Clone, Copy)]
-enum Undo {
-    Clear,
-    DeleteSpace,
-}
 
 #[derive(Clone, Default)]
 struct Tab {
@@ -972,7 +968,12 @@ pub struct Shell {
     /// The row and favicon hovered when the rows were last drawn, and that row's close button:
     /// "0" for none, "1" for ✕ and "−", for the line check.sh waits for.
     drawn_hover: (Option<Row>, Option<u64>, &'static str),
-    undo: Option<Undo>,
+    /// What ⌘Z undoes and ⇧⌘Z does again (`undo`).
+    history: undo::History,
+    /// The toast shows an Undo button, which the next thing the user does takes away.
+    undo_offered: bool,
+    /// What the Edit menu was last told Undo and Redo do.
+    edit_titles: (Option<&'static str>, Option<&'static str>),
     /// Whether the pointer is over the docked sidebar, which shows Clear and the URL field's button
     /// only then.
     sidebar_hovered: bool,
@@ -1194,7 +1195,9 @@ impl Shell {
             hovered_favicon: None,
             a11y: false,
             drawn_hover: (None, None, "0"),
-            undo: None,
+            history: undo::History::default(),
+            undo_offered: false,
+            edit_titles: (None, None),
             sidebar_hovered: false,
             hover_changed: false,
             page_fullscreen: false,
@@ -2080,7 +2083,7 @@ impl Shell {
     /// Deletes the Space, for ⌘Z to bring back, and says so in the toast (Arc).
     fn delete_space_now(&mut self, space: u64, cx: &mut Context<Self>) {
         if self.browser.delete_space(space, cx) {
-            self.undo = Some(Undo::DeleteSpace);
+            self.keep(What::DELETE_SPACE, Some(Edit::UndoDeleteSpace(space)), cx);
             self.browser.toast("Space deleted! Use", Some(("⌘Z", "to undo.")), DELETED_TIME, cx);
         }
     }
@@ -2499,6 +2502,13 @@ impl Render for Shell {
         div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
+            // The Edit menu's Undo and Redo, which a field of ours takes for itself first.
+            .on_action(cx.listener(|shell, _: &crate::text_input::Undo, _, cx| {
+                shell.undo(cx);
+            }))
+            .on_action(cx.listener(|shell, _: &crate::text_input::Redo, _, cx| {
+                shell.redo(cx);
+            }))
             .size_full()
             .relative()
             .font_family(".SystemUIFont")
@@ -2864,6 +2874,12 @@ impl Shell {
             // key here falls through to the menu's key equivalents, where ⌘S found Save Page.
             .key_context(KEY_CONTEXT)
             .track_focus(&self.reveal_focus)
+            .on_action(cx.listener(|shell, _: &crate::text_input::Undo, _, cx| {
+                shell.undo(cx);
+            }))
+            .on_action(cx.listener(|shell, _: &crate::text_input::Redo, _, cx| {
+                shell.redo(cx);
+            }))
             .size_full()
             .font_family(".SystemUIFont")
             // A double-click below the rows opens a new tab, as in the docked sidebar.

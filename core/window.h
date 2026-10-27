@@ -169,17 +169,20 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Closes the Today tabs of the Space the window shows, all but those any window shows, or all of
   // them if it shows every one, for UndoClear to bring back. Returns how many.
   size_t Clear();
-  // Brings back the tabs the last Clear closed, at their places in their Space's Today tabs and
-  // unloaded, and shows the tab shown it closed. Once only, and not those ReopenClosedTab brought
-  // back. Returns how many.
+  // Brings back the tabs the last Clear closed that it hasn't brought back, at their places in
+  // their Space's Today tabs and unloaded, and shows the tab shown it closed. Not those
+  // ReopenClosedTab brought back. Returns how many.
   size_t UndoClear();
-  // Brings back the Space DeleteSpace deleted last, at its place and with its id, and shows it. See
-  // bc_window_undo_delete_space. Returns its id, or 0.
+  // Brings back the Space DeleteSpace deleted last that isn't back, at its place and with its id,
+  // and shows it. See bc_window_undo_delete_space. Returns its id, or 0.
   bc_id UndoDeleteSpace();
   // Reopens the tab closed last, in any window, with its history: at its place in its Space's Today
   // tabs, else at the top of the Space the window shows. Shows it, and its Space. Returns its id, or
   // 0 if there's none.
   bc_id ReopenClosedTab();
+  // As ReopenClosedTab, for the closed tab that had the id |id| rather than the one closed last.
+  // Returns the new tab's id, or 0 if it isn't among the closed tabs any more.
+  bc_id ReopenClosed(bc_id id);
   // Reopens the archived tab |id| at the top of the Today tabs of the Space the window shows, and
   // shows it: with its history if it closed since the browser started, else at its page. It leaves
   // the archive. Returns its id, or 0.
@@ -344,7 +347,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   double sidebar_width_;
   std::map<Profile*, Held> browsers_;
   // The tabs the last Clear closed, top to bottom.
-  std::vector<Cleared> cleared_;
+  // What each Clear closed, the last at the back, for UndoClear.
+  std::vector<std::vector<Cleared>> cleared_;
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;

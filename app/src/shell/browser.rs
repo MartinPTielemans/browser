@@ -2,7 +2,7 @@
 //! a split view and a Space's folders. The engine answers in main.rs, the preview with
 //! made-up tabs in preview.rs.
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
@@ -78,6 +78,17 @@ pub trait Browser {
     fn undo_delete_space(&self, cx: &mut App) -> bool;
     /// Reopens the Today tab closed last, and shows it.
     fn reopen_closed_tab(&self, cx: &mut App);
+    /// Reopens the Today tab that had the id `closed` when it closed, at its place, and returns its
+    /// new id, or 0 if it isn't among the closed tabs.
+    fn reopen_tab(&self, closed: u64, cx: &mut App) -> u64;
+    /// The URL a pinned tab or a favorite goes back to, or empty for another tab.
+    fn pinned_url(&self, tab: u64) -> String;
+    /// Gives a pinned tab or a favorite the URL it goes back to, which unpinning forgets.
+    fn set_pinned_url(&self, tab: u64, url: &str, cx: &mut App);
+    /// The name the user gave the tab, or empty while it shows its page's title.
+    fn tab_name(&self, tab: u64) -> String;
+    /// Puts back what the archive's last Delete or Clear took out, and returns how many tabs.
+    fn undo_archive_remove(&self, cx: &mut App) -> usize;
     /// Reopens the archived tab `archived` at the top of the Today tabs of the Space shown, and
     /// shows it.
     fn restore_archived(&self, archived: u64, cx: &mut App);
@@ -257,6 +268,14 @@ pub trait Browser {
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
     /// words after it if there's a key.
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);
+    /// Shows `text` in the toast with an Undo button and ⌘Z's chip after it, which runs `undo` as
+    /// the key does, for `time` and for as long as the pointer is over it.
+    fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App);
+    /// Takes the toast away if it has an Undo button, as the undo it offered has been done.
+    fn hide_undo_toast(&self, cx: &mut App);
+    /// Gives the Edit menu's Undo and Redo the titles of what they'd undo and redo, plain Undo and
+    /// Redo for `None`, which a page's own undo and redo are.
+    fn set_edit_titles(&self, undo: Option<&str>, redo: Option<&str>, cx: &mut App);
     /// Shows the note on how to leave full screen in the toast, or takes it away if it shows.
     fn full_screen_note(&self, shown: bool, cx: &mut App);
     /// Shows the note that `tab`'s page stopped answering in the toast, with Wait and Reload, until

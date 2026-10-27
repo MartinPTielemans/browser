@@ -463,6 +463,24 @@ impl Browser for Fake {
 
     fn reopen_closed_tab(&self, _: &mut App) {}
 
+    fn reopen_tab(&self, _: u64, _: &mut App) -> u64 {
+        0
+    }
+
+    fn pinned_url(&self, _: u64) -> String {
+        String::new()
+    }
+
+    fn set_pinned_url(&self, _: u64, _: &str, _: &mut App) {}
+
+    fn tab_name(&self, _: u64) -> String {
+        String::new()
+    }
+
+    fn undo_archive_remove(&self, _: &mut App) -> usize {
+        0
+    }
+
     // Takes it out of the archive, without opening it.
     fn restore_archived(&self, archived: u64, cx: &mut App) {
         self.archive.borrow_mut().retain(|&(id, ..)| id != archived);
@@ -821,6 +839,12 @@ impl Browser for Fake {
 
     // The toast's window is one the app's host lays over the browser window.
     fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {}
+
+    fn toast_undo(&self, _: &str, _: Rc<dyn Fn(&mut App)>, _: Duration, _: &mut App) {}
+
+    fn hide_undo_toast(&self, _: &mut App) {}
+
+    fn set_edit_titles(&self, _: Option<&str>, _: Option<&str>, _: &mut App) {}
 
     fn full_screen_note(&self, _: bool, _: &mut App) {}
 

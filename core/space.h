@@ -114,6 +114,9 @@ class Space {
   void Pin(bc_id tab, base::FunctionRef<GURL(bc_id)> url_of);
   // Unpins |tab| to the top of Today.
   void Unpin(bc_id tab);
+  // Changes where the pinned |tab| was pinned, which Back to Pinned URL goes to, to |url|. Does
+  // nothing for a tab that isn't pinned.
+  void SetPinnedUrl(bc_id tab, GURL url);
   // Moves |tab| to |index| in Today, without it, or in the pinned tabs, inside |folder| if it isn't
   // 0, else to the bottom. In the pinned tabs or a folder, |index| counts the tabs and folders
   // directly in it. A Today tab moved to the pinned tabs is pinned at its |url_of|, and a pinned

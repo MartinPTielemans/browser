@@ -60,6 +60,10 @@ class Favorites {
   // Puts back |tab|, a favorite of the last launch, at the end of its list. It belongs to |space|
   // under Each Space, else 0, and |site| names its site, else 0.
   static void Restore(bc_id tab, GURL url, bc_id space, int site);
+  // Gives the favorite |tab| the URL it goes back to, |url|, and under Every Space the site's tabs
+  // in the other profiles too, so an undo restores the site as Add made it. Does nothing if it
+  // isn't one.
+  static void SetUrl(bc_id tab, GURL url);
   // Moves the favorite |tab| to |index| of its list without it, else to the end. Under Every
   // Space, the site moves in every profile.
   static void Move(bc_id tab, size_t index);

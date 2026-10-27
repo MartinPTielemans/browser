@@ -11,7 +11,7 @@ use gpui::{
 };
 
 use super::{
-    COPIED_TIME, Section, Shell, Swapped, Undo, UserKeys,
+    COPIED_TIME, Edit, Section, Shell, Swapped, UserKeys, What,
     browser::WindowButton,
     clean_link, extensions, keys,
     panes::pane_frames,
@@ -60,8 +60,10 @@ pub enum Command {
     ToggleMute,
     /// Closes the Today tabs of the Space shown, but the one shown.
     Clear,
-    /// Brings back the tabs the last Clear closed, or the Space deleted last, whichever was last.
+    /// Undoes the last thing the user did that lost or moved something (`Shell::undo`).
     Undo,
+    /// Does again what Undo undid.
+    Redo,
     /// Copies the selected tab's URL.
     CopyUrl,
     /// Copies a Markdown link to the selected tab: its title, then its URL.
@@ -175,6 +177,7 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("cmd-enter", Command::BackToPinnedUrl, false),
     ("shift-cmd-k", Command::Clear, false),
     ("cmd-z", Command::Undo, false),
+    ("shift-cmd-z", Command::Redo, false),
     ("shift-cmd-c", Command::CopyUrl, false),
     ("alt-shift-cmd-c", Command::CopyMarkdownLink, false),
     ("cmd-f", Command::Find, false),
@@ -523,6 +526,7 @@ impl Command {
             Command::ToggleMute => "toggle-mute",
             Command::Clear => "clear",
             Command::Undo => "undo",
+            Command::Redo => "redo",
             Command::CopyUrl => "copy-url",
             Command::CopyMarkdownLink => "copy-markdown-link",
             Command::Find => "find",
@@ -686,7 +690,7 @@ impl Shell {
                 // close, so it closes the window, as ⇧⌘W does.
                 if !self.browser.close_other_window(cx) {
                     if self.selected != 0 {
-                        self.browser.close(self.selected, false, cx);
+                        self.close_tab(self.selected, false, cx);
                     } else {
                         self.browser.close_window(cx);
                     }
@@ -705,12 +709,12 @@ impl Shell {
             Command::TogglePin => {
                 if self.selected != 0 {
                     let pinned = self.pinned().contains(&self.selected);
-                    self.browser.set_pinned(self.selected, !pinned, cx);
+                    self.pin_tab(self.selected, !pinned, cx);
                 }
                 return;
             }
             Command::FavoriteTab => {
-                return self.browser.move_to_favorites(self.selected, usize::MAX, cx);
+                return self.favorite_tab(self.selected, usize::MAX, cx);
             }
             Command::DuplicateTab => return self.browser.duplicate(self.selected, cx),
             Command::RenameTab => return self.rename_tab(self.selected, cx),
@@ -721,6 +725,10 @@ impl Shell {
             Command::Clear => return self.clear(cx),
             Command::Undo => {
                 self.undo(cx);
+                return;
+            }
+            Command::Redo => {
+                self.redo(cx);
                 return;
             }
             Command::CopyUrl => return self.copy_url(false, cx),
@@ -770,8 +778,8 @@ impl Shell {
             Command::CloseSplitPane | Command::SeparatePane => {
                 if self.panes(self.selected).len() > 1 {
                     match command {
-                        Command::CloseSplitPane => self.browser.close(self.selected, false, cx),
-                        _ => self.browser.separate(self.selected, cx),
+                        Command::CloseSplitPane => self.close_tab(self.selected, false, cx),
+                        _ => self.separate_tab(self.selected, cx),
                     }
                 }
                 return;
@@ -779,7 +787,7 @@ impl Shell {
             Command::SeparateSplit => {
                 // From the right, so the pages keep their order in the list.
                 for &tab in self.panes(self.selected)[1..].iter().rev() {
-                    self.browser.separate(tab, cx);
+                    self.separate_tab(tab, cx);
                 }
                 return;
             }
@@ -874,45 +882,43 @@ impl Shell {
     /// Clears the Space shown, but the tab shown, unless that's all there is to clear. Its rows go
     /// in one frame, with no toast (Arc).
     fn clear(&mut self, cx: &mut Context<Self>) {
+        if self.clear_now(cx) {
+            self.keep(What::CLEAR, Some(Edit::UndoClear(self.space)), cx);
+        }
+    }
+
+    /// Clears, and says whether it closed any.
+    pub(super) fn clear_now(&mut self, cx: &mut Context<Self>) -> bool {
         // A split view shown stays whole.
         let shown = self.panes(self.selected);
         let last = self.clears_last();
         let today = self.today().iter().copied();
         self.clearing = today.filter(|tab| last || !shown.contains(tab)).collect();
         if self.clearing.is_empty() {
-            return;
+            return false;
         }
         self.browser.clear(cx);
-        // A private window's closed tabs are gone for good.
-        if !self.private {
-            self.undo = Some(Undo::Clear);
-        }
         // check.sh reads this line.
         log!("browser: cleared {}", self.clearing.len());
-    }
-
-    /// Undoes the last Clear or Space deleted, once, and returns whether it did.
-    fn undo(&mut self, cx: &mut Context<Self>) -> bool {
-        match self.undo.take() {
-            Some(Undo::Clear) => self.browser.undo_clear(cx) > 0,
-            Some(Undo::DeleteSpace) => self.browser.undo_delete_space(cx),
-            None => false,
-        }
+        true
     }
 
     /// Runs `command` for a key the page didn't keep, and returns whether it was used. With
-    /// nothing to undo, ⌘Z goes back, for the Edit menu to give the page.
+    /// nothing to undo or redo, ⌘Z and ⇧⌘Z go on, for the Edit menu to give the page.
     pub fn run_for_page(&mut self, command: Command, cx: &mut Context<Self>) -> bool {
-        if command != Command::Undo {
-            self.run(command, "page", cx);
-            return true;
-        }
-        let undone = self.undo(cx);
-        if undone {
+        let done = match command {
+            Command::Undo => self.undo(cx),
+            Command::Redo => self.redo(cx),
+            _ => {
+                self.run(command, "page", cx);
+                return true;
+            }
+        };
+        if done {
             // check.sh waits for this line.
-            log!("browser: command undo via page");
+            log!("browser: command {} via page", command.name());
         }
-        undone
+        done
     }
 
     /// Copies the selected tab's URL, or a Markdown link to it, without its tracking parameters,

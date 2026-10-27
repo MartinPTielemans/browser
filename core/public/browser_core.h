@@ -813,16 +813,18 @@ BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 BC_EXPORT size_t bc_window_clear(bc_id window);
 
 // Brings back the tabs the window's last bc_window_clear closed, at their places in their Space's
-// Today tabs and unloaded. Once only, and not those bc_window_reopen_closed_tab brought back. Then
-// space_changed. If the clear closed the tab shown, it shows that tab again, with its split, and
-// its Space, then window_selected. Returns how many it brought back.
+// Today tabs and unloaded, then the one before that on the next call, and so on for the last ten.
+// Not those bc_window_reopen_closed_tab brought back. Then space_changed. If the clear closed the
+// tab shown, it shows that tab again, with its split, and its Space, then window_selected. Returns
+// how many it brought back.
 BC_EXPORT size_t bc_window_undo_clear(bc_id window);
 
 // Brings back the Space bc_space_delete deleted last, with its id at its place among the Spaces,
 // its name, colour, folders and pinned tabs, and the Today tabs that went to the archive and
 // haven't come back some other way, all unloaded and leaving the archive. The window shows it, at
-// the tab it showed there. Once only, and not while a page keeps one of its tabs open. Then
-// spaces_changed and window_space_shown. Returns the Space, or 0.
+// the tab it showed there. Then the one deleted before it on the next call, and so on for the last
+// 25. Not while a page keeps one of its tabs open. Then spaces_changed and window_space_shown.
+// Returns the Space, or 0.
 BC_EXPORT bc_id bc_window_undo_delete_space(bc_id window);
 
 // Reopens the Today tab closed last, in any window, with its history: at its place in its Space's
@@ -832,6 +834,12 @@ BC_EXPORT bc_id bc_window_undo_delete_space(bc_id window);
 // Tabs that close with their window or as the browser quits come back at the next launch instead.
 // Returns the tab, or 0 if none is closed.
 BC_EXPORT bc_id bc_window_reopen_closed_tab(bc_id window);
+
+// As bc_window_reopen_closed_tab for the Today tab that had the id |closed| when it closed, rather
+// than the one closed last, so a tab closed before another can come back first. Returns the new
+// tab's id, which is not |closed|, or 0 if that tab isn't among those that reopen: it came back
+// already, or 25 others closed since.
+BC_EXPORT bc_id bc_window_reopen_tab(bc_id window, bc_id closed);
 
 // Reopens the archived tab at the top of the Today tabs of the Space the window shows, unloaded,
 // and shows it: with its history if it closed since the browser started, else at its page. It
@@ -879,6 +887,11 @@ BC_EXPORT void bc_archive_clear(void);
 // if it closed since the browser started, still reopens with bc_window_reopen_closed_tab. Then
 // archive_changed, unless the archive has no such tab.
 BC_EXPORT void bc_archive_remove(bc_id archived);
+
+// Puts back what the last bc_archive_remove or bc_archive_clear took out, each tab with its id
+// where it was, then the one before on the next call, and so on for the last 25. Then
+// archive_changed. Returns how many tabs it put back.
+BC_EXPORT size_t bc_archive_undo_remove(void);
 
 // How long, in seconds, a Today tab no window shows waits before it goes in the archive: 12 hours,
 // else the time the user chose. Setting it archives at once the tabs that have waited that long.
@@ -1105,10 +1118,23 @@ BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, bc_id folder, size_t index);
 // tab_state_changed.
 BC_EXPORT void bc_tab_back_to_pinned_url(bc_id tab);
 
+// Copies the URL a pinned tab or a favorite goes back to into |url| as bc_space_name does, or an
+// empty string for any other tab.
+BC_EXPORT size_t bc_tab_pinned_url(bc_id tab, char* url, size_t capacity);
+
+// Changes the URL a pinned tab or a favorite goes back to, which unpinning forgets, so an undo can
+// give a tab back the one it had. Does nothing for another tab or an invalid |url|. Then
+// space_changed or favorites_changed, and tab_state_changed. The user's: agents get none.
+BC_EXPORT void bc_tab_set_pinned_url(bc_id tab, const char* url);
+
 // Opens a copy of the tab, with its history, under it in Today, or at the top of Today for a
 // pinned tab, or of the Space its window shows for a favorite. Shows it in its window, where its
 // page loads. Returns its id, or 0. Then space_changed and window_selected.
 BC_EXPORT bc_id bc_tab_duplicate(bc_id tab);
+
+// Copies the name the user gave the tab into |name| as bc_space_name does, or an empty string if
+// it shows its page's title.
+BC_EXPORT size_t bc_tab_name(bc_id tab, char* name, size_t capacity);
 
 // Names the tab, which shows |name| for its title from then on, kept across a quit, a reopen and a
 // duplicate; an empty name gives it back its page's title. Then tab_title_changed.

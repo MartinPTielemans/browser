@@ -41,6 +41,15 @@ std::optional<ArchivedTab> TakeArchived(bc_id id);
 // Empties it. Then archive_changed.
 void ClearArchive();
 
+// As TakeArchived without returning it, and ClearArchive, for the user's Delete and Clear in the
+// Library, which UndoRemoved brings back. Then archive_changed.
+void RemoveArchived(bc_id id);
+void RemoveAllArchived();
+
+// Puts back what the last RemoveArchived or RemoveAllArchived took out, each tab with its id at the
+// place it had, or the end if the archive is shorter now. Then archive_changed. Returns how many.
+size_t UndoRemoved();
+
 }  // namespace browser_core
 
 #endif  // BROWSER_CORE_ARCHIVE_H_

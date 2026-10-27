@@ -292,7 +292,7 @@ impl Shell {
             .on_click(cx.listener(move |shell, _, _, cx| {
                 cx.stop_propagation();
                 log!("browser: command close-tab via sidebar");
-                shell.browser.close(tabs[0], true, cx);
+                shell.close_tab(tabs[0], true, cx);
             }))
     }
 

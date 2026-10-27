@@ -3,7 +3,11 @@
 
 use gpui::{Context, Pixels, Point, SharedString};
 
-use super::{Command, Row, SPACE_COLORS, Shell, UserKeys, user_keys};
+use super::{
+    Command, Row, SPACE_COLORS, Shell, UserKeys,
+    undo::{Prop, Value},
+    user_keys,
+};
 use crate::space_icon::SpaceIcon;
 
 /// What an item of a menu does once chosen.
@@ -138,12 +142,16 @@ impl Shell {
             MenuEntry::new("System Accent", true)
                 .checked(color.is_none())
                 .swatch(self.accent_color),
-            Box::new(move |shell, cx| shell.browser.set_space_color(space, None, cx)),
+            Box::new(move |shell, cx| {
+                shell.change(Prop::SpaceColor(space), Value::Color(None), cx)
+            }),
         )];
         for (name, each) in SPACE_COLORS {
             items.push((
                 MenuEntry::new(name, true).checked(color == Some(each)).swatch(each),
-                Box::new(move |shell, cx| shell.browser.set_space_color(space, Some(each), cx)),
+                Box::new(move |shell, cx| {
+                    shell.change(Prop::SpaceColor(space), Value::Color(Some(each)), cx)
+                }),
             ));
         }
         items
@@ -210,7 +218,7 @@ impl Shell {
             |space| self.spaces.iter().find(|each| each.id == space).map(|each| each.profile);
         let to = profile_of(space);
         if profile_of(self.space) == to || !self.browser.warn_moving_profiles(cx) {
-            return self.browser.move_to_space(tab, space, cx);
+            return self.send_to_space(tab, space, cx);
         }
         let name = (self.profiles.iter())
             .find(|(profile, _)| Some(*profile) == to)
@@ -227,7 +235,7 @@ impl Shell {
                 shell
                     .update(cx, |shell, cx| {
                         shell.browser.set_warn_moving_profiles(false, cx);
-                        shell.browser.move_to_space(tab, space, cx);
+                        shell.send_to_space(tab, space, cx);
                     })
                     .ok();
             }),
@@ -313,7 +321,7 @@ impl Shell {
                 MenuEntry::new("Remove from Favorites", !self.agents_space_shown()),
                 "remove-from-favorites",
                 // To the top of Today.
-                Box::new(move |shell, cx| shell.browser.move_tab(tab, false, 0, 0, cx)),
+                Box::new(move |shell, cx| shell.move_tab_to(tab, false, 0, 0, cx)),
             ),
         ];
         // An icon the tab had as a pinned tab.
@@ -325,7 +333,7 @@ impl Shell {
         items.push((
             MenuEntry::new("Close Tab", !page.unloaded).shortcut(Command::CloseTab, keys),
             "close-tab",
-            Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
+            Box::new(move |shell, cx| shell.close_tab(tab, false, cx)),
         ));
         items
     }
@@ -342,7 +350,7 @@ impl Shell {
             (
                 MenuEntry::new("Delete Folder", true),
                 "delete-folder",
-                Box::new(move |shell, cx| shell.browser.delete_folder(folder, cx)),
+                Box::new(move |shell, cx| shell.delete_folder_now(folder, cx)),
             ),
         ]
     }
@@ -374,13 +382,13 @@ impl Shell {
                 "toggle-pin",
                 Box::new(move |shell, cx| {
                     let pinned = shell.pinned().contains(&tab);
-                    shell.browser.set_pinned(tab, !pinned, cx)
+                    shell.pin_tab(tab, !pinned, cx)
                 }),
             ));
             items.push((
                 MenuEntry::new("Add to Favorites", true),
                 "add-to-favorites",
-                Box::new(move |shell, cx| shell.browser.move_to_favorites(tab, usize::MAX, cx)),
+                Box::new(move |shell, cx| shell.favorite_tab(tab, usize::MAX, cx)),
             ));
         }
         if pinned {
@@ -413,7 +421,7 @@ impl Shell {
             items.push((
                 MenuEntry::new("Separate from Split View", true),
                 "separate-pane",
-                Box::new(move |shell, cx| shell.browser.separate(tab, cx)),
+                Box::new(move |shell, cx| shell.separate_tab(tab, cx)),
             ));
         }
         // Each other Space, in the switcher's order.
@@ -438,13 +446,13 @@ impl Shell {
         items.push((
             MenuEntry::new("Close Tab", closable).shortcut(Command::CloseTab, keys),
             "close-tab",
-            Box::new(move |shell, cx| shell.browser.close(tab, false, cx)),
+            Box::new(move |shell, cx| shell.close_tab(tab, false, cx)),
         ));
         if !pinned {
             items.push((
                 MenuEntry::new("Close Tabs Below", below),
                 "close-tabs-below",
-                Box::new(move |shell, cx| shell.browser.close_below(tab, cx)),
+                Box::new(move |shell, cx| shell.close_tabs_below(tab, cx)),
             ));
         }
         items
@@ -487,7 +495,9 @@ fn space_menu_head(space: u64, has_icon: bool) -> Vec<(MenuEntry, MenuAction)> {
     if has_icon {
         items.push((
             MenuEntry::new("Remove Icon", true),
-            Box::new(move |shell, cx| shell.browser.set_space_icon(space, "", cx)),
+            Box::new(move |shell, cx| {
+                shell.change(Prop::SpaceIcon(space), Value::Text(String::new()), cx)
+            }),
         ));
     }
     items
@@ -507,7 +517,7 @@ pub(super) fn remove_icon(tab: u64) -> (MenuEntry, &'static str, MenuAction) {
     (
         MenuEntry::new("Remove Icon", true),
         "remove-icon",
-        Box::new(move |shell, cx| shell.browser.set_icon(tab, "", cx)),
+        Box::new(move |shell, cx| shell.change(Prop::TabIcon(tab), Value::Text(String::new()), cx)),
     )
 }
 
