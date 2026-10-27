@@ -4,8 +4,10 @@
 //! GPUI's sidebar. Tab moves the keyboard between the sidebar and the page, as the host decides.
 //!
 //! It prints `spike: ` lines, which check.sh reads. SPIKE_NAIVE=1 dispatches GPUI only when its own
-//! file descriptor is readable, and SPIKE_HOLD_READ=1 calls GPUI while the host has prepared a read:
-//! the two ways of getting two readers of one display wrong.
+//! file descriptor is readable, SPIKE_ROUNDTRIP=1 adds a roundtrip each turn, as Chromium makes some
+//! of its requests, which reads GPUI's events off the socket outside the poll, and SPIKE_HOLD_READ=1
+//! calls GPUI while the host has prepared a read: the ways of getting two readers of one display
+//! wrong. SPIKE_STANDALONE=1 runs GPUI alone, in a window of its own, for the frame rate to compare.
 
 use std::{
     cell::Cell,
@@ -45,6 +47,10 @@ struct Host {
 fn main() {
     let naive = std::env::var_os("SPIKE_NAIVE").is_some();
     let hold_read = std::env::var_os("SPIKE_HOLD_READ").is_some();
+    let roundtrip = std::env::var_os("SPIKE_ROUNDTRIP").is_some();
+    if std::env::var_os("SPIKE_STANDALONE").is_some() {
+        return standalone();
+    }
     let conn = Connection::connect_to_env().expect("no Wayland display");
     let (globals, mut queue) = registry_queue_init::<Host>(&conn).expect("no registry");
     let qh = queue.handle();
@@ -128,6 +134,9 @@ fn main() {
             }
         }
         queue.dispatch_pending(&mut host).unwrap();
+        if roundtrip {
+            queue.roundtrip(&mut host).unwrap();
+        }
         let gpui_ready = fds[1].revents & libc::POLLIN != 0;
         // What the host read can include GPUI's events, which then wait in GPUI's queue with
         // nothing left on the socket to wake it.
@@ -147,6 +156,35 @@ fn main() {
             last_report = Instant::now();
         }
     }
+}
+
+fn standalone() {
+    gpui_platform::application().run(|cx: &mut App| {
+        let bounds = Bounds::new(point(px(0.), px(0.)), size(px(SIDEBAR as f32), px(480.)));
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                app_id: Some("ilo-gpui-wayland-spike".into()),
+                ..Default::default()
+            },
+            |window, cx| {
+                cx.new(|cx| {
+                    let focus = cx.focus_handle();
+                    window.focus(&focus, cx);
+                    Sidebar::new(focus)
+                })
+            },
+        )
+        .unwrap();
+        println!("spike: started");
+        cx.spawn(async |cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+                println!("spike: frames {} in the last second", FRAMES.replace(0));
+            }
+        })
+        .detach();
+    });
 }
 
 thread_local! {
