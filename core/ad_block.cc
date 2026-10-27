@@ -127,8 +127,8 @@ std::string PatternFor(const GURL& url) {
   return domain.empty() ? "*://" + std::string(url.host()) + "/*" : "*://*." + domain + "/*";
 }
 
-URLPatternSet OffSites(Profile* profile) {
-  URLPatternSet sites;
+extensions::URLPatternSet OffSites(Profile* profile) {
+  extensions::URLPatternSet sites;
   const base::ListValue* list =
       extensions::ExtensionPrefs::Get(profile)->ReadPrefAsList(kId, kOffSitesPref);
   if (!list) {
@@ -146,7 +146,7 @@ URLPatternSet OffSites(Profile* profile) {
 // Keeps it off the sites the user turned it off on: Chrome then hides their requests and pages
 // from it, so it neither blocks nor hides anything there.
 void ApplyOffSites(Profile* profile, const extensions::Extension& extension) {
-  URLPatternSet sites = OffSites(profile);
+  extensions::URLPatternSet sites = OffSites(profile);
   extensions::PermissionsUpdater updater(profile);
   if (sites.is_empty()) {
     if (!extension.permissions_data()->UsesDefaultPolicyHostRestrictions()) {
