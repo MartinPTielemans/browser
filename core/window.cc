@@ -291,7 +291,7 @@ Window* Window::OpenPrivate(const gfx::Rect& bounds, void* ui_view, Profile* pro
   }
   window->off_the_record_ = true;
   // Its Browser now, which holds the private session for as long as the window is open.
-  window->BrowserFor(PrivateProfileOf(profile));
+  window->BrowserFor(PrivateProfileOf(profile, /*start=*/true));
   window->ShowSpace(Space::CreateOffTheRecord(DirOf(profile))->id(), /*page=*/false);
   return window;
 }
@@ -1775,9 +1775,14 @@ void Window::Destroy() {
   std::unique_ptr<Window> self = std::move(it->second);
   Windows().erase(it);
   widget_->CloseNow();
-  // A private window's Space goes with it, its tabs closed.
+  // A private window's Space goes with it, its tabs closed, and the last one's session ends.
   if (off_the_record_) {
+    const Space* space = Space::FromId(space_);
+    const std::string profile = space ? space->profile() : std::string();
     Space::Delete(space_);
+    if (!profile.empty()) {
+      EndPrivateSession(ProfileFor(profile));
+    }
   }
   InstallQuestion::WindowClosing(id_);
   if (Host().window_closed) {

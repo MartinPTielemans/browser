@@ -2,8 +2,8 @@
 # off-the-record session: a cookie set there isn't seen in the regular window, and the profile's
 # second private window sees it, as they share the session. Closing the last private window ends
 # the session, and the next ⇧⌘N starts a new one without its cookie. Nothing private is written:
-# after the quit the Spaces file and the profile's history have none of its pages, and a relaunch
-# brings back no private window.
+# after the quit the Spaces file and the profile's history have none of its pages, the profile's
+# cookies don't have its cookie, and a relaunch brings back no private window.
 
 # The served cookie page: its title says whether the site has the private cookie, and "p" in it
 # sets it. The private windows load it at a URL of their own, which nothing may write.
@@ -102,6 +102,11 @@ send key w cmd shift
 expect "^browser: window closed $first\$" "⇧⌘W didn't close the first private window"
 expect '^browser: private session ended [0-9]*$' \
   "the last private window's closing didn't end the session"
+# Chrome ends it as the session's last Browser goes. When something else kept one, the core ended
+# it, and its line, an error, names what.
+outlived=$(sed -n "/^browser: drive $step: /,\$p" "$log" |
+  grep -m1 'browser: private session outlived its windows' || true)
+[ -z "$outlived" ] || fail "the core had to end the private session: ${outlived#*] }"
 send window 1
 send key n cmd shift
 expect '^browser: private window opened [0-9]* profile [0-9]*$' \
@@ -122,6 +127,11 @@ echo "$pages" | grep -q 'private-only' && fail "the Spaces file has a private wi
 history="$(dirname "$saved")/Default/History"
 [ -s "$history" ] || fail "the profile has no history"
 grep -q 'private-only' "$history" && fail "the profile's history has a private window's page"
+cookies="$(dirname "$saved")/Default/Network/Cookies"
+if command -v sqlite3 > /dev/null && [ -f "$cookies" ]; then
+  [ "$(sqlite3 "$cookies" "select count(*) from cookies where name = 'private'")" = 0 ] ||
+    fail "the profile's cookies have the private window's cookie"
+fi
 
 # The relaunch brings back the regular window alone.
 log="$out/private-relaunch.log"
@@ -135,4 +145,4 @@ grep -q '^browser: private window opened' "$log" &&
   fail "the relaunch brought back a private window"
 grep -q 'private-only' "$log" && fail "the relaunch brought back a private window's page"
 quit
-echo "ok: ⇧⌘N opens a private window titled Incognito, whose cookie the regular window doesn't see and the profile's other private window does, closing the last one ends the session, the next starts without its cookie, and neither the Spaces file, the history nor a relaunch has any of it. Windows: $out/private.png"
+echo "ok: ⇧⌘N opens a private window titled Incognito, whose cookie the regular window doesn't see and the profile's other private window does, closing the last one ends the session, the next starts without its cookie, and neither the Spaces file, the history, the cookies nor a relaunch has any of it. Windows: $out/private.png"
