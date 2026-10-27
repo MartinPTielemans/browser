@@ -2310,6 +2310,15 @@ void host_show_tooltip(void* ui_view, double left, double top, double fade) {
       return;
     }
     PlaceTooltip();
+    {
+      // Where the window really is, from the browser window's content top left, for check.sh to
+      // compare with where the UI asked.
+      NSWindow* over = browser->window;
+      NSRect content = [over contentRectForFrameRect:over.frame];
+      fprintf(stderr, "browser: tooltip window at %g %g\n",
+              NSMinX(g_tooltip.frame) - NSMinX(content),
+              NSMaxY(content) - NSMaxY(g_tooltip.frame));
+    }
     [g_tooltip_view.layer setNeedsDisplay];
     [g_tooltip_view.layer displayIfNeeded];
     // Still fading out over this window, it goes back to full, as Arc's shows in one frame.

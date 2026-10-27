@@ -34,6 +34,8 @@ pub(super) struct Recorder {
     /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
     /// "moving" and "still" for what the shell told the core about the motion.
     pub(super) page_events: RefCell<Vec<&'static str>>,
+    /// Where each tooltip it was asked for hangs from, in order.
+    pub(super) anchors: RefCell<Vec<crate::tooltip::Anchor>>,
 }
 
 impl Recorder {
@@ -344,7 +346,10 @@ impl Browser for Recorder {
 
     fn tooltip(&self, tip: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, _: &mut App) {
         match tip {
-            Some((tip, _)) => self.record(format!("tooltip {} {}", tip.text, tip.keys.concat())),
+            Some((tip, anchor)) => {
+                self.anchors.borrow_mut().push(anchor);
+                self.record(format!("tooltip {} {}", tip.text, tip.keys.concat()))
+            }
             None => self.record("tooltip none".into()),
         }
     }
