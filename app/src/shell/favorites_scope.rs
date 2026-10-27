@@ -15,10 +15,10 @@ fn shell_with_spaces(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>) {
     shell.update(cx, |shell, cx| {
         shell.set_spaces(
             vec![
-                (1, "Space 1".into(), None, 7, "".into(), "".into()),
-                (2, "Space 2".into(), None, 7, "".into(), "".into()),
-                (3, "Space 3".into(), None, 8, "".into(), "".into()),
-                (4, "Research".into(), None, 7, "".into(), "Claude Code".into()),
+                (1, "Space 1".into(), None, 7, "".into(), "".into(), "".into()),
+                (2, "Space 2".into(), None, 7, "".into(), "".into(), "".into()),
+                (3, "Space 3".into(), None, 8, "".into(), "".into(), "".into()),
+                (4, "Research".into(), None, 7, "".into(), "Claude Code".into(), "".into()),
             ],
             cx,
         );

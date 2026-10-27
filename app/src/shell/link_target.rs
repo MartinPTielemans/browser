@@ -15,7 +15,7 @@ fn window(cx: &mut TestAppContext) -> (Entity<Shell>, Rc<Recorder>, &mut VisualT
     let host = Rc::new(Recorder::default());
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
     shell.update(cx, |shell, cx| {
-        shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+        shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into(), "".into())], cx);
         shell.set_tabs(1, Vec::new(), vec![10, 20], Vec::new(), Folders::default(), cx);
         shell.set_space(1, cx);
         shell.set_selected(10, cx);

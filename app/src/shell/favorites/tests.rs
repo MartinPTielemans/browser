@@ -22,7 +22,7 @@ fn with_tiles(
     let browser = host.clone();
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
     shell.update(cx, |shell, cx| {
-        shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+        shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into(), "".into())], cx);
         shell.set_space(1, cx);
         shell.set_favorites(vec![(10, 1), (11, 1), (12, 1)], cx);
         for (tab, title) in [(10, "YouTube"), (11, "X"), (12, "Proton Mail: Sign-in")] {

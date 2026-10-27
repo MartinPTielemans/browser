@@ -208,7 +208,8 @@ mod tests {
             parents: [(10, 9)].into(),
         };
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Home".into(), None, 1, "".into(), "".into())], cx);
+            let space = (1, "Home".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_space(1, cx);
             shell.set_tabs(1, vec![1, 2, 3, 9, 10], vec![4, 5, 6], Vec::new(), folders, cx);
             for (tab, title) in

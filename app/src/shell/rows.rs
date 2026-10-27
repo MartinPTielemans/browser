@@ -12,11 +12,11 @@ use gpui::{
 };
 
 use super::{
-    CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE,
+    CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, Pending,
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
     LOADING_TURN, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
-    Pending, ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
+    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
@@ -643,7 +643,8 @@ impl Shell {
             })
             .child(icon);
         // Where the row is, for the icon picker to hang under while it waits for the row to settle.
-        let bounds = (self.picker_pending.map(|(picker, _)| picker) == Some(Pending::Icon(Subject::Tab(tab))))
+        let pending = Some(Pending::Icon(Subject::Tab(tab)));
+        let bounds = (self.picker_pending.map(|(picker, _)| picker) == pending)
             .then(|| {
                 let drawn = self.tab_row_drawn.clone();
                 canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
@@ -955,7 +956,7 @@ mod tests {
             drag::detents::shell_with,
             recorder::Recorder,
         },
-        CLOSE, LOADING_GAP, LOADING_TURN, Rings, Subject, UNLOAD,
+        CLOSE, LOADING_GAP, LOADING_TURN, Pending, Rings, Subject, UNLOAD,
     };
     use crate::icon_picker::{self, Picked, Recents};
 
@@ -1043,7 +1044,8 @@ mod tests {
         let browser = host.clone();
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_space(1, cx);
         });
         report(&shell, cx, vec![2, 3], 2);
@@ -1404,7 +1406,9 @@ mod tests {
         let browser = host.clone();
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            let space = |id: u64| (id, format!("Space {id}").into(), None, 1, "".into(), "".into());
+            let space = |id: u64| {
+                (id, format!("Space {id}").into(), None, 1, "".into(), "".into(), "".into())
+            };
             shell.set_spaces(vec![space(1), space(2)], cx);
             shell.set_space(1, cx);
             shell.set_tabs(1, Vec::new(), vec![2, 3], Vec::new(), Folders::default(), cx);
