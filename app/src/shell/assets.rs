@@ -134,6 +134,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/search.svg", include_bytes!("../../assets/icons/search.svg")),
     ("icons/settings.svg", include_bytes!("../../assets/icons/settings.svg")),
     ("icons/share.svg", include_bytes!("../../assets/icons/share.svg")),
+    ("icons/shield.svg", include_bytes!("../../assets/icons/shield.svg")),
     (
         "icons/space/airplane-tilt-fill.svg",
         include_bytes!("../../assets/icons/space/airplane-tilt-fill.svg"),
@@ -254,6 +255,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ),
     ("icons/space/wrench-fill.svg", include_bytes!("../../assets/icons/space/wrench-fill.svg")),
     ("icons/share.svg", include_bytes!("../../assets/icons/share.svg")),
+    ("icons/shield.svg", include_bytes!("../../assets/icons/shield.svg")),
     ("icons/spaces.svg", include_bytes!("../../assets/icons/spaces.svg")),
     ("icons/sliders-horizontal.svg", include_bytes!("../../assets/icons/sliders-horizontal.svg")),
     ("icons/speaker.svg", include_bytes!("../../assets/icons/speaker.svg")),
