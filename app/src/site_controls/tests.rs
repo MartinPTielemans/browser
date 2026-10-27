@@ -54,6 +54,9 @@ impl Host for Recorder {
     fn reset_permissions(&self, tab: u64) {
         self.push(format!("reset {tab}"));
     }
+    fn set_system_engine(&self, tab: u64, on: bool) {
+        self.push(format!("system engine {tab} {on}"));
+    }
     fn run(&self, run: Run, tab: u64, _: &mut App) {
         let run = match run {
             Run::Command(command) => format!("{command:?}"),
@@ -113,6 +116,7 @@ fn site() -> Site {
             permission(2, "JavaScript", Value::Allow, &[]),
         ],
         reset: Some("Reset permissions".into()),
+        system_engine: false,
     }
 }
 
@@ -389,6 +393,24 @@ fn a_value_chosen_sets_the_permission(cx: &mut TestAppContext) {
     panel.host.answer.set(None);
     panel.click(row(1));
     assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", "menu Allow*, Block, Ask"]);
+}
+
+/// A site kept for Apple's engine lists it first, and its menu's Off turns it off; On, which it
+/// is, does nothing.
+#[gpui::test]
+fn the_engine_row_turns_apples_engine_off(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, Site { system_engine: true, ..site() });
+    panel.calls();
+    panel.host.answer.set(Some(0));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On*, Off"]);
+    panel.host.answer.set(Some(1));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On*, Off", &format!("system engine {TAB} false")]);
+    // The permissions follow it, a row down.
+    panel.host.answer.set(Some(1));
+    panel.click(row(2));
+    assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", &format!("set {TAB} {WINDOWS} Block")]);
 }
 
 /// A value a policy set shows, but isn't the user's to change.

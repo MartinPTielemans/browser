@@ -745,6 +745,10 @@ impl site_controls::Host for SiteControlsHost {
         unsafe { bc::bc_tab_reset_site_permissions(tab) };
     }
 
+    fn set_system_engine(&self, tab: u64, on: bool) {
+        unsafe { bc::bc_tab_set_system_engine(tab, on) };
+    }
+
     fn run(&self, run: site_controls::Run, tab: u64, cx: &mut App) {
         let Some(window) = tab_window(tab, cx) else {
             return;
@@ -1768,6 +1772,16 @@ impl Browser for Engine {
         if let Ok(url) = CString::new(url) {
             unsafe { platform::host_open_in_safari(url.as_ptr()) };
         }
+    }
+
+    fn can_use_system_engine(&self) -> bool {
+        unsafe { bc::bc_system_engine_available() }
+    }
+
+    fn use_system_engine(&self, tab: u64, _: &mut App) {
+        // check.sh reads this line.
+        let used = unsafe { bc::bc_tab_set_system_engine(tab, true) };
+        log!("browser: system engine {tab} {}", if used { "on" } else { "refused" });
     }
 
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {
@@ -3026,6 +3040,7 @@ unsafe extern "C" fn tab_state_changed(
             bc::BC_PAGE_NETWORK_ERROR => Trouble::NetworkError(state.net_error),
             _ => Trouble::Fine,
         },
+        system_engine: state.system_engine,
     };
     update_shells(|shell, cx| shell.set_page(tab, page.clone(), cx));
 }
@@ -3378,6 +3393,7 @@ unsafe extern "C" fn tab_site_controls(
             })
             .collect(),
         reset: Some(string(controls.reset)).filter(|reset| !reset.is_empty()),
+        system_engine: controls.system_engine,
     };
     update_app(|cx| site_controls::changed(tab, site, cx));
 }

@@ -268,6 +268,14 @@ pub trait Browser {
     }
     /// Opens `url` in Safari, leaving the tab as it is.
     fn open_in_safari(&self, _url: &str, _cx: &mut App) {}
+    /// Whether the platform has Apple's engine for a tab's page, which plays the protected video
+    /// Chromium can't: macOS 14 or later. Where it hasn't, the note offers Safari instead.
+    fn can_use_system_engine(&self) -> bool {
+        false
+    }
+    /// Shows `tab`'s page in Apple's engine, in the tab, and has its profile keep the site for it.
+    /// The user's: agents get none.
+    fn use_system_engine(&self, _tab: u64, _cx: &mut App) {}
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
     /// words after it if there's a key.
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);
@@ -388,6 +396,8 @@ pub struct Page {
     /// The emoji the user gave the tab to show in place of its page's favicon, or empty.
     pub icon: SharedString,
     pub trouble: Trouble,
+    /// Apple's engine shows the page, in place of Chromium.
+    pub system_engine: bool,
 }
 
 /// What's wrong with a tab's page, as the core says (BC_PAGE_ in browser_core.h). Agents read the
