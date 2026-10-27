@@ -15,18 +15,29 @@
 #include "browser_core/host.h"
 #include "browser_core/link_target.h"
 #include "browser_core/session.h"
+#include "browser_core/drm_request.h"
+#include "browser_core/site_controls.h"
 #include "browser_core/space.h"
+#include "browser_core/system_engine.h"
 #include "browser_core/window.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
+#include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+#include "chrome/browser/ui/navigator/browser_navigator.h"
+#include "chrome/browser/ui/navigator/browser_navigator_params.h"
 #include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
 #include "components/error_page/content/browser/net_error_auto_reloader.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon_base/favicon_types.h"
+#include "components/history/core/browser/history_service.h"
+#include "components/history/core/browser/history_types.h"
+#include "components/input/native_web_keyboard_event.h"
 #include "components/keyed_service/core/service_access_type.h"
+#include "components/tabs/public/tab_interface.h"
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -38,7 +49,13 @@
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/result_codes.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
+#include "ui/base/page_transition_types.h"
+#include "ui/base/window_open_disposition.h"
+#include "ui/events/keycodes/dom/dom_key.h"
+#include "ui/events/keycodes/dom/keycode_converter.h"
+#include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/codec/png_codec.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
@@ -129,14 +146,29 @@ Tab::~Tab() {
 }
 
 // static
+std::vector<content::WebContents*> Tab::All() {
+  std::vector<content::WebContents*> all;
+  for (const auto& [id, contents] : Tabs()) {
+    all.push_back(contents);
+  }
+  return all;
+}
+
+// static
 bool Tab::Loaded(bc_id id) {
   content::WebContents* contents = FromId(id);
-  return contents && !contents->GetController().NeedsReload() &&
-         !FromWebContents(contents)->waiting_;
+  if (!contents) {
+    return false;
+  }
+  const Tab* tab = FromWebContents(contents);
+  return tab->system_page_ || (!contents->GetController().NeedsReload() && !tab->waiting_);
 }
 
 // static
 GURL Tab::PageUrl(content::WebContents* contents) {
+  if (const Tab* tab = FromWebContents(contents); tab && tab->system_page_) {
+    return tab->system_page_->url();
+  }
   if (const Tab* tab = FromWebContents(contents); tab && tab->waiting_) {
     return tab->waiting_->url;
   }
@@ -145,7 +177,63 @@ GURL Tab::PageUrl(content::WebContents* contents) {
   return entry && !entry->IsInitialEntry() ? entry->GetURL() : contents->GetVisibleURL();
 }
 
+// static
+gfx::NativeView Tab::PageViewOf(content::WebContents* contents) {
+  const Tab* tab = FromWebContents(contents);
+  return tab && tab->system_page_ ? tab->system_page_->view() : contents->GetNativeView();
+}
+
+// static
+void Tab::FocusPage(content::WebContents* contents) {
+  if (Tab* tab = FromWebContents(contents); tab && tab->system_page_) {
+    tab->system_page_->Focus();
+  } else {
+    contents->Focus();
+  }
+}
+
+// static
+bool Tab::AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
+                         bc_id tab,
+                         const input::NativeWebKeyboardEvent& event,
+                         bool editing) {
+  if (!callback || event.GetType() != blink::WebInputEvent::Type::kRawKeyDown ||
+      event.skip_if_unhandled) {
+    return false;
+  }
+  std::string name = ui::KeycodeConverter::DomKeyToKeyString(ui::DomKey(event.dom_key));
+  const int held = event.GetModifiers();
+  // With ⌥ held, a Mac's key is the character ⌥ types with it, such as ⌥I's "ˆ", which no shortcut
+  // names. A letter's or digit's shortcut is its key's, as Chrome's are.
+  const int code = event.windows_key_code;
+  if ((held & blink::WebInputEvent::kAltKey) &&
+      ((code >= ui::VKEY_A && code <= ui::VKEY_Z) || (code >= ui::VKEY_0 && code <= ui::VKEY_9))) {
+    name = std::string(1, static_cast<char>(code));
+  }
+  uint32_t modifiers = 0;
+  for (auto [web, flag] : {std::pair{blink::WebInputEvent::kShiftKey, BC_MODIFIER_SHIFT},
+                           std::pair{blink::WebInputEvent::kControlKey, BC_MODIFIER_CONTROL},
+                           std::pair{blink::WebInputEvent::kAltKey, BC_MODIFIER_ALT},
+                           std::pair{blink::WebInputEvent::kMetaKey, BC_MODIFIER_META}}) {
+    if (held & web) {
+      modifiers |= flag;
+    }
+  }
+  const bc_key key = {name.c_str(), modifiers, editing};
+  return callback(Host().context, tab, &key);
+}
+
 void Tab::Unload() {
+  if (system_page_) {
+    // It loads again once shown, in Chromium, which hands a site the engine is kept for back to it.
+    content::NavigationController::LoadURLParams load(system_page_->url());
+    load.transition_type = ui::PAGE_TRANSITION_LINK;
+    DropSystemPage();
+    if (load.url.is_valid()) {
+      LoadWhenShown(std::move(load));
+    }
+    return;
+  }
   if (waiting_ || web_contents()->GetController().NeedsReload()) {
     return;
   }
@@ -201,8 +289,256 @@ void Tab::LoadWaiting() {
 }
 
 void Tab::SetMuted(bool muted) {
-  // The reason extensions read, as for Chrome's speaker button.
+  // The reason extensions read, as for Chrome's speaker button. Chromium's page keeps it for when
+  // the tab goes back there.
   SetTabAudioMuted(web_contents(), muted, TabMutedReason::kAudioIndicator, std::string());
+  if (system_page_) {
+    system_page_->SetMuted(muted);
+  }
+}
+
+bool Tab::UseSystemEngine(const GURL& url) {
+  if (!url.SchemeIsHTTPOrHTTPS() || !system_engine::Allowed(id_)) {
+    return false;
+  }
+  if (system_page_) {
+    system_page_->Load(url);
+    return true;
+  }
+  Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  std::unique_ptr<platform::SystemPage> page =
+      platform::SystemPage::Create(system_engine::StoreOf(profile), url, this);
+  if (!page) {
+    return false;
+  }
+  if (web_contents()->IsAudioMuted()) {
+    page->SetMuted(true);
+  }
+  waiting_.reset();
+  // Chromium's page goes, keeping its history, as Unload has it go. A tab whose first page this
+  // is has none.
+  content::NavigationController& history = web_contents()->GetController();
+  content::NavigationEntry* entry = history.GetLastCommittedEntry();
+  if (entry && !entry->IsInitialEntry() && !history.NeedsReload()) {
+    web_contents()->Discard(base::DoNothing());
+  }
+  system_page_ = std::move(page);
+  favicon_ = gfx::Image();
+  // The note offered this, and its question is answered.
+  ForgetMediaUnsupported(web_contents());
+  EngineChanged();
+  return true;
+}
+
+void Tab::UseChromium(const GURL& url) {
+  if (!system_page_) {
+    return;
+  }
+  DropSystemPage();
+  if (url.is_valid()) {
+    web_contents()->GetController().LoadURL(url, content::Referrer(), ui::PAGE_TRANSITION_LINK,
+                                            std::string());
+  }
+}
+
+bool Tab::LoadInSystemPage(const GURL& url) {
+  if (!system_page_) {
+    return false;
+  }
+  Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  if (url.SchemeIsHTTPOrHTTPS() &&
+      (net::registry_controlled_domains::SameDomainOrHost(
+           url, system_page_->url(), net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES) ||
+       system_engine::Remembered(profile, url))) {
+    system_page_->Load(url);
+    return true;
+  }
+  DropSystemPage();
+  return false;
+}
+
+bool Tab::CanGoBack() {
+  content::NavigationController& history = web_contents()->GetController();
+  if (!system_page_) {
+    return history.CanGoBack();
+  }
+  if (system_page_->can_go_back()) {
+    return true;
+  }
+  // From the system page's first, back to Chromium's page, or past it if it's at a site the engine
+  // is kept for, which would come straight back.
+  content::NavigationEntry* entry = history.GetLastCommittedEntry();
+  if (!entry || entry->IsInitialEntry()) {
+    return false;
+  }
+  Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  return !system_engine::Remembered(profile, entry->GetURL()) || history.CanGoBack();
+}
+
+bool Tab::CanGoForward() {
+  return system_page_ ? system_page_->can_go_forward()
+                      : web_contents()->GetController().CanGoForward();
+}
+
+void Tab::GoBack() {
+  content::NavigationController& history = web_contents()->GetController();
+  if (system_page_ && system_page_->can_go_back()) {
+    system_page_->GoBack();
+    return;
+  }
+  if (!CanGoBack()) {
+    return;
+  }
+  if (!system_page_) {
+    history.GoBack();
+    return;
+  }
+  Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  const bool past = system_engine::Remembered(profile, history.GetLastCommittedEntry()->GetURL());
+  DropSystemPage();
+  if (past) {
+    history.GoBack();
+  } else {
+    history.SetNeedsReload();
+    history.LoadIfNecessary();
+  }
+}
+
+void Tab::GoForward() {
+  if (!CanGoForward()) {
+    return;
+  }
+  if (system_page_) {
+    system_page_->GoForward();
+  } else {
+    web_contents()->GetController().GoForward();
+  }
+}
+
+void Tab::Reload(bool bypass_cache) {
+  if (system_page_) {
+    system_page_->Reload(bypass_cache);
+    return;
+  }
+  // As Chrome's, it asks before sending a form again.
+  web_contents()->GetController().Reload(
+      bypass_cache ? content::ReloadType::BYPASSING_CACHE : content::ReloadType::NORMAL,
+      /*check_for_repost=*/true);
+}
+
+void Tab::Stop() {
+  if (system_page_) {
+    system_page_->Stop();
+  } else {
+    web_contents()->Stop();
+  }
+}
+
+void Tab::DropSystemPage() {
+  system_page_.reset();
+  favicon_ = gfx::Image();
+  system_page_favicon_.clear();
+  system_page_title_.clear();
+  EngineChanged();
+}
+
+void Tab::EngineChanged() {
+  // The window shows the other engine's view in the pane.
+  Window::PageViewChanged(id_);
+  SiteControls::PageChanged(id_);
+  StateChanged();
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&Tab::ReportTitle, weak_factory_.GetWeakPtr()));
+}
+
+void Tab::FetchSystemPageFavicon() {
+  favicon::FaviconService* service = FaviconServiceFactory::GetForProfile(
+      Profile::FromBrowserContext(web_contents()->GetBrowserContext()),
+      ServiceAccessType::EXPLICIT_ACCESS);
+  if (!service || !system_page_) {
+    return;
+  }
+  // WebKit keeps its pages' favicons to itself, so the tab shows the one Chromium knows for the
+  // page, else for its site, else none.
+  service->GetRawFaviconForPageURL(
+      system_page_->url(), {favicon_base::IconType::kFavicon}, kFaviconPixels,
+      /*fallback_to_host=*/true,
+      base::BindOnce(
+          [](base::WeakPtr<Tab> tab, const favicon_base::FaviconRawBitmapResult& result) {
+            if (!tab || !tab->system_page_ || !Host().tab_favicon_changed) {
+              return;
+            }
+            std::vector<uint8_t> png;
+            if (result.is_valid()) {
+              png.assign(result.bitmap_data->data(),
+                         result.bitmap_data->data() + result.bitmap_data->size());
+            }
+            if (png == tab->system_page_favicon_) {
+              return;
+            }
+            tab->system_page_favicon_ = png;
+            Host().tab_favicon_changed(Host().context, tab->id_, png.empty() ? nullptr : png.data(),
+                                       png.size());
+          },
+          weak_factory_.GetWeakPtr()),
+      &favicon_tracker_);
+}
+
+void Tab::SystemPageChanged() {
+  StateChanged();
+}
+
+void Tab::SystemPageCommitted() {
+  if (!system_page_) {
+    return;
+  }
+  const GURL url = system_page_->url();
+  Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  // In the profile's history, as Chromium's pages are, but never a private window's.
+  if (!profile->IsOffTheRecord() && url.SchemeIsHTTPOrHTTPS()) {
+    if (history::HistoryService* history = HistoryServiceFactory::GetForProfile(
+            profile, ServiceAccessType::IMPLICIT_ACCESS)) {
+      history->AddPage(url, base::Time::Now(), history::SOURCE_BROWSED);
+    }
+  }
+  FetchSystemPageFavicon();
+  SiteControls::PageChanged(id_);
+  StateChanged();
+}
+
+void Tab::SystemPageLeft(const GURL& url) {
+  if (!system_page_) {
+    return;
+  }
+  Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  if (system_engine::Remembered(profile, url)) {
+    system_page_->Load(url);
+  } else {
+    UseChromium(url);
+  }
+}
+
+void Tab::SystemPageOpen(const GURL& url) {
+  tabs::TabInterface* tab = tabs::TabInterface::MaybeGetFromContents(web_contents());
+  if (!tab) {
+    return;
+  }
+  // A tab of Chromium's, which hands a site the engine is kept for back to it.
+  NavigateParams params(tab->GetBrowserWindowInterface(), url, ui::PAGE_TRANSITION_LINK);
+  params.disposition = WindowOpenDisposition::NEW_FOREGROUND_TAB;
+  params.source_contents = web_contents();
+  Navigate(&params);
+}
+
+bool Tab::SystemPageKey(const input::NativeWebKeyboardEvent& event,
+                        bool before_page,
+                        bool editing) {
+  return AskAppAboutKey(before_page ? Host().tab_key_before_page : Host().tab_key_unhandled, id_,
+                        event, editing);
+}
+
+void Tab::SystemPageClicked() {
+  Window::OnPageClicked(id_);
 }
 
 void Tab::DidStartNavigation(content::NavigationHandle* navigation) {
@@ -263,27 +599,39 @@ void Tab::ReportState() {
     return;
   }
   content::NavigationController& history = web_contents()->GetController();
+  platform::SystemPage* page = system_page_.get();
   // The visible URL is the one Chrome's location bar shows: one a page starts loading by itself
   // shows only once it commits, so a page can't put another site's URL over its own. One waiting
-  // to load is the link the user opened.
-  const std::string url = (waiting_ ? waiting_->url : web_contents()->GetVisibleURL()).spec();
+  // to load is the link the user opened. WebKit's shows the page's own, as Safari's does.
+  const std::string url =
+      (page ? page->url() : waiting_ ? waiting_->url : web_contents()->GetVisibleURL()).spec();
   const Space* space = Space::Holding(id_);
   const GURL pinned_url = space ? space->PinnedUrl(id_) : Favorites::Url(id_);
   const RecentlyAudibleHelper* audible = RecentlyAudibleHelper::FromWebContents(web_contents());
   const bc_tab_state state = {
       .url = url.c_str(),
-      .can_go_back = history.CanGoBack(),
-      .can_go_forward = history.CanGoForward(),
-      .loading = web_contents()->ShouldShowLoadingUI(),
-      .unloaded = history.NeedsReload() || waiting_,
+      .can_go_back = CanGoBack(),
+      .can_go_forward = CanGoForward(),
+      .loading = page ? page->loading() : web_contents()->ShouldShowLoadingUI(),
+      .unloaded = !page && (history.NeedsReload() || waiting_),
       .away_from_pinned_url = pinned_url.is_valid() && PageUrl(web_contents()) != pinned_url,
-      .audible = audible && audible->WasRecentlyAudible(),
-      .muted = web_contents()->IsAudioMuted(),
+      .audible = page ? page->audible() : audible && audible->WasRecentlyAudible(),
+      .muted = page ? page->muted() : web_contents()->IsAudioMuted(),
       .icon = icon_.c_str(),
       .trouble = Trouble(),
       .net_error = Trouble() == BC_PAGE_NETWORK_ERROR ? net_error_ : 0,
+      .system_engine = page != nullptr,
   };
   Host().tab_state_changed(Host().context, id_, &state);
+  // The system page's comes from FetchSystemPageFavicon.
+  if (page) {
+    // Its title changes as Chromium's page's does, which TitleWasSet reports.
+    if (Title() != system_page_title_) {
+      system_page_title_ = Title();
+      ReportTitle();
+    }
+    return;
+  }
   ReportFavicon(state.loading);
 }
 
@@ -369,6 +717,10 @@ void Tab::RenderViewReady() {
 }
 
 void Tab::TitleWasSet(content::NavigationEntry* entry) {
+  // Chromium's page waits under the system page, whose title is the tab's.
+  if (system_page_) {
+    return;
+  }
   SessionChanged();
   ReportTitle();
 }
@@ -386,7 +738,10 @@ void Tab::SetIcon(const std::string& icon) {
 }
 
 std::string Tab::Title() {
-  return name_.empty() ? base::UTF16ToUTF8(web_contents()->GetTitle()) : name_;
+  if (!name_.empty()) {
+    return name_;
+  }
+  return base::UTF16ToUTF8(system_page_ ? system_page_->title() : web_contents()->GetTitle());
 }
 
 void Tab::ReportTitle() {
@@ -593,6 +948,7 @@ int Tab::Trouble() const {
 void Tab::WebContentsDestroyed() {
   // The driver is the page's too, and may go before the tab does.
   favicon_observation_.Reset();
+  system_page_.reset();
   Window::OnTabClosing(id_);
   if (Host().tab_closed) {
     Host().tab_closed(Host().context, id_);

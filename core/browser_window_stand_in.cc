@@ -32,9 +32,6 @@
 #include "content/public/browser/keyboard_event_processing_result.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/mojom/window_show_state.mojom.h"
-#include "ui/events/keycodes/dom/dom_key.h"
-#include "ui/events/keycodes/dom/keycode_converter.h"
-#include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/range/range.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/widget/widget.h"
@@ -48,34 +45,10 @@ namespace {
 bool AskApp(bool (*callback)(void*, bc_id, const bc_key*),
             BrowserWindowInterface* browser,
             const input::NativeWebKeyboardEvent& event) {
-  if (!callback || !browser || event.GetType() != blink::WebInputEvent::Type::kRawKeyDown ||
-      event.skip_if_unhandled) {
-    return false;
-  }
-  content::WebContents* contents = browser->GetTabStripModel()->GetActiveWebContents();
-  if (!contents) {
-    return false;
-  }
-  std::string name = ui::KeycodeConverter::DomKeyToKeyString(ui::DomKey(event.dom_key));
-  const int held = event.GetModifiers();
-  // With ⌥ held, a Mac's key is the character ⌥ types with it, such as ⌥I's "ˆ", which no shortcut
-  // names. A letter's or digit's shortcut is its key's, as Chrome's are.
-  const int code = event.windows_key_code;
-  if ((held & blink::WebInputEvent::kAltKey) &&
-      ((code >= ui::VKEY_A && code <= ui::VKEY_Z) || (code >= ui::VKEY_0 && code <= ui::VKEY_9))) {
-    name = std::string(1, static_cast<char>(code));
-  }
-  uint32_t modifiers = 0;
-  for (auto [web, flag] : {std::pair{blink::WebInputEvent::kShiftKey, BC_MODIFIER_SHIFT},
-                           std::pair{blink::WebInputEvent::kControlKey, BC_MODIFIER_CONTROL},
-                           std::pair{blink::WebInputEvent::kAltKey, BC_MODIFIER_ALT},
-                           std::pair{blink::WebInputEvent::kMetaKey, BC_MODIFIER_META}}) {
-    if (held & web) {
-      modifiers |= flag;
-    }
-  }
-  const bc_key key = {name.c_str(), modifiers, contents->IsFocusedElementEditable()};
-  return callback(Host().context, Tab::IdOf(contents), &key);
+  content::WebContents* contents =
+      browser ? browser->GetTabStripModel()->GetActiveWebContents() : nullptr;
+  return contents && Tab::AskAppAboutKey(callback, Tab::IdOf(contents), event,
+                                         contents->IsFocusedElementEditable());
 }
 
 }  // namespace

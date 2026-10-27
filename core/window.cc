@@ -344,6 +344,18 @@ Window* Window::Showing(bc_id tab) {
 }
 
 // static
+void Window::PageViewChanged(bc_id tab) {
+  for (Window* window : All()) {
+    if (std::ranges::contains(window->panes_, tab)) {
+      window->LayOutPage();
+      if (window->selected_ == tab) {
+        window->FocusPageSoon();
+      }
+    }
+  }
+}
+
+// static
 void Window::PanesChanged() {
   // The window the user was in first, so a split it changed takes its pages from the others rather
   // than the other way round. One whose page another took waits for the user.
@@ -1019,7 +1031,7 @@ void Window::LayOutPage() {
     }
     // At each layout, for a page whose view changed or that comes back, before it resizes.
     StretchOnResize(contents, page_moving_);
-    platform::Pane& pane = panes.emplace_back(contents->GetNativeView(), frame);
+    platform::Pane& pane = panes.emplace_back(Tab::PageViewOf(contents), frame);
     DevToolsContentsResizingStrategy strategy;
     if (content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy)) {
       // As Chrome's window does: DevTools fill the frame, and the page goes where they leave it.
@@ -1892,7 +1904,7 @@ void Window::FocusPageSoon() {
 
 void Window::FocusPage() {
   if (shown_ && widget_->IsActive() && platform::KeyboardForPage(widget_.get())) {
-    shown_->Focus();
+    Tab::FocusPage(shown_.get());
   }
 }
 

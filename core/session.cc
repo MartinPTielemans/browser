@@ -131,6 +131,25 @@ SavedTab SaveTab(content::WebContents& contents) {
     tab.history.push_back(
         sessions::ContentSerializedNavigationBuilder::FromNavigationEntry(0, history.GetPendingEntry()));
   }
+  // One showing a system page keeps its page as the last, current entry: shown after a relaunch,
+  // it loads in Chromium, which hands it to the system's engine. WebKit's own history goes.
+  const Tab* owner = Tab::FromWebContents(&contents);
+  if (platform::SystemPage* page = owner ? owner->system_page() : nullptr) {
+    if (!tab.history.empty()) {
+      tab.history.resize(tab.current + 1);
+    }
+    const GURL url = page->url();
+    if (url.is_valid() && (tab.history.empty() || tab.history.back().virtual_url() != url)) {
+      sessions::SerializedNavigationEntry& entry = tab.history.emplace_back();
+      entry.set_index(tab.history.size() - 1);
+      entry.set_virtual_url(url);
+      entry.set_original_request_url(url);
+      entry.set_title(page->title());
+      entry.set_transition_type(ui::PAGE_TRANSITION_LINK);
+      entry.set_timestamp(base::Time::Now());
+    }
+    tab.current = tab.history.size() - 1;
+  }
   // One opened behind and not yet shown keeps the link it waits to load, which loads once shown
   // after a relaunch, as the other tabs put back do.
   const Tab* waiting = Tab::FromWebContents(&contents);

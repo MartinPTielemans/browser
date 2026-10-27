@@ -81,6 +81,9 @@ typedef struct bc_tab_state {
   int trouble;
   // With BC_PAGE_NETWORK_ERROR, Chromium's net error code, such as -106 for no network, else 0.
   int net_error;
+  // The system's engine shows the page, WebKit on the Mac, in place of Chromium
+  // (bc_tab_set_system_engine).
+  bool system_engine;
 } bc_tab_state;
 
 // A tab's find in page, as its find bar shows it.
@@ -285,7 +288,22 @@ typedef struct bc_site_controls {
   int picture_in_picture;
   // The page came with a certificate, which bc_tab_show_certificate shows.
   bool certificate;
+  // The profile keeps the site for the system's engine, which shows its pages
+  // (bc_tab_set_system_engine). A tab showing one lists no permissions: the system's engine asks
+  // for none.
+  bool system_engine;
 } bc_site_controls;
+
+// An agent's call the core checked, for the activity log (bc_agent_may_act).
+typedef struct bc_agent_activity {
+  // The agent's id, as its client gives it.
+  const char* agent;
+  bc_id tab;
+  // What it asked to do, as the agent code names it, such as "navigate".
+  const char* action;
+  // Why the core refused it, for the user and the agent to read, or empty if the agent may act.
+  const char* refused;
+} bc_agent_activity;
 
 // An extension's side panel as a window shows it, beside the page of the tab it shows.
 typedef struct bc_side_panel {
@@ -492,8 +510,9 @@ typedef struct bc_host {
   // Netflix and Spotify play their video with: |key_system| is "com.widevine.alpha" or
   // "com.microsoft.playready", never the page's own string. Once for each key system a document
   // asks for, unless it's the one the app was last told. It comes with an empty |key_system| once
-  // the tab goes to another site: the note it asks for is gone. There's no call to answer it.
-  // Agents get none: the note hands the user's page to another app.
+  // the tab goes to another site, or once bc_tab_set_system_engine switches it: the note it asks
+  // for is gone. bc_tab_set_system_engine answers it where bc_system_engine_available. Agents get
+  // none: the note hands the user's page to another engine or app.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
   // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
   // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,
@@ -519,6 +538,9 @@ typedef struct bc_host {
                           const char* url,
                           size_t domain_begin,
                           size_t domain_end);
+  // An entry for the activity log: the core checked an agent's call with bc_agent_may_act, and
+  // let it act or refused it.
+  void (*agent_activity)(void* context, const bc_agent_activity* entry);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -584,9 +606,16 @@ BC_EXPORT size_t bc_space_agent(bc_id space, char* agent, size_t capacity);
 // bc_space_name does, or an empty string for the user's own Space.
 BC_EXPORT size_t bc_space_agent_name(bc_id space, char* name, size_t capacity);
 
-// Whether the agent with the id |agent| may act on |tab|: only if the tab is in that agent's own
-// Space.
-BC_EXPORT bool bc_agent_may_act(const char* agent, bc_id tab);
+// Whether the agent with the id |agent| may do |action| to |tab|: only if the tab is in that
+// agent's own Space, and Chromium shows its page, not the system's engine, where the browser can't
+// keep an agent's rules. Agent code calls it once for each call an agent makes on a tab, before
+// acting. If refused, copies why into |reason| as bc_space_name does, else an empty string. Either
+// way, then agent_activity, for the activity log.
+BC_EXPORT bool bc_agent_may_act(const char* agent,
+                                bc_id tab,
+                                const char* action,
+                                char* reason,
+                                size_t capacity);
 
 // The profile the Space's tabs open in, which its favorites are in.
 BC_EXPORT bc_id bc_space_profile(bc_id space);
@@ -1001,8 +1030,29 @@ BC_EXPORT void bc_tab_stop(bc_id tab);
 
 // Deletes the profile's cookies for the site of the tab's page if |cookies|, else its cache for
 // the site, then loads the page again, bypassing the cache for the cache. A site is a registrable
-// domain, such as example.co.uk, or an IP address. Does nothing for a page that isn't http(s).
+// domain, such as example.co.uk, or an IP address. Does nothing for a page that isn't http(s). The
+// system's engine's store loses the site's too, once the profile has used it.
 BC_EXPORT void bc_tab_clear_site(bc_id tab, bool cookies);
+
+// The system's engine, WebKit on the Mac, plays the protected video Chromium can't (decision 1).
+// A tab shows a site's pages in it once the user switches it there, from the protected-media note,
+// and the profile keeps the site: its pages open there from then on, in any of the profile's tabs,
+// until bc_tab_set_system_engine turns it off. Its own cookies, apart from Chromium's and Safari's,
+// one store a profile, and none kept for a private window's. A tab goes back to Chromium for a
+// link the user follows to another site, a URL typed for one, or back from its first page. Agents'
+// tabs never switch, and bc_agent_may_act refuses agents a tab that has.
+
+// Whether the platform has a system engine that keeps a store a profile: macOS 14 or later.
+// Answers without loading it.
+BC_EXPORT bool bc_system_engine_available(void);
+
+// With |on|, shows the tab's page in the system's engine, loading its URL there, and has the
+// profile keep its site for it. Else has the profile forget the site, and each of the profile's
+// tabs that shows one of its pages there goes back to Chromium at that page. Returns whether it
+// did: not for a page that isn't http(s), nor where there's no system engine, nor for an agent's
+// tab. Then tab_state_changed, tab_media_unsupported with an empty key system, and
+// tab_site_controls if watched. The user's: agents get none.
+BC_EXPORT bool bc_tab_set_system_engine(bc_id tab, bool on);
 
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as

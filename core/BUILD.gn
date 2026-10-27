@@ -65,6 +65,7 @@ source_set("browser_core") {
     "permission_question.cc",
     "permission_question.h",
     "platform/keychain.h",
+    "platform/system_page.h",
     "platform/window_views.h",
     "popular_sites.cc",
     "popular_sites.h",
@@ -83,6 +84,8 @@ source_set("browser_core") {
     "space.h",
     "suggest.cc",
     "suggest.h",
+    "system_engine.cc",
+    "system_engine.h",
     "tab.cc",
     "tab.h",
     "window.cc",
@@ -142,6 +145,7 @@ source_set("browser_core") {
     "//components/favicon/content",
     "//components/favicon/core",
     "//components/favicon_base",
+    "//components/history/core/browser",
     "//components/keyed_service/core",
     "//components/find_in_page",
     "//components/input",
@@ -151,6 +155,7 @@ source_set("browser_core") {
     "//components/password_manager/core/browser:password_form",
     "//components/password_manager/core/common",
     "//components/permissions",
+    "//components/pref_registry",
     "//components/prefs",
     "//components/search_engines",
     "//components/sessions",
@@ -187,10 +192,14 @@ source_set("browser_core") {
     sources += [
       "platform/mac/keychain.mm",
       "platform/mac/native_widget.mm",
+      "platform/mac/system_page.mm",
       "platform/mac/window_views.mm",
     ]
+    # WebKit isn't linked: system_page.mm loads it with the first system page, so a launch that
+    # shows none never maps it.
     deps += [
       "//components/os_crypt/common:keychain_password_mac",
+      "//media",
       "//components/remote_cocoa/app_shim",
       "//components/remote_cocoa/common:mojo",
     ]
@@ -199,5 +208,7 @@ source_set("browser_core") {
     if (!is_component_build && !using_sanitizer) {
       all_dependent_configs = [ ":exports" ]
     }
+  } else {
+    sources += [ "platform/system_page_none.cc" ]
   }
 }

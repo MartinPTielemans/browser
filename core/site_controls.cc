@@ -11,8 +11,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
+#include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "chrome/browser/certificate_viewer.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/page_info/chrome_page_info_delegate.h"
 #include "chrome/browser/ui/page_info/chrome_page_info_ui_delegate.h"
 #include "components/content_settings/core/browser/permission_settings_registry.h"
@@ -90,10 +92,17 @@ bool Resettable(ChromePageInfoUiDelegate& ui_delegate, const PageInfo::Permissio
           ui_delegate.ShouldShowAsk(permission.type));
 }
 
+// The system page a tab shows in place of Chromium's, else null.
+platform::SystemPage* SystemPageOf(content::WebContents* contents) {
+  const Tab* tab = Tab::FromWebContents(contents);
+  return tab ? tab->system_page() : nullptr;
+}
+
 // Whether the page plays a video that Picture in Picture can take, or has, as the media session
 // that Chrome's media controls use says.
 int PictureInPictureOf(content::WebContents* contents) {
-  content::MediaSession* session = content::MediaSession::GetIfExists(contents);
+  content::MediaSession* session =
+      SystemPageOf(contents) ? nullptr : content::MediaSession::GetIfExists(contents);
   if (!session) {
     return BC_PICTURE_IN_PICTURE_NONE;
   }
@@ -108,8 +117,12 @@ int PictureInPictureOf(content::WebContents* contents) {
              : BC_PICTURE_IN_PICTURE_NONE;
 }
 
-// The certificate the page shown came with, as Chrome's page info reads it, else null.
+// The certificate the page shown came with, as Chrome's page info reads it, else null. WebKit
+// shows its own page's nowhere ilo can.
 net::X509Certificate* CertificateOf(content::WebContents* contents) {
+  if (SystemPageOf(contents)) {
+    return nullptr;
+  }
   content::NavigationEntry* entry = contents->GetController().GetVisibleEntry();
   return entry ? entry->GetSSL().certificate.get() : nullptr;
 }
@@ -180,6 +193,12 @@ void SiteControls::Reset(bc_id tab) {
   }
 }
 
+void SiteControls::PageChanged(bc_id tab) {
+  if (SiteControls* controls = ShownFor(tab)) {
+    controls->Read();
+  }
+}
+
 void SiteControls::PictureInPicture(bc_id tab) {
   content::WebContents* contents = Tab::FromId(tab);
   content::MediaSession* session =
@@ -210,14 +229,23 @@ SiteControls::SiteControls(content::WebContents* contents)
 SiteControls::~SiteControls() = default;
 
 void SiteControls::Read() {
-  const GURL url = web_contents()->GetLastCommittedURL();
+  platform::SystemPage* page = SystemPageOf(web_contents());
+  const GURL url = page ? page->url() : web_contents()->GetLastCommittedURL();
   page_info_.reset();
   permissions_.clear();
   ui_delegate_ = std::make_unique<ChromePageInfoUiDelegate>(web_contents(), url);
   site_ = base::UTF16ToUTF8(url_formatter::FormatUrlForSecurityDisplay(
       url, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC));
-  // As Chrome's bubble for these, which says what the page is and lists nothing.
-  if (PageInfo::IsFileOrInternalPage(url)) {
+  system_engine_ = system_engine::Remembered(
+      Profile::FromBrowserContext(web_contents()->GetBrowserContext()), url);
+  if (page) {
+    // Chromium's permissions aren't the system page's, which asks for none, and WebKit says only
+    // whether the connection is secure.
+    connection_ = page->secure() ? BC_CONNECTION_SECURE : BC_CONNECTION_NOT_SECURE;
+    connection_summary_ = l10n_util::GetStringUTF16(
+        page->secure() ? IDS_PAGE_INFO_SECURE_SUMMARY : IDS_PAGE_INFO_NOT_SECURE_SUMMARY);
+  } else if (PageInfo::IsFileOrInternalPage(url)) {
+    // As Chrome's bubble for these, which says what the page is and lists nothing.
     connection_ = BC_CONNECTION_INTERNAL;
     connection_summary_ = l10n_util::GetStringUTF16(
         url.SchemeIsFile() ? IDS_PAGE_INFO_FILE_PAGE : IDS_PAGE_INFO_INTERNAL_PAGE);
@@ -249,7 +277,10 @@ void SiteControls::SetIdentityInfo(const IdentityInfo& identity_info) {
 }
 
 void SiteControls::PrimaryPageChanged(content::Page& page) {
-  Read();
+  // Chromium's page waits under the system page, whose commits come from PageChanged.
+  if (!SystemPageOf(web_contents())) {
+    Read();
+  }
 }
 
 void SiteControls::MediaStartedPlaying(const MediaPlayerInfo& info,
@@ -325,6 +356,7 @@ void SiteControls::Report() {
       .reset = reset.c_str(),
       .picture_in_picture = PictureInPictureOf(web_contents()),
       .certificate = CertificateOf(web_contents()) != nullptr,
+      .system_engine = system_engine_,
   };
   Host().tab_site_controls(Host().context, tab_, &controls);
 }

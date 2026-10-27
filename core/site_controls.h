@@ -27,6 +27,9 @@ class SiteControls : public PageInfoUI, public content::WebContentsObserver {
   static void Reset(bc_id tab);
   static void PictureInPicture(bc_id tab);
   static void ShowCertificate(bc_id tab);
+  // Reads |tab|'s site again if the panel shows it: its page went from one engine to the other, or
+  // the system's engine committed a page, which Chromium doesn't see.
+  static void PageChanged(bc_id tab);
 
   SiteControls(const SiteControls&) = delete;
   SiteControls& operator=(const SiteControls&) = delete;
@@ -65,6 +68,8 @@ class SiteControls : public PageInfoUI, public content::WebContentsObserver {
   std::string site_;
   int connection_ = BC_CONNECTION_NOT_SECURE;
   std::u16string connection_summary_;
+  // Whether the profile keeps the site for the system's engine.
+  bool system_engine_ = false;
   bool reporting_ = false;
   base::WeakPtrFactory<SiteControls> weak_factory_{this};
 };
