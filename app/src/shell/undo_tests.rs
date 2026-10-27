@@ -36,9 +36,9 @@ fn on(
     shell.update(cx, |shell, cx| {
         shell.set_spaces(
             vec![
-                (1, "One".into(), None, 1, "".into(), "".into()),
-                (2, "Two".into(), None, 1, "".into(), "".into()),
-                (3, "Three".into(), None, 2, "".into(), "".into()),
+                (1, "One".into(), None, 1, "".into(), "".into(), "".into()),
+                (2, "Two".into(), None, 1, "".into(), "".into(), "".into()),
+                (3, "Three".into(), None, 2, "".into(), "".into(), "".into()),
             ],
             cx,
         );
@@ -764,7 +764,7 @@ fn command_z_and_the_edit_menu_undo_and_redo_with_the_ui_focused(cx: &mut TestAp
     let (shell, cx): (Entity<Shell>, &mut VisualTestContext) =
         cx.add_window_view(|_, cx| Shell::new(browser, cx));
     shell.update(cx, |shell, cx| {
-        shell.set_spaces(vec![(1, "One".into(), None, 1, "".into(), "".into())], cx);
+        shell.set_spaces(vec![(1, "One".into(), None, 1, "".into(), "".into(), "".into())], cx);
         shell.set_space(1, cx);
         shell.set_tabs(
             1,

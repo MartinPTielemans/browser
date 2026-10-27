@@ -68,7 +68,8 @@ mod tests {
         let host = Rc::new(Recorder::default());
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Work".into(), None, 0, "".into(), "".into())], cx);
+            let space = (1, "Work".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_space(1, cx);
             let splits = match split {
                 true => vec![Split { tabs: vec![1, 2], stacked: false, shares: Vec::new() }],
