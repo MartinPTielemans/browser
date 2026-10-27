@@ -1,8 +1,8 @@
 # A Today tab's menu is Arc's, and its row dragged onto the Space's name takes the tab out of Today
 # into a tile above the Space's rows, its press having shown it. Resting on the tile names it in a
 # tooltip, which other apps don't take for the window in front, and the footer's Library button
-# and the header's sidebar button name themselves with their shortcuts' keys on chips. A click on
-# the tile shows it, and ⌘1–⌘9 count favorites first. Past its top, the list shows an
+# and the header's sidebar button name themselves with their shortcuts' keys on chips, and Clear
+# says what it does. A click on the tile shows it, and ⌘1–⌘9 count favorites first. Past its top, the list shows an
 # edge under the tile, and showing a tab under its bottom scrolls to the tab's row. Away from its
 # URL, a double-click on the tile goes back there. ⌘W unloads it and keeps the tile, showing the
 # top Today tab. The tile's menu duplicates it to the top of Today. Launched
@@ -119,6 +119,15 @@ expect '^browser: tooltip window shown$' "the sidebar button's tooltip didn't fa
 ../tools/window-screenshot.sh "$pid" "$out/header-tooltip.png" || fail "no window to capture"
 send move 100 400
 expect '^browser: tooltip hidden$' "the pointer leaving the sidebar button didn't hide its tooltip"
+# Clear, at the end of the divider over Today, says what it does in Arc's words, under it.
+send move 200 191
+expect '^browser: clear hovered 1$' "Clear didn't see the pointer come over it"
+expect '^browser: tooltip shown Clear unpinned tabs in this space$' \
+  "resting on Clear didn't show its tooltip"
+expect '^browser: tooltip window shown$' "Clear's tooltip didn't fade in"
+../tools/window-screenshot.sh "$pid" "$out/clear-tooltip.png" || fail "no window to capture"
+send move 100 400
+expect '^browser: tooltip hidden$' "the pointer leaving Clear didn't hide its tooltip"
 send click $(tiled_row 0)
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" \
   "a click on the Today row under the tile didn't show its tab"
