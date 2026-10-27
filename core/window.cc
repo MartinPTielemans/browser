@@ -24,6 +24,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
+#include "browser_core/password_offer.h"
 #include "browser_core/platform/window_views.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
@@ -351,6 +352,35 @@ void Window::PageViewChanged(bc_id tab) {
       if (window->selected_ == tab) {
         window->FocusPageSoon();
       }
+    }
+  }
+}
+
+// static
+Window* Window::Picturing(bc_id tab) {
+  for (Window* window : All()) {
+    if (!window->let_go_ || window->closing_ || !window->selected_) {
+      continue;
+    }
+    // A split view's pages move together, so the picture of one stands for them all.
+    Space* space = Space::Holding(window->selected_);
+    if (space ? std::ranges::contains(space->Panes(window->selected_), tab)
+              : window->selected_ == tab) {
+      return window;
+    }
+  }
+  return nullptr;
+}
+
+// static
+void Window::AdoptFreedPages() {
+  // A page left as the browser quits isn't shown again.
+  if (browser_shutdown::IsTryingToQuit()) {
+    return;
+  }
+  for (Window* window : All()) {
+    if (Picturing(window->selected_) == window && !Showing(window->selected_)) {
+      window->Select(window->selected_);
     }
   }
 }
@@ -960,6 +990,11 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   // The Browser's active tab is the one Chrome's keyboard shortcuts, find and fullscreen act on.
   TabStripModel* tabs =
       tabs::TabInterface::GetFromContents(contents)->GetBrowserWindowInterface()->GetTabStripModel();
+  // A page another window has a picture of goes there once this one has shown the next
+  // (AdoptFreedPages), and its offer, which Chrome hides here, with it.
+  content::WebContents* leaving = tabs->GetActiveWebContents();
+  const bc_id left = leaving && leaving != contents ? Tab::IdOf(leaving) : 0;
+  PasswordOffer::Moving moving(left && Picturing(left) ? left : 0);
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
@@ -1239,6 +1274,8 @@ void Window::Adopt(bc_id tab) {
       showing->LetGo();
     }
     TabStripModel* tabs = from->GetTabStripModel();
+    // Its offer, which Chrome hides as the tab leaves, comes with it.
+    PasswordOffer::Moving moving(pane);
     std::unique_ptr<tabs::TabModel> moved =
         tabs->DetachTabAtForInsertion(tabs->GetIndexOfWebContents(contents));
     // Not a tab opened, for the app.
@@ -1739,6 +1776,8 @@ void Window::ReportSelected() {
                          }
                          window->actions_->Show(Tab::FromId(tab));
                        }
+                       // The page the window left, if another has a picture of it.
+                       AdoptFreedPages();
                      },
                      weak_factory_.GetWeakPtr(), selected_));
 }
@@ -1748,7 +1787,7 @@ void Window::Close() {
     return;
   }
   // Its tabs are in Spaces every regular window shows, so with another one open they go there,
-  // live, and no page closes. That one shows its tab again if this one had taken its page. A
+  // live, and no page closes. A window with a picture of a page this one showed shows it again. A
   // private window's tabs close with it.
   Window* to = nullptr;
   for (Window* window : All()) {
@@ -1757,17 +1796,17 @@ void Window::Close() {
       break;
     }
   }
-  if (to && !off_the_record_ && !browser_shutdown::IsTryingToQuit()) {
-    const bool give_back = to->let_go_ && Showing(to->selected_) == this;
+  const bool hand_over = to && !off_the_record_ && !browser_shutdown::IsTryingToQuit();
+  if (hand_over) {
     // Its pages out of its view first, as the view goes with the window. The app has no use for a
     // picture of a page for a window that is closing.
     LetGo(false);
     HandOver(*to);
-    if (give_back) {
-      to->Select(to->selected_);
-    }
   }
   closing_ = true;
+  if (hand_over) {
+    AdoptFreedPages();
+  }
   if (browsers_.empty()) {
     Destroy();
     return;

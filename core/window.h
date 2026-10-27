@@ -75,6 +75,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // The window that shows |tab|'s page, focused or beside the tab it shows in a split view, else
   // null. A window whose page another window took doesn't show it.
   static Window* Showing(bc_id tab);
+  // The window |tab|'s page goes back to once no window shows it: of those that show a picture of
+  // it in its place, as another window took it, the one the user was in last. Else null.
+  static Window* Picturing(bc_id tab);
+  // Each page no window shows goes, live, to the window Picturing it.
+  static void AdoptFreedPages();
   // Has each window whose shown tab's split changed show it as it is now.
   static void PanesChanged();
   // Lays out each window showing |tab|, whose page died or came back: a page that died leaves its

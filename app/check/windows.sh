@@ -3,10 +3,11 @@
 # shows another window's page: a Space it switches to and back shows the first tab no window shows.
 # The Spaces menu acts on the window in front. A click on a row whose page another window shows
 # moves the page there live, with no second load, and the window it left keeps its rows and draws a
-# picture of the page in its card, which a click on takes the page back from, live.
-# ⇧⌘W closes a window and gives its tabs to the one that was in front before it, live, which shows
-# its page again; in the last window it quits. ⇧↩ in the command bar opens its page in a new
-# window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
+# picture of the page in its card, which a click on takes the page back from, live. A window that
+# switches away from the page gives it back to the one with its picture, live, and keeps the
+# keyboard. ⇧⌘W closes a window and gives its tabs to the one that was in front before it, live,
+# which shows its page again; in the last window it quits. ⇧↩ in the command bar opens its page in
+# a new window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
 # forward rather than taking the page. With the first window in full screen, other apps take the
 # second for the window in front once the user is in it.
 
@@ -167,11 +168,40 @@ send click $(row 0)
 expect "^browser: window $second shows $a\$" "a click on the row didn't take the page from its picture"
 counting "in the new window again"
 
+# The new window switching to the other tab lets go of the page, which goes back to the first,
+# live, in place of its picture. The new window keeps the keyboard where the click left it.
+keyed=$(grep -c "^browser: key window $first\$" "$log" || true)
+send click $(row 1)
+expect "^browser: window $second shows $b\$" "a click on the other tab's row didn't show it"
+clicked_focus=$focus
+expect "^browser: window $first shows $a\$" \
+  "the page the new window left didn't go to the first, which had its picture"
+expect "^browser: window $first page elsewhere 0\$" \
+  "the first window wasn't told it shows its page again"
+counting "back in the first window after the new one left it"
+send front
+front=$(grep '^browser: front ' "$log" | tail -1)
+echo "$front" | grep -q ' key driven,' || fail "the page going back took the keyboard: $front"
+[ "$focus" = "$clicked_focus" ] ||
+  fail "the page going back moved the new window's keyboard from $clicked_focus to $focus"
+[ "$(grep -c "^browser: key window $first\$" "$log")" = "$keyed" ] ||
+  fail "the page going back made the first window key"
+../tools/window-screenshot.sh "$pid" "$out/windows-handed-back.png" all || fail "no window to capture"
+
+# The new window takes the page once more, for ⇧⌘W to close it while it shows the page.
+send click $(row 0)
+expect "^browser: window $second shows $a\$" "a click on the row didn't take the page back"
+expect "^browser: window $first page elsewhere $a\$" \
+  "the first window wasn't told its page went again"
+counting "in the new window once more"
+
 # ⇧⌘W closes the new window. The first keeps every row and shows its page again, live.
 send key w cmd shift
 expect '^browser: command close-window via ' "⇧⌘W didn't run Close Window"
 expect "^browser: window closed $second\$" "⇧⌘W didn't close the window"
 expect "^browser: window $first shows $a\$" "the first window didn't get its page back"
+expect "^browser: window $first page elsewhere 0\$" \
+  "the first window wasn't told it shows its page again after the other closed"
 counting "back in the first window"
 grep -q '^browser: tab [0-9]* closed$' "$log" && fail "closing a window closed a tab"
 [ "$(today)" = "$a $b" ] || fail "closing the window changed Today to \"$(today)\""
@@ -230,4 +260,4 @@ post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
-echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"
+echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"

@@ -40,6 +40,12 @@ size_t CodePoints(std::u16string_view password) {
                                [](char16_t unit) { return unit < 0xDC00 || unit > 0xDFFF; });
 }
 
+// The tab Moving keeps the offer of, or 0.
+bc_id& MovingTab() {
+  static bc_id tab = 0;
+  return tab;
+}
+
 bool IsOffer(password_manager::ui::State state) {
   return state == password_manager::ui::PENDING_PASSWORD_STATE ||
          state == password_manager::ui::PENDING_PASSWORD_UPDATE_STATE;
@@ -60,7 +66,9 @@ bool Current(const SaveUpdateBubbleController& offer) {
 void PasswordOffer::Prompt(content::WebContents* contents, bool show) {
   const bc_id tab = Tab::IdOf(contents);
   if (!show) {
-    Drop(tab);
+    if (tab != MovingTab()) {
+      Drop(tab);
+    }
     return;
   }
   base::WeakPtr<PasswordsModelDelegate> delegate = PasswordsModelDelegateFromWebContents(contents);
@@ -127,6 +135,12 @@ void PasswordOffer::Answer(bc_id tab, int answer, const char* username) {
   if (found = Offers().find(tab); found != Offers().end() && found->second.get() == &offer) {
     Drop(tab);
   }
+}
+
+PasswordOffer::Moving::Moving(bc_id tab) : previous_(std::exchange(MovingTab(), tab)) {}
+
+PasswordOffer::Moving::~Moving() {
+  MovingTab() = previous_;
 }
 
 void PasswordOffer::Drop(bc_id tab) {
