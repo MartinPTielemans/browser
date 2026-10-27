@@ -106,6 +106,7 @@ impl Shell {
         self.resize = None;
         self.sidebar_hidden = true;
         self.sidebar_motion = None;
+        self.sidebar_hover(false, cx);
         self.recent_downloads_gone(cx);
         self.update_menus(cx);
         // check.sh waits for this line.
@@ -159,6 +160,7 @@ impl Shell {
         let from = self.card_left();
         self.sidebar_hidden = !self.sidebar_hidden;
         self.sidebar_motion = Some((from, Instant::now()));
+        self.sidebar_hover(false, cx);
         self.recent_downloads_gone(cx);
         self.update_menus(cx);
         cx.notify();
@@ -216,6 +218,10 @@ impl Shell {
         self.conceal_now(cx);
         self.sidebar_hidden = false;
         self.sidebar_motion = None;
+        // The pointer that kept the panel out is over the sidebar, so its tools stay as they were.
+        self.sidebar_hover(true, cx);
+        self.tools_on = true;
+        self.tools_fade = None;
         self.update_menus(cx);
         // check.sh waits for this line.
         log!("browser: sidebar shown");
@@ -379,7 +385,10 @@ impl Shell {
         }
     }
 
+    /// The pointer is over the docked sidebar, or not. A hidden one has no pointer over it, so
+    /// ⌘S bringing it back shows its tools only once the pointer comes over it.
     pub(super) fn sidebar_hover(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        let hovered = hovered && !self.sidebar_hidden;
         if hovered != self.sidebar_hovered {
             self.sidebar_hovered = hovered;
             self.hover_changed = true;
