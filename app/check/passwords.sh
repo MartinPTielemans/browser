@@ -36,10 +36,9 @@ log_in() {
   send type "$1"
   send key return
 }
-# Waits for the page's login to bring an offer of kind $1 for the password $2 long, and for its
-# card. Sets $ox and $oy to where the card is in the browser window.
+# Waits for the page's login to bring an offer of kind $1, and for its card. Sets $ox and $oy to where the card is in the browser window.
 offered() {
-  expect "^browser: offer $tab $1 $2 check@example.test " "the login brought no offer to $1"
+  expect "^browser: offer $tab $1 check@example.test " "the login brought no offer to $1"
   expect '^browser: offer shown$' "the offer to $1 wasn't shown"
   send layout
   child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: layout child' |
@@ -70,7 +69,7 @@ check_offer() {
 }
 
 log_in hunter2.check
-offered save 13
+offered save
 check_offer "after the login"
 ../tools/window-screenshot.sh "$pid" "$out/password-offer.png" || fail "no window to capture"
 send resize 1000 700
@@ -97,7 +96,7 @@ sed -n "/^browser: drive $back: /,\$p" "$log" | grep -q '^browser: offer shown$'
 # Japanese input composes in the offer's username field, and return commits it without saving.
 send click 600 60
 log_in hunter2.check
-offered save 13
+offered save
 send click $(offer_field)
 in_offer "after a click in the offer"
 send key a cmd
@@ -128,7 +127,7 @@ send key tab
 send key a cmd
 send type hunter3.check
 send key return
-offered update 13
+offered update
 ../tools/window-screenshot.sh "$pid" "$out/password-update.png" || fail "no window to capture"
 send click $(offer_field)
 in_offer "after a click in the update offer"
@@ -141,7 +140,7 @@ go_from_bar "localhost:$port/login.html"
 expect "^browser: title $tab login\$" "the login page didn't load on localhost"
 send click 600 60
 log_in hunter2.check
-offered save 13
+offered save
 send click $(offer_never)
 expect "^browser: offer $tab answered Never check@example.test\$" "Never didn't answer"
 expect '^browser: offer hidden$' "Never didn't hide the offer"

@@ -3161,7 +3161,7 @@ unsafe extern "C" fn tab_offer_changed(
         let never = string(offer.never);
         offer::Offer {
             kind: match offer.kind as u32 {
-                bc::BC_OFFER_PASSWORD_UPDATE => offer::Kind::Update,
+                bc::BC_OFFER_KIND_PASSWORD_UPDATE => offer::Kind::Update,
                 _ => offer::Kind::Save,
             },
             title: string(offer.title),
