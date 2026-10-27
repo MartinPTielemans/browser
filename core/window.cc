@@ -1849,6 +1849,14 @@ void Window::OnBrowserGone(BrowserWindowInterface* browser) {
 }
 
 void Window::Destroy() {
+  // The last regular window stays in the session at its frame, saved while it's listed, for the
+  // next window to open there. One that had tabs was kept as they closed (OnTabClosing).
+  if (!off_the_record_ && std::ranges::none_of(Windows(), [this](const auto& entry) {
+        const Window* other = entry.second.get();
+        return other != this && !other->off_the_record_ && !other->closing_;
+      })) {
+    KeepSession();
+  }
   // Out of the list first, so the app can't reach the window from its callback.
   std::erase(Order(), id_);
   auto it = Windows().find(id_);

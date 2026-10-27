@@ -2932,7 +2932,14 @@ unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
         (index.map(|index| windows.remove(index)), windows.len())
     });
     let private = window.as_ref().is_some_and(|window| window.private);
+    let regular = WINDOWS.with_borrow(|windows| windows.iter().any(|window| !window.private));
     if let Some(window) = window {
+        // The user closing the last regular window, which doesn't resign the app, sets where the
+        // next launch's window opens. Not in a quit, which closes the windows in no order once the
+        // user's Quit has taken the one in front.
+        if !private && !regular && !unsafe { bc::bc_quitting() } {
+            save_launch_frame(window.ui_view);
+        }
         unsafe { platform::host_forget_window(window.ui_view) };
         update_app(|cx| {
             find_bar::window_closed(id, cx);
@@ -2949,7 +2956,6 @@ unsafe extern "C" fn window_closed(_: *mut c_void, id: bc::bc_id) {
     log!("browser: window closed {id}");
     // A private window alone doesn't keep the browser: the Spaces' pages closed with the last
     // regular window, which the next launch brings back, so the private ones close with them.
-    let regular = WINDOWS.with_borrow(|windows| windows.iter().any(|window| !window.private));
     if left == 0 || (!private && !regular) {
         unsafe { bc::bc_quit() };
     }
@@ -3015,6 +3021,8 @@ unsafe extern "C" fn launching(_: *mut c_void) {
         bc::bc_rect { x, y, width, height }
     });
     unsafe { platform::host_show_launch_window(profile.as_ptr(), x, y, width, height) };
+    // check.sh reads this line.
+    log!("browser: launch window frame {x:.0} {y:.0} {width:.0} {height:.0}");
     // The launch's times, from the process's start, for the performance gate.
     log!("browser: launch window at {:.1} ms", unsafe { platform::host_since_launch() });
 }
@@ -3031,7 +3039,8 @@ unsafe extern "C" fn stopping(_: *mut c_void) {
 
 // The next launch's first window opens where the regular window in front is, showing its sidebar
 // until its UI has drawn. Taken as the app stops being the active one and on the user's Quit, as a
-// window is already hidden when it closes. Nothing of a private window is kept.
+// window is already hidden when it closes, and the frame alone as the last regular window closes.
+// Nothing of a private window is kept.
 extern "C" fn launch_picture_on_resigning() {
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         cx.update(save_launch_picture);
@@ -3044,12 +3053,7 @@ fn save_launch_picture(cx: &mut App) {
     else {
         return;
     };
-    let (mut x, mut y, mut width, mut height) = (0., 0., 0., 0.);
-    // Out of full screen only: the core keeps the frame a window in full screen comes back at.
-    if unsafe { platform::host_window_frame(window.ui_view, &mut x, &mut y, &mut width, &mut height) }
-    {
-        _ = std::fs::write(launch_frame_path(), format!("{x} {y} {width} {height}\n"));
-    }
+    save_launch_frame(window.ui_view);
     let width = window.shell.upgrade().map_or(0., |shell| shell.read(cx).card_left());
     let Ok(profile) = CString::new(profile_dir()) else {
         return;
@@ -3058,6 +3062,15 @@ fn save_launch_picture(cx: &mut App) {
     let taken = unsafe { platform::host_save_launch_picture(window.ui_view, profile, width.into()) };
     // check.sh reads this line.
     log!("browser: launch picture {}", if taken { "taken" } else { "not taken" });
+}
+
+/// Keeps the frame of the browser window of `ui_view` for the next launch's first window to open
+/// at. Out of full screen only: the core keeps the frame a window in full screen comes back at.
+fn save_launch_frame(ui_view: *mut c_void) {
+    let (mut x, mut y, mut width, mut height) = (0., 0., 0., 0.);
+    if unsafe { platform::host_window_frame(ui_view, &mut x, &mut y, &mut width, &mut height) } {
+        _ = std::fs::write(launch_frame_path(), format!("{x} {y} {width} {height}\n"));
+    }
 }
 
 /// A Space's or a folder's name, or a Space's icon, which `copy` copies as bc_space_name does.
