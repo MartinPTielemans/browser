@@ -76,13 +76,13 @@ expect '^browser: dialog shown Add "uBlock Origin Lite"?$' \
 grep -q "^browser: extension question $store_id asks .*all your data on all websites" "$log" ||
   fail "the question didn't list Chrome's warnings: $(grep 'extension question' "$log")"
 await '^browser: dialog settled$' || fail "the install dialog didn't settle"
-../tools/window-screenshot.sh "$pid" "$out/store-install.png" || fail "no window to capture"
+proof store-install.png
 send key return
 expect '^browser: dialog confirmed$' "return didn't confirm adding the extension"
 expect '^browser: extension question none$' "Chrome didn't hear the install was confirmed"
 # The store's download, then Chrome's install.
 await "^browser: extensions menu.* $store_id" || fail "the store's extension wasn't added"
-../tools/window-screenshot.sh "$pid" "$out/store-installed.png" || fail "no window to capture"
+proof store-installed.png
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
@@ -106,7 +106,7 @@ for _ in $(seq 100); do
 done
 sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: key window titled Remove ' ||
   fail "the store's Remove from Chrome didn't ask: $(grep 'key window titled' "$log" | tail -1)"
-../tools/window-screenshot.sh "$pid" "$out/store-remove.png" || fail "no window to capture"
+proof store-remove.png
 send key return
 for _ in $(seq 100); do
   listed || break

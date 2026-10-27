@@ -69,7 +69,7 @@ send click $page_point
 send key p
 expect "^browser: title $a playing\$" "p in the page didn't play its sound"
 expect "^browser: page $a audible 1 muted 1\$" "the muted tab's sound didn't show"
-../tools/window-screenshot.sh "$pid" "$out/muted.png" || fail "no window to capture"
+proof muted.png
 send key x
 expect "^browser: page $a audible 0 muted 1\$" "the tab's sound didn't stop"
 # The speaker is after the favicon, at the title's x, 43.
@@ -81,7 +81,7 @@ b=$tab
 open_from_bar example.org
 c=$tab
 expect_tabs "$c $b $a" "$c" "after opening two tabs"
-../tools/window-screenshot.sh "$pid" "$out/tabs.png" || fail "no window to capture"
+proof tabs.png
 
 # The command bar's last suggestions, as "<url>[ tab <id>][ site <keyword>]" a line.
 suggestions() {
@@ -121,7 +121,7 @@ suggest_example() {
   none_since "https://$2/ tab " || fail "the command bar suggested $2's tab, which is shown"
 }
 suggest_example example.com example.org "$b"
-../tools/window-screenshot.sh "$pid" "$out/suggestions.png" || fail "no window to capture"
+proof suggestions.png
 send key return
 expect "^browser: command bar switch to tab $b\$" "↩ on example.com's row didn't switch to its tab"
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" "↩ on example.com's row didn't show its tab"
@@ -142,7 +142,7 @@ expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send type example.c
 expect '^browser: command bar completes "example.c" with "om"$' "the command bar didn't complete \"example.c\" to example.com"
 expect '^browser: command bar drew "example.com"$' "the command bar didn't show the completion"
-../tools/window-screenshot.sh "$pid" "$out/completion.png" || fail "no window to capture"
+proof completion.png
 send key return
 expect "^browser: command bar switch to tab $b\$" "↩ didn't switch to the tab the completion's page is open in"
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" "↩ on the completion didn't show its tab"
@@ -161,7 +161,7 @@ at=$(grep '^browser: command bar at' "$log" | tail -1 | cut -d' ' -f5-)
 # The input alone is a row, 50 tall, over the field at 8, 46.
 [ "$at" = "8 44 350 50" ] ||
   fail "the command bar from the URL field opened at $at, not at 8 44 and 350 by 50"
-../tools/window-screenshot.sh "$pid" "$out/url-field-bar.png" || fail "no window to capture"
+proof url-field-bar.png
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 
@@ -174,12 +174,12 @@ case "$listed" in
   "$c $a" | "$c $a "*) ;;
   *) fail "the command bar listed tabs \"$listed\" before anything was typed, not $c then $a" ;;
 esac
-../tools/window-screenshot.sh "$pid" "$out/listed.png" || fail "no window to capture"
+proof listed.png
 # Well-known sites fill the rows under the profile's own, never first, so ↩ still searches.
 send type g
 expect '^browser: command bar suggestions "g" in [0-9.]* ms: https://duckduckgo.com/?q=g, .*https://www.google.com/, https://mail.google.com/' \
   "the command bar didn't suggest well-known sites under the search: $(suggestions | tr '\n' ' ')"
-../tools/window-screenshot.sh "$pid" "$out/popular.png" || fail "no window to capture"
+proof popular.png
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 
@@ -233,7 +233,7 @@ send key w cmd
 expect_tabs "$b" "$b" "after closing the bottom tab"
 send key w cmd
 expect_tabs " *" 0 "after closing the last tab"
-../tools/window-screenshot.sh "$pid" "$out/empty.png" || fail "no window to capture"
+proof empty.png
 # ⇧⌦ takes a page from history out of the rows.
 send key t cmd
 expect '^browser: command new-tab via ui$' "⌘T in an empty Space didn't reach the UI"
@@ -274,14 +274,14 @@ send type duckduckgo.com
 expect "$listed\" in $hint" \
   "the command bar's first row didn't hint DuckDuckGo's site search: $(suggestions | tr '\n' ' ')"
 await_bar_height
-../tools/window-screenshot.sh "$pid" "$out/site-hint.png" || fail "no window to capture"
+proof site-hint.png
 send key tab
 expect '^browser: command bar site search duckduckgo.com by tab$' \
   "Tab on the row that hints DuckDuckGo didn't enter its site search"
 send type cats
 expect "$listed cats\" in [0-9.]* ms: https://duckduckgo.com/?q=cats" \
   "the site search didn't list DuckDuckGo's search first: $(suggestions | tr '\n' ' ')"
-../tools/window-screenshot.sh "$pid" "$out/site-search.png" || fail "no window to capture"
+proof site-search.png
 for _ in 1 2 3 4 5; do send key backspace; done
 expect '^browser: command bar leaves site search$' \
   "⌫ in the site search's empty field didn't leave it"
@@ -307,7 +307,7 @@ send type 12+7
 expect '^browser: command bar calculates "12+7": 19$' "the command bar didn't work out 12+7"
 send key down
 expect '^browser: command bar selected = 19$' "↓ didn't select the sum's row"
-../tools/window-screenshot.sh "$pid" "$out/sum.png" || fail "no window to capture"
+look sum.png
 send key return
 expect '^browser: command bar copies 19$' "↩ on the sum's row didn't copy its result"
 expect '^browser: copied 19$' "the sum's result wasn't copied"
@@ -322,7 +322,7 @@ post rightclickkey 200 27
 pastes='Paste, Paste and Go, Paste and Search'
 expect "^browser: menu shown Cut (disabled), Copy (disabled), $pastes, Select All\$" \
   "a right-click in the command bar's field didn't show its menu"
-../tools/window-screenshot.sh "$pid" "$out/field-menu.png" || fail "no window to capture"
+proof field-menu.png
 send choose Select All
 send type 2+2
 expect '^browser: command bar calculates "2+2": 4$' \

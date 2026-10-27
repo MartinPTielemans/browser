@@ -38,7 +38,7 @@ if [ "$driven" = 1 ]; then
   send key , cmd
   expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
   expect '^browser: default browser no$' "Settings didn't read whether the browser is the default"
-  ../tools/window-screenshot.sh "$pid" "$out/links-settings.png" || fail "no window to capture"
+  proof links-settings.png
   send key w cmd
   expect '^browser: settings hidden$' "⌘W didn't hide Settings"
   # With an agent's Space shown, the link goes in the user's, which the window shows again.
@@ -111,7 +111,7 @@ await "^browser: loaded $tab ${site}?cold\$" || fail "the link that launched the
 opened=$(grep -n -m1 '^browser: link from another app ' "$log" | cut -d: -f1)
 drawn=$(grep -n -m1 '^browser: first frame at ' "$log" | cut -d: -f1)
 [ "$opened" -lt "$drawn" ] || fail "the link opened after the window's first frame"
-../tools/window-screenshot.sh "$pid" "$out/links-cold.png" || fail "no window to capture"
+proof links-cold.png
 cold="launch window $(at 'launch window') ms, first frame $(at 'first frame') ms"
 quit_launched
 

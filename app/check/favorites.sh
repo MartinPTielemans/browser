@@ -90,7 +90,7 @@ echo "$asked $placed" | awk '
   END { exit !(NR == 1 && NF == 13 && middle > -1 && middle < 1 && across > -1 && across < 1 \
     && down > -1 && down < 1) }' \
   || fail "the tooltip isn't under the tile it names: asked \"$asked\", placed \"$placed\""
-../tools/window-screenshot.sh "$pid" "$out/favorite-tooltip.png" || fail "no window to capture"
+proof favorite-tooltip.png
 # Another app asking which window is in front, as T3 Code's window capture does, gets the browser
 # window, not the tooltip over it or the command bar's shadow.
 send front
@@ -101,7 +101,7 @@ send click $tile
 expect '^browser: command select via favorite$' "a click on the tile didn't run"
 expect '^browser: tooltip hidden$' "a click on the tile didn't hide its tooltip"
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
-../tools/window-screenshot.sh "$pid" "$out/favorites.png" || fail "no window to capture"
+proof favorites.png
 # The footer's Library button names itself beside it, with its shortcut's keys on chips (Arc), and
 # the header's sidebar button under it; each goes when the pointer leaves.
 check_layout "before the buttons' tooltips"
@@ -109,14 +109,14 @@ send move 24 $((height - 25))
 expect '^browser: tooltip shown View Library ⇧⌘L$' \
   "resting on the Library button didn't show View Library and ⇧⌘L"
 expect '^browser: tooltip window shown$' "the Library button's tooltip didn't fade in"
-../tools/window-screenshot.sh "$pid" "$out/library-tooltip.png" || fail "no window to capture"
+proof library-tooltip.png
 send move 100 400
 expect '^browser: tooltip hidden$' "the pointer leaving the Library button didn't hide its tooltip"
 send move 93 23
 expect '^browser: tooltip shown Hide Sidebar ⌘S$' \
   "resting on the sidebar button didn't show Hide Sidebar and ⌘S"
 expect '^browser: tooltip window shown$' "the sidebar button's tooltip didn't fade in"
-../tools/window-screenshot.sh "$pid" "$out/header-tooltip.png" || fail "no window to capture"
+proof header-tooltip.png
 send move 100 400
 expect '^browser: tooltip hidden$' "the pointer leaving the sidebar button didn't hide its tooltip"
 # Clear, at the end of the divider over Today, says what it does in Arc's words, under it.
@@ -125,7 +125,7 @@ expect '^browser: clear hovered 1$' "Clear didn't see the pointer come over it"
 expect '^browser: tooltip shown Clear unpinned tabs in this space$' \
   "resting on Clear didn't show its tooltip"
 expect '^browser: tooltip window shown$' "Clear's tooltip didn't fade in"
-../tools/window-screenshot.sh "$pid" "$out/clear-tooltip.png" || fail "no window to capture"
+look clear-tooltip.png
 send move 100 400
 expect '^browser: tooltip hidden$' "the pointer leaving Clear didn't hide its tooltip"
 send click $(tiled_row 0)
@@ -149,7 +149,7 @@ expect "^browser: page $a unloaded 1\$" "⌘W on a favorite didn't unload it"
 none_since "^browser: tab $a closed\$" || fail "⌘W closed a favorite"
 [ "$(favorites)" = "$a" ] ||
   fail "⌘W on a favorite took its tile: the favorites are \"$(favorites)\""
-../tools/window-screenshot.sh "$pid" "$out/favorite-unloaded.png" || fail "no window to capture"
+proof favorite-unloaded.png
 switch "1 cmd" "$a"
 expect "^browser: loaded $a $site\$" "the unloaded favorite didn't load once shown"
 # The tile's menu. Duplicate Tab opens a copy at the top of Today and shows it.
@@ -176,7 +176,7 @@ send resize 1000 340
 expect '^browser: drawn at 1000x340$' "the window didn't draw at its new size"
 send scroll 100 200 10 5
 expect '^browser: scroll edge shown$' "the list scrolled past its top didn't show its edge"
-../tools/window-screenshot.sh "$pid" "$out/scroll-edge.png" || fail "no window to capture"
+proof scroll-edge.png
 edge=$(pixel "$out/scroll-edge.png" 0.1 $(echo "135.5 / 340" | bc -l))
 gap=$(pixel "$out/scroll-edge.png" 0.1 $(echo "133.5 / 340" | bc -l))
 brighter "$edge" "$gap" || fail "the edge is $edge over the sidebar's $gap"
@@ -188,7 +188,7 @@ switch "9 cmd" "$b"
 expect "^browser: list scrolled to [1-9][0-9.]* for $b\$" \
   "showing a tab under the list's bottom didn't scroll to its row"
 expect '^browser: scroll edge shown$' "the list scrolled to a row didn't show its edge"
-../tools/window-screenshot.sh "$pid" "$out/list-scrolled.png" || fail "no window to capture"
+proof list-scrolled.png
 switch "2 cmd" "$c"
 none_since '^browser: list scrolled' || fail "showing a tab in view scrolled the list"
 send resize $size
@@ -200,7 +200,7 @@ send click $page_point
 send key , cmd
 expect '^browser: command settings via page$' "⌘, from the page didn't run Settings"
 expect '^browser: settings shown General$' "⌘, didn't show Settings on its General tab"
-../tools/window-screenshot.sh "$pid" "$out/settings.png" || fail "no window to capture"
+proof settings.png
 send clickkey 592 126
 expect '^browser: warn before quitting off$' "a click on Warn before quitting didn't turn it off"
 post clickkey 500 168
@@ -240,7 +240,7 @@ await '^browser: today [0-9][0-9]* [0-9][0-9]*$' || fail "the Today tabs didn't 
 left=$(today)
 await "^browser: selected $a\$" || fail "the relaunch didn't show the favorite shown last"
 await "^browser: loaded $a $site\$" || fail "the favorite didn't load"
-../tools/window-screenshot.sh "$pid" "$out/favorites-restored.png" || fail "no window to capture"
+proof favorites-restored.png
 send click $page_point
 if [ "$active" != 1 ]; then
   exec 3>&-
@@ -283,7 +283,7 @@ send dragto 100 200
 send dragto 114 112
 expect '^browser: drag shape tile$' "a row dragged onto the favorites didn't turn into a tile"
 expect '^browser: detent$' "a row dragged onto the favorites didn't click the trackpad"
-../tools/window-screenshot.sh "$pid" "$out/favorite-drag.png" || fail "no window to capture"
+proof favorite-drag.png
 none_since '^browser: dragged' ||
   fail "a row dragged onto the favorites dropped before the pointer let go"
 send release 114 112
@@ -317,7 +317,7 @@ none_since '^browser: detent$' || fail "pressing a tile clicked the trackpad"
 send dragto 100 200
 expect '^browser: drag shape row$' "a tile dragged into the list didn't turn into a row"
 expect '^browser: detent$' "a tile dragged into the list didn't click the trackpad"
-../tools/window-screenshot.sh "$pid" "$out/favorite-drag-out.png" || fail "no window to capture"
+proof favorite-drag-out.png
 send dragto 100 300
 send key escape
 expect '^browser: command stop via ' "escape during a tile's drag didn't reach the UI"
@@ -345,11 +345,11 @@ size=$(grep '^browser: layout content' "$log" | tail -1 |
 send resize 1000 220
 expect '^browser: tiles scroll with the list$' \
   "two rows of tiles in a window 220 tall didn't scroll with the list"
-../tools/window-screenshot.sh "$pid" "$out/tiles-tall.png" || fail "no window to capture"
+proof tiles-tall.png
 # Scrolled 40, the tiles went up 40 with the rows, and the first tile's place holds the third's.
 send scroll 100 150 20 2
 expect '^browser: scroll edge shown$' "the list scrolled with the tiles didn't show its edge"
-../tools/window-screenshot.sh "$pid" "$out/tiles-scrolled.png" || fail "no window to capture"
+proof tiles-scrolled.png
 send click 40 117
 expect '^browser: command select via favorite$' "a click on the scrolled tiles didn't reach one"
 expect "^browser: selected $y\( in .*\)\{0,1\}\$" \
@@ -416,7 +416,7 @@ hangs 187 "$short"
 short_width=$width
 [ "$(echo "$long_width > $medium_width && $medium_width > $short_width" | bc -l)" = 1 ] ||
   fail "the tooltips aren't long, medium and short: $long_width, $medium_width, $short_width"
-../tools/window-screenshot.sh "$pid" "$out/favorite-tooltips.png" || fail "no window to capture"
+proof favorite-tooltips.png
 hangs 114 "$medium"
 hangs 41 "$long"
 # In a window narrow enough that the short tooltip would cross its right edge from the last tile,
@@ -428,7 +428,7 @@ for _ in $(seq 30); do
 done
 if [ "$(drawn_width | cut -d. -f1)" -le 322 ]; then
   hangs 187 "$short" mirrored
-  ../tools/window-screenshot.sh "$pid" "$out/favorite-tooltip-mirrored.png" || fail "no window to capture"
+  proof favorite-tooltip-mirrored.png
 else
   echo "note: the window didn't narrow to 320, so the mirrored tooltip wasn't checked."
 fi

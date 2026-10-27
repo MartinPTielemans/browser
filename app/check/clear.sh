@@ -59,7 +59,7 @@ expect "^browser: link target http://127.0.0.1:$port/notes.txt\$" \
   "the pointer on the link reported no address"
 expect '^browser: link target plate ' "the link's address didn't show in a plate"
 expect '^browser: link target window shown$' "the plate's window didn't come on screen"
-../tools/window-screenshot.sh "$pid" "$out/link-target.png" || fail "no window to capture"
+proof link-target.png
 send move $page_point
 expect '^browser: link target none$' "the pointer leaving the link didn't report it"
 expect '^browser: link target hidden$' "the plate stayed after the pointer left the link"
@@ -86,7 +86,7 @@ expect '^browser: command clear-cookies-and-refresh via command bar$' \
   "Clear Cookies and Refresh didn't run from the command bar"
 expect "^browser: title $a cookie none cache 2\$" \
   "Clear Cookies and Refresh didn't delete the cookie, or fetched the script again: $(grep '^browser: title' "$log" | tail -1)"
-../tools/window-screenshot.sh "$pid" "$out/clear-site.png" || fail "no window to capture"
+proof clear-site.png
 send key left cmd
 expect "^browser: page $a back 0 forward 1 loading 0 $site\$" "⌘← didn't go back to the served page"
 # Clear on the divider, which sits under the one pinned tab, the URL field's Copy URL and Site
@@ -127,7 +127,7 @@ expect '^browser: copied https://example.org/$' "⇧⌘C didn't copy the tab's U
 # The toast says so, 8 inside the card's top right corner.
 expect '^browser: toast shown Copied Current URL$' "⇧⌘C's toast didn't say it copied the URL"
 expect '^browser: toast settled$' "⇧⌘C's toast didn't settle"
-../tools/window-screenshot.sh "$pid" "$out/url-toast.png" || fail "no window to capture"
+proof url-toast.png
 send click $sidebar_point
 send key c cmd shift alt
 expect '^browser: command copy-markdown-link via ui$' "⌥⇧⌘C with the UI focused didn't run"
@@ -140,7 +140,7 @@ away
 send move $sidebar_point
 expect '^browser: sidebar hovered 1$' "the sidebar didn't see the pointer come over it"
 expect '^browser: sidebar tools shown$' "Clear and the URL field's button didn't fade in"
-../tools/window-screenshot.sh "$pid" "$out/sidebar-hovered.png" || fail "no window to capture"
+proof sidebar-hovered.png
 send click $copy_point
 expect '^browser: command copy-url via sidebar$' \
   "a click on the URL field's button didn't run Copy URL"
@@ -151,14 +151,14 @@ none_since '^browser: command edit-url' ||
 # leaves, and no toast.
 expect '^browser: copy url draws check$' "the URL field's button didn't start drawing a checkmark"
 expect '^browser: copy url shows check$' "the URL field's checkmark didn't finish drawing"
-../tools/window-screenshot.sh "$pid" "$out/url-copied.png" || fail "no window to capture"
+look url-copied.png
 expect '^browser: copy url brings back link$' "the URL field's button kept its checkmark"
 expect '^browser: copy url shows link$' "the URL field's link didn't come all the way back"
 none_since '^browser: toast shown' || fail "the URL field's button showed a toast"
 send move $page_point
 expect '^browser: sidebar hovered 0$' "the sidebar didn't see the pointer leave"
 expect '^browser: sidebar tools hidden$' "Clear and the URL field's button didn't fade out"
-../tools/window-screenshot.sh "$pid" "$out/sidebar-away.png" || fail "no window to capture"
+proof sidebar-away.png
 
 # ⇧⌘K with the page focused closes the Today tabs but the one shown, here the middle of three,
 # without showing or loading another.
@@ -175,7 +175,7 @@ expect_lists "$a" "$c" "after Clear"
 none_since '^browser: selected' || fail "Clear showed another tab"
 none_since '^browser: loaded' || fail "Clear loaded a page"
 none_since '^browser: toast' || fail "Clear showed a toast"
-../tools/window-screenshot.sh "$pid" "$out/clear.png" || fail "no window to capture"
+proof clear.png
 
 # ⌘Z with the page focused puts them back in place, unloaded, and the tab shown stays.
 send key z cmd
@@ -242,7 +242,7 @@ expect "^browser: loaded $d https://example.org/\$" "the reopened tab didn't loa
 expect '^browser: clear arrow 1$' "Clear had no arrow with the one Today tab shown"
 send move $clear_point
 expect '^browser: clear hovered 1$' "Clear didn't see the pointer come over it"
-../tools/window-screenshot.sh "$pid" "$out/clear-arrow.png" || fail "no window to capture"
+proof clear-arrow.png
 send click $clear_point
 expect '^browser: command clear via sidebar$' "a click on Clear with its arrow didn't run it"
 expect '^browser: cleared 1$' "Clear with its arrow didn't close the last Today tab"
@@ -257,7 +257,7 @@ d=$(today)
 expect "^browser: selected $d\$" "⌘Z didn't show the last Today tab again"
 expect "^browser: loaded $d https://example.org/\$" "the last Today tab didn't load once shown"
 expect '^browser: clear arrow 1$' "Clear's arrow didn't come back with the last Today tab"
-../tools/window-screenshot.sh "$pid" "$out/clear-arrow-undone.png" || fail "no window to capture"
+proof clear-arrow-undone.png
 
 # ⇧⌘T with the page focused puts a tab back where it was, with its history.
 open_from_bar example.net
@@ -296,7 +296,7 @@ expect "^browser: selected $e\$" "⇧⌘T didn't show the tab it reopened"
 expect "^browser: page $e audible 0 muted 1\$" "⇧⌘T didn't keep the tab muted"
 expect "^browser: page $e icon 🌟\$" "⇧⌘T didn't keep the tab's icon"
 expect_page example.org 1 0 "after ⇧⌘T"
-../tools/window-screenshot.sh "$pid" "$out/reopen.png" || fail "no window to capture"
+proof reopen.png
 
 # After Clear, ⇧⌘T reopens the tab it closed last, the top one, and ⌘Z with the UI focused brings
 # back only the other.
@@ -325,7 +325,7 @@ d=$(today | cut -d' ' -f3)
 t=$(today | cut -d' ' -f1)
 post rightclick $(row 2)
 expect "^browser: menu shown Copy Link, $share, Change Icon…, Remove Icon, Rename…, Unmute, Add Split View, Duplicate, Move to › [^,]* (checked), Move to › New Space…, Archive Tab, Archive Tabs Below\$" "a right-click on a Today row didn't show Arc's tab menu"
-../tools/window-screenshot.sh "$pid" "$out/tab-menu.png" || fail "no window to capture"
+proof tab-menu.png
 send choose Duplicate
 expect '^browser: command duplicate-tab via tab menu$' "Duplicate didn't run"
 expect_lists "$a" "$t $e [0-9][0-9]* $d" "after Duplicate"
@@ -417,12 +417,12 @@ view=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layou
   sed -n 's/.*WebContentsViewCocoa \([0-9,]* [0-9x]*\).*/\1/p')
 [ "$view" = "417,10 ${docked#* }" ] ||
   fail "the Library didn't push the page to 417 at its width: it's at $view, docked at $docked"
-../tools/window-screenshot.sh "$pid" "$out/library.png" || fail "no window to capture"
+proof library.png
 # A right-click on the archived tab shows its menu, whose Copy URL copies its URL.
 post rightclick 300 111
 expect '^browser: menu shown Restore Tab, Copy URL, Delete from Archive$' \
   "a right-click on the archived tab didn't show its menu"
-../tools/window-screenshot.sh "$pid" "$out/archived-menu.png" || fail "no window to capture"
+proof archived-menu.png
 send choose Copy URL
 expect "^browser: copied $url\$" "Copy URL in the archived tab's menu didn't copy its URL"
 send click 300 111
@@ -457,7 +457,7 @@ send menu Clear Archive
 expect '^browser: dialog shown Clear the archive?$' "Clear Archive didn't ask first"
 send key return
 expect '^browser: archive 0 tabs$' "Clear Archive didn't empty the archive"
-../tools/window-screenshot.sh "$pid" "$out/library-empty.png" || fail "no window to capture"
+proof library-empty.png
 send click 24 $((height - 24))
 expect '^browser: command view-library via library$' "the Library's back button didn't run"
 expect '^browser: library hidden$' "the back button didn't close the Library"
@@ -491,7 +491,7 @@ EOF
 send click $page_point
 send key a
 asks "${site%/}" "the page's question didn't come"
-../tools/window-screenshot.sh "$pid" "$out/question.png" || fail "no window to capture"
+proof question.png
 open_from_bar example.net
 expect "^browser: page $r asks nothing\$" "showing another tab didn't take the page's question down"
 switch "$(($(pinned | wc -w) + 2)) cmd" "$r"
@@ -507,7 +507,7 @@ expect '^browser: reveal shown$' "the page's question didn't bring the hidden si
 asks "${site%/}" "the site couldn't ask again after ×"
 send move 600 400
 none_since '^browser: reveal hidden$' || fail "the pointer leaving sent the question away"
-../tools/window-screenshot.sh "$pid" "$out/question-reveal.png" || fail "no window to capture"
+proof question-reveal.png
 send click $((qx + qw / 4)) $((qy + qh - 26))
 expect "^browser: page $r asks nothing\$" "Block didn't take the question down"
 expect "^browser: title $r refused NotAllowedError\$" "Block didn't refuse the page"
@@ -558,7 +558,7 @@ expect "${controls}[^;]*; .*Window management Allow" \
 expect '^browser: site controls shown$' "the Site Controls didn't show"
 expect '^browser: site controls settled$' "the Site Controls didn't finish opening"
 none_since '^browser: command edit-url' || fail "a click on Site Controls opened the command bar"
-../tools/window-screenshot.sh "$pid" "$out/site-controls.png" || fail "no window to capture"
+proof site-controls.png
 # Its value's menu offers Chrome's three, and Block blocks the site at once.
 i=$(listed | grep -n '^Window management ' | cut -d: -f1)
 post click 207 $(row_y $((i - 1)))
@@ -605,8 +605,7 @@ send key return
 expect '^browser: command site-controls via command bar$' "Site Controls didn't run from the bar"
 expect "${controls}[^;]*; .*Window management Block" "the Site Controls didn't keep Block"
 expect '^browser: site controls settled$' "the Site Controls didn't open from the command bar"
-../tools/window-screenshot.sh "$pid" "$out/site-controls-blocked.png" ||
-  fail "no window to capture"
+proof site-controls-blocked.png
 send key escape
 expect '^browser: site controls closing (escape)$' "escape didn't close the Site Controls"
 expect '^browser: site controls hidden$' "the Site Controls didn't leave after escape"
@@ -659,7 +658,7 @@ send layout
 read -r nx ny nw nh <<EOF
 $(grep "^browser: drm note $tab at " "$log" | tail -1 | cut -d' ' -f6-)
 EOF
-../tools/window-screenshot.sh "$pid" "$out/drm-note.png" || fail "no window to capture"
+proof drm-note.png
 # WebKit loads with the first page in it, or earlier only to clear a store a page made in an
 # earlier run, as Clear Cookies and Refresh above does once this run has played. Read before the
 # click, whose page can say it loaded WebKit before the next line runs.
@@ -689,7 +688,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
     "Safari's engine's page didn't find the item from Chromium as its script ran"
   # Chromium's page let go for the switch isn't a renderer lost, which a crash card would show.
   grep -q "^.*browser: tab $tab page gone" "$log" && fail "the switch to Safari's engine read as the page gone"
-  ../tools/window-screenshot.sh "$pid" "$out/drm-engine.png" || fail "no window to capture"
+  proof drm-engine.png
   # The site's other pages stay there; another site goes back to Chromium, in the same tab.
   go_from_bar "127.0.0.1:$port/engine.html"
   expect "^browser: title $tab engine safari\$" "the site's next page left Safari's engine"
@@ -785,7 +784,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   send type x
   expect "^browser: title $tab value 日本語x\$" \
     "return in Safari's engine's text field did more than commit: $(grep "^browser: title $tab " "$log" | tail -1)"
-  ../tools/window-screenshot.sh "$pid" "$out/engine-ime.png" || fail "no window to capture"
+  proof engine-ime.png
   # ⌘W from the page closes the tab, and the site kept opens in Safari's engine in the next one shown.
   page_shortcut w close-tab
   expect '^browser: selected [1-9]' "⌘W over Safari's engine showed no tab"
@@ -880,7 +879,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect "^browser: site controls http://127.0.0.1:$port: .*; Safari's engine on\$" \
     "the Site Controls didn't list Safari's engine"
   expect '^browser: site controls settled$' "the Site Controls didn't open in Safari's engine"
-  ../tools/window-screenshot.sh "$pid" "$out/site-controls-engine.png" || fail "no window to capture"
+  proof site-controls-engine.png
   post click 207 $(row_y 0)
   expect "^browser: menu shown On (checked), Off\$" "Safari's engine's row didn't offer On and Off"
   send choose Off

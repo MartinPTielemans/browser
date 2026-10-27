@@ -12,12 +12,12 @@ app_name=$(cat branding/name)
 page_point="600 400"
 sidebar_point="100 400"
 
-# After a failure, nothing the check started keeps running.
+# After a run, nothing it started keeps running. check.sh stops the check's server once every run
+# is done.
 cleanup() {
-  # The servers may be gone already, and under set -e a failed kill would end the trap here.
-  [ -z "${server:-}" ] || kill "$server" 2>/dev/null || true
+  # Under set -e a failed kill would end the trap here.
   [ -z "${stuck:-}" ] || kill "$stuck" 2>/dev/null || true
-  kill "$pid" 2>/dev/null || return 0
+  [ -n "${pid:-}" ] && kill "$pid" 2>/dev/null || return 0
   for _ in $(seq 10); do
     kill -0 "$pid" 2>/dev/null || break
     sleep 0.5
@@ -25,18 +25,30 @@ cleanup() {
   kill -9 "$pid" 2>/dev/null
   pkill -9 -f "$app/Contents" || true
 }
+# Ends the run, saying what failed and on which of its lines, with the log's last lines and, while
+# the app runs, a capture of its windows as they were, which takes the place of the captures that
+# only CHECK_CAPTURES=1 takes.
 fail() {
-  echo "FAIL: $1" >&2
-  grep -v '^$' "$log" | tail -5 >&2
+  # The run's line, as bash reports it: the first caller outside lib.sh.
+  where=
+  n=0
+  while frame=$(caller $n 2>/dev/null); do
+    case $frame in
+      *" check/lib.sh") n=$((n + 1)) ;;
+      *) where=" (${frame##* }:${frame%% *})" && break ;;
+    esac
+  done
+  echo "FAIL: $1$where" >&2
+  [ -z "${log:-}" ] || grep -v '^$' "$log" | tail -5 >&2
+  [ -z "${pid:-}" ] || ! kill -0 "$pid" 2>/dev/null ||
+    ../tools/window-screenshot.sh "$pid" "${log%.log}-failed.png" all 2>/dev/null || true
   exit 1
 }
-# Waits up to 30 s for a line matching $1 in the log of the current run.
+# Waits up to 30 s for a line matching $1 in the log of the current run. Every wait reads the log
+# through check/logwait.c, which looks again each time the app writes to it, not on a timer.
 await() {
-  for _ in $(seq 300); do
-    grep -q "$1" "$log" && return 0
-    kill -0 "$pid" 2>/dev/null || fail "the app exited"
-    sleep 0.1
-  done
+  "$out/logwait" -p "${pid:-0}" 30000 "$log" "$1" > /dev/null && return 0
+  [ $? -ne 2 ] || fail "the app exited"
   return 1
 }
 # The app logs "browser: loaded" when the main frame has loaded.
@@ -46,18 +58,18 @@ await_load() {
 }
 # Waits up to $1 seconds (10) for the app to exit and checks that no Chromium process outlives it.
 exited() {
-  for _ in $(seq $((${1:-10} * 2))); do
+  for _ in $(seq $((${1:-10} * 10))); do
     kill -0 "$pid" 2>/dev/null || break
-    sleep 0.5
+    sleep 0.1
   done
   if kill -0 "$pid" 2>/dev/null; then
     sample "$pid" 2 -file "$out/hang.txt" > /dev/null 2>&1
     fail "the app didn't quit. Where it was: $out/hang.txt"
   fi
   wait "$pid" || fail "the app exited with status $?"
-  for _ in $(seq 10); do
+  for _ in $(seq 50); do
     pgrep -f "$app/Contents" > /dev/null || break
-    sleep 0.5
+    sleep 0.1
   done
   pgrep -f "$app/Contents" > /dev/null && fail "Chromium helper processes were left running"
   return 0
@@ -73,13 +85,16 @@ quit() {
 send() {
   step=$((step + 1))
   echo "$*" >&3
-  await "^browser: drive $step done" || fail "the driver didn't finish \"$*\""
-  grep -q "^browser: drive $step: can't do that" "$log" && fail "the driver can't do \"$*\""
-  done=$(grep "^browser: drive $step done" "$log")
-  key=$(echo "$done" | sed 's/.*key \([^,]*\),.*/\1/')
-  focus=$(echo "$done" | sed 's/.*focus \([^,]*\),.*/\1/')
-  active=$(echo "$done" | sed 's/.*active \([01]\).*/\1/')
-  marked=$(echo "$done" | sed 's/.*marked //')
+  done=$("$out/logwait" -f "browser: drive $step: " -p "${pid:-0}" 30000 "$log" \
+    "^browser: drive $step\( done,\|: can't do that\$\)") || {
+    [ $? -ne 2 ] || fail "the app exited"
+    fail "the driver didn't finish \"$*\""
+  }
+  case $done in *": can't do that") fail "the driver can't do \"$*\"" ;; esac
+  key=${done#*, key } key=${key%%,*}
+  focus=${done#*, focus } focus=${focus%%,*}
+  active=${done#*, active } active=${active%%,*}
+  marked=${done#*, marked }
 }
 # Sends a command without waiting for it: a menu or an alert it opens keeps the driver's events
 # until it closes.
@@ -90,21 +105,15 @@ post() {
 # A Today tab's Share as its menu logs it: this Mac's share services, or dimmed with none. A check
 # reads past them and never chooses one.
 share='\(Share (disabled)\|Share › [^,]*\(, Share › [^,]*\)*\)'
-# Waits for a line matching $1 logged after the last command was sent.
+# Waits up to 10 s for a line matching $1 logged after the last command was sent.
 expect() {
-  for _ in $(seq 100); do
-    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
-    sleep 0.1
-  done
-  fail "$2"
+  "$out/logwait" -f "browser: drive $step: " -p "${pid:-0}" 10000 "$log" "$1" > /dev/null ||
+    fail "$2"
 }
-# expect, looking every 10 ms, for a press that has to land within the first frames of a motion.
+# expect, for a press that has to land within the first frames of a motion, which expect, waking
+# as the line comes, now does too.
 expect_soon() {
-  for _ in $(seq 1000); do
-    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
-    sleep 0.01
-  done
-  fail "$2"
+  expect "$@"
 }
 # Nothing logged since the last command was sent matches $1.
 none_since() {
@@ -261,11 +270,17 @@ serve() {
 }
 # Waits for the check's server to log a request matching $1, as site.sh writes them.
 served() {
-  for _ in $(seq 100); do
-    grep -q "$1" "$out/site.log" && return 0
-    sleep 0.1
-  done
-  fail "$2"
+  "$out/logwait" 10000 "$out/site.log" "$1" > /dev/null || fail "$2"
+}
+# Captures the app's main window, or with "all" every one of its windows, in $out/$1, as proof: a
+# step compares it, or the run's ok line names it for a PR or the owner to look at.
+proof() {
+  ../tools/window-screenshot.sh "$pid" "$out/$1" ${2:+"$2"} || fail "no window to capture"
+}
+# A capture only for a look, which no step compares and no ok line names: CHECK_CAPTURES=1 takes
+# it. A failing run captures its windows as it fails.
+look() {
+  [ "${CHECK_CAPTURES:-}" != 1 ] || proof "$@"
 }
 # The colour at ($2, $3), as fractions of the width and height, in the capture $1: "r g b".
 pixel() {

@@ -84,7 +84,7 @@ expect_find "$first" "open 3 of 3 apple" "⇧⌘G in the find bar didn't go back
 send key g cmd
 expect_find "$first" "open 1 of 3 apple" "⌘G in the find bar didn't go on, round to the first"
 check_find_bar "after ⌘F"
-../tools/window-screenshot.sh "$pid" "$out/find.png" || fail "no window to capture"
+proof find.png
 
 # The bar's next and previous go through the matches. Arc's are 28 pt at 212 and 238 in the bar.
 send click $((content - 320 + 252)) 36
@@ -96,7 +96,7 @@ expect_find "$first" "open 1 of 3 apple" "a click on the find bar's previous did
 send type z
 expect '^browser: find bar drew "applez" NOT FOUND$' \
   "a text the page doesn't have didn't show NOT FOUND"
-../tools/window-screenshot.sh "$pid" "$out/find-not-found.png" || fail "no window to capture"
+proof find-not-found.png
 send key backspace
 expect_find "$first" "open [1-3] of 3 apple" "the find didn't find the text again"
 
@@ -131,7 +131,7 @@ check_find_bar "after a resize"
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen"
 # Captured first, so a bar out of place shows where it went.
-../tools/window-screenshot.sh "$pid" "$out/find-fullscreen.png" || fail "no window to capture"
+proof find-fullscreen.png
 check_find_bar "in full screen"
 send fullscreen
 expect '^browser: window left full screen$' "the window didn't leave full screen"
@@ -219,7 +219,7 @@ hud=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout
   sed 's/^browser: layout child //')
 [ "$hud" = "$((content - 132)),44 130x80" ] ||
   fail "the zoom HUD is at ${hud:-nowhere} in a window $content wide, under the find bar"
-../tools/window-screenshot.sh "$pid" "$out/zoom.png" || fail "no window to capture"
+proof zoom.png
 send menu "Zoom In"
 expect '^browser: command zoom-in via ui$' "the View menu's Zoom In didn't reach the UI"
 expect "^browser: zoom $first 100%\$" "the View menu's Zoom In didn't zoom the page in to 100 %"
@@ -282,7 +282,7 @@ send key i cmd alt
 expect '^browser: command devtools via page$' "⌥⌘I with the page focused didn't reach the UI"
 await_views 2 "after ⌥⌘I"
 check_docked "after ⌥⌘I"
-../tools/window-screenshot.sh "$pid" "$out/devtools.png" || fail "no window to capture"
+proof devtools.png
 send resize 1100 700
 await_views 2 "after a resize"
 check_docked "after a resize"
@@ -316,7 +316,7 @@ send menu "Open Task Manager"
 expect '^browser: command task-manager via ui$' "Open Task Manager didn't reach the UI"
 send title
 expect '^browser: key window titled Task Manager' "Open Task Manager didn't show Chrome's"
-../tools/window-screenshot.sh "$pid" "$out/task-manager.png" || fail "no window to capture"
+proof task-manager.png
 send key w cmd
 expect '^browser: command close-tab via ui$' "⌘W in the Task Manager didn't reach the UI"
 send state

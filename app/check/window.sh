@@ -156,7 +156,7 @@ tab=$(grep '^browser: tab [0-9]* opened by' "$log" | tail -1 | cut -d' ' -f3)
 expect "^browser: page $tab back 0 forward 0 loading 1 \$" \
   "a tab opened to a page that hasn't come doesn't say it's loading"
 for _ in $(seq 20); do
-  ../tools/window-screenshot.sh "$pid" "$out/before-paint.png" || fail "no window to capture"
+  proof before-paint.png
   color=$(pixel "$out/before-paint.png" 0.6 0.5)
   dark "$color" && break
 done
@@ -188,13 +188,13 @@ expect '^browser: window entered full screen$' "the window didn't go full screen
 # Once there, it says how to leave, at the card's top right, as Arc's does.
 expect '^browser: toast shown To exit full screen, press ⎋.$' "full screen didn't say how to leave"
 expect '^browser: toast settled$' "the note on leaving full screen didn't settle"
-../tools/window-screenshot.sh "$pid" "$out/fullscreen-note.png" || fail "no window to capture"
+proof fullscreen-note.png
 check_layout "in full screen"
 send key l cmd
 expect '^browser: command bar shown$' "⌘L in full screen didn't open the command bar"
 send state
 [ "$key" = GPUIPanel ] || fail "the command bar in full screen didn't get the keyboard, $key did"
-../tools/window-screenshot.sh "$pid" "$out/fullscreen.png" || fail "no window to capture"
+proof fullscreen.png
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar in full screen"
 send fullscreen
@@ -213,7 +213,7 @@ check_layout "with the page full screen" fills
 none_since '^browser: toast shown To exit full screen' ||
   fail "a page's full screen showed the window's note on leaving it"
 resized_once "going full screen" "$content"
-../tools/window-screenshot.sh "$pid" "$out/page-fullscreen.png" || fail "no window to capture"
+proof page-fullscreen.png
 resizes=$(page_resizes)
 send key escape
 expect '^browser: page left full screen$' "escape didn't take the page out of full screen"
@@ -343,10 +343,10 @@ send key s cmd
 # The capture waits for the line, not a time, so it lands in the motion if the motion outlasts the
 # capture, and just after it if not.
 expect '^browser: page moving 1$' "⌘S with the page focused didn't tell the core the page moves"
-../tools/window-screenshot.sh "$pid" "$out/sidebar-moving.png" || fail "no window to capture"
+look sidebar-moving.png
 moved "⌘S with the page focused"
 toggle page hidden "⌘S with the page focused"
-../tools/window-screenshot.sh "$pid" "$out/sidebar-hidden.png" || fail "no window to capture"
+proof sidebar-hidden.png
 send key s cmd
 moved "⌘S again with the page focused"
 toggle page shown "⌘S again with the page focused"
@@ -404,7 +404,7 @@ expect '^browser: reveal shown$' "the pointer at the window's edge didn't bring 
 check_reveal "with the sidebar out" shown
 check_layout "with the sidebar out" inset
 check_buttons "with the sidebar out" hidden
-../tools/window-screenshot.sh "$pid" "$out/sidebar-reveal.png" || fail "no window to capture"
+proof sidebar-reveal.png
 send move 200 300
 send move 250 300
 check_reveal "with the pointer over the sidebar out" shown
@@ -432,11 +432,11 @@ check_layout "with the sidebar dragged wider" 328
 send drag 325 400 700 400
 expect '^browser: sidebar width 500$' "dragged far past its widest, the sidebar didn't stop at 500"
 check_layout "with the sidebar at its widest" 500
-../tools/window-screenshot.sh "$pid" "$out/sidebar-wide.png" || fail "no window to capture"
+proof sidebar-wide.png
 send drag 497 400 120 400
 expect '^browser: sidebar width 164$' "dragged past its narrowest, the sidebar didn't stop at 164"
 check_layout "with the sidebar at its narrowest" 164
-../tools/window-screenshot.sh "$pid" "$out/sidebar-narrow.png" || fail "no window to capture"
+proof sidebar-narrow.png
 # Clear of the window's edge, where the pointer would bring the hidden sidebar out.
 send drag 161 400 50 400
 expect '^browser: sidebar hidden$' "dragged on past its narrowest, the sidebar didn't hide"

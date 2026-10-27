@@ -75,7 +75,7 @@ hang() {
 
 # Hung, the note shows with the row's mark, and goes by itself once the page answers.
 hang "hung"
-../tools/window-screenshot.sh "$pid" "$out/hung.png" || fail "no window to capture"
+proof hung.png
 expect_late "^browser: title $tab woke 1\$" "the busy page didn't wake"
 expect "^browser: page $tab trouble fine\$" "the page answering didn't make it fine"
 expect '^browser: toast hidden$' "the note stayed once the page answered"
@@ -112,7 +112,7 @@ expect "^browser: page $second trouble crashed\$" "the tab shown wasn't called c
 expect "^browser: crash card shown $second\$" "the crash card didn't show"
 expect "^browser: page $tab unloaded 1\$" "the tab behind wasn't unloaded"
 none_since "page $tab trouble crashed" || fail "the tab behind was called crashed"
-../tools/window-screenshot.sh "$pid" "$out/crashed.png" || fail "no window to capture"
+proof crashed.png
 # Its Reload, where the card says it is.
 at=$(sed -n "s/^browser: crash reload $second at \([0-9]*\) \([0-9]*\) \([0-9]*\) \([0-9]*\)$/\1 \2 \3 \4/p" \
   "$log" | tail -1)
@@ -138,7 +138,7 @@ send insert "https://nothing.example.com/"
 send key return
 expect "^browser: page $tab trouble network -105\$" "a host that doesn't resolve wasn't a network error"
 await '^browser: title [0-9]* nothing.example.com$' || fail "the error page didn't take the host for its title"
-../tools/window-screenshot.sh "$pid" "$out/network-error.png" || fail "no window to capture"
+proof network-error.png
 # Space on it starts no game, which only the offline page has. A click away from its Reload focuses
 # it; the refused step after gives a run that started time to say so.
 send click 300 120
@@ -250,7 +250,7 @@ expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send insert "${site}index.html"
 send key return
 expect "^browser: page $tab trouble network -106\$" "offline, a load wasn't ERR_INTERNET_DISCONNECTED"
-../tools/window-screenshot.sh "$pid" "$out/offline.png" || fail "no window to capture"
+proof offline.png
 # A click focuses the page and starts nothing: the run comes in Space's step, not the click's.
 send click $page_point
 send key space
@@ -258,7 +258,7 @@ expect "browser: tab $tab game running\$" "Space didn't start a run on the offli
 # The network comes back mid-run. Chromium's auto-reload, due a second after the page or every
 # few after, waits for the run, which ends at the first column with no more hops.
 network online
-../tools/window-screenshot.sh "$pid" "$out/offline-game.png" || fail "no window to capture"
+proof offline-game.png
 expect "browser: tab $tab game over\$" "the run didn't end at the first column"
 sed -n "/browser: tab $tab game running\$/,/browser: tab $tab game over\$/p" "$log" |
   grep -q "^browser: page $tab trouble fine\$\|^browser: loaded $tab ${site}index.html\$" &&

@@ -60,7 +60,7 @@ for shortcut in "t new-tab" "l edit-url"; do
   # ⌘T's bar gives "New Tab" the selected plate, and the tab gets it back when the bar closes.
   if [ "$shortcut" = "t new-tab" ]; then
     expect '^browser: new tab plate 1$' "⌘T didn't give New Tab the selected plate"
-    ../tools/window-screenshot.sh "$pid" "$out/new-tab-plate.png" || fail "no window to capture"
+    look new-tab-plate.png
   fi
   # A shortcut the page doesn't keep comes back after the page has had it, so after the
   # driver's done.
@@ -258,7 +258,7 @@ send clickkey 581 159
 expect '^browser: shortcut recording new-tab$' "a click on New Tab's keys didn't record them"
 send key t cmd ctrl
 expect '^browser: shortcut new-tab ctrl-cmd-t$' "⌃⌘T didn't become New Tab's key"
-../tools/window-screenshot.sh "$pid" "$out/shortcuts.png" || fail "no window to capture"
+proof shortcuts.png
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 # New Tab's new key is reserved, as ⌘T was: the page never sees it.
@@ -312,7 +312,7 @@ none_since '^browser: command bar hidden$' || fail "escape while composing close
 send type nihongo
 send key space
 [ "$marked" = 0,3 ] || fail "the command bar didn't take the conversion: marked $marked"
-../tools/window-screenshot.sh "$pid" "$out/ime.png" || fail "no window to capture"
+proof ime.png
 send key return
 none_since '^browser: command bar typed' || fail "return while composing went somewhere"
 [ "$marked" = none ] || fail "return didn't commit the composition: marked $marked"
@@ -326,7 +326,7 @@ expect '^browser: loaded [0-9]* https://duckduckgo.com/' "the search for the com
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
 send type example.com
-../tools/window-screenshot.sh "$pid" "$out/command-bar.png" || fail "no window to capture"
+proof command-bar.png
 send key return
 expect '^browser: command bar go https*://example.com/$' "return in the command bar didn't go to what was typed: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect '^browser: command bar hidden$' "going somewhere didn't close the command bar"
@@ -340,7 +340,7 @@ send type arc browser
 send key return
 expect '^browser: command bar go https://duckduckgo.com/?q=arc+browser$' "words in the command bar didn't search: $(grep '^browser: command bar go' "$log" | tail -1)"
 expect '^browser: loaded [0-9]* https://duckduckgo.com/?q=arc+browser' "the search didn't load"
-../tools/window-screenshot.sh "$pid" "$out/search.png" || fail "no window to capture"
+proof search.png
 # The bar draws itself before it goes on screen, so it never shows the last query: empty for a
 # new tab, and on ⌘L with the page's URL.
 awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
@@ -370,7 +370,7 @@ post key q cmd
 expect '^browser: command quit via page$' "⌘Q with the page focused didn't reach the UI"
 expect "^browser: dialog shown Quit $app_name?\$" "⌘Q didn't ask before quitting"
 expect '^browser: dialog settled$' "the dialog asking to quit didn't settle"
-../tools/window-screenshot.sh "$pid" "$out/quit.png" || fail "no window to capture"
+proof quit.png
 send key escape
 expect '^browser: dialog cancelled$' "escape didn't cancel quitting"
 expect '^browser: dialog hidden$' "the dialog asking to quit didn't go"

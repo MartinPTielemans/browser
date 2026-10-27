@@ -72,7 +72,7 @@ send key p
 expect "^browser: title $p cookie set\$" "p in the private page didn't set the cookie"
 send key r cmd
 expect "^browser: title $p cookie private\$" "the private session lost its cookie on a reload"
-../tools/window-screenshot.sh "$pid" "$out/private.png" all || fail "no window to capture"
+proof private.png all
 
 # The regular window's page, from the same site, doesn't see it.
 send window 1

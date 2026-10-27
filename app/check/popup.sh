@@ -38,7 +38,7 @@ popup=$(grep '^browser: tab [0-9]* opened by' "$log" | cut -d' ' -f3)
 expect "^browser: today $opener $popup\$" "the popup's tab didn't go under the page: $(grep '^browser: today' "$log" | tail -1)"
 expect '^browser: loaded [0-9]* https://example.com/$' "the popup's page didn't load in its tab"
 check_layout "with the popup's tab"
-../tools/window-screenshot.sh "$pid" "$out/popup.png" || fail "no window to capture"
+proof popup.png
 # A tab the page didn't open, dragged under its tabs, for the links it opens behind to go above.
 open_from_bar example.net
 other=$tab
@@ -58,7 +58,7 @@ case "$menu" in
 *"Link Text"* | *"Reading Mode"* | *Lens* | *"QR Code"* | *Cast*)
   fail "the link's menu offers what Arc's leaves out: $menu" ;;
 esac
-../tools/window-screenshot.sh "$pid" "$out/link-menu.png" || fail "no window to capture"
+proof link-menu.png
 send choose Open Link in New Tab
 expect "^browser: tab [0-9]* opened by $opener in the background\$" \
   "Open Link in New Tab didn't open a tab under the page"
@@ -85,7 +85,7 @@ second=$(behind)
 expect "^browser: today $opener $popup $first $second $other\$" \
   "the second link's tab didn't go after the first's: $(grep '^browser: today' "$log" | tail -1)"
 expect "^browser: page $second unloaded 1\$" "the second link's tab didn't wait to load"
-../tools/window-screenshot.sh "$pid" "$out/links-behind.png" || fail "no window to capture"
+proof links-behind.png
 grep -q "^browser: loaded \($first\|$second\) " "$log" && fail "a link's tab loaded behind"
 # Each loads once it's shown. Closing one of them goes to the nearest other tab the page opened,
 # though a tab it didn't open is below it (Chrome).
@@ -140,7 +140,7 @@ print_preview() {
     fail "$1 showed print preview at $child, over the page at $shown"
   # Its window is on screen before its page draws, which then takes escape once it has loaded.
   for _ in $(seq 50); do
-    ../tools/window-screenshot.sh "$pid" "$out/$2" || fail "no window to capture"
+    proof "$2"
     cmp -s "$out/before-print.png" "$out/$2" || break
     sleep 0.1
   done
@@ -155,7 +155,7 @@ print_preview() {
   rm "${out:?}/before-print.png"
 }
 send click $page_point
-../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
+proof before-print.png
 post rightclick $page_point
 expect '^browser: menu tracked Back, ' "a right-click on the page didn't show the page's menu"
 menu=$(grep '^browser: menu tracked' "$log" | tail -1 | cut -d' ' -f4-)
@@ -165,7 +165,7 @@ send choose Print…
 print_preview "the page menu's Print…" print.png
 # ⌘P, as File › Print, with the page focused.
 send click $page_point
-../tools/window-screenshot.sh "$pid" "$out/before-print.png" || fail "no window to capture"
+proof before-print.png
 page_shortcut p print
 print_preview ⌘P print-key.png
 # Switching or closing a full-screen page's tab ends its full screen, and the window's with it.

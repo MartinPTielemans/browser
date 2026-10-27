@@ -171,7 +171,7 @@ two="WebContentsViewCocoa $left WebContentsViewCocoa $right"
 read_pages
 [ "$pages" = "$two BrowserCoreFocusRing $right" ] ||
   fail "the panes aren't side by side with the ring on the right one: $pages"
-../tools/window-screenshot.sh "$pid" "$out/split.png" || fail "no window to capture"
+proof split.png
 # A click in a pane focuses it, its page taking the keyboard, and the ring goes with it.
 send click $((x + 100)) 400
 expect "^browser: selected $a\$" "a click in the left pane didn't focus it"
@@ -180,7 +180,7 @@ expect "^browser: panes $a $b\$" "focusing a pane changed the panes shown"
 read_pages
 [ "$pages" = "$two BrowserCoreFocusRing $left" ] ||
   fail "the ring didn't go to the left pane: $pages"
-../tools/window-screenshot.sh "$pid" "$out/split-left.png" || fail "no window to capture"
+proof split-left.png
 # In the sidebar the split is one row, which ⌘2 shows under a tab opened above it, with the pane
 # focused last, and a click on its right segment shows that pane focused.
 open_from_bar example.net
@@ -206,7 +206,7 @@ send drag $gap 400 $((gap + 100)) 400
 read_pages
 [ "$pages" = "$wider WebContentsViewCocoa $narrower BrowserCoreFocusRing $narrower" ] ||
   fail "dragging the gap 100 right didn't widen the left pane by 100: $pages"
-../tools/window-screenshot.sh "$pid" "$out/split-resized.png" || fail "no window to capture"
+proof split-resized.png
 send drag $((gap + 100)) 400 $((x + w - 20)) 400
 most="WebContentsViewCocoa $x,$y $((w - least - 10))x$h"
 fewest="$((x + w - least)),$y ${least}x$h"
@@ -248,7 +248,7 @@ height=${content#*x}
 content=${content%x*}
 [ "$child" = "$((content - 320)),$((20 + tall)) 300x32" ] ||
   fail "the find bar is at ${child:-nowhere}, not at the bottom pane's corner"
-../tools/window-screenshot.sh "$pid" "$out/split-stacked.png" || fail "no window to capture"
+proof split-stacked.png
 send key escape
 expect '^browser: find bar hidden$' "escape didn't close the find bar"
 # Stacked, the gap drags their heights, the top one taller by 50 here, which the next launch keeps.
@@ -372,7 +372,7 @@ none_since '^browser: detent$' || fail "a row dragged onto the page clicked the 
 expect "^browser: drop targets for $a\$" "a row dragged onto the page didn't bring the targets"
 expect '^browser: drop targets shown$' "the targets' window didn't show"
 expect '^browser: drop target left$' "the left target isn't under the tab"
-../tools/window-screenshot.sh "$pid" "$out/split-targets.png" || fail "no window to capture"
+proof split-targets.png
 send dragto 100 300
 expect '^browser: drop targets gone$' "the targets stayed with the tab back over the sidebar"
 expect '^browser: drop targets hidden$' "the targets' window stayed"

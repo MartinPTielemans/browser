@@ -6,6 +6,6 @@ rm -f "$saved"
 "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
 pid=$!
 await_load
-../tools/window-screenshot.sh "$pid" "$out/load.png" || fail "no window to capture"
+proof load.png
 quit
 echo "ok: $(grep '^browser: loaded' "$log" | cut -d' ' -f4-) loaded, quit cleanly. Window: $out/load.png"

@@ -76,14 +76,14 @@ sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' | gr
   fail "the new Space shows the first Space's page"
 # The form's field has the keyboard, which the page had.
 in_browser AccessKitSubclassOfGPUIView "in the new Space's form"
-../tools/window-screenshot.sh "$pid" "$out/space-form.png" || fail "no window to capture"
+proof space-form.png
 send type reading
 send key space
 send ime on
 send type nihongo
 send key space
 [ "$marked" = 8,3 ] || fail "the form's field didn't take the conversion: marked $marked"
-../tools/window-screenshot.sh "$pid" "$out/space-form-ime.png" || fail "no window to capture"
+proof space-form-ime.png
 send key return
 none_since '^browser: create space' || fail "return while composing named the Space"
 [ "$marked" = none ] || fail "return didn't commit the composition: marked $marked"
@@ -92,7 +92,7 @@ send key return
 expect "^browser: create space $second reading 日本語\$" "return didn't name the Space: $(grep '^browser: create space' "$log" | tail -1)"
 expect "^browser: renamed space $second reading 日本語\$" "the core didn't rename the Space"
 expect '^browser: space form gone$' "the form didn't leave after Create"
-../tools/window-screenshot.sh "$pid" "$out/new-space.png" || fail "no window to capture"
+proof new-space.png
 send key t cmd
 expect '^browser: command new-tab via ui$' "⌘T in the new Space didn't reach the UI"
 expect '^browser: command bar shown$' "⌘T in the new Space didn't open the command bar"
@@ -133,7 +133,7 @@ show_space "key right alt cmd" next-space ui "$second" "$b"
 show_space "key left alt cmd" previous-space ui "$first" "$a"
 show_space "click 131 $dots_y" select-space sidebar "$second" "$b"
 show_space "click 97 $dots_y" select-space sidebar "$first" "$a"
-../tools/window-screenshot.sh "$pid" "$out/spaces.png" || fail "no window to capture"
+proof spaces.png
 
 # A page out of sight is hidden, as in Chrome, and runs no animation frames: a tab behind the one
 # shown, and the tab a Space not shown shows. Back in sight, it's visible.
@@ -159,7 +159,7 @@ swipe_point="110 500"
 expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 post swipe $swipe_point -10 0 10 1500
 await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
-../tools/window-screenshot.sh "$pid" "$out/swipe.png" || fail "no window to capture"
+proof swipe.png
 await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
 none_since '^browser: space [0-9]' || fail "a swipe let go short of halfway showed another Space"
 # $1 is the driver's swipe, $2 the Space it shows and $3 that Space's tab.
@@ -188,7 +188,7 @@ expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 # wheel's ticks.
 post swipe $swipe_point 30 0 10 1500
 expect '^browser: library section ' "two fingers past the first Space didn't bring the Library out"
-../tools/window-screenshot.sh "$pid" "$out/library-swipe.png" || fail "no window to capture"
+proof library-swipe.png
 await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
 expect '^browser: library hidden$' "a swipe let go short of halfway didn't put the Library back"
 none_since '^browser: command view-library' ||
@@ -204,7 +204,7 @@ library_to "swipe $swipe_point 12 0 10" swipe shown
 # fill still reaching the window's left edge, lighter than the window right of it.
 post swipe $swipe_point 60 0 10 1500
 expect '^browser: library past its end$' "fingers past the Library's end didn't reach it"
-../tools/window-screenshot.sh "$pid" "$out/library-end.png" || fail "no window to capture"
+proof library-end.png
 column=$(pixel "$out/library-end.png" $(echo "6 / ${content%x*}" | bc -l) 0.85)
 beside=$(pixel "$out/library-end.png" $(echo "200 / ${content%x*}" | bc -l) 0.85)
 brighter "$column" "$beside" ||
@@ -224,7 +224,7 @@ spaces_wide=$((216 + 264 * 2))
 [ $spaces_wide -lt 480 ] && spaces_wide=480
 expect "^browser: library spaces 2 wide $spaces_wide\$" \
   "the Library's Spaces section isn't $spaces_wide wide with two Spaces in a $content window"
-../tools/window-screenshot.sh "$pid" "$out/library-spaces.png" || fail "no window to capture"
+look library-spaces.png
 library_to "wheel $swipe_point -1" wheel hidden
 
 # A tab's menu moves it to another Space, and the window goes with the tab it shows.
@@ -287,7 +287,7 @@ expect '^browser: swipe across$' "two fingers across the sidebar didn't page"
 none_since '^browser: new space ready$' || fail "a short pull past the last Space readied a Space"
 post swipe $swipe_point -40 0 10 1500
 expect '^browser: new space ready$' "a long pull past the last Space didn't ready a Space"
-../tools/window-screenshot.sh "$pid" "$out/new-space-pull.png" || fail "no window to capture"
+proof new-space-pull.png
 await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
 expect '^browser: command new-space via swipe$' "letting go of a readied pull didn't make a Space"
 expect "^browser: spaces $first $second [0-9]*\$" "the pull didn't make a third Space"
@@ -336,7 +336,7 @@ in_browser AccessKitSubclassOfGPUIView "in the form after a swipe"
 # the form springs back.
 post swipe $swipe_point 12 0 18 1500
 expect '^browser: swipe across$' "two fingers back off the form didn't page"
-../tools/window-screenshot.sh "$pid" "$out/space-form-back.png" || fail "no window to capture"
+look space-form-back.png
 await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
 expect "^browser: settled space $third\$" "the form's page didn't spring back"
 send swipe $swipe_point 12 0 10
@@ -356,7 +356,7 @@ name_point="100 112"
 post rightclick $name_point
 expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, Delete Space\$" \
   "a right-click on the Space's name didn't show its menu"
-../tools/window-screenshot.sh "$pid" "$out/space-menu.png" || fail "no window to capture"
+proof space-menu.png
 send choose Rename Space
 expect "^browser: rename space $first\$" "Rename Space didn't open the name's field"
 send state
@@ -404,14 +404,14 @@ expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, De
   "a right-click on the Space's name offered Remove Icon without an icon"
 send choose Change Icon…
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
-../tools/window-screenshot.sh "$pid" "$out/space-icon-picker.png" || fail "no window to capture"
+look space-icon-picker.png
 # A click on a glyph is the Space's icon at once and closes the picker: the bolt, fifth in the first
 # row, the grid's first column 27.75 in and its first row 76.25 down.
 send clickkey 151.75 76.25
 expect "^browser: iconed space $first glyph:bolt\$" \
   "a click on a glyph didn't become the Space's icon"
 expect '^browser: icon picker hidden$' "a click on a glyph didn't close the icon picker"
-../tools/window-screenshot.sh "$pid" "$out/space-icon.png" || fail "no window to capture"
+look space-icon.png
 # A click on the icon opens the picker too. On its Emoji tab, the left half of Emoji | Icon, typing
 # narrows the list and ↩ gives the Space the emoji on the plate, the first match, at once. (Keys,
 # not a click: the tab slides in over 0.2 s, and a click's place depends on where it has got to.)
@@ -426,7 +426,7 @@ send key return
 expect "^browser: iconed space $first 🦊\$" \
   "an emoji picked on the Emoji tab didn't become the Space's icon"
 expect '^browser: icon picker hidden$' "an emoji picked on the Emoji tab didn't close the icon picker"
-../tools/window-screenshot.sh "$pid" "$out/space-emoji.png" || fail "no window to capture"
+look space-emoji.png
 # For a Space with an emoji, the picker opens on the Emoji tab, and its trash, after Emoji | Icon,
 # takes the icon away.
 post rightclick $name_point
@@ -436,7 +436,7 @@ send choose Change Icon…
 expect "^browser: icon picker for $first on emoji\$" \
   "Change Icon… didn't open the picker on the Emoji tab for a Space with an emoji"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
-../tools/window-screenshot.sh "$pid" "$out/space-emoji-grid.png" all || fail "no window to capture"
+look space-emoji-grid.png all
 send clickkey 197 39.5
 expect "^browser: iconed space $first none\$" "the icon picker's trash didn't take the icon away"
 expect '^browser: icon picker hidden$' "the icon picker's trash didn't close it"
@@ -474,7 +474,7 @@ expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, De
   "a right-click on a dot didn't show its Space's menu"
 post choose Delete Space
 expect '^browser: dialog settled$' "Delete Space didn't ask again"
-../tools/window-screenshot.sh "$pid" "$out/space-delete.png" || fail "no window to capture"
+proof space-delete.png
 send key return
 expect '^browser: dialog confirmed$' "return didn't choose Delete"
 expect "^browser: spaces $first\$" "Delete didn't delete the Space"
@@ -486,7 +486,7 @@ sed -n "/^browser: drive $step: /,\$p" "$log" | grep -A 999 '^browser: dialog hi
 deleted='^browser: toast shown Space deleted! Use ⌘Z to undo\.$'
 expect "$deleted" "the toast didn't say the Space went"
 expect '^browser: toast settled$' "the toast didn't settle"
-../tools/window-screenshot.sh "$pid" "$out/space-deleted.png" || fail "no window to capture"
+proof space-deleted.png
 send key z cmd
 expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo the delete"
 expect "^browser: spaces $first $second\$" "⌘Z didn't bring the Space back where it was"

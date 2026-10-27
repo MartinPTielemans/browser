@@ -124,7 +124,7 @@ expect "^browser: selected $first\( in .*\)\{0,1\}\$" \
   "a click on the first tab's row didn't show it"
 expect "^browser: extension actions $popup $clicked:7\$" \
   "Check Clicked's badge for the first tab didn't show with it"
-../tools/window-screenshot.sh "$pid" "$out/extension-actions.png" || fail "no window to capture"
+proof extension-actions.png
 # The actions sit at the URL field's end, 30 apart: their centres, the 228-wide sidebar's field
 # ending at 220, 3 in from its end.
 first_place="172 64"
@@ -136,7 +136,7 @@ expect "^browser: extension actions $popup:1 $clicked:7\$" \
   "the badge Check Popup's popup gave it didn't show at once"
 send state
 [ "$key" != BrowserCoreNSWindow ] || fail "the extension's popup didn't take the keyboard"
-../tools/window-screenshot.sh "$pid" "$out/extension-popup.png" || fail "no window to capture"
+proof extension-popup.png
 send key escape
 expect '^browser: extension popup none$' "escape didn't close the extension's popup"
 send state
@@ -160,15 +160,14 @@ expect "^browser: loaded [0-9]* chrome://extensions/?id=$clicked\$" \
 send menu "Pin to URL Field › Check Third"
 expect "^browser: extension actions $popup:1 $clicked $third\$" \
   "the pinned Check Third didn't show after Check Clicked"
-../tools/window-screenshot.sh "$pid" "$out/extension-overflow.png" || fail "no window to capture"
+proof extension-overflow.png
 post click $second_place
 expect '^browser: menu shown Check Clicked, Check Third$' \
   "a click on the overflow button didn't show the actions behind it"
 send choose Check Third
 expect "^browser: run extension $third ran\$" "Check Third didn't run from the overflow button"
 expect "^browser: extension popup $third\$" "Check Third's popup didn't show"
-../tools/window-screenshot.sh "$pid" "$out/extension-overflow-popup.png" ||
-  fail "no window to capture"
+proof extension-overflow-popup.png
 send key escape
 expect '^browser: extension popup none$' "escape didn't close Check Third's popup"
 # Check Clicked unpinned, Check Third has a place of its own, where a right-click unpins it.
@@ -229,14 +228,14 @@ send key p alt shift
 expect "^browser: extension command $popup _execute_action ran via page\$" \
   "⌥⇧P with the page focused didn't run Check Popup's action"
 expect "^browser: extension popup $popup\$" "⌥⇧P with the page focused didn't show the popup"
-../tools/window-screenshot.sh "$pid" "$out/extension-key-popup.png" || fail "no window to capture"
+proof extension-key-popup.png
 send key escape
 expect '^browser: extension popup none$' "escape didn't close the extension's popup"
 send menu "Manage Extensions…"
 expect '^browser: command manage-extensions via ui$' "Manage Extensions… didn't reach the UI"
 expect '^browser: loaded [0-9]* chrome://extensions/$' \
   "Manage Extensions… didn't open Chrome's extensions page"
-../tools/window-screenshot.sh "$pid" "$out/extensions.png" || fail "no window to capture"
+proof extensions.png
 # A suggested key that's one of the browser's stays the browser's, with the UI focused and the
 # page.
 send click $sidebar_point
@@ -259,7 +258,7 @@ expect '^browser: menu shown Unpin, Options, Remove, Manage Extension$' \
   "a right-click on Check Third's action didn't show its menu to remove it"
 send choose Remove
 expect '^browser: dialog shown Remove “Check Third”?$' "Remove didn't ask first"
-../tools/window-screenshot.sh "$pid" "$out/extension-remove.png" || fail "no window to capture"
+proof extension-remove.png
 send key return
 expect "^browser: remove extension $third removed\$" "Remove didn't remove Check Third"
 expect "^browser: extensions menu $clicked $panel $popup\$" \
@@ -288,7 +287,7 @@ panel_at() {
 read -r px py pw ph <<EOF
 $(panel_at)
 EOF
-../tools/window-screenshot.sh "$pid" "$out/side-panel.png" || fail "no window to capture"
+proof side-panel.png
 # Its page takes the keyboard on a click, under the 36-tall header.
 send click $((px + pw / 2)) $((py + ph / 2))
 in_browser RenderWidgetHostViewCocoa "after a click on the side panel's page"
@@ -310,7 +309,7 @@ done
 read -r px py pw ph <<EOF
 $(panel_at)
 EOF
-../tools/window-screenshot.sh "$pid" "$out/side-panel-resized.png" || fail "no window to capture"
+proof side-panel-resized.png
 # The header's ✕ is its last button, 30 square, 3 in from the card's corner.
 send click $((px + pw - 18)) $((py + 18))
 expect '^browser: side panel none$' "the header's ✕ didn't close the side panel"
@@ -412,7 +411,7 @@ grep "^browser: extension question $installed asks " "$log" |
   grep 'Read your browsing history' | grep -q 'Read and change your data on example.org' ||
   fail "the question didn't list Chrome's warnings: $(grep 'extension question' "$log")"
 await '^browser: dialog settled$' || fail "the install dialog didn't settle"
-../tools/window-screenshot.sh "$pid" "$out/extension-install.png" || fail "no window to capture"
+proof extension-install.png
 send key escape
 expect '^browser: dialog cancelled$' "escape didn't cancel adding Check Install"
 expect '^browser: extension question none$' "Chrome didn't hear the install was cancelled"

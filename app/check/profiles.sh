@@ -72,7 +72,7 @@ expect "^browser: settled space $second\$" "the new Space's page didn't settle"
 post click 100 255
 expect '^browser: menu shown Default (checked), New Profile$' \
   "the form's Profile row didn't show the profiles"
-../tools/window-screenshot.sh "$pid" "$out/profile-popup.png" || fail "no window to capture"
+proof profile-popup.png
 send choose New Profile
 expect '^browser: create profile [0-9]* Profile 2$' "New Profile didn't make a profile"
 work=$(sed -n 's/^browser: create profile \([0-9]*\) .*/\1/p' "$log" | tail -1)
@@ -84,13 +84,13 @@ expect '^browser: menu shown System Accent (checked), Gray, ' \
   "the form's Choose a Theme row didn't show the colours"
 send choose Green
 expect "^browser: colored space $second 55bf81\$" "Green in the form didn't colour the Space"
-../tools/window-screenshot.sh "$pid" "$out/profile-form.png" || fail "no window to capture"
+proof profile-form.png
 green=$(echo "$colors" | sed 's/ (checked)//; s/Green/Green (checked)/')
 send type work
 send key return
 expect "^browser: create space $second work\$" "return didn't name the Space"
 expect '^browser: space form gone$' "the form didn't leave after return"
-../tools/window-screenshot.sh "$pid" "$out/profile-made.png" || fail "no window to capture"
+proof profile-made.png
 # Empty, its menu takes it back to the first profile, whose favorite shows again, and to the new
 # one again. The Space's name is under the URL field, and 47 lower under a row of tiles.
 name_point="100 112"
@@ -99,7 +99,7 @@ post rightclick $name_point
 expect "^browser: menu shown Rename Space, Change Icon…, $green, Profile › Default, \
 Profile › Profile 2 (checked), Profile › New Profile, Delete Space\$" \
   "the empty Space's menu didn't offer its profiles"
-../tools/window-screenshot.sh "$pid" "$out/profile-menu.png" || fail "no window to capture"
+proof profile-menu.png
 send choose Default
 expect "^browser: profiled space $second $default\$" "Default didn't take the Space back"
 expect "^browser: favorites $a\$" "the first profile's favorite didn't show in its Space again"
@@ -119,7 +119,7 @@ b=$(today)
 expect "^browser: title $b cookie none\$" \
   "the new profile's tab saw the first profile's cookie: $(grep "^browser: title $b" "$log" |
   tail -1)"
-../tools/window-screenshot.sh "$pid" "$out/profile-space.png" || fail "no window to capture"
+proof profile-space.png
 # Its menu, with a tab, can't change its profile.
 post rightclick $name_point
 expect "^browser: menu shown Rename Space, Change Icon…, $green, Profile › Default (disabled), \
@@ -187,7 +187,7 @@ post choose Space 1
 expect '^browser: dialog shown Move this tab to the “Default” profile?$' \
   "moving the tab to another profile's Space didn't warn first"
 expect '^browser: dialog settled$' "the dialog didn't settle"
-../tools/window-screenshot.sh "$pid" "$out/profile-move.png" || fail "no window to capture"
+proof profile-move.png
 send key return
 expect "^browser: tab $b closed\$" "the tab moved to another profile kept its old page"
 expect "^browser: space $first\$" "the window didn't go with the moved tab"
@@ -313,13 +313,13 @@ send ime on
 send type nihongo
 send key space
 [ "$marked" = 6,3 ] || fail "the profile's field didn't take the conversion: marked $marked"
-../tools/window-screenshot.sh "$pid" "$out/settings-profile-name.png" || fail "no window to capture"
+proof settings-profile-name.png
 send key return
 send ime off
 send key return
 expect "^browser: renamed profile $spare spare 日本語\$" \
   "the new profile wasn't named: $(grep '^browser: renamed profile' "$log" | tail -1)"
-../tools/window-screenshot.sh "$pid" "$out/settings-profiles.png" || fail "no window to capture"
+proof settings-profiles.png
 post clickkey 578 211
 expect '^browser: alert shown Delete “spare 日本語”?$' "Delete in Settings didn't ask first"
 send choose Cancel
@@ -349,7 +349,7 @@ Delete Space (disabled)\$" \
 post choose Delete “personal”
 expect '^browser: dialog shown Delete “personal”?$' "Delete didn't ask before deleting the profile"
 expect '^browser: dialog settled$' "the dialog didn't settle"
-../tools/window-screenshot.sh "$pid" "$out/profile-delete.png" || fail "no window to capture"
+proof profile-delete.png
 send key return
 expect "^browser: removed profile $work personal\$" "the profile wasn't deleted"
 exec 3>&-

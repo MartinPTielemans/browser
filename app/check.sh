@@ -10,7 +10,8 @@
 # for a moment.
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
 # another; BROWSER_DISPLAY=main opens it on the main display.
-# Leaves window captures and logs in build/check/. Build first with ./build.sh.
+# Leaves window captures and logs in build/check/: the captures a step compares or a run's ok line
+# names, and with CHECK_CAPTURES=1 the ones only for a look too. Build first with ./build.sh.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
@@ -78,7 +79,14 @@ with open(sys.argv[1], "w") as f:
     json.dump(local, f)
 ' "$(dirname "$saved")/Local State"
 . check/lib.sh
-trap cleanup EXIT
+# The check's server goes once the runs are done, without the shell printing its whole script as
+# the job it killed, and without its status taking the check's.
+trap 'status=$?; cleanup; [ -z "${server:-}" ] || { kill "$server"; wait "$server"; } 2>/dev/null || true
+  exit $status' EXIT
+# The tools the runs share, ready before the first: lib.sh's log waiter, and the capture tool,
+# which compiles once for every check after.
+cc -O2 -o "$out/logwait" check/logwait.c
+../tools/window-screenshot.sh compile
 # The runs send the app's driver its commands through it.
 mkfifo "$out/drive"
 for run in ${*:-$runs}; do

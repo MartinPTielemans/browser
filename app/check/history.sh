@@ -60,7 +60,7 @@ loaded=$(grep -n "^browser: page $tab back 1 forward 0 loading 0 https://example
 [ "$dropped" -gt "$loaded" ] || fail "the start page's favicon went before example.com had loaded"
 go_from_bar example.org
 expect_page example.org 1 0 "after loading another"
-../tools/window-screenshot.sh "$pid" "$out/history.png" || fail "no window to capture"
+proof history.png
 history_key left back page
 expect_page example.com 1 1 "after ⌘←"
 history_key right forward page
@@ -96,7 +96,7 @@ EOF
   # Chrome tries https first only for public hosts.
   expect "^browser: page $tab back 1 forward 0 loading 1 http://stuck.test/\$" "stuck.test didn't show as loading"
   if [ "$from" = sidebar ]; then
-    ../tools/window-screenshot.sh "$pid" "$out/loading.png" || fail "no window to capture"
+    proof loading.png
   fi
   send $action
   expect "^browser: command stop via $from\$" "$what while loading didn't run stop"

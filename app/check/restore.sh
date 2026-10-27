@@ -61,13 +61,13 @@ expect '^browser: download [0-9]* running slow.bin$' "the page's slow download d
 # Its icon flies into the Library button.
 d=$(grep -m1 '^browser: download [0-9]* running slow.bin$' "$log" | cut -d' ' -f3)
 expect "^browser: download flying $d\$" "the new download's icon didn't fly"
-../tools/window-screenshot.sh "$pid" "$out/download-flying.png" || fail "no window to capture"
+look download-flying.png
 expect "^browser: download landed $d\$" "the new download's icon didn't land"
 send key j cmd shift
 expect '^browser: command view-downloads via page$' "⇧⌘J with the page focused didn't reach the UI"
 expect '^browser: library section downloads$' "⇧⌘J didn't open the Library on Downloads"
 expect '^browser: library shown$' "⇧⌘J didn't open the Library"
-../tools/window-screenshot.sh "$pid" "$out/downloads.png" || fail "no window to capture"
+proof downloads.png
 send key j cmd shift
 expect '^browser: library hidden$' "⇧⌘J again didn't close the Library"
 # Tab a goes to two pages and back to the first, so it has pages to go forward to.
@@ -103,7 +103,7 @@ expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, De
   "the Space's menu didn't offer its colours"
 send choose Pink
 expect "^browser: colored space $second bf556a\$" "Pink didn't give the Space its colour"
-../tools/window-screenshot.sh "$pid" "$out/space-color.png" || fail "no window to capture"
+look space-color.png
 # Change Icon… in the Space's menu gives it an emoji from the icon picker's Emoji tab, found by a
 # search and picked with ↩, which a relaunch brings back.
 pink=${colors/ (checked)/}
@@ -119,7 +119,7 @@ send insert seedling
 send key return
 expect "^browser: iconed space $second 🌱\$" \
   "an emoji picked on the Emoji tab didn't become the Space's icon"
-../tools/window-screenshot.sh "$pid" "$out/space-icon.png" || fail "no window to capture"
+look space-icon.png
 send key 1 ctrl
 expect "^browser: space $first in " "⌃1 didn't show the first Space"
 expect_tabs "$c $a" "$c" "back in the first Space"
@@ -137,7 +137,7 @@ none_since "^browser: title $c nope" || fail "escape renamed the tab"
 send doubleclick $(row 0)
 expect "^browser: rename tab $c\$" "a second double-click on the row didn't rename the tab"
 send type news
-../tools/window-screenshot.sh "$pid" "$out/rename-tab.png" || fail "no window to capture"
+look rename-tab.png
 send key return
 expect "^browser: title $c news\$" "return didn't name the tab"
 # Change Icon… in its menu hangs the icon picker under its favicon, on the Emoji tab, and the first
@@ -149,12 +149,12 @@ send choose Change Icon…
 expect "^browser: icon picker for tab $c on emoji\$" \
   "Change Icon… didn't open the icon picker on the Emoji tab for the tab"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker under the tab"
-../tools/window-screenshot.sh "$pid" "$out/tab-icon-picker.png" all || fail "no window to capture"
+proof tab-icon-picker.png all
 send insert fox
 send key return
 expect "^browser: page $c icon 🦊\$" "an emoji picked in the picker didn't become the tab's icon"
 expect '^browser: icon picker hidden$' "picking an emoji didn't close the tab's icon picker"
-../tools/window-screenshot.sh "$pid" "$out/tab-icon.png" || fail "no window to capture"
+look tab-icon.png
 # With a download running, Quit in the alert ⌘Q shows asks again, in Chrome's. Continue Downloading
 # keeps the browser running and shows the Library's Downloads, and Quit quits, cancelling it.
 post key q cmd
@@ -169,7 +169,7 @@ expect '^browser: command view-downloads via chrome$' \
   "Continue Downloading didn't show the downloads"
 expect '^browser: library section downloads$' \
   "Continue Downloading didn't show the Library's Downloads"
-../tools/window-screenshot.sh "$pid" "$out/quit-downloads.png" || fail "no window to capture"
+look quit-downloads.png
 # The window quits full screen, and the relaunch brings it back so.
 send fullscreen
 expect '^browser: window entered full screen$' "the window didn't go full screen before the quit"
@@ -194,7 +194,7 @@ await '^browser: restored in ' || fail "the relaunch didn't restore the Spaces"
 # The window that quit full screen comes back so, and leaves it for the rest of the run, whose
 # points are the window's.
 await '^browser: window entered full screen$' || fail "the window that quit full screen didn't come back full screen"
-../tools/window-screenshot.sh "$pid" "$out/restored-fullscreen.png" || fail "no window to capture"
+look restored-fullscreen.png
 send fullscreen
 expect '^browser: window left full screen$' "the restored window didn't leave full screen"
 await '^browser: spaces [0-9]* [0-9]*$' || fail "the relaunch didn't bring back two Spaces"
@@ -226,7 +226,7 @@ await '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' |
   fail "the second Space's tab didn't come back at example.com"
 e=$(grep -m1 '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' "$log" | cut -d' ' -f3)
 grep -q "^browser: loaded $e " "$log" && fail "the second Space's tab loaded without being shown"
-../tools/window-screenshot.sh "$pid" "$out/restored.png" || fail "no window to capture"
+proof restored.png
 await '^browser: archive 1 tabs$' || fail "the relaunch didn't bring back the archived tab"
 await '^browser: download [0-9]* done notes.txt$' || fail "the relaunch didn't list the download"
 await '^browser: download [0-9]* cancelled slow.bin$' ||
@@ -308,7 +308,7 @@ send move 24 $((height - 45))
 send move 120 $((height - 78))
 none_since '^browser: recent downloads hidden$' ||
   fail "the recent downloads went as the pointer came onto them"
-../tools/window-screenshot.sh "$pid" "$out/recent-downloads.png" || fail "no window to capture"
+proof recent-downloads.png
 send move $page_point
 expect '^browser: recent downloads hidden$' "the recent downloads stayed after the pointer left"
 # Remove from List in the cancelled download's menu takes it off the list, and Clear List in the

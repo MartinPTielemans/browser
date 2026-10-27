@@ -65,7 +65,7 @@ expect "^browser: window $second shows 0\$" "the new window showed a page"
 none_since "^browser: window $first shows" || fail "⌘N changed what the first window shows"
 shown_first=$(grep -c "^browser: window $first shows" "$log")
 send window 2
-../tools/window-screenshot.sh "$pid" "$out/windows-new.png" all || fail "no window to capture"
+proof windows-new.png all
 # The new window's card shows its mark and line, and its URL field its placeholder, once the fade
 # has ended, as the shell says in the log. The first window shows a page, so the line is the new
 # window's.
@@ -75,7 +75,7 @@ for _ in $(seq 100); do
 done
 [ "$(grep -c '^browser: empty card shown$' "$log")" -gt "$empties" ] ||
   fail "the new window's empty card didn't show its line"
-../tools/window-screenshot.sh "$pid" "$out/empty-window.png" all || fail "no window to capture"
+proof empty-window.png all
 # A click on the card with ⌘T's bar open only closes it: the host closes the bar at the press, and
 # the release mustn't open it again. Another driver step after the bar's report is in gives the
 # release time to have run.
@@ -140,7 +140,7 @@ expect "^browser: window $second shows $a\$" \
   "a click on the page's row didn't show it in the new window"
 counting "in the new window"
 [ "$(today)" = "$a $b" ] || fail "the move changed Today to \"$(today)\""
-../tools/window-screenshot.sh "$pid" "$out/windows-moved.png" all || fail "no window to capture"
+proof windows-moved.png all
 
 # The first window, which the page left, asks the core for a picture of it once the move is over,
 # and draws it in its card once it has stepped back.
@@ -150,7 +150,7 @@ expect "^browser: window $first picture rests\$" "the first window's picture did
 # Brought forward, it takes a new picture, and still leaves the page where it is.
 send window 1
 expect "^browser: window $first pictures tab $a\$" "the first window took no new picture as it came forward"
-../tools/window-screenshot.sh "$pid" "$out/windows-pictured.png" || fail "no window to capture"
+proof windows-pictured.png
 
 # A click on the picture takes the page back, live, from the new window, which draws its picture.
 send click $page_point
@@ -161,7 +161,7 @@ expect "^browser: window $second pictures tab $a\$" "the new window got no pictu
 expect "^browser: window $second picture rests\$" "the new window's picture didn't step back"
 send window 2
 expect "^browser: window $second pictures tab $a\$" "the new window took no new picture as it came forward"
-../tools/window-screenshot.sh "$pid" "$out/windows-pictured-back.png" || fail "no window to capture"
+proof windows-pictured-back.png
 
 # The row of the tab the new window has selected takes the page again, as before.
 send click $(row 0)
@@ -186,7 +186,7 @@ echo "$front" | grep -q ' key driven,' || fail "the page going back took the key
   fail "the page going back moved the new window's keyboard from $clicked_focus to $focus"
 [ "$(grep -c "^browser: key window $first\$" "$log")" = "$keyed" ] ||
   fail "the page going back made the first window key"
-../tools/window-screenshot.sh "$pid" "$out/windows-handed-back.png" all || fail "no window to capture"
+proof windows-handed-back.png all
 
 # The new window takes the page once more, for ⇧⌘W to close it while it shows the page.
 send click $(row 0)
@@ -207,7 +207,7 @@ grep -q '^browser: tab [0-9]* closed$' "$log" && fail "closing a window closed a
 [ "$(today)" = "$a $b" ] || fail "closing the window changed Today to \"$(today)\""
 send window 1
 check_layout "back in the first window"
-../tools/window-screenshot.sh "$pid" "$out/windows-closed.png" || fail "no window to capture"
+proof windows-closed.png
 
 # ⇧↩ in the command bar opens example.com in a new window, and the first keeps its page.
 send key t cmd
@@ -222,8 +222,7 @@ expect "^browser: window $third shows [1-9][0-9]*\$" "⇧↩'s window didn't sho
 c=$(grep "^browser: window $third shows [1-9]" "$log" | tail -1 | cut -d' ' -f5)
 expect "^browser: loaded $c https://example.com/\$" "example.com didn't load in ⇧↩'s window"
 none_since "^browser: window $first shows" || fail "⇧↩ changed what the first window shows"
-../tools/window-screenshot.sh "$pid" "$out/windows-shift-return.png" all ||
-  fail "no window to capture"
+proof windows-shift-return.png all
 
 # From the first window, the Switch to Tab row for that page brings its window forward, and the
 # first window keeps its own page. "example" is the start of the page's title and its URL.
@@ -247,7 +246,7 @@ expect "^browser: key window $third\$" "Switch to Tab didn't make the window sho
 none_since "^browser: window $first shows" ||
   fail "Switch to Tab changed what the first window shows"
 counting "after Switch to Tab"
-../tools/window-screenshot.sh "$pid" "$out/windows-switch.png" all || fail "no window to capture"
+proof windows-switch.png all
 
 # ⇧↩'s window closes, so the next run doesn't bring back two.
 send window 3
