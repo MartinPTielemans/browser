@@ -338,9 +338,9 @@ thread_local! {
     static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
     // The most recently key first, as the core keeps its windows.
     static WINDOWS: RefCell<Vec<BrowserWindow>> = const { RefCell::new(Vec::new()) };
-    // The first window's view, held off screen until it has drawn the links that launched the
-    // browser.
-    static LAUNCH: RefCell<Launch<*mut c_void>> = const { RefCell::new(Launch::new()) };
+    // The first window's view, held off screen until the links that launched the browser show in
+    // it.
+    static LAUNCH: RefCell<Launch<FirstWindow>> = const { RefCell::new(Launch::new()) };
 }
 
 /// The core's id and the UI's view of the window that the overlays every window shares show over,
@@ -2062,9 +2062,10 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
         return;
     };
     open_links_in(window.id, &urls);
-    // A first window held off screen shows once it has drawn them.
-    LAUNCH.with_borrow_mut(Launch::opened);
     unsafe { platform::host_activate(window.ui_view) };
+    // AppKit hands over the links that launched the browser all at once, so the first window
+    // needn't wait for it to finish.
+    finished_launching();
 }
 
 /// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
@@ -2278,8 +2279,6 @@ fn open_window(
         finish_opening(id, ui_view, window, true, private, cx);
         return Some(id);
     }
-    // The first goes on screen once it has drawn the links that launched the browser (Launch).
-    LAUNCH.with_borrow_mut(|launch| launch.hold(ui_view));
     // Making the overlays' windows takes the main thread for a while, so at launch they wait for
     // the frame after the first on screen: the window goes on screen with its sidebar drawn, then
     // they're made. Later windows don't wait, as a page may open in them at once. A window that
@@ -2294,12 +2293,30 @@ fn open_window(
             }
         }
     };
-    watch_first_frames(window, finish.clone(), cx);
+    let finish = Rc::new(finish);
+    // The first goes on screen once the links that launched the browser show in it (Launch).
+    LAUNCH.with_borrow_mut(|launch| {
+        launch.hold(FirstWindow { ui_view, window, finish: finish.clone() })
+    });
+    window
+        .update(cx, |_, window, _| {
+            window.on_next_frame(move |_, cx| {
+                LAUNCH.with_borrow_mut(Launch::began);
+                // Once the frame is drawn, which follows this at once on the main thread.
+                cx.spawn(async move |_| {
+                    if let Some(first) = LAUNCH.with_borrow_mut(Launch::drawn) {
+                        show_first(first);
+                    }
+                })
+                .detach();
+            })
+        })
+        .ok();
     cx.spawn(async move |cx| {
         cx.background_executor().timer(Duration::from_millis(500)).await;
         cx.update(|cx| {
-            if let Some(ui_view) = LAUNCH.with_borrow_mut(Launch::release_now) {
-                show_first(ui_view);
+            if let Some(first) = LAUNCH.with_borrow_mut(Launch::release_now) {
+                show_first(first);
             }
             finish(cx)
         })
@@ -2308,42 +2325,24 @@ fn open_window(
     Some(id)
 }
 
-/// Each frame the held first window draws, until one shows what it waits for and it goes on
-/// screen; then `finish` at the frame after.
-fn watch_first_frames(
+/// The first window, held off screen at launch, and what it does at the frame after it shows.
+struct FirstWindow {
+    ui_view: *mut c_void,
     window: WindowHandle<Shell>,
-    finish: impl FnOnce(&mut App) + Clone + 'static,
-    cx: &mut App,
-) {
-    window
-        .update(cx, |_, drawing, _| {
-            drawing.on_next_frame(move |_, cx| {
-                let frame = LAUNCH.with_borrow(Launch::frame);
-                // Once the frame is drawn, which follows this at once on the main thread.
-                cx.spawn(async move |cx| {
-                    cx.update(|cx| {
-                        if let Some(ui_view) = LAUNCH.with_borrow_mut(|l| l.drawn(frame)) {
-                            show_first(ui_view);
-                        }
-                        if LAUNCH.with_borrow(Launch::holding) {
-                            return watch_first_frames(window, finish, cx);
-                        }
-                        // Deferred, as the shell's window is borrowed while it draws.
-                        let finish = move |_: &mut Window, cx: &mut App| cx.defer(finish);
-                        window.update(cx, |_, drawing, _| drawing.on_next_frame(finish)).ok();
-                    })
-                })
-                .detach();
-            })
-        })
-        .ok();
+    finish: Rc<dyn Fn(&mut App)>,
 }
 
 /// The first window goes on screen, showing the frame its UI drew last.
-fn show_first(ui_view: *mut c_void) {
-    unsafe { platform::host_show_window(ui_view) };
+fn show_first(first: FirstWindow) {
+    unsafe { platform::host_show_window(first.ui_view) };
     // check.sh reads this line.
     log!("browser: first frame at {:.1} ms", unsafe { platform::host_since_launch() });
+    let FirstWindow { window, finish, .. } = first;
+    update_app_later(move |cx| {
+        // Deferred, as the shell's window is borrowed while it draws.
+        let finish = move |_: &mut Window, cx: &mut App| cx.defer(move |cx| finish(cx));
+        window.update(cx, |_, window, _| window.on_next_frame(finish)).ok();
+    });
 }
 
 fn finish_opening(
@@ -2507,8 +2506,8 @@ unsafe extern "C" fn started(_: *mut c_void) {
 
 /// AppKit has finished launching, after handing over the links that launched the browser.
 extern "C" fn finished_launching() {
-    if let Some(ui_view) = LAUNCH.with_borrow_mut(Launch::finished) {
-        show_first(ui_view);
+    if let Some(first) = LAUNCH.with_borrow_mut(Launch::finished) {
+        show_first(first);
     }
 }
 

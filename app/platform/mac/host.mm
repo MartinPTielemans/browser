@@ -1075,6 +1075,13 @@ void host_watch_finished_launching(void (*finished)(void)) {
                   object:nil
                    queue:nil
               usingBlock:^(NSNotification*) {
+                // A plain launch (Dock, Finder, `open -a`) carried no links to wait for.
+                NSAppleEventDescriptor* launch =
+                    NSAppleEventManager.sharedAppleEventManager.currentAppleEvent;
+                if (launch.eventClass == kCoreEventClass && launch.eventID == kAEOpenApplication) {
+                  finished();
+                  return;
+                }
                 // After AppController's own handler, which hands the links to the core, as the
                 // order observers hear a notification in isn't promised.
                 dispatch_async(dispatch_get_main_queue(), ^{
