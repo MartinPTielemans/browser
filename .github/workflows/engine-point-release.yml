@@ -1,0 +1,59 @@
+# Chromium security point releases update the engine without asking; a new major waits for the
+# owner's go (#299). engine/point-release.sh does the work. It runs only on a schedule or by hand,
+# never for a pull request, and on GitHub's runners, never the self-hosted one.
+name: Engine point release
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency: engine-point-release
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WORK: ${{ runner.temp }}/point-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: engine/point-release.sh "$WORK"
+
+      # One issue per major, ever: a closed one is the owner's answer.
+      - name: Ask about a new major
+        run: |
+          titles=$(gh issue list --state all --limit 1000 --json title --jq '.[].title')
+          for file in "$WORK"/major-*.md; do
+            [ -e "$file" ] || continue
+            title=$(head -1 "$file")
+            grep -Fxq "$title" <<<"$titles" || tail -n +3 "$file" | gh issue create --title "$title" --body-file -
+          done
+
+      # A branch per version, so a release already proposed isn't proposed again. A PR opened with
+      # GITHUB_TOKEN starts no workflows; the integrator's builds and check gate it.
+      - name: Open the pull request
+        run: |
+          [ -e "$WORK/pr-title" ] || exit 0
+          branch=$(cat "$WORK/pr-branch")
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "$branch is already proposed"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          git commit -qm "$(cat "$WORK/pr-title")" engine/pins.ini
+          git push -q origin "$branch"
+          # Without "Allow GitHub Actions to create pull requests" in the repository's settings,
+          # the bump still reaches the owner, as an issue naming the branch.
+          gh pr create --base main --head "$branch" --title "$(cat "$WORK/pr-title")" --body-file "$WORK/pr-body" ||
+            { echo "Branch: \`$branch\`. Open its pull request by hand."; echo; cat "$WORK/pr-body"; } |
+            gh issue create --title "$(cat "$WORK/pr-title")" --body-file -
