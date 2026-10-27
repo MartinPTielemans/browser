@@ -274,8 +274,7 @@ expect "^browser: today $twin $d\$" "the removed favorite isn't at the top of To
 send click $page_point
 send key w cmd
 expect "^browser: today $d\$" "⌘W didn't close the removed favorite: Today is \"$(today)\""
-send click $(row 0)
-expect "^browser: selected $d\( in .*\)\{0,1\}\$" "a click on the second Space's row didn't show it"
+expect "^browser: selected $d\( in .*\)\{0,1\}\$" "⌘W didn't show the second Space's tab"
 # Settings › Profiles lists the profiles, a row each from 129, 41 apart, and New Profile under
 # them. A double-click on a name puts it in a field, where escape leaves it and return keeps a new
 # one.
