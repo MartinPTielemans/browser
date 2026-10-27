@@ -253,6 +253,8 @@ class BrowserWindowStandIn : public BrowserWindow,
   autofill::AutofillBubbleHandler* GetAutofillBubbleHandler() override;
   LocationBar* GetLocationBar() const override;
   ui::AcceleratorProvider* GetAcceleratorProvider() override;
+  // The window has no toolbar, so nothing pinned to one.
+  PinnedToolbarActions* GetPinnedToolbarActions() override { return nullptr; }
   void SetFocusToLocationBar(bool is_user_initiated) override {}
   void UpdateReloadStopState(bool is_loading, bool force) override {}
   void UpdateToolbar(content::WebContents* contents) override {}
