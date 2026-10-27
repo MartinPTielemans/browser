@@ -311,10 +311,13 @@ bool Tab::UseSystemEngine(const GURL& url) {
   if (!page) {
     return false;
   }
-  if (web_contents()->IsAudioMuted()) {
-    page->SetMuted(true);
-  }
   waiting_.reset();
+  system_engine::StoreMade(profile);
+  // The tab has its page before Chromium's goes, so the renderer ending reads as the switch.
+  system_page_ = std::move(page);
+  if (web_contents()->IsAudioMuted()) {
+    system_page_->SetMuted(true);
+  }
   // Chromium's page goes, keeping its history, as Unload has it go. A tab whose first page this
   // is has none.
   content::NavigationController& history = web_contents()->GetController();
@@ -322,7 +325,6 @@ bool Tab::UseSystemEngine(const GURL& url) {
   if (entry && !entry->IsInitialEntry() && !history.NeedsReload()) {
     web_contents()->Discard(base::DoNothing());
   }
-  system_page_ = std::move(page);
   favicon_ = gfx::Image();
   // The note offered this, and its question is answered.
   ForgetMediaUnsupported(web_contents());
@@ -439,7 +441,6 @@ void Tab::DropSystemPage() {
   favicon_ = gfx::Image();
   system_page_favicon_.clear();
   system_page_title_.clear();
-  system_page_loading_ = false;
   EngineChanged();
 }
 
@@ -486,12 +487,6 @@ void Tab::FetchSystemPageFavicon() {
 }
 
 void Tab::SystemPageChanged() {
-  // Done loading, as Chromium's DidFinishLoad reports a page.
-  const bool loading = system_page_ && system_page_->loading();
-  if (system_page_loading_ && !loading && Host().tab_loaded) {
-    Host().tab_loaded(Host().context, id_, system_page_->url().spec().c_str());
-  }
-  system_page_loading_ = loading;
   StateChanged();
 }
 
@@ -511,6 +506,13 @@ void Tab::SystemPageCommitted() {
   FetchSystemPageFavicon();
   SiteControls::PageChanged(id_);
   StateChanged();
+}
+
+void Tab::SystemPageLoaded() {
+  // As DidFinishLoad reports Chromium's page.
+  if (system_page_ && Host().tab_loaded) {
+    Host().tab_loaded(Host().context, id_, system_page_->url().spec().c_str());
+  }
 }
 
 void Tab::SystemPageLeft(const GURL& url) {
@@ -826,6 +828,10 @@ void Tab::OnVisibilityChanged(content::Visibility visibility) {
 // The page's renderer went away, crashed, killed or ended on purpose. check.sh waits for this line,
 // an error since our builds print no warnings.
 void Tab::PrimaryMainFrameRenderProcessGone(base::TerminationStatus status) {
+  // Let go, not lost: the tab unloaded its page, or shows it in the system's engine now.
+  if (system_page_ || web_contents()->WasDiscarded()) {
+    return;
+  }
   LOG(ERROR) << "browser: tab " << id_ << " page gone, status " << static_cast<int>(status);
   ClearHang();
   if (reload_after_kill_) {

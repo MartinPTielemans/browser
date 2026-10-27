@@ -605,11 +605,18 @@ send click $((nx + nw / 2)) $((ny + nh - 26))
 # Safari's engine keeps a store for each profile from macOS 14; before it, the note offers Safari.
 if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   drm_done="Safari's engine"
+  # WebKit loads with the first page in it, or earlier only to clear a store a page made in an
+  # earlier run, as Clear Cookies and Refresh above does once this run has played.
+  early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
+  [ -z "$early" ] || fail "WebKit loaded before its first page: $early"
   # Play in This Tab shows the page in Safari's engine, in the tab, and the note goes.
   expect "^browser: system engine $tab on\$" "the note's button didn't show the page in Safari's engine"
   expect "^browser: page $tab needs nothing\$" "the note stayed in Safari's engine"
+  grep -q '^browser: system engine loaded for ' "$log" || fail "Safari's engine's page didn't say WebKit loaded"
   expect "^browser: loaded $tab http://127.0.0.1:$port/drm.html\$" "Safari's engine didn't load the page"
   expect "^browser: title $tab drm asked\$" "Safari's engine didn't report the page's title"
+  # Chromium's page let go for the switch isn't a renderer lost, which a crash card would show.
+  grep -q "^.*browser: tab $tab page gone" "$log" && fail "the switch to Safari's engine read as the page gone"
   ../tools/window-screenshot.sh "$pid" "$out/drm-engine.png" || fail "no window to capture"
   # The site's other pages stay there; another site goes back to Chromium, in the same tab.
   go_from_bar "127.0.0.1:$port/engine.html"

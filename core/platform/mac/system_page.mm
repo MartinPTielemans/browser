@@ -4,6 +4,7 @@
 #import <WebKit/WebKit.h>
 #include <dlfcn.h>
 #include <objc/message.h>
+#include <stdio.h>
 
 #include <utility>
 
@@ -22,9 +23,10 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "url/gurl.h"
 
-// The core never links WebKit: it loads with the first system page, so a launch without one never
-// maps it. Its classes are found by name and its constants by symbol, since a direct reference to
-// either would link it. Check with `otool -L` on Chromium's framework.
+// The core never links WebKit: it loads with the first system page, or to clear or delete a store
+// a profile made in an earlier run, so a launch without one never maps it. Its classes are found by
+// name and its constants by symbol, since a direct reference to either would link it. Check with
+// `otool -L` on Chromium's framework.
 
 namespace browser_core::platform {
 class SystemPageMac;
@@ -32,10 +34,25 @@ class SystemPageMac;
 
 namespace {
 
+constexpr char kWebKitPath[] = "/System/Library/Frameworks/WebKit.framework/WebKit";
+void* g_webkit = nullptr;
+
+// Loads WebKit, once. Only the three calls below that need it do, each saying why.
+bool LoadWebKit(const char* why) {
+  if (!g_webkit) {
+    // Whether something else mapped it first, such as a system framework of Chromium's.
+    const bool mapped = dlopen(kWebKitPath, RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD) != nullptr;
+    g_webkit = dlopen(kWebKitPath, RTLD_LAZY | RTLD_LOCAL);
+    // check.sh reads this line.
+    fprintf(stderr, "browser: system engine loaded for %s%s\n", why,
+            mapped ? ", already mapped" : "");
+  }
+  return g_webkit != nullptr;
+}
+
+// WebKit, once a call above has loaded it.
 void* WebKit() {
-  static void* const handle =
-      dlopen("/System/Library/Frameworks/WebKit.framework/WebKit", RTLD_LAZY | RTLD_LOCAL);
-  return handle;
+  return g_webkit;
 }
 
 Class WebKitClass(NSString* name) {
@@ -143,14 +160,16 @@ class SystemPageMac : public SystemPage {
     delegates_->_owner = this;
     web_.navigationDelegate = delegates_;
     web_.UIDelegate = delegates_;
-    for (NSString* key in ObservedKeys(web_)) {
-      [web_ addObserver:delegates_ forKeyPath:key options:0 context:nullptr];
-    }
     view_ = [[BrowserCoreSystemPageView alloc] initWithFrame:NSZeroRect];
     view_->_owner = this;
     web_.frame = view_.bounds;
     [view_ addSubview:web_];
+    // Before KVO: WebKit reports the load starting while the tab is still making the page, and the
+    // tab reads the page's state once it has it.
     Load(url);
+    for (NSString* key in ObservedKeys(web_)) {
+      [web_ addObserver:delegates_ forKeyPath:key options:0 context:nullptr];
+    }
   }
 
   ~SystemPageMac() override {
@@ -235,6 +254,7 @@ class SystemPageMac : public SystemPage {
   // From the views and delegates above.
   void Changed() { delegate_->SystemPageChanged(); }
   void Committed() { Soon(base::BindOnce(&Delegate::SystemPageCommitted)); }
+  void Loaded() { Soon(base::BindOnce(&Delegate::SystemPageLoaded)); }
   void Open(const GURL& url) {
     Soon(base::BindOnce([](const GURL& url, Delegate* delegate) { delegate->SystemPageOpen(url); },
                         url));
@@ -398,6 +418,14 @@ class SystemPageMac : public SystemPage {
   }
 }
 
+// The main frame's document and what it loads have finished loading, as Chromium's DidFinishLoad
+// reports a page's: not a same-document navigation, nor a load that failed.
+- (void)webView:(WKWebView*)web didFinishNavigation:(WKNavigation*)navigation {
+  if (_owner) {
+    _owner->Loaded();
+  }
+}
+
 - (void)webViewWebContentProcessDidTerminate:(WKWebView*)web {
   if (_owner) {
     _owner->Gone();
@@ -450,7 +478,7 @@ bool SystemPage::Available() {
 std::unique_ptr<SystemPage> SystemPage::Create(const SystemStore& store,
                                                const GURL& url,
                                                Delegate* delegate) {
-  if (!Available() || !WebKitClass(@"WKWebView")) {
+  if (!Available() || !LoadWebKit("a page") || !WebKitClass(@"WKWebView")) {
     return nullptr;
   }
   WKWebsiteDataStore* data = StoreFor(store);
@@ -461,7 +489,7 @@ std::unique_ptr<SystemPage> SystemPage::Create(const SystemStore& store,
 void SystemPage::DeleteStore(const std::string& id) {
   NSString* key = base::SysUTF8ToNSString(id);
   NSUUID* uuid = [[NSUUID alloc] initWithUUIDString:key];
-  if (!uuid || !Available()) {
+  if (!uuid || !Available() || !LoadWebKit("deleting a profile's store")) {
     return;
   }
   // Ours lets go first: WebKit won't delete a store in use.
@@ -470,7 +498,6 @@ void SystemPage::DeleteStore(const std::string& id) {
     [WebKitClass(@"WKWebsiteDataStore")
         removeDataStoreForIdentifier:uuid
                    completionHandler:^(NSError* error) {
-                     // None to delete is the profile that never had a system page.
                      if (error) {
                        VLOG(1) << "browser: system store " << base::SysNSStringToUTF8(key)
                                << " not deleted: "
@@ -490,7 +517,8 @@ void SystemPage::ClearSite(const SystemStore& store,
                            const std::string& domain,
                            bool cookies,
                            base::OnceClosure done) {
-  WKWebsiteDataStore* data = Available() ? StoreFor(store) : nil;
+  WKWebsiteDataStore* data =
+      Available() && LoadWebKit("clearing a site") ? StoreFor(store) : nil;
   NSSet<NSString*>* types =
       cookies ? [NSSet setWithObjects:WebKitConstant("WKWebsiteDataTypeCookies"), nil]
               : [NSSet setWithObjects:WebKitConstant("WKWebsiteDataTypeDiskCache"),

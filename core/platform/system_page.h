@@ -37,6 +37,8 @@ class SystemPage {
     virtual void SystemPageChanged() = 0;
     // A new document committed in its main frame.
     virtual void SystemPageCommitted() = 0;
+    // That document finished loading.
+    virtual void SystemPageLoaded() = 0;
     // The user followed a link to |url|, on another site, in the page's main frame. The page
     // doesn't load it: the tab loads it, here or in Chromium.
     virtual void SystemPageLeft(const GURL& url) = 0;
@@ -63,11 +65,13 @@ class SystemPage {
   static std::unique_ptr<SystemPage> Create(const SystemStore& store,
                                             const GURL& url,
                                             Delegate* delegate);
-  // Deletes |id|'s persistent store from the disk, as its profile goes.
+  // Deletes |id|'s persistent store from the disk, as its profile goes. Loads the system's engine:
+  // call it only for a store a page made.
   static void DeleteStore(const std::string& id);
-  // Lets a private session's store go.
+  // Lets a private session's store go. Never loads the system's engine.
   static void ReleaseStore(const std::string& id);
-  // Deletes |domain|'s cookies, or else its cache, from |store|, then runs |done|.
+  // Deletes |domain|'s cookies, or else its cache, from |store|, then runs |done|. Loads the
+  // system's engine, as DeleteStore.
   static void ClearSite(const SystemStore& store,
                         const std::string& domain,
                         bool cookies,
