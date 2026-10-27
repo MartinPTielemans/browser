@@ -53,6 +53,15 @@ impl Picker {
 
     /// The picker, as the app opens it after `recents` were saved.
     fn with_recents(icon: &str, recents: &str, cx: &mut TestAppContext) -> Self {
+        Self::of(Subject::Space(7), icon, recents, cx)
+    }
+
+    /// The picker for a tab, 7, which has `icon`.
+    fn for_tab(icon: &str, cx: &mut TestAppContext) -> Self {
+        Self::of(Subject::Tab(7), icon, "", cx)
+    }
+
+    fn of(subject: Subject, icon: &str, recents: &str, cx: &mut TestAppContext) -> Self {
         let host = Rc::new(Recorder::default());
         let recents = Recents::parse(recents);
         // The app binds the field's keys once for every window.
@@ -61,7 +70,7 @@ impl Picker {
         let recorded = host.clone();
         let picked: Picked = Rc::new(move |icon, _| recorded.record(format!("picked {icon:?}")));
         let icon = SharedString::from(icon.to_string());
-        cx.update(|cx| show(7, icon, point(23., 66.), 0x3d81f9, picked, cx));
+        cx.update(|cx| show(subject, icon, point(23., 66.), 0x3d81f9, picked, cx));
         let cx = VisualTestContext::from_window(window.into(), cx);
         cx.run_until_parked();
         Picker { cx, window, host }
@@ -207,6 +216,35 @@ fn the_list_leaves_out_what_the_system_cant_draw_and_asks_once(cx: &mut TestAppC
     let mut picker = Picker::new("🫠", cx);
     assert_eq!(picker.tab(), Some(Tab::Emoji));
     assert_eq!(picker.listed().1, None);
+}
+
+#[test]
+fn a_tab_is_offered_the_emoji_tab_only() {
+    assert_eq!(Subject::Tab(1).tabs(), [Tab::Emoji]);
+    assert_eq!(Subject::Space(1).tabs(), [Tab::Emoji, Tab::Icon]);
+    assert_eq!(Subject::Tab(12).to_string(), "tab 12");
+    assert_eq!(Subject::Space(12).to_string(), "12");
+}
+
+#[gpui::test]
+fn a_tabs_picker_opens_on_the_emoji_tab_and_picks_an_emoji(cx: &mut TestAppContext) {
+    // A tab with no icon, or a character no glyph is, still opens on the grid.
+    let mut picker = Picker::for_tab("", cx);
+    let showing = picker.window.read_with(&picker.cx.cx, |p, _| p.picking()).unwrap();
+    assert_eq!(showing, Some((Subject::Tab(7), Tab::Emoji)));
+    assert_eq!(picker.listed().1, None);
+    picker.type_in_search("fox");
+    picker.keys("enter");
+    assert_eq!(picker.calls(), ["recents \"🦊\\n\"", "hide", "picked \"🦊\""]);
+
+    // The tab's emoji is on the plate, and the trash gives the favicon back.
+    let mut picker = Picker::for_tab("🌱", cx);
+    assert_eq!(picker.listed().1, Some("🌱"));
+    // The one segment and the trash after it, centred under the arrow.
+    let left = (WIDTH - (SEGMENT_WIDTH + TRASH_GAP + SEGMENTS_HEIGHT)) / 2.;
+    let x = left + SEGMENT_WIDTH + TRASH_GAP + SEGMENTS_HEIGHT / 2.;
+    picker.click(x, ARROW + SEGMENTS_TOP + SEGMENTS_HEIGHT / 2.);
+    assert_eq!(picker.calls(), ["hide", "picked \"\""]);
 }
 
 #[gpui::test]

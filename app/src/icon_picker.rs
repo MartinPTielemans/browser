@@ -1,6 +1,7 @@
 //! The popover that picks a Space's icon, Arc's: it hangs under the Space's name, its arrow at the
 //! icon, with Emoji | Icon and a trash button at its top, and under them the glyphs, or a search
-//! and a grid of emoji (docs/ux-spec.md › Spaces › Icon). GPUI can't draw over the page's native
+//! and a grid of emoji (docs/ux-spec.md › Spaces › Icon). A tab's hangs the same way from its
+//! favicon, with the Emoji tab only, as a tab's icon is an emoji. GPUI can't draw over the page's native
 //! view, so it's a window of its own that the host shows over the browser window, as its child,
 //! with the keyboard, translucent over a blur in the shape drawn here. What it asks of its window
 //! goes through `Host`.
@@ -96,11 +97,39 @@ pub enum Tab {
     Icon,
 }
 
+/// What the picker picks an icon for.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Subject {
+    Space(u64),
+    Tab(u64),
+}
+
+impl Subject {
+    /// The tabs it offers: a tab's custom icon takes the favicon's place, so it is a character the
+    /// row draws, and the Icon tab's glyphs are a Space's.
+    fn tabs(self) -> &'static [Tab] {
+        match self {
+            Subject::Space(_) => &[Tab::Emoji, Tab::Icon],
+            Subject::Tab(_) => &[Tab::Emoji],
+        }
+    }
+}
+
+impl std::fmt::Display for Subject {
+    /// As check.sh reads it: a Space is its id, a tab "tab" and its id.
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Subject::Space(space) => write!(f, "{space}"),
+            Subject::Tab(tab) => write!(f, "tab {tab}"),
+        }
+    }
+}
+
 /// The icon a Space is to have: what the core keeps, `""` for none.
 pub type Picked = Rc<dyn Fn(&str, &mut App)>;
 
 struct Picking {
-    space: u64,
+    subject: Subject,
     icon: SharedString,
     tab: Tab,
     accent: u32,
@@ -223,11 +252,11 @@ pub fn tab_for(icon: &str) -> Tab {
     }
 }
 
-/// Shows the picker for `space`, which has `icon`, its arrow at `anchor`, the middle of the icon's
-/// slot in the browser window, with the chosen segment in `accent`, 0xRRGGBB. `picked` gets the
-/// icon the user picks.
+/// Shows the picker for `subject`, which has `icon`, its arrow at `anchor`, the middle of the
+/// icon's slot in the browser window, with the chosen segment in `accent`, 0xRRGGBB. `picked` gets
+/// the icon the user picks.
 pub fn show(
-    space: u64,
+    subject: Subject,
     icon: SharedString,
     anchor: Point<f32>,
     accent: u32,
@@ -239,11 +268,14 @@ pub fn show(
     };
     window
         .update(cx, |picker, window, cx| {
-            let tab = tab_for(&icon);
+            let tab = match subject {
+                Subject::Space(_) => tab_for(&icon),
+                Subject::Tab(_) => Tab::Emoji,
+            };
             // check.sh reads this line.
-            log!("browser: icon picker for {space} on {}", tab.name());
+            log!("browser: icon picker for {subject} on {}", tab.name());
             picker.picking = Some(Picking {
-                space,
+                subject,
                 icon,
                 tab,
                 accent,
@@ -509,8 +541,12 @@ impl IconPicker {
                     .flex()
                     .rounded(px(SEGMENTS_RADIUS))
                     .bg(rgba(SEGMENTS_FILL))
-                    .child(segment(Tab::Emoji, "Emoji"))
-                    .child(segment(Tab::Icon, "Icon")),
+                    .children(
+                        picking.subject.tabs().iter().map(|&tab| match tab {
+                            Tab::Emoji => segment(tab, "Emoji"),
+                            Tab::Icon => segment(tab, "Icon"),
+                        }),
+                    ),
             )
             .child(trash)
     }
@@ -827,9 +863,9 @@ impl Render for IconPicker {
 }
 
 impl IconPicker {
-    /// The Space it's picking for, and the tab it shows, while it shows.
-    pub fn picking(&self) -> Option<(u64, Tab)> {
-        self.picking.as_ref().map(|picking| (picking.space, picking.tab))
+    /// What it's picking for, and the tab it shows, while it shows.
+    pub fn picking(&self) -> Option<(Subject, Tab)> {
+        self.picking.as_ref().map(|picking| (picking.subject, picking.tab))
     }
 }
 

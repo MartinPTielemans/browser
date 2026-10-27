@@ -24,7 +24,7 @@ use super::{
     title,
 };
 use super::drag::in_sidebar;
-use crate::icon_picker;
+use crate::icon_picker::{self, Subject};
 
 impl Shell {
     /// Closes every folder of the Space shown, all on one fold.
@@ -584,15 +584,19 @@ impl Shell {
                 }))
             })
             .child(icon);
-        let changing =
-            self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Icon(tab));
-        let icon = match changing {
-            Some(changing) => self.icon_field(changing, cx).into_any_element(),
-            None => icon.into_any_element(),
-        };
-        let renaming = renaming || changing.is_some();
-        // The field takes the row's clicks while it's up.
-        self.row(Row::Tab(tab), plate(icon, label), ghost, cx).when(!renaming, |row| {
+        // Where the row is, for the icon picker to hang under while it waits for the row to settle.
+        let bounds = (self.picker_pending.map(|(subject, _)| subject) == Some(Subject::Tab(tab)))
+            .then(|| {
+                let drawn = self.tab_row_drawn.clone();
+                canvas(move |bounds, _, _| drawn.set(Some(bounds)), |_, _, _, _| {})
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+            });
+        // The field of a rename takes the row's clicks while it's up.
+        let row = self.row(Row::Tab(tab), plate(icon.into_any_element(), label), ghost, cx);
+        row.children(bounds).when(!renaming, |row| {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -858,7 +862,7 @@ mod tests {
             SPACE_ICON_PLATE, Shell, Slot, Swapped, commands::bind_keys, drag::detents::shell_with,
             recorder::Recorder,
         },
-        CLOSE, LOADING_GAP, LOADING_TURN, Rings, UNLOAD,
+        CLOSE, LOADING_GAP, LOADING_TURN, Rings, Subject, UNLOAD,
     };
 
     /// Rings begin upright and are half way round half a turn later, together; left undrawn for a
@@ -934,6 +938,34 @@ mod tests {
         assert!(press(cx, middle + point(px(edge), px(0.))), "on the plate, past the glyph");
         let above = (SPACE_ICON_PLATE / 2. + NAME_HEIGHT / 2.) / 2.;
         assert!(!press(cx, middle - point(px(0.), px(above))), "above the plate");
+    }
+
+    /// Change Icon… on a tab asks for the icon picker under that tab's row, which draws where the
+    /// picker is to hang: only the row asked for tells where it is.
+    #[gpui::test]
+    fn change_icon_has_the_tabs_row_say_where_it_is(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
+            shell.set_space(1, cx);
+        });
+        report(&shell, cx, vec![2, 3], 2);
+        assert_eq!(shell.read_with(cx, |shell, _| shell.tab_row_drawn.get()), None);
+
+        shell.update(cx, |shell, cx| shell.change_icon(3, cx));
+        cx.run_until_parked();
+        let (pending, row) = shell.read_with(cx, |shell, _| {
+            (shell.picker_pending.map(|(subject, _)| subject), shell.tab_row_drawn.get())
+        });
+        assert_eq!(pending, Some(Subject::Tab(3)));
+        let row = row.expect("the tab's row didn't say where it is");
+        // The other row is a row's pitch off.
+        shell.update(cx, |shell, cx| shell.change_icon(2, cx));
+        cx.run_until_parked();
+        let first = shell.read_with(cx, |shell, _| shell.tab_row_drawn.get()).unwrap();
+        assert_eq!(f32::from(row.center().y - first.center().y).abs(), ROW_PITCH);
     }
 
     /// The window, showing a Space whose Today tabs the core reports as `today`, with `shown`.
