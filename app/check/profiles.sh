@@ -97,7 +97,7 @@ expect '^browser: space form gone$' "the form didn't leave after return"
 name_point="100 112"
 tiled_name="100 159"
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, Profile › Default, \
+expect "^browser: menu shown Rename Space, Change Icon…, $themed, Profile › Default, \
 Profile › Profile 2 (checked), Profile › New Profile, Delete Space\$" \
   "the empty Space's menu didn't offer its profiles"
 ../tools/window-screenshot.sh "$pid" "$out/profile-menu.png" || fail "no window to capture"
@@ -105,7 +105,7 @@ send choose Default
 expect "^browser: profiled space $second $default\$" "Default didn't take the Space back"
 expect "^browser: favorites $a\$" "the first profile's favorite didn't show in its Space again"
 post rightclick $tiled_name
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, Profile › Default (checked), \
+expect "^browser: menu shown Rename Space, Change Icon…, $themed, Profile › Default (checked), \
 Profile › Profile 2, Profile › New Profile, Profile › Delete “Profile 2”, Delete Space\$" \
   "the menu didn't offer the unused profile back"
 send choose Profile 2
@@ -123,7 +123,7 @@ expect "^browser: title $b cookie none\$" \
 ../tools/window-screenshot.sh "$pid" "$out/profile-space.png" || fail "no window to capture"
 # Its menu, with a tab, can't change its profile.
 post rightclick $name_point
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, Profile › Default (disabled), \
+expect "^browser: menu shown Rename Space, Change Icon…, $themed, Profile › Default (disabled), \
 Profile › Profile 2 (checked), Profile › New Profile (disabled), Delete Space\$" \
   "the menu of a Space with a tab offered another profile"
 send choose Profile 2

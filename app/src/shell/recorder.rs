@@ -67,6 +67,8 @@ pub(super) struct Recorder {
     pub(super) window_title: RefCell<String>,
     /// The share services it lists for any page.
     pub(super) share_services: RefCell<Vec<SharedString>>,
+    /// What the last menu does with the item chosen, as `choose` picks it.
+    answer: RefCell<Option<Box<dyn FnOnce(Option<usize>, &mut App)>>>,
     /// Each time the shell opened the Site Controls: the tab, and where they hang from.
     pub(super) site_controls: RefCell<Vec<(u64, crate::site_controls::Place)>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
@@ -110,6 +112,15 @@ impl Recorder {
 
     fn record(&self, call: String) {
         self.calls.borrow_mut().push(call);
+    }
+
+    /// Chooses the item titled `title` in the last menu, as the user's click does.
+    pub(super) fn choose(&self, title: &str, cx: &mut App) {
+        let at = self.menus.borrow().last().and_then(|items| {
+            items.iter().position(|(each, enabled)| each.as_ref() == title && *enabled)
+        });
+        let answer = self.answer.borrow_mut().take().expect("a menu to choose from");
+        answer(Some(at.unwrap_or_else(|| panic!("no {title} in the menu"))), cx);
     }
 
     /// What the shell asked for since the last time, in order.
@@ -454,13 +465,18 @@ impl Browser for Recorder {
 
     fn set_space_color(&self, space: u64, color: Option<u32>, _: &mut App) {
         self.edit(format!("color {space} {color:?}"));
+        let color = color.map_or("none".to_string(), |color| format!("{color:06x}"));
+        self.record(format!("space color {space} {color}"))
     }
 
     fn set_space_icon(&self, space: u64, icon: &str, _: &mut App) {
         self.edit(format!("space icon {space} {icon}"));
     }
 
-    fn set_space_theme(&self, _: u64, _: &str, _: &mut App) {}
+    fn set_space_theme(&self, space: u64, theme: &str, _: &mut App) {
+        let theme = if theme.is_empty() { "none" } else { theme };
+        self.record(format!("space theme {space} {theme}"))
+    }
 
     fn set_space_profile(&self, _: u64, _: u64, _: &mut App) {}
 
@@ -476,12 +492,13 @@ impl Browser for Recorder {
         _: Point<Pixels>,
         _: Option<usize>,
         _: bool,
-        _: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        answer: Box<dyn FnOnce(Option<usize>, &mut App)>,
         _: &mut App,
     ) {
         let items = entries.iter().map(|entry| (entry.title.clone(), entry.enabled)).collect();
         self.menus.borrow_mut().push(items);
         *self.entries.borrow_mut() = entries;
+        *self.answer.borrow_mut() = Some(answer);
     }
 
     fn confirm(

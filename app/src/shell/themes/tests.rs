@@ -3,7 +3,7 @@
 
 use std::rc::Rc;
 
-use gpui::{Entity, TestAppContext, VisualTestContext, px, size};
+use gpui::{Entity, TestAppContext, VisualTestContext, point, px, size};
 
 use super::*;
 use crate::shell::recorder::Recorder;
@@ -99,6 +99,32 @@ fn the_picker_s_theme_shows_at_once_and_gives_way_to_the_kept_one(cx: &mut TestA
         assert_eq!(shell.theme_preview, None);
         assert_eq!(shell.theme_of(1).map(|theme| theme.to_text()), Some(made.to_text()));
     });
+}
+
+/// Remove Theme Color in the Space's menu takes its theme and colour away, and the menu offers it
+/// no more once the core says the Space has none.
+#[gpui::test]
+fn remove_theme_color_takes_the_space_back_to_the_accent(cx: &mut TestAppContext) {
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    let theme = Theme::at(0.5, 0.).with_count(2);
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![entry(Some(theme.main_color()), Some(theme))], cx);
+        shell.set_space(1, cx);
+        shell.space_menu(1, point(px(100.), px(112.)), cx);
+    });
+    host.take();
+    cx.update(|_, cx| host.choose("Remove Theme Color", cx));
+    assert_eq!(host.take(), ["space theme 1 none", "space color 1 none"]);
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![entry(None, None)], cx);
+        assert_eq!(shell.theme_of(1), None);
+        shell.space_menu(1, point(px(100.), px(112.)), cx);
+    });
+    let titles = host.menus.borrow().last().cloned().unwrap_or_default();
+    assert!(titles.iter().any(|(title, _)| title == "Edit Theme Color…"));
+    assert!(!titles.iter().any(|(title, _)| title == "Remove Theme Color"));
 }
 
 /// GPUI's shader, as gpui_apple's fill_color has it for a linear gradient on a square, `side`
