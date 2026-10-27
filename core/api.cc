@@ -418,6 +418,20 @@ bool bc_tab_set_split_shares(bc_id id, const double* shares, size_t count) {
   return true;
 }
 
+bc_id bc_tab_split_expanded(bc_id id) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  return space ? space->Expanded(id) : 0;
+}
+
+bool bc_tab_set_split_expanded(bc_id id, bool expanded) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  if (!space || !space->SetExpanded(id, expanded)) {
+    return false;
+  }
+  browser_core::Window::PanesChanged();
+  return true;
+}
+
 bool bc_tab_set_split_stacked(bc_id id, bool stacked) {
   browser_core::Space* space = browser_core::Space::Holding(id);
   if (!space || !space->SetStacked(id, stacked)) {

@@ -8,7 +8,7 @@
 # row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a
 # segment focuses its pane. The gap between the panes drags their widths, or stacked their heights,
 # down to Chrome's least and snapping to even, and a double-click on it evens them. Expand Current
-# Split gives the focused pane the card and the other 220 wide, and again does nothing. Change
+# Split gives the focused pane the card and the other 220 wide through a resize, and again does nothing. Change
 # Orientation stacks the panes, with the find bar at the focused one's corner. Launched again, the
 # app brings the split back stacked with both pages at the heights they were dragged to, and Change
 # Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩
@@ -227,8 +227,8 @@ read_pages
 [ "$pages" = "$two BrowserCoreFocusRing $right" ] ||
   fail "a double-click on the gap didn't even the panes: $pages"
 # Expand Current Split gives the focused pane, the right one, the card in one frame and leaves the
-# left 220 wide, and doing it again changes nothing. A double-click on the gap, now 220 in, evens
-# them again.
+# left 220 wide, also as the window is resized, and doing it again changes nothing. A double-click
+# on the gap, now 220 in, evens them again.
 expanded="WebContentsViewCocoa $x,$y 220x$h WebContentsViewCocoa $((x + 230)),$y $((w - 230))x$h"
 expanded="$expanded BrowserCoreFocusRing $((x + 230)),$y $((w - 230))x$h"
 send menu Expand Current Split
@@ -239,6 +239,21 @@ read_pages
 send menu Expand Current Split
 read_pages
 [ "$pages" = "$expanded" ] || fail "Expand Current Split again changed the panes: $pages"
+# The left pane stays 220 wide as the window gets narrower and as it gets back to its size, the
+# right one taking the rest.
+send layout
+size=$(grep '^browser: layout content' "$log" | tail -1 |
+  sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\),.*/\1 \2/')
+send resize 1000 700
+expect '^browser: drawn at 1000x700$' "the window didn't draw at its new size"
+read_pages
+set -- $pages
+[ "${3%x*}" = 220 ] && [ "${6%%,*}" = "$((x + 230))" ] && [ "${8%x*}" -lt "$((w - 230))" ] ||
+  fail "resized, the left pane isn't 220 wide, with the right one beside it: $pages"
+send resize $size
+expect "^browser: drawn at ${size/ /x}\$" "the window didn't draw back at its size"
+read_pages
+[ "$pages" = "$expanded" ] || fail "back at its size the panes aren't as they were: $pages"
 send doubleclick $((x + 225)) 400
 read_pages
 [ "$pages" = "$two BrowserCoreFocusRing $right" ] ||
@@ -399,4 +414,4 @@ expect "^browser: panes $c\$" "Separate All Pages didn't show the focused page a
 expect "^browser: today.* $c $a\( \|\$\)" "Separate All Pages lost the pages' order: $(today)"
 exec 3>&-
 quit
-echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page and ⌥-click on \"+ New Tab\" do it too. ⌥⇧- and ⌥⌘-click on a link and the link menu's Open Link in Split View open it in a pane on the right. The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in a window and a private window. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The gap between the panes drags their widths, or stacked their heights, down to Chrome's least and snapping to even, and a double-click evens them. Expand Current Split gives the focused pane the card and the other 220 wide, and again changes nothing. Change Orientation stacks the panes, with the find bar at the focused one's corner, and the split comes back stacked after a quit with both pages at the heights they were dragged to, until Change Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. Windows: $out/split.png, $out/split-left.png, $out/split-resized.png, $out/split-expanded.png, $out/split-stacked.png, $out/split-targets.png"
+echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page and ⌥-click on \"+ New Tab\" do it too. ⌥⇧- and ⌥⌘-click on a link and the link menu's Open Link in Split View open it in a pane on the right. The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in a window and a private window. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The gap between the panes drags their widths, or stacked their heights, down to Chrome's least and snapping to even, and a double-click evens them. Expand Current Split gives the focused pane the card and the other 220 wide, also as the window is resized, and again changes nothing. Change Orientation stacks the panes, with the find bar at the focused one's corner, and the split comes back stacked after a quit with both pages at the heights they were dragged to, until Change Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. Windows: $out/split.png, $out/split-left.png, $out/split-resized.png, $out/split-expanded.png, $out/split-stacked.png, $out/split-targets.png"

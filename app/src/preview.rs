@@ -774,6 +774,19 @@ impl Browser for Fake {
             let mut splits = shell.splits();
             for split in splits.iter_mut().filter(|split| split.tabs.contains(&tab)) {
                 split.shares = shares.clone();
+                split.expanded = 0;
+            }
+            let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
+            let folders = shell.folders();
+            shell.set_tabs(shell.space(), pinned, today, splits, folders, cx);
+        });
+    }
+
+    fn set_split_expanded(&self, tab: u64, expanded: bool, cx: &mut App) {
+        self.later(cx, move |shell, cx| {
+            let mut splits = shell.splits();
+            for split in splits.iter_mut().filter(|split| split.tabs.contains(&tab)) {
+                split.expanded = if expanded { tab } else { 0 };
             }
             let (pinned, today) = (shell.pinned().to_vec(), shell.today().to_vec());
             let folders = shell.folders();

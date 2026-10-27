@@ -105,6 +105,10 @@ impl Browser for Recorder {
         self.record(format!("split shares {tab} {shares}"))
     }
 
+    fn set_split_expanded(&self, tab: u64, expanded: bool, _: &mut App) {
+        self.record(format!("split expanded {tab} {expanded}"))
+    }
+
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
 
     fn show_drop_targets(&self, _: bool, _: &mut App) {}
