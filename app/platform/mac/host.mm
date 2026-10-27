@@ -901,6 +901,15 @@ NSTimeInterval g_keys_released;
 // Counts holds, so a hold's time running out doesn't end a later one.
 unsigned g_hold = 0;
 constexpr double kHoldKeys = 0.4;
+// The shortcut a hold is for, which is never held: Safari's engine sends a shortcut its page didn't
+// keep through the app again, which runs it then, so holding it would hold it again each time.
+NSTimeInterval g_holding_for_time = -1;
+unsigned short g_holding_for_key = 0;
+
+bool HoldsFor(NSEvent* event) {
+  return event.type == NSEventTypeKeyDown && event.timestamp == g_holding_for_time &&
+         event.keyCode == g_holding_for_key;
+}
 
 // |event| as typed in |window|, so it goes there whether AppKit hands a key to the key window or to
 // the window the event names.
@@ -957,7 +966,7 @@ void HoldKeys(NSWindow* window) {
         NSEventMaskKeyDown | NSEventMaskKeyUp | NSEventMaskFlagsChanged;
     [NSEvent addLocalMonitorForEventsMatchingMask:kKeys
                                           handler:^NSEvent*(NSEvent* event) {
-                                            if (g_holding_keys) {
+                                            if (g_holding_keys && !HoldsFor(event)) {
                                               [g_held_keys addObject:event];
                                               return nil;
                                             }
@@ -971,6 +980,11 @@ void HoldKeys(NSWindow* window) {
   }
   g_holding_keys = true;
   g_keys_for = window;
+  // The key being handled is the shortcut that holds the keys after it.
+  NSEvent* shortcut = NSApp.currentEvent;
+  const bool key = shortcut.type == NSEventTypeKeyDown;
+  g_holding_for_time = key ? shortcut.timestamp : -1;
+  g_holding_for_key = key ? shortcut.keyCode : 0;
   const unsigned hold = ++g_hold;
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kHoldKeys * NSEC_PER_SEC)),
                  dispatch_get_main_queue(), ^{
