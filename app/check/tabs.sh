@@ -1,20 +1,21 @@
 # A tab opened from the command bar goes at the top of the Space's Today tabs and shows. The command
 # bar lists the Space's other tabs before anything is typed, those shown last first, and suggests
 # pages from history as it's typed in, growing to fit them, with the tabs already at them, never the
-# one shown, and well-known sites under them. ↩ or a click on a tab's row shows that tab without
-# opening one. Typing at the end completes the text to the first row's page, and ↩ goes there. ⌘L
-# opens the bar centred and a click on the URL field over the field. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on
-# rows show tabs. ⌃Tab, with the page or the UI focused, shows the tab shown before, and with ⌃ held
-# goes on back through the tabs in the order they were shown, and ⌃⇧Tab the other way, until ⌃ goes
-# up or a click. A tab a page opens goes under it and closing it goes back there, and ⌘W otherwise
-# shows the tab below, or above at the bottom. Closing the last tab leaves the Space empty, where ⌘T
-# still works. Mute/Unmute Tab mutes a tab, its row shows a speaker while it plays, crossed out
-# while it's muted, and a click on it unmutes the tab. There ⇧⌦ takes a page out of history, ⇧⌘↩
-# searches for what was typed, ⌘↩ opens it in a tab behind that loads once it's first shown, Tab on
-# the row that hints a search engine, or a space after its keyword, searches with that engine alone
-# until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows the
-# field's menu, with Paste and Go. The command bar's tests, in src/command_bar/tests.rs, have the
-# rest of its keys and what the menu's items do. Reports how long switches take.
+# one shown, and well-known sites under them. An open tab whose name the typing starts is the first
+# row. ↩ or a click on a tab's row shows that tab without opening one. Typing at the end completes
+# the text to the first row's page, and ↩ goes there. ⌘L opens the bar centred and a click on the
+# URL field over the field. ⌘1–⌘9, ⌥⌘↓, ⌥⌘↑ and clicks on rows show tabs. ⌃Tab, with the page or the
+# UI focused, shows the tab shown before, and with ⌃ held goes on back through the tabs in the order
+# they were shown, and ⌃⇧Tab the other way, until ⌃ goes up or a click. A tab a page opens goes
+# under it and closing it goes back there, and ⌘W otherwise shows the tab below, or above at the
+# bottom. Closing the last tab leaves the Space empty, where ⌘T still works. Mute/Unmute Tab mutes a
+# tab, its row shows a speaker while it plays, crossed out while it's muted, and a click on it
+# unmutes the tab. There ⇧⌦ takes a page out of history, ⇧⌘↩ searches for what was typed, ⌘↩ opens
+# it in a tab behind that loads once it's first shown, Tab on the row that hints a search engine, or
+# a space after its keyword, searches with that engine alone until ⌫ leaves, ↩ on a sum's row copies
+# its result, and a right-click in its field shows the field's menu, with Paste and Go. The command
+# bar's tests, in src/command_bar/tests.rs, have the rest of its keys and what the menu's items do.
+# Reports how long switches take.
 
 # A Space's Today tabs. The page opens a tab of its own from its button, the way a link to a new tab
 # does, and p in it plays a quiet tone until x. The app asks Chrome to trace its tab switches, timed
@@ -105,7 +106,8 @@ await_bar_height() {
 }
 # Opens the command bar and types "example", which completes to a page and suggests example.com
 # and example.org. ⌫ takes the completion back, so the first row is the search for what was typed.
-# Waits for $1's tab among the rows, and checks that $2's isn't, since $2 is shown.
+# Waits for $1's tab among the rows, and checks that $2's isn't, since $2 is shown. "example" starts
+# the open tab's site, so tab $3 is the first row, with Switch to Tab, where ↩ switches to it.
 suggest_example() {
   send key t cmd
   expect '^browser: command bar shown$' "⌘T didn't open the command bar"
@@ -114,24 +116,19 @@ suggest_example() {
   send key backspace
   expect "^browser: command bar suggestions \"example\" in [0-9.]* ms: https://duckduckgo.com/?q=example, .*https://$1/ tab " \
     "the command bar didn't suggest $1's tab: $(suggestions | tr '\n' ' ')"
+  expect "^browser: command bar puts tab $3 first\$" "the command bar didn't put $1's tab first"
   await_bar_height
   none_since "https://$2/ tab " || fail "the command bar suggested $2's tab, which is shown"
 }
-suggest_example example.com example.org
-for _ in 1 2 3 4 5 6 7 8; do
-  send key down
-  grep '^browser: command bar selected' "$log" | tail -1 | grep -q ' https://example.com/$' && break
-done
+suggest_example example.com example.org "$b"
 ../tools/window-screenshot.sh "$pid" "$out/suggestions.png" || fail "no window to capture"
 send key return
 expect "^browser: command bar switch to tab $b\$" "↩ on example.com's row didn't switch to its tab"
 expect "^browser: selected $b\( in .*\)\{0,1\}\$" "↩ on example.com's row didn't show its tab"
 [ "$(today)" = "$c $b $a" ] || fail "switching to a tab changed Today to \"$(today)\""
-suggest_example example.org example.com
-# Rows are 50 tall, under the 64 of the input, its line and a gap of 4. The bar shows five.
-row=$(suggestions | grep -n "^https://example.org/ tab $c\$" | cut -d: -f1)
-[ "$row" -le 5 ] || fail "example.org's row is the ${row}th, below the five the bar shows"
-send clickkey 320 $((68 + 50 * (row - 1) + 25))
+suggest_example example.org example.com "$c"
+# Rows are 50 tall, under the 64 of the input, its line and a gap of 4. The tab's is the first.
+send clickkey 320 $((68 + 25))
 expect "^browser: command bar switch to tab $c\$" "a click on example.org's row didn't switch to its tab"
 expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on example.org's row didn't show its tab"
 [ "$(today)" = "$c $b $a" ] || fail "switching to a tab changed Today to \"$(today)\""

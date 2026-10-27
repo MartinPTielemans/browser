@@ -465,7 +465,8 @@ pub fn show(
     let target = editing.as_ref().map_or(Target::NewTab, |&(tab, _)| Target::Tab(tab));
     let text = editing.map(|(_, url)| url).unwrap_or_default();
     // check.sh reads these lines.
-    let ids: Vec<String> = tabs.iter().map(|tab| tab.tab.to_string()).collect();
+    let ids: Vec<String> =
+        tabs.iter().take(shell::BAR_TABS_SHOWN).map(|tab| tab.tab.to_string()).collect();
     log!("browser: command bar tabs {}", ids.join(" "));
     let place = if field.is_some() { "over the URL field" } else { "centred" };
     log!("browser: command bar opens {place}");
@@ -630,7 +631,13 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
             let mut rows = match bar.site {
                 Some(_) => rows,
                 None if text.is_empty() => bar.tab_rows(),
-                None => with_calculation(&text, bar.with_commands(&text, rows, cx)),
+                None => {
+                    let mut rows = rows;
+                    let open = bar.take_open_tab(&text, &mut rows);
+                    let mut rows = with_calculation(&text, bar.with_commands(&text, rows, cx));
+                    rows.splice(0..0, open);
+                    rows
+                }
             };
             rows.truncate(shell::BAR_ROWS);
             // The core doesn't say which are searches, so they're the rows that go where a search
@@ -650,6 +657,28 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
 fn pasted(cx: &App) -> Option<String> {
     let text = cx.read_from_clipboard()?.text()?.replace('\n', " ");
     Some(text.trim().to_string()).filter(|text| !text.is_empty())
+}
+
+/// Whether a word of `tab`'s title, or of its site's name, starts with `typed`, lowercase. A site's
+/// name is its host's labels without the last, the top-level domain, and without a leading www.
+fn names_tab(tab: &shell::BarTab, typed: &str) -> bool {
+    let title = tab.title.to_lowercase();
+    let word_start = |&(at, c): &(usize, char)| {
+        c.is_alphanumeric() && !title[..at].chars().next_back().is_some_and(char::is_alphanumeric)
+    };
+    if (title.char_indices().filter(word_start)).any(|(at, _)| title[at..].starts_with(typed)) {
+        return true;
+    }
+    // Only a web page has a site: a data: page's scheme isn't its name.
+    let Some((_, rest)) = tab.url.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    let host = host.split(':').next().unwrap_or_default().to_lowercase();
+    let labels: Vec<&str> = host.strip_prefix("www.").unwrap_or(&host).split('.').collect();
+    let named = &labels[..labels.len().saturating_sub(1).max(1)];
+    named.iter().flat_map(|label| label.split('-')).any(|word| word.starts_with(typed))
 }
 
 /// Puts what `text` comes to, if it's a sum, after the first of `rows`, as Dia's bar does.
@@ -901,6 +930,49 @@ impl CommandBar {
         merged.extend(rows);
         merged.extend(commands.map(Suggestion::from));
         merged
+    }
+
+    /// Takes out of `rows` the open tab that goes first, for its row to go above the rest with
+    /// Switch to Tab, as Arc's bar is first of all a tab switcher (ours: its ranking isn't
+    /// recorded). It's the most recently shown whose title or site has a word that two letters or
+    /// more typed start. Chrome's first row stays when the typing reads as a URL or the row hints a
+    /// site search, and a first row completing to an open tab's page becomes that tab's row.
+    fn take_open_tab(&self, text: &str, rows: &mut Vec<Suggestion>) -> Option<Suggestion> {
+        let first = rows.first();
+        if first.is_some_and(|row| !row.keyword.is_empty()) {
+            return None;
+        }
+        if let Some(first) = first.filter(|row| !row.completion.is_empty()) {
+            let at_page = |tab: &&shell::BarTab| *tab.url == *first.url && !self.is_shown(tab.tab);
+            let open = self.tabs.iter().find(at_page)?;
+            let id = open.tab;
+            // check.sh reads this line.
+            log!("browser: command bar puts tab {id} first");
+            rows[0].tab = id;
+            let mut at = 0;
+            rows.retain(|row| {
+                at += 1;
+                at == 1 || row.tab != id
+            });
+            return None;
+        }
+        let typed = text.trim().to_lowercase();
+        if typed.chars().count() < 2 || typed.contains(['.', ':', '/']) {
+            return None;
+        }
+        let named = |tab: &&shell::BarTab| !self.is_shown(tab.tab) && names_tab(tab, &typed);
+        let tab = self.tabs.iter().find(named)?;
+        // check.sh reads this line.
+        log!("browser: command bar puts tab {} first", tab.tab);
+        Some(match rows.iter().position(|row| row.tab == tab.tab) {
+            Some(at) => rows.remove(at),
+            None => tab.clone().into(),
+        })
+    }
+
+    /// Whether `tab` is the one the bar edits or opens beside, which is shown, so never offered.
+    fn is_shown(&self, tab: u64) -> bool {
+        matches!(self.target, Target::Tab(shown) | Target::Beside(shown) if shown == tab)
     }
 
     fn set_rows(
@@ -1232,7 +1304,7 @@ impl CommandBar {
 
     /// The Space's tabs, as rows, which the bar lists before anything is typed.
     fn tab_rows(&self) -> Vec<Suggestion> {
-        self.tabs.iter().cloned().map(Suggestion::from).collect()
+        self.tabs.iter().take(shell::BAR_TABS_SHOWN).cloned().map(Suggestion::from).collect()
     }
 
     /// The input's icon: the search glyph, or once something is typed, the selected row's, as
