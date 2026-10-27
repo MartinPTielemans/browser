@@ -44,6 +44,8 @@ Following Ardia's design: Chrome's `chrome_framework` with our layer linked in. 
 - Ardia ships on this design today.
 - Unlike Ardia, whose layer is about 80% Objective-C++, ours is portable C++ with a thin platform shim.
 
+On Windows two things differ, both forced by Chromium there. Aura draws all of a widget's views into its one HWND, so nothing native can sit between GPUI and a page in it. GPUI's window is instead a child HWND that fills the browser window, and each page shown is in a child widget of its own, a child HWND above it (`core/platform/win/window_views.cc`). The sandbox needs every process to be Chromium's own `chrome.exe`, so the app can't be the executable that calls `bc_main`. The app is `Browser.dll` beside it, and the core loads it in the browser process as Chromium starts (`bc_main` in `core/public/browser_core.h`).
+
 ## 4. UI: GPUI, with Chromium Views as the fallback
 
 - GPUI is compiled, fast, and already runs on Mac, Windows and Linux.

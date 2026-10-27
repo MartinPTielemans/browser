@@ -9,7 +9,7 @@
 #include <atomic>
 #include <cstdlib>
 
-#include "host.h"
+#include "../host.h"
 
 namespace {
 

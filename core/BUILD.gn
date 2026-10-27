@@ -221,7 +221,10 @@ source_set("browser_core") {
     sources += [ "platform/system_page_none.cc" ]
   }
   if (is_win) {
-    sources += [ "platform/native_hosts_win.cc" ]
+    sources += [
+      "platform/native_hosts_win.cc",
+      "platform/win/window_views.cc",
+    ]
   } else {
     sources += [ "platform/native_hosts_posix.cc" ]
   }
