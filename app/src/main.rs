@@ -3923,9 +3923,21 @@ fn main() {
     if !cfg!(feature = "prod") {
         args.push("--use-mock-keychain".into());
     }
+    // The checks' stand-in for a streaming service, a host of their server that opens in Safari's
+    // engine as the listed services do (system_engine.cc). A prod build has no way to set one.
+    const TEST_HOST: &str = "--streaming-test-host";
+    if !cfg!(feature = "prod")
+        && let Ok(host) = std::env::var("BROWSER_STREAMING_TEST_HOST")
+    {
+        args.push(format!("{TEST_HOST}={host}"));
+    }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
-    args.extend(std::env::args().skip(1));
+    args.extend(
+        std::env::args()
+            .skip(1)
+            .filter(|arg| !cfg!(feature = "prod") || !arg.starts_with(TEST_HOST)),
+    );
     let args: Vec<CString> = args
         .into_iter()
         .filter_map(|arg| CString::new(arg).ok())
