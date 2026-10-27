@@ -21,6 +21,7 @@ class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
 class RenderViewContextMenuBase;
 class GURL;
+class Profile;
 struct NavigateParams;
 
 namespace content {
@@ -36,6 +37,10 @@ class InstallPromptData;
 namespace mojo {
 template <typename ContextType>
 class BinderMapWithContext;
+}
+
+namespace policy {
+class ConfigurationPolicyProvider;
 }
 
 namespace ui {
@@ -123,5 +128,14 @@ extern base::FilePath (*g_browser_core_find_native_host)(const std::string& name
 // display's events, which the app's UI shares (platform/linux/wayland.cc). Never called while
 // Chromium has a read prepared.
 extern void (*g_browser_core_wayland_dispatched)();
+
+// chrome/browser/extensions/extension_service.cc: loads the extensions the browser comes with into
+// |profile|, after the ones the command line names and before its extensions are ready.
+extern void (*g_browser_core_load_bundled_extensions)(Profile* profile);
+
+// chrome/browser/policy/profile_policy_connector.cc: policy the core sets for every profile,
+// under the platform's and the command line's, as for the extensions the browser comes with.
+// The core keeps it for as long as the browser runs.
+extern policy::ConfigurationPolicyProvider* (*g_browser_core_policy_provider)();
 
 #endif  // BROWSER_CORE_HOOKS_H_

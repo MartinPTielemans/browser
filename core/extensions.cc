@@ -16,6 +16,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/values.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/host.h"
 #include "browser_core/profiles.h"
 #include "chrome/browser/extensions/commands/command_service.h"
@@ -264,7 +265,8 @@ class ProfileExtensions : public extensions::ExtensionRegistryObserver,
                             .pinned = model && model->IsActionPinned(extension->id()),
                             .options = options.emplace_back(OptionsPage(*extension)).c_str(),
                             .commands = told.data(),
-                            .command_count = told.size()});
+                            .command_count = told.size(),
+                            .removable = !IsAdBlocker(extension->id())});
     }
     Host().extensions_changed(Host().context, ProfileId(DirOf(profile_)), extensions.data(),
                               extensions.size());
@@ -511,7 +513,9 @@ void SetExtensionPinned(Profile* profile, const std::string& id, bool pinned) {
 }
 
 bool RemoveExtension(Profile* profile, const std::string& id) {
-  if (!extensions::ExtensionRegistry::Get(profile)->GetInstalledExtension(id)) {
+  // Settings turns it off: removed, it would only come back at the next launch.
+  if (IsAdBlocker(id) ||
+      !extensions::ExtensionRegistry::Get(profile)->GetInstalledExtension(id)) {
     return false;
   }
   std::u16string error;

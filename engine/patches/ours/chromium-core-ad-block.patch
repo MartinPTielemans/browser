@@ -1,0 +1,70 @@
+Lets the core load the extensions the browser comes with into each profile, as the command line's
+load, before the profile's extensions are ready, and give every profile policy of its own, under
+the platform's and the command line's (//browser_core/hooks.h). The core loads uBlock Origin this
+way and sets its managed storage, so ad blocking is on from a profile's first page without a store
+install, and updates with the browser.
+
+--- a/chrome/browser/extensions/extension_service.cc
++++ b/chrome/browser/extensions/extension_service.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/extensions/extension_service.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <stddef.h>
+ 
+@@ -137,6 +138,9 @@
+ using content::BrowserContext;
+ using content::BrowserThread;
+ using extensions::mojom::ManifestLocation;
++
++// browser_core: the core loads the extensions the browser comes with (//browser_core/hooks.h).
++void (*g_browser_core_load_bundled_extensions)(Profile* profile) = nullptr;
+ 
+ namespace extensions {
+ 
+@@ -371,6 +375,10 @@
+   LoadExtensionsFromCommandLineFlag(switches::kDisableExtensionsExcept);
+   if (load_command_line_extensions) {
+     LoadExtensionsFromCommandLineFlag(switches::kLoadExtension);
++  }
++  if (load_command_line_extensions && g_browser_core_load_bundled_extensions) {
++    // browser_core: as the command line's, before the profile's extensions are ready.
++    g_browser_core_load_bundled_extensions(profile_);
+   }
+   EnabledReloadableExtensions();
+   delayed_install_manager_->FinishInstallationsDelayedByShutdown();
+--- a/chrome/browser/policy/profile_policy_connector.cc
++++ b/chrome/browser/policy/profile_policy_connector.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/policy/profile_policy_connector.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -85,6 +86,9 @@
+ #include "chrome/browser/ui/tabs/tab_strip_model.h"
+ #endif
+ 
++// browser_core: the core's policy for every profile (//browser_core/hooks.h).
++policy::ConfigurationPolicyProvider* (*g_browser_core_policy_provider)() = nullptr;
++
+ namespace policy {
+ 
+ namespace internal {
+@@ -538,6 +542,12 @@
+ 
+   if (connector->command_line_policy_provider()) {
+     policy_providers_.push_back(connector->command_line_policy_provider());
++  }
++
++  if (g_browser_core_policy_provider) {
++    // browser_core: under the platform's and the command line's. Tracked against the profile's
++    // schemas, as the platform's is, so an extension's policy reaches it once its schema does.
++    AppendPolicyProviderWithSchemaTracking(g_browser_core_policy_provider(), schema_registry);
+   }
+ #endif
+ 
