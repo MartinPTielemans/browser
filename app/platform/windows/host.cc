@@ -665,10 +665,13 @@ void host_add_dialog(void* dialog_view) {
   Adopt(g_dialog, dialog_view, false, nullptr);
 }
 
-void host_show_dialog(void* ui_view) {
-  double width, height;
-  ContentSize(Root(ui_view), &width, &height);
-  Show(g_dialog, ui_view, 0, 0, width, height, true);
+void host_show_dialog(void* ui_view, double x, double y, double width, double height) {
+  // Without a rect, it covers all of the window.
+  if (width <= 0) {
+    x = y = 0;
+    ContentSize(Root(ui_view), &width, &height);
+  }
+  Show(g_dialog, ui_view, x, y, width, height, true);
 }
 
 void host_hide_dialog(void) {

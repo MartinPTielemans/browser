@@ -605,6 +605,10 @@ impl Browser for Fake {
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
 
+    // The made-up pages ask no dialogs.
+    fn show_page_dialog(&self, _: Option<shell::ShownPageDialog>, _: &mut App) {}
+    fn answer_page_dialog(&self, _: u64, _: u64, _: shell::PageReply, _: &mut App) {}
+
     fn stop(&self, _: u64, _: &mut App) {}
 
     fn zoom(&self, _: u64, _: i32, _: &mut App) {}

@@ -4,7 +4,8 @@
 //! native view, so it's a window of its own that the host shows over all of the browser window,
 //! as its child, with the keyboard. What it asks of its window goes through `Host`. It also asks
 //! Chrome's questions, such as whether to add an extension, which wait their turn behind the
-//! dialog that shows and which Chrome can take back.
+//! dialog that shows and which Chrome can take back, and a page's own, such as its alert(), over
+//! its tab's card alone, which come and go with the tab (docs/ux-spec.md › Page dialogs).
 
 use std::{
     rc::Rc,
@@ -13,18 +14,19 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, BoxShadow, Context, Div, FocusHandle, FontWeight, Global, Hsla, Image,
-    KeyBinding, MouseButton, SharedString, Stateful, Task, TitlebarOptions, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
-    div, img, point, prelude::*, px, rgb, rgba, size, svg,
+    App, Bounds, BoxShadow, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Global,
+    Hsla, Image, KeyBinding, MouseButton, Pixels, SharedString, Stateful, Task, TitlebarOptions,
+    Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
+    actions, div, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{
     palette::{self, STATE_PRESSED},
     shell::cubic_bezier,
+    text_input::TextInput,
 };
 
-actions!(dialog, [Confirm, Cancel]);
+actions!(dialog, [Confirm, Cancel, NextField]);
 
 use crate::tokens::dialog::WIDTH;
 use crate::tokens::dialog::RADIUS;
@@ -68,6 +70,10 @@ use crate::tokens::dialog::RETURN_FILL;
 use crate::tokens::dialog::RETURN_BORDER;
 use crate::tokens::dialog::RETURN_GLYPH;
 use crate::tokens::dialog::TEXT;
+use crate::tokens::dialog::{
+    CHECK_BOX, CHECK_GAP, CHECK_GLYPH, CHECK_RADIUS, CHECK_TOP, FIELD_GAP, FIELD_PLACEHOLDER, FIELD_TEXT,
+    FIELDS_TOP,
+};
 use crate::tokens::text;
 /// Arc's motion: over 0.275 s the window dims and the card comes down 32 pt into place,
 /// ease-in-out, opaque after the first 0.135 s. It leaves the way it came, fading all the way.
@@ -90,6 +96,42 @@ pub struct Question {
     pub tone: Tone,
     /// A button at the left for another answer, and what it does once the dialog has gone.
     pub also: Option<(SharedString, Box<dyn FnOnce(&mut App)>)>,
+    /// Fields under the detail, such as a prompt's, the first with the keyboard.
+    pub fields: Vec<Field>,
+    /// A checkbox under them, by its label, such as "Always allow…".
+    pub check: Option<SharedString>,
+    /// ↩ cancels, and the action takes a click, as for a page opening an app, which Chrome won't
+    /// have a key the page can time choose.
+    pub return_cancels: bool,
+}
+
+/// A field in a dialog.
+pub struct Field {
+    pub placeholder: SharedString,
+    /// What it starts with, all selected.
+    pub text: SharedString,
+    /// It shows dots for what's typed, and won't copy it, as a password field.
+    pub secure: bool,
+}
+
+/// What the user answered: the action or not, what was in the fields, and the checkbox.
+pub struct Reply {
+    pub accept: bool,
+    pub texts: Vec<String>,
+    pub checked: bool,
+}
+
+impl std::fmt::Debug for Reply {
+    // What was typed, such as a password, stays out of logs and test output.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Reply {{ accept: {}, fields: {}, checked: {} }}",
+            self.accept,
+            self.texts.len(),
+            self.checked
+        )
+    }
 }
 
 /// The action's colour, by what it does.
@@ -112,8 +154,9 @@ enum Answer {
 
 /// What the dialog asks of its window.
 pub trait Host {
-    /// Shows the dialog's window over all of the browser window, with the keyboard.
-    fn show(&self);
+    /// Shows the dialog's window over all of the browser window, or over `over` in it, a tab's
+    /// card, with the keyboard.
+    fn show(&self, over: Option<Bounds<Pixels>>);
     /// Hides it, and the browser window gets the keyboard back.
     fn hide(&self);
 }
@@ -153,12 +196,26 @@ fn ease_in_out(t: f32) -> f32 {
     cubic_bezier(0.42, 0., 0.58, 1., t)
 }
 
+/// Who asked a question.
+#[derive(Clone, Copy, PartialEq)]
+enum Source {
+    /// The browser's own, such as deleting a Space.
+    User,
+    /// Chrome's, such as adding an extension, which Chrome can take back.
+    Chrome,
+    /// A page's, over its tab's card, which goes when the tab does.
+    Page,
+}
+
 /// A question to show, and what's told of its answer once the dialog has gone.
 struct Request {
     question: Question,
-    /// Whether Chrome asked it, and can take it back.
-    chrome: bool,
-    answered: Box<dyn FnOnce(bool, &mut App)>,
+    source: Source,
+    /// The tab's card a page's question goes over, and the radius of its corners.
+    over: Option<(Bounds<Pixels>, f32)>,
+    /// A page's question's tab and id, by which it's asked again as its card moves.
+    page: Option<(u64, u64)>,
+    answered: Box<dyn FnOnce(Reply, &mut App)>,
 }
 
 struct Asked {
@@ -166,8 +223,12 @@ struct Asked {
     question: Question,
     also: Option<SharedString>,
     also_chosen: Option<Box<dyn FnOnce(&mut App)>>,
-    chrome: bool,
-    answered: Option<Box<dyn FnOnce(bool, &mut App)>>,
+    source: Source,
+    over: Option<(Bounds<Pixels>, f32)>,
+    page: Option<(u64, u64)>,
+    fields: Vec<Entity<TextInput>>,
+    checked: bool,
+    answered: Option<Box<dyn FnOnce(Reply, &mut App)>>,
     /// When its window was first on screen, where the motion starts.
     shown: Option<Instant>,
     settled: bool,
@@ -196,6 +257,8 @@ pub struct Dialog {
     asked: Option<Asked>,
     /// Chrome's question, waiting for the dialog that shows to go.
     next: Option<Request>,
+    /// A page's, waiting the same way, after Chrome's.
+    next_page: Option<Request>,
 }
 
 struct DialogWindow(WindowHandle<Dialog>);
@@ -208,6 +271,7 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<Dialog>> {
     cx.bind_keys([
         KeyBinding::new("enter", Confirm, Some("Dialog")),
         KeyBinding::new("escape", Cancel, Some("Dialog")),
+        KeyBinding::new("tab", NextField, Some("Dialog")),
     ]);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
@@ -230,7 +294,13 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<Dialog>> {
         ..Default::default()
     };
     let window = cx.open_window(options, |_, cx| {
-        cx.new(|cx| Dialog { host, focus: cx.focus_handle(), asked: None, next: None })
+        cx.new(|cx| Dialog {
+            host,
+            focus: cx.focus_handle(),
+            asked: None,
+            next: None,
+            next_page: None,
+        })
     });
     match window {
         Ok(window) => {
@@ -270,6 +340,9 @@ pub fn ask(
         cancel: "Cancel".into(),
         tone: Tone::Destructive,
         also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: false,
     };
     pose(question, confirmed, cx);
 }
@@ -277,8 +350,8 @@ pub fn ask(
 /// Asks `question`, and calls `confirmed` if the user chooses its action, once the dialog has
 /// gone. Nothing while another dialog shows.
 pub fn pose(question: Question, confirmed: Box<dyn FnOnce(&mut App)>, cx: &mut App) {
-    let answered = Box::new(move |confirm, cx: &mut App| {
-        if confirm {
+    let answered = Box::new(move |reply: Reply, cx: &mut App| {
+        if reply.accept {
             confirmed(cx);
         }
     });
@@ -288,7 +361,9 @@ pub fn pose(question: Question, confirmed: Box<dyn FnOnce(&mut App)>, cx: &mut A
     window
         .update(cx, |dialog, window, cx| {
             if dialog.asked.is_none() {
-                dialog.show(Request { question, chrome: false, answered }, window, cx);
+                let request =
+                    Request { question, source: Source::User, over: None, page: None, answered };
+                dialog.show(request, window, cx);
             }
         })
         .ok();
@@ -302,10 +377,12 @@ pub fn ask_chrome(question: Question, answered: Box<dyn FnOnce(bool, &mut App)>,
         answered(false, cx);
         return;
     };
-    let mut request = Some(Request { question, chrome: true, answered });
+    let answered = Box::new(move |reply: Reply, cx: &mut App| answered(reply.accept, cx));
+    let mut request =
+        Some(Request { question, source: Source::Chrome, over: None, page: None, answered });
     window
         .update(cx, |dialog, window, cx| {
-            dialog.withdraw(cx);
+            dialog.withdraw(Source::Chrome, cx);
             let request = request.take().expect("asked once");
             if dialog.asked.is_some() {
                 dialog.next = Some(request);
@@ -315,7 +392,7 @@ pub fn ask_chrome(question: Question, answered: Box<dyn FnOnce(bool, &mut App)>,
         })
         .ok();
     if let Some(request) = request {
-        (request.answered)(false, cx);
+        (request.answered)(Reply { accept: false, texts: Vec::new(), checked: false }, cx);
     }
 }
 
@@ -325,41 +402,153 @@ pub fn withdraw_chrome(cx: &mut App) {
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         return;
     };
-    window.update(cx, |dialog, _, cx| dialog.withdraw(cx)).ok();
+    window.update(cx, |dialog, _, cx| dialog.withdraw(Source::Chrome, cx)).ok();
+}
+
+/// Asks a page's `question`, the dialog `id` of `tab`, over its tab's card, `over` in the window
+/// with corners of `radius`, in place of any page's that shows or waits, once any other dialog has
+/// gone, and calls `answered` with the answer once the dialog has gone. Asked again, it only moves
+/// to `over`, with what was typed. A click on the card's dim does nothing, as the page waits.
+pub fn ask_page(
+    (tab, id): (u64, u64),
+    question: Question,
+    over: (Bounds<Pixels>, f32),
+    answered: Box<dyn FnOnce(Reply, &mut App)>,
+    cx: &mut App,
+) {
+    let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
+        return;
+    };
+    let page = Some((tab, id));
+    let request = Request { question, source: Source::Page, over: Some(over), page, answered };
+    window
+        .update(cx, |dialog, window, cx| {
+            if let Some(asked) = &mut dialog.asked
+                && asked.page == page
+                && asked.answered_at.is_none()
+            {
+                asked.over = Some(over);
+                dialog.host.show(Some(over.0));
+                cx.notify();
+                return;
+            }
+            if let Some(next) = &mut dialog.next_page
+                && next.page == page
+            {
+                next.over = Some(over);
+                return;
+            }
+            dialog.withdraw(Source::Page, cx);
+            match dialog.asked.is_some() {
+                true => dialog.next_page = Some(request),
+                false => dialog.show(request, window, cx),
+            }
+        })
+        .ok();
+}
+
+/// Takes back the page's question, unanswered, as its tab no longer shows or the page no longer
+/// asks: the dialog leaves if it shows it, and nothing is told of an answer.
+pub fn withdraw_page(cx: &mut App) {
+    let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
+        return;
+    };
+    window.update(cx, |dialog, _, cx| dialog.withdraw(Source::Page, cx)).ok();
 }
 
 impl Dialog {
     fn show(&mut self, request: Request, window: &mut Window, cx: &mut Context<Self>) {
-        let Request { mut question, chrome, answered } = request;
+        let Request { mut question, source, over, page, answered } = request;
         // check.sh reads this line.
         log!("browser: dialog shown {}", question.message);
         let (also, also_chosen) = question.also.take().unzip();
+        let palette = palette::current(cx);
+        let fields: Vec<_> = question
+            .fields
+            .iter()
+            .map(|field| {
+                cx.new(|cx| {
+                    TextInput::new(field.placeholder.clone(), cx)
+                        .with_text(field.text.clone())
+                        .secure(field.secure)
+                        .placeholder_color(palette.on_overlay(FIELD_PLACEHOLDER))
+                        .caret_color(palette.accent)
+                        .selection_color(palette.selection())
+                })
+            })
+            .collect();
+        match fields.first() {
+            Some(field) => window.focus(&field.focus_handle(cx), cx),
+            None => window.focus(&self.focus, cx),
+        }
         self.asked = Some(Asked {
             question,
             also,
             also_chosen,
-            chrome,
+            source,
+            over,
+            page,
+            fields,
+            checked: false,
             answered: Some(answered),
             shown: None,
             settled: false,
             answered_at: None,
             _leave: None,
         });
-        window.focus(&self.focus, cx);
-        self.host.show();
+        self.host.show(over.map(|(over, _)| over));
         cx.notify();
     }
 
-    /// Drops Chrome's question that waits, and Chrome's that shows leaves, both untold.
-    fn withdraw(&mut self, cx: &mut Context<Self>) {
-        self.next = None;
+    /// Drops the question from `source` that waits, and the one that shows leaves, both untold.
+    fn withdraw(&mut self, source: Source, cx: &mut Context<Self>) {
+        match source {
+            Source::Page => self.next_page = None,
+            _ => self.next = None,
+        }
         let Some(asked) = &mut self.asked else {
             return;
         };
-        if asked.chrome && asked.answered_at.is_none() {
+        if asked.source == source && asked.answered_at.is_none() {
             // check.sh reads this line.
             log!("browser: dialog withdrawn");
             self.leave(None, cx);
+        }
+    }
+
+    /// Moves the keyboard to the next field, round to the first.
+    fn next_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(asked) = &self.asked else {
+            return;
+        };
+        let focused =
+            asked.fields.iter().position(|field| field.focus_handle(cx).is_focused(window));
+        let next = focused.map_or(0, |focused| (focused + 1) % asked.fields.len().max(1));
+        if let Some(field) = asked.fields.get(next) {
+            window.focus(&field.focus_handle(cx), cx);
+        }
+    }
+
+    /// The user clicked the checkbox or its label.
+    fn toggle_check(&mut self, cx: &mut Context<Self>) {
+        if let Some(asked) = &mut self.asked {
+            asked.checked = !asked.checked;
+            cx.notify();
+        }
+    }
+
+    /// The user pressed ↩: the action, unless it takes a click.
+    fn confirm(&mut self, cx: &mut Context<Self>) {
+        let Some(asked) = &self.asked else {
+            return;
+        };
+        // An input method takes ↩ to finish what it composes.
+        if asked.fields.iter().any(|field| field.read(cx).composing()) {
+            return;
+        }
+        match asked.question.return_cancels {
+            true => self.answer(Answer::Cancel, cx),
+            false => self.answer(Answer::Action, cx),
         }
     }
 
@@ -394,7 +583,14 @@ impl Dialog {
         let (answered, also_chosen) = match answer {
             Some(Answer::Also) => (None, asked.also_chosen.take()),
             Some(answer) => {
-                (asked.answered.take().map(|answered| (answered, answer == Answer::Action)), None)
+                let reply = Reply {
+                    accept: answer == Answer::Action,
+                    texts: (asked.fields.iter())
+                        .map(|field| field.read(cx).text().to_owned())
+                        .collect(),
+                    checked: asked.checked,
+                };
+                (asked.answered.take().map(|answered| (answered, reply)), None)
             }
             None => (None, None),
         };
@@ -410,8 +606,8 @@ impl Dialog {
             if hidden.is_err() {
                 return;
             }
-            if let Some((answered, confirm)) = answered {
-                cx.update(|cx| answered(confirm, cx));
+            if let Some((answered, reply)) = answered {
+                cx.update(|cx| answered(reply, cx));
             }
             if let Some(also_chosen) = also_chosen {
                 cx.update(also_chosen);
@@ -422,7 +618,7 @@ impl Dialog {
     }
 }
 
-/// Shows Chrome's question that waits, if no other dialog has come up first.
+/// Shows Chrome's question that waits, else a page's, if no other dialog has come up first.
 fn show_next(cx: &mut App) {
     let Some(window) = cx.try_global::<DialogWindow>().map(|dialog| dialog.0) else {
         return;
@@ -430,7 +626,7 @@ fn show_next(cx: &mut App) {
     window
         .update(cx, |dialog, window, cx| {
             if dialog.asked.is_none()
-                && let Some(request) = dialog.next.take()
+                && let Some(request) = dialog.next.take().or_else(|| dialog.next_page.take())
             {
                 dialog.show(request, window, cx);
             }
@@ -496,7 +692,9 @@ impl Render for Dialog {
         }
         let question = &asked.question;
         let palette = palette::current(cx);
-        let cancel = button(
+        let page = asked.source == Source::Page;
+        // An alert has only its action.
+        let cancel = (!question.cancel.is_empty()).then(|| button(
             "dialog-cancel",
             question.cancel.clone(),
             chip()
@@ -516,7 +714,7 @@ impl Render for Dialog {
             .hover(move |style| style.bg(palette.plate(CANCEL_HOVERED)))
             .active(move |style| style.bg(palette.state(CANCEL_FILL, STATE_PRESSED)))
             .text_color(palette.on_overlay(CANCEL_TEXT))
-            .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Cancel, cx)));
+            .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Cancel, cx))));
         // A text-only button in Cancel's look, its label as far in from each side.
         let also = asked.also.clone().map(|label| {
             div()
@@ -553,22 +751,23 @@ impl Render for Dialog {
                     )
                 }
             };
+        let return_chip = (!question.return_cancels).then(|| {
+            chip()
+                .w(px(RETURN_WIDTH))
+                .border_1()
+                .border_color(label.opacity(RETURN_BORDER))
+                .bg(label.opacity(RETURN_FILL))
+                .child(
+                    svg()
+                        .path("icons/corner-down-left.svg")
+                        .size(px(RETURN_GLYPH))
+                        .text_color(label),
+                )
+        });
         let action = (!question.action.is_empty()).then(|| {
-            button(
-                "dialog-confirm",
-                question.action.clone(),
-                chip()
-                    .w(px(RETURN_WIDTH))
-                    .border_1()
-                    .border_color(label.opacity(RETURN_BORDER))
-                    .bg(label.opacity(RETURN_FILL))
-                    .child(
-                        svg()
-                            .path("icons/corner-down-left.svg")
-                            .size(px(RETURN_GLYPH))
-                            .text_color(label),
-                    ),
-            )
+            button("dialog-confirm", question.action.clone(), div().children(return_chip))
+                // Without its chip, its label is as far in from each side.
+                .when(question.return_cancels, |button| button.gap_0().pr(px(LABEL_X)))
             .bg(fill)
             .hover(move |style| style.bg(hovered))
             .active(move |style| style.bg(pressed))
@@ -611,7 +810,61 @@ impl Render for Dialog {
                     )
                 })
         });
-        let buttons_top = if detail.is_some() { BUTTONS_TOP } else { BUTTONS_UNDER_TITLE };
+        let fields = (!asked.fields.is_empty()).then(|| {
+            div().mt(px(FIELDS_TOP)).flex().flex_col().gap(px(FIELD_GAP)).children(
+                asked.fields.iter().map(|field| {
+                    div()
+                        .h(px(BUTTON_HEIGHT))
+                        .px(px(LABEL_X - 1.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(BUTTON_RADIUS))
+                        .border_1()
+                        .border_color(palette.plate(CANCEL_BORDER))
+                        .bg(palette.plate(CANCEL_FILL))
+                        .text_size(px(text::BODY))
+                        .text_color(palette.on_overlay(FIELD_TEXT))
+                        .child(field.clone())
+                }),
+            )
+        });
+        let check = question.check.clone().map(|check| {
+            let checked = asked.checked;
+            div()
+                .id("dialog-check")
+                .mt(px(CHECK_TOP))
+                .flex()
+                .items_center()
+                .gap(px(CHECK_GAP))
+                .text_size(px(text::BODY))
+                .text_color(palette.on_overlay(DETAIL))
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(CHECK_BOX))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(CHECK_RADIUS))
+                        .border_1()
+                        .border_color(palette.plate(CANCEL_BORDER))
+                        .bg(if checked { fill } else { palette.plate(CANCEL_FILL) })
+                        .when(checked, |tick| {
+                            tick.child(
+                                svg()
+                                    .path("icons/check.svg")
+                                    .size(px(CHECK_GLYPH))
+                                    .text_color(label),
+                            )
+                        }),
+                )
+                .child(check)
+                .on_click(cx.listener(|dialog, _, _, cx| dialog.toggle_check(cx)))
+        });
+        let buttons_top = match detail.is_some() || fields.is_some() || check.is_some() {
+            true => BUTTONS_TOP,
+            false => BUTTONS_UNDER_TITLE,
+        };
         let card = div()
             .id("dialog")
             // Clicks on the card stay on it, and one around it cancels.
@@ -644,6 +897,8 @@ impl Render for Dialog {
                     .child(question.message.clone()),
             )
             .children(detail)
+            .children(fields)
+            .children(check)
             .child(
                 div()
                     .mt(px(buttons_top))
@@ -656,16 +911,25 @@ impl Render for Dialog {
                             .flex()
                             .justify_end()
                             .gap(px(CHIP_GAP))
-                            .child(cancel)
+                            .children(cancel)
                             .children(action),
                     ),
             );
-        root.on_action(cx.listener(|dialog, _: &Confirm, _, cx| dialog.answer(Answer::Action, cx)))
+        let radius = asked.over.map_or(0., |(_, radius)| radius);
+        root.on_action(cx.listener(|dialog, _: &Confirm, _, cx| dialog.confirm(cx)))
             .on_action(cx.listener(|dialog, _: &Cancel, _, cx| dialog.answer(Answer::Cancel, cx)))
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Cancel, cx)),
+            .on_action(
+                cx.listener(|dialog, _: &NextField, window, cx| dialog.next_field(window, cx)),
             )
+            // A page waits for its answer, so a click on its card's dim does nothing.
+            .when(!page, |root| {
+                root.on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Cancel, cx)),
+                )
+            })
+            // Over a tab's card, the dim has the card's corners.
+            .rounded(px(radius))
             .flex()
             .items_center()
             .justify_center()
