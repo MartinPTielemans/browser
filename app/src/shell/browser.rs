@@ -351,8 +351,8 @@ pub struct Page {
     pub can_go_back: bool,
     pub can_go_forward: bool,
     pub loading: bool,
-    /// The page isn't loaded, as in a tab put back and not yet shown, or a pinned tab closed. It
-    /// loads once it's shown.
+    /// The tab has no page, as one put back and not yet shown, a pinned tab closed, or one unseen
+    /// for hours. Its page loads once it's shown.
     pub unloaded: bool,
     /// The tab is pinned or a favorite, and its page isn't the one it was pinned or made a favorite
     /// at.

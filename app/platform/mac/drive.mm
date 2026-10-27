@@ -84,6 +84,10 @@
 //                                         agent <agent>"
 //   agentmayact <agent> <tab>             logs whether the agent may act on the tab, as
 //                                         "browser: agent <agent> may act on <tab>: <0|1>"
+//   age <seconds>                         makes every tab look <seconds> longer unseen, as hours
+//                                         later, for the next tab shown to unload those
+//                                         bc_unload_idle_tabs lets go. From then each check logs
+//                                         "browser: idle tabs checked" once it's done
 //
 // Clicks, drags and moves go to the app's window on top at that point of the browser window
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
@@ -979,6 +983,15 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     fprintf(stderr, "browser: agent %s may act on %llu: %d\n", agent.c_str(),
             (unsigned long long)tab, bc_agent_may_act(agent.c_str(), tab));
+    done();
+    return true;
+  }
+  if (action == "age") {
+    double seconds;
+    if (!(words >> seconds)) {
+      return false;
+    }
+    bc_age_tabs_for_testing(seconds);
     done();
     return true;
   }

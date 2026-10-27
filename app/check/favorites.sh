@@ -188,7 +188,7 @@ expect '^browser: menu shown 12 hours (default) (checked), 24 hours, 7 days, 30 
   "a click on Archive tabs after didn't show the times, with 12 hours chosen"
 send choose 24 hours
 expect '^browser: archive tabs after 24 hours$' "choosing 24 hours in Settings didn't set it"
-post clickkey 500 213
+post clickkey 500 250
 expect "^browser: menu shown In Every Space, In Each Profile's Spaces (checked), In Each Space\$" \
   "a click on Favorites didn't show the choices, with Each Profile's Spaces chosen"
 send choose In Each Space
@@ -409,7 +409,7 @@ expect '^browser: menu shown 12 hours (default), 24 hours (checked), 7 days, 30 
   "Settings didn't keep 24 hours across the quit"
 send choose "12 hours (default)"
 expect '^browser: archive tabs after 12 hours (default)$' "choosing 12 hours didn't set it"
-post clickkey 500 213
+post clickkey 500 250
 expect "^browser: menu shown In Every Space, In Each Profile's Spaces, In Each Space (checked)\$" \
   "Settings didn't keep Each Space across the quit"
 send choose "In Each Profile's Spaces"

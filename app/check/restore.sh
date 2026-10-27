@@ -16,7 +16,8 @@
 # row there has Move to Trash, which puts its file in the Trash. A SIGTERM, which macOS sends at
 # logout and restart, keeps a tab opened just before it. Reports how long putting them back takes.
 # With the auto-archive's 12 hours made 8 s, a Today tab no window has shown for that long goes in
-# the archive, counting the time across a quit, and the tab shown stays.
+# the archive, counting the time across a quit, and the tab shown stays. A tab put back unshown has
+# no page until it's first shown, when its page loads scrolled where it was.
 
 # The Spaces come back after a quit and after the window closes: their names, their tabs with each
 # tab's history, the tab each showed and the Space the window showed. Back and Forward on a tab put
@@ -222,6 +223,7 @@ await "^browser: page $a back 0 forward 1 loading 0 $site\$" ||
 await "^browser: title $a ready\$" || fail "tab a didn't come back with its title"
 await "^browser: favicon $a [1-9][0-9]* bytes\$" || fail "tab a didn't come back with its favicon"
 grep -q "^browser: loaded $a " "$log" && fail "tab a loaded without being shown"
+grep -q "browser: tab $a without its page\$" "$log" || fail "tab a came back with a page, unshown"
 await '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' ||
   fail "the second Space's tab didn't come back at example.com"
 e=$(grep -m1 '^browser: page [0-9]* back 0 forward 0 loading 0 https://example.com/$' "$log" | cut -d' ' -f3)
@@ -477,6 +479,47 @@ await '^browser: archive 2 tabs$' || fail "tab b, unseen for 8 s after c showed,
 [ $(($(date +%s) - start)) -ge 8 ] || fail "tab b was archived before it was unseen for 8 s"
 await "^browser: today $c\$" || fail "Today is \"$(today)\" after the auto-archive, not tab c alone"
 quit
-echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays."
-echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png, $out/tab-icon-picker.png,"
+
+# A tab put back that no window shows has no page, as the core logs, until it's first shown, when
+# its page loads scrolled where it was.
+long='data:text/html,<title>top</title><div style="height:5000px"></div>
+<script>onscroll = () => document.title = "scrolled " + Math.round(scrollY);</script>'
+log="$out/unloaded-a.log"
+step=0
+rm -f "$saved"
+BROWSER_DRIVE=1 BROWSER_URL="$long" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: today [0-9][0-9]*$' || fail "the long page's tab isn't in Today"
+l=$(today)
+send scroll $page_point 40 10
+expect "^browser: title $l scrolled [1-9][0-9]*\$" "the long page didn't scroll"
+scrolled=$(date +%s)
+open_from_bar example.com
+# Chrome sends a page's scroll to the browser a second after it changes, for the quit to save.
+wait=$((scrolled + 2 - $(date +%s)))
+[ "$wait" -le 0 ] || sleep "$wait"
+exec 3>&-
+quit
+log="$out/unloaded-b.log"
+step=0
+BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await '^browser: restored in ' || fail "the launch after scrolling didn't restore the Spaces"
+await '^browser: today [0-9]* [0-9]*$' || fail "the Space didn't come back with its two tabs"
+shown=$(today | cut -d' ' -f1)
+l=$(today | cut -d' ' -f2)
+await "^browser: loaded $shown https://example.com/\$" || fail "the tab shown didn't load"
+grep -q "browser: tab $l without its page\$" "$log" || fail "the tab not shown came back with a page"
+grep -q "browser: tab $l has its page\$" "$log" && fail "the tab not shown got its page"
+switch "2 cmd" "$l"
+expect "browser: tab $l has its page\$" "the tab put back didn't get its page once shown"
+expect "^browser: title $l scrolled [1-9][0-9]*\$" "the tab put back loaded its page at the top"
+../tools/window-screenshot.sh "$pid" "$out/unloaded-scrolled.png" || fail "no window to capture"
+exec 3>&-
+quit
+echo "ok: after ⌘Q and after closing the window, the Spaces come back with their names, colours, icons, tabs, history and the tab each showed, in the Space shown last, with the sidebar's width; only tabs shown load, the others show their titles and favicons, a tab renamed with a double-click keeps its name over its page's title until Rename Tab takes it out, Change Icon… hangs the icon picker under its favicon, and the emoji picked there keeps the favicon's place until Remove Icon, and a closed tab stays closed, in the archive, from which it reopens at its page. Back and Forward on a restored tab walk its saved history, and a window that quit full screen comes back so. A page's downloads are listed in the Library's Downloads, which ⇧⌘J opens, and a new one's icon flies into the Library button, though none of those a relaunch reads does. With one running, ⌘Q asks first, Continue Downloading shows Downloads and Quit cancels it, and after the relaunch Remove from List and Clear List take them off and keep their files. Resting on the Library button shows the newest finished downloads, until the pointer leaves them, and a row's menu is the Library row's. A SIGTERM keeps a tab opened just before it. Today tabs no window shows go in the archive after the interval, counted across a quit, and the tab shown stays. A tab put back unshown has no page until it's shown, when it loads scrolled where it was."
+echo "  Restore, 3 tabs in 2 Spaces: ${restore_ms}ms. Windows: $out/restored.png, $out/tab-icon-picker.png, $out/unloaded-scrolled.png,"
 echo "  $out/recent-downloads.png"

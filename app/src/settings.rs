@@ -533,13 +533,17 @@ impl Settings {
         );
         let warn = unsafe { bc::bc_warn_before_quitting() };
         let warn = self.toggle("warn before quitting", warn, set_warn_before_quitting, accent, cx);
+        let unload = unsafe { bc::bc_unload_idle_tabs() };
+        let unload = self.toggle("unload idle tabs", unload, set_unload_idle_tabs, accent, cx);
         div()
             .flex()
             .flex_col()
             .gap(px(BOX_GAP))
+            // Unload under the archive's time, as both are about tabs left unseen.
             .child(group([
                 row(None, "Warn before quitting", warn),
                 row(None, "Archive tabs after", archive.into_any_element()),
+                row(None, "Unload tabs you haven't used in a while", unload),
                 row(None, "Favorites", favorites.into_any_element()),
             ]))
             .child(group([self.default_browser_row(cx)]))
@@ -1021,7 +1025,8 @@ fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
     let popup_row = PADDING + CONTROL_HEIGHT + PADDING + 1.;
     let (width, above) = match which {
         Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
-        Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row),
+        // Under Unload's switch.
+        Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row + switch_row),
     };
     point(
         px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),
@@ -1042,6 +1047,10 @@ const _: () = {
 
 fn set_warn_before_quitting(warn: bool) {
     unsafe { bc::bc_set_warn_before_quitting(warn) };
+}
+
+fn set_unload_idle_tabs(unload: bool) {
+    unsafe { bc::bc_set_unload_idle_tabs(unload) };
 }
 
 fn set_haptics(haptics: bool) {
