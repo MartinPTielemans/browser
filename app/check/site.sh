@@ -33,6 +33,27 @@ onkeydown = e => {
 };
 </script>' > "$out/site/index.html"
 printf 'notes\n' > "$out/site/notes.txt"
+# The dialogs page asks with "a" alert(), "c" confirm() and "p" prompt(), each from a key in the
+# page, and puts what the user answered in the title.
+printf '%s' '<title>loading</title>
+<script>
+requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
+onkeydown = e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) {
+    return;
+  }
+  if (e.key == "a") {
+    alert("The check says hello.");
+    document.title = "alerted";
+  }
+  if (e.key == "c") {
+    document.title = "confirm " + confirm("Go on?");
+  }
+  if (e.key == "p") {
+    document.title = "prompt " + prompt("Your name?", "Ada");
+  }
+};
+</script>' > "$out/site/dialogs.html"
 # The cookie page's title shows the site's cookie and how many times the server has sent its
 # script, which the cache keeps for an hour. "c" in it sets a cookie.
 printf '%s' '<title>loading</title><script src="count.js"></script>

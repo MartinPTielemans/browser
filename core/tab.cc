@@ -10,6 +10,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
+#include "browser_core/script_dialog.h"
 #include "browser_core/session.h"
 #include "browser_core/space.h"
 #include "browser_core/window.h"
@@ -74,6 +75,8 @@ Tab::Tab(content::WebContents* contents)
     audible_subscription_ = audible->RegisterRecentlyAudibleChangedCallback(
         base::IgnoreArgs<bool>(base::BindRepeating(&Tab::ReportStateSoon, base::Unretained(this))));
   }
+  // Its page's alert(), confirm() and prompt() ask with the app's dialog.
+  ScriptDialogs::Attach(contents);
   // A tab is often made with its first page already on its way, before anything observes it, so
   // the app hears it's loading now rather than once the page commits.
   state_report_posted_ = true;

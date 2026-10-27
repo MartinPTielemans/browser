@@ -750,6 +750,16 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
 - **Agents.** Agents never read or type into password fields and never see autofill data (decision 8). There is no agent path to any of this.
 - Measure Arc's save prompt and password settings.
 
+### Page dialogs
+
+*Ours*: Arc's page dialogs aren't recorded, so these follow the principles and the dialog around them. What a page asks for itself, and what Chrome asks for a page, is the browser's dialog (Spaces › Renaming and deleting) over the tab's card, in place of Chrome's views, which have no window here.
+
+- **Where.** The dim covers the tab's card alone, with its corners, and the card sits centred on it, so the dialog has the tab's place (Everything has a place) and the sidebar stays live: another tab, another Space and other windows can be chosen. It's tab-modal: it goes, with the dialog's motion, when another tab shows, and comes back when its tab does. Only the window in front shows it; another window's waits for it to come to the front. A click on the dim does nothing, as the page waits for an answer. It waits behind the browser's own dialog and Chrome's other questions, such as adding an extension.
+- **Words.** Chrome's, with Chrome's title, "<origin> says", where Chrome has one. The buttons carry ESC and ↩ chips (Teach the keys where they're used). The action is in the Space's accent, as an answer to a page takes nothing back. While an input method composes in a field, ↩ is its.
+- **Chrome's rules.** Chrome decides when a page may ask and what a dialog becomes as its tab hides or goes to another page: an alert from a tab that isn't shown lets the page go on at once and shows when the tab does, and a confirm or prompt from one is dropped; a tab that hides lets its alert's page go on, and the alert comes back with the tab, but cancels its confirm or prompt; a new dialog takes the place of the last, and going to another page takes it away. A page that asks in a loop is stopped as Chrome's is, by closing its tab, which the live sidebar allows; Chrome gave up the suppress checkbox for these.
+- **alert, confirm and prompt.** The title, then the page's message as the detail. An alert has OK alone, confirm OK and Cancel, prompt a field under the message, holding the page's default, selected. ↩ is OK and Esc Cancel.
+- **Agents.** Agents get nothing: no tool sees or answers a page's dialog, which goes to the user in the Agent Space as anywhere, as `prototypes/arcish` had it. Nothing typed in a dialog is logged.
+
 ### Downloads
 
 - **The Library's Downloads** (Arc 1.170.0 menus and cap). Downloads is a section of the Library, above Archived Tabs. ⇧⌘J and Window › View Downloads open the Library on it, and close it from there. The list is laid out as the archive's: search, then day headings, newest first.

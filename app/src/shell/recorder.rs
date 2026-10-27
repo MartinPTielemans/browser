@@ -9,7 +9,8 @@ use std::{
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
 use super::{
-    Answer, BarTab, Browser, DownloadAction, Extension, MenuEntry, browser::WindowButton,
+    Answer, BarTab, Browser, DownloadAction, Extension, MenuEntry, PageReply, ShownPageDialog,
+    browser::WindowButton,
 };
 
 #[derive(Default)]
@@ -29,6 +30,8 @@ pub(super) struct Recorder {
     pub(super) site_controls: RefCell<Vec<(u64, crate::site_controls::Place)>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
+    /// The answers to page dialogs it was given, with what was typed.
+    pub(super) replies: RefCell<Vec<PageReply>>,
 }
 
 impl Recorder {
@@ -163,6 +166,18 @@ impl Browser for Recorder {
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
     fn answer_permission(&self, _: u64, _: Answer, _: &mut App) {}
+
+    fn show_page_dialog(&self, shown: Option<ShownPageDialog>, _: &mut App) {
+        match shown {
+            Some((tab, dialog, _)) => self.record(format!("page dialog {tab} {}", dialog.id)),
+            None => self.record("page dialog none".into()),
+        }
+    }
+
+    fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, _: &mut App) {
+        self.record(format!("answer dialog {tab} {id} {reply:?}"));
+        self.replies.borrow_mut().push(reply);
+    }
 
     fn stop(&self, _: u64, _: &mut App) {}
 
