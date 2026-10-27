@@ -1,7 +1,7 @@
 //! The Site Controls: the panel the URL field's Site Controls button opens, as Arc's Site
 //! Control Center (docs/ux-spec.md › Extensions › Site Controls). For the site of the page shown:
-//! the action tiles, the extensions that act on it, its permissions as Chrome's page info lists
-//! them, each changeable, and its connection. GPUI can't draw over the page's native view, so
+//! the action tiles, the extensions that act on it, whether ads and trackers are blocked there and
+//! its permissions as Chrome's page info lists them, each changeable, and its connection. GPUI can't draw over the page's native view, so
 //! it's a window of its own that the host shows over the browser window, as its child, with the
 //! keyboard, as the command bar is, over a blur in its shape with a shadow. What it asks of its
 //! window and the core goes through `Host`.
@@ -87,6 +87,9 @@ const RESET: &str = "icons/rotate-ccw-clock.svg";
 /// for it. Named for Safari, which people know, though the page plays here, in ilo's tab.
 const ENGINE: &str = "icons/compass.svg";
 const ENGINE_NAME: &str = "Safari's engine";
+
+/// Ours: the ad blocking row's, which Arc's panel didn't have.
+const AD_BLOCKING: &str = "icons/shield.svg";
 /// Ours: a policy's row, which the user can't change.
 const MANAGED_OPACITY: f32 = 0.5;
 const DIVIDER: u32 = 0xffffff2b;
@@ -185,6 +188,10 @@ pub struct Site {
     /// The profile keeps the site for Safari's engine, which plays the protected video Chromium
     /// can't. Its row turns it off.
     pub system_engine: bool,
+    /// Whether ads and trackers are blocked on the site, none where that isn't the user's to change
+    /// there: a page that isn't http(s), one Safari's engine shows, a private window, or with
+    /// blocking off in Settings.
+    pub ad_blocking: Option<bool>,
 }
 
 /// An extension acting on the tab's page, as the toolbar shows it.
@@ -358,6 +365,9 @@ pub trait Host {
     /// Has the profile keep the site for Safari's engine or not, and the tab show its page there or
     /// in Chromium. The user's, as above.
     fn set_system_engine(&self, tab: u64, on: bool);
+    /// Blocks ads and trackers on the site or lets them load, and reloads the page. The user's, as
+    /// above.
+    fn set_ad_blocking(&self, tab: u64, on: bool);
     fn run(&self, run: Run, tab: u64, cx: &mut App);
     /// Shows a menu of `items` at `position` in the panel's window, and returns the index of the
     /// one chosen once it closes. AppKit runs it in an event loop of its own, so it's called
@@ -453,7 +463,7 @@ fn layout(site: &Site, extensions: usize, beak: bool) -> Layout {
     let grid = extensions_cap + HEADING_TO_TILES;
     let lines = (extensions + 1).div_ceil(EXTENSIONS_PER_ROW) as f32;
     let grid_bottom = grid + lines * TILE_HEIGHT + (lines - 1.) * GAP;
-    let rows = site.system_engine as usize + site.permissions.len() + site.reset.is_some() as usize;
+    let rows = rows(site);
     let (settings_cap, first, divider) = match rows {
         // Ours: with nothing to list, the heading goes, and the line follows the tiles.
         0 => (None, grid_bottom, grid_bottom + ROWS_TO_DIVIDER - CIRCLE),
@@ -475,6 +485,12 @@ fn layout(site: &Site, extensions: usize, beak: bool) -> Layout {
         footer,
         height: footer + FOOTER + PADDING,
     }
+}
+
+/// The Settings heading's rows: ad blocking, the permissions, then Reset.
+fn rows(site: &Site) -> usize {
+    let firsts = site.system_engine as usize + site.ad_blocking.is_some() as usize;
+    firsts + site.permissions.len() + site.reset.is_some() as usize
 }
 
 /// The panel's corners in its window, clockwise from the beak's tip, or its top left without one.
@@ -649,12 +665,16 @@ pub fn tab_closed(tab: u64, cx: &mut App) {
     });
 }
 
-/// The site for the log: Chrome's words for the connection, then each permission and its value.
+/// The site for the log: Chrome's words for the connection, then each row and its value, in their
+/// order, which check.sh clicks by.
 fn describe(site: &Site) -> String {
-    let permissions: Vec<String> = site
-        .permissions
-        .iter()
-        .map(|permission| format!("{} {}", permission.name, permission.value.label()))
+    let ad_blocking = (site.ad_blocking.iter())
+        .map(|&on| format!("Ad blocking {}", if on { "On" } else { "Off" }));
+    let permissions: Vec<String> = ad_blocking
+        .chain(
+            (site.permissions.iter())
+                .map(|permission| format!("{} {}", permission.name, permission.value.label())),
+        )
         .collect();
     format!(
         "{}: {}; {}{}",
@@ -824,6 +844,17 @@ impl SiteControls {
                 .ok();
         })
         .detach();
+    }
+
+    /// Turns blocking on the site the other way. The core reloads the page and reports the site
+    /// again, which redraws the row.
+    fn toggle_ad_blocking(&mut self, on: bool, cx: &mut Context<Self>) {
+        if let Some(open) = self.open.as_ref().filter(|open| open.closing.is_none()) {
+            // check.sh reads this line.
+            log!("browser: site controls set ad blocking {}", if on { "on" } else { "off" });
+            self.host.set_ad_blocking(open.tab, on);
+            cx.notify();
+        }
     }
 
     fn reset(&mut self, cx: &mut Context<Self>) {
@@ -1246,11 +1277,11 @@ impl Render for SiteControls {
         let settings = at.settings_cap.map(|cap| {
             let hovered = open.hovered == Some(Heading::Settings);
             let mut rows = vec![self.heading(Heading::Settings, cap, hovered, cx)];
-            let engine = site.system_engine as usize;
+            let mut y = at.rows;
             if site.system_engine {
                 let row = Self::row(
                     "site-engine".into(),
-                    at.rows,
+                    y,
                     ENGINE,
                     true,
                     ENGINE_NAME.into(),
@@ -1260,13 +1291,25 @@ impl Render for SiteControls {
                     panel.choose_engine(event.position(), cx)
                 }));
                 rows.push(row.into_any_element());
+                y += ROW_PITCH;
+            }
+            // Before the permissions, as the row a page that doesn't work needs.
+            if let Some(on) = site.ad_blocking {
+                let state = if on { "On" } else { "Off for this site" };
+                let name = "Block ads and trackers".into();
+                let state = Some(state.into());
+                let row = Self::row("site-ad-blocking".into(), y, AD_BLOCKING, on, name, state);
+                let row = row.on_click(
+                    cx.listener(move |panel, _, _, cx| panel.toggle_ad_blocking(!on, cx)),
+                );
+                rows.push(row.into_any_element());
+                y += ROW_PITCH;
             }
             for (index, permission) in site.permissions.iter().enumerate() {
-                let y = at.rows + (engine + index) as f32 * ROW_PITCH;
                 rows.push(self.permission(index, permission, y, cx));
+                y += ROW_PITCH;
             }
             if let Some(label) = site.reset.clone() {
-                let y = at.rows + (engine + site.permissions.len()) as f32 * ROW_PITCH;
                 let row = Self::row("site-permissions-reset".into(), y, RESET, false, label, None);
                 let row = row.on_click(cx.listener(|panel, _, _, cx| panel.reset(cx)));
                 rows.push(row.into_any_element());

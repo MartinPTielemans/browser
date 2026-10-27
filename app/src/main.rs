@@ -753,6 +753,10 @@ impl site_controls::Host for SiteControlsHost {
         unsafe { bc::bc_tab_set_system_engine(tab, on) };
     }
 
+    fn set_ad_blocking(&self, tab: u64, on: bool) {
+        unsafe { bc::bc_tab_set_ad_blocking(tab, on) };
+    }
+
     fn run(&self, run: site_controls::Run, tab: u64, cx: &mut App) {
         let Some(window) = tab_window(tab, cx) else {
             return;
@@ -3197,6 +3201,7 @@ unsafe extern "C" fn extensions_changed(
             enabled: extension.enabled,
             pinned: extension.pinned,
             options: text(extension.options),
+            removable: extension.removable,
             commands: match extension.commands.is_null() {
                 true => &[][..],
                 false => unsafe {
@@ -3436,6 +3441,11 @@ unsafe extern "C" fn tab_site_controls(
             .collect(),
         reset: Some(string(controls.reset)).filter(|reset| !reset.is_empty()),
         system_engine: controls.system_engine,
+        ad_blocking: match controls.ad_blocking as u32 {
+            bc::BC_AD_BLOCKING_ON => Some(true),
+            bc::BC_AD_BLOCKING_OFF => Some(false),
+            _ => None,
+        },
     };
     update_app(|cx| site_controls::changed(tab, site, cx));
 }

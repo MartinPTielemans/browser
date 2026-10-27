@@ -38,6 +38,8 @@ pub struct Extension {
     /// The page its options are on, or "" for none.
     pub options: SharedString,
     pub commands: Vec<ExtensionCommand>,
+    /// The user may remove it, which the browser's own ad blocker they turn off in Settings instead.
+    pub removable: bool,
 }
 
 /// One of an extension's keyboard commands that has a key.
@@ -360,8 +362,8 @@ impl Shell {
     }
 
     /// A pinned action's menu, as Chrome's toolbar gives one: Unpin, Options if it has them, Open
-    /// Side Panel if it has one for the tab, Remove, and Manage Extension, which opens its details
-    /// on Chrome's extensions page.
+    /// Side Panel if it has one for the tab, Remove if the user may, and Manage Extension, which
+    /// opens its details on Chrome's extensions page.
     fn action_menu(&mut self, id: SharedString, position: Point<Pixels>, cx: &mut Context<Self>) {
         let profile = self.shown_space().map_or(0, |space| space.profile);
         let Some(extension) = (self.extensions.get(&profile).into_iter().flatten())
@@ -392,18 +394,18 @@ impl Shell {
                 Box::new(move |shell, cx| shell.browser.toggle_side_panel(&id, cx)),
             ));
         }
-        items.extend([
-            (
+        if extension.removable {
+            items.push((
                 MenuEntry::new("Remove", true),
-                Box::new(move |shell: &mut Shell, cx: &mut Context<Shell>| {
+                Box::new(move |shell, cx| {
                     shell.remove_extension(profile, remove, extension.name, cx)
-                }) as MenuAction,
-            ),
-            (
-                MenuEntry::new("Manage Extension", true),
-                Box::new(move |shell, cx| shell.browser.manage_extensions(Some(&manage), cx)),
-            ),
-        ]);
+                }),
+            ));
+        }
+        items.push((
+            MenuEntry::new("Manage Extension", true),
+            Box::new(move |shell, cx| shell.browser.manage_extensions(Some(&manage), cx)),
+        ));
         self.show_menu(items, position, None, cx);
     }
 
@@ -482,7 +484,12 @@ fn fit_actions(places: usize, count: usize) -> (usize, bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
+
+    use gpui::{AppContext, TestAppContext, point, px};
+
     use super::{Extension, ExtensionCommand, UserKeys, command_for, fit_actions};
+    use crate::shell::{Shell, recorder::Recorder};
 
     fn extension(id: &str, enabled: bool, commands: &[(&str, &str, bool)]) -> Extension {
         Extension {
@@ -499,7 +506,29 @@ mod tests {
                     suggested,
                 })
                 .collect(),
+            removable: true,
         }
+    }
+
+    /// The browser's own ad blocker comes back at each launch, so its menu offers no Remove: the
+    /// user turns it off in Settings.
+    #[gpui::test]
+    fn the_ad_blockers_menu_has_no_remove(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let shell = cx.new(|cx| Shell::new(host.clone(), cx));
+        let menu = |id: &'static str, cx: &mut TestAppContext| {
+            shell.update(cx, |shell, cx| shell.action_menu(id.into(), point(px(0.), px(0.)), cx));
+            let items = host.menus.borrow().last().cloned().unwrap_or_default();
+            items.into_iter().map(|(title, _)| title.to_string()).collect::<Vec<_>>()
+        };
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+            let blocker = Extension { removable: false, ..extension("ublock", true, &[]) };
+            shell.set_extensions(0, vec![extension("notes", true, &[]), blocker], cx);
+            shell.set_space(1, cx);
+        });
+        assert_eq!(menu("notes", cx), ["Unpin", "Remove", "Manage Extension"]);
+        assert_eq!(menu("ublock", cx), ["Unpin", "Manage Extension"]);
     }
 
     /// A key the user set wins over the browser's, except a reserved one, and a key an extension
