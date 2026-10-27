@@ -5,6 +5,7 @@
 #include "base/callback_list.h"
 #include "base/functional/bind.h"
 #include "base/no_destructor.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/autocomplete/autocomplete_classifier_factory.h"
 #include "chrome/browser/profiles/profile.h"
@@ -64,7 +65,17 @@ GURL TypedUrl(Profile* profile, std::string_view text) {
   AutocompleteClassifierFactory::GetForProfile(profile)->Classify(
       base::UTF8ToUTF16(text), /*in_keyword_mode=*/false, /*allow_exact_keyword_match=*/false,
       metrics::OmniboxEventProto::OTHER, &match, /*alternate_nav_url=*/nullptr);
+  if (AutocompleteMatch::IsSearchType(match.type)) {
+    if (GURL url = TypedWithScheme(text); url.is_valid()) {
+      return url;
+    }
+  }
   return match.destination_url;
+}
+
+GURL TypedWithScheme(std::string_view text) {
+  const GURL url(base::TrimWhitespaceASCII(text, base::TRIM_ALL));
+  return url.is_valid() && url.SchemeIsHTTPOrHTTPS() ? url : GURL();
 }
 
 GURL SearchUrl(Profile* profile, const std::u16string& keyword, std::string_view text) {
