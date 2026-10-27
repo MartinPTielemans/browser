@@ -475,6 +475,41 @@ send key z cmd
 expect "^browser: spaces $first $second\$" "⌘Z after ⇧⌘T didn't bring the Space back"
 expect "^browser: space $second\( in .*\)\{0,1\}\$" "⌘Z after ⇧⌘T didn't show the Space"
 expect '^browser: today $' "⌘Z brought back the tab ⇧⌘T had reopened: Today is \"$(today)\""
+# Each window keeps its own ⌘Z: with a Space deleted in this window and the archive cleared in a
+# second one, the second window's ⌘Z brings back the archive and not the Space, and this one's the
+# Space and not the archive.
+open_from_bar example.org
+send key w cmd
+expect '^browser: today $' "⌘W didn't take the tab out of Today: Today is \"$(today)\""
+expect '^browser: archive [1-9][0-9]* tabs$' "⌘W didn't archive the tab"
+archived=$(grep '^browser: archive [0-9]* tabs$' "$log" | tail -1 | cut -d' ' -f3)
+send key n cmd
+expect '^browser: window opened [0-9]' "⌘N didn't open a window"
+other=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+send window 1
+post rightclick 131 $dots_y
+expect "^browser: menu shown Rename Space, Change Icon…, $colors, $empty_profile, Delete Space\$" \
+  "a right-click on a dot in the first window didn't show its Space's menu"
+send choose Delete Space
+expect "^browser: spaces $first\$" "Delete in the first window didn't delete the Space"
+send window 2
+send menu Clear Archive
+expect '^browser: dialog shown Clear the archive?$' "Clear Archive in the second window didn't ask first"
+send key return
+expect '^browser: archive 0 tabs$' "Clear Archive in the second window didn't empty the archive"
+send key z cmd
+expect "^browser: archive $archived tabs\$" "the second window's ⌘Z didn't bring back the archive"
+none_since "^browser: spaces $first $second\$" ||
+  fail "the second window's ⌘Z brought back the first window's Space"
+send window 1
+send key z cmd
+expect "^browser: spaces $first $second\$" "the first window's ⌘Z didn't bring back its Space"
+expect "^browser: space $second\( in .*\)\{0,1\}\$" "the first window's ⌘Z didn't show the Space"
+none_since '^browser: archive 0 tabs$' || fail "the first window's ⌘Z took the archive back out"
+send window 2
+send key w cmd shift
+expect "^browser: window closed $other\$" "⇧⌘W didn't close the second window"
+send window 1
 # Empty, it goes without asking, and says so too.
 post rightclick 131 $dots_y
 expect "^browser: menu shown Rename Space, Change Icon…, $colors, $empty_profile, Delete Space\$" \
@@ -494,5 +529,5 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, its colours and Delete; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, its colours and Delete; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Move to Space offers Undo, ⌘Z takes the tab back to its Space and ⇧⌘Z moves it again. With two windows, each one's ⌘Z undoes only what was done in it: a Space deleted in one, the archive cleared in the other. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"
