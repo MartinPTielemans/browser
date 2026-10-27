@@ -2438,13 +2438,14 @@ impl Shell {
             .children(self.nav_buttons(cx));
         let leaving = self.leaving_form.as_ref().filter(|(form, _)| form.space == self.space);
         let sidebar = match (self.paged_form(), self.form(), leaving) {
-            // Paged, the form goes as a page does, without the URL field and the favorites, which
-            // show with the Space beside once it's in.
+            // Paged, the form goes as a page does, and the URL field and the favorites go with the
+            // Space beside's page, as its rows do.
             (Some((form, x)), ..) => {
+                let beside = self.beside_form(form.space, cx);
                 let page = div().absolute().top_0().bottom_0().left(px(x)).w(px(self.width()));
                 let page = page.child(self.space_form(form, None, cx));
                 let form = div().absolute().size_full().overflow_hidden().child(page);
-                sidebar.child(self.space_pages(cx)).child(form)
+                sidebar.child(self.space_pages(cx)).children(beside).child(form)
             }
             (None, Some(form), _) => sidebar.child(self.space_form(form, None, cx)),
             (None, None, Some((form, left))) => {

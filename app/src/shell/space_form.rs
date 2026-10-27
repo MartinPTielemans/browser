@@ -110,6 +110,22 @@ impl Shell {
         (x != 0.).then_some((form, x))
     }
 
+    /// The URL field and the favorites on the page of the Space beside the form's, which comes in
+    /// or goes out with it as its rows do. None with no page beside, as the form rubber-bands.
+    pub(super) fn beside_form(
+        &self,
+        form: u64,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement + use<>> {
+        let (_, x) = self.pages().into_iter().find(|&(space, _)| space != form)?;
+        let page = div().absolute().top_0().bottom_0().left(px(x)).w(px(self.width()));
+        let page = page
+            .child(self.url_field(cx))
+            .children(self.scroll_edge_line())
+            .children(self.tiles(cx));
+        Some(div().absolute().size_full().overflow_hidden().child(page))
+    }
+
     /// The Create a Space form, in place of the URL field and the Space's tabs, and as it leaves,
     /// `left` seconds after Create.
     pub(super) fn space_form(
