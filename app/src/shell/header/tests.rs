@@ -110,6 +110,29 @@ fn sidebar_buttons_name_themselves(cx: &mut TestAppContext) {
     assert_eq!(move_to(cx, &host, 100., 300.), ["tooltip none"]);
 }
 
+/// Resting on Clear says what it does in Arc's words, with no keys, and leaving it, or pressing
+/// it, ends the tooltip.
+#[gpui::test]
+fn clear_says_what_it_does(cx: &mut TestAppContext) {
+    let (shell, cx, host) = drawn_shell(cx);
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(1, Vec::new(), vec![10, 11], Vec::new(), Folders::default(), cx)
+    });
+    // The pointer coming onto the sidebar fades Clear in.
+    move_to(cx, &host, 100., 300.);
+    shell.update(cx, |_, cx| cx.notify());
+    cx.run_until_parked();
+    let clear = shell.read_with(cx, |shell, _| shell.button_frames.borrow()["clear"].center());
+    let (x, y) = (f32::from(clear.x), f32::from(clear.y));
+    assert_eq!(move_to(cx, &host, x, y), ["tooltip Clear unpinned tabs in this space "]);
+    assert_eq!(move_to(cx, &host, 100., 300.), ["tooltip none"]);
+    move_to(cx, &host, x, y);
+    host.take();
+    cx.simulate_mouse_down(clear, gpui::MouseButton::Left, Modifiers::none());
+    cx.run_until_parked();
+    assert!(host.take().iter().any(|call| call == "tooltip none"));
+}
+
 /// A click on the URL field opens the command bar over the field, as Arc's does, and ⌘L centred.
 /// With the sidebar hidden there's no field, and the bar is centred (*interim*).
 #[gpui::test]

@@ -27,7 +27,13 @@ use super::{
     access::{Accessible, NEW_TAB},
     drag::in_sidebar,
 };
-use crate::icon_picker::{self, Subject};
+use crate::{
+    icon_picker::{self, Subject},
+    tooltip::{Anchor, Tip},
+};
+
+/// What Clear's tooltip says (Arc 1.170.0 cap).
+pub(super) const CLEAR_TIP: &str = "Clear unpinned tabs in this space";
 
 impl Shell {
     /// Closes every folder of the Space shown, all on one fold.
@@ -768,21 +774,38 @@ impl Shell {
             let clear = clear.when(self.a11y, |clear| {
                 clear.accessibility_id("clear").button_named("Clear Today")
             });
+            let clear = clear.child(self.button_frame(Command::Clear));
             clear.when(live, |clear| {
                 clear
                     .block_mouse_except_scroll()
-                    .on_hover(cx.listener(|shell, hovered: &bool, _, cx| {
-                        shell.clear_hovered = *hovered;
-                        // check.sh waits for this line.
-                        log!("browser: clear hovered {}", *hovered as u8);
-                        cx.notify();
-                    }))
+                    .on_hover(
+                        cx.listener(|shell, hovered: &bool, _, cx| shell.hover_clear(*hovered, cx)),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)),
+                    )
                     .on_click(
                         cx.listener(|shell, _, _, cx| shell.run(Command::Clear, "sidebar", cx)),
                     )
             })
         });
         divider_box(self.hairline(), clear).top(px(self.slide(Slot::Divider)))
+    }
+
+    /// The pointer has come onto Clear or left it: it lights up, and after a moment says what it
+    /// does in Arc's words, hung under it as a header button's tooltip is.
+    fn hover_clear(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        self.clear_hovered = hovered;
+        // check.sh waits for this line.
+        log!("browser: clear hovered {}", hovered as u8);
+        let busy = self.dragging().is_some() || self.menu_row.is_some();
+        let frame = self.button_frames.borrow().get(Command::Clear.name()).copied();
+        let tip = frame.filter(|_| hovered && !busy).map(|frame| {
+            (Tip::named(CLEAR_TIP.into()), Anchor::under(frame, self.viewport))
+        });
+        self.hover_tip(tip, cx);
+        cx.notify();
     }
 
     /// Whether the Space shown shows only its Today tabs, which Clear then closes.

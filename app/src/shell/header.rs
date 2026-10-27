@@ -98,16 +98,6 @@ impl Shell {
         side: TipSide,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let frames = self.button_frames.clone();
-        // GPUI gives a hover handler no bounds, so the plate keeps the frame it's drawn in.
-        let frame = canvas(
-            move |bounds, _, _| {
-                frames.borrow_mut().insert(command.name(), bounds);
-            },
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .size_full();
         button
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
                 shell.hover_button(command, side, *hovered, cx)
@@ -116,7 +106,21 @@ impl Shell {
                 MouseButton::Left,
                 cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)),
             )
-            .child(frame)
+            .child(self.button_frame(command))
+    }
+
+    /// Keeps the frame the button that runs `command` is drawn in, for its tooltip to hang from,
+    /// since GPUI gives a hover handler no bounds.
+    pub(super) fn button_frame(&self, command: Command) -> impl IntoElement + use<> {
+        let frames = self.button_frames.clone();
+        canvas(
+            move |bounds, _, _| {
+                frames.borrow_mut().insert(command.name(), bounds);
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full()
     }
 
     /// The pointer has come onto or left the button that runs `command`.
