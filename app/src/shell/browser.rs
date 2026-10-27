@@ -235,6 +235,9 @@ pub trait Browser {
     );
     /// Gives the UI the keyboard, from the page if the page has it.
     fn focus_ui(&self, cx: &mut App);
+    /// Gives the page shown the keyboard, from the UI if it has it, now or once a page still
+    /// loading has a view, unless the UI takes it back first.
+    fn focus_page(&self, cx: &mut App);
     /// Lays the page out at `frame` in the window, with corners of `radius`
     /// (`Shell::page_frame`). A split view's pages share it.
     fn lay_out_page(&self, frame: Bounds<Pixels>, radius: f32, cx: &mut App);

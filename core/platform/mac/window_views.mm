@@ -332,6 +332,10 @@ bool KeyboardForPage(views::Widget* widget) {
   return !view.sidePanel || ![focused isDescendantOf:view.sidePanel.page];
 }
 
+void ReleaseKeyboard(views::Widget* widget) {
+  [widget->GetNativeWindow().GetNativeNSWindow() makeFirstResponder:nil];
+}
+
 void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
   NSWindow* window = widget->GetNativeWindow().GetNativeNSWindow();
   NSResponder* had = window.firstResponder;

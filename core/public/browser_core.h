@@ -978,6 +978,12 @@ BC_EXPORT void bc_window_page_moving(bc_id window, bool moving);
 // window_selected. For a tab another window shows, the user's: agents get none.
 BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 
+// Gives the page the window shows the keyboard, from the UI or wherever in the window it is, as a
+// press that shows a tab does. The window holds it for the page, as when the page shown before
+// left with it, so a page still loading takes it as bc_window_select's would, unless a click in
+// the UI comes first. The user's: agents get none.
+BC_EXPORT void bc_window_focus_page(bc_id window);
+
 // Clears the Space the window shows: closes its Today tabs but those any window shows, as
 // bc_tab_close does, for bc_window_undo_clear to bring back. While it shows every Today tab, a tab
 // alone or a split that is all of Today, it closes those too, and the window shows the tab the
