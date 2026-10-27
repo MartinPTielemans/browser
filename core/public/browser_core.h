@@ -346,13 +346,15 @@ typedef struct bc_offer {
 } bc_offer;
 
 // What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt(), whether to
-// leave it, from its beforeunload handler, which Chrome words, or the user's name and password for
-// the site's HTTP sign-in.
+// leave it, from its beforeunload handler, which Chrome words, the user's name and password for
+// the site's HTTP sign-in, or whether it may open another app for a link, such as Mail for
+// mailto:, which Chrome asks only until the user ticks "Always allow".
 #define BC_DIALOG_ALERT 0
 #define BC_DIALOG_CONFIRM 1
 #define BC_DIALOG_PROMPT 2
 #define BC_DIALOG_LEAVE 3
 #define BC_DIALOG_SIGN_IN 4
+#define BC_DIALOG_OPEN_APP 5
 
 // A page's own dialog, for the user to answer while its tab shows, in Chrome's words.
 typedef struct bc_page_dialog {
@@ -581,7 +583,8 @@ typedef struct bc_host {
   // every other app-wide dialog, as Chrome's, so its tab comes to the front window if no window
   // shows it. A site's sign-in waits until its tab shows, as an alert(), and goes once another of
   // the profile's tabs signs in to the same realm. An agent's tab asks the user the same way, and
-  // the agent can't answer: a sign-in is the user's to give.
+  // the agent can't answer: a sign-in is the user's to give. A page in an agent's Space never opens
+  // another app, so it asks none.
   void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
 } bc_host;
 
