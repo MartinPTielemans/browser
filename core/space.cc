@@ -401,6 +401,7 @@ bool Space::Split(bc_id tab, bc_id with, GURL url, bool left) {
   if (auto split = SplitOf(with); split != splits_.end()) {
     split->tabs.insert(left ? split->tabs.begin() : split->tabs.end(), tab);
     split->shares.clear();
+    split->expanded = 0;
   } else {
     splits_.push_back(
         {.tabs = left ? std::vector<bc_id>{tab, with} : std::vector<bc_id>{with, tab}});
@@ -455,6 +456,23 @@ bool Space::SetShares(bc_id tab, std::vector<double> shares) {
     share /= sum;
   }
   split->shares = std::move(shares);
+  split->expanded = 0;
+  ReportChanged();
+  return true;
+}
+
+bc_id Space::Expanded(bc_id tab) const {
+  auto split = SplitOf(tab);
+  return split != splits_.end() ? split->expanded : 0;
+}
+
+bool Space::SetExpanded(bc_id tab, bool expanded) {
+  auto split = SplitOf(tab);
+  if (split == splits_.end()) {
+    return false;
+  }
+  split->shares.clear();
+  split->expanded = expanded ? tab : 0;
   ReportChanged();
   return true;
 }
@@ -466,6 +484,7 @@ void Space::Separate(bc_id tab) {
   }
   std::erase(split->tabs, tab);
   split->shares.clear();
+  split->expanded = 0;
   const bc_id last = split->tabs.back();
   if (split->tabs.size() < 2) {
     splits_.erase(split);
@@ -613,6 +632,7 @@ void Space::LeaveSplit(bc_id tab) {
   }
   std::erase(split->tabs, tab);
   split->shares.clear();
+  split->expanded = 0;
   if (split->tabs.size() < 2) {
     splits_.erase(split);
   }
