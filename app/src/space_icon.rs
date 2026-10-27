@@ -87,14 +87,6 @@ impl<'a> SpaceIcon<'a> {
             None => SpaceIcon::Emoji(icon),
         }
     }
-
-    /// The glyph's drawing, if it's a glyph.
-    pub fn glyph_path(self) -> Option<&'static str> {
-        match self {
-            SpaceIcon::Glyph(index) => Some(GLYPHS[index].1),
-            _ => None,
-        }
-    }
 }
 
 /// Whether a Space's or a tab's `icon`, as the core keeps it, is one the sidebar draws: the one
