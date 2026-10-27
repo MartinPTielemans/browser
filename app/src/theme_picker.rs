@@ -509,9 +509,12 @@ impl ThemePicker {
         let Some(editing) = self.editing.as_mut() else {
             return;
         };
-        editing.pressed = None;
+        let pressed = editing.pressed.take().is_some();
         let Some(drag) = editing.drag.take() else {
-            return cx.notify();
+            if pressed {
+                cx.notify();
+            }
+            return;
         };
         if let Drag::Handle(index, ..) = drag {
             editing.press = Some((index, Instant::now(), false));
@@ -892,21 +895,22 @@ impl Render for ThemePicker {
                 )
         });
 
-        // The pointer's moves and release anywhere in the window, while something is dragged.
+        // The pointer's moves anywhere in the window, while something is dragged, and its release
+        // always: a press and its release can both come before the next frame, which would
+        // otherwise be drawn without a listener for the release.
         let dragging = editing.drag.is_some() || editing.pressed.is_some();
         let picker = cx.weak_entity();
         let listener = canvas(
             |_, _, _| {},
             move |_, _, window, _| {
-                if !dragging {
-                    return;
+                if dragging {
+                    let moved = picker.clone();
+                    window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                        if phase == DispatchPhase::Capture {
+                            moved.update(cx, |picker, cx| picker.drag(event.position, cx)).ok();
+                        }
+                    });
                 }
-                let moved = picker.clone();
-                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
-                    if phase == DispatchPhase::Capture {
-                        moved.update(cx, |picker, cx| picker.drag(event.position, cx)).ok();
-                    }
-                });
                 let released = picker.clone();
                 window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
                     if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
