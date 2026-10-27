@@ -68,8 +68,9 @@ class SiteControls : public PageInfoUI, public content::WebContentsObserver {
   std::string site_;
   int connection_ = BC_CONNECTION_NOT_SECURE;
   std::u16string connection_summary_;
-  // Whether the profile keeps the site for the system's engine.
+  // Whether the profile keeps the site for the system's engine, or else offers it.
   bool system_engine_ = false;
+  bool system_engine_offered_ = false;
   bool reporting_ = false;
   base::WeakPtrFactory<SiteControls> weak_factory_{this};
 };

@@ -106,16 +106,16 @@ impl Shell {
                 MouseButton::Left,
                 cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)),
             )
-            .child(self.button_frame(command))
+            .child(self.button_frame(command.name()))
     }
 
-    /// Keeps the frame the button that runs `command` is drawn in, for its tooltip to hang from,
-    /// since GPUI gives a hover handler no bounds.
-    pub(super) fn button_frame(&self, command: Command) -> impl IntoElement + use<> {
+    /// Keeps the frame a button is drawn in as `key`, the name of the command it runs if it runs
+    /// one, for its tooltip to hang from, since GPUI gives a hover handler no bounds.
+    pub(super) fn button_frame(&self, key: &'static str) -> impl IntoElement + use<> {
         let frames = self.button_frames.clone();
         canvas(
             move |bounds, _, _| {
-                frames.borrow_mut().insert(command.name(), bounds);
+                frames.borrow_mut().insert(key, bounds);
             },
             |_, _, _, _| {},
         )

@@ -345,6 +345,10 @@ impl Browser for Recorder {
         self.system_engine.get()
     }
 
+    fn close_media_note(&self, tab: u64, _: &mut App) {
+        self.record(format!("close media note {tab}"));
+    }
+
     fn use_system_engine(&self, tab: u64, _: &mut App) {
         self.record(format!("system engine {tab}"))
     }

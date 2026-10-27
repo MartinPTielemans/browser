@@ -5,16 +5,23 @@
 //! note, until the Site Controls turn it off (decision 1). The site's session goes with the tab, so
 //! the user stays signed in. Where the Mac has no engine to give, on macOS 13, and in an agent's
 //! Space, whose tabs never switch, it opens the page in Safari instead and leaves the tab as it is.
-//! There's nothing to dismiss: the site's own error stays in the page, and this says why. Agents get
-//! no path: it hands the user's page to another engine or app. The core reports it
-//! (tab_media_unsupported).
+//! Its ×, shown under the pointer, and escape while the UI has the keyboard close it for the site in
+//! the profile, across launches, or for a private window's session: the core no longer reports it
+//! there, and the Site Controls offer Safari's engine for the site instead, the way back to its
+//! button. The site's own error stays in the page. Agents get no path: it hands the user's page to
+//! another engine or app. The core reports it (tab_media_unsupported) and keeps the sites it was
+//! closed for (tab_close_media_note).
 
-use gpui::{Context, FontWeight, SharedString, div, prelude::*, px, rgba};
+use gpui::{
+    App, Context, FontWeight, KeyBinding, MouseButton, SharedString, actions, div, prelude::*, px,
+    rgba,
+};
 
 use super::{
-    Shell, TITLE,
-    permission::{BUTTONS_TOP, card_button, card_listener},
+    KEY_CONTEXT, Shell, ShellHandle, TITLE,
+    permission::{BESIDE_CLOSE, BUTTONS_TOP, card_button, card_close, card_listener},
 };
+use crate::tooltip::{Anchor, Tip};
 
 /// Ours, as neither Arc nor Dia has protected media to explain: short and plain. It says the video
 /// plays here, in this tab. There's no sign-in to warn of, as the core brings the site's cookies and
@@ -26,6 +33,28 @@ const WORDS: &str =
 const OPEN: &str = "Open in Safari";
 /// A private window's page leaves it for Safari's own window, which keeps history.
 const OPEN_PRIVATE: &str = "Open in Safari, not private";
+/// Ours: what the × does, as there's no second control for it.
+const CLOSE_TIP: &str = "Don't Show for This Site";
+const CLOSE_KEY: &str = "drm-note-close";
+
+actions!(drm_note, [CloseNote]);
+
+/// Escape while the UI has the keyboard, over Stop's, which it falls through to unless it closes
+/// the note. The page keeps its own escape, which reaches Stop if it hands it back.
+pub(super) fn escape_binding() -> KeyBinding {
+    KeyBinding::new("escape", CloseNote, Some(KEY_CONTEXT))
+}
+
+pub(super) fn bind(cx: &mut App) {
+    cx.bind_keys([escape_binding()]);
+    cx.on_action(|_: &CloseNote, cx| {
+        let shell = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone());
+        let closed = shell.and_then(|shell| shell.update(cx, Shell::escape_drm_note).ok());
+        if !closed.unwrap_or(false) {
+            cx.propagate();
+        }
+    });
+}
 
 impl Shell {
     /// The core reports the protected-media key system `tab`'s page asked for that ilo can't play,
@@ -46,6 +75,42 @@ impl Shell {
     pub(super) fn drm_note(&self) -> Option<&SharedString> {
         let playing = self.page(self.selected).system_engine;
         self.drm_notes.get(&self.selected).filter(|_| !playing && self.question().is_none())
+    }
+
+    /// Closes the note of the tab shown for its site, which the core keeps from asking again. It
+    /// goes at once, before the core takes it back from the site's other tabs.
+    fn close_drm_note(&mut self, cx: &mut Context<Self>) {
+        if self.drm_note().is_none() {
+            return;
+        }
+        let tab = self.selected;
+        // check.sh reads this line.
+        log!("browser: drm note {tab} closed");
+        self.drm_notes.remove(&tab);
+        self.browser.close_media_note(tab, cx);
+        cx.notify();
+    }
+
+    /// The pointer has come onto the note's × or left it: after a moment it says what it does,
+    /// hung under it as a header button's tooltip is.
+    fn hover_drm_close(&mut self, hovered: bool, cx: &mut Context<Self>) {
+        let busy = self.dragging().is_some() || self.menu_row.is_some();
+        let frame = self.button_frames.borrow().get(CLOSE_KEY).copied();
+        let tip = frame.filter(|_| hovered && !busy).map(|frame| {
+            (Tip::named(CLOSE_TIP.into()), Anchor::under(frame, self.viewport))
+        });
+        self.hover_tip(tip, cx);
+    }
+
+    /// Escape closes the note when it's what the sidebar shows in front, and says whether it did.
+    fn escape_drm_note(&mut self, cx: &mut Context<Self>) -> bool {
+        let shown = !self.sidebar_hidden || self.revealed;
+        let in_front = shown && self.library.is_none() && self.form().is_none();
+        if !in_front || self.drm_note().is_none() {
+            return false;
+        }
+        self.close_drm_note(cx);
+        true
     }
 
     /// Whether the note's button shows the page in Safari's engine, in the tab: where the Mac has
@@ -78,7 +143,10 @@ impl Shell {
     ) -> Option<impl IntoElement + use<>> {
         if self.drm_note().is_none() {
             // Drawn again, it's logged again.
-            self.drm_drawn.set(None);
+            if self.drm_drawn.take().is_some() {
+                // check.sh waits for this line.
+                log!("browser: drm note hidden");
+            }
             return None;
         }
         let switch = self.can_switch();
@@ -96,11 +164,34 @@ impl Shell {
             })
         };
         let words = if switch { SWITCH_WORDS } else { WORDS };
+        // Shown under the pointer, as a row's ×, and always to VoiceOver's cursor, which is no
+        // pointer. It takes clicks either way, as the pointer is over the card to click it.
+        let close = card_close(CLOSE_KEY)
+            .when(!self.a11y, |close| {
+                close.opacity(0.).group_hover("drm-note", |style| style.opacity(1.))
+            })
+            .child(self.button_frame(CLOSE_KEY))
+            .on_hover(
+                cx.listener(|shell, hovered: &bool, _, cx| shell.hover_drm_close(*hovered, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)),
+            )
+            .on_click(cx.listener(|shell, _, _, cx| shell.close_drm_note(cx)));
         Some(
             self.plate("drm-note")
+                .group("drm-note")
                 .child(card_listener("drm note", &self.drm_drawn, self.selected))
-                .child(div().text_color(rgba(TITLE)).font_weight(FontWeight::MEDIUM).child(words))
-                .children(button.map(|button| div().mt(px(BUTTONS_TOP)).flex().child(button))),
+                .child(
+                    div()
+                        .pr(px(BESIDE_CLOSE))
+                        .text_color(rgba(TITLE))
+                        .font_weight(FontWeight::MEDIUM)
+                        .child(words),
+                )
+                .children(button.map(|button| div().mt(px(BUTTONS_TOP)).flex().child(button)))
+                .child(close),
         )
     }
 }
@@ -109,9 +200,11 @@ impl Shell {
 mod tests {
     use std::rc::Rc;
 
-    use gpui::{AppContext, TestAppContext};
+    use gpui::{App, AppContext, Modifiers, TestAppContext};
 
-    use crate::shell::{Folders, Page, Question, Shell, recorder::Recorder};
+    use super::CLOSE_KEY;
+
+    use crate::shell::{Folders, Page, Question, Shell, bind_keys, recorder::Recorder};
 
     fn window_with_tabs(cx: &mut TestAppContext) -> (gpui::Entity<Shell>, Rc<Recorder>) {
         let host = Rc::new(Recorder::default());
@@ -222,5 +315,91 @@ mod tests {
         assert_eq!(host.take(), ["open in safari https://www.netflix.com/browse"]);
         // The tab keeps its page and its note.
         shell.update(cx, |shell, _| assert!(shell.drm_note().is_some()));
+    }
+
+    /// Closing asks the core to keep the site closed: it stops reporting the note for each of the
+    /// site's tabs, then and later, which the clear check proves with the engine.
+    #[gpui::test]
+    fn closing_the_note_hides_it_and_has_the_core_keep_the_site(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            // Without a note, there's nothing to close.
+            shell.close_drm_note(cx);
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            host.take();
+            shell.close_drm_note(cx);
+            assert!(shell.drm_note().is_none());
+        });
+        assert_eq!(host.take(), ["close media note 10"]);
+    }
+
+    #[gpui::test]
+    fn another_sites_note_still_shows(cx: &mut TestAppContext) {
+        let (shell, _) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            shell.set_media_unsupported(11, "com.widevine.alpha", cx);
+            shell.close_drm_note(cx);
+            shell.set_selected(11, cx);
+            assert!(shell.drm_note().is_some(), "closing one site's note closed another's");
+        });
+    }
+
+    /// The ×, under the pointer, says what it does, and a click on it closes the note for the
+    /// site.
+    #[gpui::test]
+    fn the_close_button_says_what_it_does_and_closes_the_note(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_space(1, cx);
+            let page = Page { url: "https://www.netflix.com/browse".into(), ..Page::default() };
+            shell.set_page(10, page, cx);
+            shell.set_selected(10, cx);
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+        });
+        cx.run_until_parked();
+        let frame = |shell: &Shell, _: &App| shell.button_frames.borrow()[CLOSE_KEY].center();
+        let close = shell.read_with(cx, frame);
+        host.take();
+        cx.simulate_mouse_move(close, None, Modifiers::none());
+        cx.run_until_parked();
+        assert!(host.take().contains(&"tooltip Don't Show for This Site ".to_string()));
+        cx.simulate_click(close, Modifiers::none());
+        cx.run_until_parked();
+        assert!(host.take().contains(&"close media note 10".to_string()));
+        shell.read_with(cx, |shell, _| assert!(shell.drm_note().is_none()));
+    }
+
+    /// Escape with the UI focused closes the note in front, and with none it stops, as before:
+    /// here, in full screen with nothing loading, it leaves full screen.
+    #[gpui::test]
+    fn escape_closes_the_note_and_otherwise_stops(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(bind_keys);
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_space(1, cx);
+            let page = Page { url: "https://www.netflix.com/browse".into(), ..Page::default() };
+            shell.set_page(10, page, cx);
+            shell.set_selected(10, cx);
+            shell.set_full_screen(true, cx);
+            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+        });
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        host.take();
+        cx.simulate_keystrokes("escape");
+        shell.read_with(cx, |shell, _| assert!(shell.drm_note().is_none()));
+        let asked = host.take();
+        assert!(asked.contains(&"close media note 10".to_string()));
+        assert!(!asked.contains(&"window button zoom".to_string()), "escape also stopped");
+        cx.simulate_keystrokes("escape");
+        assert!(host.take().contains(&"window button zoom".to_string()));
     }
 }

@@ -302,6 +302,10 @@ pub fn change_keys<R>(cx: &mut App, change: impl FnOnce(&mut UserKeys) -> R) -> 
     let new: Vec<KeyBinding> = new.collect();
     cx.bind_keys(old);
     cx.bind_keys(new);
+    // A NoAction on escape takes the note's escape too, which comes back after it.
+    if changed.contains(&Command::Stop) {
+        cx.bind_keys([super::drm_note::escape_binding()]);
+    }
     for &command in &changed {
         let keys = after.keys(command);
         // check.sh waits for these lines.
