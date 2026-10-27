@@ -40,7 +40,7 @@ const HEIGHT: f32 = 27.;
 /// Its window, wide enough for a long name, which truncates past it.
 pub const WINDOW_WIDTH: f32 = 320.;
 pub const WINDOW_HEIGHT: f32 = HEIGHT;
-/// Round at half its height, but the corner toward what it names, which is nearly square.
+/// Round at half its height, but the corner at what it names, which is nearly square.
 const RADIUS: f32 = HEIGHT / 2.;
 const NEAR_RADIUS: f32 = 2.;
 /// The 0.5 pt rim, white at about 0.12.
@@ -93,8 +93,10 @@ impl Tip {
 /// Where a tooltip goes from what it names.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
-    /// Under it, the tooltip's middle at the anchor's x.
-    Centre,
+    /// Under it, the tooltip's square corner at the anchor's x, the top left with the tooltip
+    /// going right from there, or the top right with it going left if it would cross the
+    /// window's right edge. That corner is the pointer.
+    Under,
     /// Under it, the tooltip's text starting at the anchor's x, so it lines up with the row's
     /// title and its plate hangs outside.
     Text,
@@ -116,11 +118,11 @@ pub struct Anchor {
 }
 
 impl Anchor {
-    /// Under a tile or button whose frame is `frame`, centred on it.
-    pub fn centred(frame: Bounds<Pixels>, window: Size<Pixels>) -> Self {
+    /// Under a tile or button whose frame is `frame`, its square corner under the middle of it.
+    pub fn under(frame: Bounds<Pixels>, window: Size<Pixels>) -> Self {
         Anchor {
             x: f32::from(frame.origin.x + frame.size.width / 2.),
-            align: Align::Centre,
+            align: Align::Under,
             top: f32::from(frame.origin.y),
             bottom: f32::from(frame.bottom()),
             window: (window.width.into(), window.height.into()),
@@ -131,21 +133,30 @@ impl Anchor {
     /// row's left.
     pub fn titled(frame: Bounds<Pixels>, title: f32, window: Size<Pixels>) -> Self {
         let x = f32::from(frame.origin.x) + title;
-        Anchor { x, align: Align::Text, ..Self::centred(frame, window) }
+        Anchor { x, align: Align::Text, ..Self::under(frame, window) }
     }
 
     /// Right of a button whose plate's frame is `frame`.
     pub fn beside(frame: Bounds<Pixels>, window: Size<Pixels>) -> Self {
         let x = f32::from(frame.right());
-        Anchor { x, align: Align::Beside, ..Self::centred(frame, window) }
+        Anchor { x, align: Align::Beside, ..Self::under(frame, window) }
     }
+}
+
+/// Whether a tooltip `width` wide under what it hangs from has its square corner on the right, for
+/// want of room to its right: it goes left from the anchor then, if there's room that side.
+fn mirrored(anchor: Anchor, width: f32) -> bool {
+    anchor.align == Align::Under
+        && anchor.x + width > anchor.window.0 - EDGE_INSET
+        && anchor.x - width >= EDGE_INSET
 }
 
 /// Where a tooltip of `size` has its top left: under what it hangs from, or above it with the same
 /// gap if there's no room below, or beside it, and inside the window, EDGE_INSET from its sides.
 pub fn place(anchor: Anchor, (width, height): (f32, f32)) -> (f32, f32) {
     let left = match anchor.align {
-        Align::Centre => anchor.x - width / 2.,
+        Align::Under if mirrored(anchor, width) => anchor.x - width,
+        Align::Under => anchor.x,
         Align::Text => anchor.x - TEXT_X,
         Align::Beside => anchor.x + BESIDE,
     };
@@ -164,20 +175,24 @@ fn above(anchor: Anchor, height: f32) -> bool {
     anchor.align != Align::Beside && anchor.bottom + GAP + height > anchor.window.1
 }
 
-/// Which corner of a tooltip is nearly square. Arc's is the top left, toward the button the
-/// tooltip is beside and the pointer on it. Ours, *interim* as only that one is recorded: it's
-/// the left one toward what the tooltip hangs from, so the bottom left over a tile that has it
-/// above.
+/// Which corner of a tooltip is nearly square: the one at what it names. Arc's is the top left,
+/// toward the button the tooltip is beside. Ours, *interim* as only that one is recorded: under a
+/// tile or button it's the top left at the middle of it, the top right if the tooltip goes left
+/// from there, and the bottom ones when it goes above; a row's is the top left.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Near {
     TopLeft,
+    TopRight,
     BottomLeft,
+    BottomRight,
 }
 
-fn near(anchor: Anchor, height: f32) -> Near {
-    match above(anchor, height) {
-        true => Near::BottomLeft,
-        false => Near::TopLeft,
+fn near(anchor: Anchor, width: f32, height: f32) -> Near {
+    match (above(anchor, height), mirrored(anchor, width)) {
+        (false, false) => Near::TopLeft,
+        (false, true) => Near::TopRight,
+        (true, false) => Near::BottomLeft,
+        (true, true) => Near::BottomRight,
     }
 }
 
@@ -357,7 +372,8 @@ impl Tooltip {
             log!("browser: tooltip shown {}", label(&tip));
         }
         self.shown = Some(tip.clone());
-        self.drawn = Some((tip, layout, near(anchor, HEIGHT)));
+        let near = near(anchor, layout.width, HEIGHT);
+        self.drawn = Some((tip, layout, near));
         self.host.show(left, top);
         cx.notify();
     }
@@ -427,7 +443,9 @@ impl Render for Tooltip {
             let shape = shape.rounded(px(RADIUS));
             match near {
                 Near::TopLeft => shape.rounded_tl(px(NEAR_RADIUS)),
+                Near::TopRight => shape.rounded_tr(px(NEAR_RADIUS)),
                 Near::BottomLeft => shape.rounded_bl(px(NEAR_RADIUS)),
+                Near::BottomRight => shape.rounded_br(px(NEAR_RADIUS)),
             }
         };
         // The rim is its own layer, so the border doesn't shift what the fill's box holds.

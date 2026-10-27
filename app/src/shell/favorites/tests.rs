@@ -6,7 +6,7 @@ use gpui::{Modifiers, TestAppContext, VisualTestContext};
 
 use crate::{
     shell::{Shell, recorder::Recorder},
-    tooltip::{Anchor, EDGE_INSET, GAP, place},
+    tooltip::{Anchor, GAP, place},
 };
 
 /// The widths of a short title's tooltip and a long one's, and their height.
@@ -50,9 +50,8 @@ fn hover_tile(
 }
 
 /// Each tile's tooltip hangs from the tile it names, the pointer coming straight from the last
-/// tile's, so the tooltip follows with no frame of the old one's place: its middle is the tile's
-/// middle and its top 6 under it, but for a tooltip that would cross the window's left edge, which
-/// keeps 8 from it.
+/// tile's, so the tooltip follows with no frame of the old one's place: its square corner is under
+/// the tile's middle, 6 under it, going right from there.
 #[gpui::test]
 fn each_tiles_tooltip_hangs_from_that_tile(cx: &mut TestAppContext) {
     let (shell, cx, host) = with_tiles(cx);
@@ -63,11 +62,10 @@ fn each_tiles_tooltip_hangs_from_that_tile(cx: &mut TestAppContext) {
         assert_eq!(anchor.x, middle, "tile {tab}'s tooltip hangs from another place");
         assert_eq!(anchor.window, (f32::from(window.width), f32::from(window.height)));
         let (left, top) = place(anchor, (SHORT, HEIGHT));
-        // The first tile is nearer the window's edge than half a title, short or long.
-        assert_eq!(left, (middle - SHORT / 2.).max(EDGE_INSET), "tile {tab}: not centred on it");
+        assert_eq!(left, middle, "tile {tab}: its corner isn't under its middle");
         assert_eq!(top, f32::from(bottom) + GAP, "tile {tab}: not 6 under it");
         let (left, _) = place(anchor, (LONG, HEIGHT));
-        assert_eq!(left, (middle - LONG / 2.).max(EDGE_INSET), "tile {tab}: a long title's");
+        assert_eq!(left, middle, "tile {tab}: a long title's corner isn't under its middle");
     }
 }
 

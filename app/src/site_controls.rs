@@ -801,7 +801,7 @@ impl SiteControls {
             return;
         };
         if hovered {
-            let anchor = tooltip::Anchor::centred(open.in_window(frame), open.window);
+            let anchor = tooltip::Anchor::under(open.in_window(frame), open.window);
             open.tip = Some(text.clone());
             self.host.tooltip(Some((text, anchor)), cx);
         } else if open.tip.as_ref() == Some(&text) {

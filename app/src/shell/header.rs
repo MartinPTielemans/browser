@@ -127,7 +127,7 @@ impl Shell {
             .map(|(name, frame)| {
                 let keys = user_keys(cx).chips(command).into_iter().map(Into::into).collect();
                 let anchor = match side {
-                    TipSide::Under => Anchor::centred(frame, self.viewport),
+                    TipSide::Under => Anchor::under(frame, self.viewport),
                     TipSide::Beside => Anchor::beside(frame, self.viewport),
                 };
                 (Tip { text: name.into(), keys }, anchor)
