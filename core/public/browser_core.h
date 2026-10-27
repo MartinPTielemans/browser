@@ -286,12 +286,12 @@ typedef struct bc_side_panel {
 
 // What a tab's offer offers: to save the password of a login its page submitted, or to update the
 // password saved for it.
-#define BC_OFFER_PASSWORD 0
-#define BC_OFFER_PASSWORD_UPDATE 1
+#define BC_OFFER_KIND_PASSWORD 0
+#define BC_OFFER_KIND_PASSWORD_UPDATE 1
 
 // An offer from Chrome's password manager, in Chrome's words. The password stays in the core.
 typedef struct bc_offer {
-  // A BC_OFFER_ kind.
+  // A BC_OFFER_KIND_ kind.
   int kind;
   // Such as "Save password?", and the site whose password it is, as the user should see it.
   const char* title;
@@ -301,7 +301,7 @@ typedef struct bc_offer {
   const char* username;
   const char* const* usernames;
   size_t username_count;
-  // How many characters the password has, to show it masked.
+  // How many characters (code points) the password has, to show it masked.
   size_t password_length;
   // The labels of its buttons for BC_OFFER_ACCEPT, BC_OFFER_NOT_NOW and BC_OFFER_NEVER, the last ""
   // where it has none, as an update.

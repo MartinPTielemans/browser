@@ -4,6 +4,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -31,6 +32,12 @@ namespace {
 std::map<bc_id, std::unique_ptr<SaveUpdateBubbleController>>& Offers() {
   static base::NoDestructor<std::map<bc_id, std::unique_ptr<SaveUpdateBubbleController>>> offers;
   return *offers;
+}
+
+// The password's characters, counted by code point so that an emoji draws one dot.
+size_t CodePoints(std::u16string_view password) {
+  return std::ranges::count_if(password,
+                               [](char16_t unit) { return unit < 0xDC00 || unit > 0xDFFF; });
 }
 
 bool IsOffer(password_manager::ui::State state) {
@@ -187,13 +194,13 @@ void PasswordOffer::Report(bc_id tab) {
       update ? std::string()
              : l10n_util::GetStringUTF8(IDS_PASSWORD_MANAGER_BUBBLE_BLOCKLIST_BUTTON);
   const bc_offer reported = {
-      .kind = update ? BC_OFFER_PASSWORD_UPDATE : BC_OFFER_PASSWORD,
+      .kind = update ? BC_OFFER_KIND_PASSWORD_UPDATE : BC_OFFER_KIND_PASSWORD,
       .title = title.c_str(),
       .site = site.c_str(),
       .username = username.c_str(),
       .usernames = names.data(),
       .username_count = names.size(),
-      .password_length = form.password_value.size(),
+      .password_length = CodePoints(form.password_value.secure_value()),
       .accept = accept.c_str(),
       .decline = decline.c_str(),
       .never = never.c_str(),

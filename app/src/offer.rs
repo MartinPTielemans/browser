@@ -212,15 +212,14 @@ fn windows(cx: &App) -> Vec<WindowHandle<OfferPrompt>> {
 /// The core reports `tab`'s offer, or that it has none.
 pub fn changed(tab: u64, offer: Option<Offer>, cx: &mut App) {
     // check.sh reads these lines. They count the page's other fields' values rather than log them,
-    // as a check keeps its log.
+    // as a check keeps its log, and leave out the password's length, since prod logs to stderr too.
     match &offer {
         Some(offer) => log!(
-            "browser: offer {tab} {} {} {} {}",
+            "browser: offer {tab} {} {} {}",
             match offer.kind {
                 Kind::Save => "save",
                 Kind::Update => "update",
             },
-            offer.password_length,
             offer.username,
             offer.usernames.len()
         ),
