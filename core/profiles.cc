@@ -4,12 +4,15 @@
 #include <map>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "base/barrier_closure.h"
 #include "base/files/file_path.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback.h"
 #include "base/functional/callback_helpers.h"
+#include "base/logging.h"
+#include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
 #include "base/scoped_observation.h"
 #include "base/strings/string_number_conversions.h"
@@ -21,6 +24,7 @@
 #include "browser_core/host.h"
 #include "browser_core/search.h"
 #include "browser_core/space.h"
+#include "browser_core/window.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/delete_profile_helper.h"
@@ -30,10 +34,17 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_attributes_entry.h"
 #include "chrome/browser/profiles/profile_attributes_storage.h"
+#include "chrome/browser/profiles/profile_destroyer.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_observer.h"
+#include "chrome/browser/ui/browser_window/public/browser_collection.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+#include "chrome/browser/ui/browser_window/public/desktop_browser_window_capabilities.h"
+#include "chrome/browser/ui/browser_window/public/profile_browser_collection.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "content/public/browser/web_contents.h"
+#include "ui/base/base_window.h"
 
 namespace browser_core {
 
@@ -91,8 +102,25 @@ std::map<Profile*, std::unique_ptr<SessionEnd>>& Sessions() {
   return *sessions;
 }
 
+// The off-the-record profiles of sessions that have ended, which Chrome destroys once their pages'
+// processes have gone, up to a second later, and hands out again until then.
+std::vector<base::WeakPtr<Profile>>& Ended() {
+  static base::NoDestructor<std::vector<base::WeakPtr<Profile>>> ended;
+  return *ended;
+}
+
+// Whether a private window of |profile|'s is open, or closing.
+bool PrivateWindowOpen(Profile* profile) {
+  return std::ranges::any_of(Window::All(), [dir = DirOf(profile)](const Window* window) {
+    const Space* space = Space::FromId(window->space());
+    return window->off_the_record() && space && space->profile() == dir;
+  });
+}
+
 void SessionEnd::OnProfileWillBeDestroyed(Profile* profile) {
   const bc_id id = ProfileId(DirOf(profile));
+  std::erase_if(Ended(), [](const base::WeakPtr<Profile>& each) { return !each; });
+  Ended().push_back(profile->GetWeakPtr());
   // Deletes this.
   Sessions().erase(profile);
   // A quit ends them all, and the app has stopped hearing.
@@ -184,12 +212,69 @@ void ReleaseProfiles() {
   Used().clear();
 }
 
-Profile* PrivateProfileOf(Profile* profile) {
+Profile* PrivateProfileOf(Profile* profile, bool start) {
+  // A session that has ended is gone at once, so the new window's starts without its cookies, and
+  // Chrome doesn't destroy the profile later under the new window's Browser. Not while the window
+  // that ended it is still closing, as it holds things of the profile until it's gone.
+  if (Profile* ending = profile->GetPrimaryOTRProfile(/*create_if_needed=*/false);
+      start && ending && !PrivateWindowOpen(profile) &&
+      std::ranges::any_of(Ended(), [ending](const base::WeakPtr<Profile>& each) {
+        return each.get() == ending;
+      })) {
+    ProfileDestroyer::DestroyOTRProfileImmediately(ending);
+  }
   Profile* off_the_record = profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
   if (off_the_record && !Sessions().contains(off_the_record)) {
     Sessions()[off_the_record] = std::make_unique<SessionEnd>(off_the_record);
   }
   return off_the_record;
+}
+
+void EndPrivateSession(Profile* profile) {
+  Profile* off_the_record = profile->GetPrimaryOTRProfile(/*create_if_needed=*/false);
+  // None, Chrome ended it as the last of its Browsers went, or a quit ends it.
+  if (!off_the_record || !Sessions().contains(off_the_record) || PrivateWindowOpen(profile) ||
+      browser_shutdown::IsTryingToQuit() || browser_shutdown::HasShutdownStarted()) {
+    return;
+  }
+  // A Browser something else made in the session keeps it. Closing it ends the session, as Chrome
+  // ends it once the last one has gone. The log names it, for check.sh.
+  // Listed first, since closing one changes the collection.
+  std::vector<BrowserWindowInterface*> kept;
+  ProfileBrowserCollection::GetForProfile(off_the_record)
+      ->ForEach([&kept](BrowserWindowInterface* browser) {
+        kept.push_back(browser);
+        return true;
+      });
+  if (!kept.empty()) {
+    for (BrowserWindowInterface* browser : kept) {
+      LOG(ERROR) << "browser: private session outlived its windows, kept by a Browser of type "
+                 << static_cast<int>(browser->GetType()) << " with "
+                 << browser->GetTabStripModel()->count() << " tabs, "
+                 << (Window::ForBrowser(browser) ? "the core's" : "not the core's");
+      if (!browser->capabilities()->IsAttemptingToCloseBrowser()) {
+        browser->GetWindow()->Close();
+      }
+    }
+    return;
+  }
+  // Posted, so a Browser whose deletion Chrome has already posted goes first, ending the session
+  // as Chrome does.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](base::WeakPtr<Profile> off_the_record) {
+                       if (!off_the_record || !Sessions().contains(off_the_record.get()) ||
+                           browser_shutdown::IsTryingToQuit() ||
+                           browser_shutdown::HasShutdownStarted() ||
+                           PrivateWindowOpen(off_the_record->GetOriginalProfile()) ||
+                           !ProfileBrowserCollection::GetForProfile(off_the_record.get())
+                                ->IsEmpty()) {
+                         return;
+                       }
+                       LOG(ERROR) << "browser: private session outlived its windows and Browsers";
+                       ProfileDestroyer::DestroyOTRProfileWhenAppropriate(off_the_record.get());
+                     },
+                     off_the_record->GetWeakPtr()));
 }
 
 std::vector<bc_id> Profiles() {
