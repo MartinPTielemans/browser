@@ -51,7 +51,10 @@ mod platform {
     unsafe extern "C" {
         pub fn drive_start();
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
+        #[cfg(not(target_os = "linux"))]
         pub fn host_ui_view() -> *mut c_void;
+        #[cfg(target_os = "linux")]
+        pub fn host_watch_fd(fd: c_int, ready: extern "C" fn());
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_show_launch_window(profile_dir: *const c_char, width: f64, height: f64);
         pub fn host_close_launch_window();
@@ -2311,7 +2314,11 @@ fn open_window(
     private: Option<bc::bc_id>,
     cx: &mut App,
 ) -> Option<bc::bc_id> {
+    #[cfg(not(target_os = "linux"))]
     let ui_view = unsafe { platform::host_ui_view() };
+    // GPUI's own X11 window, which its window opens in, as the view the core holds.
+    #[cfg(target_os = "linux")]
+    let ui_view = gpui_linux::new_host_window().unwrap_or(0) as usize as *mut c_void;
     let after = from.as_ref().map(|from| from.ui_view);
     let id = open_browser_window(ui_view, after, private)?;
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
@@ -2326,6 +2333,8 @@ fn open_window(
     gpui_macos::open_next_window_in(ui_view);
     #[cfg(target_os = "windows")]
     gpui_windows::open_next_window_in(ui_view);
+    #[cfg(target_os = "linux")]
+    gpui_linux::open_next_window_in(ui_view as usize as u32);
     // Transparent, over the window's material.
     let options = WindowOptions {
         window_background: WindowBackgroundAppearance::Transparent,
@@ -2579,7 +2588,19 @@ unsafe extern "C" fn started(_: *mut c_void) {
     // Chromium's message loop dispatches GPUI's messages, as its run loop does on the Mac.
     #[cfg(target_os = "windows")]
     gpui_windows::embed();
-    let app = gpui_platform::application().with_assets(shell::Assets).run_embedded(|cx| {
+    #[cfg(target_os = "linux")]
+    gpui_linux::embed();
+    let application = gpui_platform::application().with_assets(shell::Assets);
+    // X11, as Chromium is (decision 3): the core puts GPUI's window in the browser's, which
+    // Wayland can't do across two connections. Under Wayland that's XWayland.
+    #[cfg(target_os = "linux")]
+    let application = application.with_windowing(gpui::WindowingRequest::Windowed(
+        gpui::GraphicalEnvironment {
+            wayland_display: None,
+            ..gpui::GraphicalEnvironment::detect()
+        },
+    ));
+    let app = application.run_embedded(|cx| {
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
         shell::bind_keys(cx);
@@ -2600,6 +2621,13 @@ unsafe extern "C" fn started(_: *mut c_void) {
         open_window(None, None, cx);
     });
     APP.set(Some(app));
+    #[cfg(target_os = "linux")]
+    if let Some(fd) = gpui_linux::embedded_fd() {
+        extern "C" fn ready() {
+            gpui_linux::dispatch_embedded();
+        }
+        unsafe { platform::host_watch_fd(fd, ready) };
+    }
 }
 
 /// The menu bar: Arc's menus, with the commands the browser has, what `bar` says of the key
@@ -3635,6 +3663,12 @@ fn profile_dir() -> String {
             } else {
                 format!(r"{local}\browser-app")
             }
+        } else if cfg!(target_os = "linux") {
+            if cfg!(feature = "prod") {
+                format!("{home}/.config/{name}")
+            } else {
+                format!("{home}/.cache/browser-app")
+            }
         } else if cfg!(feature = "prod") {
             format!("{home}/Library/Application Support/{name}")
         } else {
@@ -3663,6 +3697,11 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     // The prod build is signed alike every time (tools/install.sh), so macOS asks once.
     if !cfg!(feature = "prod") {
         args.push("--use-mock-keychain".into());
+        // The same on Linux, where the key is in the desktop's keyring, and asking for it can
+        // prompt too: a dev build keeps it in its profile.
+        if cfg!(target_os = "linux") {
+            args.push("--password-store=basic".into());
+        }
     }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
@@ -3722,7 +3761,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     (args, host)
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn main() {
     let (args, host) = switches_and_host();
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
@@ -3738,10 +3777,18 @@ fn main() {
     std::process::exit(1);
 }
 
-/// On Windows the browser is this DLL, which chrome.exe's core loads as Chromium starts, in place of
-/// a main that calls bc_main (core/public/browser_core.h). What it returns lasts as long as the
-/// process.
-#[cfg(target_os = "windows")]
+/// On Linux this program only says where the browser is: chrome runs it from libBrowser.so.
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+fn main() {
+    log!("browser: on Linux, run chrome beside libBrowser.so, which linux/ builds");
+    std::process::exit(1);
+}
+
+/// On Windows and Linux the browser is this library, which the core in Chromium's own executable
+/// loads as Chromium starts, in place of a main that calls bc_main (core/public/browser_core.h).
+/// What it returns lasts as long as the process.
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn bc_app_host(argc: *mut c_int, argv: *mut *const *const c_char) -> *const bc::bc_host {
     let (args, host) = switches_and_host();

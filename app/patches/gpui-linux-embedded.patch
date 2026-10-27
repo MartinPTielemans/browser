@@ -1,0 +1,371 @@
+diff --git i/crates/gpui_linux/src/gpui_linux.rs w/crates/gpui_linux/src/gpui_linux.rs
+index a5390e77f8..af72c91a08 100644
+--- i/crates/gpui_linux/src/gpui_linux.rs
++++ w/crates/gpui_linux/src/gpui_linux.rs
+@@ -1,4 +1,8 @@
+ #![cfg(any(target_os = "linux", target_os = "freebsd"))]
+ mod linux;
+ 
+-pub use linux::{current_platform, linux_platform};
++pub use linux::{
++    current_platform, dispatch_embedded, embed, embedded_fd, linux_platform, new_host_window,
++};
++#[cfg(feature = "x11")]
++pub use linux::open_next_window_in;
+diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
+index e4da54b52b..2ccc49ae09 100644
+--- i/crates/gpui_linux/src/linux.rs
++++ w/crates/gpui_linux/src/linux.rs
+@@ -19,12 +19,15 @@ pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
+ pub(crate) use headless::*;
+ pub(crate) use keyboard::*;
+ pub(crate) use platform::*;
++pub use platform::{dispatch_embedded, embed, embedded_fd, new_host_window};
+ #[cfg(any(feature = "wayland", feature = "x11"))]
+ pub(crate) use text_system::*;
+ #[cfg(feature = "wayland")]
+ pub(crate) use wayland::*;
+ #[cfg(feature = "x11")]
+ pub(crate) use x11::*;
++#[cfg(feature = "x11")]
++pub use x11::open_next_window_in;
+ 
+ use std::rc::Rc;
+ 
+diff --git i/crates/gpui_linux/src/linux/platform.rs w/crates/gpui_linux/src/linux/platform.rs
+index 0c5370db6c..75a520d7b6 100644
+--- i/crates/gpui_linux/src/linux/platform.rs
++++ w/crates/gpui_linux/src/linux/platform.rs
+@@ -269,6 +269,66 @@ async fn listen_for_system_power_events(
+     Ok(())
+ }
+ 
++thread_local! {
++    static EMBEDDED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++    static EMBEDDED_PLATFORM: std::cell::Cell<*const LinuxPlatform> =
++        const { std::cell::Cell::new(std::ptr::null()) };
++    static EMBEDDED_LOOP: RefCell<Option<EventLoop<'static, ()>>> = const { RefCell::new(None) };
++}
++
++/// Lets an embedder that runs the thread's loop, such as a browser engine, run GPUI:
++/// `Application::run_embedded` returns once GPUI has launched, rather than running a loop of its
++/// own, and the embedder calls [`dispatch_embedded`] whenever [`embedded_fd`] is readable. Call it
++/// before starting, on the thread GPUI runs on.
++pub fn embed() {
++    EMBEDDED.set(true);
++}
++
++pub(crate) fn is_embedded() -> bool {
++    EMBEDDED.get()
++}
++
++/// A file descriptor that's readable while GPUI has events to dispatch, once it has launched
++/// embedded.
++pub fn embedded_fd() -> Option<std::os::fd::RawFd> {
++    EMBEDDED_LOOP.with_borrow(|event_loop| event_loop.as_ref().map(|l| l.as_fd().as_raw_fd()))
++}
++
++/// Dispatches what GPUI has ready, without waiting. Timers wake [`embedded_fd`] too.
++pub fn dispatch_embedded() {
++    EMBEDDED_LOOP.with(|event_loop| {
++        // A callback that runs a nested loop of the embedder's doesn't dispatch GPUI's again.
++        let Ok(mut event_loop) = event_loop.try_borrow_mut() else {
++            return;
++        };
++        if let Some(event_loop) = event_loop.as_mut() {
++            event_loop.dispatch(Some(Duration::ZERO), &mut ()).log_err();
++        }
++    });
++    let platform = EMBEDDED_PLATFORM.get();
++    if !platform.is_null() {
++        // SAFETY: the platform outlives the app, which the embedder keeps for as long as it
++        // dispatches, and both are only used on this thread.
++        unsafe { &*platform }.apply_pending_mode();
++    }
++}
++
++/// Makes an unmapped X11 window for the next window GPUI opens to fill (`open_next_window_in`),
++/// for an embedder to put in a window of its own. `None` unless GPUI is on X11.
++pub fn new_host_window() -> Option<u32> {
++    let platform = EMBEDDED_PLATFORM.get();
++    if platform.is_null() {
++        return None;
++    }
++    // SAFETY: as in `dispatch_embedded`.
++    let connection = unsafe { &*platform }.connection.borrow();
++    match &*connection {
++        #[cfg(feature = "x11")]
++        DisplayConnection::X11(x11) => x11.0.borrow().new_host_window().log_err(),
++        _ => None,
++    }
++}
++
+ /// GPUI's platform for Linux and FreeBSD.
+ ///
+ /// One event loop serves the whole process. The foreground executor and power listener are
+@@ -617,9 +677,19 @@ impl Platform for LinuxPlatform {
+     }
+ 
+     fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
++        if EMBEDDED.get() {
++            EMBEDDED_PLATFORM.set(self as *const Self);
++        }
+         self.connect_initially();
+         on_finish_launching();
+ 
++        // An embedder's loop, such as a browser engine's, dispatches GPUI's (`dispatch_embedded`).
++        if EMBEDDED.get() {
++            let event_loop = self.event_loop.borrow_mut().take().expect("App is already running");
++            EMBEDDED_LOOP.with_borrow_mut(|embedded| *embedded = Some(event_loop));
++            return;
++        }
++
+         let mut event_loop = self
+             .event_loop
+             .borrow_mut()
+diff --git i/crates/gpui_linux/src/linux/x11.rs w/crates/gpui_linux/src/linux/x11.rs
+index f9b9727330..5d46d6e422 100644
+--- i/crates/gpui_linux/src/linux/x11.rs
++++ w/crates/gpui_linux/src/linux/x11.rs
+@@ -10,4 +10,5 @@ pub(crate) use clipboard::wait_for_clipboard_handovers;
+ pub(crate) use display::*;
+ pub(crate) use event::*;
+ pub(crate) use window::*;
++pub use window::open_next_window_in;
+ pub(crate) use xim_handler::*;
+diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
+index e21f019c64..2b52ef16e2 100644
+--- i/crates/gpui_linux/src/linux/x11/client.rs
++++ w/crates/gpui_linux/src/linux/x11/client.rs
+@@ -1230,6 +1230,7 @@ impl X11Client {
+             }
+             Event::XinputButtonPress(event) => {
+                 let window = self.get_window(event.event)?;
++                window.focus_if_hosted();
+                 let mut state = self.0.borrow_mut();
+ 
+                 let modifiers = modifiers_from_xinput_info(event.mods);
+@@ -2052,6 +2053,9 @@ impl X11ClientState {
+         x_window: xproto::Window,
+         refresh_rate: Duration,
+     ) -> RegistrationToken {
++        if crate::linux::is_embedded() {
++            return self.start_embedded_refresh_loop(x_window, refresh_rate);
++        }
+         self.loop_handle
+             .insert_source(calloop::timer::Timer::immediate(), {
+                 let this = self.this.clone();
+@@ -2087,6 +2091,98 @@ impl X11ClientState {
+             .expect("Failed to initialize window refresh timer")
+     }
+ 
++    /// The refresh loop on a timerfd, which wakes the event loop's file descriptor: an embedder
++    /// that dispatches GPUI's loop when that's readable never sees calloop's own timers.
++    #[must_use]
++    fn start_embedded_refresh_loop(
++        &self,
++        x_window: xproto::Window,
++        refresh_rate: Duration,
++    ) -> RegistrationToken {
++        use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
++        // SAFETY: plain system calls, on a file descriptor this owns from here on.
++        let timer = unsafe {
++            let fd = libc::timerfd_create(
++                libc::CLOCK_MONOTONIC,
++                libc::TFD_NONBLOCK | libc::TFD_CLOEXEC,
++            );
++            assert!(fd >= 0, "Failed to create window refresh timer");
++            let period = libc::timespec {
++                tv_sec: refresh_rate.as_secs() as _,
++                tv_nsec: refresh_rate.subsec_nanos() as _,
++            };
++            let spec = libc::itimerspec {
++                it_interval: period,
++                it_value: libc::timespec { tv_sec: 0, tv_nsec: 1 },
++            };
++            libc::timerfd_settime(fd, 0, &spec, std::ptr::null_mut());
++            OwnedFd::from_raw_fd(fd)
++        };
++        self.loop_handle
++            .insert_source(
++                Generic::new(timer, calloop::Interest::READ, calloop::Mode::Level),
++                {
++                    let this = self.this.clone();
++                    move |_, timer, _| {
++                        let mut expirations = 0u64;
++                        // SAFETY: reads the 8 bytes a timerfd gives into a u64.
++                        unsafe {
++                            libc::read(
++                                timer.as_raw_fd(),
++                                (&raw mut expirations).cast(),
++                                std::mem::size_of::<u64>(),
++                            )
++                        };
++                        let Some(client) = this.get_client() else {
++                            return Ok(calloop::PostAction::Remove);
++                        };
++                        let instant = Instant::now();
++                        let xcb_connection = {
++                            let mut state = client.0.borrow_mut();
++                            let xcb_connection = state.xcb_connection.clone();
++                            if let Some(window) = state.windows.get_mut(&x_window) {
++                                let window = window.window.clone();
++                                drop(state);
++                                window.refresh(RequestFrameOptions {
++                                    require_presentation: false,
++                                    force_render: false,
++                                    signal_at: PlatformFrameSignal::capture(|| instant),
++                                    signal_source: FrameRequestSource::LocalSchedule,
++                                });
++                            }
++                            xcb_connection
++                        };
++                        client.process_x11_events(&xcb_connection).log_err();
++                        Ok(calloop::PostAction::Continue)
++                    }
++                },
++            )
++            .expect("Failed to initialize window refresh timer")
++    }
++
++    /// An unmapped window on the root for an embedder to hold GPUI's next window in
++    /// (`crate::linux::new_host_window`).
++    pub(crate) fn new_host_window(&self) -> anyhow::Result<u32> {
++        let xcb = &self.xcb_connection;
++        let screen = &xcb.setup().roots[self.x_root_index];
++        let window = xcb.generate_id()?;
++        xcb.create_window(
++            x11rb::COPY_DEPTH_FROM_PARENT,
++            window,
++            screen.root,
++            0,
++            0,
++            1,
++            1,
++            0,
++            xproto::WindowClass::INPUT_OUTPUT,
++            x11rb::COPY_FROM_PARENT,
++            &xproto::CreateWindowAux::new(),
++        )?
++        .check()?;
++        Ok(window)
++    }
++
+     fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
+         if let Some(cursor) = self.cursor_cache.get(&style) {
+             return *cursor;
+diff --git i/crates/gpui_linux/src/linux/x11/window.rs w/crates/gpui_linux/src/linux/x11/window.rs
+index f6ee76ae8c..706b8a486f 100644
+--- i/crates/gpui_linux/src/linux/x11/window.rs
++++ w/crates/gpui_linux/src/linux/x11/window.rs
+@@ -258,6 +258,8 @@ pub struct Callbacks {
+ 
+ pub struct X11WindowState {
+     parent: Option<X11WindowStatePtr>,
++    /// Inside an embedder's window (`open_next_window_in`), which places and sizes it.
++    hosted: bool,
+     children: FxHashSet<xproto::Window>,
+     client: X11ClientStatePtr,
+     executor: ForegroundExecutor,
+@@ -307,6 +309,17 @@ impl X11WindowState {
+     }
+ }
+ 
++thread_local! {
++    static NEXT_HOST_WINDOW: std::cell::Cell<xproto::Window> = const { std::cell::Cell::new(0) };
++}
++
++/// Opens the next window inside `host_window`, an X11 window of an embedder's such as a browser
++/// engine's, instead of as a window of its own. It fills the host as it opens; the embedder sizes
++/// it from then on, and the options that describe a top-level window don't apply.
++pub fn open_next_window_in(host_window: u32) {
++    NEXT_HOST_WINDOW.set(host_window);
++}
++
+ #[derive(Clone)]
+ pub(crate) struct X11WindowStatePtr {
+     pub state: Rc<RefCell<X11WindowState>>,
+@@ -522,7 +535,16 @@ impl X11WindowState {
+                     | xproto::EventMask::VISIBILITY_CHANGE,
+             );
+ 
++        let host_window = NEXT_HOST_WINDOW.replace(0);
++        let hosted = host_window != 0;
+         let mut bounds = params.bounds.to_device_pixels(scale_factor);
++        if hosted {
++            let host = get_reply(|| "X11 GetGeometry of the host window failed.", xcb.get_geometry(host_window))?;
++            bounds.origin = gpui::point(DevicePixels(0), DevicePixels(0));
++            bounds.size = gpui::size(DevicePixels(host.width.into()), DevicePixels(host.height.into()));
++        }
++        // Not the offset a top-level window opens at; see the GetGeometry below.
++        let x_offset = if hosted { 0 } else { 2 };
+         if bounds.size.width.0 == 0 || bounds.size.height.0 == 0 {
+             log::warn!(
+                 "Window bounds contain a zero value. height={}, width={}. Falling back to defaults.",
+@@ -540,7 +562,7 @@ impl X11WindowState {
+                     visual.depth,
+                     x_window,
+                     visual_set.root,
+-                    bounds.origin.x.0 + 2,
++                    bounds.origin.x.0 + x_offset,
+                     bounds.origin.y.0,
+                     bounds.size.width.0,
+                     bounds.size.height.0
+@@ -549,8 +571,8 @@ impl X11WindowState {
+             xcb.create_window(
+                 visual.depth,
+                 x_window,
+-                visual_set.root,
+-                (bounds.origin.x.0 + 2) as i16,
++                if hosted { host_window } else { visual_set.root },
++                (bounds.origin.x.0 + x_offset) as i16,
+                 bounds.origin.y.0 as i16,
+                 bounds.size.width.0 as u16,
+                 bounds.size.height.0 as u16,
+@@ -576,7 +598,7 @@ impl X11WindowState {
+             )?;
+ 
+             let reply = get_reply(|| "X11 GetGeometry failed.", xcb.get_geometry(x_window))?;
+-            if reply.x == 0 && reply.y == 0 {
++            if reply.x == 0 && reply.y == 0 && !hosted {
+                 bounds.origin.x.0 += 2;
+                 // Work around a bug where our rendered content appears
+                 // outside the window bounds when opened at the default position
+@@ -827,6 +849,7 @@ impl X11WindowState {
+ 
+             Ok(Self {
+                 parent,
++                hosted,
+                 children: FxHashSet::default(),
+                 client,
+                 executor,
+@@ -1049,6 +1072,18 @@ impl X11Window {
+ }
+ 
+ impl X11WindowStatePtr {
++    /// Takes the keyboard into a hosted window, as a window manager does for a window of its own
++    /// when it's clicked or activated.
++    pub(crate) fn focus_if_hosted(&self) {
++        if !self.state.borrow().hosted {
++            return;
++        }
++        self.xcb
++            .set_input_focus(xproto::InputFocus::PARENT, self.x_window, x11rb::CURRENT_TIME)
++            .log_err();
++        xcb_flush(&self.xcb);
++    }
++
+     pub fn should_close(&self) -> bool {
+         let mut cb = self.callbacks.borrow_mut();
+         if let Some(mut should_close) = cb.should_close.take() {
+@@ -1528,6 +1563,10 @@ impl PlatformWindow for X11Window {
+     }
+ 
+     fn activate(&self) {
++        if self.0.state.borrow().hosted {
++            self.0.focus_if_hosted();
++            return;
++        }
+         let data = [1, xproto::Time::CURRENT_TIME.into(), 0, 0, 0];
+         let message = xproto::ClientMessageEvent::new(
+             32,

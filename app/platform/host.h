@@ -37,6 +37,10 @@ bool host_save_launch_picture(void* ui_view, const char* profile_dir, double wid
 // functions below that take a |ui_view| act on the browser window it's in.
 void* host_ui_view(void);
 
+// Linux only: calls |ready| from Chromium's loop whenever |fd| is readable, for GPUI's loop, which
+// runs inside it (gpui_linux::embed).
+void host_watch_fd(int fd, void (*ready)(void));
+
 // Shows the window holding |ui_view| in front, with its title bar over the UI, and makes the
 // app the active one.
 void host_show_window(void* ui_view);
