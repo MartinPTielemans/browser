@@ -48,8 +48,8 @@ ask c Confirm confirm-again
 answer return accept "confirm true"
 # The prompt's field holds the page's default, selected, so typing takes its place.
 ask p Prompt prompt
-send type Grace
-answer return accept "prompt Grace"
+send type grace
+answer return accept "prompt grace"
 
 # Another tab takes the alert down, and its own brings it back.
 open_from_bar example.com
