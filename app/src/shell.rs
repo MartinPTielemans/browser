@@ -25,6 +25,8 @@ use crate::{
 #[cfg(test)]
 mod agent_spaces;
 #[cfg(test)]
+mod close_tab;
+#[cfg(test)]
 mod full_screen;
 mod assets;
 mod browser;

@@ -364,7 +364,9 @@ impl Browser for Recorder {
 
     fn new_window(&self, _: &mut App) {}
 
-    fn close_window(&self, _: &mut App) {}
+    fn close_window(&self, _: &mut App) {
+        self.record("close window".into())
+    }
 
     fn new_private_window(&self, _: &mut App) {}
 }

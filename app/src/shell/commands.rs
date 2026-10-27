@@ -677,9 +677,14 @@ impl Shell {
             }
             Command::CloseTab => {
                 // From a window of Chrome's, such as its Task Manager, ⌘W closes that window, as in
-                // Chrome, and leaves the tab alone.
-                if !self.browser.close_other_window(cx) && self.selected != 0 {
-                    self.browser.close(self.selected, false, cx);
+                // Chrome, and leaves the tab alone. With no tab selected there is no page to
+                // close, so it closes the window, as ⇧⌘W does.
+                if !self.browser.close_other_window(cx) {
+                    if self.selected != 0 {
+                        self.browser.close(self.selected, false, cx);
+                    } else {
+                        self.browser.close_window(cx);
+                    }
                 }
                 return;
             }
