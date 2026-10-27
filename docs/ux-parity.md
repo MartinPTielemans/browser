@@ -136,7 +136,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Wheel mice | MVP | sum deltas < 0.049 s apart; > 1 pt pages once; ignore 0.25 s | Dia 1.50.1 bin |
 | [x] | ⌃1–⌃9 | MVP | switch Space | Dia (as profiles) |
 | [x] | Colour cross-fade | MVP | uniform across the window; next door exponentially, τ ≈ 30 ms; a longer jump with the 0.19 s settle; a swipe with the pages | Arc 1.170 rec, Ardia |
-| [ ] | Space title, create, colour, icon | MVP | built: the Create a Space form (Arc's), Arc's theme picker from its Choose a Theme row and Edit Theme Color… (Themes), and Change Icon… opening Arc's icon picker (below); Arc's title flow: measure | — |
+| [ ] | Space title, create, colour, icon | MVP | built: the Create a Space form (Arc's), Arc's theme picker from its Choose a Theme row and Edit Theme Color… (Themes), Remove Theme Color back to the accent *interim*, and Change Icon… opening Arc's icon picker (below); Arc's title flow: measure | — |
 | [x] | Space icon picker | MVP | popover 273 × 273 at radius 20 under the name, arrow at the icon; Emoji \| Icon and a trash; 56 glyphs 8 × 7 on a 31 pitch (Phosphor's), the Space's on a white 0.25 plate; Emoji tab a field and the palette *interim*; grows in from the arrow and goes in one frame; Emoji ↔ Icon slides the content 273 over 0.2 s; hover white 0.12 on a glyph, the trash and the other segment *interim*, Arc's: measure | Arc 1.170.0 cap, Arc 1.170 rec |
 | [x] | Rename and delete | MVP | native menu on the name or dot; double-click renames; delete asks in Arc's dialog if it has tabs | Arc, ours |
 | [x] | Undo delete | MVP | the toast says "Space deleted! Use ⌘Z to undo." for 5 s; ⌘Z brings the Space back where it was, with its tabs, and pages to it | Arc 1.170 rec |
@@ -398,7 +398,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Little Arc: visuals and motion | 4 | measure | — |
 | [ ] | Themes: rendering | 4 | OKLab 45° mix to 75 %; third colour top → bottom; alpha 0.2 + 0.55 × intensity; the automatic appearance turns a light colour's window light. Built, dark only: one colour keeps the Space gradient, intensity scales its alpha, two and three as Arc's rule *interim* | Arc 1.167 P§21, Arc 1.170 rec |
 | [ ] | Themes: texture | 4 | noise × strength (0.8 / 0.15 / 0.6 / 0.4), quarter when inactive; our own textures. Built: one grain of our own noise at 0.075 × the dial *interim* | Arc 1.167, Arc 1.170 rec |
-| [ ] | Themes: picker | 4 | card 357 × 509 at radius 20, arrow at the row; HSL field 340 with 1–3 handles (44 / 26, + 180°, + 150° / + 210°); appearance ×3, − +, 9 swatches, wave slider for intensity, 24-dot dial for grain; grows from the arrow, shrinks to it in 110 ms; the window follows each drag. *Interim*: swatch clicks, < >, −, the menu's anchor, appearance not drawn, translucency not offered | Arc 1.170 rec |
+| [ ] | Themes: picker | 4 | card 357 × 509 at radius 20, arrow at the row; HSL field 340 with 1–3 handles (44 / 26, + 180°, + 150° / + 210°); appearance ×3, − +, 9 swatches, wave slider for intensity, 24-dot dial for grain; grows from the arrow, shrinks to it in 110 ms; the window follows each drag. *Interim*: swatch clicks, < >, −, Remove Theme Color, the menu's anchor, appearance not drawn, translucency not offered | Arc 1.170 rec |
 | [ ] | Appearance menu | 4 | Automatic / Light / Dark; light window: material 13, tint white 0.8, gradient layer 0.75, card white 0.7 | Dia, Dia 1.50.1 bin |
 
 ## Later (picked by the owner, not on the roadmap)
