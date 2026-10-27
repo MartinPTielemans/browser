@@ -31,6 +31,8 @@ pub enum DialogKind {
     Alert,
     Confirm,
     Prompt,
+    /// Whether to leave the page, which its beforeunload handler asks.
+    Leave,
 }
 
 /// The user's answer to a page's dialog. What was typed is for the page alone, so it's left out
