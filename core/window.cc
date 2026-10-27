@@ -11,6 +11,7 @@
 
 #include "base/auto_reset.h"
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
@@ -257,6 +258,25 @@ void StretchOnResize(content::WebContents* contents, bool stretch) {
   }
 }
 
+// The pages on their way between windows, each held as captured, visibly, from when a window lets
+// go of it until the window with its picture has taken it (AdoptFreedPages). Chrome hides a page
+// out of every window, which has its renderer let go of what it drew, so a heavy page would draw
+// again from nothing in the window taking it, and show nothing until it had.
+std::map<bc_id, base::ScopedClosureRunner>& MovingPages() {
+  static base::NoDestructor<std::map<bc_id, base::ScopedClosureRunner>> moving;
+  return *moving;
+}
+
+void HoldWhileMoving(content::WebContents* contents) {
+  if (!contents || MovingPages().contains(Tab::IdOf(contents))) {
+    return;
+  }
+  MovingPages().emplace(Tab::IdOf(contents),
+                        contents->IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/false,
+                                                         /*stay_awake=*/false,
+                                                         /*is_activity=*/false));
+}
+
 // When the app last asked a window to select a tab.
 base::TimeTicks g_handover_click;
 // The tab whose page Adopt last moved, until the window taking it has shown it, and the size of the
@@ -405,17 +425,28 @@ Window* Window::Picturing(bc_id tab) {
   return nullptr;
 }
 
+void Window::HoldPictured() {
+  for (bc_id pane : panes_) {
+    if (Picturing(pane)) {
+      HoldWhileMoving(Tab::FromId(pane));
+    }
+  }
+}
+
 // static
 void Window::AdoptFreedPages() {
   // A page left as the browser quits isn't shown again.
-  if (browser_shutdown::IsTryingToQuit()) {
-    return;
-  }
-  for (Window* window : All()) {
-    if (Picturing(window->selected_) == window && !Showing(window->selected_)) {
-      window->Select(window->selected_);
+  if (!browser_shutdown::IsTryingToQuit()) {
+    for (Window* window : All()) {
+      if (Picturing(window->selected_) == window && !Showing(window->selected_)) {
+        window->Select(window->selected_);
+      }
     }
   }
+  // Each page held is in a window again, or in none, which hides it now. Let go of once out of the
+  // map, as their visibility changing may come back here.
+  std::map<bc_id, base::ScopedClosureRunner> moved;
+  moved.swap(MovingPages());
 }
 
 // static
@@ -1033,6 +1064,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   const bc_id left = leaving && leaving != contents ? Tab::IdOf(leaving) : 0;
   const bc_id freed = left && Picturing(left) ? left : 0;
   PasswordOffer::Moving moving(freed);
+  HoldPictured();
   tabs->ActivateTabAt(tabs->GetIndexOfWebContents(contents));
   const bc_id tab = Tab::IdOf(contents);
   Space* space = Space::Holding(tab);
@@ -1117,8 +1149,10 @@ void Window::LayOutPage() {
       tab->SetPageColor(SkColorSetRGB(*page_color_ >> 16, *page_color_ >> 8 & 0xff,
                                       *page_color_ & 0xff));
     }
-    // At each layout, for a page whose view changed or that comes back, before it resizes.
-    StretchOnResize(contents, page_moving_);
+    // At each layout, for a page whose view changed or that comes back, before it resizes. One
+    // moving from another window shows the frame it drew there, filling its view here, until it
+    // draws at its new size.
+    StretchOnResize(contents, page_moving_ || MovingPages().contains(Tab::IdOf(contents)));
     platform::Pane& pane = panes.emplace_back(Tab::PageViewOf(contents), frame);
     DevToolsContentsResizingStrategy strategy;
     if (content::WebContents* devtools = DevToolsWindow::GetInTabWebContents(contents, &strategy)) {
@@ -1223,6 +1257,7 @@ void Window::SetSidebarWidth(double width) {
 }
 
 void Window::ShowNothing() {
+  HoldPictured();
   selected_ = 0;
   for (bc_id pane : std::exchange(panes_, {})) {
     Seen(Tab::FromId(pane));
@@ -1331,6 +1366,7 @@ void Window::Adopt(bc_id tab) {
       if (pane == tab) {
         g_left_size = showing->focused_frame_.size();
       }
+      HoldWhileMoving(contents);
       showing->LetGo();
       LogHandover("giver let go", Handing(showing->id(), pane));
     }
@@ -1860,6 +1896,9 @@ void Window::Close() {
   }
   const bool hand_over = to && !off_the_record_ && !browser_shutdown::IsTryingToQuit();
   if (hand_over) {
+    for (bc_id pane : panes_) {
+      HoldWhileMoving(Tab::FromId(pane));
+    }
     // Its pages out of its view first, as the view goes with the window. The app has no use for a
     // picture of a page for a window that is closing.
     LetGo(false);
