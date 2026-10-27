@@ -167,6 +167,19 @@ class WindowViews : public views::WidgetObserver {
           .height = pixels.height(),
           .stack_mode = x11::StackMode::Below,
       });
+      // GPUI's window, which it opened inside |ui_| on its own connection, follows on its
+      // ConfigureNotify.
+      if (auto tree = x11::Connection::Get()->QueryTree({ui_}).Sync()) {
+        for (x11::Window child : tree->children) {
+          x11::Connection::Get()->ConfigureWindow({
+              .window = child,
+              .x = 0,
+              .y = 0,
+              .width = pixels.width(),
+              .height = pixels.height(),
+          });
+        }
+      }
     }
     const float scale = Scale();
     const gfx::Size size = ContentSize();
