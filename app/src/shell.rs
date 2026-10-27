@@ -928,6 +928,10 @@ pub struct Shell {
     /// until ⌃ goes up, and then its last one does, though a click may have shown another since.
     walked: Option<u64>,
     hovered: Option<Row>,
+    /// A shortcut the page handed back ran since the pointer last moved. The sidebar draws no row
+    /// or favicon under the pointer until it moves, as GPUI hides its hover after a key of its own,
+    /// so a row the pointer rests on doesn't read as selected beside the tab a key showed.
+    page_keyed: bool,
     /// A drag ended, so the tooltip of the tile or folder the pointer is on, which it kept from
     /// asking while it was hovered under the drag, is asked for once the rows and tiles settle.
     retip: bool,
@@ -1206,6 +1210,7 @@ impl Shell {
             walked: None,
             selected: 0,
             hovered: None,
+            page_keyed: false,
             retip: false,
             menu_row: None,
             unhovered: Vec::new(),
@@ -2286,6 +2291,33 @@ impl Shell {
         cx.notify();
     }
 
+    /// The row under the pointer as the sidebar draws it (`page_keyed`).
+    fn pointer_row(&self) -> Option<Row> {
+        self.hovered.filter(|_| !self.page_keyed)
+    }
+
+    /// The same for the favicon under the pointer.
+    fn pointer_favicon(&self) -> Option<u64> {
+        self.hovered_favicon.filter(|_| !self.page_keyed)
+    }
+
+    /// A shortcut the page handed back hides the row under the pointer, easing the selected one
+    /// back as the pointer leaving it does.
+    fn hide_hover(&mut self, cx: &mut Context<Self>) {
+        if let Some(row) = self.pointer_row() {
+            self.unhover(row);
+            cx.notify();
+        }
+        self.page_keyed = true;
+    }
+
+    /// The pointer moved or pressed, which shows the row under it again.
+    fn pointer_moved(&mut self, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.page_keyed) {
+            cx.notify();
+        }
+    }
+
     /// Eases the selected row back from its hover fill once the pointer or its menu has left it.
     fn unhover(&mut self, row: Row) {
         if row == self.selected_row() {
@@ -2307,14 +2339,24 @@ impl Shell {
                 window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
                     if phase == DispatchPhase::Capture {
                         let over = bounds.contains(&event.position);
-                        moved.update(cx, |shell, cx| shell.sidebar_hover(over, cx)).ok();
+                        moved
+                            .update(cx, |shell, cx| {
+                                shell.pointer_moved(cx);
+                                shell.sidebar_hover(over, cx)
+                            })
+                            .ok();
                     }
                 });
                 let pressed = shell.clone();
                 window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
                     if phase == DispatchPhase::Capture {
                         let over = bounds.contains(&event.position);
-                        pressed.update(cx, |shell, cx| shell.sidebar_hover(over, cx)).ok();
+                        pressed
+                            .update(cx, |shell, cx| {
+                                shell.pointer_moved(cx);
+                                shell.sidebar_hover(over, cx)
+                            })
+                            .ok();
                     }
                 });
                 window.on_mouse_event(move |_: &MouseExitEvent, phase, _, cx| {
@@ -2437,14 +2479,14 @@ impl Render for Shell {
         }
         // As the outline's: the ✕ or −, and the way back, show only under the pointer, so a click
         // that follows a move waits for this line.
-        let close = match self.hovered {
+        let close = match self.pointer_row() {
             Some(Row::Tab(tab)) if self.closable(tab) => match self.close_glyph(tab) {
                 UNLOAD => "−",
                 _ => "1",
             },
             _ => "0",
         };
-        let hover = (self.hovered, self.hovered_favicon, close);
+        let hover = (self.pointer_row(), self.pointer_favicon(), close);
         if hover != self.drawn_hover {
             self.drawn_hover = hover;
             let row = match hover.0 {
