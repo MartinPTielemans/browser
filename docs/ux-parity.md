@@ -65,7 +65,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Row ↔ tile morph while dragging | MVP | plate's size, corners and fill to the tile's on the tiles' spring, title out over the first half, favicon to the middle, around the pointer; reverses mid-turn *interim*, Arc's: measure | Arc |
 | [x] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
 | [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
-| [ ] | URL typed into a pinned tab | MVP | ⌘L's URL opens as a new Today tab at the top, selected; closing it goes back to the pinned tab | Arc cap |
+| [x] | URL typed into a pinned tab | MVP | ⌘L's URL opens as a new Today tab at the top, selected; closing it goes back to the pinned tab | Arc cap |
 | [x] | Pinned tab away from its URL | MVP | the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL"; a click or ⌘↩ goes back *interim*; Arc's look: measure | Dia 1.53.0 bin |
 | [x] | Page in two windows (a pinned tab's too) | MVP | one live page; the other window draws a picture of it, 0.8 of the card, veiled black 0.12, which a click takes the page back from; steps back in 200 ms, comes forward in 120 ms *ours* | Dia cap, Ardia; ours |
 | [x] | Clear divider line | MVP | one device pixel, white 0.15, 18 in from each side; ends 9 before Clear while it shows; centre 25 above the first row's centre | Arc 1.170.0 cap and tokens, Arc (Ardia) |
