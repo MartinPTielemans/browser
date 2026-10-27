@@ -2201,6 +2201,9 @@ fn finish_opening(
     if let Some(view) = prompt.and_then(|prompt| prompt.update(cx, |_, w, _| ns_view(w)).ok()) {
         let (right, top) = (offer::RIGHT.into(), offer::TOP.into());
         unsafe { platform::host_add_offer(ui_view, view, right, top) };
+        // The core can report the window's tab before this, so the offer learns it here.
+        let selected = shell.read(cx).selected();
+        offer::tab_shown(id, selected, cx);
     }
     let children: Vec<AnyWindowHandle> = [
         find_bar::open(id, ui_view, cx),
