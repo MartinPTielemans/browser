@@ -1,0 +1,9 @@
+module browser_core.mojom;
+
+// A page's request for a protected-media key system, from Blink's encrypted media module
+// (engine/patches/ours/chromium-drm-request.patch). One interface a frame, one call a request.
+// Nothing comes back: what a request means is the browser's to decide, and the string is the
+// page's own, so the browser trusts none of it.
+interface DrmRequest {
+  KeySystemRequested(string key_system);
+};

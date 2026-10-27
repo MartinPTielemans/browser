@@ -1,0 +1,102 @@
+Tells the core (//browser_core/drm_request.mojom) which protected-media key system a page asks
+for, so the app can say why a site's video won't play. requestMediaKeySystemAccess is answered
+in the renderer, and the browser never hears of it: the Blink encrypted media module's
+initializer base, which both it and MediaCapabilities make, calls the core's per-frame
+interface, and the core adds its binder to a frame's through g_browser_core_populate_frame_binders
+(//browser_core/hooks.h). What a request means is the core's to decide; nothing comes back.
+
+--- a/chrome/browser/chrome_content_browser_client_receiver_bindings.cc
++++ b/chrome/browser/chrome_content_browser_client_receiver_bindings.cc
+@@ -8,6 +8,7 @@
+ #include "base/functional/bind.h"
+ #include "base/metrics/histogram_functions.h"
+ #include "base/task/single_thread_task_runner.h"
++#include "browser_core/hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/browser/browser_process.h"
+ #include "chrome/browser/chrome_browser_interface_binders.h"
+@@ -141,6 +142,10 @@
+ #include "chrome/browser/offline_pages/offline_page_tab_helper.h"
+ #endif
+ 
++// browser_core: the core adds its interfaces to a frame's (//browser_core/hooks.h).
++void (*g_browser_core_populate_frame_binders)(
++    mojo::BinderMapWithContext<content::RenderFrameHost*>* map) = nullptr;
++
+ namespace {
+ 
+ #if BUILDFLAG(SAFE_BROWSING_AVAILABLE)
+@@ -337,6 +342,9 @@
+     mojo::BinderMapWithContext<content::RenderFrameHost*>* map) {
+   chrome::internal::PopulateChromeFrameBinders(map, render_frame_host);
+   chrome::internal::PopulateChromeWebUIFrameBinders(map, render_frame_host);
++  if (g_browser_core_populate_frame_binders) {
++    g_browser_core_populate_frame_binders(map);
++  }
+ 
+ #if BUILDFLAG(ENABLE_EXTENSIONS_CORE)
+   if (!render_frame_host->GetSiteInstance()->GetSecurityPrincipal().SchemeIs(
+--- a/third_party/blink/renderer/modules/encryptedmedia/BUILD.gn
++++ b/third_party/blink/renderer/modules/encryptedmedia/BUILD.gn
+@@ -31,5 +31,8 @@
+     "navigator_request_media_key_system_access.cc",
+     "navigator_request_media_key_system_access.h",
+   ]
+-  deps = [ "//services/metrics/public/cpp:ukm_builders" ]
++  deps = [
++    "//browser_core:drm_request_blink",
++    "//services/metrics/public/cpp:ukm_builders",
++  ]
+ }
+--- a/third_party/blink/renderer/modules/encryptedmedia/DEPS
++++ b/third_party/blink/renderer/modules/encryptedmedia/DEPS
+@@ -1,5 +1,6 @@
+ include_rules = [
+     "-third_party/blink/renderer/modules",
++    "+browser_core/drm_request.mojom-blink.h",
+     "+media/base/content_decryption_module.h",
+     "+media/base/eme_constants.h",
+     "+media/base/key_systems.h",
+--- a/third_party/blink/renderer/modules/encryptedmedia/media_key_system_access_initializer_base.cc
++++ b/third_party/blink/renderer/modules/encryptedmedia/media_key_system_access_initializer_base.cc
+@@ -5,9 +5,12 @@
+ #include "third_party/blink/renderer/modules/encryptedmedia/media_key_system_access_initializer_base.h"
+ 
+ #include "base/metrics/histogram_functions.h"
++#include "browser_core/drm_request.mojom-blink.h"
+ #include "media/base/eme_constants.h"
++#include "mojo/public/cpp/bindings/remote.h"
+ #include "services/metrics/public/cpp/ukm_builders.h"
+ #include "services/metrics/public/cpp/ukm_recorder.h"
++#include "third_party/blink/public/platform/browser_interface_broker_proxy.h"
+ #include "third_party/blink/renderer/bindings/core/v8/script_promise_resolver.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_media_key_system_media_capability.h"
+ #include "third_party/blink/renderer/core/dom/document.h"
+@@ -23,6 +26,18 @@
+ 
+ namespace {
+ 
++// browser_core: tells the browser that |window|'s page asked for |key_system|, in
++// //browser_core/drm_request.mojom. The browser decides what it means; nothing is said back.
++void ReportKeySystemRequest(LocalDOMWindow* window, const String& key_system) {
++  if (!window || !window->GetFrame()) {
++    return;
++  }
++  mojo::Remote<browser_core::mojom::blink::DrmRequest> request;
++  window->GetFrame()->GetBrowserInterfaceBroker().GetInterface(
++      request.BindNewPipeAndPassReceiver());
++  request->KeySystemRequested(key_system);
++}
++
+ static std::vector<media::EmeInitDataType> ConvertInitDataTypes(
+     const Vector<String>& init_data_types) {
+   std::vector<media::EmeInitDataType> result(init_data_types.size());
+@@ -141,6 +156,8 @@
+   }
+ 
+   GenerateWarningAndReportMetrics();
++  // browser_core: both requestMediaKeySystemAccess and MediaCapabilities make one of these.
++  ReportKeySystemRequest(DomWindow(), key_system_);
+ }
+ 
+ const SecurityOrigin* MediaKeySystemAccessInitializerBase::GetSecurityOrigin()
