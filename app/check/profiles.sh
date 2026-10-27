@@ -199,6 +199,72 @@ expect "^browser: space $second\$" "the window didn't go with the tab moved back
 expect '^browser: today [0-9][0-9]*$' "the tab moved back isn't in the second Space"
 d=$(today)
 expect "^browser: title $d cookie none\$" "the tab moved back still saw the first profile's cookie"
+# In Every Space, the favorite has a twin in the other profile's Space. Taken away from its URL and
+# removed from the favorites, its twin goes too, and ⌘Z brings back both, each going back to the
+# favorite's URL in its own profile.
+printf '%s' '<title>away</title>' > "$out/site/away.html"
+away_page="$(echo "$site" | sed 's/127\.0\.0\.1/localhost/')away.html"
+tile="114 110"
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show Settings on its General tab"
+post clickkey 500 213
+expect "^browser: menu shown In Every Space, In Each Profile's Spaces (checked), In Each Space\$" \
+  "a click on Favorites didn't show the choices"
+send choose In Every Space
+expect "^browser: favorites scope In Every Space\$" "choosing In Every Space in Settings didn't set it"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+expect '^browser: favorites [0-9][0-9]*$' "the favorite has no twin in the other profile's Space"
+twin=$(grep '^browser: favorites' "$log" | tail -1 | cut -d' ' -f3)
+[ "$twin" != "$a" ] || fail "the other profile's Space shows the first profile's favorite itself"
+send key 1 ctrl
+expect "^browser: space $first in " "⌃1 didn't show the first Space"
+send click $tile
+expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
+go_from_bar "$away_page"
+expect "^browser: title $a away\$" "the favorite didn't go to another page"
+expect "^browser: page $a away 1\$" "the favorite away from its URL didn't say so"
+post rightclick $tile
+expect '^browser: menu shown Back to Favorite URL, Duplicate Tab, Remove from Favorites, ' \
+  "the favorite's menu didn't offer Remove from Favorites"
+send choose Remove from Favorites
+expect '^browser: favorites $' "Remove from Favorites left the tile"
+send key z cmd
+expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo Remove from Favorites"
+expect "^browser: favorites $a\$" "⌘Z didn't put the favorite back"
+# Back to Favorite URL takes each twin to the URL the favorite had, in its own profile.
+post rightclick $tile
+expect '^browser: menu shown Back to Favorite URL, ' "⌘Z put the favorite back without its URL"
+send choose Back to Favorite URL
+expect "^browser: title $a cookie p=1\$" "Back to Favorite URL didn't load the favorite's URL"
+send key 2 ctrl
+expect "^browser: space $second in " "⌃2 didn't show the second Space"
+expect '^browser: favorites [0-9][0-9]*$' "⌘Z didn't bring back the favorite's twin"
+twin=$(grep '^browser: favorites' "$log" | tail -1 | cut -d' ' -f3)
+[ "$twin" != "$a" ] || fail "the other profile's Space shows the first profile's favorite itself"
+send click $tile
+expect "^browser: selected $twin\( in .*\)\{0,1\}\$" "a click on the twin's tile didn't show it"
+go_from_bar "$away_page"
+expect "^browser: title $twin away\$" "the twin didn't go to another page"
+post rightclick $tile
+expect '^browser: menu shown Back to Favorite URL, ' "the twin away from its URL didn't offer it back"
+send choose Back to Favorite URL
+expect "^browser: title $twin cookie none\$" \
+  "the twin's Back to Favorite URL didn't load the favorite's URL in its own profile"
+# Back to In Each Profile's Spaces, the twin goes.
+send menu Settings…
+expect '^browser: settings shown ' "Settings… didn't show Settings"
+post clickkey 500 213
+expect "^browser: menu shown In Every Space (checked), In Each Profile's Spaces, In Each Space\$" \
+  "a click on Favorites didn't show In Every Space chosen"
+send choose "In Each Profile's Spaces"
+expect "^browser: favorites scope In Each Profile's Spaces\$" \
+  "choosing In Each Profile's Spaces in Settings didn't set it"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+expect '^browser: favorites $' "the twin stayed after In Each Profile's Spaces"
+send click $(row 0)
+expect "^browser: selected $d\( in .*\)\{0,1\}\$" "a click on the second Space's row didn't show it"
 # Settings › Profiles lists the profiles, a row each from 129, 41 apart, and New Profile under
 # them. A double-click on a name puts it in a field, where escape leaves it and return keeps a new
 # one.
@@ -270,4 +336,4 @@ send key return
 expect "^browser: removed profile $work personal\$" "the profile wasn't deleted"
 exec 3>&-
 quit
-echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"
+echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; in Every Space a favorite has a twin in the other profile, which goes with it when it’s removed, comes back with ⌘Z, and goes back to the favorite’s URL in its own profile; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"
