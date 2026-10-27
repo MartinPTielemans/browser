@@ -72,7 +72,11 @@ expect '^browser: command new-space via ui$' "New Space in the menu didn't run i
 send type reading
 send key return
 expect '^browser: create space [0-9]* reading$' "return didn't name the second window's Space"
-await "^browser: window $second in space reading\$" || fail "the second window didn't show its Space"
+# New Space shows the Space as it makes it, under a first name that return then renames.
+reading=$(grep '^browser: create space [0-9]* reading$' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: renamed space $reading reading\$" "the core didn't rename the second window's Space"
+[ "$(space_of "$second")" = "$(grep "^browser: added space $reading " "$log" | tail -1 | cut -d' ' -f5-)" ] ||
+  fail "the second window didn't show its Space"
 send key n cmd
 expect '^browser: window opened [0-9]' "⌘N didn't open a third window"
 third=$(windows_opened | tail -1)
