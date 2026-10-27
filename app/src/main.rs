@@ -2783,6 +2783,18 @@ unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
     log!("browser: private session ended {profile}");
 }
 
+/// An agent's action as the core judged it. The Agent Space's activity log will list these; until
+/// it ships with the MCP server (decision 8), the log has them, and check.sh reads it.
+unsafe extern "C" fn agent_activity(_: *mut c_void, entry: *const bc::bc_agent_activity) {
+    let entry = unsafe { &*entry };
+    let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy();
+    let (agent, action, refused) = (text(entry.agent), text(entry.action), text(entry.refused));
+    match refused.is_empty() {
+        true => log!("browser: agent activity {agent} {} {action}", entry.tab),
+        false => log!("browser: agent activity {agent} {} {action} refused: {refused}", entry.tab),
+    }
+}
+
 /// The page menu's Open Link in New Window and Open Link in Incognito Window: `url` opens in a
 /// window from `window` as ⌘N's, or with `private` in a private one in `profile`'s session as
 /// ⇧⌘N's, and shows there.
@@ -3660,6 +3672,7 @@ fn main() {
         tab_media_unsupported: Some(tab_media_unsupported),
         tab_offer_changed: Some(tab_offer_changed),
         open_links: Some(open_links),
+        agent_activity: Some(agent_activity),
         ..Default::default()
     };
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };
