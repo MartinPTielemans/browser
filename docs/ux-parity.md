@@ -106,7 +106,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
 | [x] | Rename | MVP | double-click or Rename Tab renames inline; the name shows over the page's title and is kept across a quit; an empty one gives the title back | Dia P§2, ours |
 | [x] | Emoji icon | MVP | Change Icon… puts a field in the favicon's place and opens the character palette; the first character picked or typed is the icon, kept as a name is; Remove Icon gives the favicon back. Dia's picker: measure | Dia P§2, ours |
-| [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Rename, Duplicate, Move to Space, Close, Close Tabs Below *interim*; Arc's items: measure | Dia P§2 |
+| [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Rename, Duplicate, Move to Space, Close, Close Tabs Below *interim*. Arc's for a Today tab: Copy Link ⇧⌘C, Share › · Change Icon…, Rename…, Mute, Customize Page… · Add Split View, Duplicate, Move to › · Archive Tab, Archive Tabs Below; a pinned tab's: measure | Dia P§2, Arc 1.170.0 ax |
 | [x] | Folders | MVP | in the pinned tabs, indented 16 a level: New Folder…, a click opens and closes, a double-click or the menu renames, Delete Folder keeps the tabs, a drag right or left takes a row in or out, kept over a quit; motion and icon *interim* | Arc ax, cap, menus |
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |
 | [ ] | Folder motion and drag | MVP | a click opens it on a 200 ms ease-out and closes it critically damped at ω ≈ 25, neither overshooting (Arc 1.170 rec); a dragged row goes in or out with the pointer's travel *interim*; how Arc's dragged row goes into a folder: measure | Arc 1.170 rec |
@@ -182,7 +182,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Paste and Go | MVP | with Paste and Search, in the command bar field's menu; the clipboard is read only once one is chosen | Dia P§7 |
 | [x] | Clean-link copy | MVP | Copy URL leaves out utm_ parameters and click IDs | Dia P§7 |
 | [x] | Copy URL / as Markdown | MVP | ⇧⌘C / ⌥⇧⌘C; as Quote ⌃⇧⌘C later | Arc 1.170.0 menus |
-| [ ] | Arc's command list and ⌘T over the page | MVP | built: ⌘T's bar opens over the page and lists our commands (Commands above); Arc's full list: measure | — |
+| [ ] | Arc's command list and ⌘T over the page | MVP | ⌘T and ⌘L: the centred panel over the page, undimmed. One list of up to 15 rows, 5 shown, no section headings; commands among the suggestions from one letter, matched by name and by hidden keywords, each with its glyph and key; about 110 commands (ux-spec.md › Command bar › Commands). Built: ⌘T over the page; ours need two letters and show four at most | Arc 1.170.0 ax, cap |
 
 ## New tab
 
@@ -210,7 +210,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Pane motion | MVP | a dropped tab's pane coming in on its side, the divider dragged, a pane closing: built with a drop showing the split at once and the divider following the pointer *interim*; Arc's: measure | Arc |
 | [ ] | Drop away from a target | MVP | new window grows from the card ≈ 200 ms, takes focus. Not started: multi-window step 7 | Dia rec |
 | [x] | Close pane, Separate | MVP | Close this Split Pane, Separate Page from Split View | Arc menus |
-| [ ] | Expand Current Split | MVP | not built; what it does: measure | Arc menus |
+| [ ] | Expand Current Split | MVP | the focused pane takes the card, the other keeps 220 pt at any width; one frame; again does nothing; kept after a quit. Not built | Arc 1.170.0 ax, rec |
 | [x] | Commands | MVP | Flip, Move Pane Left/Right, Separate All, in the command bar | Dia P§6 |
 | [x] | Change Orientation | MVP | the panes stacked top to bottom, kept after a quit; drop targets at the sides *interim* | Dia P§6 |
 
@@ -372,16 +372,16 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Arc's keys win clashes | MVP | ⌘D pin, ⇧⌘K Clear, ⌘S sidebar | Arc (Ardia) |
 | [x] | Every command rebindable | MVP | Settings › Shortcuts | Dia P§22 |
 | [x] | Full table in the spec | MVP | ux-spec.md › Keyboard: every key marked built or with its feature | Dia, Chrome |
-| [ ] | Arc's keys not yet recorded | MVP | Back to Pinned URL and Search Tabs: Arc's keys: measure; ours are ⌘↩, built, and ⇧⌘A, not built; the rest are its menus' | Arc 1.170.0 menus |
+| [ ] | Arc's other default keys | MVP | Arc has no Search Tabs, and Back to Pinned URL (its Reset Tab to Original URL) has no key; ours are ⌘↩, built, and ⇧⌘A, not built. Arc's ⌃⇧] / ⌃⇧[ switch split views, where ours focus panes. Not built: ⌘{ ⌘}, ⌘E, ⌘O, ⇧⌘O, ⌃D, ⇧⌘D, ⌃⇧1–⌃⇧4, ⌥⌘F, ⇧⌘V, ⌃⇧⌘C (ux-spec.md › Keyboard) | Arc 1.170.0 Settings › Shortcuts |
 | [x] | Menu bar | MVP | Arc's menus in Arc's order, with the commands the browser has | Arc 1.170.0 menus |
 | [x] | Edit menu in pages | MVP | Undo, Redo, Cut, Copy, Paste, Select All reach the focused page or field | Arc 1.170.0 menus |
 | [x] | Hide, Hide Others, Minimize | MVP | ⌘H, ⌥⌘H, ⌘M | Arc 1.170.0 menus |
 | [x] | Save Page As, Print | MVP | ⇧⌘S, ⌘P: Chrome's save panel and print preview | Arc 1.170.0 menus |
 | [x] | Clear Cache and Refresh, Clear Cookies and Refresh | MVP | View menu and command bar; the page's site only, then reload | Arc 1.170.0 menus, cap |
 | [x] | Page context menu | MVP | Chrome's, without what the window can't do yet *interim*; its tab dialogs, such as print preview, centred over the page at its top | Chrome |
-| [ ] | Arc's page menu items | MVP | built: Chrome's menu without what the window can't do *interim*; Arc's items: measure | Arc |
+| [ ] | Arc's page menu items | MVP | Chrome's, plus Open Link in Split View and in Little Arc after New Window, and Capture Image…; without Lens, Reading Mode, Listen, QR Code, Send to Devices and Copy Link Text (ux-spec.md › Menus › Page menu). Built: Chrome's without what the window can't do *interim* | Arc 1.170.0 ax |
 | [x] | Space list, Rename Space, View History, Services, Essential Keyboard Shortcuts | MVP | Spaces by name with ⌃1–⌃9; ⌘Y opens Chrome's history page; Help opens Settings › Shortcuts | Arc 1.170.0 menus |
-| [ ] | Arc's other menu items | MVP | the window items past New Window and Close Window, Developer › Network Inspector and Toggle Developer Mode, Edit Theme…, Change Profile, Manage Spaces…, Help's service items, as each feature lands. Partly: the menus Arc has for built features are done | Arc 1.170.0 menus |
+| [ ] | Arc's other menu items | MVP | ux-spec.md › Menus: Blank Window and New Little Arc Window; Clear Today, Hide Sidebar, Pin Tab, Open Library…, View Downloads…, View Archive… as Arc names them; windows named by their shown tab; Reveal Tab in Sidebar, Edit Theme…, Change Profile, Manage Spaces…, Expand Current Split, Network Inspector, Turn on Developer Mode, as each feature lands. Partly: the menus Arc has for built features are done | Arc 1.170.0 ax |
 
 ## Phase 4
 
