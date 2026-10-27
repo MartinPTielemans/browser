@@ -3,14 +3,16 @@
 //! window coming to the front.
 
 use std::{
-    io::Cursor,
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
-use gpui::{Bounds, Entity, Modifiers, Pixels, TestAppContext, VisualTestContext, point, px};
+use gpui::{
+    Bounds, Entity, Modifiers, Pixels, RenderImage, TestAppContext, VisualTestContext, point, px,
+};
 
-use super::{COME_BACK, REST, is_picture};
+use super::{PagePicture, REST};
 use crate::shell::{Folders, Shell, recorder::Recorder};
 
 /// A window on one Space of tabs 10 and 20, showing 10, drawn.
@@ -29,19 +31,15 @@ fn window(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext, Rc
     (shell, cx, host)
 }
 
-/// A PNG of a page 400 by 200 pixels, twice as wide as it is tall.
-fn png() -> Vec<u8> {
-    let mut bytes = Vec::new();
-    let page = image::RgbaImage::new(400, 200);
-    page.write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
-    bytes
+/// A picture of a page 400 by 200 pixels, twice as wide as it is tall.
+fn page() -> PagePicture {
+    PagePicture::from_bgra(vec![0; 400 * 200 * 4], 400, 200).unwrap()
 }
 
 /// Answers the request the shell has out with a picture.
 fn answer(shell: &Entity<Shell>, cx: &mut VisualTestContext) {
     let request = shell.read_with(cx, |shell, _| shell.picture.as_ref().unwrap().request);
-    assert!(is_picture(request));
-    shell.update(cx, |shell, cx| shell.page_pictured(request, Some(png()), cx));
+    shell.update(cx, |shell, cx| shell.page_pictured(request, Some(page()), cx));
     cx.run_until_parked();
 }
 
@@ -69,6 +67,11 @@ fn asked(host: &Recorder) -> Vec<String> {
     host.take().into_iter().filter(|call| call.starts_with("picture")).collect()
 }
 
+/// The picture the window shows, if it has one.
+fn image(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> Option<Arc<RenderImage>> {
+    shell.read_with(cx, |shell, _| Some(shell.picture.as_ref()?.image.as_ref()?.image.clone()))
+}
+
 fn pictured(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> bool {
     shell.read_with(cx, |shell, _| shell.picture.is_some())
 }
@@ -93,29 +96,29 @@ fn a_page_elsewhere_is_asked_for_once(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_picture_answered_inside_the_ask_comes_after_it(cx: &mut TestAppContext) {
     let (shell, cx, host) = window(cx);
-    host.pictures.replace(Some((shell.downgrade(), png())));
+    host.pictures.replace(Some((shell.downgrade(), page())));
     shell.update(cx, |shell, cx| shell.page_elsewhere(10, cx));
     assert_eq!(asked(&host), ["picture 10"]);
     cx.run_until_parked();
-    assert_eq!(asked(&host), ["picture end 10"]);
+    assert!(asked(&host).is_empty());
     assert!(picture_at(&shell, cx, Duration::from_millis(300)).is_some());
 
     shell.update(cx, |shell, cx| shell.became_key(cx));
     assert_eq!(asked(&host), ["picture 10"]);
     cx.run_until_parked();
-    assert_eq!(asked(&host), ["picture end 10"]);
+    assert!(asked(&host).is_empty());
     assert!(picture_at(&shell, cx, Duration::from_millis(300)).is_some());
 }
 
 /// Nothing shows until the picture comes. Then it's fitted to 0.8 of the card, centred, once it has
-/// stepped back from the card's size, and it asks the core to let go of what it held.
+/// stepped back from the card's size.
 #[gpui::test]
 fn the_picture_rests_at_four_fifths_of_the_card(cx: &mut TestAppContext) {
     let (shell, cx, host) = window(cx);
     shell.update(cx, |shell, cx| shell.page_elsewhere(10, cx));
     assert!(picture_at(&shell, cx, Duration::ZERO).is_none());
     answer(&shell, cx);
-    assert_eq!(asked(&host), ["picture 10", "picture end 10"]);
+    assert_eq!(asked(&host), ["picture 10"]);
 
     let card = card(&shell, cx);
     let rest = picture_at(&shell, cx, Duration::from_millis(300)).unwrap();
@@ -137,9 +140,10 @@ fn the_picture_rests_at_four_fifths_of_the_card(cx: &mut TestAppContext) {
     assert!(first.size.width > middle.size.width && middle.size.width > rest.size.width);
 }
 
-/// A click on the picture takes the page back by the call a click on the tab's row makes, after it
-/// has grown to the card; a click beside it does nothing. The row's own click works too, which
-/// does nothing for the tab selected while its page is live here.
+/// A press on the picture takes the page back at once, by the call a press on the tab's row makes;
+/// a press beside it does nothing, and another press while the page comes asks for nothing more.
+/// The row's own click works too, which does nothing for the tab selected while its page is live
+/// here.
 #[gpui::test]
 fn a_click_on_the_picture_takes_the_page_back(cx: &mut TestAppContext) {
     let (shell, cx, host) = window(cx);
@@ -159,24 +163,51 @@ fn a_click_on_the_picture_takes_the_page_back(cx: &mut TestAppContext) {
     assert_eq!(host.take(), ["select 10"]);
 
     cx.simulate_click(card.center(), Modifiers::none());
-    cx.run_until_parked();
-    assert!(host.take().is_empty(), "the page came before the picture had grown");
-    let grown = picture_at(&shell, cx, Duration::from_secs_f32(COME_BACK)).unwrap();
-    assert!(
-        (f32::from(grown.size.width) - f32::from(card.size.width)).abs() < 0.01
-            || (f32::from(grown.size.height) - f32::from(card.size.height)).abs() < 0.01,
-        "it grew to {:?} in a card of {:?}",
-        grown.size,
-        card.size
-    );
-    cx.executor().advance_clock(Duration::from_secs_f32(COME_BACK));
-    cx.run_until_parked();
     assert_eq!(host.take(), ["select 10"]);
-    // Another press while it's coming back asks for nothing more.
     cx.simulate_click(card.center(), Modifiers::none());
+    // Nor does the window coming to the front ask for a picture of a page on its way here.
+    shell.update(cx, |shell, cx| shell.became_key(cx));
     cx.executor().advance_clock(Duration::from_millis(300));
     cx.run_until_parked();
     assert!(host.take().is_empty());
+}
+
+/// The window a page leaves shows at once the picture the window taking it showed, at the card's
+/// size, stepping back, and asks for a fresh one, which replaces it where it is. A picture is
+/// shared only while some window shows it.
+#[gpui::test]
+fn the_window_a_page_leaves_shows_the_taker_s_picture_at_once(cx: &mut TestAppContext) {
+    let (taker, cx, _) = window(cx);
+    picture_arrives(&taker, cx, 10);
+    let shown = image(&taker, cx).unwrap();
+    let (giver, cx, host) = window(cx);
+    giver.update(cx, |shell, cx| shell.page_elsewhere(10, cx));
+    assert_eq!(asked(&host), ["picture 10"]);
+    assert!(Arc::ptr_eq(&image(&giver, cx).unwrap(), &shown));
+    let card = card(&giver, cx);
+    let first = picture_at(&giver, cx, Duration::ZERO).unwrap();
+    assert!(
+        (first.size.width - card.size.width).abs() < px(2.)
+            || (first.size.height - card.size.height).abs() < px(2.),
+        "it starts at the card's size: {:?} in {:?}",
+        first.size,
+        card.size
+    );
+    let rest = picture_at(&giver, cx, Duration::from_millis(300)).unwrap();
+    assert!(first.size.width > rest.size.width);
+
+    // The fresh one replaces it where it is, without stepping back again.
+    answer(&giver, cx);
+    assert!(!Arc::ptr_eq(&image(&giver, cx).unwrap(), &shown));
+    assert_eq!(picture_at(&giver, cx, Duration::from_millis(300)), Some(rest));
+
+    // Once no window shows a picture of the tab, a window it leaves shows none until one comes.
+    drop(shown);
+    giver.update(cx, |shell, cx| shell.page_elsewhere(0, cx));
+    taker.update(cx, |shell, cx| shell.page_elsewhere(0, cx));
+    cx.run_until_parked();
+    giver.update(cx, |shell, cx| shell.page_elsewhere(10, cx));
+    assert!(image(&giver, cx).is_none());
 }
 
 /// The picture is taken again whenever the window comes to the front, one at a time, replacing the
@@ -193,7 +224,7 @@ fn the_window_coming_to_the_front_takes_the_picture_again(cx: &mut TestAppContex
     shell.update(cx, |shell, cx| shell.became_key(cx));
     assert!(asked(&host).is_empty());
     answer(&shell, cx);
-    assert_eq!(asked(&host), ["picture end 10"]);
+    assert!(asked(&host).is_empty());
     assert!(shell.read_with(cx, |shell, _| shell.stale_pictures.is_empty()));
     assert!(picture_at(&shell, cx, Duration::from_millis(300)).is_some());
 }
@@ -227,14 +258,14 @@ fn the_picture_goes_with_the_page_it_stands_for(cx: &mut TestAppContext) {
     shell.update(cx, |shell, cx| shell.set_selected(10, cx));
     assert!(pictured(&shell, cx));
 
-    // Left before the picture came: the core is told to let go, and the answer is ignored.
+    // Left before the picture came: the answer is ignored.
     shell.update(cx, |shell, cx| shell.page_elsewhere(0, cx));
     host.take();
     shell.update(cx, |shell, cx| shell.page_elsewhere(10, cx));
     let request = shell.read_with(cx, |shell, _| shell.picture.as_ref().unwrap().request);
     shell.update(cx, |shell, cx| shell.set_selected(20, cx));
-    assert_eq!(asked(&host), ["picture 10", "picture end 10"]);
-    shell.update(cx, |shell, cx| shell.page_pictured(request, Some(png()), cx));
+    assert_eq!(asked(&host), ["picture 10"]);
+    shell.update(cx, |shell, cx| shell.page_pictured(request, Some(page()), cx));
     cx.run_until_parked();
     assert!(!pictured(&shell, cx));
 }
