@@ -325,14 +325,9 @@ impl Browser for Fake {
         });
     }
 
-    // The made-up tabs stay in their Space.
-    fn move_to_space(&self, _: u64, _: u64, _: &mut App) {}
-
     fn warn_moving_profiles(&self, _: &mut App) -> bool {
         true
     }
-
-    fn set_warn_moving_profiles(&self, _: bool, _: &mut App) {}
 
     // As the core does: pinned at the bottom of the pinned tabs, unpinned at the top of Today.
     fn set_pinned(&self, tab: u64, pinned: bool, cx: &mut App) {
@@ -389,11 +384,6 @@ impl Browser for Fake {
                 shell.set_favorites(favorites.map(|tab| (tab, 0)).collect(), cx);
             }
         });
-    }
-
-    // The preview's window has no host to take a drop.
-    fn open_at(&self, _: &[String], _: bool, _: u64, _: usize, _: &mut App) -> u64 {
-        0
     }
 
     fn create_folder(&self, _: u64, name: &str, folder: u64, index: usize, cx: &mut App) -> u64 {
@@ -454,34 +444,6 @@ impl Browser for Fake {
         0
     }
 
-    fn undo_clear(&self, _: u64, _: &mut App) -> usize {
-        0
-    }
-
-    fn undo_delete_space(&self, _: u64, _: &mut App) -> bool {
-        false
-    }
-
-    fn reopen_closed_tab(&self, _: &mut App) {}
-
-    fn reopen_tab(&self, _: u64, _: &mut App) -> u64 {
-        0
-    }
-
-    fn pinned_url(&self, _: u64) -> String {
-        String::new()
-    }
-
-    fn set_pinned_url(&self, _: u64, _: &str, _: &mut App) {}
-
-    fn tab_name(&self, _: u64) -> String {
-        String::new()
-    }
-
-    fn undo_archive_remove(&self, _: u64, _: &mut App) -> usize {
-        0
-    }
-
     // Takes it out of the archive, without opening it.
     fn restore_archived(&self, archived: u64, cx: &mut App) {
         self.archive.borrow_mut().retain(|&(id, ..)| id != archived);
@@ -530,23 +492,10 @@ impl Browser for Fake {
         self.report_downloads(cx);
     }
 
-    // The made-up files have the file glyph.
-    fn download_icon(&self, _: u64, _: &mut App) {}
-
-    // And no previews.
-    fn file_preview(&self, _: u64, _: &str, _: &mut App) {}
-
     // The made-up downloads have no files, so each is gone already and none drags.
     fn trash(&self, _: &str, _: &mut App) -> bool {
         true
     }
-
-    fn drag_file(&self, _: &str, _: &mut App) -> bool {
-        false
-    }
-
-    // The made-up pages have the globe.
-    fn page_favicon(&self, _: &str, _: &mut App) {}
 
     // In UTC, with weeks from Monday.
     fn day_starts(&self) -> [f64; 4] {
@@ -555,9 +504,6 @@ impl Browser for Fake {
         let week = today - ((today / DAY + 3.) % 7.) * DAY;
         [today, today - DAY, week, week - 7. * DAY]
     }
-
-    // The made-up pages have no history to go through.
-    fn back_to_pinned_url(&self, _: u64, _: &mut App) {}
 
     fn set_muted(&self, tab: u64, muted: bool, cx: &mut App) {
         self.later(cx, move |shell, cx| {
@@ -586,73 +532,6 @@ impl Browser for Fake {
         });
     }
 
-    fn go_back(&self, _: u64, _: &mut App) {}
-
-    fn go_forward(&self, _: u64, _: &mut App) {}
-
-    fn reload(&self, _: u64, _: bool, _: &mut App) {}
-
-    fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
-
-    // The made-up pages ask nothing.
-    fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
-
-    fn stop(&self, _: u64, _: &mut App) {}
-
-    fn zoom(&self, _: u64, _: i32, _: &mut App) {}
-
-    // The made-up pages have no source and no DevTools.
-    fn view_source(&self, _: u64, _: &mut App) {}
-    fn save_page(&self, _: u64, _: &mut App) {}
-    fn print(&self, _: u64, _: &mut App) {}
-
-    fn devtools(&self, _: u64, _: i32, _: &mut App) {}
-
-    fn task_manager(&self, _: &mut App) {}
-
-    // The preview has no menu bar and no extensions.
-    fn set_menus(&self, _: &MenuBar, _: &mut App) {}
-
-    fn set_window_title(&self, _: &str, _: &mut App) {}
-
-    fn run_extension(&self, _: &str, _: Bounds<Pixels>, _: &mut App) -> bool {
-        false
-    }
-
-    fn run_extension_command(&self, _: &str, _: &str, _: &mut App) -> bool {
-        false
-    }
-
-    fn set_extension_pinned(&self, _: u64, _: &str, _: bool, _: &mut App) {}
-
-    fn remove_extension(&self, _: u64, _: &str, _: &mut App) -> bool {
-        false
-    }
-
-    fn open_extension_options(&self, _: &str, _: &mut App) {}
-
-    fn manage_extensions(&self, _: Option<&str>, _: &mut App) {}
-
-    fn add_extension(&self, _: &mut App) {}
-
-    fn lay_out_side_panel(&self, _: Bounds<Pixels>, _: &mut App) {}
-
-    fn close_side_panel(&self, _: &mut App) {}
-
-    fn has_side_panel(&self, _: &str) -> bool {
-        false
-    }
-
-    fn toggle_side_panel(&self, _: &str, _: &mut App) {}
-
-    fn set_side_panel_width(&self, _: f32, _: &mut App) {}
-
-    fn view_history(&self, _: &mut App) {}
-
-    fn close_other_window(&self, _: &mut App) -> bool {
-        false
-    }
-
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,
@@ -674,34 +553,6 @@ impl Browser for Fake {
         });
     }
 
-    // The made-up pages have nothing to find.
-    fn find(&self, _: u64, _: &mut App) {}
-
-    fn site_controls(
-        &self,
-        _: u64,
-        _: browser::site_controls::Place,
-        _: Size<Pixels>,
-        _: Vec<browser::site_controls::Extension>,
-        _: &mut App,
-    ) {
-    }
-
-    fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: &mut App) {}
-
-    fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
-
-    fn page_picture_end(&self, _: u64, _: &mut App) {}
-
-    fn find_next(&self, _: u64, _: bool, _: &mut App) {}
-
-    fn jump_to_selection(&self, _: u64, _: &mut App) {}
-
-    // The preview has no Settings window.
-    fn settings(&self, _: &mut App) {}
-
-    fn shortcuts(&self, _: &mut App) {}
-
     // Each made-up Space shows its top tab.
     fn show_space(&self, space: u64, cx: &mut App) {
         self.later(cx, move |shell, cx| {
@@ -709,11 +560,6 @@ impl Browser for Fake {
             let top = shell.today().first().or(shell.pinned().first()).copied().unwrap_or(0);
             shell.set_selected(top, cx);
         });
-    }
-
-    // The made-up Spaces' pages slide in without a selected row.
-    fn space_tab(&self, _: u64) -> u64 {
-        0
     }
 
     fn create_space(&self, name: &str, profile: u64, cx: &mut App) -> u64 {
@@ -767,38 +613,6 @@ impl Browser for Fake {
         self.report_spaces(cx);
     }
 
-    // The preview has the one profile.
-    fn create_profile(&self, _: &str, _: &mut App) -> u64 {
-        0
-    }
-
-    fn delete_profile(&self, _: u64, _: &mut App) {}
-
-    // The preview's window is GPUI's own, which has the keyboard already.
-    fn focus_ui(&self, _: &mut App) {}
-
-    // There's no page, and the window's buttons stay where GPUI put them.
-    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {}
-
-    fn set_focus_color(&self, _: u32, _: &mut App) {}
-
-    fn set_page_color(&self, _: u32, _: &mut App) {}
-
-    fn page_moving(&self, _: bool, _: &mut App) {}
-
-    fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
-
-    // No command bar here, as for a new tab, and no split views but the made-up one.
-    fn command_bar_open(&self, _: &App) -> bool {
-        false
-    }
-
-    fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {}
-
-    fn separate(&self, _: u64, _: &mut App) {}
-
-    fn move_in_split(&self, _: u64, _: usize, _: &mut App) {}
-
     fn set_split_stacked(&self, tab: u64, stacked: bool, cx: &mut App) {
         self.later(cx, move |shell, cx| {
             let mut splits = shell.splits();
@@ -824,70 +638,14 @@ impl Browser for Fake {
         });
     }
 
-    fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
-
-    // The targets' window is the app's, over the page, which the preview has neither of.
-    fn show_drop_targets(&self, _: bool, _: &mut App) {}
-
-    fn show_window_buttons(&self, _: bool, _: &mut App) {}
-
-    fn press_window_button(&self, _: WindowButton, _: &mut App) {}
-
-    // The reveal's window is the app's, over the page, which the preview has neither of.
-    fn show_reveal(&self, _: f32, _: &mut App) {}
-
-    fn hide_reveal(&self, _: &mut App) {}
-
     // PREVIEW_SIDEBAR=<width> starts the sidebar at that width, such as its narrowest, 164.
     fn saved_sidebar_width(&self) -> Option<f32> {
         std::env::var("PREVIEW_SIDEBAR").ok()?.parse().ok()
     }
 
-    fn set_sidebar_width(&self, _: f32, _: &mut App) {}
-
-    fn detent(&self, _: &mut App) {}
-
     // The preview doesn't hear ⌃ go up, so each ⌃Tab there ends its walk.
     fn watch_control(&self, cx: &mut App) {
         self.later(cx, |shell, cx| shell.control_released(cx));
-    }
-
-    // The preview leaves the clipboard alone, and shares nothing.
-    fn copy(&self, _: &str, _: &mut App) {}
-
-    fn share_services(&self, _: &str) -> Vec<SharedString> {
-        Vec::new()
-    }
-
-    fn share(&self, _: &str, _: &str, _: usize, _: &mut App) {}
-
-    // The toast's window is one the app's host lays over the browser window.
-    fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {}
-
-    fn toast_undo(&self, _: &str, _: Rc<dyn Fn(&mut App)>, _: Duration, _: &mut App) {}
-
-    fn hide_undo_toast(&self, _: &mut App) {}
-
-    fn set_edit_titles(&self, _: Option<&str>, _: Option<&str>, _: &mut App) {}
-
-    fn full_screen_note(&self, _: bool, _: &mut App) {}
-
-    // The toast is a window over the page, which the preview has neither of.
-    fn hang_note(&self, _: u64, _: bool, _: &mut App) {}
-
-    // The tooltip's window is the app's, over the page, which the preview has neither of.
-    fn tooltip(&self, _: Option<(browser::tooltip::Tip, browser::tooltip::Anchor)>, _: &mut App) {}
-
-    // The same for the link target's, which the preview's made-up pages have no links for.
-    fn link_target(
-        &self,
-        _: Option<(
-            browser::link_target::Plate,
-            gpui::Bounds<gpui::Pixels>,
-            browser::link_target::Side,
-        )>,
-        _: &mut App,
-    ) {
     }
 
     // macOS's default blue.
@@ -895,37 +653,9 @@ impl Browser for Fake {
         0x007aff
     }
 
-    // Menus are AppKit's, and the dialog's window is one the app's host lays over the browser
-    // window. The preview goes without both.
-    fn menu(
-        &self,
-        _: Vec<MenuEntry>,
-        _: Point<Pixels>,
-        _: Option<usize>,
-        _: bool,
-        _: Box<dyn FnOnce(Option<usize>, &mut App)>,
-        _: &mut App,
-    ) {
-    }
-
-    fn confirm(
-        &self,
-        _: String,
-        _: String,
-        _: &'static str,
-        _: Box<dyn FnOnce(&mut App)>,
-        _: &mut App,
-    ) {
-    }
-
     fn quit(&self, cx: &mut App) {
         cx.quit();
     }
-
-    // The preview has one window.
-    fn new_window(&self, _: &mut App) {}
-
-    fn new_private_window(&self, _: &mut App) {}
 
     fn close_window(&self, cx: &mut App) {
         cx.quit();
