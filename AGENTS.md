@@ -85,7 +85,7 @@ The most common defect is a change that works on the path you tested and is miss
 - `app/`: the browser's UI in GPUI, with its macOS glue in `app/platform/mac/`.
 - `core/`: the core, inside Chrome's framework, and its C API in `core/public/browser_core.h`.
 - `engine/`: Chromium pins and our patch series. Read `engine/README.md` before touching either.
-- `prototypes/arcish/`: the frozen Electron prototype, kept as the reference for the UX and for agent tools and rules (`agent.js`). New work goes into the real stack.
+- `prototypes/arcish/agent.js`: the frozen Electron prototype's agent tools and their rules, kept as the reference for agents. New work goes into the real stack.
 - `spikes/`: one experiment per open question. When one works, rewrite what it proved into the real tree; nothing outside `spikes/` depends on it.
 - `tools/`: scripts for working on the repo.
 

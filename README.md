@@ -39,7 +39,7 @@ Engine        ungoogled-chromium + series  built as Chrome's framework
 | `core/` | Our C++ inside Chrome's framework (`//browser_core`), and its C API for the app |
 | `docs/` | Decisions, roadmap, UX spec and its parity checklist |
 | `engine/` | Chromium pins and the patch series |
-| `prototypes/arcish/` | Throwaway Electron prototype of the UX (`npm install && npm start`) |
+| `prototypes/arcish/agent.js` | What's left of the Electron prototype: its agent tools and their rules, the reference for agents |
 | `tools/` | Scripts for working on the repo |
 
 ## License
