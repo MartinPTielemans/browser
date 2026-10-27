@@ -81,7 +81,7 @@ impl Shell {
             )
     }
 
-    fn press_edge(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
+    pub(super) fn press_edge(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) {
         let width = self.width();
         if event.click_count == 2 {
             self.resize = None;
@@ -95,7 +95,7 @@ impl Shell {
 
     /// The pointer dragging the edge is at `x`. Past half the narrowest width, as AppKit's split
     /// view collapses a pane, the sidebar hides in one frame and keeps the width it had (Arc).
-    fn drag_edge(&mut self, x: f32, cx: &mut Context<Self>) {
+    pub(super) fn drag_edge(&mut self, x: f32, cx: &mut Context<Self>) {
         let Some((grab, _)) = self.resize else {
             return;
         };
@@ -112,7 +112,7 @@ impl Shell {
         cx.notify();
     }
 
-    fn let_go_edge(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn let_go_edge(&mut self, cx: &mut Context<Self>) {
         if let Some((_, way)) = self.resize.take() {
             let width = way.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
             self.set_width(width, width, cx);

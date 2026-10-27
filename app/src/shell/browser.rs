@@ -221,6 +221,10 @@ pub trait Browser {
     fn set_focus_color(&self, color: u32, cx: &mut App);
     /// What the window's pages show until their first frame, 0xRRGGBB.
     fn set_page_color(&self, color: u32, cx: &mut App);
+    /// Whether the shell is moving the page's frame on its own, a step at a time. A page that
+    /// hasn't drawn at its new size yet shows its last frame stretched to fill the view, rather
+    /// than at its old size in the corner, so its right edge and scrollbar stay with the frame's.
+    fn page_moving(&self, moving: bool, cx: &mut App);
     /// Keeps the find bar and the zoom HUD at the top right corner of a split view's focused page,
     /// `right` points further in from the window's right edge and `top` further down.
     fn set_pane_corner(&self, right: f32, top: f32, cx: &mut App);

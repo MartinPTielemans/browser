@@ -64,7 +64,7 @@ impl Shell {
                 });
                 window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
                     if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
-                        shell.update(cx, |shell, _| shell.pane_resize = None).ok();
+                        shell.update(cx, |shell, cx| shell.let_go_gap(cx)).ok();
                     }
                 });
             },
@@ -74,13 +74,18 @@ impl Shell {
     }
 
     /// Where the pages of the split view shown start, and one after them would.
-    fn shown_pane_edges(&self) -> Vec<f32> {
+    pub(super) fn shown_pane_edges(&self) -> Vec<f32> {
         let (frame, _) = self.page_frame(self.viewport);
         let count = self.panes(self.selected).len();
         pane_edges(frame, count, self.stacked(self.selected), &self.shares(self.selected))
     }
 
-    fn press_gap(&mut self, pane: usize, event: &MouseDownEvent, cx: &mut Context<Self>) {
+    pub(super) fn press_gap(
+        &mut self,
+        pane: usize,
+        event: &MouseDownEvent,
+        cx: &mut Context<Self>,
+    ) {
         if event.click_count == 2 {
             self.pane_resize = None;
             return self.browser.set_split_shares(self.selected, None, cx);
@@ -94,9 +99,16 @@ impl Shell {
         cx.notify();
     }
 
+    /// The pointer let go of the gap it dragged. The pages are where it left them, and the core,
+    /// which laid them out as the gap moved, hears they're still.
+    pub(super) fn let_go_gap(&mut self, cx: &mut Context<Self>) {
+        self.pane_resize = None;
+        self.stop_page_motion(cx);
+    }
+
     /// Moves the start of the page being resized with the pointer, `at` across the window, or
     /// down it stacked, taking from the page before it or giving to it.
-    fn drag_gap(&mut self, at: f32, cx: &mut Context<Self>) {
+    pub(super) fn drag_gap(&mut self, at: f32, cx: &mut Context<Self>) {
         let Some((pane, grab)) = self.pane_resize else {
             return;
         };
@@ -121,6 +133,8 @@ impl Shell {
             return;
         }
         edges[pane] = edge;
+        // The core lays the pages out as it takes the shares, not in the next frame.
+        self.start_page_motion(cx);
         let evened = (0..=count).all(|index| edges[index] == even(index));
         let shares = edge_shares(&edges);
         self.browser.set_split_shares(self.selected, (!evened).then_some(shares.as_slice()), cx);

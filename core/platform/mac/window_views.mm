@@ -6,6 +6,7 @@
 #include "base/apple/foundation_util.h"
 #include "base/functional/callback.h"
 #import "components/remote_cocoa/app_shim/bridged_content_view.h"
+#include "content/public/browser/stretch_content_on_resize_mac.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/widget/widget.h"
 
@@ -329,6 +330,10 @@ void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
   if (window.firstResponder != had && (had == window || had_view.window == window)) {
     [window makeFirstResponder:had];
   }
+}
+
+void StretchOnResize(content::RenderWidgetHostView* view, bool stretch) {
+  content::SetStretchContentOnResize(view, stretch);
 }
 
 }  // namespace browser_core::platform

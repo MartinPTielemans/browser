@@ -48,6 +48,7 @@ mod library;
 mod menus;
 mod naming;
 mod new_space;
+mod page_motion;
 mod panes;
 mod permission;
 mod picture;
@@ -1017,6 +1018,8 @@ pub struct Shell {
     /// The window's device pixels in a point, kept from render as `viewport` is.
     scale: f32,
     page_laid: Option<(Bounds<Pixels>, f32)>,
+    /// Whether the core was told the page's frame is moving (`page_motion`).
+    page_moving_told: bool,
     /// While the command bar is open for a pane beside the tab shown, that tab. The pages shown
     /// make room on their right for the pane (Arc).
     adding_pane: Option<u64>,
@@ -1196,6 +1199,7 @@ impl Shell {
             viewport: Size::default(),
             scale: 1.,
             page_laid: None,
+            page_moving_told: false,
             adding_pane: None,
             focus_color: None,
             page_color: None,
@@ -2376,7 +2380,7 @@ impl Render for Shell {
                 false => log!("browser: tiles stay put"),
             }
         }
-        self.lay_out_page(cx);
+        self.lay_out_moving_page(cx);
         let card_left = self.card_left();
         let focus_color = self.shown_space().and_then(|space| space.color);
         let focus_color = focus_color.unwrap_or(self.accent_color);

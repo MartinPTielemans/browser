@@ -748,6 +748,8 @@ impl Browser for Fake {
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
 
+    fn page_moving(&self, _: bool, _: &mut App) {}
+
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
 
     // No command bar here, as for a new tab, and no split views but the made-up one.

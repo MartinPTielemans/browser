@@ -18,3 +18,4 @@ ours/chromium-core-sad-tab.patch
 ours/chromium-os-crypt-keychain-name.patch
 ours/chromium-disk-check-period.patch
 ours/chromium-drm-request.patch
+ours/chromium-core-page-stretch.patch
