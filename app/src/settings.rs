@@ -4,8 +4,10 @@
 //! browser quits.
 
 use std::ffi::CString;
+use std::rc::Rc;
 use std::time::Instant;
 
+use browser::default_browser::{self, DefaultBrowser};
 use browser::log;
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::TextInput;
@@ -35,11 +37,12 @@ const PLATE: f32 = 44.;
 const ICON: f32 = 20.;
 const ICON_TOP: f32 = 4.;
 const LABEL_TOP: f32 = 3.;
-/// Boxes of rows are 64 in from the window's sides, the first 20 under the toolbar. A row's text
-/// and its control are 10 in from the box's edges, and 10 from its top and bottom, and the lines
-/// between rows 8 in.
+/// Boxes of rows are 64 in from the window's sides, the first 20 under the toolbar, and 9 apart. A
+/// row's text and its control are 10 in from the box's edges, and 10 from its top and bottom, and
+/// the lines between rows 8 in.
 const SIDE: f32 = 64.;
 const FIRST: f32 = 20.;
+const BOX_GAP: f32 = 9.;
 const PADDING: f32 = 10.;
 const LINE_INSET: f32 = 8.;
 const RADIUS: f32 = 6.;
@@ -274,6 +277,24 @@ pub struct Settings {
     recording: Option<Command>,
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
+    default_browser: Entity<DefaultBrowser>,
+}
+
+/// The system's default browser, for General's row.
+struct System;
+
+impl default_browser::System for System {
+    fn is_default(&self) -> bool {
+        unsafe { platform::host_is_default_browser() }
+    }
+
+    fn make_default(&self) {
+        unsafe { platform::host_make_default_browser(default_browser_answered) };
+    }
+}
+
+extern "C" fn default_browser_answered() {
+    crate::update_app(check_default_browser);
 }
 
 struct Renaming {
@@ -340,7 +361,25 @@ pub fn show(cx: &mut App) {
             cx.notify();
         })
         .ok();
+    check_default_browser(cx);
     unsafe { platform::host_show_settings() };
+}
+
+/// Reads again whether the browser is the system's default, as Settings shows, the app becomes
+/// active, or the user has answered macOS, once Settings has been opened.
+pub fn check_default_browser(cx: &mut App) {
+    let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) else {
+        return;
+    };
+    let Ok(row) = window.read_with(cx, |settings, _| settings.default_browser.clone()) else {
+        return;
+    };
+    let default = row.update(cx, |row, cx| {
+        row.check(cx);
+        row.is_default()
+    });
+    // check.sh waits for this line.
+    log!("browser: default browser {}", if default { "yes" } else { "no" });
 }
 
 fn open(cx: &mut App) {
@@ -370,7 +409,10 @@ fn open(cx: &mut App) {
                 hide(cx);
                 false
             });
+            let default_browser = cx.new(|_| DefaultBrowser::new(Rc::new(System)));
+            cx.observe(&default_browser, |_, _, cx| cx.notify()).detach();
             Settings {
+                default_browser,
                 tab: Tab::General,
                 focus: cx.focus_handle(),
                 switched: None,
@@ -491,12 +533,44 @@ impl Settings {
         );
         let warn = unsafe { bc::bc_warn_before_quitting() };
         let warn = self.toggle("warn before quitting", warn, set_warn_before_quitting, accent, cx);
-        group([
-            row(None, "Warn before quitting", warn),
-            row(None, "Archive tabs after", archive.into_any_element()),
-            row(None, "Favorites", favorites.into_any_element()),
-        ])
-        .into_any_element()
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(BOX_GAP))
+            .child(group([
+                row(None, "Warn before quitting", warn),
+                row(None, "Archive tabs after", archive.into_any_element()),
+                row(None, "Favorites", favorites.into_any_element()),
+            ]))
+            .child(group([self.default_browser_row(cx)]))
+            .into_any_element()
+    }
+
+    /// Make Default until the browser is the system's default, then that it is, with the way back
+    /// under it, which is the system's.
+    fn default_browser_row(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let row = self.default_browser.read(cx);
+        let make = (!row.is_default()).then(|| {
+            let make = cx.listener(|settings: &mut Self, _, _, cx| {
+                // check.sh waits for this line.
+                log!("browser: make default browser");
+                settings.default_browser.read(cx).make_default();
+            });
+            button("make-default-browser", "Make Default").on_click(make)
+        });
+        div()
+            .px(px(PADDING))
+            .py(px(PADDING))
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().truncate().child(row.title()))
+                    .child(div().text_size(px(11.)).text_color(rgb(DETAIL)).child(row.detail())),
+            )
+            .children(make.map(|make| make.ml(px(PADDING))))
     }
 
     /// A pop-up button showing `label`. It opens on a press, as a pop-up button does, and shows

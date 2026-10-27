@@ -225,6 +225,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Haptics setting | MVP | Advanced: haptic feedback when swiping between Spaces, kept with the Spaces | Ours |
 | [x] | Warn before quitting | MVP | General's switch, on; Quit and ⌘Q ask "Quit ilo?" in the dialog: "Quit, and don't ask again" at the left, Cancel ESC and a blue Quit ↩ at the right; no icon, so 172 tall where Arc's is 249; Dock and logout quits don't | Arc 1.170.0 cap, bin; Arc 1.170 rec |
 | [x] | Profiles tab | MVP | ours: a row per profile with its Spaces, rename on a double-click, Delete for an unused one, New Profile *interim*; Arc's: measure | Arc 1.170.0 cap |
+| [x] | Default browser | MVP | ours: General's Make ilo your default browser, macOS's confirmation, the way back in System Settings; links from other apps open as tabs in the front regular window's user Space *interim* until Little Arc | Ours |
 | [ ] | Arc's other tabs | MVP | Links, Icon, Previews: with their features; none built | Arc 1.170.0 cap |
 
 ## Archive

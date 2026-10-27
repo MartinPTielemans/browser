@@ -483,6 +483,13 @@ typedef struct bc_host {
   // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
   // agents hear none, as it names the user's login.
   void (*tab_offer_changed)(void* context, bc_id tab, const bc_offer* offer);
+  // Another app asked the browser to open |urls|, |count| http, https or file URLs: a link clicked
+  // in Mail or Slack, `open https://…`, an .html file from Finder. Open each in a new tab of the
+  // user's, in front. Those that launched the browser come before started; open them over the
+  // Spaces bc_window_restore brings back. The user's alone: a link a page opens, an agent's too,
+  // comes in tab_opened, and agents get no way to make the browser the system's default, which
+  // only the user does, in the app's Settings or the system's.
+  void (*open_links)(void* context, const char* const* urls, size_t count);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

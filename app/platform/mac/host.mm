@@ -5,6 +5,9 @@
 #import <objc/runtime.h>
 
 #include <dlfcn.h>
+#include <sys/sysctl.h>
+#include <sys/time.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <initializer_list>
@@ -1298,6 +1301,78 @@ void host_watch_resigning_active(void (*resigning)(void)) {
                                               usingBlock:^(NSNotification*) {
                                                 resigning();
                                               }];
+}
+
+void host_watch_active(void (*became_active)(void)) {
+  [NSNotificationCenter.defaultCenter addObserverForName:NSApplicationDidBecomeActiveNotification
+                                                  object:nil
+                                                   queue:nil
+                                              usingBlock:^(NSNotification*) {
+                                                became_active();
+                                              }];
+}
+
+bool host_is_default_browser(void) {
+  NSString* mine = NSBundle.mainBundle.bundleIdentifier;
+  for (NSString* link in @[ @"http://", @"https://" ]) {
+    NSURL* url = [NSURL URLWithString:link];
+    NSURL* app = [NSWorkspace.sharedWorkspace URLForApplicationToOpenURL:url];
+    if (!app || ![[NSBundle bundleWithURL:app].bundleIdentifier isEqualToString:mine]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void host_make_default_browser(void (*answered)(void)) {
+  NSWorkspace* workspace = NSWorkspace.sharedWorkspace;
+  NSURL* app = NSBundle.mainBundle.bundleURL;
+  void (^done)(void) = ^{
+    dispatch_async(dispatch_get_main_queue(), ^{
+      answered();
+    });
+  };
+  // https only once the user has said yes for http, as Chrome does, so a user who keeps their
+  // browser is asked once.
+  [workspace setDefaultApplicationAtURL:app
+                   toOpenURLsWithScheme:@"http"
+                      completionHandler:^(NSError* error) {
+                        if (error) {
+                          done();
+                          return;
+                        }
+                        [NSWorkspace.sharedWorkspace setDefaultApplicationAtURL:app
+                                                           toOpenURLsWithScheme:@"https"
+                                                              completionHandler:^(NSError*) {
+                                                                done();
+                                                              }];
+                      }];
+  // From macOS 26.4, HTML files ask in a second dialog of Finder's, as Chrome found, so there the
+  // user picks the app for them in Finder.
+  if (@available(macOS 26.4, *)) {
+  } else {
+    [workspace setDefaultApplicationAtURL:app toOpenContentType:UTTypeHTML completionHandler:nil];
+  }
+  // The system's agent that asks can put its dialog behind the app's windows, where the user
+  // never sees it.
+  NSString* asker = @"com.apple.coreservices.uiagent";
+  for (NSRunningApplication* agent in
+       [NSRunningApplication runningApplicationsWithBundleIdentifier:asker]) {
+    [agent activateWithOptions:NSApplicationActivateAllWindows];
+  }
+}
+
+double host_since_launch(void) {
+  struct kinfo_proc process;
+  size_t size = sizeof(process);
+  int name[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
+  if (sysctl(name, 4, &process, &size, nullptr, 0) != 0) {
+    return 0;
+  }
+  struct timeval now;
+  gettimeofday(&now, nullptr);
+  struct timeval start = process.kp_proc.p_starttime;
+  return (now.tv_sec - start.tv_sec) * 1e3 + (now.tv_usec - start.tv_usec) / 1e3;
 }
 
 void host_forget_window(void* ui_view) {

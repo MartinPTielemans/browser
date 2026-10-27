@@ -24,6 +24,7 @@ pub fn uptime_ms() -> f64 {
 
 pub mod capture;
 pub mod command_bar;
+pub mod default_browser;
 pub mod dialog;
 pub mod icon_picker;
 pub mod offer;

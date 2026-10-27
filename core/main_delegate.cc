@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "base/base_switches.h"
 #include "base/command_line.h"
@@ -30,6 +31,7 @@
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
+#include "url/gurl.h"
 
 // chrome_main.cc's entry point, in the same framework.
 extern "C" int ChromeMain(int argc, const char** argv);
@@ -39,6 +41,27 @@ namespace browser_core {
 namespace {
 
 bc_host g_host;
+
+#if BUILDFLAG(IS_MAC)
+// The links another app sent, to the app. Only pages and files: AppController strips Chrome's
+// own direct-launch scheme first, and any other scheme an app sends is no page to show.
+void OpenLinks(const std::vector<GURL>& urls) {
+  std::vector<std::string> specs;
+  for (const GURL& url : urls) {
+    if (url.is_valid() && (url.SchemeIsHTTPOrHTTPS() || url.SchemeIsFile())) {
+      specs.push_back(url.spec());
+    }
+  }
+  if (specs.empty() || !g_host.open_links) {
+    return;
+  }
+  std::vector<const char*> links;
+  for (const std::string& spec : specs) {
+    links.push_back(spec.c_str());
+  }
+  g_host.open_links(g_host.context, links.data(), links.size());
+}
+#endif
 
 // Keeps the browser process up while it has no windows, which Chrome would otherwise quit at, and
 // tells the app when it can call in and when it has to stop.
@@ -115,6 +138,9 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   g_browser_core_populate_frame_binders = &PopulateFrameBinders;
   g_browser_core_password_prompt = &PasswordOffer::Prompt;
+#if BUILDFLAG(IS_MAC)
+  g_browser_core_open_links = &OpenLinks;
+#endif
   return ChromeMain(argc, argv);
 }
 

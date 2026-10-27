@@ -4,6 +4,7 @@
 #define BROWSER_CORE_HOOKS_H_
 
 #include <memory>
+#include <vector>
 
 #include "components/permissions/permission_prompt.h"
 #include "extensions/browser/extension_install_prompt_client.h"
@@ -15,6 +16,7 @@ extern bool g_browser_core_supplies_windows;
 
 class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
+class GURL;
 struct NavigateParams;
 
 namespace content {
@@ -77,5 +79,9 @@ extern void (*g_browser_core_populate_frame_binders)(
 // login's password, in place of Chrome's bubble, which hangs from a toolbar the core's windows
 // don't have.
 extern void (*g_browser_core_password_prompt)(content::WebContents* contents, bool show);
+// chrome/browser/app_controller_mac.mm: opens the links another app sent, such as a link clicked in
+// Mail or an .html file from Finder, in place of Chrome's tabs for them. Those that launched the
+// browser come once it has finished launching, before the app has started.
+extern void (*g_browser_core_open_links)(const std::vector<GURL>& urls);
 
 #endif  // BROWSER_CORE_HOOKS_H_
