@@ -8,6 +8,7 @@
 
 #include "base/functional/callback_forward.h"
 #include "components/permissions/permission_prompt.h"
+#include "content/public/browser/login_delegate.h"
 #include "extensions/browser/extension_install_prompt_client.h"
 
 // chrome/browser/ui/browser.cc: a Browser may be made with a window the core supplies, which has
@@ -18,6 +19,7 @@ extern bool g_browser_core_supplies_windows;
 class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
 class GURL;
+class LoginHandler;
 struct NavigateParams;
 
 namespace content {
@@ -33,6 +35,10 @@ class InstallPromptData;
 namespace mojo {
 template <typename ContextType>
 class BinderMapWithContext;
+}
+
+namespace net {
+class AuthChallengeInfo;
 }
 
 namespace ui {
@@ -102,5 +108,12 @@ extern void (*g_browser_core_page_hung)(content::WebContents* contents,
 // chrome/browser/net/net_error_tab_helper.cc: the core's offline page says whether a run of its
 // game is going. Only the error document in the tab's main frame can say it.
 extern void (*g_browser_core_offline_game)(content::WebContents* contents, bool running);
+
+// chrome/browser/ui/views/login_handler_views.cc: asks for a site's HTTP sign-in, in place of
+// Chrome's views dialog, which needs a dialog host the core's windows don't have.
+extern std::unique_ptr<LoginHandler> (*g_browser_core_login_handler)(
+    const net::AuthChallengeInfo& auth_info,
+    content::WebContents* web_contents,
+    content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback);
 
 #endif  // BROWSER_CORE_HOOKS_H_
