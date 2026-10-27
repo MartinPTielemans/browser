@@ -1495,6 +1495,20 @@ void host_hide_site_controls(void) {
   g_site_controls.mouse_through = false;
 }
 
+// No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
+// the tab.
+void* host_add_link_preview(void*, void (*)(void)) {
+  return nullptr;
+}
+
+void host_show_link_preview(void*) {}
+
+void host_link_preview_drew(double, double, double, double, double) {}
+
+void host_release_link_preview(void) {}
+
+void host_hide_link_preview(void) {}
+
 void host_add_capture(void* view, void (*dismissed)(void)) {
   Adopt(g_capture, view, false, dismissed);
 }
