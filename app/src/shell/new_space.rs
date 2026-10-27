@@ -357,7 +357,7 @@ fn glow(edge: f32, out: f32) -> impl IntoElement {
     .size_full()
 }
 
-fn ease_out(t: f32) -> f32 {
+pub(super) fn ease_out(t: f32) -> f32 {
     1. - (1. - t.clamp(0., 1.)).powi(3)
 }
 

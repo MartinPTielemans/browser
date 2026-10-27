@@ -1,7 +1,8 @@
 # ⌘N opens another window on the same Spaces, showing the key window's Space with no page, and
 # never another window's page: a Space it switches to and back shows the first tab no window
 # shows. The Spaces menu acts on the window in front. A click on a row whose page another window
-# shows moves the page there live, with no second load, and the window it left keeps its rows.
+# shows moves the page there live, with no second load, and the window it left keeps its rows and
+# draws a picture of the page in its card, which a click on takes the page back from, live.
 # ⇧⌘W closes a window and gives its tabs to the one that was in front before it, live, which shows
 # its page again; in the last window it quits. ⇧↩ in the command bar opens its page in a new
 # window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
@@ -86,6 +87,32 @@ counting "in the new window"
 [ "$(today)" = "$a $b" ] || fail "the move changed Today to \"$(today)\""
 ../tools/window-screenshot.sh "$pid" "$out/windows-moved.png" all || fail "no window to capture"
 
+# The first window, which the page left, asks the core for a picture of it once the move is over,
+# and draws it in its card once it has stepped back.
+expect "^browser: window $first page elsewhere $a\$" "the first window wasn't told its page went"
+expect "^browser: window $first pictures tab $a\$" "the first window got no picture of its page"
+expect "^browser: window $first picture rests\$" "the first window's picture didn't step back"
+# Brought forward, it takes a new picture, and still leaves the page where it is.
+send window 1
+expect "^browser: window $first pictures tab $a\$" "the first window took no new picture as it came forward"
+../tools/window-screenshot.sh "$pid" "$out/windows-pictured.png" || fail "no window to capture"
+
+# A click on the picture takes the page back, live, from the new window, which draws its picture.
+send click $page_point
+expect '^browser: command select via picture$' "a click on the picture didn't take the page"
+expect "^browser: window $first shows $a\$" "a click on the picture didn't show the page"
+counting "back in the first window from its picture"
+expect "^browser: window $second pictures tab $a\$" "the new window got no picture of the page"
+expect "^browser: window $second picture rests\$" "the new window's picture didn't step back"
+send window 2
+expect "^browser: window $second pictures tab $a\$" "the new window took no new picture as it came forward"
+../tools/window-screenshot.sh "$pid" "$out/windows-pictured-back.png" || fail "no window to capture"
+
+# The row of the tab the new window has selected takes the page again, as before.
+send click $(row 0)
+expect "^browser: window $second shows $a\$" "a click on the row didn't take the page from its picture"
+counting "in the new window again"
+
 # ⇧⌘W closes the new window. The first keeps every row and shows its page again, live.
 send key w cmd shift
 expect '^browser: command close-window via ' "⇧⌘W didn't run Close Window"
@@ -149,4 +176,4 @@ post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
-echo "ok: ⌘N opens a window on the same Spaces with no page, which never takes another window's page on a Space switch, the Spaces menu acts on it, a click on a row moves its page there live, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/windows-moved.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"
+echo "ok: ⌘N opens a window on the same Spaces with no page, which never takes another window's page on a Space switch, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"

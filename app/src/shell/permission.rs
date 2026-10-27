@@ -25,7 +25,7 @@ const RADIUS: f32 = 12.;
 const LINE: f32 = 18.;
 const DETAIL: u32 = 0xffff_ffc7;
 /// A line of white 0.1 inside its edge, as the dialog's card has.
-const EDGE: u32 = 0xffff_ff1a;
+pub(super) const EDGE: u32 = 0xffff_ff1a;
 const BUTTON_HEIGHT: f32 = 28.;
 const BUTTON_GAP: f32 = 8.;
 const BUTTONS_TOP: f32 = 12.;

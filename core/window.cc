@@ -874,7 +874,7 @@ void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   }
   panes_ = std::move(panes);
   shown_ = contents->GetWeakPtr();
-  let_go_ = false;
+  SetLetGo(false);
   page_frame_ = frame;
   // If the page it replaces had the keyboard, the window has it once that page leaves, and the
   // new page takes it.
@@ -1017,7 +1017,7 @@ void Window::ShowNothing() {
     Seen(Tab::FromId(pane));
   }
   shown_ = nullptr;
-  let_go_ = false;
+  SetLetGo(false);
   LayOutPage();
   ReportSelected();
 }
@@ -1112,11 +1112,30 @@ void Window::Adopt(bc_id tab) {
   }
 }
 
-void Window::LetGo() {
+void Window::LetGo(bool tell) {
   panes_.clear();
   shown_ = nullptr;
-  let_go_ = true;
+  if (tell) {
+    SetLetGo(true);
+  } else {
+    let_go_ = true;
+  }
   LayOutPage();
+}
+
+void Window::SetLetGo(bool let_go) {
+  if (std::exchange(let_go_, let_go) == let_go) {
+    return;
+  }
+  // Posted, like the selection's report, so the app hears of its own call once it has returned.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](base::WeakPtr<Window> window, bc_id tab) {
+                       if (window && Host().window_page_elsewhere) {
+                         Host().window_page_elsewhere(Host().context, window->id(), tab);
+                       }
+                     },
+                     weak_factory_.GetWeakPtr(), let_go ? selected_ : 0));
 }
 
 void Window::HandOver(Window& to) {
@@ -1442,8 +1461,9 @@ void Window::Close() {
   }
   if (to && !off_the_record_ && !browser_shutdown::IsTryingToQuit()) {
     const bool give_back = to->let_go_ && Showing(to->selected_) == this;
-    // Its pages out of its view first, as the view goes with the window.
-    LetGo();
+    // Its pages out of its view first, as the view goes with the window. The app has no use for a
+    // picture of a page for a window that is closing.
+    LetGo(false);
     HandOver(*to);
     if (give_back) {
       to->Select(to->selected_);

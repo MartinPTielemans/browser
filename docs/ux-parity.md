@@ -65,7 +65,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Pinned tabs section | MVP | rows 6 under the tiles, above the Clear divider | Dia 1.52, Ardia |
 | [x] | Pinned tab ⌘W | MVP | unloads, keeps the row | Dia rec P§2 |
 | [x] | Pinned tab away from its URL | MVP | the favicon turns into a back arrow under the pointer and the title reads "Back to Pinned URL"; a click or ⌘↩ goes back *interim*; Arc's look: measure | Dia 1.53.0 bin |
-| [ ] | Pinned tab in two windows | MVP | one live page; frozen frame washed white 0.40 / black 0.25. Not started: multi-window step 4 | Dia cap, Ardia |
+| [x] | Page in two windows (a pinned tab's too) | MVP | one live page; the other window draws a picture of it, 0.8 of the card, veiled black 0.12, which a click takes the page back from; steps back in 200 ms, comes forward in 120 ms *ours* | Dia cap, Ardia; ours |
 | [x] | Clear divider line | MVP | one device pixel, white 0.15, 18 in from each side; ends 9 before Clear while it shows; centre 25 above the first row's centre | Arc 1.170.0 cap and tokens, Arc (Ardia) |
 | [x] | Clear label and arrow | MVP | the word, semibold ≈ 10 pt, 29.5 × 15, ends with the titles, 9 after the line; an arrow 8 tall, 3 before it, while the tab shown is all of Today, and Clear then closes it too; white 0.32, 0.81 under the pointer, no plate; ours: the arrow on Glyph change | Arc 1.170.0 cap and ax, Arc in use |
 | [x] | Clear on hover | MVP | shows only while the pointer is over the sidebar | Arc 1.170.0 cap |

@@ -849,6 +849,11 @@ unsafe extern "C" fn tab_captured(
     // check.sh reads this line.
     log!("browser: tab {tab} captured {request}: {width}x{height}, {size} bytes");
     let png = (!png.is_null()).then(|| unsafe { std::slice::from_raw_parts(png, size) }.to_vec());
+    // A window's picture of a page another window shows, not capture mode's.
+    if shell::is_picture(request) {
+        update_shells(|shell, cx| shell.page_pictured(request, png.clone(), cx));
+        return;
+    }
     update_app_later(move |cx| capture::captured(tab, request, png, cx));
 }
 
@@ -1591,6 +1596,20 @@ impl Browser for Engine {
             true => capture::full_page(tab, cx),
             false => capture::start(tab, frame, radius, cx),
         }
+    }
+
+    fn page_picture(&self, tab: u64, request: u64, _: &mut App) {
+        // The page's whole view, which is the shape it has where it's live; the card fits it.
+        let whole = bc::bc_rect { x: 0., y: 0., width: 0., height: 0. };
+        unsafe { bc::bc_tab_capture(tab, request, false, whole) };
+    }
+
+    fn page_picture_end(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_capture_end(tab) };
+    }
+
+    fn window(&self) -> u64 {
+        self.window
     }
 
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
@@ -2482,6 +2501,12 @@ unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc:
     });
 }
 
+unsafe extern "C" fn window_page_elsewhere(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
+    // check.sh reads this line.
+    log!("browser: window {window} page elsewhere {tab}");
+    update_window(window, |shell, cx| shell.page_elsewhere(tab, cx));
+}
+
 // check.sh reads these lines. Test pages report what reached them through their title.
 unsafe extern "C" fn tab_loaded(_: *mut c_void, tab: bc::bc_id, url: *const c_char) {
     let url = unsafe { CStr::from_ptr(url) }.to_string_lossy();
@@ -2950,6 +2975,7 @@ fn main() {
         favorites_changed: Some(favorites_changed),
         window_space_shown: Some(window_space_shown),
         window_selected: Some(window_selected),
+        window_page_elsewhere: Some(window_page_elsewhere),
         tab_opened: Some(tab_opened),
         tab_closed: Some(tab_closed),
         tab_loaded: Some(tab_loaded),
