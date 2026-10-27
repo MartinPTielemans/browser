@@ -10,7 +10,8 @@ was, except where noted:
   substituted.
 - inox-patchset's 0005-disable-default-extensions.patch empties WebstoreInstaller's download and
   install, and ungoogled-chromium's disable-webstore-urls.patch the downloader's update checks and
-  the store's dedicated process. They're restored. The rest of disable-webstore-urls.patch stays:
+  the store's dedicated process. They're restored, with the download folder's name written in
+  place, since the patch for Chromium 156 also drops its constant. The rest of disable-webstore-urls.patch stays:
   no pings, no OAuth token, no content verification, and no update check for an extension without
   an update URL.
 - ungoogled-chromium's block-requests.patch stubs out update_client's update check, which Chromium
@@ -61,7 +62,7 @@ was, except where noted:
      // chrome/common/extensions/webstore_override.cc
 --- a/extensions/browser/webstore_installer.cc
 +++ b/extensions/browser/webstore_installer.cc
-@@ -481,6 +481,21 @@
+@@ -477,6 +477,23 @@
  
  void WebstoreInstaller::DownloadCrx(const ExtensionId& extension_id,
                                      InstallSource source) {
@@ -70,7 +71,9 @@ was, except where noted:
 +
 +  base::FilePath user_data_dir =
 +      ExtensionsBrowserClient::Get()->GetUserDataDir();
-+  base::FilePath download_path = user_data_dir.Append(kWebstoreDownloadFolder);
++  // Not the usual downloads folder, so the crx files don't go via it.
++  base::FilePath download_path =
++      user_data_dir.Append(FILE_PATH_LITERAL("Webstore Downloads"));
 +
 +  base::FilePath download_directory(g_download_directory_for_tests
 +                                        ? *g_download_directory_for_tests
@@ -83,7 +86,7 @@ was, except where noted:
  }
  
  // http://crbug.com/40957413
-@@ -635,6 +650,24 @@
+@@ -631,6 +648,24 @@
  void WebstoreInstaller::StartCrxInstaller(const DownloadItem& download) {
    DCHECK_CURRENTLY_ON(BrowserThread::UI);
    DCHECK(!crx_installer_.get());

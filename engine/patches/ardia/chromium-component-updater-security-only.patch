@@ -13,7 +13,8 @@ return that ungoogled's block-requests.patch puts in UpdateCheckerImpl::CheckFor
 Helium's reenable-update-checks removes in Ardia's base. ChromeConfigurator's URLs replace
 Chromium's own, not Helium's. The hunks that undo Helium's component-updates.patch and
 reenable-update-checks (components_handler.cc, component_installer.cc, configurator_impl.cc) are
-left out, since our tree is already as they leave it.
+left out, since our tree is already as they leave it. The downloader test passes the progress
+callback that Chromium 156 adds to CrxDownloader::StartDownload().
 
 --- a/chrome/browser/component_updater/chrome_component_updater_configurator.cc
 +++ b/chrome/browser/component_updater/chrome_component_updater_configurator.cc
@@ -884,12 +885,10 @@ left out, since our tree is already as they leave it.
  
  }  // namespace
  
-@@ -263,6 +288,275 @@
- 
-   EXPECT_EQ(1, num_complete_calls_);
+@@ -265,4 +290,274 @@
    EXPECT_EQ(std::to_underlying(CrxDownloaderError::CANCELLED), result_.error);
-+}
-+
+ }
+ 
 +class RestrictedNetworkFetcherTest : public testing::Test {
 + protected:
 +  RestrictedNetworkFetcherTest()
@@ -1015,8 +1014,8 @@ left out, since our tree is already as they leave it.
 +  EXPECT_EQ(1, completions_);
 +  EXPECT_EQ(net::ERR_UNSAFE_REDIRECT, net_error_);
 +  EXPECT_FALSE(request->client.is_connected());
- }
- 
++}
++
 +TEST_F(RestrictedNetworkFetcherTest, PostStopsAtRedirectToHttp) {
 +  std::unique_ptr<NetworkFetcher> fetcher = MakeFactory(true)->Create();
 +  StartPost(*fetcher, GURL("https://localhost/update"));
@@ -1133,6 +1132,7 @@ left out, since our tree is already as they leave it.
 +  CrxDownloader::Result result;
 +  downloader->StartDownload(
 +      {GURL("http://localhost/a.crx3"), first, second}, kHash,
++      base::DoNothing(),
 +      base::BindLambdaForTesting([&](const CrxDownloader::Result& r) {
 +        ++results;
 +        result = r;
