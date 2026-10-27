@@ -86,6 +86,8 @@ source_set("browser_core") {
     "install_question.h",
     "leave_dialog.cc",
     "leave_dialog.h",
+    "link_preview.cc",
+    "link_preview.h",
     "link_target.cc",
     "link_target.h",
     "main_delegate.cc",

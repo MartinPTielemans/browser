@@ -30,6 +30,8 @@ use crate::{
 mod agent_spaces;
 mod beside;
 #[cfg(test)]
+mod link_previews;
+#[cfg(test)]
 mod close_tab;
 #[cfg(test)]
 mod dock_dot;
@@ -1552,6 +1554,19 @@ impl Shell {
     /// Whether the window shows `tab`'s page: the tab shown, or a page beside it in its split view.
     pub fn shows(&self, tab: u64) -> bool {
         self.selected != 0 && self.panes(self.selected).contains(&tab)
+    }
+
+    /// Whether a link from `tab`'s page to another site opens in a link preview: `tab` is a
+    /// favorite or pinned in the Space shown, as such a tab keeps its own site, and the Space is
+    /// the user's, as a preview is theirs alone.
+    pub fn previews_links_of(&self, tab: u64) -> bool {
+        let kept = self.favorites.contains(&tab) || self.pinned().contains(&tab);
+        kept && !self.agents_space_shown()
+    }
+
+    /// Where the page was laid out last, and the radius of its corners.
+    pub fn page_laid(&self) -> Option<(Bounds<Pixels>, f32)> {
+        self.page_laid
     }
 
     /// Where the card's left edge is: past the sidebar, or at the inset once ⌘S has hidden it,
