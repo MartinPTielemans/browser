@@ -1,0 +1,61 @@
+diff --git a/src/node.rs b/src/node.rs
+index 16314b5..9b91066 100644
+--- a/src/node.rs
++++ b/src/node.rs
+@@ -122,7 +122,8 @@ fn ns_role(node: &Node) -> &'static NSAccessibilityRole {
+             Role::Grid => NSAccessibilityTableRole,
+             Role::Group => NSAccessibilityGroupRole,
+             Role::Header => NSAccessibilityGroupRole,
+-            Role::Heading => ns_string!("Heading"),
++            // ilo: VoiceOver finds headings by the role Chromium and AppKit give them.
++            Role::Heading => ns_string!("AXHeading"),
+             Role::Iframe => NSAccessibilityGroupRole,
+             Role::IframePresentational => NSAccessibilityGroupRole,
+             Role::ImeCandidate => NSAccessibilityUnknownRole,
+@@ -703,6 +704,33 @@ declare_class!(
+             .unwrap_or(false)
+         }
+ 
++        // ilo: VoiceOver's VO-Shift-M asks for the element's menu, as a right-click does.
++        #[method(accessibilityPerformShowMenu)]
++        fn show_menu(&self) -> bool {
++            self.resolve_with_context(|node, tree, context| {
++                let supported = node.supports_action(Action::ShowContextMenu, &filter);
++                if supported {
++                    if let Some((target_node, target_tree)) = tree.state().locate_node(node.id()) {
++                        context.do_action(ActionRequest {
++                            action: Action::ShowContextMenu,
++                            target_tree,
++                            target_node,
++                            data: None,
++                        });
++                    }
++                }
++                supported
++            })
++            .unwrap_or(false)
++        }
++
++        // ilo: a node that can open and close, such as a folder, says which it is.
++        #[method(isAccessibilityExpanded)]
++        fn is_expanded(&self) -> bool {
++            self.resolve(|node| node.data().is_expanded() == Some(true))
++                .unwrap_or(false)
++        }
++
+         #[method(accessibilityPerformDecrement)]
+         fn decrement(&self) -> bool {
+             self.resolve_with_context(|node, tree, context| {
+@@ -1219,6 +1247,12 @@ declare_class!(
+                 if selector == sel!(accessibilityPerformDecrement) {
+                     return node.supports_decrement(&filter);
+                 }
++                if selector == sel!(accessibilityPerformShowMenu) {
++                    return node.supports_action(Action::ShowContextMenu, &filter);
++                }
++                if selector == sel!(isAccessibilityExpanded) {
++                    return node.data().is_expanded().is_some();
++                }
+                 if selector == sel!(accessibilityNumberOfCharacters)
+                     || selector == sel!(accessibilitySelectedText)
+                     || selector == sel!(accessibilitySelectedTextRange)

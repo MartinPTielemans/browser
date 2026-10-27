@@ -6,6 +6,11 @@
 set -e
 cd "$(dirname "$0")"
 [ -e .deps/Chromium.app ] || ./setup.sh
+# setup.sh vendors it since the app patched it; a checkout set up before that hasn't got it.
+[ -d .deps/accesskit_macos ] || {
+  echo "No .deps/accesskit_macos. Run ./setup.sh again, with dev for the dev engine." >&2
+  exit 1
+}
 engine_out=$(dirname "$(cd .deps/Chromium.app && pwd -P)")
 id=dev.browser.app
 features=

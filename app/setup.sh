@@ -18,8 +18,27 @@ if [ "$(git -C .deps/zed rev-parse HEAD)" != "$ZED_REV" ]; then
   git -C .deps/zed fetch -q origin "$ZED_REV"
   git -C .deps/zed checkout -q "$ZED_REV"
 fi
-# One patch a crate: gpui_macos's embeds GPUI in Chromium's window, gpui's scales what's painted.
+# One patch a crate: gpui_macos's embeds GPUI in Chromium's window, gpui's scales what's painted
+# and lets the tests stand in for an assistive app.
 git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch" "$PWD/patches/gpui-scale.patch"
+
+# GPUI's macOS accessibility adapter, at the version Cargo.lock has, with VoiceOver's menu action
+# and a folder's open state, which upstream lacks. A repository of its own, so a change to it
+# becomes the patch again with `git -C .deps/accesskit_macos diff`.
+ACCESSKIT_MACOS=0.26.3
+ACCESSKIT_MACOS_SHA256=ce02dc63b43f0c9296af9ac946312a2dc8814427d7a64d2d600971dac55b6076
+crate=.deps/accesskit_macos-$ACCESSKIT_MACOS.crate
+if ! echo "$ACCESSKIT_MACOS_SHA256  $crate" | shasum -a 256 -c -s 2>/dev/null; then
+  curl -sSfL "https://static.crates.io/crates/accesskit_macos/accesskit_macos-$ACCESSKIT_MACOS.crate" -o "$crate"
+  echo "$ACCESSKIT_MACOS_SHA256  $crate" | shasum -a 256 -c -s
+fi
+rm -rf .deps/accesskit_macos "${crate%.crate}"
+tar xzf "$crate" -C .deps
+mv "${crate%.crate}" .deps/accesskit_macos
+git -C .deps/accesskit_macos init -q
+git -C .deps/accesskit_macos add -A
+git -C .deps/accesskit_macos -c user.name=setup -c user.email=setup@localhost commit -qm upstream
+git -C .deps/accesskit_macos apply "$PWD/patches/accesskit-macos-actions.patch"
 
 engines=$(cd .. && pwd)/engine
 case ${1:-} in

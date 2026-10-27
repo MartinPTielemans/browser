@@ -38,3 +38,8 @@ cc = "1"
 [dev-dependencies]
 # The tests draw the UI in GPUI's test windows, with no engine, and simulate the keys typed.
 gpui = { path = ".deps/zed/crates/gpui", features = ["test-support"] }
+
+# The macOS accessibility adapter GPUI uses, with VO-Shift-M's menu and a folder's open state,
+# which it lacks upstream (setup.sh, patches/accesskit-macos-actions.patch).
+[patch.crates-io]
+accesskit_macos = { path = ".deps/accesskit_macos" }
