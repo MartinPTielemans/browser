@@ -116,7 +116,7 @@ fn site() -> Site {
             permission(2, "JavaScript", Value::Allow, &[]),
         ],
         reset: Some("Reset permissions".into()),
-        system_engine: false,
+        system_engine: None,
     }
 }
 
@@ -399,7 +399,7 @@ fn a_value_chosen_sets_the_permission(cx: &mut TestAppContext) {
 /// is, does nothing.
 #[gpui::test]
 fn the_engine_row_turns_safaris_engine_off(cx: &mut TestAppContext) {
-    let mut panel = Panel::new(cx, Site { system_engine: true, ..site() });
+    let mut panel = Panel::new(cx, Site { system_engine: Some(true), ..site() });
     panel.calls();
     panel.host.answer.set(Some(0));
     panel.click(row(0));
@@ -411,6 +411,37 @@ fn the_engine_row_turns_safaris_engine_off(cx: &mut TestAppContext) {
     panel.host.answer.set(Some(1));
     panel.click(row(2));
     assert_eq!(panel.calls(), ["menu Allow*, Block, Ask", &format!("set {TAB} {WINDOWS} Block")]);
+}
+
+/// A site the core offers Safari's engine for, as a page asked for what it plays or the user closed
+/// the site's note, lists it off, and its menu's On turns it on, as the note's button does; Off,
+/// which it is, does nothing. The core then reports the site kept, and the row says On.
+#[gpui::test]
+fn the_engine_row_offers_safaris_engine(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, Site { system_engine: Some(false), ..site() });
+    panel.calls();
+    panel.host.answer.set(Some(1));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On, Off*"]);
+    panel.host.answer.set(Some(0));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On, Off*", &format!("system engine {TAB} true")]);
+    panel.changed(Site { system_engine: Some(true), ..site() });
+    panel.calls();
+    panel.host.answer.set(None);
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On*, Off"]);
+}
+
+/// A site the core neither keeps nor offers Safari's engine for has no row for it: its first row is
+/// the first permission's.
+#[gpui::test]
+fn without_the_offer_there_is_no_engine_row(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    panel.calls();
+    panel.host.answer.set(None);
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu Allow, Block, Ask*"]);
 }
 
 /// A value a policy set shows, but isn't the user's to change.

@@ -182,9 +182,10 @@ pub struct Site {
     /// Chrome's words for its button that sets the permissions back to their defaults, when it
     /// shows one.
     pub reset: Option<SharedString>,
-    /// The profile keeps the site for Safari's engine, which plays the protected video Chromium
-    /// can't. Its row turns it off.
-    pub system_engine: bool,
+    /// Its row for Safari's engine, which plays the protected video Chromium can't: on for a site
+    /// the profile keeps for it, off for one it offers it for, where a page of the tab asked or the
+    /// user closed the site's note, else none. The row turns it on or off.
+    pub system_engine: Option<bool>,
 }
 
 /// An extension acting on the tab's page, as the toolbar shows it.
@@ -453,7 +454,8 @@ fn layout(site: &Site, extensions: usize, beak: bool) -> Layout {
     let grid = extensions_cap + HEADING_TO_TILES;
     let lines = (extensions + 1).div_ceil(EXTENSIONS_PER_ROW) as f32;
     let grid_bottom = grid + lines * TILE_HEIGHT + (lines - 1.) * GAP;
-    let rows = site.system_engine as usize + site.permissions.len() + site.reset.is_some() as usize;
+    let engine = site.system_engine.is_some() as usize;
+    let rows = engine + site.permissions.len() + site.reset.is_some() as usize;
     let (settings_cap, first, divider) = match rows {
         // Ours: with nothing to list, the heading goes, and the line follows the tiles.
         0 => (None, grid_bottom, grid_bottom + ROWS_TO_DIVIDER - CIRCLE),
@@ -661,7 +663,10 @@ fn describe(site: &Site) -> String {
         site.site,
         site.connection_summary,
         if permissions.is_empty() { "no permissions".into() } else { permissions.join(", ") },
-        if site.system_engine { format!("; {ENGINE_NAME} on") } else { String::new() }
+        match site.system_engine {
+            Some(on) => format!("; {ENGINE_NAME} {}", if on { "on" } else { "off" }),
+            None => String::new(),
+        }
     )
 }
 
@@ -798,18 +803,23 @@ impl SiteControls {
         .detach();
     }
 
-    /// Shows the engine row's menu at `position`: On, checked, and Off, which turns it off.
-    fn choose_engine(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+    /// Shows the engine row's menu at `position`: On and Off, the one it is checked, and the other
+    /// turns it so.
+    fn choose_engine(&mut self, on: bool, position: Point<Pixels>, cx: &mut Context<Self>) {
         let Some(tab) = self.open.as_ref().map(|open| open.tab) else {
             return;
         };
         let items = [
-            MenuEntry { checked: true, ..MenuEntry::new("On".to_string(), true) },
-            MenuEntry::new("Off".to_string(), true),
+            MenuEntry { checked: on, ..MenuEntry::new("On".to_string(), true) },
+            MenuEntry { checked: !on, ..MenuEntry::new("Off".to_string(), true) },
         ];
         let host = self.host.clone();
         cx.spawn(async move |panel, cx| {
-            if host.menu(&items, position) != Some(1) {
+            let Some(chosen) = host.menu(&items, position) else {
+                return;
+            };
+            let turn_on = chosen == 0;
+            if turn_on == on {
                 return;
             }
             panel
@@ -817,8 +827,8 @@ impl SiteControls {
                     let open = panel.open.as_ref();
                     if open.is_some_and(|open| open.tab == tab && open.closing.is_none()) {
                         // check.sh reads this line.
-                        log!("browser: site controls set {ENGINE_NAME} Off");
-                        panel.host.set_system_engine(tab, false);
+                        log!("browser: site controls set {ENGINE_NAME} {}", items[chosen].title);
+                        panel.host.set_system_engine(tab, turn_on);
                     }
                 })
                 .ok();
@@ -1246,18 +1256,19 @@ impl Render for SiteControls {
         let settings = at.settings_cap.map(|cap| {
             let hovered = open.hovered == Some(Heading::Settings);
             let mut rows = vec![self.heading(Heading::Settings, cap, hovered, cx)];
-            let engine = site.system_engine as usize;
-            if site.system_engine {
+            let engine = site.system_engine.is_some() as usize;
+            if let Some(on) = site.system_engine {
+                let state = if on { "On" } else { "Off" };
                 let row = Self::row(
                     "site-engine".into(),
                     at.rows,
                     ENGINE,
-                    true,
+                    on,
                     ENGINE_NAME.into(),
-                    Some("On".into()),
+                    Some(state.into()),
                 );
-                let row = row.on_click(cx.listener(|panel, event: &ClickEvent, _, cx| {
-                    panel.choose_engine(event.position(), cx)
+                let row = row.on_click(cx.listener(move |panel, event: &ClickEvent, _, cx| {
+                    panel.choose_engine(on, event.position(), cx)
                 }));
                 rows.push(row.into_any_element());
             }

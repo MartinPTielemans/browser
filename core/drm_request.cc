@@ -11,7 +11,9 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/drm_request.mojom.h"
 #include "browser_core/host.h"
+#include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/document_service.h"
 #include "content/public/browser/page.h"
 #include "content/public/browser/web_contents.h"
@@ -64,7 +66,7 @@ class Unsupported : public content::WebContentsObserver,
   // The tab's document asked for |system|.
   void Asked(const std::string& system) {
     // Once for each system a document asks for, as pages ask again at every play.
-    if (!asked_.insert(system).second) {
+    if (NoteClosed(web_contents()->GetLastCommittedURL()) || !asked_.insert(system).second) {
       return;
     }
     if (shown_.empty()) {
@@ -74,7 +76,23 @@ class Unsupported : public content::WebContentsObserver,
     Changed();
   }
 
-  // The tab's page is no longer Chromium's: what it asked for goes with it.
+  bool shown() const { return !shown_.empty(); }
+
+  // Whether the user closed the note for |url|'s site in the tab's profile.
+  bool NoteClosed(const GURL& url) {
+    return system_engine::NoteClosed(
+        Profile::FromBrowserContext(web_contents()->GetBrowserContext()), url);
+  }
+
+  // The user closed the note for a site: the tab takes it back if it's at that site.
+  void Closed() {
+    if (shown() && NoteClosed(shown_at_)) {
+      Forget();
+    }
+  }
+
+  // The tab's page is no longer Chromium's, or its site's note was closed: what it asked for goes
+  // with it.
   void Forget() {
     asked_.clear();
     if (!shown_.empty()) {
@@ -176,6 +194,23 @@ void PopulateFrameBinders(mojo::BinderMapWithContext<content::RenderFrameHost*>*
 void ForgetMediaUnsupported(content::WebContents* contents) {
   if (Unsupported* unsupported = Unsupported::FromWebContents(contents)) {
     unsupported->Forget();
+  }
+}
+
+bool MediaUnsupported(content::WebContents* contents) {
+  Unsupported* unsupported = Unsupported::FromWebContents(contents);
+  return unsupported && unsupported->shown();
+}
+
+void CloseMediaNote(content::WebContents* contents) {
+  system_engine::CloseNote(Profile::FromBrowserContext(contents->GetBrowserContext()),
+                           Tab::PageUrl(contents));
+  // Each asks its own profile, so a private window's closing leaves its profile's tabs alone, and
+  // the profile's reaches its private windows, which read its sites.
+  for (content::WebContents* each : Tab::All()) {
+    if (Unsupported* unsupported = Unsupported::FromWebContents(each)) {
+      unsupported->Closed();
+    }
   }
 }
 
