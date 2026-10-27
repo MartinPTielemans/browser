@@ -38,11 +38,11 @@ namespace {
 // Chrome's address bar's sources that read only what's on the device. Search, with search
 // suggestions off, adds just the search for what was typed, and Keyword the search engines' site
 // searches.
-constexpr int kProviders = AutocompleteProvider::TYPE_BOOKMARK | AutocompleteProvider::TYPE_BUILTIN |
-                           AutocompleteProvider::TYPE_HISTORY_QUICK |
-                           AutocompleteProvider::TYPE_HISTORY_URL |
-                           AutocompleteProvider::TYPE_KEYWORD | AutocompleteProvider::TYPE_SEARCH |
-                           AutocompleteProvider::TYPE_SHORTCUTS;
+constexpr int kProviders = static_cast<int>(
+    AutocompleteProvider::Type::kBookmark | AutocompleteProvider::Type::kBuiltin |
+    AutocompleteProvider::Type::kHistoryQuick | AutocompleteProvider::Type::kHistoryUrl |
+    AutocompleteProvider::Type::kKeyword | AutocompleteProvider::Type::kSearch |
+    AutocompleteProvider::Type::kShortcuts);
 
 // As Chrome matches a suggestion to an open tab: by URL, without what doesn't change the page.
 GURL Stripped(const GURL& url, const TemplateURLService* engines) {
@@ -187,7 +187,7 @@ void Suggestions::Report() {
                                               window->selected(), engines),
         .keyword = site_search ? base::UTF16ToUTF8(engine->keyword()) : std::string(),
         .site = site_search ? base::UTF16ToUTF8(engine->short_name()) : std::string(),
-        .typed_search = match.type == AutocompleteMatchType::SEARCH_WHAT_YOU_TYPED,
+        .typed_search = match.type == omnibox::AutocompleteMatchType::kSearchWhatYouTyped,
         .removable = match.SupportsDeletion(),
     });
   }
