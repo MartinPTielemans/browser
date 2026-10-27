@@ -9,7 +9,10 @@ use gpui::{
     prelude::*, px, rgb, size,
 };
 
-use super::{GRADIENT_ALPHA, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, Shell};
+use super::{
+    GRADIENT_ALPHA, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, Shell,
+    undo::{Prop, Value},
+};
 use crate::{
     theme::{self, DEFAULT_INTENSITY, GRAIN_STRENGTH, GRAIN_TILE, Theme},
     theme_picker::{self, Changed},
@@ -54,24 +57,21 @@ impl Shell {
     }
 
     /// The picker made `theme` for `space`: the window shows it at once, and once the user is
-    /// `done` the core keeps it, with its main colour as the Space's colour.
+    /// `done` the core keeps it, with its main colour as the Space's colour, as one step for ⌘Z:
+    /// a drag is one, however many frames it took.
     fn theme_changed(&mut self, space: u64, theme: Theme, done: bool, cx: &mut Context<Self>) {
         self.theme_preview = Some((space, theme));
         if done {
-            self.browser.set_space_color(space, Some(theme.main_color()), cx);
-            self.browser.set_space_theme(space, &theme.to_text(), cx);
+            let color = Value::Color { color: Some(theme.main_color()), theme: theme.to_text() };
+            self.change(Prop::SpaceColor(space), color, cx);
         }
         cx.notify();
     }
 
     /// Takes `space`'s theme and colour away, so it shows the system's accent again.
     pub(super) fn remove_space_theme(&mut self, space: u64, cx: &mut Context<Self>) {
-        if self.theme_preview.is_some_and(|(previewed, _)| previewed == space) {
-            self.theme_preview = None;
-        }
-        self.browser.set_space_theme(space, "", cx);
-        self.browser.set_space_color(space, None, cx);
-        cx.notify();
+        let none = Value::Color { color: None, theme: String::new() };
+        self.change(Prop::SpaceColor(space), none, cx);
     }
 
     /// The Spaces came from the core: the theme being made gives way to the Space's own once

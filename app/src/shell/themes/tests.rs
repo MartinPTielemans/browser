@@ -127,6 +127,94 @@ fn remove_theme_color_takes_the_space_back_to_the_accent(cx: &mut TestAppContext
     assert!(!titles.iter().any(|(title, _)| title == "Remove Theme Color"));
 }
 
+/// The shell with Space 1 as `entry` has it, on a host that records what it asks of the core.
+fn recorded(
+    color: Option<u32>,
+    theme: Option<Theme>,
+    cx: &mut TestAppContext,
+) -> (Entity<Shell>, Rc<Recorder>, &mut VisualTestContext) {
+    let host = Rc::new(Recorder::default());
+    let browser = host.clone();
+    let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![entry(color, theme)], cx);
+        shell.set_space(1, cx);
+    });
+    host.take_edits();
+    (shell, host, cx)
+}
+
+/// What the shell asks of the core to give Space 1 `theme`, or take its theme away.
+fn gives(theme: Option<Theme>) -> [String; 2] {
+    match theme {
+        Some(theme) => [
+            format!("theme 1 {}", theme.to_text()),
+            format!("color 1 Some({})", theme.main_color()),
+        ],
+        None => ["theme 1 none".into(), "color 1 None".into()],
+    }
+}
+
+/// ⌘Z takes a picked theme back to none, the system's accent, and ⇧⌘Z gives it again.
+#[gpui::test]
+fn a_picked_theme_undoes_to_the_accent_and_redoes(cx: &mut TestAppContext) {
+    let (shell, host, cx) = recorded(None, None, cx);
+    let made = Theme::at(-0.4, 0.2).with_count(2);
+    shell.update(cx, |shell, cx| shell.theme_changed(1, made, true, cx));
+    assert_eq!(host.take_edits(), gives(Some(made)));
+    shell.update(cx, |shell, cx| {
+        assert_eq!(shell.history.titles(), (Some("Change Theme Color"), None));
+        shell.set_spaces(vec![entry(Some(made.main_color()), Some(made))], cx);
+        assert!(shell.undo(cx));
+    });
+    assert_eq!(host.take_edits(), gives(None));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![entry(None, None)], cx);
+        assert_eq!(shell.theme_of(1), None);
+        assert!(shell.redo(cx));
+    });
+    assert_eq!(host.take_edits(), gives(Some(made)));
+}
+
+/// The picker hands the theme on each frame of a drag and keeps it on letting go, which is one
+/// step: ⌘Z goes back to the theme before the drag, not to a frame of it.
+#[gpui::test]
+fn a_drag_in_the_picker_undoes_as_one_step(cx: &mut TestAppContext) {
+    let before = Theme::at(0.5, 0.).with_count(2);
+    let (shell, host, cx) = recorded(Some(before.main_color()), Some(before), cx);
+    let frames = [0.2, 0.3, 0.4].map(|intensity| Theme { intensity, ..before });
+    shell.update(cx, |shell, cx| {
+        for frame in frames {
+            shell.theme_changed(1, frame, false, cx);
+        }
+        assert_eq!(shell.theme_of(1), Some(frames[2]));
+        shell.theme_changed(1, frames[2], true, cx);
+    });
+    assert_eq!(host.take_edits(), gives(Some(frames[2])));
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(vec![entry(Some(before.main_color()), Some(frames[2]))], cx);
+        assert!(shell.undo(cx));
+        assert!(!shell.undo(cx));
+    });
+    assert_eq!(host.take_edits(), gives(Some(before)));
+}
+
+/// ⌘Z after Remove Theme Color gives the Space its theme and colour back.
+#[gpui::test]
+fn remove_theme_color_undoes(cx: &mut TestAppContext) {
+    let theme = Theme::at(0.5, 0.).with_count(3);
+    let (shell, host, cx) = recorded(Some(theme.main_color()), Some(theme), cx);
+    shell.update(cx, |shell, cx| shell.space_menu(1, point(px(100.), px(112.)), cx));
+    cx.update(|_, cx| host.choose("Remove Theme Color", cx));
+    assert_eq!(host.take_edits(), gives(None));
+    shell.update(cx, |shell, cx| {
+        assert_eq!(shell.history.titles(), (Some("Remove Theme Color"), None));
+        shell.set_spaces(vec![entry(None, None)], cx);
+        assert!(shell.undo(cx));
+    });
+    assert_eq!(host.take_edits(), gives(Some(theme)));
+}
+
 /// GPUI's shader, as gpui_apple's fill_color has it for a linear gradient on a square, `side`
 /// across from the origin, with stops at `start` and `end`: how far from the first colour to the
 /// second `point` is.
