@@ -1048,6 +1048,7 @@ fn a_word_of_the_name_puts_the_best_first_and_the_rest_after(cx: &mut TestAppCon
         "https://splitwise.com/".into(),
         "Close this Split Pane ⌃⇧-".into(),
         "Separate Page from Split View".into(),
+        "Expand Current Split".into(),
         "Flip Split View".into(),
     ];
     assert_eq!(bar.listed(), expected);
