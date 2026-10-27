@@ -837,9 +837,10 @@ BC_EXPORT bc_id bc_window_undo_delete_space(bc_id window, bc_id space);
 BC_EXPORT bc_id bc_window_reopen_closed_tab(bc_id window);
 
 // As bc_window_reopen_closed_tab for the Today tab that had the id |closed| when it closed, rather
-// than the one closed last, so a tab closed before another can come back first. Returns the new
-// tab's id, which is not |closed|, or 0 if that tab isn't among those that reopen: it came back
-// already, or 25 others closed since.
+// than the one closed last, so a tab closed before another can come back first. It doesn't show
+// the tab: the one shown stays, so several can come back behind it, and the caller shows the one
+// that was shown when it closed. Returns the new tab's id, which is not |closed|, or 0 if that tab
+// isn't among those that reopen: it came back already, or 25 others closed since.
 BC_EXPORT bc_id bc_window_reopen_tab(bc_id window, bc_id closed);
 
 // Reopens the archived tab at the top of the Today tabs of the Space the window shows, unloaded,

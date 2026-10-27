@@ -1412,10 +1412,10 @@ bc_id Window::ReopenClosedTab() {
   if (ClosedTabs().empty() || off_the_record_) {
     return 0;
   }
-  return ReopenClosed(ClosedTabs().back().id);
+  return ReopenClosed(ClosedTabs().back().id, /*show=*/true);
 }
 
-bc_id Window::ReopenClosed(bc_id id) {
+bc_id Window::ReopenClosed(bc_id id, bool show) {
   std::optional<ClosedTab> taken = off_the_record_ ? std::nullopt : TakeClosed(id);
   if (!taken) {
     return 0;
@@ -1444,7 +1444,9 @@ bc_id Window::ReopenClosed(bc_id id) {
     }
     PanesChanged();
   }
-  Select(tab);
+  if (show) {
+    Select(tab);
+  }
   return tab;
 }
 

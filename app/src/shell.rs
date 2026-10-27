@@ -953,6 +953,8 @@ pub struct Shell {
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
+    /// Escape put a dragged tab back, and the frame that shows it all put back isn't drawn yet.
+    putting_back: bool,
     swipe: Option<Swipe>,
     settle: Option<Settle>,
     /// The last swipe paged, so its momentum, which comes without a touch, doesn't scroll the list.
@@ -1188,6 +1190,7 @@ impl Shell {
             press_closed_bar: false,
             drag: None,
             dragged: false,
+            putting_back: false,
             swipe: None,
             settle: None,
             swiped: false,
@@ -2252,11 +2255,17 @@ impl Shell {
             // check.sh reads these lines.
             log!("browser: settled space {}", settle.space);
         }
-        !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
+        let moving = !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
             || !self.tile_slides.is_empty()
             || self.list_slide.is_some()
             || self.opened.is_some()
-            || self.settle.is_some()
+            || self.settle.is_some();
+        if !moving && std::mem::take(&mut self.putting_back) {
+            // check.sh waits for this line before it presses a row or tile Escape put back: a press
+            // hits the frame drawn, which has them sliding home until now.
+            log!("browser: drag put back");
+        }
+        moving
     }
 
     /// Draws a dragged tab's turn between its row and its tile on, and once it has turned, lands a
