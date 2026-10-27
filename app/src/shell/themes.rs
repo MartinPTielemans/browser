@@ -64,6 +64,16 @@ impl Shell {
         cx.notify();
     }
 
+    /// Takes `space`'s theme and colour away, so it shows the system's accent again.
+    pub(super) fn remove_space_theme(&mut self, space: u64, cx: &mut Context<Self>) {
+        if self.theme_preview.is_some_and(|(previewed, _)| previewed == space) {
+            self.theme_preview = None;
+        }
+        self.browser.set_space_theme(space, "", cx);
+        self.browser.set_space_color(space, None, cx);
+        cx.notify();
+    }
+
     /// The Spaces came from the core: the theme being made gives way to the Space's own once
     /// the core has it, or the Space has gone.
     pub(super) fn settle_theme_preview(&mut self) {
