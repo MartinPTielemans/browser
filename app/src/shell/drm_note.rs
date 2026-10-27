@@ -5,19 +5,24 @@
 //! this says why. Agents get no path: it hands the user's page to another app. The core reports it
 //! (tab_media_unsupported), and a later step can answer the same report with a download of Widevine.
 
-use gpui::{Context, FontWeight, SharedString, div, prelude::*, px, rgba};
+use gpui::{Context, FontWeight, SharedString, div, img, prelude::*, px, rgba};
 
 use super::{
     Shell, TITLE,
-    permission::{BUTTONS_TOP, card_button, card_listener},
+    permission::{BUTTONS_TOP, DETAIL, card_button_frame, card_listener},
 };
 
-/// Ours, as neither Arc nor Dia has protected media to explain: short and plain.
-const WORDS: &str =
-    concat!("This site's video needs a module ", env!("APP_NAME"), " doesn't have yet.");
-const OPEN: &str = "Open in Safari";
+/// Ours, as neither Arc nor Dia has protected media to explain: short and plain. The button's
+/// words say it's Safari that plays the video, and the line above it that this is another app, not
+/// the tab changing engines.
+const WORDS: &str = concat!(env!("APP_NAME"), " can't play this site's video yet.");
+const WATCH: &str = "Watch in Safari";
+const WHERE: &str = "Opens this page in the Safari app.";
 /// A private window's page leaves it for Safari's own window, which keeps history.
-const OPEN_PRIVATE: &str = "Open in Safari, not private";
+const WHERE_PRIVATE: &str = "Opens this page in the Safari app, which isn't private.";
+/// Safari's icon beside the button's words, in points, and the space between them.
+const ICON: f32 = 18.;
+const ICON_GAP: f32 = 6.;
 
 impl Shell {
     /// The core reports the protected-media key system `tab`'s page asked for that ilo can't play,
@@ -58,11 +63,21 @@ impl Shell {
             self.drm_drawn.set(None);
             return None;
         }
-        // Where Safari isn't, the note says why and offers nothing.
-        let button = self.browser.can_open_in_safari().then(|| {
-            let label = if self.private { OPEN_PRIVATE } else { OPEN };
+        // Where Safari isn't, the note says why and offers nothing, so no line about where the
+        // page goes either.
+        let can_open = self.browser.can_open_in_safari();
+        // The line is under the title, as a question's detail is, so it's read before the button.
+        let detail = can_open.then(|| {
+            div().text_color(rgba(DETAIL)).child(where_it_goes(self.private))
+        });
+        let button = can_open.then(|| {
+            // Safari's own icon from the installed app; without it, the words alone.
+            let icon = self.browser.safari_icon(ICON);
             div().mt(px(BUTTONS_TOP)).flex().child(
-                card_button("drm-note-safari", label)
+                card_button_frame("drm-note-safari")
+                    .gap(px(ICON_GAP))
+                    .children(icon.map(|icon| img(icon).size(px(ICON)).flex_none()))
+                    .child(WATCH)
                     .on_click(cx.listener(|shell, _, _, cx| shell.open_in_safari(cx))),
             )
         });
@@ -70,9 +85,15 @@ impl Shell {
             self.plate("drm-note")
                 .child(card_listener("drm note", &self.drm_drawn, self.selected))
                 .child(div().text_color(rgba(TITLE)).font_weight(FontWeight::MEDIUM).child(WORDS))
+                .children(detail)
                 .children(button),
         )
     }
+}
+
+/// What the page does when the button's pressed, which is the user's to know before they press.
+fn where_it_goes(private: bool) -> &'static str {
+    if private { WHERE_PRIVATE } else { WHERE }
 }
 
 #[cfg(test)]
@@ -81,7 +102,17 @@ mod tests {
 
     use gpui::{AppContext, TestAppContext};
 
+    use super::where_it_goes;
     use crate::shell::{Folders, Page, Question, Shell, recorder::Recorder};
+
+    #[test]
+    fn the_line_says_the_page_goes_to_the_safari_app_and_that_it_isnt_private_in_a_private_window() {
+        assert_eq!(where_it_goes(false), "Opens this page in the Safari app.");
+        assert_eq!(
+            where_it_goes(true),
+            "Opens this page in the Safari app, which isn't private."
+        );
+    }
 
     fn window_with_tabs(cx: &mut TestAppContext) -> (gpui::Entity<Shell>, Rc<Recorder>) {
         let host = Rc::new(Recorder::default());

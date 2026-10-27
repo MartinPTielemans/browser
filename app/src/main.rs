@@ -3,7 +3,7 @@
 //! Chromium owns the application object and the run loop.
 
 use std::{
-    cell::{Cell, RefCell},
+    cell::{Cell, OnceCell, RefCell},
     ffi::{CStr, CString, c_char, c_int, c_void},
     rc::Rc,
     sync::Arc,
@@ -147,6 +147,11 @@ mod platform {
         );
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
+        pub fn host_safari_icon(
+            points: f64,
+            context: *mut c_void,
+            done: unsafe extern "C" fn(context: *mut c_void, png: *const u8, size: usize),
+        );
         pub fn host_share(
             ui_view: *mut c_void,
             x: f64,
@@ -323,6 +328,8 @@ thread_local! {
     static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
     // The most recently key first, as the core keeps its windows.
     static WINDOWS: RefCell<Vec<BrowserWindow>> = const { RefCell::new(Vec::new()) };
+    // Safari's app icon, read from the installed app the first time a protected-media note needs it.
+    static SAFARI_ICON: OnceCell<Option<Arc<Image>>> = const { OnceCell::new() };
 }
 
 /// The core's id and the UI's view of the window that the overlays every window shares show over,
@@ -1598,6 +1605,25 @@ impl Browser for Engine {
         if let Ok(url) = CString::new(url) {
             unsafe { platform::host_open_in_safari(url.as_ptr()) };
         }
+    }
+
+    fn safari_icon(&self, side: f32) -> Option<Arc<Image>> {
+        unsafe extern "C" fn done(context: *mut c_void, png: *const u8, size: usize) {
+            if !png.is_null() {
+                let found = unsafe { &mut *(context as *mut Option<Vec<u8>>) };
+                *found = Some(unsafe { std::slice::from_raw_parts(png, size) }.to_vec());
+            }
+        }
+        // Asked once: GPUI keeps a decoded image by its id, so a new one each frame would decode
+        // again each frame.
+        SAFARI_ICON.with(|icon| {
+            icon.get_or_init(|| {
+                let mut found: Option<Vec<u8>> = None;
+                unsafe { platform::host_safari_icon(side.into(), (&raw mut found).cast(), done) };
+                found.map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png)))
+            })
+            .clone()
+        })
     }
 
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {

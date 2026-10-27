@@ -406,6 +406,12 @@ void host_copy(const char* text);
 // so checks never launch Safari.
 void host_open_in_safari(const char* url);
 
+// Calls |done| at once with a PNG of the installed Safari's own app icon, |points| square at 2×, or
+// with a null |png| if Safari isn't installed. The icon is read from the system, never kept in the
+// repo.
+void host_safari_icon(double points, void* context,
+                      void (*done)(void* context, const uint8_t* png, size_t size));
+
 // Shows the system's share menu for the page at |url| titled |title|, hanging from the frame at
 // |x|, |y|, |width| by |height| points in |ui_view|'s window's content.
 void host_share(void* ui_view,

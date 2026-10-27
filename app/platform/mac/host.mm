@@ -2452,6 +2452,35 @@ void host_open_in_safari(const char* url) {
                       completionHandler:nil];
 }
 
+void host_safari_icon(double points, void* context,
+                      void (*done)(void* context, const uint8_t* png, size_t size)) {
+  NSURL* safari =
+      [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:@"com.apple.Safari"];
+  if (!safari) {
+    done(context, nullptr, 0);
+    return;
+  }
+  // Drawn at 2× from the installed Safari's own icon, as the file icon above is.
+  const NSInteger side = static_cast<NSInteger>(points * 2);
+  NSBitmapImageRep* bitmap =
+      [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:nullptr
+                                              pixelsWide:side
+                                              pixelsHigh:side
+                                           bitsPerSample:8
+                                         samplesPerPixel:4
+                                                hasAlpha:YES
+                                                isPlanar:NO
+                                          colorSpaceName:NSDeviceRGBColorSpace
+                                             bytesPerRow:0
+                                            bitsPerPixel:0];
+  [NSGraphicsContext saveGraphicsState];
+  NSGraphicsContext.currentContext = [NSGraphicsContext graphicsContextWithBitmapImageRep:bitmap];
+  [[NSWorkspace.sharedWorkspace iconForFile:safari.path] drawInRect:NSMakeRect(0, 0, side, side)];
+  [NSGraphicsContext restoreGraphicsState];
+  NSData* png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+  done(context, static_cast<const uint8_t*>(png.bytes), png.length);
+}
+
 void host_share(void* ui_view,
                 double x,
                 double y,

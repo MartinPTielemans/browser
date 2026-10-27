@@ -2,9 +2,9 @@
 //! a split view and a Space's folders. The engine answers in main.rs, the preview with
 //! made-up tabs in preview.rs.
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
+use gpui::{App, Bounds, Image, Pixels, Point, SharedString, Size};
 
 use super::{Answer, BarTab, DownloadAction, Extension, MenuEntry};
 
@@ -250,6 +250,11 @@ pub trait Browser {
     }
     /// Opens `url` in Safari, leaving the tab as it is.
     fn open_in_safari(&self, _url: &str, _cx: &mut App) {}
+    /// Safari's own app icon, read from the installed app, `side` points square at 2×; none where
+    /// Safari isn't. The button beside it shows without when there's none.
+    fn safari_icon(&self, _side: f32) -> Option<Arc<Image>> {
+        None
+    }
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
     /// words after it if there's a key.
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);

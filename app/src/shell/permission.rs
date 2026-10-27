@@ -23,7 +23,7 @@ const GAP: f32 = 6.;
 const PADDING: f32 = 12.;
 const RADIUS: f32 = 12.;
 const LINE: f32 = 18.;
-const DETAIL: u32 = 0xffff_ffc7;
+pub(super) const DETAIL: u32 = 0xffff_ffc7;
 /// A line of white 0.1 inside its edge, as the dialog's card has.
 pub(super) const EDGE: u32 = 0xffff_ff1a;
 const BUTTON_HEIGHT: f32 = 28.;
@@ -135,6 +135,11 @@ impl Shell {
 /// A button on a card, as wide as its share of the row, as tall as a line of text and a half, and
 /// taller if its words wrap.
 pub(super) fn card_button(id: &'static str, label: &'static str) -> Stateful<Div> {
+    card_button_frame(id).child(label)
+}
+
+/// A card button without its contents, for one that has more than words.
+pub(super) fn card_button_frame(id: &'static str) -> Stateful<Div> {
     div()
         .id(id)
         .flex_1()
@@ -150,7 +155,6 @@ pub(super) fn card_button(id: &'static str, label: &'static str) -> Stateful<Div
         .hover(|style| style.bg(rgba(HOVERED)))
         .font_weight(FontWeight::MEDIUM)
         .text_color(rgba(TITLE))
-        .child(label)
 }
 
 impl Shell {
