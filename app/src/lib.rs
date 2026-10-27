@@ -12,14 +12,33 @@ macro_rules! log {
     }};
 }
 
-/// Milliseconds on macOS's uptime clock, the one Chromium's `TimeTicks` and the host's lines read,
-/// so a step timed across the core, the host and the UI is one subtraction.
+/// Milliseconds on the clock Chromium's `TimeTicks` and the host's lines read, macOS's uptime clock
+/// and Linux's monotonic one, so a step timed across the core, the host and the UI is one
+/// subtraction.
+#[cfg(target_os = "macos")]
 pub fn uptime_ms() -> f64 {
     unsafe extern "C" {
         fn clock_gettime_nsec_np(clock_id: u32) -> u64;
     }
     const CLOCK_UPTIME_RAW: u32 = 8;
     unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) as f64 / 1e6 }
+}
+
+#[cfg(target_os = "linux")]
+pub fn uptime_ms() -> f64 {
+    use std::ffi::{c_int, c_long};
+    #[repr(C)]
+    struct Timespec {
+        tv_sec: c_long,
+        tv_nsec: c_long,
+    }
+    unsafe extern "C" {
+        fn clock_gettime(clock_id: c_int, tp: *mut Timespec) -> c_int;
+    }
+    const CLOCK_MONOTONIC: c_int = 1;
+    let mut now = Timespec { tv_sec: 0, tv_nsec: 0 };
+    unsafe { clock_gettime(CLOCK_MONOTONIC, &mut now) };
+    now.tv_sec as f64 * 1e3 + now.tv_nsec as f64 / 1e6
 }
 
 pub mod capture;

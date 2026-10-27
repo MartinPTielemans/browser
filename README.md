@@ -17,7 +17,7 @@ Pre-alpha. Nothing here is a browser yet.
 | 2 | Engine: ungoogled-chromium + patch series, prebuilt framework | done: the prebuilt engine downloads into the spike, passwords and autofill are on, Manifest V2 works, CI compiles the core on Linux |
 | 3 | Daily-driver MVP on Mac | in progress: sidebar, Spaces, pinned tabs and folders, favorites, command bar, split view, archive, downloads, find and DevTools; profiles, extensions, password and autofill prompts, import and updates left |
 | 4 | Polish and parity | — |
-| 5 | Windows, then Linux | — |
+| 5 | Windows, then Linux | started on Linux: the UI's tests pass and the preview runs on Wayland; CI runs the tests and builds the preview |
 
 See [docs/roadmap.md](docs/roadmap.md) for each phase's exit criteria and [docs/decisions.md](docs/decisions.md) for why the stack is what it is.
 

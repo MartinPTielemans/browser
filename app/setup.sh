@@ -40,18 +40,22 @@ git -C .deps/accesskit_macos add -A
 git -C .deps/accesskit_macos -c user.name=setup -c user.email=setup@localhost commit -qm upstream
 git -C .deps/accesskit_macos apply "$PWD/patches/accesskit-macos-actions.patch"
 
-engines=$(cd .. && pwd)/engine
-case ${1:-} in
-  "")
-    engine=$engines/.deps/src/out/Release/Chromium.app
-    [ -d "$engine" ] || engine=$("$engines/fetch.sh")
-    ;;
-  dev) engine=$engines/.deps/src/out/Dev/Chromium.app ;;
-  prebuilt) engine=$("$engines/fetch.sh") ;;
-  *) echo "usage: setup.sh [dev|prebuilt]" >&2 && exit 2 ;;
-esac
-[ -d "$engine" ] || { echo "No engine at $engine. Build it with engine/build.sh ${1:-}." >&2; exit 1; }
-ln -sfn "$engine" .deps/Chromium.app
+# The engine is built for the Mac only so far, so elsewhere there is the UI alone: the tests and
+# the preview (AGENTS.md, Dev).
+if [ "$(uname -s)" = Darwin ]; then
+  engines=$(cd .. && pwd)/engine
+  case ${1:-} in
+    "")
+      engine=$engines/.deps/src/out/Release/Chromium.app
+      [ -d "$engine" ] || engine=$("$engines/fetch.sh")
+      ;;
+    dev) engine=$engines/.deps/src/out/Dev/Chromium.app ;;
+    prebuilt) engine=$("$engines/fetch.sh") ;;
+    *) echo "usage: setup.sh [dev|prebuilt]" >&2 && exit 2 ;;
+  esac
+  [ -d "$engine" ] || { echo "No engine at $engine. Build it with engine/build.sh ${1:-}." >&2; exit 1; }
+  ln -sfn "$engine" .deps/Chromium.app
+fi
 
 # Downloaded code can bring instructions for coding agents (Zed's tell agents to edit its
 # README). They're written for that project's contributors and don't apply to work here.
