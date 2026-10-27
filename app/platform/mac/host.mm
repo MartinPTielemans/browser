@@ -1066,6 +1066,8 @@ void host_close_launch_window(void) {
   g_launch_window = nil;
   [g_launch_picture removeFromSuperview];
   g_launch_picture = nil;
+  // On screen now, before what the main thread does next holds it.
+  [CATransaction flush];
 }
 
 void host_watch_finished_launching(void (*finished)(void)) {
