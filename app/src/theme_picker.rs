@@ -446,7 +446,9 @@ impl ThemePicker {
             (Target::Swatch(index), theme) => {
                 let picked = Theme::of_color(SWATCHES[index]);
                 editing.theme = Some(match theme {
-                    Some(theme) => Theme { x: picked.x, y: picked.y, ..theme },
+                    Some(theme) => {
+                        Theme { x: picked.x, y: picked.y, saturation: picked.saturation, ..theme }
+                    }
                     None => Theme { appearance: editing.appearance, ..picked },
                 });
                 self.changed(true, cx);
@@ -695,7 +697,7 @@ impl Render for ThemePicker {
                     let (hx, hy) = theme.handle(0);
                     let (sin, cos) = offset.to_radians().sin_cos();
                     let (hx, hy) = (hx * cos - hy * sin, hx * sin + hy * cos);
-                    let color = theme::color_at(hx, hy);
+                    let color = theme::color_at(hx, hy, theme.saturation);
                     let size = handle_size(index) * editing.growth(index);
                     let ring = if index == 0 { MAIN_RING } else { HANDLE_RING };
                     let (mx, my) = (FIELD / 2. * (1. + hx), FIELD / 2. * (1. + hy));

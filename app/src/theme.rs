@@ -6,7 +6,8 @@
 //! hue is the angle clockwise from the right, saturation is 1, and lightness is the distance from
 //! the centre in half the field's width, black at the centre and white at the edge. A second colour
 //! is the main one's complement; with a third the two sit 150° and 210° round from it. Dragging
-//! moves them together.
+//! moves them together. A swatch places the main colour at its hue and lightness and keeps its
+//! saturation, the others' too, until a handle is dragged.
 
 use std::{cell::OnceCell, sync::Arc};
 
@@ -44,6 +45,8 @@ pub struct Theme {
     /// right, y down. Never further out than 1, where the colour is white.
     pub x: f32,
     pub y: f32,
+    /// The colours' HSL saturation: the field's 1, or a swatch's own.
+    pub saturation: f32,
     /// How many colours, 1 to MAX_COLORS.
     pub count: usize,
     /// 0 to 1: how strongly the window takes the colours.
@@ -60,6 +63,7 @@ impl Theme {
         Theme {
             x,
             y,
+            saturation: 1.,
             count: 1,
             intensity: DEFAULT_INTENSITY,
             grain: 0.,
@@ -67,12 +71,14 @@ impl Theme {
         }
     }
 
-    /// A theme of `color`, 0xRRGGBB, alone: in the field at its hue and HSL lightness, such as for
-    /// a Space whose colour came before themes did, or a swatch.
+    /// A theme of `color`, 0xRRGGBB, alone: in the field at its hue and HSL lightness, and at its
+    /// saturation, so it is the colour itself, such as for a Space whose colour came before themes
+    /// did, or a swatch.
     pub fn of_color(color: u32) -> Theme {
         let hsla = Hsla::from(rgb(color));
         let angle = hsla.h * std::f32::consts::TAU;
-        Theme::at(hsla.l * angle.cos(), hsla.l * angle.sin())
+        let theme = Theme::at(hsla.l * angle.cos(), hsla.l * angle.sin());
+        Theme { saturation: hsla.s, ..theme }
     }
 
     /// How far round from the main colour each colour is, in degrees.
@@ -95,22 +101,26 @@ impl Theme {
         (0..self.count)
             .map(|index| {
                 let (x, y) = self.handle(index);
-                color_at(x, y)
+                color_at(x, y, self.saturation)
             })
             .collect()
     }
 
     /// The main colour, which the core keeps as the Space's colour.
     pub fn main_color(&self) -> u32 {
-        color_at(self.x, self.y)
+        color_at(self.x, self.y, self.saturation)
     }
 
-    /// The theme with colour `index` dragged to (x, y): the others keep their places round it.
+    /// The theme with colour `index` dragged to (x, y): the others keep their places round it,
+    /// and all take the field's colours there.
     pub fn moved(self, index: usize, x: f32, y: f32) -> Theme {
         let offset = Self::offsets(self.count).get(index).copied().unwrap_or(0.);
         let (x, y) = rotated(x, y, -offset);
         let (x, y) = in_disc(x, y);
-        Theme { x, y, ..self }
+        if (x, y) == (self.x, self.y) {
+            return self;
+        }
+        Theme { x, y, saturation: 1., ..self }
     }
 
     /// The theme with `count` colours, from 1 to MAX_COLORS.
@@ -118,9 +128,10 @@ impl Theme {
         Theme { count: count.clamp(1, MAX_COLORS), ..self }
     }
 
-    /// The text the core keeps.
+    /// The text the core keeps; the saturation only once a swatch has set it, so a theme from the
+    /// field reads as it did before swatches kept theirs.
     pub fn to_text(&self) -> String {
-        format!(
+        let text = format!(
             "x={:.4} y={:.4} colors={} intensity={:.3} grain={:.3} appearance={}",
             self.x,
             self.y,
@@ -128,7 +139,12 @@ impl Theme {
             self.intensity,
             self.grain,
             self.appearance.name()
-        )
+        );
+        if self.saturation < 1. {
+            format!("{text} saturation={:.4}", self.saturation)
+        } else {
+            text
+        }
     }
 
     /// The theme `text` describes, as `to_text` writes it; None for empty text, or text without the
@@ -151,6 +167,9 @@ impl Theme {
                 }
                 "intensity" => theme.intensity = number.unwrap_or(theme.intensity).clamp(0., 1.),
                 "grain" => theme.grain = number.unwrap_or(theme.grain).clamp(0., 1.),
+                "saturation" => {
+                    theme.saturation = number.unwrap_or(theme.saturation).clamp(0., 1.)
+                }
                 "appearance" => {
                     if let Some(appearance) = Appearance::ALL.iter().find(|a| a.name() == value) {
                         theme.appearance = *appearance;
@@ -176,10 +195,10 @@ fn in_disc(x: f32, y: f32) -> (f32, f32) {
     if distance > 1. { (x / distance, y / distance) } else { (x, y) }
 }
 
-/// The field's colour at (x, y), 0xRRGGBB.
-pub fn color_at(x: f32, y: f32) -> u32 {
+/// The colour at (x, y) in the field, at HSL `saturation` (the field's own is 1), 0xRRGGBB.
+pub fn color_at(x: f32, y: f32, saturation: f32) -> u32 {
     let hue = y.atan2(x).to_degrees().rem_euclid(360.) / 360.;
-    packed(hsla(hue, 1., x.hypot(y).min(1.), 1.).into())
+    packed(hsla(hue, saturation, x.hypot(y).min(1.), 1.).into())
 }
 
 /// `color` as 0xRRGGBB.
