@@ -134,7 +134,8 @@ expect "^browser: selected $c\( in .*\)\{0,1\}\$" "a click on example.org's row 
 [ "$(today)" = "$c $b $a" ] || fail "switching to a tab changed Today to \"$(today)\""
 
 # Typing at the end completes the text to the first row's page, as Chrome's address bar does:
-# example.com, typed before, completes "example.c", and ↩ goes where it goes.
+# example.com, typed before, completes "example.c", and ↩ goes where it goes: to its tab, since a
+# tab has it open (issue #247).
 send key l cmd
 expect '^browser: command bar opens centred$' "⌘L didn't open the command bar centred"
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
@@ -143,9 +144,9 @@ expect '^browser: command bar completes "example.c" with "om"$' "the command bar
 expect '^browser: command bar drew "example.com"$' "the command bar didn't show the completion"
 ../tools/window-screenshot.sh "$pid" "$out/completion.png" || fail "no window to capture"
 send key return
-expect '^browser: command bar go https://example.com/$' "↩ didn't go where the completion goes: $(grep '^browser: command bar go' "$log" | tail -1)"
-expect "^browser: loaded $c https://example.com/\$" "↩ didn't load the completion's page in the tab"
-[ "$(today)" = "$c $b $a" ] || fail "going to a page in a tab changed Today to \"$(today)\""
+expect "^browser: command bar switch to tab $b\$" "↩ didn't switch to the tab the completion's page is open in"
+expect "^browser: selected $b\( in .*\)\{0,1\}\$" "↩ on the completion didn't show its tab"
+[ "$(today)" = "$c $b $a" ] || fail "switching to the completion's tab changed Today to \"$(today)\""
 # A click on the URL field opens the bar on the tab's URL over the field, as Arc's does: 350 wide,
 # its left at the field's and its top 2 above the field's, where ⌘L's is centred.
 send click 100 64
@@ -170,8 +171,8 @@ send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 listed=$(grep '^browser: command bar tabs' "$log" | tail -1 | sed 's/^[^:]*: command bar tabs *//')
 case "$listed" in
-  "$b $a" | "$b $a "*) ;;
-  *) fail "the command bar listed tabs \"$listed\" before anything was typed, not $b then $a" ;;
+  "$c $a" | "$c $a "*) ;;
+  *) fail "the command bar listed tabs \"$listed\" before anything was typed, not $c then $a" ;;
 esac
 ../tools/window-screenshot.sh "$pid" "$out/listed.png" || fail "no window to capture"
 # Well-known sites fill the rows under the profile's own, never first, so ↩ still searches.
