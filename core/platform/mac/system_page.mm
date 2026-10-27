@@ -838,17 +838,26 @@ void SystemPage::GetCookies(const SystemStore& store,
     return;
   }
   __block base::OnceCallback<void(std::vector<net::CanonicalCookie>)> then = std::move(done);
+  // A copy: a block captures a reference as the reference, and the caller's string is gone by the
+  // time the store answers.
+  const std::string of = site;
   [data.httpCookieStore getAllCookies:^(NSArray<NSHTTPCookie*>* all) {
     std::vector<net::CanonicalCookie> of_site;
+    size_t matched = 0;
     for (NSHTTPCookie* cookie in all) {
       std::string domain = base::SysNSStringToUTF8(cookie.domain);
-      if (!HostOfSite(domain.starts_with('.') ? domain.substr(1) : domain, site)) {
+      if (!HostOfSite(domain.starts_with('.') ? domain.substr(1) : domain, of)) {
         continue;
       }
+      ++matched;
       if (std::unique_ptr<net::CanonicalCookie> made = ChromiumCookie(cookie)) {
         of_site.push_back(std::move(*made));
       }
     }
+    // Counts only: never a name or a value. With the copy back's own line, it says which step
+    // dropped a cookie.
+    fprintf(stderr, "browser: system store has %lu cookies, %zu of %s, %zu Chromium takes\n",
+            static_cast<unsigned long>(all.count), matched, of.c_str(), of_site.size());
     std::move(then).Run(std::move(of_site));
   }];
 }
