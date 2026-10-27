@@ -23,7 +23,6 @@ stamps=$deps/stamps
 . ./tree.sh
 
 version=$(git config -f pins.ini chromium.version)
-uc_tag=$(git config -f pins.ini ungoogled-chromium.tag)
 ucm_tag=$(git config -f pins.ini ungoogled-chromium-macos.tag)
 
 fail() {
@@ -63,13 +62,7 @@ fetch_ungoogled() {
   rm -rf "$ucm"
   git clone -q -c advice.detachedHead=false --depth 1 --branch "$ucm_tag" --recurse-submodules \
     --shallow-submodules https://github.com/ungoogled-software/ungoogled-chromium-macos.git "$ucm"
-  local pinned
-  pinned=$(git ls-remote https://github.com/ungoogled-software/ungoogled-chromium.git \
-    "refs/tags/$uc_tag^{}" | cut -f1)
-  [ "$(git -C "$uc" rev-parse HEAD)" = "$pinned" ] ||
-    fail "ungoogled-chromium-macos $ucm_tag doesn't build ungoogled-chromium $uc_tag"
-  [ "$(cat "$uc/chromium_version.txt")" = "$version" ] ||
-    fail "ungoogled-chromium $uc_tag is for Chromium $(cat "$uc/chromium_version.txt"), not $version"
+  check_ungoogled "$uc" "ungoogled-chromium-macos $ucm_tag"
   # Their scripts work in build/ beside themselves.
   mkdir -p "$ucm/build" "$src"
   ln -s "$src" "$ucm/build/src"
