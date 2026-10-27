@@ -35,7 +35,7 @@ launch_logged() {
 
 # A first launch, with nothing saved, opens one window as it always has. Moved and resized, it
 # comes back there.
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 launch_logged "$out/relaunch-a.log" "$page"
 await_load
 await '^browser: window opened [0-9]' || fail "the first window didn't open"

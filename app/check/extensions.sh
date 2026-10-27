@@ -78,7 +78,7 @@ page='data:text/html,<title>loading</title>
 <script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>'
 log="$out/extensions.log"
 step=0
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" \
   --load-extension="$clicked_dir,$extensions/popup,$extensions/third,$extensions/panel" \
   < "$out/drive" > "$log" 2>&1 &
