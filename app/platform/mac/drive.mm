@@ -181,6 +181,25 @@ NSWindow* g_backdrop;
 // when none of the app's own menus is showing.
 __weak NSMenu* g_tracked;
 
+// The window a full-screen transition AppKit announced is moving, and which way, until it's done.
+__weak NSWindow* g_full_screen_window;
+bool g_full_screen_entering = false;
+
+// One step of that transition, on the uptime clock the core's and the app's lines read. A "resized"
+// step has the window's content size.
+void LogFullScreenStep(bool entering, const char* step, NSWindow* window) {
+  const double ms = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e6;
+  g_full_screen_entering = entering;
+  if (window) {
+    const NSSize size = [window contentRectForFrameRect:window.frame].size;
+    fprintf(stderr, "browser: full screen %s %s %.0fx%.0f at %.1f ms\n", entering ? "enter" : "exit",
+            step, size.width, size.height, ms);
+  } else {
+    fprintf(stderr, "browser: full screen %s %s at %.1f ms\n", entering ? "enter" : "exit", step,
+            ms);
+  }
+}
+
 // The browser window the window command picked, from 0.
 size_t g_driven = 0;
 
@@ -1083,8 +1102,33 @@ void drive_start(void) {
                                                 usingBlock:^(NSNotification*) {
                                                   fprintf(stderr, "browser: window %s full screen\n",
                                                           entered ? "entered" : "left");
+                                                  LogFullScreenStep(entered, "did", nil);
+                                                  g_full_screen_window = nil;
                                                 }];
   }
+  // The same transitions timed, on the uptime clock the core's and the app's lines read: when
+  // AppKit starts one, when the window gets its size, and when it ends (above). check.sh reads them.
+  for (NSNotificationName name :
+       {NSWindowWillEnterFullScreenNotification, NSWindowWillExitFullScreenNotification}) {
+    bool entering = [name isEqualToString:NSWindowWillEnterFullScreenNotification];
+    [NSNotificationCenter.defaultCenter addObserverForName:name
+                                                    object:nil
+                                                     queue:nil
+                                                usingBlock:^(NSNotification* notification) {
+                                                  g_full_screen_window = notification.object;
+                                                  LogFullScreenStep(entering, "will", nil);
+                                                }];
+  }
+  [NSNotificationCenter.defaultCenter
+      addObserverForName:NSWindowDidResizeNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification* notification) {
+                if (notification.object == g_full_screen_window) {
+                  NSWindow* window = notification.object;
+                  LogFullScreenStep(g_full_screen_entering, "resized", window);
+                }
+              }];
   // A menu AppKit starts tracking, such as a page's context menu, which Chrome shows: its items,
   // for check.sh to wait for and read, as the app's own menus log theirs.
   [NSNotificationCenter.defaultCenter
