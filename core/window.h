@@ -80,8 +80,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // that the docked DevTools of |inspected|, a tab of |browser|, opened, laid out again or closed.
   static bool CanDockDevTools(BrowserWindowInterface* browser);
   static void UpdateDevTools(BrowserWindowInterface* browser, content::WebContents* inspected);
-  // From Chrome's page context menu, once filled in: takes out the items |browser|'s window can't
-  // do, if it's one of the core's.
+  // From Chrome's page context menu, once filled in: takes out the items Arc's doesn't have and
+  // those |browser|'s window can't do, if it's one of the core's.
   static void TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& menu);
   // As |tab| closes: takes it out of its Space or the favorites, and has each window that showed it
   // show the tab its Space picks next, or for a favorite the Space the window shows.

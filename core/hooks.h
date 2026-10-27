@@ -35,7 +35,8 @@ extern void (*g_browser_core_update_devtools)(BrowserWindowInterface* browser,
                                               content::WebContents* inspected);
 
 // chrome/browser/renderer_context_menu/render_view_context_menu.cc: takes out of a page's context
-// menu the items |browser|'s window can't do, once Chrome has filled it in.
+// menu the items Arc's leaves out and those |browser|'s window can't do, once Chrome has filled it
+// in. The menu is the user's: agents act on pages through their own tools and never see it.
 extern void (*g_browser_core_trim_page_menu)(BrowserWindowInterface* browser,
                                              ui::SimpleMenuModel& menu);
 
