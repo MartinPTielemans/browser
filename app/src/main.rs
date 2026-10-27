@@ -11,8 +11,8 @@ use std::{
 };
 
 use browser::{
-    capture, command_bar, dialog, icon_picker, log, offer, site_controls, toast, tooltip,
-    zoom_hud,
+    capture, command_bar, dialog, icon_picker, link_target, log, offer, site_controls, toast,
+    tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -237,6 +237,9 @@ mod platform {
         pub fn host_add_tooltip(tooltip_view: *mut c_void, away: extern "C" fn());
         pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
         pub fn host_hide_tooltip(fade: f64);
+        pub fn host_add_link_target(link_view: *mut c_void, pointer: extern "C" fn(f64, f64));
+        pub fn host_show_link_target(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
+        pub fn host_hide_link_target(fade: f64);
     }
 
     /// Where host_menu shows a menu.
@@ -1127,6 +1130,47 @@ extern "C" fn tooltip_away() {
     update_app(tooltip::dismiss);
 }
 
+/// The link target's requests, to the host's link target window.
+struct LinkTargetHost;
+
+impl link_target::Host for LinkTargetHost {
+    fn show(&self, left: f32, top: f32) {
+        let fade = link_target::FADE_IN.as_secs_f64();
+        unsafe { platform::host_show_link_target(front().1, left.into(), top.into(), fade) };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_link_target(link_target::FADE_OUT.as_secs_f64()) };
+    }
+}
+
+/// The pointer moved, at (`x`, `y`) in the window in front, while the link target shows.
+extern "C" fn link_pointer(x: f64, y: f64) {
+    update_window(front().0, |shell, cx| shell.link_pointer(x as f32, y as f32, cx));
+}
+
+/// The pointer is on a link in `tab`'s page, or has left it and `url` is "".
+unsafe extern "C" fn tab_link_target(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    url: *const c_char,
+    domain_begin: usize,
+    domain_end: usize,
+) {
+    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+    // check.sh reads this line.
+    log!("browser: link target {}", if url.is_empty() { "none" } else { url.as_str() });
+    let target = (!url.is_empty())
+        .then(|| link_target::Target { text: url.into(), domain: domain_begin..domain_end });
+    // After the update under way, if any: the core also says it when a page navigates, inside the
+    // call that navigated.
+    update_app_later(move |cx| {
+        if let Some(window) = tab_window(tab, cx) {
+            window.shell.update(cx, |shell, cx| shell.link_target_changed(tab, target, cx)).ok();
+        }
+    });
+}
+
 /// A window's shell's requests, as calls to the core. The core reports back once each call has
 /// returned.
 struct Engine {
@@ -1677,6 +1721,20 @@ impl Browser for Engine {
         match tip {
             Some((tip, anchor)) => tooltip::hover(tip, anchor, cx),
             None => tooltip::dismiss(cx),
+        }
+    }
+
+    fn link_target(
+        &self,
+        plate: Option<(link_target::Plate, Bounds<Pixels>, link_target::Side)>,
+        cx: &mut App,
+    ) {
+        match plate {
+            Some((plate, frame, _)) => {
+                let (left, top) = (frame.origin.x.into(), frame.origin.y.into());
+                link_target::show(plate, left, top, cx)
+            }
+            None => link_target::hide(cx),
         }
     }
 
@@ -2369,6 +2427,12 @@ fn finish_opening(
         && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
     {
         unsafe { platform::host_add_tooltip(view, tooltip_away) };
+    }
+    if let Some(target) =
+        link_target::open(Rc::new(LinkTargetHost), move |cx| fill(cx).unwrap_or_default(), cx)
+        && let Ok(view) = target.update(cx, |_, window, _| ns_view(window))
+    {
+        unsafe { platform::host_add_link_target(view, link_pointer) };
     }
     if let Some(hud) = zoom_hud::open(Rc::new(HudHost), cx)
         && let Ok(view) = hud.update(cx, |_, window, _| ns_view(window))
@@ -3472,6 +3536,7 @@ fn main() {
         tab_permission_asked: Some(tab_permission_asked),
         tab_site_controls: Some(tab_site_controls),
         tab_element_box: Some(tab_element_box),
+        tab_link_target: Some(tab_link_target),
         tab_captured: Some(tab_captured),
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),

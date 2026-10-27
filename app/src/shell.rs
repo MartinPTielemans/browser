@@ -14,7 +14,7 @@ use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, DispatchPhase, Entity, FocusHandle, Focusable,
     FontWeight, Hsla, Image, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point, Rgba, ScrollHandle, SharedString, Size, Subscription, Task,
-    Window, canvas, div, img, point, prelude::*, px, rgb, rgba, svg,
+    Window, WindowTextSystem, canvas, div, img, point, prelude::*, px, rgb, rgba, svg,
 };
 
 use crate::{
@@ -45,6 +45,9 @@ mod footer;
 mod keys;
 mod header;
 mod library;
+mod link;
+#[cfg(test)]
+mod link_target;
 mod menus;
 mod naming;
 mod new_space;
@@ -970,6 +973,10 @@ pub struct Shell {
     /// The hover changed since the sidebar was last drawn.
     hover_changed: bool,
     page_fullscreen: bool,
+    /// The link the pointer is on in the page shown, whose address the plate in the card's corner
+    /// shows, and what measures it.
+    link: Option<link::Link>,
+    link_system: Option<WindowTextSystem>,
     /// Whether the window is full screen, as macOS last told once its transition was over.
     full_screen: bool,
     /// Whether the window went full screen for the page, so it comes back with it.
@@ -1177,6 +1184,8 @@ impl Shell {
             sidebar_hovered: false,
             hover_changed: false,
             page_fullscreen: false,
+            link: None,
+            link_system: None,
             full_screen: false,
             window_for_page: false,
             page_held: None,
@@ -1432,6 +1441,8 @@ impl Shell {
         if self.page_laid != Some(frame) {
             self.page_laid = Some(frame);
             self.browser.lay_out_page(frame.0, frame.1, cx);
+            // The card moved, such as with the sidebar, and the plate in its corner with it.
+            self.show_link(cx);
         }
         self.lay_out_side_panel(cx);
     }
@@ -1809,6 +1820,7 @@ impl Shell {
         self.set_new_tab(false, cx);
         self.selection_moved(before);
         self.adding_pane = None;
+        self.link_tab_changed(cx);
         cx.notify();
     }
 
@@ -1974,6 +1986,7 @@ impl Shell {
             self.conceal_now(cx);
             self.close_library_now();
             self.recent_downloads_gone(cx);
+            self.hide_link(cx);
         }
         cx.notify();
     }
