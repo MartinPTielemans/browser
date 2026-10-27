@@ -39,6 +39,11 @@ bool host_window_frame(void* ui_view, double* x, double* y, double* width, doubl
 // it, and the launch window off screen if the browser window never came.
 void host_close_launch_window(void);
 
+// Calls |finished| once AppKit has finished launching the app, and so has handed over the links
+// the launch carried (application:openURLs:). At once for a launch that carried none. Call before
+// the run loop starts.
+void host_watch_finished_launching(void (*finished)(void));
+
 // Keeps the first |width| points of |ui_view|'s window, its sidebar, in |profile_dir| for the next
 // launch's window, unless the window is hidden or full screen, and says whether it took it. The
 // file is written in the background.
