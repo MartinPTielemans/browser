@@ -722,6 +722,15 @@ BC_EXPORT void bc_window_set_focus_color(bc_id window, uint32_t color);
 // What the window's pages show until they draw their first frame, in place of white, 0xRRGGBB.
 BC_EXPORT void bc_window_set_page_color(bc_id window, uint32_t color);
 
+// Whether the app is moving the window's page frame on its own, as the sidebar hides or shows or
+// the gap in a split view drags: each step is a new size for the pages. Chrome shows a page that
+// hasn't drawn at its new size yet at its old size in the top-left corner, so its right edge and
+// scrollbar trail the frame's and snap. While moving, the pages shown, their docked DevTools and
+// the side panel's page show that frame stretched to fill the view instead. Call it with true
+// before the motion's first bc_window_set_page_frame or bc_window_set_split_shares, and false after
+// its last. A page full screen keeps Chrome's way.
+BC_EXPORT void bc_window_page_moving(bc_id window, bool moving);
+
 // Shows |tab| at the window's page frame, in place of the page shown before, and its Space if the
 // window shows another. It takes the keyboard if that page had it. A tab in a split view shows with
 // the rest of its split, focused. A click in another page of the split focuses that one. A page

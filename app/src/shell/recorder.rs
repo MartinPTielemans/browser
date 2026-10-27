@@ -31,6 +31,9 @@ pub(super) struct Recorder {
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
     pub(super) bar_open: Cell<bool>,
+    /// What moved the pages, in order: "layout" for the page's frame, "shares" for a split's, and
+    /// "moving" and "still" for what the shell told the core about the motion.
+    pub(super) page_events: RefCell<Vec<&'static str>>,
 }
 
 impl Recorder {
@@ -99,7 +102,9 @@ impl Browser for Recorder {
 
     fn set_split_stacked(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn set_split_shares(&self, _: u64, _: Option<&[f64]>, _: &mut App) {}
+    fn set_split_shares(&self, _: u64, _: Option<&[f64]>, _: &mut App) {
+        self.page_events.borrow_mut().push("shares");
+    }
 
     fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
 
@@ -289,11 +294,17 @@ impl Browser for Recorder {
 
     fn focus_ui(&self, _: &mut App) {}
 
-    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {}
+    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {
+        self.page_events.borrow_mut().push("layout");
+    }
 
     fn set_focus_color(&self, _: u32, _: &mut App) {}
 
     fn set_page_color(&self, _: u32, _: &mut App) {}
+
+    fn page_moving(&self, moving: bool, _: &mut App) {
+        self.page_events.borrow_mut().push(if moving { "moving" } else { "still" });
+    }
 
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
 

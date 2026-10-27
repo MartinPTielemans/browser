@@ -8,11 +8,11 @@
 # buttons, URL field and rows keep their presses. A double-click there zooms it, and one in the
 # sidebar below the rows opens a new tab. ⌘S, with the page or the UI focused, and the sidebar
 # button hide the sidebar and the window's buttons, and the card takes its place, through a resize;
-# ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out, and one
-# passing it doesn't. The sidebar's edge drags its width between 164 and 500, stopping at them, and
-# dragged on past half the narrowest it hides the sidebar, keeping its width; a double-click on it
-# puts the width back. A page that hasn't drawn yet shows the card's
-# colour, not white. In a check VM, the sidebar over grey backdrops is Dia's composite.
+# ⌘S brings them back, and the core hears the page moves for each motion and is still after it. The
+# pointer kept at the window's edge brings the hidden sidebar out, and one passing it doesn't. The
+# sidebar's edge drags its width between 164 and 500, stopping at them, and dragged on past half the
+# narrowest it hides the sidebar, keeping its width; a double-click on it puts the width back. A
+# page that hasn't drawn yet shows the card's colour, not white. In a check VM, the sidebar over grey backdrops is Dia's composite.
 
 # A long page that times its frames while it scrolls and puts the numbers in its title.
 page=$(base64 << 'HTML' | tr -d '\n'
@@ -330,17 +330,32 @@ toggle() {
     check_buttons "after $3"
   fi
 }
+# moved <what>: the sidebar's motion moved the page's frame every step, so the core heard the page
+# moves before the first and is still after the last (issue #166). A check can't see the jiggle that
+# stops. Not for docking the sidebar out, which takes its place in one frame.
+moved() {
+  expect '^browser: page moving 1$' "$1 didn't tell the core the page moves"
+  expect '^browser: page moving 0$' "$1 didn't tell the core the page is still"
+}
 send click $page_point
 send key s cmd
+# The capture waits for the line, not a time, so it lands in the motion if the motion outlasts the
+# capture, and just after it if not.
+expect '^browser: page moving 1$' "⌘S with the page focused didn't tell the core the page moves"
+../tools/window-screenshot.sh "$pid" "$out/sidebar-moving.png" || fail "no window to capture"
 toggle page hidden "⌘S with the page focused"
+moved "⌘S with the page focused"
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-hidden.png" || fail "no window to capture"
 send key s cmd
 toggle page shown "⌘S again with the page focused"
+moved "⌘S again with the page focused"
 send click 110 400
 send key s cmd
 toggle ui hidden "⌘S with the UI focused"
+moved "⌘S with the UI focused"
 send key s cmd
 toggle ui shown "⌘S again with the UI focused"
+moved "⌘S again with the UI focused"
 send click 93 24
 toggle sidebar hidden "a click on the sidebar button"
 send key s cmd

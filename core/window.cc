@@ -232,6 +232,20 @@ void Seen(content::WebContents* contents) {
   ScheduleAutoArchive();
 }
 
+// Has |contents|'s page, and its docked DevTools, stretch the frame they last drew to fill their
+// views as these resize, or not. Chrome shows that frame at its old size in the top-left corner
+// until the renderer draws at the new one, which moves a page's right edge and scrollbar with the
+// edge the app moves (issue #166). Not for a page full screen: the window resizes that.
+void StretchOnResize(content::WebContents* contents, bool stretch) {
+  stretch = stretch && !contents->IsFullscreen();
+  for (content::WebContents* each :
+       {contents, DevToolsWindow::GetInTabWebContents(contents, nullptr)}) {
+    if (each) {
+      platform::StretchOnResize(each->GetRenderWidgetHostView(), stretch);
+    }
+  }
+}
+
 }  // namespace
 
 // Makes the window's close button Window::Close, so pages get their unload handlers first.
@@ -957,6 +971,8 @@ void Window::LayOutPage() {
       tab->SetPageColor(SkColorSetRGB(*page_color_ >> 16, *page_color_ >> 8 & 0xff,
                                       *page_color_ & 0xff));
     }
+    // At each layout, for a page whose view changed or that comes back, before it resizes.
+    StretchOnResize(contents, page_moving_);
     const int from = edge(i);
     const int to = edge(i + 1) - kSplitGap;
     platform::Pane& pane = panes.emplace_back(
@@ -976,6 +992,9 @@ void Window::LayOutPage() {
   }
   SidePanel* side_panel = ShownSidePanel();
   content::WebContents* panel_page = side_panel ? side_panel->contents() : nullptr;
+  if (panel_page) {
+    StretchOnResize(panel_page, page_moving_);
+  }
   std::optional<platform::SidePanelPage> panel;
   // A page full screen takes the window from the side panel too.
   if (panel_page && !side_panel_frame_.IsEmpty() && !(shown_ && shown_->IsFullscreen())) {
@@ -1090,6 +1109,18 @@ void Window::SetPageColor(uint32_t color) {
   if (page_color_ != color) {
     page_color_ = color;
     LayOutPage();
+  }
+}
+
+void Window::SetPageMoving(bool moving) {
+  page_moving_ = moving;
+  for (bc_id pane : panes_) {
+    if (content::WebContents* contents = Tab::FromId(pane)) {
+      StretchOnResize(contents, moving);
+    }
+  }
+  if (SidePanel* side_panel = ShownSidePanel(); side_panel && side_panel->contents()) {
+    StretchOnResize(side_panel->contents(), moving);
   }
 }
 

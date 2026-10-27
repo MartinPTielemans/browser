@@ -1557,6 +1557,10 @@ impl Browser for Engine {
         unsafe { bc::bc_window_set_page_color(self.window, color) };
     }
 
+    fn page_moving(&self, moving: bool, _: &mut App) {
+        unsafe { bc::bc_window_page_moving(self.window, moving) };
+    }
+
     fn set_pane_corner(&self, right: f32, top: f32, _: &mut App) {
         unsafe { platform::host_set_pane_corner(self.ui_view, right as f64, top as f64) };
     }
