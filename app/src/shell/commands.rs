@@ -916,6 +916,7 @@ impl Shell {
     /// Runs `command` for a key the page didn't keep, and returns whether it was used. With
     /// nothing to undo or redo, ⌘Z and ⇧⌘Z go on, for the Edit menu to give the page.
     pub fn run_for_page(&mut self, command: Command, cx: &mut Context<Self>) -> bool {
+        self.hide_hover(cx);
         let done = match command {
             Command::Undo => self.undo(cx),
             Command::Redo => self.redo(cx),
