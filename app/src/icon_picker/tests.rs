@@ -25,8 +25,8 @@ impl Host for Recorder {
         self.record("hide".into());
     }
 
-    fn show_character_palette(&self, _: &mut Window) {
-        self.record("palette".into());
+    fn keep_recents(&self, recents: &str) {
+        self.record(format!("recents {recents:?}"));
     }
 }
 
@@ -39,8 +39,16 @@ struct Picker {
 
 impl Picker {
     fn new(icon: &str, cx: &mut TestAppContext) -> Self {
+        Self::with_recents(icon, "", cx)
+    }
+
+    /// The picker, as the app opens it after `recents` were saved.
+    fn with_recents(icon: &str, recents: &str, cx: &mut TestAppContext) -> Self {
         let host = Rc::new(Recorder::default());
-        let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the picker");
+        let recents = Recents::parse(recents);
+        // The app binds the field's keys once for every window.
+        cx.update(text_input::bind_keys);
+        let window = cx.update(|cx| open(host.clone(), recents, cx)).expect("no window");
         let recorded = host.clone();
         let picked: Picked = Rc::new(move |icon, _| recorded.record(format!("picked {icon:?}")));
         let icon = SharedString::from(icon.to_string());
@@ -66,6 +74,29 @@ impl Picker {
         let x = GRID_X + PITCH * (column as f32 + 0.5);
         let y = ARROW + GRID_TOP + PITCH * (row as f32 + 0.5);
         self.click(x, y);
+    }
+
+    /// A click on the emoji `column` across in the list's `row`th row in view, from the first.
+    fn click_emoji(&mut self, row: usize, column: usize) {
+        let x = GRID_X + PITCH * (column as f32 + 0.5);
+        let y = ARROW + emoji::LIST_TOP + PITCH * (row as f32 + 0.5);
+        self.click(x, y);
+    }
+
+    fn type_in_search(&mut self, text: &str) {
+        self.cx.simulate_input(text);
+        self.cx.run_until_parked();
+    }
+
+    /// The emoji the list shows from the first, and the one on the plate.
+    fn listed(&mut self) -> (Vec<&'static str>, Option<&'static str>) {
+        self.window
+            .read_with(&self.cx.cx, |picker, _| {
+                let picking = picker.picking.as_ref().expect("not showing");
+                let items = picking.grid.items.iter().map(|emoji| emoji.as_str()).collect();
+                (items, picking.selected.map(|item| picking.grid.items[item].as_str()))
+            })
+            .unwrap()
     }
 
     fn keys(&mut self, keys: &str) {
@@ -128,22 +159,127 @@ fn escape_closes_it_with_no_change(cx: &mut TestAppContext) {
     assert_eq!(picker.calls(), ["hide"]);
     assert_eq!(picker.tab(), None);
 
-    // The Emoji tab's field has the palette to pick from.
+    // The search on the Emoji tab has the keyboard, and escape is the picker's.
     let mut picker = Picker::new("🦊", cx);
     picker.keys("escape");
-    assert_eq!(picker.calls(), ["palette", "hide"]);
+    assert_eq!(picker.calls(), ["hide"]);
 }
 
 #[gpui::test]
-fn an_emoji_typed_or_picked_is_the_icon_at_once(cx: &mut TestAppContext) {
+fn the_spaces_emoji_is_on_the_plate_when_it_opens(cx: &mut TestAppContext) {
+    let mut picker = Picker::new("🌱", cx);
+    let (items, plate) = picker.listed();
+    assert_eq!(plate, Some("🌱"));
+    // The whole list, not a search's.
+    assert!(items.len() > 1_500);
+    // A Space with no emoji has nothing on the plate.
     let mut picker = Picker::new("", cx);
-    // The Emoji segment, the first half of the control.
-    let left = (WIDTH - (2. * SEGMENT_WIDTH + TRASH_GAP + SEGMENTS_HEIGHT)) / 2.;
-    picker.click(left + SEGMENT_WIDTH / 2., ARROW + SEGMENTS_TOP + SEGMENTS_HEIGHT / 2.);
-    assert_eq!(picker.tab(), Some(Tab::Emoji));
-    picker.cx.simulate_input("🌱");
-    picker.cx.run_until_parked();
-    assert_eq!(picker.calls(), ["palette", "hide", "picked \"🌱\""]);
+    assert_eq!(picker.tab(), Some(Tab::Icon));
+}
+
+#[gpui::test]
+fn typing_narrows_the_list_and_the_first_match_takes_the_plate(cx: &mut TestAppContext) {
+    let mut picker = Picker::new("🌱", cx);
+    picker.type_in_search("fox");
+    let (items, plate) = picker.listed();
+    assert_eq!(items[0], "🦊");
+    assert_eq!(plate, Some("🦊"));
+    assert!(items.len() < 10, "{items:?}");
+    // The shortcode names it too.
+    picker.type_in_search("x");
+    picker.type_in_search("zzz");
+    assert_eq!(picker.listed(), (vec![], None));
+    // Emptied, the whole list is back with the Space's emoji on the plate.
+    for _ in 0..8 {
+        picker.keys("backspace");
+    }
+    let (items, plate) = picker.listed();
+    assert!(items.len() > 1_500);
+    assert_eq!(plate, Some("🌱"));
+}
+
+#[gpui::test]
+fn a_click_on_an_emoji_gives_the_space_that_emoji_and_closes(cx: &mut TestAppContext) {
+    let mut picker = Picker::new("🌱", cx);
+    picker.type_in_search("fox");
+    picker.click_emoji(0, 0);
+    assert_eq!(picker.calls(), ["recents \"🦊\\n\"", "hide", "picked \"🦊\""]);
+    assert_eq!(picker.tab(), None);
+}
+
+#[gpui::test]
+fn the_emoji_the_space_has_changes_nothing(cx: &mut TestAppContext) {
+    let mut picker = Picker::new("🦊", cx);
+    picker.type_in_search("fox");
+    picker.click_emoji(0, 0);
+    assert_eq!(picker.calls(), ["recents \"🦊\\n\"", "hide"]);
+}
+
+#[gpui::test]
+fn arrows_move_the_plate_and_return_picks(cx: &mut TestAppContext) {
+    let mut picker = Picker::new("🌱", cx);
+    let (items, _) = picker.listed();
+    let start = items.iter().position(|emoji| *emoji == "🌱").unwrap();
+    // → one on, ↓ a row down.
+    picker.keys("right");
+    assert_eq!(picker.listed().1, Some(items[start + 1]));
+    picker.keys("down");
+    assert_eq!(picker.listed().1, Some(items[start + 1 + COLUMNS]));
+    picker.keys("left up");
+    assert_eq!(picker.listed().1, Some(items[start]));
+    picker.keys("right");
+    picker.keys("enter");
+    let picked = items[start + 1];
+    assert_eq!(
+        picker.calls(),
+        [format!("recents {:?}", format!("{picked}\n")), "hide".into(), format!("picked {picked:?}")]
+    );
+}
+
+#[gpui::test]
+fn left_and_right_move_the_caret_once_something_is_typed(cx: &mut TestAppContext) {
+    let mut picker = Picker::new("🌱", cx);
+    picker.type_in_search("face");
+    let (items, plate) = picker.listed();
+    assert_eq!(plate, Some(items[0]));
+    picker.keys("right");
+    picker.keys("left");
+    assert_eq!(picker.listed().1, Some(items[0]));
+    // Down still moves the plate.
+    picker.keys("down");
+    assert_eq!(picker.listed().1, Some(items[COLUMNS]));
+    // The caret moved left twice, so a letter typed lands after "fa".
+    picker.keys("left");
+    picker.type_in_search("s");
+    let text = picker.window.read_with(&picker.cx.cx, |p, cx| p.search.read(cx).text().to_string());
+    assert_eq!(text.unwrap(), "fasce");
+}
+
+#[gpui::test]
+fn return_with_nothing_on_the_plate_does_nothing(cx: &mut TestAppContext) {
+    let mut picker = Picker::new("glyph:star", cx);
+    picker.keys("enter");
+    assert_eq!(picker.calls(), Vec::<String>::new());
+    assert_eq!(picker.tab(), Some(Tab::Icon));
+}
+
+#[gpui::test]
+fn the_last_pick_is_first_in_the_list_and_kept(cx: &mut TestAppContext) {
+    let mut picker = Picker::with_recents("🌱", "🌱\n🐙\n", cx);
+    let (items, _) = picker.listed();
+    assert_eq!(items[..2], ["🌱", "🐙"]);
+    picker.type_in_search("fox");
+    picker.click_emoji(0, 0);
+    // The pick goes before the ones before it.
+    assert_eq!(picker.calls()[0], format!("recents {:?}", "🦊\n🌱\n🐙\n"));
+
+    // Opened again with what was kept, the list starts with it.
+    let mut picker = Picker::with_recents("🌱", "🦊\n🌱\n🐙\n", cx);
+    let (items, plate) = picker.listed();
+    assert_eq!(items[..3], ["🦊", "🌱", "🐙"]);
+    // The Space's emoji is on the plate where the recents have it.
+    assert_eq!(plate, Some("🌱"));
+    assert_eq!(picker.window.read_with(&picker.cx.cx, |p, _| p.picking.as_ref().unwrap().selected).unwrap(), Some(1));
 }
 
 #[test]

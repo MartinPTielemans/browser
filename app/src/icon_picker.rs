@@ -1,27 +1,33 @@
 //! The popover that picks a Space's icon, Arc's: it hangs under the Space's name, its arrow at the
-//! icon, with Emoji | Icon and a trash button at its top, and under them the glyphs, or a field for
-//! an emoji (docs/ux-spec.md › Spaces › Icon). GPUI can't draw over the page's native view, so
-//! it's a window of its own that the host shows over the browser window, as its child, with the
-//! keyboard, translucent over a blur in the shape drawn here. What it asks of its window goes
-//! through `Host`.
+//! icon, with Emoji | Icon and a trash button at its top, and under them the glyphs, or a search
+//! and a grid of emoji (docs/ux-spec.md › Spaces › Icon). GPUI can't draw over the page's native
+//! view, so it's a window of its own that the host shows over the browser window, as its child,
+//! with the keyboard, translucent over a blur in the shape drawn here. What it asks of its window
+//! goes through `Host`.
 
-use std::{rc::Rc, time::Instant};
+use std::{ops::Range, rc::Rc, time::Instant};
 
 use gpui::{
-    App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global, KeyBinding,
-    MouseButton, PathBuilder, Pixels, Point, SharedString, Subscription, TitlebarOptions, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
-    canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
+    AnyElement, App, Bounds, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Global,
+    KeyBinding, MouseButton, PathBuilder, Pixels, Point, ScrollStrategy, SharedString,
+    Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBackgroundAppearance,
+    WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, canvas, div, point,
+    prelude::*, px, rgb, rgba, size, svg, uniform_list, Stateful,
 };
 
 use crate::{
     command_bar,
     shell::{KEY_CONTEXT, cubic_bezier},
     space_icon::{self, GLYPHS, SpaceIcon},
-    text_input::TextInput,
+    text_input::{self, TextInput},
 };
 
-actions!(icon_picker, [Dismiss, Keep]);
+mod emoji;
+
+use emoji::{Grid, Row};
+pub use emoji::Recents;
+
+actions!(icon_picker, [Dismiss, Keep, Up, Down]);
 
 // Arc's, measured at 2× (docs/ux-spec.md › Spaces › Icon). The card is square, and the window
 // holds the arrow over it too.
@@ -61,11 +67,7 @@ const PLATE_RADIUS: f32 = 4.;
 const CHOSEN: u32 = 0xffff_ff40;
 /// Arc's hover wasn't captured: half the chosen plate.
 const HOVERED: u32 = 0xffff_ff1f;
-/// The emoji's field, which Arc's popover hasn't: Arc's emoji grid isn't built.
-const FIELD: f32 = 48.;
-const FIELD_TEXT: f32 = 28.;
 const HINT: u32 = 0xffff_ff87;
-const HINT_TEXT: &str = "Type an emoji, or pick one";
 /// Arc's switch between Emoji and Icon slides the content a card's width over 0.2 s, easing out
 /// (Arc 1.170 rec at 2×).
 const SLIDE: f32 = 0.2;
@@ -77,8 +79,9 @@ pub trait Host {
     fn show(&self, left: f32, top: f32);
     /// Hides it, and the browser window gets the keyboard back.
     fn hide(&self);
-    /// Shows the system's character palette, for the emoji's field, which has the keyboard.
-    fn show_character_palette(&self, window: &mut Window);
+    /// The emoji picked last have changed: `recents` is what `Recents::to_text` makes of them, for
+    /// the host to keep and give `open` again after a relaunch.
+    fn keep_recents(&self, recents: &str);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -96,8 +99,10 @@ struct Picking {
     tab: Tab,
     accent: u32,
     picked: Picked,
-    /// The emoji's field wants the character palette, which shows once the window is on screen.
-    palette: bool,
+    /// What the Emoji tab lists for what's in its search, and the one on the plate, which ↩ picks.
+    query: String,
+    grid: Grid,
+    selected: Option<usize>,
     /// While the content slides from one tab's to the other's: the tab it slides from, and when.
     slide: Option<(Tab, Instant)>,
     _edit: Option<Subscription>,
@@ -106,7 +111,10 @@ struct Picking {
 pub struct IconPicker {
     host: Rc<dyn Host>,
     focus: FocusHandle,
-    emoji: Entity<TextInput>,
+    /// The Emoji tab's search.
+    search: Entity<TextInput>,
+    scroll: UniformListScrollHandle,
+    recents: Recents,
     picking: Option<Picking>,
 }
 
@@ -115,25 +123,41 @@ struct IconPickerWindow(WindowHandle<IconPicker>);
 impl Global for IconPickerWindow {}
 
 /// Opens the picker's window, hidden, for `host` to show over the browser window, ahead of time as
-/// the command bar's is.
-pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<IconPicker>> {
+/// the command bar's is. `recents` are the emoji picked before.
+pub fn open(
+    host: Rc<dyn Host>,
+    recents: Recents,
+    cx: &mut App,
+) -> Option<WindowHandle<IconPicker>> {
+    let bounds = Bounds::new(point(px(0.), px(0.)), size(px(WIDTH), px(HEIGHT)));
+    open_at(host, recents, bounds, false, cx)
+}
+
+/// Opens the picker's window at `bounds`, shown if `show`, which the preview does.
+pub fn open_at(
+    host: Rc<dyn Host>,
+    recents: Recents,
+    bounds: Bounds<Pixels>,
+    show: bool,
+    cx: &mut App,
+) -> Option<WindowHandle<IconPicker>> {
     cx.bind_keys([
         KeyBinding::new("escape", Dismiss, Some("IconPicker")),
         KeyBinding::new("enter", Keep, Some("IconPicker")),
+        KeyBinding::new("up", Up, Some("IconPicker")),
+        KeyBinding::new("down", Down, Some("IconPicker")),
     ]);
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-            point(px(0.), px(0.)),
-            size(px(WIDTH), px(HEIGHT)),
-        ))),
-        titlebar: Some(TitlebarOptions {
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
+        // The preview's has none, so it hasn't the window buttons the host's takes off.
+        titlebar: (!show).then_some(TitlebarOptions {
             title: None,
             appears_transparent: true,
             traffic_light_position: None,
         }),
         kind: WindowKind::Floating,
-        show: false,
-        focus: false,
+        show,
+        focus: show,
         is_movable: false,
         is_resizable: false,
         is_minimizable: false,
@@ -142,10 +166,20 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<IconPicker>
         ..Default::default()
     };
     let window = cx.open_window(options, |_, cx| {
-        let emoji = cx.new(|cx| {
-            TextInput::new("", cx).caret_color(rgb(0xffffff)).selection_color(rgba(HOVERED))
+        let search = cx.new(|cx| {
+            TextInput::new("Search", cx)
+                .placeholder_color(rgba(HINT))
+                .caret_color(rgb(0xffffff))
+                .selection_color(rgba(HOVERED))
         });
-        cx.new(|cx| IconPicker { host, focus: cx.focus_handle(), emoji, picking: None })
+        cx.new(|cx| IconPicker {
+            host,
+            focus: cx.focus_handle(),
+            search,
+            scroll: UniformListScrollHandle::new(),
+            recents,
+            picking: None,
+        })
     });
     match window {
         Ok(window) => {
@@ -205,7 +239,9 @@ pub fn show(
                 tab,
                 accent,
                 picked,
-                palette: false,
+                query: String::new(),
+                grid: Grid::default(),
+                selected: None,
                 slide: None,
                 _edit: None,
             });
@@ -273,25 +309,104 @@ impl IconPicker {
             cx.notify();
             return;
         }
-        // The Space's emoji, all selected, for a pick to replace.
-        let start = match SpaceIcon::parse(&picking.icon) {
-            SpaceIcon::Emoji(emoji) => SharedString::from(emoji.to_string()),
-            _ => SharedString::default(),
-        };
-        self.emoji.update(cx, |field, cx| field.reset(start.clone(), window, cx));
-        // A pick from the palette, or a key, is the icon at once, as no ↩ is needed for one
-        // character.
-        picking._edit = Some(cx.observe_in(&self.emoji, window, move |picker, field, _, cx| {
-            let field = field.read(cx);
-            let text = field.text();
-            if !field.composing() && !text.trim().is_empty() && text != start.as_ref() {
-                let icon = space_icon::first_character(text).to_string();
-                picker.pick(&icon, cx);
-            }
-        }));
-        window.focus(&self.emoji.focus_handle(cx), cx);
-        picking.palette = true;
+        // The whole list, with the Space's emoji on the plate and in view. The table is static, so
+        // this is the work of a pass over it, and only when this tab shows.
+        picking.query.clear();
+        picking.grid = Grid::new("", &self.recents);
+        picking.selected = current(&picking.icon, &picking.grid);
+        self.search.update(cx, |field, cx| field.reset(SharedString::default(), window, cx));
+        self.scroll_to_selected(ScrollStrategy::Center);
+        if let Some(picking) = &mut self.picking {
+            picking._edit = Some(cx.observe_in(&self.search, window, |picker, field, _, cx| {
+                let text = field.read(cx).text().to_string();
+                picker.searched(&text, cx);
+            }));
+        }
+        window.focus(&self.search.focus_handle(cx), cx);
         cx.notify();
+    }
+
+    /// The search has `text` in it: the list narrows to what matches, the first of which takes the
+    /// plate for ↩, and an empty search brings the whole list back at the Space's emoji.
+    fn searched(&mut self, text: &str, cx: &mut Context<Self>) {
+        let Some(picking) = &mut self.picking else {
+            return;
+        };
+        if picking.tab != Tab::Emoji || picking.query == text {
+            return;
+        }
+        picking.query = text.to_string();
+        picking.grid = Grid::new(text, &self.recents);
+        picking.selected = if text.trim().is_empty() {
+            current(&picking.icon, &picking.grid)
+        } else {
+            (!picking.grid.items.is_empty()).then_some(0)
+        };
+        if picking.selected.is_some() {
+            self.scroll_to_selected(ScrollStrategy::Center);
+        } else {
+            self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+        }
+        cx.notify();
+    }
+
+    fn scroll_to_selected(&self, strategy: ScrollStrategy) {
+        let Some(picking) = &self.picking else {
+            return;
+        };
+        if let Some(row) = picking.selected.and_then(|item| picking.grid.row_of(item)) {
+            self.scroll.scroll_to_item(row, strategy);
+        }
+    }
+
+    /// Moves the plate `across` items or `down` rows, and into view. Whether there was a list to
+    /// move in.
+    fn go(&mut self, across: isize, down: isize, cx: &mut Context<Self>) -> bool {
+        let Some(picking) = self.picking.as_mut().filter(|picking| picking.tab == Tab::Emoji)
+        else {
+            return false;
+        };
+        if self.search.read(cx).composing() {
+            return false;
+        }
+        picking.selected = picking.grid.step(picking.selected, across, down);
+        self.scroll_to_selected(ScrollStrategy::Nearest);
+        cx.notify();
+        true
+    }
+
+    fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
+        self.go(0, -1, cx);
+    }
+
+    fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
+        self.go(0, 1, cx);
+    }
+
+    /// ← and → move the caret in a search that has something in it, else the plate.
+    fn left(&mut self, _: &text_input::Left, _: &mut Window, cx: &mut Context<Self>) {
+        if self.search.read(cx).text().is_empty() && self.go(-1, 0, cx) {
+            cx.stop_propagation();
+        }
+    }
+
+    fn right(&mut self, _: &text_input::Right, _: &mut Window, cx: &mut Context<Self>) {
+        if self.search.read(cx).text().is_empty() && self.go(1, 0, cx) {
+            cx.stop_propagation();
+        }
+    }
+
+    /// Gives the Space the emoji at `item` in the list, and puts it first among the recents.
+    fn pick_emoji(&mut self, item: usize, cx: &mut Context<Self>) {
+        let Some(emoji) =
+            self.picking.as_ref().and_then(|picking| picking.grid.items.get(item).copied())
+        else {
+            return;
+        };
+        let emoji = emoji.as_str();
+        self.recents.push(emoji);
+        self.host.keep_recents(&self.recents.to_text());
+        self.pick(emoji, cx);
     }
 
     /// Gives the Space `icon`, `""` for none, if it hasn't it already, and closes.
@@ -315,14 +430,15 @@ impl IconPicker {
         }
     }
 
-    /// ↩ in the emoji's field keeps what it holds, and none takes the icon away.
+    /// ↩ on the Emoji tab picks the emoji on the plate. While an input method composes, it's the
+    /// method's.
     fn keep(&mut self, _: &Keep, _: &mut Window, cx: &mut Context<Self>) {
-        match self.picking.as_ref().map(|picking| picking.tab) {
-            Some(Tab::Emoji) => {
-                let icon = space_icon::first_character(self.emoji.read(cx).text()).to_string();
-                self.pick(&icon, cx);
-            }
-            Some(Tab::Icon) | None => {}
+        let Some(picking) = self.picking.as_ref().filter(|picking| picking.tab == Tab::Emoji)
+        else {
+            return;
+        };
+        if let Some(item) = picking.selected.filter(|_| !self.search.read(cx).composing()) {
+            self.pick_emoji(item, cx);
         }
     }
 
@@ -390,25 +506,8 @@ impl IconPicker {
             _ => None,
         };
         let cells = GLYPHS.iter().enumerate().map(|(index, &(_, path))| {
-            div()
-                .id(("glyph", index))
-                .size(px(PITCH))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(
-                    div()
-                        .size(px(PLATE))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(PLATE_RADIUS))
-                        .when(chosen == Some(index), |plate| plate.bg(rgba(CHOSEN)))
-                        .when(chosen != Some(index), |plate| {
-                            plate.hover(|plate| plate.bg(rgba(HOVERED)))
-                        })
-                        .child(svg().path(path).size(px(GLYPH_SIZE)).text_color(rgb(LABEL))),
-                )
+            let glyph = svg().path(path).size(px(GLYPH_SIZE)).text_color(rgb(LABEL));
+            cell(("glyph", index), chosen == Some(index), glyph)
                 .on_click(cx.listener(move |picker, _, _, cx| {
                     picker.pick(&space_icon::glyph(index), cx)
                 }))
@@ -423,42 +522,120 @@ impl IconPicker {
             .children(cells)
     }
 
-    /// The emoji's field, and the palette to pick one from.
-    fn emoji_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// The search, and under it the emoji in rows that scroll, of which only those in view are laid
+    /// out.
+    fn emoji_grid(&self, picking: &Picking, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let list = if picking.grid.items.is_empty() {
+            div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(rgba(HINT))
+                .child("No emoji found")
+                .into_any_element()
+        } else {
+            uniform_list(
+                "icon-picker-emoji",
+                picking.grid.rows.len(),
+                cx.processor(|picker, rows, _, cx| picker.emoji_rows(rows, cx)),
+            )
+            .track_scroll(&self.scroll)
+            .size_full()
+            .into_any_element()
+        };
         div()
             .absolute()
-            .top(px(ARROW + GRID_TOP))
+            .top(px(ARROW + emoji::SEARCH_TOP))
             .left_0()
             .w(px(WIDTH))
             .bottom_0()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap(px(12.))
             .child(
                 div()
-                    .id("icon-picker-emoji")
-                    .size(px(FIELD))
+                    .absolute()
+                    .top_0()
+                    .left(px(GRID_X))
+                    .w(px(PITCH * COLUMNS as f32))
+                    .h(px(emoji::SEARCH_HEIGHT))
+                    .px(px(emoji::SEARCH_PADDING))
                     .flex()
                     .items_center()
-                    .justify_center()
-                    .overflow_hidden()
-                    .rounded(px(8.))
-                    .bg(rgba(HOVERED))
-                    .text_size(px(FIELD_TEXT))
-                    .child(self.emoji.clone())
-                    .on_click(cx.listener(|picker, _, window, _| {
-                        picker.host.show_character_palette(window)
-                    })),
+                    .rounded(px(emoji::SEARCH_RADIUS))
+                    .bg(rgba(SEGMENTS_FILL))
+                    .child(self.search.clone()),
             )
-            .child(div().text_size(px(12.)).text_color(rgba(HINT)).child(HINT_TEXT))
+            .child(
+                div()
+                    .absolute()
+                    .top(px(emoji::LIST_TOP - emoji::SEARCH_TOP))
+                    .left(px(GRID_X))
+                    .w(px(PITCH * COLUMNS as f32))
+                    .bottom(px(emoji::LIST_BOTTOM))
+                    .child(list),
+            )
+            // A click anywhere else on the tab keeps the keyboard in the search.
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|picker, _, window, cx| {
-                    window.focus(&picker.emoji.focus_handle(cx), cx)
+                    window.focus(&picker.search.focus_handle(cx), cx)
                 }),
             )
+    }
+
+    /// The list's rows `rows` as the emoji tab shows them: a header, or up to eight emoji.
+    fn emoji_rows(&self, rows: Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let Some(picking) = &self.picking else {
+            return Vec::new();
+        };
+        rows.filter_map(|index| picking.grid.rows.get(index))
+            .map(|row| match row {
+                Row::Header(title) => div()
+                    .h(px(PITCH))
+                    .flex()
+                    .items_end()
+                    .pl(px(emoji::HEADER_LEFT))
+                    .pb(px(emoji::HEADER_BOTTOM))
+                    .text_size(px(emoji::HEADER_TEXT))
+                    .text_color(rgba(HINT))
+                    .child(*title)
+                    .into_any_element(),
+                Row::Cells(items) => div()
+                    .h(px(PITCH))
+                    .flex()
+                    .children(items.clone().map(|item| {
+                        let glyph = div()
+                            .text_size(px(emoji::EMOJI_SIZE))
+                            .child(picking.grid.items[item].as_str());
+                        cell(("emoji", item), picking.selected == Some(item), glyph).on_click(
+                            cx.listener(move |picker, _, _, cx| picker.pick_emoji(item, cx)),
+                        )
+                    }))
+                    .into_any_element(),
+            })
+            .collect()
+    }
+}
+
+/// A grid cell: `content` centred on a plate that's chosen, or lights under the pointer.
+fn cell(id: (&'static str, usize), chosen: bool, content: impl IntoElement) -> Stateful<Div> {
+    div().id(id).size(px(PITCH)).flex().items_center().justify_center().child(
+        div()
+            .size(px(PLATE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded(px(PLATE_RADIUS))
+            .when(chosen, |plate| plate.bg(rgba(CHOSEN)))
+            .when(!chosen, |plate| plate.hover(|plate| plate.bg(rgba(HOVERED))))
+            .child(content),
+    )
+}
+
+/// The place in `grid` of the emoji `icon` is, if it is one.
+fn current(icon: &str, grid: &Grid) -> Option<usize> {
+    match SpaceIcon::parse(icon) {
+        SpaceIcon::Emoji(emoji) => grid.position(emoji),
+        _ => None,
     }
 }
 
@@ -555,16 +732,6 @@ impl Render for IconPicker {
             .key_context(KEY_CONTEXT)
             .size_full()
             .font_family(".SystemUIFont");
-        // AppKit puts the window on screen some frames after it's asked to, and the palette goes
-        // with the key window then.
-        if let Some(picking) = self.picking.as_mut().filter(|picking| picking.palette) {
-            if window.is_visible() {
-                picking.palette = false;
-                self.host.show_character_palette(window);
-            } else {
-                window.request_animation_frame();
-            }
-        }
         // The slide's progress, while the content slides.
         let slide = self.picking.as_mut().and_then(|picking| {
             let (from, start) = picking.slide?;
@@ -609,7 +776,7 @@ impl Render for IconPicker {
         let mut content = |tab, x: f32| {
             let pane = match tab {
                 Tab::Icon => self.glyphs(picking, cx).into_any_element(),
-                Tab::Emoji => self.emoji_field(cx).into_any_element(),
+                Tab::Emoji => self.emoji_grid(picking, cx).into_any_element(),
             };
             div().absolute().top_0().left(px(x)).size_full().child(pane)
         };
@@ -627,6 +794,10 @@ impl Render for IconPicker {
                 .track_focus(&self.focus)
                 .on_action(cx.listener(Self::dismiss))
                 .on_action(cx.listener(Self::keep))
+                .on_action(cx.listener(Self::up))
+                .on_action(cx.listener(Self::down))
+                .capture_action(cx.listener(Self::left))
+                .capture_action(cx.listener(Self::right))
                 .relative()
                 .size_full()
                 .text_color(rgb(LABEL))

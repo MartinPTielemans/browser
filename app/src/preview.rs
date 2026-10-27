@@ -15,6 +15,7 @@ use browser::shell::{
     Folders, Match, MenuEntry, Page, Shell, Split, WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
+use browser::icon_picker::{self, Recents};
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
@@ -1163,6 +1164,32 @@ fn main() {
             let at = point(px(left as f32), px(top));
             preview_bar(&mode, at, cx);
         }
+        // PREVIEW_ICON_PICKER=<emoji, or empty> shows the icon picker for a Space with that icon.
+        if let Ok(icon) = std::env::var("PREVIEW_ICON_PICKER") {
+            let left = x as f32 + 40.;
+            let top = y as f32 + 120.;
+            let bounds = Bounds::new(
+                point(px(left), px(top)),
+                size(px(icon_picker::WIDTH), px(icon_picker::HEIGHT)),
+            );
+            if icon_picker::open_at(Rc::new(PreviewPicker), Recents::default(), bounds, true, cx)
+                .is_some()
+            {
+                let picked: icon_picker::Picked = Rc::new(|_, _| {});
+                icon_picker::show(1, icon.into(), point(0., 0.), 0x3d81f9, picked, cx);
+            }
+        }
         cx.activate(true);
     });
+}
+
+/// The icon picker over the preview's window, whose host can't move it: it opened where it's to be.
+struct PreviewPicker;
+
+impl icon_picker::Host for PreviewPicker {
+    fn show(&self, _: f32, _: f32) {}
+
+    fn hide(&self) {}
+
+    fn keep_recents(&self, _: &str) {}
 }
