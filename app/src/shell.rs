@@ -29,6 +29,8 @@ mod agent_spaces;
 #[cfg(test)]
 mod close_tab;
 #[cfg(test)]
+mod dock_dot;
+#[cfg(test)]
 mod favorites_scope;
 #[cfg(test)]
 mod full_screen;
@@ -1618,6 +1620,7 @@ impl Shell {
         if self.show_favorites() {
             self.log_favorites();
         }
+        self.follow_dock(cx);
         self.update_menus(cx);
         self.update_title(cx);
         cx.notify();
@@ -1699,6 +1702,7 @@ impl Shell {
         if self.form().is_some() {
             self.focus_form(cx);
         }
+        self.follow_dock(cx);
         self.update_menus(cx);
         self.update_title(cx);
         cx.notify();
@@ -1904,6 +1908,7 @@ impl Shell {
         cx.set_global(ShellHandle(cx.weak_entity()));
         self.refresh_menus(cx);
         self.refresh_picture(cx);
+        self.follow_dock(cx);
     }
 
     /// The user left the command bar without choosing anything in it.
@@ -2147,6 +2152,14 @@ impl Shell {
 
     fn shown_space(&self) -> Option<&Space> {
         self.spaces.iter().find(|space| space.id == self.space)
+    }
+
+    /// The Dock icon's dot takes the key window's Space's color. A private window has no Space of
+    /// the user's, so its dot is the icon's own.
+    fn follow_dock(&self, cx: &mut Context<Self>) {
+        if cx.try_global::<ShellHandle>().is_some_and(|key| key.0 == cx.weak_entity()) {
+            crate::dock_dot::follow(self.shown_space().and_then(|space| space.color), cx);
+        }
     }
 
     /// Whether the Space shown is an agent's, which no tab moves into, as the browser keeps the

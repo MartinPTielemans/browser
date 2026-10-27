@@ -1,0 +1,109 @@
+//! The Dock icon's dot in the color of the key window's Space (docs/ux-spec.md › Dock dot). The
+//! Dock takes 10–45 ms of the main thread to swap the icon, more than a whole Space switch may
+//! take, so the swap waits until the switch is over and a run of switches has stopped.
+
+use std::{rc::Rc, time::Duration};
+
+use gpui::{App, Global, Task};
+
+/// What swaps the icon: platform/mac/dock.mm in the browser.
+pub trait Host {
+    /// Gives the dot `color`, as 0xRRGGBB, or the icon's own green.
+    fn show(&self, color: Option<u32>);
+}
+
+/// How long the dot waits after the last change: past a Space switch's slide, which has settled
+/// by 300 ms, and long enough to take quick switches as one.
+pub const QUIET: Duration = Duration::from_millis(400);
+
+/// The icon's own green, which a Space in it leaves alone.
+pub const GREEN: u32 = 0x0E9F55;
+
+struct DockDot {
+    host: Rc<dyn Host>,
+    wait: Option<Task<()>>,
+}
+
+impl Global for DockDot {}
+
+/// Starts following, with `host` to swap the icon. Without it, `follow` does nothing, as in the
+/// preview.
+pub fn open(host: Rc<dyn Host>, cx: &mut App) {
+    cx.set_global(DockDot { host, wait: None });
+}
+
+/// The key window shows a Space in `color`, or one without a color. Asked again for the same
+/// color, the host checks again too, which catches an icon style change it wasn't told of.
+pub fn follow(color: Option<u32>, cx: &mut App) {
+    if !cx.has_global::<DockDot>() {
+        return;
+    }
+    let color = color.filter(|&color| color != GREEN);
+    // Replacing the wait drops the one before, so only the last change of a run swaps.
+    let wait = cx.spawn(async move |cx| {
+        cx.background_executor().timer(QUIET).await;
+        cx.update(|cx| {
+            let dot = cx.global_mut::<DockDot>();
+            dot.wait = None;
+            dot.host.clone()
+        })
+        .show(color);
+    });
+    cx.global_mut::<DockDot>().wait = Some(wait);
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use gpui::TestAppContext;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct Recorder(RefCell<Vec<Option<u32>>>);
+
+    impl Host for Recorder {
+        fn show(&self, color: Option<u32>) {
+            self.0.borrow_mut().push(color);
+        }
+    }
+
+    fn opened(cx: &mut TestAppContext) -> Rc<Recorder> {
+        let host = Rc::new(Recorder::default());
+        cx.update(|cx| open(host.clone(), cx));
+        host
+    }
+
+    fn after(cx: &mut TestAppContext, host: &Recorder, time: Duration) -> Vec<Option<u32>> {
+        cx.executor().advance_clock(time);
+        cx.run_until_parked();
+        host.0.take()
+    }
+
+    #[gpui::test]
+    fn it_swaps_once_the_switch_is_over(cx: &mut TestAppContext) {
+        let host = opened(cx);
+        cx.update(|cx| follow(Some(0x8655BF), cx));
+        assert!(after(cx, &host, QUIET - Duration::from_millis(1)).is_empty());
+        assert_eq!(after(cx, &host, Duration::from_millis(1)), [Some(0x8655BF)]);
+    }
+
+    #[gpui::test]
+    fn quick_switches_swap_once_for_the_last_space(cx: &mut TestAppContext) {
+        let host = opened(cx);
+        for color in [Some(0x8655BF), None, Some(0xE0475B)] {
+            cx.update(|cx| follow(color, cx));
+            assert!(after(cx, &host, QUIET / 2).is_empty());
+        }
+        assert_eq!(after(cx, &host, QUIET / 2), [Some(0xE0475B)]);
+        assert!(after(cx, &host, QUIET * 2).is_empty());
+    }
+
+    #[gpui::test]
+    fn a_green_space_is_the_icons_own(cx: &mut TestAppContext) {
+        let host = opened(cx);
+        cx.update(|cx| follow(Some(GREEN), cx));
+        assert_eq!(after(cx, &host, QUIET), [None]);
+    }
+}
