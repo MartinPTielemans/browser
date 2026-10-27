@@ -623,14 +623,19 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   go_from_bar "127.0.0.1:$port/engine.html"
   expect "^browser: title $tab engine safari\$" "the site's next page left Safari's engine"
   go_from_bar "localhost:$port/engine.html"
+  expect "^browser: tab $tab back to Chromium for http://localhost:$port/engine.html\$" \
+    "another site didn't take the tab back to Chromium"
   expect "^browser: title $tab engine chromium\$" "another site stayed in Safari's engine"
   # The profile kept the site, which opens in Safari's engine with no note.
   go_from_bar "127.0.0.1:$port/engine.html"
   expect "^browser: title $tab engine safari\$" "the site kept for Safari's engine opened in Chromium"
-  # Keys with Safari's engine's page focused, as keys.sh has them with Chromium's. The page has the
-  # keyboard once the bar closes, and the reserved shortcuts still reach the UI.
+  # Keys with Safari's engine's page focused, as keys.sh has them with Chromium's. A click gives the
+  # page the keyboard, which the note's button left with the UI, and the reserved shortcuts still
+  # reach the UI.
+  send click $page_point
+  expect "^browser: title $tab pressed 1\$" "a click didn't reach Safari's engine's page"
   send state
-  in_browser WKWebView "after Safari's engine's page loaded"
+  in_browser WKWebView "after a click on Safari's engine's page"
   for shortcut in "t new-tab" "l edit-url"; do
     page_shortcut $shortcut
     expect '^browser: command bar shown$' "$shortcut over Safari's engine didn't open the command bar"
@@ -645,7 +650,7 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect '^browser: command bar hidden$' "a click on Safari's engine's page didn't close the command bar"
   in_browser WKWebView "after a click on Safari's engine's page closed the command bar"
   send click $page_point
-  expect "^browser: title $tab pressed 1\$" \
+  expect "^browser: title $tab pressed 2\$" \
     "Safari's engine's page took the click that closed the bar, or not the next: $(grep "^browser: title $tab " "$log" | tail -1)"
   # In the page's text field, ⌘A and ⌘C stay with the page.
   send type abc
