@@ -42,7 +42,7 @@ for section in ungoogled-chromium-macos ungoogled-chromium-portablelinux ungoogl
   tag=$(git config -f "$pins" "$section.tag") || continue
   sections+=("$section")
   git ls-remote --tags --refs "$upstream/$section.git" | sed 's#.*refs/tags/##' >"$work/$section.tags"
-  # The sections on [chromium]'s version move together; one on its own (Windows, for now) alone.
+  # The sections on [chromium]'s version move together; one on its own alone.
   [ "$(version_of "$tag")" = "$version" ] && shared+=("$section")
 done
 
@@ -58,14 +58,15 @@ for section in "${sections[@]}"; do
   echo "- $section $(awk -v m="$newest" 'index($0, m ".") == 1' "$work/$section.tags" | sort -V | tail -1), pinned at $(git config -f "$pins" "$section.tag")" >>"$file"
 done
 
-# The bump: the newest version on the pinned major that every section moving with it has a tag
-# for, so their builds stay on one Chromium.
-changes=()
+# The bump follows the Mac, which ships, so its patch lag never waits on another platform: the
+# newest version on the pinned major that it has a tag for. Sections that have one too move with it.
+changes=() lagging=()
 target=
-if [ ${#shared[@]} -gt 0 ]; then
-  for v in $(sed 's/-.*//' "$work/${shared[0]}.tags" | sort -V -u -r); do
+leader=${shared[0]:-}
+[[ " ${shared[*]:-} " == *" ungoogled-chromium-macos "* ]] && leader=ungoogled-chromium-macos
+if [ -n "$leader" ]; then
+  for v in $(sed 's/-.*//' "$work/$leader.tags" | sort -V -u -r); do
     [ "$(major_of "$v")" = "$(major_of "$version")" ] && newer "$v" "$version" || continue
-    for section in "${shared[@]}"; do [ -n "$(tag_for "$section" "$v")" ] || continue 2; done
     target=$v
     break
   done
@@ -79,16 +80,24 @@ if [ -n "$target" ]; then
   else
     problems+=("ungoogled-chromium has no tag for $target.")
   fi
-  for section in "${shared[@]}"; do
-    changes+=("$section $(git config -f "$pins" "$section.tag") $(tag_for "$section" "$target")")
-    git config -f "$pins" "$section.tag" "$(tag_for "$section" "$target")"
+  for section in ${shared[@]+"${shared[@]}"}; do
+    tag=$(tag_for "$section" "$target")
+    if [ -z "$tag" ]; then
+      lagging+=("$section")
+      continue
+    fi
+    changes+=("$section $(git config -f "$pins" "$section.tag") $tag")
+    git config -f "$pins" "$section.tag" "$tag"
   done
 fi
+# A section off [chromium]'s version, such as a platform whose tag lags, follows on its own: to its
+# newest version on its major that isn't past [chromium]'s.
+cap=$(git config -f "$pins" chromium.version)
 for section in "${sections[@]}"; do
-  [[ " ${shared[*]} " == *" $section "* ]] && continue
   old=$(git config -f "$pins" "$section.tag")
+  [ "$(version_of "$old")" != "$cap" ] || continue
   v=$(sed 's/-.*//' "$work/$section.tags" | awk -v m="$(major_of "$old")" 'index($0, m ".") == 1' |
-    sort -V | tail -1)
+    while read -r v; do newer "$v" "$cap" || echo "$v"; done | sort -V | tail -1)
   newer "$v" "$(version_of "$old")" || continue
   changes+=("$section $old $(tag_for "$section" "$v")")
   git config -f "$pins" "$section.tag" "$(tag_for "$section" "$v")"
@@ -108,11 +117,7 @@ for change in "${changes[@]}"; do
   git clone -q -c advice.detachedHead=false --depth 1 --branch "$tag" --recurse-submodules \
     --shallow-submodules "$upstream/$section.git" "$dir"
   uc=$dir/ungoogled-chromium
-  if [ "$(version_of "$(git config -f "$pins" "$section.tag")")" = "$(git config -f "$pins" chromium.version)" ]; then
-    msg=$( (check_ungoogled "$uc" "$section $tag") 2>&1 >/dev/null) || problems+=("$msg.")
-  elif [ "$(cat "$uc/chromium_version.txt")" != "$v" ]; then
-    problems+=("$section $tag builds Chromium $(cat "$uc/chromium_version.txt").")
-  fi
+  msg=$( (check_ungoogled "$uc" "$section $tag") 2>&1 >/dev/null) || problems+=("$msg.")
   {
     series "$uc/patches/series" | sed "s#^#$uc/patches/#"
     series "$dir/patches/series" | sed "s#^#$dir/patches/#"
@@ -178,7 +183,11 @@ if [ -n "$target" ]; then
 else
   echo "fix(engine): ${changes[0]%% *} is on Chromium $(echo "$versions" | head -1), a security point release" >"$work/pr-title"
 fi
-echo "engine/point-$(echo "$versions" | paste -sd+ -)" >"$work/pr-branch"
+# Named for each section's new version, so a lagging platform's later bump gets a branch of its own.
+for change in "${changes[@]}"; do
+  read -r section _ tag <<<"$change"
+  echo "${section#ungoogled-chromium-}-$(version_of "$tag")"
+done | paste -sd+ - | sed 's#^#engine/point-#' >"$work/pr-branch"
 {
   echo "## Problem"
   echo
@@ -191,6 +200,10 @@ echo "engine/point-$(echo "$versions" | paste -sd+ -)" >"$work/pr-branch"
     echo "- $section $old → $tag"
   done
   [ -z "$target" ] || echo "- Chromium $version → $target, ungoogled-chromium $(git config -f "$pins" ungoogled-chromium.tag)"
+  for section in ${lagging[@]+"${lagging[@]}"}; do
+    old=$(git config -f "$pins" "$section.tag")
+    echo "- $section has no tag for $target yet, so it stays on $old and follows in its own PR."
+  done
   echo
   for change in "${changes[@]}"; do
     read -r section _ tag <<<"$change"
@@ -210,8 +223,8 @@ echo "engine/point-$(echo "$versions" | paste -sd+ -)" >"$work/pr-branch"
   if [ ${#conflicts[@]} -eq 0 ] && [ ${#problems[@]} -eq 0 ]; then
     echo "**Applies cleanly.**"
   else
-    for c in "${conflicts[@]}"; do echo "- Conflicts: \`$c\`"; done
-    for p in "${problems[@]}"; do echo "- $p"; done
+    for c in ${conflicts[@]+"${conflicts[@]}"}; do echo "- Conflicts: \`$c\`"; done
+    for p in ${problems[@]+"${problems[@]}"}; do echo "- $p"; done
     echo
     echo "A lane rebases the patches before the builds, as for a new major."
   fi
