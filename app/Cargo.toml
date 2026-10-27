@@ -36,6 +36,11 @@ gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
 [target.'cfg(target_os = "windows")'.dependencies]
 gpui_windows = { path = ".deps/zed/crates/gpui_windows" }
 
+# Zed's workspace takes GPUI's Linux platform without its window systems, so it runs headless
+# unless they're asked for here.
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui_platform = { path = ".deps/zed/crates/gpui_platform", features = ["wayland", "x11"] }
+
 [build-dependencies]
 # 0.73 accepts syn 3 but only builds with syn 2, which 0.72 asks for.
 bindgen = "0.72"

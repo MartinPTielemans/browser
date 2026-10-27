@@ -38,6 +38,24 @@ pub fn uptime_ms() -> f64 {
     count as f64 * 1e3 / frequency as f64
 }
 
+/// Milliseconds on Linux's monotonic clock, the one Chromium's `TimeTicks` reads there.
+#[cfg(target_os = "linux")]
+pub fn uptime_ms() -> f64 {
+    use std::ffi::{c_int, c_long};
+    #[repr(C)]
+    struct Timespec {
+        tv_sec: c_long,
+        tv_nsec: c_long,
+    }
+    unsafe extern "C" {
+        fn clock_gettime(clock_id: c_int, tp: *mut Timespec) -> c_int;
+    }
+    const CLOCK_MONOTONIC: c_int = 1;
+    let mut now = Timespec { tv_sec: 0, tv_nsec: 0 };
+    unsafe { clock_gettime(CLOCK_MONOTONIC, &mut now) };
+    now.tv_sec as f64 * 1e3 + now.tv_nsec as f64 / 1e6
+}
+
 /// The core's API, generated from core/public/browser_core.h. Here, rather than in the browser's
 /// own crate, for the Windows browser's crate too (windows/).
 #[allow(non_camel_case_types, dead_code)]
