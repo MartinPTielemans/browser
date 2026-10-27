@@ -8,15 +8,17 @@
 # menu then shows, and makes and deletes one. Deleting the Space leaves its profile unused, and
 # Delete in the menu deletes it once the user confirms.
 
-# The cookie page's title shows its site's cookies, and "c" sets one. It's on localhost, as
-# clear.sh's cookie is on 127.0.0.1.
+# The cookie page's title says whether it finds its cookie, p, never a value, since the app logs
+# every title, and "c" sets it. The cookie outlives the run, so its value is this run's start and an
+# earlier run's doesn't count. It's on localhost, as clear.sh's cookie is on 127.0.0.1.
 serve
 printf '%s' '<title>loading</title>
 <script>
-document.title = "cookie " + (document.cookie || "none");
+const mine = "p='"$(date +%s)"'";
+document.title = "cookie " + (document.cookie.split("; ").includes(mine) ? "p" : "none");
 onkeydown = e => {
   if (e.key == "c") {
-    document.cookie = "p=1; max-age=3600";
+    document.cookie = mine + "; max-age=3600";
     document.title = "cookie set";
   }
 };
@@ -32,7 +34,8 @@ exec 3> "$out/drive"
 await_load
 first=$(space)
 a=$(today)
-await "^browser: title $a cookie " || fail "the cookie page didn't draw"
+await "^browser: title $a cookie none\$" ||
+  fail "the cookie page didn't draw, or found an earlier run's cookie"
 send click $page_point
 if [ "$active" != 1 ]; then
   exec 3>&-
@@ -46,7 +49,7 @@ grep -q "^browser: added profile $default Default\$" "$log" ||
 send key c
 expect "^browser: title $a cookie set\$" "c in the cookie page didn't set a cookie"
 send key r cmd
-expect "^browser: title $a cookie p=1\$" "the cookie page lost its cookie on ⌘R"
+expect "^browser: title $a cookie p\$" "the cookie page lost its cookie on ⌘R"
 # Dragged onto the Space's name, the tab becomes the first profile's favorite, which leaves the
 # first Space empty.
 send press $(row 0)
@@ -143,7 +146,7 @@ expect "^browser: space $first in " "⌃1 didn't show the first Space"
 expect "^browser: favorites $a\$" "the first Space didn't show its profile's favorite"
 send click $page_point
 send key r cmd
-expect "^browser: title $a cookie p=1\$" "the first profile's cookie went"
+expect "^browser: title $a cookie p\$" "the first profile's cookie went"
 exec 3>&-
 quit
 
@@ -166,7 +169,7 @@ grep -q "^browser: profiled space $second $work\$" "$log" ||
   fail "the second Space came back in another profile"
 await "^browser: favorites [0-9][0-9]*\$" || fail "the first profile's favorite didn't come back"
 a=$(grep '^browser: favorites' "$log" | tail -1 | cut -d' ' -f3)
-await "^browser: title $a cookie p=1\$" ||
+await "^browser: title $a cookie p\$" ||
   fail "the favorite came back without its profile's cookie"
 send click $page_point
 send key 2 ctrl
@@ -190,7 +193,7 @@ expect "^browser: tab $b closed\$" "the tab moved to another profile kept its ol
 expect "^browser: space $first\$" "the window didn't go with the moved tab"
 expect '^browser: today [0-9][0-9]*$' "the moved tab isn't in the first Space"
 c=$(today)
-expect "^browser: title $c cookie p=1\$" "the moved tab didn't load with the first profile's cookie"
+expect "^browser: title $c cookie p\$" "the moved tab didn't load with the first profile's cookie"
 post rightclick 100 $(($(row 0 | cut -d' ' -f2) + 47))
 expect '^browser: menu shown .*, Move to › Space 1 (checked), Move to › work, ' \
   "the moved tab's menu didn't offer its old Space"
@@ -240,7 +243,7 @@ expect "^browser: favorites $a\$" "⌘Z didn't put the favorite back"
 post rightclick $tile
 expect '^browser: menu shown Back to Favorite URL, ' "⌘Z put the favorite back without its URL"
 send choose Back to Favorite URL
-expect "^browser: title $a cookie p=1\$" "Back to Favorite URL didn't load the favorite's URL"
+expect "^browser: title $a cookie p\$" "Back to Favorite URL didn't load the favorite's URL"
 send key 2 ctrl
 expect "^browser: space $second in " "⌃2 didn't show the second Space"
 expect '^browser: favorites [0-9][0-9]*$' "⌘Z didn't bring back the favorite's twin"
