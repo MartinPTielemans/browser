@@ -389,6 +389,7 @@ send choose Change Icon…
 expect "^browser: icon picker for $first on emoji\$" \
   "Change Icon… didn't open the picker on the Emoji tab for a Space with an emoji"
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
+../tools/window-screenshot.sh "$pid" "$out/space-emoji-grid.png" all || fail "no window to capture"
 send clickkey 197 39.5
 expect "^browser: iconed space $first none\$" "the icon picker's trash didn't take the icon away"
 expect '^browser: icon picker hidden$' "the icon picker's trash didn't close it"
