@@ -3,25 +3,33 @@ use std::path::PathBuf;
 fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let header = root.join("../core/public/browser_core.h");
-    let windows = std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows";
+    let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
 
     let mut host = cc::Build::new();
     host.cpp(true)
         // The driver calls the core for what only agent code will, once there is some.
         .include(root.join("../core/public"))
         .define("NDEBUG", None);
-    if windows {
-        host.file("platform/windows/host.cc")
-            .flag("/std:c++20")
-            .flag("/utf-8")
-            .define("UNICODE", None)
-            .define("_UNICODE", None);
-    } else {
-        host.file("platform/mac/host.mm")
-            .file("platform/mac/drive.mm")
-            .file("platform/mac/emoji.mm")
-            .flag("-std=c++20")
-            .flag("-fobjc-arc");
+    match os.as_str() {
+        "macos" => {
+            host.file("platform/mac/host.mm")
+                .file("platform/mac/drive.mm")
+                .file("platform/mac/emoji.mm")
+                .flag("-std=c++20")
+                .flag("-fobjc-arc");
+        }
+        "windows" => {
+            host.file("platform/windows/host.cc")
+                .flag("/std:c++20")
+                .flag("/utf-8")
+                .define("UNICODE", None)
+                .define("_UNICODE", None);
+        }
+        // Only what the preview asks of the host so far; the browser doesn't build here yet.
+        "linux" => {
+            host.file("platform/linux/host.cc").flag("-std=c++20");
+        }
+        other => panic!("no host for {other}"),
     }
     host.compile("host");
 
@@ -39,14 +47,14 @@ fn main() {
         .unwrap();
 
     // Only the browser links the engine; the preview runs without it.
-    if windows {
+    if os == "windows" {
         // Chromium's framework on Windows is chrome.dll, which the browser loads from beside it.
         let engine = root.join(".deps/engine");
         println!("cargo:rustc-link-arg-bin=Browser={}", engine.join("chrome.dll.lib").display());
         for lib in ["user32", "gdi32", "dwmapi", "shell32", "ole32", "comctl32", "comdlg32"] {
             println!("cargo:rustc-link-lib={lib}");
         }
-    } else {
+    } else if os == "macos" {
         let frameworks = root.join(".deps/Chromium.app/Contents/Frameworks");
         for arg in [
             format!("-F{}", frameworks.display()),

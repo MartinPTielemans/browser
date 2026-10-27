@@ -1,0 +1,43 @@
+# The UI builds and its tests pass on Linux (AGENTS.md, Hit every surface: Platforms). The browser
+# itself needs a Linux engine first, so this is the UI's library and the preview, which need none.
+name: UI on Linux
+
+on:
+  push:
+    paths: [app/**, core/public/**, .github/workflows/app-linux.yml, '!**/*.md']
+  pull_request:
+    paths: [app/**, core/public/**, .github/workflows/app-linux.yml, '!**/*.md']
+
+jobs:
+  test:
+    # A pull request from a branch here already ran on its push.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      # bindgen reads the core's header with libclang; GPUI's X11 window system links xcb and
+      # xkbcommon, and loads Wayland's, fontconfig and Vulkan at run time.
+      - name: Install tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq libclang-dev libfontconfig-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-x11-dev
+          rustup update stable --no-self-update
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/target
+          key: app-linux-${{ hashFiles('app/Cargo.lock', 'app/setup.sh', 'app/patches/**') }}
+          restore-keys: app-linux-
+
+      - run: ./setup.sh
+      - run: cargo test --release --lib
+      - run: cargo build --release --bin preview
