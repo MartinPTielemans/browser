@@ -1057,10 +1057,11 @@ BC_EXPORT bool bc_system_engine_available(void);
 // With |on|, shows the tab's page in the system's engine, loading its URL there, and has the
 // profile keep its site for it. Else has the profile forget the site, and each of the profile's
 // tabs that shows one of its pages there goes back to Chromium at that page, once the site's
-// cookies and those pages' localStorage are in Chromium's store. Returns whether it
-// did: not for a page that isn't http(s), nor where there's no system engine, nor for an agent's
-// tab. Then tab_state_changed, tab_media_unsupported with an empty key system, and
-// tab_site_controls if watched. The user's: agents get none.
+// cookies and those pages' localStorage are in Chromium's store; the site then counts as one whose
+// note was closed (bc_tab_close_media_note). Returns whether it did: not for a page that isn't
+// http(s), nor where there's no system engine, nor for an agent's tab. Then tab_state_changed,
+// tab_media_unsupported with an empty key system, and tab_site_controls if watched. The user's:
+// agents get none.
 BC_EXPORT bool bc_tab_set_system_engine(bc_id tab, bool on);
 
 // The user closed the tab's protected-media note: its profile keeps the site of its page from

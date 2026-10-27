@@ -42,9 +42,10 @@ bool Remembered(Profile* profile, const GURL& url);
 void Remember(Profile* profile, const GURL& url);
 void Forget(Profile* profile, const GURL& url);
 
-// Whether the user closed the protected-media note for |url|'s site in |profile|, which then never
-// shows it there again: Site Controls offer the system's engine for the site instead. Kept as the
-// sites above are, a private window's for its session.
+// Whether the user closed the protected-media note for |url|'s site in |profile|, or turned the
+// site off in Site Controls, which then never shows it there again: Site Controls offer the
+// system's engine for the site instead. Kept as the sites above are, a private window's for its
+// session.
 bool NoteClosed(Profile* profile, const GURL& url);
 void CloseNote(Profile* profile, const GURL& url);
 
