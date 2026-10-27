@@ -827,6 +827,18 @@ impl Browser for Fake {
     // The tooltip's window is the app's, over the page, which the preview has neither of.
     fn tooltip(&self, _: Option<(browser::tooltip::Tip, browser::tooltip::Anchor)>, _: &mut App) {}
 
+    // The same for the link target's, which the preview's made-up pages have no links for.
+    fn link_target(
+        &self,
+        _: Option<(
+            browser::link_target::Plate,
+            gpui::Bounds<gpui::Pixels>,
+            browser::link_target::Side,
+        )>,
+        _: &mut App,
+    ) {
+    }
+
     // macOS's default blue.
     fn accent_color(&self) -> u32 {
         0x007aff

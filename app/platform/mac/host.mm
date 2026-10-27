@@ -426,6 +426,19 @@ double g_tooltip_top = 0;
 unsigned g_tooltip_changes = 0;
 void (*g_tooltip_away)(void);
 
+// The link target's window and view, the browser it shows over, where its top left goes there, a
+// count of its shows and hides as the tooltip's, the UI's handler for the pointer, and while it
+// shows, the monitor that hands the handler the pointer.
+Browser* g_link_over;
+NSWindow* g_link;
+NSView* g_link_view;
+bool g_link_shown = false;
+double g_link_left = 0;
+double g_link_top = 0;
+unsigned g_link_changes = 0;
+void (*g_link_pointer)(double x, double y);
+id g_link_monitor;
+
 // The zoom HUD's window and view, the browser it shows over, its distance from the top right of
 // that window's content, and a count of its shows and hides, so one posted before another doesn't
 // undo it.
@@ -699,6 +712,16 @@ void PlaceTooltip() {
   NSSize size = g_tooltip.frame.size;
   [g_tooltip setFrameOrigin:NSMakePoint(NSMinX(content) + g_tooltip_left,
                                         NSMaxY(content) - g_tooltip_top - size.height)];
+}
+
+// As the tooltip's: where the UI asked, inside the browser window, and its window wider than the
+// plate it holds.
+void PlaceLinkTarget() {
+  NSWindow* window = g_link_over->window;
+  NSRect content = [window contentRectForFrameRect:window.frame];
+  NSSize size = g_link.frame.size;
+  [g_link setFrameOrigin:NSMakePoint(NSMinX(content) + g_link_left,
+                                     NSMaxY(content) - g_link_top - size.height)];
 }
 
 // The overlay's shape filling |bounds|, in coordinates whose y goes up, as Core Graphics draws.
@@ -1393,6 +1416,9 @@ void host_forget_window(void* ui_view) {
   }
   if (g_tooltip_over == browser) {
     host_hide_tooltip(0);
+  }
+  if (g_link_shown && g_link_over == browser) {
+    host_hide_link_target(0);
   }
   if (g_hud_shown && g_hud_over == browser) {
     host_hide_hud();
@@ -2519,6 +2545,116 @@ void host_hide_tooltip(double fade) {
     return;
   }
   FadeTooltip(0, fade, gone);
+}
+
+void host_add_link_target(void* link_view, void (*pointer)(double x, double y)) {
+  g_link_view = (__bridge NSView*)link_view;
+  g_link = g_link_view.window;
+  g_link_pointer = pointer;
+  MakeOverlay(g_link);
+  g_link.styleMask = NSWindowStyleMaskBorderless;
+  g_link.hasShadow = NO;
+  // It takes neither a click nor the keyboard.
+  g_link.ignoresMouseEvents = YES;
+}
+
+void host_show_link_target(void* ui_view, double left, double top, double fade) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_link || !browser || !browser->window) {
+    return;
+  }
+  if (g_link_shown && g_link_over != browser) {
+    host_hide_link_target(0);
+  }
+  g_link_left = left;
+  g_link_top = top;
+  g_link_shown = true;
+  g_link_over = browser;
+  const unsigned change = ++g_link_changes;
+  // The page's view takes the pointer's moves while it's over the page, so the UI's view doesn't
+  // hear them. Only while the plate shows, so an idle browser is never woken.
+  if (!g_link_monitor) {
+    g_link_monitor = [NSEvent
+        addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved
+                                     handler:^NSEvent*(NSEvent* event) {
+                                       if (!g_link_shown) {
+                                         return event;
+                                       }
+                                       NSPoint at = event.locationInWindow;
+                                       if (event.window) {
+                                         at = [event.window convertPointToScreen:at];
+                                       }
+                                       NSWindow* window = g_link_over->window;
+                                       NSRect content =
+                                           [window contentRectForFrameRect:window.frame];
+                                       g_link_pointer(at.x - NSMinX(content),
+                                                      NSMaxY(content) - at.y);
+                                       return event;
+                                     }];
+  }
+  // After the UI's update that asked, since the window draws here, before it shows or moves, since
+  // it keeps the last frame it drew, the last address.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (change != g_link_changes) {
+      return;
+    }
+    PlaceLinkTarget();
+    [g_link_view.layer setNeedsDisplay];
+    [g_link_view.layer displayIfNeeded];
+    // Still fading out over this window, it goes back to full.
+    if (g_link.parentWindow != browser->window) {
+      [g_link.parentWindow removeChildWindow:g_link];
+      g_link.alphaValue = 0;
+      [browser->window addChildWindow:g_link ordered:NSWindowAbove];
+      RaiseOverlays(browser, g_link);
+    }
+    [NSAnimationContext
+        runAnimationGroup:^(NSAnimationContext* context) {
+          context.duration = fade;
+          context.timingFunction =
+              [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+          g_link.animator.alphaValue = 1;
+        }
+        completionHandler:^{
+          if (change == g_link_changes) {
+            // check.sh waits for this line, so a capture after it shows the plate whole.
+            fprintf(stderr, "browser: link target window shown\n");
+          }
+        }];
+  });
+}
+
+void host_hide_link_target(double fade) {
+  // At once, it also ends a fade out.
+  if (!g_link_shown && fade > 0) {
+    return;
+  }
+  g_link_shown = false;
+  if (g_link_monitor) {
+    [NSEvent removeMonitor:g_link_monitor];
+    g_link_monitor = nil;
+  }
+  const unsigned change = ++g_link_changes;
+  void (^gone)(void) = ^{
+    if (change != g_link_changes) {
+      return;
+    }
+    [g_link.parentWindow removeChildWindow:g_link];
+    [g_link orderOut:nil];
+  };
+  // At once as its window closes, which a fade's end would come after.
+  if (fade == 0) {
+    gone();
+    return;
+  }
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = fade;
+        context.timingFunction =
+            [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+        g_link.animator.alphaValue = 0;
+      }
+      completionHandler:gone];
 }
 
 void host_show_window_buttons(void* ui_view, bool shown) {

@@ -262,6 +262,14 @@ pub trait Browser {
     /// Shows `tip` in a tooltip after its delay, hung from `anchor` in the window, or at once if
     /// one shows; `None` ends it. The app does the same on the window losing the keyboard.
     fn tooltip(&self, tip: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, cx: &mut App);
+    /// Shows `plate`, the address of the link the pointer is on, at `frame` in the window, in
+    /// `side` of the card, after its delay or at once if one shows or just went; or moves it there
+    /// if it shows. `None` ends it.
+    fn link_target(
+        &self,
+        plate: Option<(crate::link_target::Plate, Bounds<Pixels>, crate::link_target::Side)>,
+        cx: &mut App,
+    );
     /// The system's accent colour, as 0xRRGGBB. The app calls `Shell::accent_color_changed` when
     /// it changes.
     fn accent_color(&self) -> u32;

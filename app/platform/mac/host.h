@@ -293,6 +293,20 @@ void host_show_tooltip(void* ui_view, double left, double top, double fade);
 // Fades the tooltip's window out over |fade| seconds, then hides it.
 void host_hide_tooltip(double fade);
 
+// Makes the window of |link_view| the link target's, which floats over a browser window as its
+// child when shown, and lets the mouse through and never takes the keyboard. It starts hidden.
+// |pointer| is called with the pointer's place in the content of the browser window, in points
+// from its top left, at every move of it while that window shows.
+void host_add_link_target(void* link_view, void (*pointer)(double x, double y));
+
+// Shows the link target's window as the UI draws it now, fading in over |fade| seconds from where
+// it is, or moves it, with its top left at (|left|, |top|) points in the content of |ui_view|'s
+// window. The UI has placed it inside the window, so the host doesn't clamp it.
+void host_show_link_target(void* ui_view, double left, double top, double fade);
+
+// Fades the link target's window out over |fade| seconds, then hides it.
+void host_hide_link_target(double fade);
+
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 

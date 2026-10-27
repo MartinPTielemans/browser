@@ -228,7 +228,7 @@ pub fn layout(text: f32, chips: &[f32]) -> Layout {
 }
 
 /// How wide `text` is in `size` pt of the system's font at `weight`.
-fn text_width(
+pub(crate) fn text_width(
     text: &SharedString,
     size: f32,
     weight: FontWeight,

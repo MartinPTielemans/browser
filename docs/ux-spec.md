@@ -799,6 +799,17 @@ Chrome's password manager and autofill fill pages. Our prompts replace Chrome's 
 - **HUD** (Arc 1.170 rec at 2×, five zooms and a tab switch). A zoom shows its percent ("125%", "100%") on a pill in a child window over the card, in the toast's style: 41.5 tall, 8 inside the card's top right corner, the percent 14 pt medium and 16 in from the pill's right, the window's colour darkening down it, the toast's rim and shadow. The URL field shows nothing. Ours is 8 pt under the find bar while that's open, and the mouse goes through it.
 - **Timing.** It stays after the last zoom until another tab shows, which takes it at once. Arc's stayed 4.9 s before a tab switch took it, so ours stays 5 s (*interim*: how long Arc's stays alone isn't recorded). Motion › Zoom HUD.
 
+### Link target
+
+The address of the link the pointer is on, as Chrome's status bubble shows it. Ours (*interim*): Arc's isn't recorded, so it's designed from Quiet controls, Wait for intent and Readable at once, and the toast's and tooltip's surfaces.
+
+- **Plate.** A child window over the card, 24 tall at radius 8, 8 inside the card's bottom left corner, in the window's fill with the 0.5 pt white 0.10 rim. The address is 12 pt, one line, 10 in from each end, in the secondary colour (white 0.60) with the site, the registrable domain (eTLD+1), in the primary colour. The address is the core's: no `https://`, and a host in an IDN's script as the URL field shows it. Past half the card's width (160 to 480) it loses its middle, never the site and never the path's end; a site wider than the plate is cut at its end. The mouse goes through it.
+- **Timing.** It shows after the pointer has rested on a link for 150 ms, so a pointer crossing the page shows nothing, and in the frame it's drawn. Moving to another link within 400 ms of the last shows at once. It fades out over 120 ms when the pointer leaves the link, and the same when a tab switch, the Library or a page's full screen takes it.
+- **Getting out of the way.** The pointer within 16 pt of the plate sends it to the card's bottom right corner, as Chrome's bubble goes, and back the same way. It snaps, with no slide. It stays on the side it moved to across links and starts on the left again once the pointer has left them.
+- **Scope.** Only the tab the window shows, in a split any shown pane's, at the card's corner. Not while the Library is open, nor in a page's full screen.
+- **Agents.** None: it's display, with no page data an agent doesn't already get.
+- The core only reports the change (`tab_link_target`), through a hook in Chromium's `UpdateTargetURL`, since Chrome's status bubble is a view of Chromium's own the window doesn't have. Nothing polls: the window listens for the pointer's moves only while the plate shows.
+
 ### DevTools
 
 Chrome's DevTools (Dia, P§23), docked in the card as Arc's.

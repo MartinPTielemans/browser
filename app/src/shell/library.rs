@@ -530,6 +530,9 @@ impl Shell {
         if open == self.library_open || (open && (self.page_fullscreen || self.private)) {
             return;
         }
+        if open {
+            self.hide_link(cx);
+        }
         let speed = self.library_step().map_or(0., |(_, speed)| speed);
         let opacity = Some(self.sidebar_opacity());
         self.move_library(open, self.library_out(), speed, opacity, cx);

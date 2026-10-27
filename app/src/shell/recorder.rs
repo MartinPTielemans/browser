@@ -36,6 +36,8 @@ pub(super) struct Recorder {
     pub(super) page_events: RefCell<Vec<&'static str>>,
     /// Where each tooltip it was asked for hangs from, in order.
     pub(super) anchors: RefCell<Vec<crate::tooltip::Anchor>>,
+    /// Where the shell last put the link target's plate, in the window.
+    pub(super) link_frame: Cell<Option<Bounds<Pixels>>>,
 }
 
 impl Recorder {
@@ -351,6 +353,24 @@ impl Browser for Recorder {
                 self.record(format!("tooltip {} {}", tip.text, tip.keys.concat()))
             }
             None => self.record("tooltip none".into()),
+        }
+    }
+
+    fn link_target(
+        &self,
+        plate: Option<(crate::link_target::Plate, Bounds<Pixels>, crate::link_target::Side)>,
+        _: &mut App,
+    ) {
+        match plate {
+            Some((plate, frame, side)) => {
+                self.link_frame.set(Some(frame));
+                let side = match side {
+                    crate::link_target::Side::Left => "left",
+                    crate::link_target::Side::Right => "right",
+                };
+                self.record(format!("link target {} {side}", plate.text()))
+            }
+            None => self.record("link target none".into()),
         }
     }
 
