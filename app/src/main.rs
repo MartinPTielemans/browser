@@ -1553,7 +1553,7 @@ impl Browser for Engine {
             also: None,
             fields,
             check: (!asked.check.is_empty()).then(|| asked.check.clone()),
-            return_cancels: false,
+            return_cancels: asked.kind == shell::DialogKind::OpenApp,
         };
         let window = self.window;
         let kind = asked.kind;
@@ -4042,6 +4042,7 @@ unsafe extern "C" fn tab_dialog(_: *mut c_void, tab: bc::bc_id, asked: *const bc
             bc::BC_DIALOG_PROMPT => shell::DialogKind::Prompt,
             bc::BC_DIALOG_LEAVE => shell::DialogKind::Leave,
             bc::BC_DIALOG_SIGN_IN => shell::DialogKind::SignIn,
+            bc::BC_DIALOG_OPEN_APP => shell::DialogKind::OpenApp,
             _ => shell::DialogKind::Alert,
         },
         title: text(asked.title),

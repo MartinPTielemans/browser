@@ -4,6 +4,7 @@
 #define BROWSER_CORE_HOOKS_H_
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -11,7 +12,10 @@
 #include "base/functional/callback_forward.h"
 #include "components/permissions/permission_prompt.h"
 #include "content/public/browser/login_delegate.h"
+#include "content/public/browser/weak_document_ptr.h"
 #include "extensions/browser/extension_install_prompt_client.h"
+#include "url/gurl.h"
+#include "url/origin.h"
 
 // chrome/browser/ui/browser.cc: a Browser may be made with a window the core supplies, which has
 // none of Chrome's views, and the app has its own main menu. Chrome's files that expect Chrome's
@@ -136,5 +140,15 @@ extern std::unique_ptr<LoginHandler> (*g_browser_core_login_handler)(
     const net::AuthChallengeInfo& auth_info,
     content::WebContents* web_contents,
     content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback);
+
+// chrome/browser/ui/views/external_protocol_dialog.cc: asks whether |url|'s page may open
+// |program_name|, the app for its scheme, in place of Chrome's views dialog, once Chrome has found
+// that it asks.
+extern void (*g_browser_core_external_protocol_dialog)(
+    const GURL& url,
+    content::WebContents* web_contents,
+    const std::optional<url::Origin>& initiating_origin,
+    content::WeakDocumentPtr initiator_document,
+    const std::u16string& program_name);
 
 #endif  // BROWSER_CORE_HOOKS_H_
