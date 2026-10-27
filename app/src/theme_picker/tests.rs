@@ -3,7 +3,7 @@
 
 use std::{cell::RefCell, rc::Rc};
 
-use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
+use gpui::{Modifiers, PlatformInput, TestAppContext, VisualTestContext, point, px};
 
 use super::*;
 
@@ -104,6 +104,41 @@ fn a_click_on_the_empty_field_places_the_first_colour_there(cx: &mut TestAppCont
     assert_eq!(theme.intensity, DEFAULT_INTENSITY);
     // Handed on as it lands, and kept as the button comes up.
     assert_eq!(picker.handed_on(), vec![false, true]);
+}
+
+#[gpui::test]
+fn a_click_up_before_the_next_frame_still_keeps_the_colour(cx: &mut TestAppContext) {
+    let mut picker = Picker::new(None, cx);
+    let (x, y) = Picker::in_field(0.2, 0.45);
+    // The driver's clickkey posts both events back to back, and a quick click can do the same.
+    // The test context draws after every event; a window draws once a frame, so both go in one
+    // update, with no draw between them.
+    let at = Picker::at(x, y);
+    picker.cx.update(|window, cx| {
+        let down = MouseDownEvent {
+            position: at,
+            modifiers: Modifiers::none(),
+            button: MouseButton::Left,
+            click_count: 1,
+            first_mouse: false,
+        };
+        window.dispatch_event(PlatformInput::MouseDown(down), cx);
+        let up = MouseUpEvent {
+            position: at,
+            modifiers: Modifiers::none(),
+            button: MouseButton::Left,
+            click_count: 1,
+        };
+        window.dispatch_event(PlatformInput::MouseUp(up), cx);
+    });
+    picker.cx.run_until_parked();
+    assert_eq!(picker.handed_on(), vec![false, true]);
+    // The pointer isn't still holding the colour.
+    let (x, y) = Picker::in_field(-0.5, -0.5);
+    picker.cx.simulate_mouse_move(Picker::at(x, y), None, Modifiers::none());
+    picker.cx.run_until_parked();
+    let theme = picker.theme().unwrap();
+    assert!(close((theme.x, theme.y), (0.2, 0.45)), "followed to {}, {}", theme.x, theme.y);
 }
 
 #[gpui::test]
