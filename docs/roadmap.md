@@ -34,7 +34,7 @@ GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Ch
 
 ## Phase 3: daily-driver MVP on Mac (about 2–3 months)
 
-Sidebar, Spaces (with the Agent Space kind in the data model), command bar, split view, archive, profiles, extensions (including install prompts and popups), passwords and autofill, downloads, find in page, DevTools, import from Arc and Chrome, Sparkle updates, signing and notarization.
+Sidebar, Spaces (with the Agent Space kind in the data model), command bar, split view, archive, profiles, extensions (including install prompts and popups), ad blocking on from the first page, passwords and autofill, downloads, find in page, DevTools, import from Arc and Chrome, Sparkle updates, signing and notarization.
 
 **Done when** the parity checklist's MVP items pass and the performance gate holds.
 
