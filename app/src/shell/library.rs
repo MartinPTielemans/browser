@@ -13,6 +13,7 @@ use gpui::{
 };
 
 use super::{
+    access::Accessible,
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry,
     NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
     Shell, Space, Swapped, UNSELECTED_TITLE, clean_link, divider_box, favicon, folder_icon, host,
@@ -1500,6 +1501,7 @@ impl Shell {
         let command = if downloading { Command::ViewDownloads } else { Command::ViewLibrary };
         div()
             .id("library")
+            .when(self.a11y, |button| button.button_named(self.button_name(command).unwrap_or("")))
             .absolute()
             .left(px(LIBRARY_BACK_INSET))
             .bottom(px((FOOTER_HEIGHT - NAV_SIZE) / 2.))

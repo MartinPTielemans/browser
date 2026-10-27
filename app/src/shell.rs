@@ -13,7 +13,7 @@ use std::{
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, DispatchPhase, Entity, FocusHandle, Focusable,
     FontWeight, Hsla, Image, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Rgba, ScrollHandle, SharedString, Size, Subscription, Task,
+    MouseUpEvent, Pixels, Point, Rgba, Role, ScrollHandle, SharedString, Size, Subscription, Task,
     Window, WindowTextSystem, canvas, div, img, point, prelude::*, px, rgb, rgba, svg,
 };
 
@@ -31,6 +31,7 @@ mod close_tab;
 mod favorites_scope;
 #[cfg(test)]
 mod full_screen;
+mod access;
 mod assets;
 mod browser;
 mod clean_link;
@@ -963,6 +964,9 @@ pub struct Shell {
     wheel_paged: Option<Instant>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
+    /// Whether an assistive app reads the window being drawn, so its elements say what they are
+    /// (access.rs). Each render sets it from its window.
+    a11y: bool,
     /// The row and favicon hovered when the rows were last drawn, and that row's close button:
     /// "0" for none, "1" for ✕ and "−", for the line check.sh waits for.
     drawn_hover: (Option<Row>, Option<u64>, &'static str),
@@ -1179,6 +1183,7 @@ impl Shell {
             wheel: None,
             wheel_paged: None,
             hovered_favicon: None,
+            a11y: false,
             drawn_hover: (None, None, "0"),
             undo: None,
             sidebar_hovered: false,
@@ -2258,6 +2263,7 @@ impl Focusable for Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.a11y = window.is_a11y_active();
         self.full_screen_step("drawn", window.viewport_size());
         // check.sh reads this line. It comes as the rows are drawn, so a click it sends next goes
         // to what's drawn.
@@ -2746,6 +2752,9 @@ impl Shell {
         let under = rows.split_off(under).into_iter().map(|(_, row)| row).collect::<Vec<_>>();
         div()
             .id("today")
+            .when(self.a11y, |list| {
+                list.role(Role::List).a11y_synthetic_children(access::group_rows)
+            })
             .size_full()
             .flex()
             .flex_col()
@@ -2793,6 +2802,7 @@ impl Shell {
 
     /// What the reveal's window shows: the sidebar in a panel, as far out as it is.
     pub fn render_reveal(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.a11y = window.is_a11y_active();
         if self.reveal_motion.is_some() {
             if self.reveal_step().is_some() {
                 window.request_animation_frame();

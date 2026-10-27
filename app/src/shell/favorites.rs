@@ -4,12 +4,14 @@
 use std::{collections::HashMap, rc::Rc, time::Instant};
 
 use gpui::{
-    Context, Hsla, MouseButton, MouseDownEvent, canvas, div, hsla, img, prelude::*, px, rgba,
+    Context, Hsla, MouseButton, MouseDownEvent, Role, canvas, div, hsla, img, prelude::*, px,
+    rgba,
 };
 
 use crate::tooltip::{self, Anchor, Tip};
 
 use super::{
+    access::Accessible,
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
     HOVERED, LIST_TOP,
     PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE,
@@ -76,6 +78,8 @@ impl Shell {
             .collect();
         (!tiles.is_empty()).then(|| {
             div()
+                .id("favorites")
+                .when(self.a11y, |tiles| tiles.role(Role::TabList).aria_label("Favorites"))
                 .absolute()
                 .top(px(LIST_TOP))
                 .left_0()
@@ -417,6 +421,13 @@ impl Shell {
             });
         div()
             .id(("tile", tab))
+            .when(self.a11y, |tile| {
+                tile.role(Role::Tab)
+                    .accessibility_id(format!("tile-{tab}"))
+                    .aria_label(self.tab_label(tab))
+                    .aria_selected(selected)
+                    .pressed_by_mouse_down(false, true)
+            })
             .h(px(TILE_HEIGHT))
             .flex()
             .items_center()

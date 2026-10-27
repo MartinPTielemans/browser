@@ -1,11 +1,11 @@
 //! The sidebar's footer: the Space switcher and the plus button beside it.
 
-use gpui::{Context, MouseButton, MouseDownEvent, div, prelude::*, px, rgba, svg};
+use gpui::{Context, MouseButton, MouseDownEvent, Role, div, prelude::*, px, rgba, svg};
 
 use super::{
     FOOTER_HEIGHT, NAV, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLUS_INSET, SPACE_DOT,
     SPACE_GLYPH, SPACE_HEIGHT, SPACE_HOVERED, SPACE_ICON_SWITCHER, SPACE_OTHER, SPACE_PITCH,
-    SPACE_SHOWN, SWITCHER_INSET, Shell,
+    SPACE_SHOWN, SWITCHER_INSET, Shell, access::Accessible,
 };
 use crate::space_icon::{GLYPHS, SpaceIcon};
 
@@ -33,6 +33,13 @@ impl Shell {
             let (id, shown) = (space.id, space.id == self.space);
             div()
                 .id(("space", id))
+                .when(self.a11y, |dot| {
+                    dot.role(Role::Tab)
+                        .accessibility_id(format!("space-{id}"))
+                        .aria_label(space.name.clone())
+                        .aria_selected(shown)
+                        .pressed_by_mouse_down(false, true)
+                })
                 .group("space")
                 .w(px(pitch))
                 .h_full()
@@ -85,6 +92,8 @@ impl Shell {
         });
         Some(
             div()
+                .id("switcher")
+                .when(self.a11y, |switcher| switcher.role(Role::TabList).aria_label("Spaces"))
                 .absolute()
                 .left(px(SWITCHER_INSET))
                 .w(px(span))
@@ -100,6 +109,9 @@ impl Shell {
     pub(super) fn plus_button(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         div()
             .id("plus")
+            .when(self.a11y, |plus| {
+                plus.button_named("New Space or Folder").pressed_by_mouse_down(true, false)
+            })
             .absolute()
             .right(px(PLUS_INSET))
             .bottom(px((FOOTER_HEIGHT - NAV_SIZE) / 2.))

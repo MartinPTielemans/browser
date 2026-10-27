@@ -90,3 +90,18 @@ fn a_toast_with_buttons_takes_clicks_while_it_shows(cx: &mut TestAppContext) {
     show_deleted(cx);
     assert_eq!(host.0.take(), ["show"]);
 }
+
+/// VoiceOver says a toast as it comes, wherever its cursor is, as a polite live region.
+#[gpui::test]
+fn voiceover_says_the_toast_as_it_comes(cx: &mut TestAppContext) {
+    use gpui::{VisualTestContext, accesskit::Live};
+    let host = Rc::new(Recorder::default());
+    let window = cx.update(|cx| open(host.clone(), |_| hsla(0., 0., 0., 1.), cx));
+    let mut window = VisualTestContext::from_window(window.expect("no toast window").into(), cx);
+    window.simulate_a11y_activation();
+    show_deleted(cx);
+    let tree = window.a11y_tree().expect("GPUI built a tree");
+    let (_, toast) = tree.nodes.iter().find(|(_, node)| node.role() == Role::Status).unwrap();
+    assert_eq!(toast.live(), Some(Live::Polite));
+    assert_eq!(toast.value(), Some("Space deleted! Use ⌘Z to undo."));
+}

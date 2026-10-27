@@ -10,10 +10,10 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, BoxShadow, ClickEvent, Context, FontWeight, Global, Hsla, Pixels, Point,
+    App, Bounds, BoxShadow, ClickEvent, Context, FontWeight, Global, Hsla, Pixels, Point, Role,
     SharedString, Task, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
     WindowHandle, WindowKind, WindowOptions, div, hsla, linear_color_stop, linear_gradient, point,
-    prelude::*, px, rgb, rgba, size, svg,
+    accesskit::Live, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::shell::{CARD_INSET, cubic_bezier, scaled::scaled_from_top, spring};
@@ -398,6 +398,7 @@ impl Render for Toast {
         let pose = shown.pose();
         let fill = (self.fill)(cx);
         let bottom = Hsla { l: fill.l * SHADE, ..fill };
+        let a11y = window.is_a11y_active();
         let buttons: Vec<_> = (shown.buttons.iter().enumerate())
             .map(|(index, button)| {
                 let chip = div()
@@ -410,6 +411,18 @@ impl Render for Toast {
                     .bg(rgba(CHIP_FILL))
                     .hover(|style| style.bg(rgba(CHIP_HOVERED)))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .when(a11y, |chip| {
+                        let name = match &button.label {
+                            Label::Text(text) => text.to_string(),
+                            // A glyph's button goes by its name, "share" read as Share.
+                            Label::Glyph(_) => {
+                                let mut name = button.name.to_owned();
+                                name[..1].make_ascii_uppercase();
+                                name
+                            }
+                        };
+                        chip.role(Role::Button).aria_label(name)
+                    })
                     .on_click(cx.listener(move |toast, event: &ClickEvent, _, cx| {
                         toast.press(index, event.position(), cx)
                     }));
@@ -421,8 +434,18 @@ impl Render for Toast {
                 }
             })
             .collect();
+        // What it says, which VoiceOver says as it comes, wherever its cursor is.
+        let said = match &shown.key {
+            Some((key, rest)) => format!("{} {key} {rest}", shown.text),
+            None => shown.text.to_string(),
+        };
         let toast = div()
             .id("toast")
+            .when(a11y, |toast| {
+                toast.role(Role::Status).aria_value(said).a11y_synthetic_children(|builder| {
+                    builder.parent_node().set_live(Live::Polite)
+                })
+            })
             .on_hover(cx.listener(|toast, hovered: &bool, _, cx| toast.hover(*hovered, cx)))
             .h(px(height))
             .pl(px(TEXT_LEFT))
