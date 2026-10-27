@@ -38,7 +38,8 @@ saved="$HOME/Library/Caches/browser-app/Spaces.json"
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its
 # extensions pinned. The profile keeps the clear run's answers to its sites' questions, and how
-# often it dismissed them, for sites whose ports a later run may get.
+# often it dismissed them, for sites whose ports a later run may get, and a failed clear run the
+# site it kept for Safari's engine, whose pages would then open there.
 prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
 mkdir -p "$(dirname "$prefs")" "$out/downloads"
 python3 -I -c '
@@ -53,6 +54,7 @@ prefs.setdefault("extensions", {})["pinned_extensions"] = []
 exceptions = prefs.get("profile", {}).get("content_settings", {}).get("exceptions", {})
 for kind in ("window_placement", "permission_autoblocking_data"):
     exceptions.pop(kind, None)
+prefs.get("browser_core", {}).get("system_engine", {}).pop("sites", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"
