@@ -1,0 +1,32 @@
+[package]
+name = "browser-linux"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+# The browser on Linux: src/main.rs as libBrowser.so, which the core loads into chrome's browser
+# process (core/public/browser_core.h, bc_main), since the sandbox's zygote starts every process from
+# chrome.
+[lib]
+name = "Browser"
+path = "../src/main.rs"
+crate-type = ["cdylib"]
+
+# libBrowser.so is the name chrome loads (BC_APP_LIBRARY).
+[lints.rust]
+non_snake_case = "allow"
+
+[features]
+prod = ["browser/prod"]
+
+[dependencies]
+browser = { path = ".." }
+gpui = { path = "../.deps/zed/crates/gpui" }
+gpui_platform = { path = "../.deps/zed/crates/gpui_platform", features = ["wayland", "x11"] }
+gpui_linux = { path = "../.deps/zed/crates/gpui_linux" }
+raw-window-handle = "0.6"
+
+# Its own, apart from the browser crate's, which has no workspace: Zed's crates in ../.deps would join one.
+# Seeded from ../Cargo.lock, so the two build the same versions.
+[workspace]
