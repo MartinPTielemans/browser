@@ -42,5 +42,7 @@ that credits you, unless you'd rather not be named, once the fix is on `main`.
 ## Patch lag
 
 The time between a Chrome security release and the same fixes in ilo is the number that matters
-most for a Chromium browser. Our goal is three days from Chrome's release to ilo's `main`. ilo has no
-updater yet, so a build from source has the fixes once it's pulled and rebuilt.
+most for a Chromium browser. We track it, and set a goal for it once Chromium's point releases reach
+ilo automatically ([#299](https://github.com/MartinPTielemans/browser/issues/299)); until that path
+exists, a number would be a promise we can't keep. ilo has no updater yet, so a build from source has
+the fixes once it's pulled and rebuilt.
