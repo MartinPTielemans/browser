@@ -1,0 +1,79 @@
+# Runs each CI job only for the paths it covers (.github/scripts/ci-changes.cjs), and ends in one
+# Check that passes when every job passed or was rightly skipped, so Check is the one status a
+# branch rule needs. Detection fails open: if the change can't be read, every job runs. Adapted
+# from T3 Code (https://github.com/pingdotgg/t3code, MIT) at commit
+# 570d4b03eef879bd60be3d74444046858c94dacd.
+#
+# Every job here runs on GitHub's runners. The self-hosted engine runner never takes a pull request.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions: {}
+
+# A pull request's run checks all of it, so a newer one replaces it. A push checks only what it
+# added, so none is cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Changes
+    # A pull request from a branch here already ran on its push.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      core_linux: ${{ steps.detect.outputs.core_linux }}
+      app_linux: ${{ steps.detect.outputs.app_linux }}
+      engine_windows: ${{ steps.detect.outputs.engine_windows }}
+    steps:
+      # History without file contents, for the merge base, and only the files the decision reads.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/ci-changes.cjs
+            .github/actions/ci-changes/
+          sparse-checkout-cone-mode: false
+
+      - id: detect
+        uses: ./.github/actions/ci-changes
+
+  core_linux:
+    name: Core on Linux
+    needs: changes
+    if: needs.changes.outputs.core_linux == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/core-linux.yml
+
+  # To hook in app-linux.yml or engine-windows.yml: replace its push and pull_request triggers with
+  # `on: workflow_call`, add a job like core_linux gated on needs.changes.outputs.app_linux (or
+  # engine_windows), and add the job to Check's needs. The job's key must match its output's name.
+
+  check:
+    name: Check
+    if: always() && needs.changes.result != 'skipped'
+    needs: [changes, core_linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every job to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          # A job may skip only when `changes` said it wasn't needed.
+          echo "$RESULTS" | jq -e '.changes.outputs as $gates
+            | all(to_entries[];
+                .value.result == "success"
+                or (.value.result == "skipped" and $gates[.key] == "false"))' > /dev/null
