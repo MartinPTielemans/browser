@@ -43,6 +43,8 @@ Following Ardia's design: Chrome's `chrome_framework` with our layer linked in. 
 - Ardia ships on this design today.
 - Unlike Ardia, whose layer is about 80% Objective-C++, ours is portable C++ with a thin platform shim.
 
+Where the sandbox needs every process to be Chromium's own executable, on Linux and Windows, the app can't be the executable that calls `bc_main`. It's a library beside that executable instead, which the core loads in the browser process as Chromium starts (`bc_main` in `core/public/browser_core.h`, `core/platform/app_library.h`).
+
 ## 4. UI: GPUI, with Chromium Views as the fallback
 
 - GPUI is compiled, fast, and already runs on Mac, Windows and Linux.

@@ -36,8 +36,13 @@
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
 
+#if BUILDFLAG(IS_MAC)
 // chrome_main.cc's entry point, in the same framework.
 extern "C" int ChromeMain(int argc, const char** argv);
+#else
+#include "base/logging.h"
+#include "browser_core/platform/app_library.h"
+#endif
 
 namespace browser_core {
 
@@ -132,18 +137,8 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
   }
 };
 
-}  // namespace
-
-const bc_host& Host() {
-  return g_host;
-}
-
-bc_id NewId() {
-  static bc_id last = 0;
-  return ++last;
-}
-
-int Run(int argc, const char** argv, const bc_host& host) {
+// Keeps the app's callbacks and puts the core's hooks in Chrome.
+void Install(const bc_host& host) {
   g_host = host;
   g_browser_core_supplies_windows = true;
   g_browser_core_adjust_navigate = &Window::AdjustNavigate;
@@ -160,7 +155,27 @@ int Run(int argc, const char** argv, const bc_host& host) {
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
+}
+
+}  // namespace
+
+const bc_host& Host() {
+  return g_host;
+}
+
+bc_id NewId() {
+  static bc_id last = 0;
+  return ++last;
+}
+
+int Run(int argc, const char** argv, const bc_host& host) {
+#if BUILDFLAG(IS_MAC)
+  Install(host);
   return ChromeMain(argc, argv);
+#else
+  // Chromium's own executable starts Chromium, which loads the app (platform/app_library.h).
+  return 1;
+#endif
 }
 
 void Quit() {
@@ -178,6 +193,21 @@ MainDelegate::~MainDelegate() = default;
 std::optional<int> MainDelegate::BasicStartupComplete() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!command_line->HasSwitch(switches::kProcessType)) {
+#if !BUILDFLAG(IS_MAC)
+    // First, so the features below join the app's rather than being replaced by them. The app's
+    // switches go after the ones Chromium was given, which it repeats after its own, as it does
+    // for bc_main, so they still win.
+    base::CommandLine::StringVector app_switches;
+    const bc_host* host = platform::LoadApp(&app_switches);
+    if (!host) {
+      LOG(ERROR) << "no app: the engine has no " << BC_APP_LIBRARY << " beside it with "
+                 << BC_APP_ENTRY;
+      return 1;
+    }
+    Install(*host);
+    app_switches.insert(app_switches.begin(), base::CommandLine::StringType());
+    command_line->AppendArguments(base::CommandLine(app_switches), /*include_program=*/false);
+#endif
     // The app opens windows through the core, and Chrome's first run and default-browser prompts
     // are Chrome's UI, not ours.
     command_line->AppendSwitch(switches::kNoStartupWindow);

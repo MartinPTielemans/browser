@@ -9,7 +9,7 @@
 
 namespace browser_core {
 
-// Runs Chromium with the app's callbacks and returns its exit code.
+// Runs Chromium with the app's callbacks and returns its exit code, where the app calls bc_main.
 int Run(int argc, const char** argv, const bc_host& host);
 
 // Asks Chrome to quit. Once its Browsers have closed, the core lets go of the browser process, which

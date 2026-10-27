@@ -64,6 +64,7 @@ source_set("browser_core") {
     "password_offer.h",
     "permission_question.cc",
     "permission_question.h",
+    "platform/app_library.h",
     "platform/keychain.h",
     "platform/system_page.h",
     "platform/window_views.h",
@@ -212,5 +213,11 @@ source_set("browser_core") {
     }
   } else {
     sources += [ "platform/system_page_none.cc" ]
+  }
+  if (is_linux) {
+    sources += [ "platform/linux/app_library.cc" ]
+  }
+  if (is_win) {
+    sources += [ "platform/win/app_library.cc" ]
   }
 }
