@@ -19,9 +19,9 @@ use super::{
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
-    folder_icon, name_box, new_tab_label, plate, row_box, row_spring, scaled::scaled_from_middle,
-    selected_plate, space_icon, split_plate, swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph},
-    title,
+    folder_icon, icon_placeholder, name_box, new_tab_label, plate, row_box, row_spring,
+    scaled::scaled_from_middle, selected_plate, space_icon, split_plate,
+    swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph}, title,
 };
 use super::{
     access::{Accessible, NEW_TAB},
@@ -29,6 +29,7 @@ use super::{
 };
 use crate::{
     icon_picker::{self, Subject},
+    space_icon::has_icon,
     tooltip::{Anchor, Tip},
 };
 
@@ -345,7 +346,7 @@ impl Shell {
     /// What stands for `tab`: the emoji the user gave it, else its page's favicon.
     pub(super) fn tab_icon(&self, tab: u64) -> AnyElement {
         match self.tabs.get(&tab) {
-            Some(each) if !each.page.icon.is_empty() => emoji(each.page.icon.clone()),
+            Some(each) if has_icon(&each.page.icon) => emoji(each.page.icon.clone()),
             each => favicon(each.and_then(|each| each.favicon.clone())),
         }
     }
@@ -682,6 +683,7 @@ impl Shell {
     pub(super) fn name_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let space = self.space;
         let icon = (self.shown_space()).and_then(|each| space_icon(&each.icon));
+        let placeholder = self.holds_icon_place().then(icon_placeholder);
         // A click on the plate under its icon opens the icon picker, or closes it: the click
         // outside the picker has closed it by now, but the picker hears so only after this event.
         let icon_plate = icon.is_some().then(|| {
@@ -715,7 +717,7 @@ impl Shell {
             .size_full();
         let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
         // A heading VoiceOver can jump to, whose menu is the Space's.
-        let row = name_box(icon.is_some())
+        let row = name_box(icon.is_some() || placeholder.is_some())
             .id("space-name")
             .when(self.a11y, |row| {
                 row.role(Role::Heading)
@@ -727,7 +729,8 @@ impl Shell {
             .block_mouse_except_scroll()
             .child(bounds)
             .children(icon_plate)
-            .children(icon);
+            .children(icon)
+            .children(placeholder);
         if let Some(renaming) =
             self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Space(space))
         {
@@ -952,6 +955,7 @@ mod tests {
         },
         CLOSE, LOADING_GAP, LOADING_TURN, Rings, Subject, UNLOAD,
     };
+    use crate::icon_picker::{self, Picked, Recents};
 
     /// Rings begin upright and are half way round half a turn later, together; left undrawn for a
     /// while they start upright again, and with reduced motion they never turn.
@@ -1054,6 +1058,56 @@ mod tests {
         cx.run_until_parked();
         let first = shell.read_with(cx, |shell, _| shell.tab_row_drawn.get()).unwrap();
         assert_eq!(f32::from(row.center().y - first.center().y).abs(), ROW_PITCH);
+    }
+
+    /// An icon picker's window that shows nowhere.
+    struct NoWhere;
+
+    impl icon_picker::Host for NoWhere {
+        fn show(&self, _: f32, _: f32) {}
+
+        fn hide(&self) {}
+
+        fn keep_recents(&self, _: &str) {}
+    }
+
+    /// While the icon picker shows for a Space with no icon, its name row holds the icon's place,
+    /// the name after it as after an icon. It lets go once the picker closes, and the Space's icon
+    /// takes the place once it has one.
+    #[gpui::test]
+    fn the_name_row_holds_the_icons_place_while_the_picker_shows_for_a_space_with_none(
+        cx: &mut TestAppContext,
+    ) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        cx.update(|cx| icon_picker::open(Rc::new(NoWhere), Recents::default(), cx));
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        let spaces =
+            |icon: &str| vec![(1, "Space".into(), None, 1, icon.to_string().into(), "".into())];
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(spaces(""), cx);
+            shell.set_space(1, cx);
+        });
+        let holds =
+            |cx: &mut VisualTestContext| shell.read_with(cx, |shell, _| shell.holds_icon_place());
+        let show = |cx: &mut VisualTestContext| {
+            shell.update(cx, |shell, cx| {
+                let picked: Picked = Rc::new(|_, _| {});
+                icon_picker::show(Subject::Space(1), "".into(), point(0., 0.), 0, picked, cx);
+                shell.hold_icon_place(1, cx);
+            });
+            cx.run_until_parked();
+        };
+        assert!(!holds(cx));
+        show(cx);
+        assert!(holds(cx));
+        cx.update(|_, cx| icon_picker::dismissed(cx));
+        cx.run_until_parked();
+        assert!(!holds(cx), "the picker closed");
+
+        show(cx);
+        shell.update(cx, |shell, cx| shell.set_spaces(spaces("glyph:moon"), cx));
+        assert!(!holds(cx), "the icon took its place");
     }
 
     /// The window, showing a Space whose Today tabs the core reports as `today`, with `shown`.

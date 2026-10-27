@@ -170,6 +170,29 @@ fn the_trash_takes_the_icon_away(cx: &mut TestAppContext) {
     assert_eq!(picker.calls(), ["hide", "picked \"\""]);
 }
 
+/// With no icon there's nothing to remove: Emoji | Icon is centred alone, with no trash after it.
+#[gpui::test]
+fn a_space_with_no_icon_is_offered_no_trash(cx: &mut TestAppContext) {
+    let mut picker = Picker::new("", cx);
+    let y = ARROW + SEGMENTS_TOP + SEGMENTS_HEIGHT / 2.;
+    // Where the trash would be after the two.
+    let left = (WIDTH - (2. * SEGMENT_WIDTH + TRASH_GAP + SEGMENTS_HEIGHT)) / 2.;
+    picker.click(left + 2. * SEGMENT_WIDTH + TRASH_GAP + SEGMENTS_HEIGHT / 2., y);
+    assert_eq!(picker.calls(), Vec::<String>::new());
+    assert_eq!(picker.tab(), Some(Tab::Icon));
+    // Emoji's right end, centred alone, is past where it ends beside the trash.
+    let left = (WIDTH - 2. * SEGMENT_WIDTH) / 2.;
+    picker.click(left + SEGMENT_WIDTH - 2., y);
+    assert_eq!(picker.tab(), Some(Tab::Emoji));
+
+    // A tab with no emoji: Emoji alone.
+    let mut picker = Picker::for_tab("", cx);
+    let left = (WIDTH - (SEGMENT_WIDTH + TRASH_GAP + SEGMENTS_HEIGHT)) / 2.;
+    picker.click(left + SEGMENT_WIDTH + TRASH_GAP + SEGMENTS_HEIGHT / 2., y);
+    assert_eq!(picker.calls(), Vec::<String>::new());
+    assert_eq!(picker.tab(), Some(Tab::Emoji));
+}
+
 #[gpui::test]
 fn escape_closes_it_with_no_change(cx: &mut TestAppContext) {
     let mut picker = Picker::new("glyph:moon", cx);

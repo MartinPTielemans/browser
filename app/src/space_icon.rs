@@ -97,6 +97,13 @@ impl<'a> SpaceIcon<'a> {
     }
 }
 
+/// Whether a Space's or a tab's `icon`, as the core keeps it, is one the sidebar draws: the one
+/// test the picker's trash, Remove Icon and the name's place go by, so none offers to remove what
+/// isn't there. A glyph this build doesn't know draws the dot, so it counts as none.
+pub fn has_icon(icon: &str) -> bool {
+    SpaceIcon::parse(icon) != SpaceIcon::Dot
+}
+
 /// What a Space keeps for the glyph at `index` in `GLYPHS`.
 pub fn glyph(index: usize) -> String {
     format!("{GLYPH}{}", GLYPHS[index].0)
@@ -119,6 +126,14 @@ mod tests {
         assert_eq!(SpaceIcon::parse("glyph:unicorn"), SpaceIcon::Dot);
         assert_eq!(SpaceIcon::parse("glyph:"), SpaceIcon::Dot);
         assert_eq!(SpaceIcon::parse(""), SpaceIcon::Dot);
+    }
+
+    #[test]
+    fn only_what_draws_is_an_icon() {
+        assert!(has_icon("🦊"));
+        assert!(has_icon("glyph:moon"));
+        assert!(!has_icon(""));
+        assert!(!has_icon("glyph:unicorn"));
     }
 
     #[test]

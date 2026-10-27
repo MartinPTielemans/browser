@@ -1,10 +1,10 @@
 //! The popover that picks a Space's icon, Arc's: it hangs under the Space's name, its arrow at the
-//! icon, with Emoji | Icon and a trash button at its top, and under them the glyphs, or a search
-//! and a grid of emoji (docs/ux-spec.md › Spaces › Icon). A tab's hangs the same way from its
-//! favicon, with the Emoji tab only, as a tab's icon is an emoji. GPUI can't draw over the page's native
-//! view, so it's a window of its own that the host shows over the browser window, as its child,
-//! with the keyboard, translucent over a blur in the shape drawn here. What it asks of its window
-//! goes through `Host`.
+//! icon, with Emoji | Icon at its top, and a trash button after it once there's an icon to remove,
+//! and under them the glyphs, or a search and a grid of emoji (docs/ux-spec.md › Spaces › Icon).
+//! A tab's hangs the same way from its favicon, with the Emoji tab only, as a tab's icon is an
+//! emoji. GPUI can't draw over the page's native view, so it's a window of its own that the host
+//! shows over the browser window, as its child, with the keyboard, translucent over a blur in the
+//! shape drawn here. What it asks of its window goes through `Host`.
 
 use std::{ops::Range, rc::Rc, time::Instant};
 
@@ -19,7 +19,7 @@ use gpui::{
 use crate::{
     command_bar,
     shell::{KEY_CONTEXT, cubic_bezier},
-    space_icon::{self, GLYPHS, SpaceIcon},
+    space_icon::{self, GLYPHS, SpaceIcon, has_icon},
     text_input::{self, TextInput},
 };
 
@@ -48,7 +48,8 @@ pub const HEIGHT: f32 = ARROW + CARD;
 const BELOW_ICON: f32 = 25.;
 /// Grey at 0.565 over the blur: lighter than the command bar's fill, as Arc's is.
 const FILL: u32 = 0x4848_4890;
-/// Emoji | Icon, 14.5 under the card's top, with the trash button 7 after it, the two centred.
+/// Emoji | Icon, 14.5 under the card's top, with the trash button 7 after it, the two centred; with
+/// no icon to remove, Emoji | Icon is centred alone (Arc 1.170 cap).
 const SEGMENTS_TOP: f32 = 14.5;
 const SEGMENT_WIDTH: f32 = 57.;
 const SEGMENTS_HEIGHT: f32 = 24.;
@@ -293,6 +294,11 @@ pub fn show(
         .ok();
 }
 
+/// The picker, for the window it hangs over to watch whether it still shows.
+pub fn entity(cx: &App) -> Option<Entity<IconPicker>> {
+    cx.try_global::<IconPickerWindow>()?.0.entity(cx).ok()
+}
+
 /// The user left the picker without picking, such as with a click outside it.
 pub fn dismissed(cx: &mut App) {
     if let Some(window) = cx.try_global::<IconPickerWindow>().map(|picker| picker.0) {
@@ -490,7 +496,7 @@ impl IconPicker {
         }
     }
 
-    /// Emoji | Icon, and the trash button after it.
+    /// Emoji | Icon, and the trash button after it if there's an icon to remove.
     fn top(&self, picking: &Picking, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let segment = |tab: Tab, label: &'static str| {
             let chosen = picking.tab == tab;
@@ -516,16 +522,18 @@ impl IconPicker {
                     }
                 }))
         };
-        let trash = div()
-            .id("icon-picker-trash")
-            .size(px(SEGMENTS_HEIGHT))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(SEGMENTS_RADIUS))
-            .hover(|trash| trash.bg(rgba(HOVERED)))
-            .child(svg().path("icons/trash.svg").size(px(TRASH_GLYPH)).text_color(rgb(LABEL)))
-            .on_click(cx.listener(|picker, _, _, cx| picker.pick("", cx)));
+        let trash = has_icon(&picking.icon).then(|| {
+            div()
+                .id("icon-picker-trash")
+                .size(px(SEGMENTS_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(SEGMENTS_RADIUS))
+                .hover(|trash| trash.bg(rgba(HOVERED)))
+                .child(svg().path("icons/trash.svg").size(px(TRASH_GLYPH)).text_color(rgb(LABEL)))
+                .on_click(cx.listener(|picker, _, _, cx| picker.pick("", cx)))
+        });
         div()
             .absolute()
             .top(px(ARROW + SEGMENTS_TOP))
@@ -548,7 +556,7 @@ impl IconPicker {
                         }),
                     ),
             )
-            .child(trash)
+            .children(trash)
     }
 
     /// The glyphs, the Space's on a plate.

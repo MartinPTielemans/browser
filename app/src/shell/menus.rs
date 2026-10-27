@@ -8,7 +8,7 @@ use super::{
     undo::{Prop, Value},
     user_keys,
 };
-use crate::space_icon::SpaceIcon;
+use crate::space_icon::{SpaceIcon, has_icon};
 
 /// What an item of a menu does once chosen.
 pub(super) type MenuAction = Box<dyn FnOnce(&mut Shell, &mut Context<Shell>)>;
@@ -85,8 +85,8 @@ impl Shell {
         if self.private {
             return;
         }
-        let has_icon = self.spaces.iter().any(|each| each.id == space && !each.icon.is_empty());
-        let mut items = space_menu_head(space, has_icon);
+        let icon = self.spaces.iter().any(|each| each.id == space && has_icon(&each.icon));
+        let mut items = space_menu_head(space, icon);
         let color_at = items.len();
         items.push((MenuEntry::new("Color", true), Box::new(|_, _| {})));
         let colors = self.color_items(space);
@@ -362,7 +362,7 @@ impl Shell {
             ),
         ];
         // An icon the tab had as a pinned tab.
-        if !page.icon.is_empty() {
+        if has_icon(&page.icon) {
             items.push(remove_icon(tab));
         }
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
@@ -499,7 +499,7 @@ impl Shell {
             "change-icon",
             Box::new(move |shell, cx| shell.change_icon(tab, cx)),
         ));
-        if !page.icon.is_empty() {
+        if has_icon(&page.icon) {
             items.push(remove_icon(tab));
         }
         items.push((

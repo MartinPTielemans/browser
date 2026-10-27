@@ -13,8 +13,9 @@ use std::{
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, DispatchPhase, Entity, FocusHandle, Focusable,
     FontWeight, Hsla, Image, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Rgba, Role, ScrollHandle, SharedString, Size, Subscription, Task,
-    Window, WindowTextSystem, canvas, div, img, point, prelude::*, px, rgb, rgba, svg,
+    MouseUpEvent, PathBuilder, Pixels, Point, Rgba, Role, ScrollHandle, SharedString, Size,
+    Subscription, Task, Window, WindowTextSystem, canvas, div, img, point, prelude::*, px, rgb,
+    rgba, size, svg,
 };
 
 use crate::{
@@ -240,8 +241,8 @@ const TALL_FAVORITES: f32 = 0.4;
 // The Space's name, over its tabs.
 const NAME_HEIGHT: f32 = 44.;
 // The name's left edge. After an icon it's Arc's 41, 2 pt before its titles at 43 (ax, measured on
-// a Space with an icon). With none, nothing stands in the icon column, so the name starts on it, at
-// the favicons' left edge (ours).
+// a Space with an icon), and after the icon picker's placeholder too. With neither, nothing stands
+// in the icon column, so the name starts on it, at the favicons' left edge (ours).
 const NAME_X: f32 = 41.;
 const ICONLESS_NAME_X: f32 = FAVICON_X + (FAVICON_SIZE - FAVICON_DRAWN) / 2.;
 // A Space's icon before its name. Arc's frame is 26 wide at x 13, centred on its favicons' (ax),
@@ -253,6 +254,15 @@ const SPACE_ICON_SLOT: f32 = 20.;
 const SPACE_ICON_X: f32 = FAVICON_X + FAVICON_SIZE / 2. - SPACE_ICON_SLOT / 2.;
 // The sidebar's icon takes clicks on Arc's frame, which lights with the header's plate (ours).
 const SPACE_ICON_PLATE: f32 = 26.;
+// While the icon picker shows for a Space with no icon, a dashed square holds the icon's place,
+// centred in its frame (Arc 1.170 cap at 1×): 24 across, its corners rounded by about 6, a 1 pt
+// line of 4 pt dashes and 2 pt gaps, in black at 0.30, seen over a red Space (*interim* over the
+// others).
+const ICON_PLACEHOLDER: f32 = 24.;
+const ICON_PLACEHOLDER_RADIUS: f32 = 6.;
+const ICON_PLACEHOLDER_LINE: f32 = 1.;
+const ICON_PLACEHOLDER_DASH: (f32, f32) = (4., 2.);
+const ICON_PLACEHOLDER_COLOR: u32 = 0x0000_004d;
 const SPACE_ICON_TEXT: f32 = EMOJI_SIZE;
 /// A glyph's box: Phosphor's drawings fill 13/16 of theirs, so their ink is the emoji's size.
 const SPACE_GLYPH: f32 = 16.;
@@ -1142,6 +1152,9 @@ pub struct Shell {
     name_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     tab_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     name_row_before: Option<Bounds<Pixels>>,
+    /// The Space with no icon the icon picker shows for, whose name row holds the icon's place
+    /// with a placeholder until the picker closes, and the watch on the picker that tells it so.
+    icon_placeholder: Option<(u64, Subscription)>,
     /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
     private: bool,
 }
@@ -1291,6 +1304,7 @@ impl Shell {
             name_row_drawn: Rc::default(),
             tab_row_drawn: Rc::default(),
             name_row_before: None,
+            icon_placeholder: None,
             switching: None,
             background_pressed: false,
             accent_color,
@@ -3138,6 +3152,33 @@ fn name_box(icon: bool) -> gpui::Div {
         .text_size(px(13.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgba(SPACE_NAME))
+}
+
+/// The dashed square that holds the icon's place before a Space's name, in the name row `name_box`
+/// makes, while the icon picker shows for a Space with no icon.
+fn icon_placeholder() -> impl IntoElement {
+    let line = ICON_PLACEHOLDER_LINE;
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            // The line is drawn inside the square, as Arc's is.
+            let inset = px(line / 2.);
+            let inner = Bounds::new(
+                bounds.origin + point(inset, inset),
+                bounds.size - size(inset * 2., inset * 2.),
+            );
+            let (dash, gap) = ICON_PLACEHOLDER_DASH;
+            let mut path = PathBuilder::stroke(px(line)).dash_array(&[px(dash), px(gap)]);
+            split_targets::rounded_rect(&mut path, inner, px(ICON_PLACEHOLDER_RADIUS) - inset);
+            if let Ok(path) = path.build() {
+                window.paint_path(path, rgba(ICON_PLACEHOLDER_COLOR));
+            }
+        },
+    )
+    .absolute()
+    .left(px(FAVICON_X + FAVICON_SIZE / 2. - ICON_PLACEHOLDER / 2.))
+    .top(px((NAME_HEIGHT - ICON_PLACEHOLDER) / 2.))
+    .size(px(ICON_PLACEHOLDER))
 }
 
 /// A Space's icon before its name, in the name row `name_box` makes, if it has one: its emoji, or

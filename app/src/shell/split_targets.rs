@@ -344,7 +344,7 @@ fn target(
 }
 
 /// A rounded rectangle at `bounds` with corners of `radius`, clockwise from its top left.
-fn rounded_rect(path: &mut PathBuilder, bounds: Bounds<Pixels>, radius: Pixels) {
+pub(super) fn rounded_rect(path: &mut PathBuilder, bounds: Bounds<Pixels>, radius: Pixels) {
     let (left, top, right, bottom) = (bounds.left(), bounds.top(), bounds.right(), bounds.bottom());
     let radii = point(radius, radius);
     path.move_to(point(left + radius, top));
