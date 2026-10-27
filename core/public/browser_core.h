@@ -376,6 +376,15 @@ typedef struct bc_host {
                        size_t size,
                        int width,
                        int height);
+  // The user chose Open Link in New Window or Open Link in Incognito Window in the page menu of a
+  // tab in |window|. Open |url| in a window as ⌘N's, or with |private_window| in a private one in
+  // |profile|'s session, as ⇧⌘N's. A link from a private window asks for a private one either way,
+  // as Chrome's does. The user's alone: agents have no page menu.
+  void (*window_open_link)(void* context,
+                           bc_id window,
+                           const char* url,
+                           bc_id profile,
+                           bool private_window);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

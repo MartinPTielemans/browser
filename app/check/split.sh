@@ -1,7 +1,9 @@
 # Add Split View, from the menu, ⌃+ from the page and ⌥-click on "+ New Tab", narrows the page at
 # once for a pane on its right, with the command bar over it, which escape takes back. ⌥⇧- and
-# ⌥⌘-click on a link, and the link menu's Open Link in Split View, open it in a pane on the right. A
-# URL typed in the command bar opens in the pane, focused. The panes share the card 10 apart, the
+# ⌥⌘-click on a link, and the link menu's Open Link in Split View, open it in a pane on the right.
+# The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in
+# a window as ⌘N's and in a private one as ⇧⌘N's. A URL typed in the command bar opens in the pane,
+# focused. The panes share the card 10 apart, the
 # focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one
 # row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a
 # segment focuses its pane. The gap between the panes drags their widths, or stacked their heights,
@@ -98,10 +100,53 @@ for modifiers in "alt shift" "alt cmd"; do
   expect "^browser: panes $a\$" "⌘W on the link's pane didn't leave the page alone"
   send click $page_point
 done
-# So does the link menu's Open Link in Split View.
-post rightclick $((x + 20)) $((y + 20))
-expect '^browser: menu tracked Open Link in New Tab, Open Link in Split View, ' \
-  "a right-click on the page's link didn't offer Open Link in Split View"
+# The link menu is Arc's: Open Link in New Tab, in New Window, in Split View and in Incognito
+# Window, then Save Link As… and Copy Link Address, before the menu's other items.
+link_items='Open Link in New Tab, Open Link in New Window, Open Link in Split View, '
+link_items="${link_items}Open Link in Incognito Window, Save Link As…, Copy Link Address"
+link_menu() {
+  post rightclick $((x + 20)) $((y + 20))
+  expect "^browser: menu tracked $link_items\(, .*\)\{0,1\}\$" \
+    "a right-click on the page's link didn't show Arc's link items in order: \
+$(grep '^browser: menu tracked' "$log" | tail -1)"
+}
+# The tab that loaded the link last.
+link_tab() {
+  sed -n "s|^browser: loaded \([0-9]*\) ${site}notes.txt\$|\1|p" "$log" | tail -1
+}
+# Open Link in New Window opens it in a window as ⌘N's, showing it.
+link_menu
+send choose Open Link in New Window
+expect '^browser: window opened [0-9]' "Open Link in New Window didn't open a window"
+link_window=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: loaded [0-9]* ${site}notes.txt\$" "the link didn't load in its window"
+n=$(link_tab)
+expect "^browser: window $link_window shows $n\$" "the link's window didn't show it"
+send window 2
+send key w cmd
+expect "^browser: tab $n closed\$" "⌘W didn't close the link's tab in its window"
+send key w cmd shift
+expect "^browser: window closed $link_window\$" "⇧⌘W didn't close the link's window"
+send window 1
+send click $page_point
+# Open Link in Incognito Window opens it in a private window as ⇧⌘N's, whose session ends with it.
+link_menu
+send choose Open Link in Incognito Window
+expect '^browser: private window opened [0-9]* profile [0-9]*$' \
+  "Open Link in Incognito Window didn't open a private window"
+link_window=$(grep '^browser: private window opened ' "$log" | tail -1 | cut -d' ' -f5)
+expect "^browser: loaded [0-9]* ${site}notes.txt\$" "the link didn't load in the private window"
+n=$(link_tab)
+expect "^browser: window $link_window shows $n\$" "the private window didn't show the link"
+# The driver counts windows in the order they opened, closed ones too.
+send window 3
+send key w cmd shift
+expect "^browser: window closed $link_window\$" "⇧⌘W didn't close the private window"
+expect '^browser: private session ended [0-9]*$' "closing the private window didn't end its session"
+send window 1
+send click $page_point
+# Open Link in Split View opens it beside the page, as ⌥⇧-click does.
+link_menu
 send choose Open Link in Split View
 expect "^browser: splits $a+[0-9][0-9]*\$" \
   "Open Link in Split View didn't open the link beside the page: \"$(splits)\""
@@ -336,4 +381,4 @@ expect "^browser: panes $c\$" "Separate All Pages didn't show the focused page a
 expect "^browser: today.* $c $a\( \|\$\)" "Separate All Pages lost the pages' order: $(today)"
 exec 3>&-
 quit
-echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page and ⌥-click on \"+ New Tab\" do it too. ⌥⇧- and ⌥⌘-click on a link and the link menu's Open Link in Split View open it in a pane on the right. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The gap between the panes drags their widths, or stacked their heights, down to Chrome's least and snapping to even, and a double-click evens them. Change Orientation stacks the panes, with the find bar at the focused one's corner, and the split comes back stacked after a quit with both pages at the heights they were dragged to, until Change Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. Windows: $out/split.png, $out/split-left.png, $out/split-resized.png, $out/split-stacked.png, $out/split-targets.png"
+echo "ok: Add Split View narrows the page at once for a pane on the right, with the command bar over it, which escape takes back, and ⌃+ from the page and ⌥-click on \"+ New Tab\" do it too. ⌥⇧- and ⌥⌘-click on a link and the link menu's Open Link in Split View open it in a pane on the right. The link menu is Arc's, and its Open Link in New Window and in Incognito Window open the link in a window and a private window. A URL there opens in the pane, focused. The panes share the card 10 apart, the focused one ringed, and a click focuses a pane and gives its page the keyboard. The split is one row in the sidebar, which ⌘1–⌘9 count once and show with the pane focused last, and a click on a segment focuses that pane. The gap between the panes drags their widths, or stacked their heights, down to Chrome's least and snapping to even, and a double-click evens them. Change Orientation stacks the panes, with the find bar at the focused one's corner, and the split comes back stacked after a quit with both pages at the heights they were dragged to, until Change Orientation puts them side by side again. Separate Page from Split View shows the page alone, ⌥↩ in the command bar opens a URL beside the page, ⌘W closes the focused pane, which ⇧⌘T puts back in its split, and the ✕ on a split's row closes all its panes, which ⇧⌘T brings back together. A row dragged onto the page brings a target to each of the card's sides, which go when it's back over the sidebar, and let go on the left one the tab joins the page on its left. Flip Split View and Move Pane Right in the command bar reorder a split's pages, and Separate All Pages ends it. Windows: $out/split.png, $out/split-left.png, $out/split-resized.png, $out/split-stacked.png, $out/split-targets.png"

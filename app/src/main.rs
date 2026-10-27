@@ -2315,6 +2315,30 @@ unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
     log!("browser: private session ended {profile}");
 }
 
+/// The page menu's Open Link in New Window and Open Link in Incognito Window: `url` opens in a
+/// window from `window` as ⌘N's, or with `private` in a private one in `profile`'s session as
+/// ⇧⌘N's, and shows there.
+unsafe extern "C" fn window_open_link(
+    _: *mut c_void,
+    window: bc::bc_id,
+    url: *const c_char,
+    profile: bc::bc_id,
+    private: bool,
+) {
+    let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+    update_app(|cx| {
+        // A regular window takes its Spaces from a regular one, as ⌘N's does from a private one.
+        let from = WINDOWS.with_borrow(|windows| {
+            let this = windows.iter().find(|w| w.id == window && (private || !w.private));
+            this.or_else(|| windows.iter().find(|w| !w.private)).cloned()
+        });
+        let private = private.then_some(profile);
+        if let Some(opened) = from.and_then(|from| open_window(Some(from), private, cx)) {
+            open_tab(opened, &url);
+        }
+    });
+}
+
 unsafe extern "C" fn stopping(_: *mut c_void) {
     log!("browser: stopping");
 }
@@ -2911,6 +2935,7 @@ fn main() {
         stopping: Some(stopping),
         window_closed: Some(window_closed),
         private_session_ended: Some(private_session_ended),
+        window_open_link: Some(window_open_link),
         space_changed: Some(space_changed),
         spaces_changed: Some(spaces_changed),
         favorites_changed: Some(favorites_changed),

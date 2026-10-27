@@ -32,6 +32,7 @@
 #include "chrome/browser/devtools/devtools_contents_resizing_strategy.h"
 #include "chrome/browser/devtools/devtools_window.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/tab_list/tab_removed_reason.h"
 #include "chrome/browser/ui/browser_tabrestore.h"
@@ -359,13 +360,30 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
   if (!ForBrowser(browser)) {
     return;
   }
-  // Items for what the browser doesn't have yet, and items whose UI is in Chrome's own window, a
-  // toolbar bubble or the side panel, which the core's windows don't have.
+  // Arc's menu is Chrome's without Lens, Reading Mode, Listen, QR Code, Send to Your Devices, Copy
+  // Link Text and the items whose UI is Chrome's side panel or Gemini's (ux-spec.md › Page menu).
+  // Cast and Translate wait for the browser to have them.
   static constexpr int kTrimmed[] = {
-      IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW,    IDC_CONTENT_CONTEXT_OPENLINKOFFTHERECORD,
-      IDC_ROUTE_MEDIA,                          IDC_CONTENT_CONTEXT_OPEN_IN_READING_MODE,
-      IDC_CONTENT_CONTEXT_LISTEN_TO_THIS_PAGE,  IDC_CONTENT_CONTEXT_GENERATE_QR_CODE,
-      IDC_CONTENT_CONTEXT_TRANSLATE,            IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE,
+      IDC_CONTENT_CONTEXT_SEARCHLENSFORIMAGE,
+      IDC_CONTENT_CONTEXT_SEARCHLENSFORVIDEOFRAME,
+      IDC_CONTENT_CONTEXT_LENS_REGION_SEARCH,
+      IDC_CONTENT_CONTEXT_WEB_REGION_SEARCH,
+      IDC_CONTENT_CONTEXT_LENS_OVERLAY,
+      IDC_CONTENT_CONTEXT_OPEN_IN_READING_MODE,
+      IDC_CONTENT_CONTEXT_LISTEN_TO_THIS_PAGE,
+      IDC_CONTENT_CONTEXT_GENERATE_QR_CODE,
+      IDC_SEND_TAB_TO_SELF,
+      IDC_CONTENT_CONTEXT_SHARING_SUBMENU,
+      IDC_CONTENT_CONTEXT_COPYLINKTEXT,
+      IDC_CONTENT_CONTEXT_ADD_LINK_TO_READING_LIST,
+      IDC_CONTENT_CONTEXT_SAVE_TO_MEMORY_BANKS,
+      IDC_CONTENT_CONTEXT_GLIC,
+      IDC_CONTENT_CONTEXT_GLICSHAREIMAGE,
+      IDC_CONTENT_CONTEXT_RELOAD_GLIC,
+      IDC_CONTENT_CONTEXT_ARCHIVE_GLIC,
+      IDC_ROUTE_MEDIA,
+      IDC_CONTENT_CONTEXT_TRANSLATE,
+      IDC_CONTENT_CONTEXT_PARTIAL_TRANSLATE,
   };
   for (int id : kTrimmed) {
     if (std::optional<size_t> index = menu.GetIndexOfCommandId(id)) {
@@ -387,6 +405,30 @@ void Window::TrimPageMenu(BrowserWindowInterface* browser, ui::SimpleMenuModel& 
 void Window::AdjustNavigate(NavigateParams& params) {
   Window* window = params.browser ? ForBrowser(params.browser) : nullptr;
   if (!window) {
+    return;
+  }
+  // The page menu's Open Link in New Window and in Incognito Window: the app opens its windows, as
+  // for ⌘N and ⇧⌘N. A private window's link stays private either way, as Chrome's does.
+  if (params.started_from_context_menu &&
+      (params.disposition == WindowOpenDisposition::NEW_WINDOW ||
+       params.disposition == WindowOpenDisposition::OFF_THE_RECORD)) {
+    Profile* profile = params.browser->GetProfile();
+    const bool private_window = profile->IsOffTheRecord() ||
+                                params.disposition == WindowOpenDisposition::OFF_THE_RECORD;
+    params.disposition = WindowOpenDisposition::IGNORE_ACTION;
+    // Posted: the app opens a window and a tab in it, which mustn't happen inside a navigation.
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE,
+        base::BindOnce(
+            [](base::WeakPtr<Window> window, const std::string& url, bc_id profile_id,
+               bool in_private) {
+              if (window && Host().window_open_link) {
+                Host().window_open_link(Host().context, window->id(), url.c_str(), profile_id,
+                                        in_private);
+              }
+            },
+            window->weak_factory_.GetWeakPtr(), params.url.spec(),
+            ProfileId(DirOf(profile->GetOriginalProfile())), private_window));
     return;
   }
   // ⌥⌘-click on a link opens it beside its page in a split view, as Chrome's does, and so does
