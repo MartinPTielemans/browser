@@ -21,6 +21,8 @@ expect "^browser: agent space $agent Claude Code\$" "the switcher didn't hear wh
 grep -q "^browser: agent space $first " "$log" && fail "the user's Space is an agent's"
 send agentmayact claude-code "$user_tab"
 expect "^browser: agent claude-code may act on $user_tab: 0\$" "the agent may act on the user's tab"
+expect "^browser: agent activity claude-code $user_tab act refused: The tab isn't in the agent's own Space.\$" \
+  "the refusal didn't reach the activity log"
 send click $page_point
 driven=$active
 if [ "$driven" = 1 ]; then
