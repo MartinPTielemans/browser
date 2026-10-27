@@ -16,7 +16,7 @@ use super::{
     access::Accessible,
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry,
     NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
-    Shell, Space, Swapped, UNSELECTED_TITLE, clean_link, divider_box, favicon, folder_icon, host,
+    Shell, Space, UNSELECTED_TITLE, clean_link, divider_box, favicon, folder_icon, host,
     name_box, plate, row_box, space_icon, spring_to, split_plate, still_clear, title,
     header::TipSide,
 };
@@ -336,11 +336,6 @@ impl Shell {
         if downloads.len() != self.downloads.len() {
             log!("browser: downloads {}", downloads.len());
         }
-        let running = |downloads: &[Download]| {
-            library_glyph(downloads.iter().any(|each| each.state == DownloadState::Running))
-        };
-        let (from, to) = (running(&self.downloads), running(&downloads));
-        self.swaps.start(Swapped::Library, from, to, Instant::now());
         self.download_icons.retain(|id, _| downloads.iter().any(|each| each.id == *id));
         self.download_previews.retain(|id, _| downloads.iter().any(|each| each.id == *id));
         let bar = bar_drawn(&self.downloads);
@@ -1474,14 +1469,12 @@ impl Shell {
         )
     }
 
-    /// The footer's button that opens the Library, at its left (Arc). While downloads run, it shows
-    /// the downloads' glyph over a bar of how far they've got, and opens the Library on them. The
-    /// pointer resting on it shows the recent downloads over it.
+    /// The footer's button that opens the Library, at its left (Arc). While downloads run, it keeps
+    /// its glyph and name over a bar of how far they've got. The pointer resting on it shows the
+    /// recent downloads over it.
     pub(super) fn library_button(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let progress = downloads_progress(&self.downloads);
-        let downloading = progress.is_some();
-        let glyph = library_glyph(downloading);
-        let command = if downloading { Command::ViewDownloads } else { Command::ViewLibrary };
+        let command = Command::ViewLibrary;
         div()
             .id("library")
             .when(self.a11y, |button| button.button_named(self.button_name(command).unwrap_or("")))
@@ -1501,13 +1494,9 @@ impl Shell {
                 shell.hover_button(command, TipSide::Beside, *hovered, cx);
                 shell.hover_recent_downloads(false, *hovered, window, cx)
             }))
-            .on_click(cx.listener(move |shell, _, _, cx| match downloading {
-                true => shell.run(Command::ViewDownloads, "sidebar", cx),
-                false => shell.run(Command::ViewLibrary, "sidebar", cx),
-            }))
-            .child(self.swaps.glyph(Swapped::Library, glyph, 16., rgba(NAV).into()))
-            .when(downloading, |button| {
-                let done = progress.unwrap_or(0.);
+            .on_click(cx.listener(move |shell, _, _, cx| shell.run(command, "sidebar", cx)))
+            .child(svg().path("icons/archive.svg").size(px(16.)).text_color(rgba(NAV)))
+            .when_some(progress, |button, done| {
                 button.child(
                     div()
                         .absolute()
@@ -1529,16 +1518,19 @@ impl Shell {
     }
 }
 
-/// How far the running downloads have got in all, 0 to 1, or none while none runs. One of a size
-/// not yet known counts for nothing, so its bar stays empty.
+/// How far the running downloads have got in all, 0 to 1, or none while none runs. A held one,
+/// which Chrome keeps running until it's kept or deleted, and one whose size isn't known don't
+/// count, as they'd leave a bar that never moves.
 fn downloads_progress(downloads: &[Download]) -> Option<f32> {
-    let mut running = downloads.iter().filter(|each| each.state == DownloadState::Running);
+    let mut running = downloads.iter().filter(|each| {
+        each.state == DownloadState::Running && !each.held && each.total > 0
+    });
     let first = running.next()?;
     let running = std::iter::once(first).chain(running);
     let (received, total) = running.fold((0, 0), |(received, total), each| {
-        (received + each.received.min(each.total.max(0)), total + each.total.max(0))
+        (received + each.received.min(each.total), total + each.total)
     });
-    Some(if total > 0 { received as f32 / total as f32 } else { 0. })
+    Some(received as f32 / total as f32)
 }
 
 /// What the footer's button draws of `downloads`: its bar's length in quarter points, if it has
@@ -1593,11 +1585,6 @@ pub(super) fn library_band(way: f32) -> f32 {
 }
 
 /// A line of a row's text, cut short with an ellipsis.
-/// The Library button's glyph, the downloads' while they run.
-fn library_glyph(downloading: bool) -> &'static str {
-    if downloading { "icons/arrow-down-to-line.svg" } else { "icons/archive.svg" }
-}
-
 fn text_line(text: SharedString, size: f32, height: f32, color: u32) -> gpui::Div {
     div()
         .h(px(height))
@@ -1620,7 +1607,7 @@ fn bytes(bytes: i64) -> String {
 }
 
 /// How much of a download has come, as Safari writes it.
-fn of(received: i64, total: i64) -> String {
+pub(super) fn of(received: i64, total: i64) -> String {
     match total > 0 {
         true => format!("{} of {}", bytes(received), bytes(total)),
         false => bytes(received),
@@ -1925,6 +1912,7 @@ mod tests {
     }
 
     /// The footer's bar is all the running downloads' progress together, and only they have one.
+    /// One held, or of a size not yet known, never moves, so it has none and leaves the rest alone.
     #[test]
     fn the_footer_bar_follows_the_running_downloads() {
         let done = download(DownloadState::Done, false);
@@ -1932,9 +1920,12 @@ mod tests {
         assert_eq!(downloads_progress(&[]), None);
         assert_eq!(downloads_progress(&[running(50, 100), done.clone()]), Some(0.5));
         assert_eq!(downloads_progress(&[running(50, 100), running(0, 100)]), Some(0.25));
-        // A size not yet known shows an empty bar, and a download is never past its end.
-        assert_eq!(downloads_progress(&[running(7, 0)]), Some(0.));
+        // A download is never past its end.
         assert_eq!(downloads_progress(&[running(300, 100)]), Some(1.));
+        let held = Download { received: 0, total: 100, ..download(DownloadState::Running, true) };
+        assert_eq!(downloads_progress(&[running(7, 0)]), None);
+        assert_eq!(downloads_progress(&[held.clone()]), None);
+        assert_eq!(downloads_progress(&[held, running(7, 0), running(25, 100)]), Some(0.25));
     }
 
     /// A download's report that moves the bar less than it can draw is not worth a frame, while

@@ -8,7 +8,8 @@
 # icon, picked in its icon picker, comes back too. A tab closed before the quit stays closed,
 # in the archive, from which the Library reopens it at its page. A page's downloads go in the
 # check's folder, a new one's icon flies into the Library button, none of those a relaunch reads
-# does, and ⇧⌘J opens the Library on Downloads, which lists them. With one running, ⌘Q
+# does, and ⇧⌘J opens the Library on Downloads, which lists them. While one runs, the button keeps
+# its name and resting on it shows the running one with the finished one. With one running, ⌘Q
 # asks first: Continue Downloading shows the Library's Downloads, and Quit quits, cancelling it.
 # After the relaunch, Remove from List and Clear List take them off the list and keep their files.
 # A new download's row dragged hands its file to the system's drag, the Library closing until it's
@@ -64,6 +65,18 @@ d=$(grep -m1 '^browser: download [0-9]* running slow.bin$' "$log" | cut -d' ' -f
 expect "^browser: download flying $d\$" "the new download's icon didn't fly"
 ../tools/window-screenshot.sh "$pid" "$out/download-flying.png" || fail "no window to capture"
 expect "^browser: download landed $d\$" "the new download's icon didn't land"
+# While it runs, the Library button keeps its name and keys, and resting on it shows the running
+# download over the finished one.
+check_layout "with a download running"
+send move 24 $((height - 25))
+expect '^browser: tooltip shown View Library ⇧⌘L$' \
+  "with a download running, the Library button didn't name itself View Library"
+expect '^browser: recent downloads shown 2$' \
+  "with a download running, resting on the Library button didn't show it and the finished one"
+../tools/window-screenshot.sh "$pid" "$out/recent-downloads-running.png" ||
+  fail "no window to capture"
+send move $page_point
+expect '^browser: recent downloads hidden$' "the recent downloads stayed after the pointer left"
 send key j cmd shift
 expect '^browser: command view-downloads via page$' "⇧⌘J with the page focused didn't reach the UI"
 expect '^browser: library section downloads$' "⇧⌘J didn't open the Library on Downloads"
