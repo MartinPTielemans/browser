@@ -160,8 +160,9 @@ stuck=
 grep -q 'browser: tab [0-9]* game running$' "$log" && fail "Space started a game on a page that wasn't offline"
 
 # Offline. A DevTools session on the tab, which DevTools' own Offline is, fails its loads with
-# ERR_INTERNET_DISCONNECTED until it says online. It takes "offline" or "online" on its input and
-# says each back once Chromium has it.
+# ERR_INTERNET_DISCONNECTED until it says online. Its cache is off, as DevTools offers, since the
+# throttle sits under the HTTP cache and a fresh copy of a page loaded earlier would still load. It
+# takes "offline" or "online" on its input and says each back once Chromium has it.
 cat > "$out/network.py" <<'PY'
 import base64, json, os, socket, struct, sys, urllib.request
 
@@ -221,6 +222,7 @@ def call(method, **params):
             return
 
 call("Network.enable")
+call("Network.setCacheDisabled", cacheDisabled=True)
 for line in sys.stdin:
     state = line.strip()
     call("Network.emulateNetworkConditions", offline=state == "offline", latency=0,
