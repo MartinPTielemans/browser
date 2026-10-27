@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
+#include "base/command_line.h"
+#include "base/containers/fixed_flat_set.h"
 #include "base/files/file_util.h"
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
@@ -44,6 +47,8 @@ namespace {
 constexpr char kSites[] = "browser_core.system_engine.sites";
 // The sites whose protected-media note the user closed.
 constexpr char kClosedNotes[] = "browser_core.system_engine.closed_notes";
+// The listed services the user turned off, by their entries in kListed.
+constexpr char kListedOff[] = "browser_core.system_engine.listed_off";
 constexpr char kStore[] = "browser_core.system_engine.store";
 
 // Builds no service: Chrome registers a profile's prefs through its factories.
@@ -65,9 +70,48 @@ class PrefsFactory : public ProfileKeyedServiceFactory {
   void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) override {
     registry->RegisterListPref(kSites);
     registry->RegisterListPref(kClosedNotes);
+    registry->RegisterListPref(kListedOff);
     registry->RegisterStringPref(kStore, std::string());
   }
 };
+
+// The streaming services whose main content is protected video or audio, which open in the system's
+// engine from the first visit. Add an entry only for such a service, as its own host, or as its
+// registrable domain where nothing else is at that domain: each matches its host and subdomains.
+constexpr auto kListed = base::MakeFixedFlatSet<std::string_view>({
+    "disneyplus.com",
+    "hbomax.com",
+    "hulu.com",
+    "max.com",
+    "netflix.com",
+    "open.spotify.com",
+    "paramountplus.com",
+    "peacocktv.com",
+    "primevideo.com",
+    "tv.apple.com",
+});
+
+// For the app's check, which never loads a real service: a host of its own server, listed as the
+// services are. Only a dev build of the app passes it (main.rs).
+constexpr char kTestHostSwitch[] = "streaming-test-host";
+
+// |url|'s entry in kListed, else empty: a lookup for each of its host's few labels.
+std::string_view ListedEntry(const GURL& url) {
+  static const base::NoDestructor<std::string> test_host(
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(kTestHostSwitch));
+  std::string_view host = url.host_piece();
+  if (!test_host->empty() && host == *test_host) {
+    return *test_host;
+  }
+  while (!host.empty()) {
+    if (auto entry = kListed.find(host); entry != kListed.end()) {
+      return *entry;
+    }
+    const size_t dot = host.find('.');
+    host = dot == std::string_view::npos ? std::string_view() : host.substr(dot + 1);
+  }
+  return std::string_view();
+}
 
 // A private session's store, which keeps nothing on disk and goes with the session's profile.
 class PrivateStore : public base::SupportsUserData::Data {
@@ -216,24 +260,47 @@ std::string SiteOf(const GURL& url) {
   return domain.empty() ? std::string(url.host()) : domain;
 }
 
+bool Listed(const GURL& url) {
+  return url.SchemeIsHTTPOrHTTPS() && !ListedEntry(url).empty();
+}
+
 bool Remembered(Profile* profile, const GURL& url) {
   if (!profile || !url.SchemeIsHTTPOrHTTPS() || !Available()) {
     return false;
+  }
+  if (const std::string_view entry = ListedEntry(url); !entry.empty()) {
+    const base::ListValue& off = profile->GetPrefs()->GetList(kListedOff);
+    if (!std::ranges::contains(off, base::Value(entry))) {
+      return true;
+    }
   }
   const base::ListValue& sites = profile->GetPrefs()->GetList(kSites);
   return !sites.empty() && std::ranges::contains(sites, base::Value(SiteOf(url)));
 }
 
 void Remember(Profile* profile, const GURL& url) {
-  if (!profile || !url.SchemeIsHTTPOrHTTPS() || Remembered(profile, url)) {
+  if (!profile || !url.SchemeIsHTTPOrHTTPS()) {
     return;
   }
-  ScopedListPrefUpdate(profile->GetPrefs(), kSites)->Append(SiteOf(url));
+  // A listed service is never kept: turning it on takes back the user's off.
+  if (const std::string_view entry = ListedEntry(url); !entry.empty()) {
+    ScopedListPrefUpdate(profile->GetPrefs(), kListedOff)->EraseValue(base::Value(entry));
+    return;
+  }
+  if (!Remembered(profile, url)) {
+    ScopedListPrefUpdate(profile->GetPrefs(), kSites)->Append(SiteOf(url));
+  }
 }
 
 void Forget(Profile* profile, const GURL& url) {
-  if (profile && url.SchemeIsHTTPOrHTTPS()) {
-    ScopedListPrefUpdate(profile->GetPrefs(), kSites)->EraseValue(base::Value(SiteOf(url)));
+  if (!profile || !url.SchemeIsHTTPOrHTTPS()) {
+    return;
+  }
+  ScopedListPrefUpdate(profile->GetPrefs(), kSites)->EraseValue(base::Value(SiteOf(url)));
+  const std::string_view entry = ListedEntry(url);
+  if (!entry.empty() &&
+      !std::ranges::contains(profile->GetPrefs()->GetList(kListedOff), base::Value(entry))) {
+    ScopedListPrefUpdate(profile->GetPrefs(), kListedOff)->Append(std::string(entry));
   }
 }
 

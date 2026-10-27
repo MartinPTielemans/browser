@@ -238,12 +238,15 @@ void SiteControls::Read() {
   site_ = base::UTF16ToUTF8(url_formatter::FormatUrlForSecurityDisplay(
       url, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC));
   Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
-  system_engine_ = system_engine::Remembered(profile, url);
+  // Not for an agent's tab, which stays in Chromium at a listed service too.
+  system_engine_ = system_engine::Remembered(profile, url) && system_engine::Allowed(tab_);
   // Where the protected-media note's button would show the page there: a page of the tab asked,
-  // or the user closed the site's note, which this is the way back from.
+  // or the user closed the site's note or turned a listed service off, which this is the way back
+  // from.
   system_engine_offered_ =
       !system_engine_ && !page && system_engine::Allowed(tab_) &&
-      (MediaUnsupported(web_contents()) || system_engine::NoteClosed(profile, url));
+      (MediaUnsupported(web_contents()) || system_engine::NoteClosed(profile, url) ||
+       system_engine::Listed(url));
   if (page) {
     // Chromium's permissions aren't the system page's, which asks for none, and WebKit says only
     // whether the connection is secure.

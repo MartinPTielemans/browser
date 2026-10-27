@@ -433,6 +433,27 @@ fn the_engine_row_offers_safaris_engine(cx: &mut TestAppContext) {
     assert_eq!(panel.calls(), ["menu On*, Off"]);
 }
 
+/// A listed streaming service, which opens in Safari's engine without the user keeping it, lists it
+/// on. Off turns it off, and the core then offers it, so the row stays where it was, off, and its On
+/// turns the service back on: the way in and out are the one row.
+#[gpui::test]
+fn a_listed_service_turned_off_keeps_its_row_to_turn_it_on(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, Site { system_engine: Some(true), ..site() });
+    panel.calls();
+    panel.host.answer.set(Some(1));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On*, Off", &format!("system engine {TAB} false")]);
+    panel.changed(Site { system_engine: Some(false), ..site() });
+    panel.calls();
+    panel.host.answer.set(Some(0));
+    panel.click(row(0));
+    assert_eq!(panel.calls(), ["menu On, Off*", &format!("system engine {TAB} true")]);
+    // The permissions are still a row down.
+    panel.host.answer.set(None);
+    panel.click(row(2));
+    assert_eq!(panel.calls(), ["menu Allow*, Block, Ask"]);
+}
+
 /// A site the core neither keeps nor offers Safari's engine for has no row for it: its first row is
 /// the first permission's.
 #[gpui::test]

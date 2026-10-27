@@ -18,9 +18,10 @@ class NavigationThrottleRegistry;
 namespace browser_core::system_engine {
 
 // The system's engine, WebKit on the Mac, shows a tab's page in place of Chromium's for a site
-// whose protected video only it plays (decision 1). The user switches a tab to it once per site,
-// from the protected-media note, and the profile keeps the site: its pages open in the system's
-// engine from then on, until Site Controls turns it off. A tab goes back to Chromium at another
+// whose protected video only it plays (decision 1). A short built-in list of streaming services
+// opens there from the first visit. For any other site the user switches a tab to it once, from
+// the protected-media note, and the profile keeps the site: its pages open in the system's engine
+// from then on. Site Controls turns either off, per profile. A tab goes back to Chromium at another
 // site. Agents never act in it, as the browser can't keep their rules in an engine whose pages it
 // doesn't control, and an agent's Space never switches.
 
@@ -36,8 +37,13 @@ bool Allowed(bc_id tab);
 // The site of |url| as the profile keeps it: its registrable domain, else its host.
 std::string SiteOf(const GURL& url);
 
-// Whether |profile| keeps |url|'s site for the system's engine. A private window's profile keeps
-// what its profile does, and what it adds goes with its session.
+// Whether |url| is a listed streaming service's.
+bool Listed(const GURL& url);
+
+// Whether |profile| opens |url|'s site in the system's engine: a listed service the user didn't
+// turn off, or a site the user kept. Remember turns it on, taking back a listed service's off
+// rather than keeping it, and Forget turns it off, which a listed service keeps as an override. A
+// private window's profile has what its profile does, and what it changes goes with its session.
 bool Remembered(Profile* profile, const GURL& url);
 void Remember(Profile* profile, const GURL& url);
 void Forget(Profile* profile, const GURL& url);
