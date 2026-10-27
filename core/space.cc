@@ -224,6 +224,14 @@ void Space::AddPinned(bc_id tab, bc_id folder, size_t index, GURL url) {
   ReportChanged();
 }
 
+void Space::SetPinnedUrl(bc_id tab, GURL url) {
+  if (!IsPinned(tab) || !url.is_valid() || pinned_urls_[tab] == url) {
+    return;
+  }
+  pinned_urls_[tab] = std::move(url);
+  ReportChanged();
+}
+
 void Space::Pin(bc_id tab, base::FunctionRef<GURL(bc_id)> url_of) {
   if (!std::ranges::contains(today_, tab) || off_the_record_) {
     return;

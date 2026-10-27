@@ -119,6 +119,9 @@ struct ClosedTab {
 // As many as Chrome keeps.
 constexpr size_t kMaxClosedTabs = 25;
 
+// How many Clears a window can undo.
+constexpr size_t kMaxClears = 10;
+
 // Between the pages of a split view, as in Arc.
 constexpr int kSplitGap = 10;
 
@@ -134,7 +137,7 @@ std::vector<ClosedTab>& ClosedTabs() {
   return *closed;
 }
 
-// The Space deleted last, for UndoDeleteSpace.
+// A Space deleted, for UndoDeleteSpace.
 struct DeletedSpace {
   bc_id id = 0;
   SavedSpace saved;
@@ -144,8 +147,9 @@ struct DeletedSpace {
   bc_id shown = 0;
 };
 
-std::optional<DeletedSpace>& LastDeleted() {
-  static base::NoDestructor<std::optional<DeletedSpace>> deleted;
+// The Spaces deleted, newest last, as many as the closed tabs.
+std::vector<DeletedSpace>& DeletedSpaces() {
+  static base::NoDestructor<std::vector<DeletedSpace>> deleted;
   return *deleted;
 }
 
@@ -771,10 +775,14 @@ bool Window::DeleteSpace(bc_id space) {
   }
   Space* neighbour = it != staying.begin() ? *(it - 1) : *(it + 1);
   // Before the windows leave it, so it keeps the tab the one active last showed there.
-  DeletedSpace& deleted = LastDeleted().emplace();
+  DeletedSpace& deleted = DeletedSpaces().emplace_back();
   deleted.id = space;
   deleted.shown = Order().empty() ? 0 : FromId(Order().front())->SelectedIn(space);
   deleted.saved = SaveSpace(**it, deleted.shown, &deleted.today);
+  if (DeletedSpaces().size() > kMaxClosedTabs) {
+    // |deleted| is the last, which stays.
+    DeletedSpaces().erase(DeletedSpaces().begin());
+  }
   for (auto& [id, window] : Windows()) {
     if (window->space_ == space) {
       window->ShowSpace(neighbour->id());
@@ -1288,7 +1296,7 @@ size_t Window::Clear() {
   if (!space) {
     return 0;
   }
-  cleared_.clear();
+  std::vector<Cleared> frame;
   const std::vector<bc_id>& today = space->today();
   // While the window shows every Today tab, there's nothing else to clear, so they go too (Arc).
   const bool last = std::ranges::all_of(
@@ -1297,22 +1305,34 @@ size_t Window::Clear() {
     if (last || !Showing(today[index])) {
       const bool split = index > 0 && std::ranges::contains(space->Panes(today[index]),
                                                             today[index - 1]);
-      cleared_.push_back({today[index], index, split, today[index] == selected_});
+      frame.push_back({today[index], index, split, today[index] == selected_});
     }
   }
   // Bottom up, so ReopenClosedTab brings back the top one first, at its place.
-  for (auto cleared = cleared_.rbegin(); cleared != cleared_.rend(); ++cleared) {
+  for (auto cleared = frame.rbegin(); cleared != frame.rend(); ++cleared) {
     CloseTab(cleared->tab);
   }
-  return cleared_.size();
+  const size_t count = frame.size();
+  if (count > 0) {
+    cleared_.push_back(std::move(frame));
+    if (cleared_.size() > kMaxClears) {
+      cleared_.erase(cleared_.begin());
+    }
+  }
+  return count;
 }
 
 size_t Window::UndoClear() {
+  if (cleared_.empty()) {
+    return 0;
+  }
+  std::vector<Cleared> frame = std::move(cleared_.back());
+  cleared_.pop_back();
   size_t reopened = 0;
   bc_id above = 0;
   bc_id shown = 0;
   // Top down, each at its place before the Clear, which puts back the order with the tab kept.
-  for (const Cleared& cleared : std::exchange(cleared_, {})) {
+  for (const Cleared& cleared : frame) {
     // Not one whose page kept it open, or one already reopened.
     std::optional<ClosedTab> tab = TakeClosed(cleared.tab);
     const bc_id id = tab ? Reopen(tab->space, cleared.index, tab->saved) : 0;
@@ -1341,13 +1361,14 @@ bc_id Window::UndoDeleteSpace() {
   if (off_the_record_) {
     return 0;
   }
-  std::optional<DeletedSpace>& deleted = LastDeleted();
-  Profile* profile = deleted ? ProfileFor(deleted->saved.profile) : nullptr;
+  std::vector<DeletedSpace>& deleted = DeletedSpaces();
+  Profile* profile = deleted.empty() ? nullptr : ProfileFor(deleted.back().saved.profile);
   // Not while a page keeps one of its tabs open, which keeps the Space.
-  if (!deleted || !profile || Space::FromId(deleted->id)) {
+  if (!profile || Space::FromId(deleted.back().id)) {
     return 0;
   }
-  DeletedSpace space = *std::exchange(deleted, std::nullopt);
+  DeletedSpace space = std::move(deleted.back());
+  deleted.pop_back();
   // Its Today tabs leave the archive and the closed tabs as they come back, but for those that
   // came back some other way, such as ⇧⌘T, or left the archive.
   const int pinned = static_cast<int>(space.saved.pinned.size());
@@ -1388,7 +1409,15 @@ bc_id Window::ReopenClosedTab() {
   if (ClosedTabs().empty() || off_the_record_) {
     return 0;
   }
-  const ClosedTab closed = *TakeClosed(ClosedTabs().back().id);
+  return ReopenClosed(ClosedTabs().back().id);
+}
+
+bc_id Window::ReopenClosed(bc_id id) {
+  std::optional<ClosedTab> taken = off_the_record_ ? std::nullopt : TakeClosed(id);
+  if (!taken) {
+    return 0;
+  }
+  const ClosedTab closed = std::move(*taken);
   const bc_id tab = Reopen(closed.space, closed.index, closed.saved);
   if (!tab) {
     return 0;

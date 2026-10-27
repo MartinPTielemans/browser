@@ -436,7 +436,7 @@ impl Shell {
                 Place::Favorite(index) => {
                     // check.sh waits for this line.
                     log!("browser: dragged {tab} to favorites {index}");
-                    self.browser.move_to_favorites(tab, index, cx);
+                    self.favorite_tab(tab, index, cx);
                 }
                 Place::List(true, gap) => {
                     let (rows, _) = self.rows();
@@ -447,10 +447,7 @@ impl Shell {
                         0 => log!("browser: dragged {tab} to pinned {gap}"),
                         _ => log!("browser: dragged {tab} to folder {folder} {index}"),
                     }
-                    match self.is_folder(tab) {
-                        true => self.browser.move_folder(tab, folder, index, cx),
-                        false => self.browser.move_tab(tab, true, folder, index, cx),
-                    }
+                    self.move_tab_to(tab, true, folder, index, cx);
                 }
                 Place::List(false, index) => {
                     // check.sh waits for this line.
@@ -459,7 +456,7 @@ impl Shell {
                     let (_, rows) = self.rows();
                     let rows = rows.into_iter().filter(|&row| row != tab).take(index);
                     let index = rows.map(|row| self.panes(row).len()).sum();
-                    self.browser.move_tab(tab, false, 0, index, cx);
+                    self.move_tab_to(tab, false, 0, index, cx);
                 }
             }
         }

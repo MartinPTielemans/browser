@@ -754,7 +754,7 @@ impl Shell {
                         Some(3) => {
                             // check.sh waits for this line.
                             log!("browser: remove archived {id}");
-                            shell.browser.remove_archived(id, cx);
+                            shell.delete_archived(id, cx);
                         }
                         _ => {}
                     })
@@ -770,16 +770,18 @@ impl Shell {
         if count == 0 {
             return;
         }
-        let browser = self.browser.clone();
+        let shell = cx.weak_entity();
         self.browser.confirm(
             "Clear the archive?".into(),
             if count == 1 {
-                "Its tab can't be reopened from it after this.".into()
+                "Its tab leaves the archive. ⌘Z brings it back.".into()
             } else {
-                format!("Its {count} tabs can't be reopened from it after this.")
+                format!("Its {count} tabs leave the archive. ⌘Z brings them back.")
             },
             "Clear Archive",
-            Box::new(move |cx| browser.clear_archive(cx)),
+            Box::new(move |cx| {
+                shell.update(cx, |shell, cx| shell.empty_archive(cx)).ok();
+            }),
             cx,
         );
     }

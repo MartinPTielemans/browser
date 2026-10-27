@@ -105,3 +105,38 @@ fn voiceover_says_the_toast_as_it_comes(cx: &mut TestAppContext) {
     assert_eq!(toast.live(), Some(Live::Polite));
     assert_eq!(toast.value(), Some("Space deleted! Use ⌘Z to undo."));
 }
+
+/// The Undo a toast offers goes with the undo, however it was done, but another toast stays.
+#[gpui::test]
+fn an_undo_toast_goes_once_the_undo_is_done_some_other_way(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    cx.update(|cx| show_undo("Removed from Favorites", Rc::new(|_| {}), TIME, cx));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks true", "show"]);
+    cx.update(|cx| hide_undo(cx));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks false"]);
+    assert_eq!(after(cx, &host, LEAVE), ["hide"]);
+
+    show_deleted(cx);
+    host.0.take();
+    cx.update(|cx| hide_undo(cx));
+    assert!(after(cx, &host, 4.9).is_empty(), "Space deleted! stays its five seconds");
+}
+
+#[gpui::test]
+fn an_undo_toast_runs_its_undo_with_a_click_on_the_button(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    let undone = Rc::new(std::cell::Cell::new(0));
+    let counted = undone.clone();
+    let undo = Rc::new(move |_: &mut App| counted.set(counted.get() + 1));
+    cx.update(|cx| show_undo("Removed from Favorites", undo, TIME, cx));
+    cx.run_until_parked();
+    host.0.take();
+    let run = cx.update(|cx| {
+        let window = cx.global::<ToastWindow>().0;
+        window.read(cx).unwrap().shown.as_ref().unwrap().buttons[0].run.clone()
+    });
+    cx.update(|cx| run(point(px(0.), px(0.)), cx));
+    assert_eq!(undone.get(), 1);
+}

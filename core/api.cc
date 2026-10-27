@@ -505,6 +505,11 @@ bc_id bc_window_reopen_closed_tab(bc_id window_id) {
   return window ? window->ReopenClosedTab() : 0;
 }
 
+bc_id bc_window_reopen_tab(bc_id window_id, bc_id closed) {
+  browser_core::Window* window = browser_core::Window::FromId(window_id);
+  return window ? window->ReopenClosed(closed) : 0;
+}
+
 bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window ? window->RestoreArchived(archived) : 0;
@@ -540,11 +545,15 @@ bool bc_window_run_extension_command(bc_id window_id, const char* id, const char
 }
 
 void bc_archive_clear(void) {
-  browser_core::ClearArchive();
+  browser_core::RemoveAllArchived();
 }
 
 void bc_archive_remove(bc_id archived) {
-  browser_core::TakeArchived(archived);
+  browser_core::RemoveArchived(archived);
+}
+
+size_t bc_archive_undo_remove(void) {
+  return browser_core::UndoRemoved();
 }
 
 double bc_archive_after(void) {
@@ -900,6 +909,32 @@ void bc_downloads_clear() {
 
 void bc_download_icon(bc_id download) {
   browser_core::FindDownloadIcon(download);
+}
+
+size_t bc_tab_name(bc_id id, char* name, size_t capacity) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  return CopyString(contents ? browser_core::Tab::FromWebContents(contents)->name() : std::string(),
+                    name, capacity);
+}
+
+size_t bc_tab_pinned_url(bc_id id, char* url, size_t capacity) {
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  const GURL pinned = space ? space->PinnedUrl(id) : browser_core::Favorites::Url(id);
+  return CopyString(pinned.spec(), url, capacity);
+}
+
+void bc_tab_set_pinned_url(bc_id id, const char* url) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  if (!url || !contents) {
+    return;
+  }
+  if (browser_core::Space* space = browser_core::Space::Holding(id)) {
+    space->SetPinnedUrl(id, GURL(url));
+  } else {
+    browser_core::Favorites::SetUrl(id, GURL(url));
+  }
+  // Whether the page is away from it may have changed.
+  browser_core::Tab::FromWebContents(contents)->StateChanged();
 }
 
 void bc_tab_rename(bc_id id, const char* name) {

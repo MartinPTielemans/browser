@@ -1175,6 +1175,7 @@ fn command_name(command: Command) -> &'static str {
         Command::SelectSpace(_) => Some("Spaces 1 to 9"),
         Command::RecentTabBack => Some("Last Used Tab"),
         Command::Undo => Some("Undo"),
+        Command::Redo => Some("Redo"),
         _ => None,
     })
     .next()

@@ -24,7 +24,6 @@ const SYSTEM_KEYS: &[(&str, &str)] = &[
     ("cmd-c", "Copy"),
     ("cmd-v", "Paste"),
     ("cmd-a", "Select All"),
-    ("shift-cmd-z", "Redo"),
     ("ctrl-cmd-f", "Enter Full Screen"),
 ];
 
@@ -65,13 +64,15 @@ pub fn user_keys(cx: &App) -> &UserKeys {
 }
 
 /// Whether the user can give `command` other keys. Not Quit, whose ⌘Q is the way out of every Mac
-/// app; not Undo, whose ⌘Z falls back to the Edit menu's Undo for the page; not the ⌃Tab walk,
-/// which lasts while ⌃ is held; and not the numbered tabs and Spaces, nine keys in one row.
+/// app; not Undo and Redo, whose ⌘Z and ⇧⌘Z fall back to the Edit menu's for the page; not the
+/// ⌃Tab walk, which lasts while ⌃ is held; and not the numbered tabs and Spaces, nine keys in one
+/// row.
 pub fn rebindable(command: Command) -> bool {
     !matches!(
         command,
         Command::Quit
             | Command::Undo
+            | Command::Redo
             | Command::RecentTab
             | Command::RecentTabBack
             | Command::SelectTab(_)

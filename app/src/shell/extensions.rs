@@ -189,6 +189,8 @@ impl Shell {
 
     /// Gives the menu bar the keys the commands have now.
     pub(super) fn refresh_menus(&mut self, cx: &mut Context<Self>) {
+        // The menu bar is the key window's, so its Undo and Redo name this window's steps.
+        self.send_edit_titles(true, cx);
         self.browser.set_menus(&self.menu_spaces, &self.menu_extensions, cx);
     }
 

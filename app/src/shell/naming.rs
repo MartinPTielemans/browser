@@ -9,6 +9,7 @@ use std::{
 use gpui::{Context, SharedString, Window, div, point, prelude::*, px, rgb, rgba};
 
 use super::{
+    undo::{Prop, Value},
     CancelName, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_PLACEHOLDER, FORM_TEXT, KeepName,
     NEW_FOLDER, Naming, PLATE_INSET, Renaming, SPACE_ICON_SLOT, SPACE_ICON_X, Shell, ShellHandle,
 };
@@ -161,7 +162,11 @@ impl Shell {
                     f32::from(row.center().y),
                 );
                 let picked: Picked = Rc::new(move |icon, cx| {
-                    shell.update(cx, |shell, cx| shell.browser.set_space_icon(space, icon, cx)).ok();
+                    shell
+                        .update(cx, |shell, cx| {
+                            shell.change(Prop::SpaceIcon(space), Value::Text(icon.to_string()), cx)
+                        })
+                        .ok();
                 });
                 (icon.icon.clone(), anchor, picked)
             }
@@ -173,7 +178,11 @@ impl Shell {
                     + FAVICON_SIZE / 2.;
                 let anchor = point(x, f32::from(row.center().y));
                 let picked: Picked = Rc::new(move |icon, cx| {
-                    shell.update(cx, |shell, cx| shell.browser.set_icon(tab, icon, cx)).ok();
+                    shell
+                        .update(cx, |shell, cx| {
+                            shell.change(Prop::TabIcon(tab), Value::Text(icon.to_string()), cx)
+                        })
+                        .ok();
                 });
                 (self.page(tab).icon, anchor, picked)
             }
@@ -231,13 +240,15 @@ impl Shell {
         };
         let name = renaming.name.read(cx).text().trim().to_string();
         match renaming.naming {
-            Naming::Space(space) if !name.is_empty() => self.browser.rename_space(space, &name, cx),
+            Naming::Space(space) if !name.is_empty() => {
+                self.change(Prop::SpaceName(space), Value::Text(name), cx)
+            }
             Naming::Space(_) => {}
             // Left as it was, the title stays the page's, which changes with it.
             Naming::Tab(tab) if *name == *self.title(tab) => {}
-            Naming::Tab(tab) => self.browser.rename_tab(tab, &name, cx),
+            Naming::Tab(tab) => self.change(Prop::TabName(tab), Value::Text(name), cx),
             Naming::Folder(folder) if !name.is_empty() => {
-                self.browser.rename_folder(folder, &name, cx)
+                self.change(Prop::FolderName(folder), Value::Text(name), cx)
             }
             Naming::Folder(_) => {}
         }

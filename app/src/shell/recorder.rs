@@ -3,6 +3,8 @@
 
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
     time::Duration,
 };
 
@@ -38,6 +40,22 @@ pub(super) struct Recorder {
     pub(super) anchors: RefCell<Vec<crate::tooltip::Anchor>>,
     /// Where the shell last put the link target's plate, in the window.
     pub(super) link_frame: Cell<Option<Bounds<Pixels>>>,
+    /// What the shell did to tabs, folders and Spaces that ⌘Z puts back, in order, such as
+    /// `close 5` and `reopen 5 as 1001`.
+    edits: RefCell<Vec<String>>,
+    /// The id the next tab or folder it makes gets.
+    made: Cell<u64>,
+    /// The URL each pinned tab or favorite goes back to, and the name each tab was given.
+    pub(super) pinned_urls: RefCell<HashMap<u64, String>>,
+    pub(super) names: RefCell<HashMap<u64, String>>,
+    /// The words of the toasts with an Undo button it was asked to show, and what the last one's
+    /// button does.
+    pub(super) undo_toasts: RefCell<Vec<String>>,
+    pub(super) undo_toast: RefCell<Option<Rc<dyn Fn(&mut App)>>>,
+    /// The Edit menu's Undo and Redo titles it was last given.
+    pub(super) edit_titles: RefCell<(Option<String>, Option<String>)>,
+    /// What the archive's last Delete or Clear took out, as its tab count, for the undo.
+    pub(super) archive_removed: RefCell<Vec<usize>>,
 }
 
 impl Recorder {
@@ -49,6 +67,20 @@ impl Recorder {
     pub(super) fn take(&self) -> Vec<String> {
         std::mem::take(&mut self.calls.borrow_mut())
     }
+
+    fn edit(&self, edit: String) {
+        self.edits.borrow_mut().push(edit);
+    }
+
+    /// What the shell did that ⌘Z puts back since the last time, in order.
+    pub(super) fn take_edits(&self) -> Vec<String> {
+        std::mem::take(&mut self.edits.borrow_mut())
+    }
+
+    fn make(&self) -> u64 {
+        self.made.set(self.made.get() + 1);
+        1000 + self.made.get()
+    }
 }
 
 impl Browser for Recorder {
@@ -57,14 +89,19 @@ impl Browser for Recorder {
     }
 
     fn close(&self, tab: u64, _: bool, _: &mut App) {
+        self.edit(format!("close {tab}"));
         self.record(format!("close {tab}"))
     }
 
-    fn close_below(&self, _: u64, _: &mut App) {}
+    fn close_below(&self, tab: u64, _: &mut App) {
+        self.edit(format!("close below {tab}"));
+    }
 
     fn duplicate(&self, _: u64, _: &mut App) {}
 
-    fn move_to_space(&self, _: u64, _: u64, _: &mut App) {}
+    fn move_to_space(&self, tab: u64, space: u64, _: &mut App) {
+        self.edit(format!("space {tab} {space}"));
+    }
 
     fn warn_moving_profiles(&self, _: &mut App) -> bool {
         Default::default()
@@ -72,13 +109,17 @@ impl Browser for Recorder {
 
     fn set_warn_moving_profiles(&self, _: bool, _: &mut App) {}
 
-    fn set_pinned(&self, _: u64, _: bool, _: &mut App) {}
+    fn set_pinned(&self, tab: u64, pinned: bool, _: &mut App) {
+        self.edit(format!("pinned {tab} {pinned}"));
+    }
 
-    fn move_to_favorites(&self, _: u64, _: usize, _: &mut App) {
+    fn move_to_favorites(&self, tab: u64, index: usize, _: &mut App) {
+        self.edit(format!("favorite {tab} {index}"));
         self.moves.set(self.moves.get() + 1);
     }
 
-    fn move_tab(&self, _: u64, _: bool, _: u64, _: usize, _: &mut App) {
+    fn move_tab(&self, tab: u64, pinned: bool, folder: u64, index: usize, _: &mut App) {
+        self.edit(format!("move {tab} {pinned} {folder} {index}"));
         self.moves.set(self.moves.get() + 1);
     }
 
@@ -86,21 +127,30 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn create_folder(&self, _: u64, _: &str, _: u64, _: usize, _: &mut App) -> u64 {
-        Default::default()
+    fn create_folder(&self, space: u64, name: &str, folder: u64, index: usize, _: &mut App) -> u64 {
+        let made = self.make();
+        self.edit(format!("folder {made} {space} {name} {folder} {index}"));
+        made
     }
 
-    fn rename_folder(&self, _: u64, _: &str, _: &mut App) {}
+    fn rename_folder(&self, folder: u64, name: &str, _: &mut App) {
+        self.edit(format!("rename folder {folder} {name}"));
+    }
 
     fn set_folder_open(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn move_folder(&self, _: u64, _: u64, _: usize, _: &mut App) {
+    fn move_folder(&self, folder: u64, to: u64, index: usize, _: &mut App) {
+        self.edit(format!("move folder {folder} {to} {index}"));
         self.moves.set(self.moves.get() + 1);
     }
 
-    fn delete_folder(&self, _: u64, _: &mut App) {}
+    fn delete_folder(&self, folder: u64, _: &mut App) {
+        self.edit(format!("delete folder {folder}"));
+    }
 
-    fn separate(&self, _: u64, _: &mut App) {}
+    fn separate(&self, tab: u64, _: &mut App) {
+        self.edit(format!("separate {tab}"));
+    }
 
     fn move_in_split(&self, _: u64, _: usize, _: &mut App) {}
 
@@ -110,7 +160,9 @@ impl Browser for Recorder {
         self.page_events.borrow_mut().push("shares");
     }
 
-    fn split_with(&self, _: u64, _: u64, _: bool, _: &mut App) {}
+    fn split_with(&self, tab: u64, with: u64, left: bool, _: &mut App) {
+        self.edit(format!("split {tab} {with} {left}"));
+    }
 
     fn show_drop_targets(&self, _: bool, _: &mut App) {}
 
@@ -121,25 +173,57 @@ impl Browser for Recorder {
     fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
 
     fn clear(&self, _: &mut App) {
+        self.edit("clear".into());
         self.record("clear".into())
     }
 
     fn undo_clear(&self, _: &mut App) -> usize {
+        self.edit("undo clear".into());
         self.record("undo clear".into());
-        0
+        1
     }
 
     fn undo_delete_space(&self, _: &mut App) -> bool {
-        Default::default()
+        self.edit("undo delete space".into());
+        true
     }
 
     fn reopen_closed_tab(&self, _: &mut App) {}
 
+    fn reopen_tab(&self, closed: u64, _: &mut App) -> u64 {
+        let made = self.make();
+        self.edit(format!("reopen {closed} as {made}"));
+        made
+    }
+
+    fn pinned_url(&self, tab: u64) -> String {
+        self.pinned_urls.borrow().get(&tab).cloned().unwrap_or_default()
+    }
+
+    fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
+        self.edit(format!("pinned url {tab} {url}"));
+    }
+
+    fn tab_name(&self, tab: u64) -> String {
+        self.names.borrow().get(&tab).cloned().unwrap_or_default()
+    }
+
+    fn undo_archive_remove(&self, _: &mut App) -> usize {
+        self.edit("undo archive remove".into());
+        self.archive_removed.borrow_mut().pop().unwrap_or(0)
+    }
+
     fn restore_archived(&self, _: u64, _: &mut App) {}
 
-    fn remove_archived(&self, _: u64, _: &mut App) {}
+    fn remove_archived(&self, archived: u64, _: &mut App) {
+        self.edit(format!("archive remove {archived}"));
+        self.archive_removed.borrow_mut().push(1);
+    }
 
-    fn clear_archive(&self, _: &mut App) {}
+    fn clear_archive(&self, _: &mut App) {
+        self.edit("archive clear".into());
+        self.archive_removed.borrow_mut().push(2);
+    }
 
     fn act_on_download(&self, _: u64, _: DownloadAction, _: &mut App) {}
 
@@ -203,6 +287,10 @@ impl Browser for Recorder {
         *self.menu_spaces.borrow_mut() = spaces.to_vec();
     }
 
+    fn set_edit_titles(&self, undo: Option<&str>, redo: Option<&str>, _: &mut App) {
+        *self.edit_titles.borrow_mut() = (undo.map(Into::into), redo.map(Into::into));
+    }
+
     fn run_extension(&self, _: &str, _: Bounds<Pixels>, _: &mut App) -> bool {
         Default::default()
     }
@@ -253,19 +341,31 @@ impl Browser for Recorder {
         Default::default()
     }
 
-    fn rename_space(&self, _: u64, _: &str, _: &mut App) {}
-
-    fn rename_tab(&self, _: u64, _: &str, _: &mut App) {}
-
-    fn set_icon(&self, _: u64, _: &str, _: &mut App) {}
-
-    fn delete_space(&self, _: u64, _: &mut App) -> bool {
-        Default::default()
+    fn rename_space(&self, space: u64, name: &str, _: &mut App) {
+        self.edit(format!("rename space {space} {name}"));
     }
 
-    fn set_space_color(&self, _: u64, _: Option<u32>, _: &mut App) {}
+    fn rename_tab(&self, tab: u64, name: &str, _: &mut App) {
+        self.edit(format!("rename tab {tab} {name}"));
+        self.names.borrow_mut().insert(tab, name.into());
+    }
 
-    fn set_space_icon(&self, _: u64, _: &str, _: &mut App) {}
+    fn set_icon(&self, tab: u64, icon: &str, _: &mut App) {
+        self.edit(format!("icon {tab} {icon}"));
+    }
+
+    fn delete_space(&self, space: u64, _: &mut App) -> bool {
+        self.edit(format!("delete space {space}"));
+        true
+    }
+
+    fn set_space_color(&self, space: u64, color: Option<u32>, _: &mut App) {
+        self.edit(format!("color {space} {color:?}"));
+    }
+
+    fn set_space_icon(&self, space: u64, icon: &str, _: &mut App) {
+        self.edit(format!("space icon {space} {icon}"));
+    }
 
     fn set_space_profile(&self, _: u64, _: u64, _: &mut App) {}
 
@@ -342,6 +442,15 @@ impl Browser for Recorder {
 
     fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {
         Default::default()
+    }
+
+    fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, _: Duration, _: &mut App) {
+        self.undo_toasts.borrow_mut().push(text.into());
+        *self.undo_toast.borrow_mut() = Some(undo);
+    }
+
+    fn hide_undo_toast(&self, _: &mut App) {
+        self.undo_toast.borrow_mut().take();
     }
 
     fn full_screen_note(&self, shown: bool, _: &mut App) {

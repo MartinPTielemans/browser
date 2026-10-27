@@ -340,6 +340,35 @@ thread_local! {
     // The links other apps sent before the first window had brought back the Spaces, which they
     // open over; None after.
     static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
+    // What the menu bar was last built from, so a change to one part rebuilds it with the others.
+    static MENUS: RefCell<Menus> = const { RefCell::new(Menus::new()) };
+}
+
+/// What the menu bar lists besides what never changes: the Spaces, the shown Space's profile's
+/// extensions, and the titles Undo and Redo have for what the key window would undo and redo.
+struct Menus {
+    spaces: Vec<SharedString>,
+    extensions: Vec<Extension>,
+    undo: Option<String>,
+    redo: Option<String>,
+}
+
+impl Menus {
+    const fn new() -> Self {
+        Menus { spaces: Vec::new(), extensions: Vec::new(), undo: None, redo: None }
+    }
+
+    fn build(&self) -> Vec<Menu> {
+        menus(&self.spaces, &self.extensions, self.undo.as_deref(), self.redo.as_deref())
+    }
+}
+
+/// "Undo" or "Redo", with what it would undo or redo after it.
+fn edit_title(verb: &str, what: Option<&str>) -> String {
+    match what {
+        Some(what) => format!("{verb} {what}"),
+        None => verb.to_string(),
+    }
 }
 
 /// The core's id and the UI's view of the window that the overlays every window shares show over,
@@ -1325,6 +1354,27 @@ impl Browser for Engine {
         unsafe { bc::bc_window_reopen_closed_tab(self.window) };
     }
 
+    fn reopen_tab(&self, closed: u64, _: &mut App) -> u64 {
+        unsafe { bc::bc_window_reopen_tab(self.window, closed) }
+    }
+
+    fn pinned_url(&self, tab: u64) -> String {
+        name(bc::bc_tab_pinned_url, tab).to_string()
+    }
+
+    fn set_pinned_url(&self, tab: u64, url: &str, _: &mut App) {
+        let url = CString::new(url).unwrap_or_default();
+        unsafe { bc::bc_tab_set_pinned_url(tab, url.as_ptr()) };
+    }
+
+    fn tab_name(&self, tab: u64) -> String {
+        name(bc::bc_tab_name, tab).to_string()
+    }
+
+    fn undo_archive_remove(&self, _: &mut App) -> usize {
+        unsafe { bc::bc_archive_undo_remove() }
+    }
+
     fn restore_archived(&self, archived: u64, _: &mut App) {
         unsafe { bc::bc_window_restore_archived(self.window, archived) };
     }
@@ -1453,9 +1503,23 @@ impl Browser for Engine {
     }
 
     fn set_menus(&self, spaces: &[SharedString], extensions: &[Extension], cx: &mut App) {
+        MENUS.with_borrow_mut(|menus| {
+            menus.spaces = spaces.to_vec();
+            menus.extensions = extensions.to_vec();
+        });
         // The menu bar is the key window's, which lists its own Space's extensions.
         if front().0 == self.window {
-            cx.set_menus(menus(spaces, extensions));
+            cx.set_menus(MENUS.with_borrow(Menus::build));
+        }
+    }
+
+    fn set_edit_titles(&self, undo: Option<&str>, redo: Option<&str>, cx: &mut App) {
+        MENUS.with_borrow_mut(|menus| {
+            menus.undo = undo.map(Into::into);
+            menus.redo = redo.map(Into::into);
+        });
+        if front().0 == self.window {
+            cx.set_menus(MENUS.with_borrow(Menus::build));
         }
     }
 
@@ -1708,6 +1772,14 @@ impl Browser for Engine {
 
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {
         toast::show(text, key, time, cx);
+    }
+
+    fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App) {
+        toast::show_undo(text, undo, time, cx);
+    }
+
+    fn hide_undo_toast(&self, cx: &mut App) {
+        toast::hide_undo(cx);
     }
 
     fn full_screen_note(&self, shown: bool, cx: &mut App) {
@@ -1966,8 +2038,8 @@ fn run_page_shortcut(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> 
     let Some(command) = command.flatten() else {
         return false;
     };
-    // ⌘Z in a text field is the page's, which the Edit menu gives it.
-    if command == Command::Undo && key.editing {
+    // ⌘Z and ⇧⌘Z in a text field are the page's, which the Edit menu gives it.
+    if matches!(command, Command::Undo | Command::Redo) && key.editing {
         return false;
     }
     update_tab_window(tab, |shell, cx| shell.run_for_page(command, cx)).unwrap_or(false)
@@ -2479,7 +2551,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
-        cx.set_menus(menus(&[], &[]));
+        cx.set_menus(menus(&[], &[], None, None));
         open_window(None, None, cx);
     });
     APP.set(Some(app));
@@ -2489,7 +2561,12 @@ unsafe extern "C" fn started(_: *mut c_void) {
 /// shown Space's profile's `extensions` (docs/ux-spec.md › Menus). The Edit menu's standard items
 /// go to the first responder, so a focused page cuts, copies, pastes, selects and undoes for
 /// itself.
-fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
+fn menus(
+    spaces: &[SharedString],
+    extensions: &[Extension],
+    undo: Option<&str>,
+    redo: Option<&str>,
+) -> Vec<Menu> {
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
     vec![
@@ -2529,8 +2606,8 @@ fn menus(spaces: &[SharedString], extensions: &[Extension]) -> Vec<Menu> {
         menu(
             "Edit",
             vec![
-                MenuItem::os_action("Undo", Undo, OsAction::Undo),
-                MenuItem::os_action("Redo", Redo, OsAction::Redo),
+                MenuItem::os_action(edit_title("Undo", undo), Undo, OsAction::Undo),
+                MenuItem::os_action(edit_title("Redo", redo), Redo, OsAction::Redo),
                 MenuItem::separator(),
                 MenuItem::os_action("Cut", Cut, OsAction::Cut),
                 MenuItem::os_action("Copy", Copy, OsAction::Copy),

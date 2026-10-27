@@ -234,6 +234,7 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Clear (⇧⌘K and the divider button) | MVP | closes the Space's Today tabs but the one shown, in one frame, no toast, or that one too when it's all of Today; pinned and favorites stay | Arc 1.170.0 rec, Arc in use |
 | [x] | Undo Clear | MVP | ⌘Z brings them back in place, unloaded; the tab shown stays; one Clear closed as the last shows again (ours) | Arc 1.170.0 rec |
+| [x] | Undo and redo everywhere | MVP | ⌘Z and ⇧⌘Z across close, move, pin, favorite, folder, split, rename and archive edits, with Undo in the Edit menu named and a toast with an Undo ⌘Z button where the change isn't plain; each back in its exact place | ours (Arc: Clear and Delete Space only) |
 | [x] | Reopen closed tab ⇧⌘T | MVP | back in its place with its name, icon, mute and back/forward, and a split's tab back in its split. Pinned tabs don't close | Dia P§2 |
 | [x] | Auto-archive | MVP | a Today tab unseen for 12 hours goes in the archive, counted across a quit | Arc 1.170.0 settings |
 | [x] | Auto-archive's other intervals | MVP | Settings › General: 12 hours (default), 24 hours, 7 days, 30 days, kept with the Spaces | Arc 1.170.0 bin |
