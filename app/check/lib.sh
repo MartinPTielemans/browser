@@ -1,7 +1,8 @@
 # What the runs share. check.sh sources it, then each run's file.
 
-# A Space's theme in its menu: the theme picker.
+# A Space's theme in its menu: the theme picker, and once it has a colour, the way back to none.
 colors="Edit Theme Color…"
+themed="$colors, Remove Theme Color"
 # Where the theme picker's swatches are, from its top left: 13 for its arrow, then a 29.5 pitch.
 swatch_y=380
 swatch_x() { echo "$1" | awk '{ print 13 + 60.5 + 29.5 * $1 }'; }

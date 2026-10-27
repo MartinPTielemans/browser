@@ -77,8 +77,10 @@ impl Shell {
         if self.private {
             return;
         }
-        let icon = self.spaces.iter().any(|each| each.id == space && has_icon(&each.icon));
-        let mut items = space_menu_head(space, icon);
+        let entry = self.spaces.iter().find(|each| each.id == space);
+        let icon = entry.is_some_and(|each| has_icon(&each.icon));
+        let theme = entry.is_some_and(|each| each.color.is_some() || each.theme.is_some());
+        let mut items = space_menu_head(space, icon, theme);
         let at = items.len();
         items.push((MenuEntry::new("Profile", true), Box::new(|_, _| {})));
         let mut profiles = self.profile_items(space);
@@ -571,9 +573,9 @@ impl Shell {
     }
 }
 
-/// The top of a Space's menu, above its colours: Rename Space, Change Icon…, and Remove Icon once
-/// it has one.
-fn space_menu_head(space: u64, has_icon: bool) -> Vec<(MenuEntry, MenuAction)> {
+/// The top of a Space's menu, above its profiles: Rename Space, Change Icon…, Remove Icon once it
+/// has one, Edit Theme Color…, and Remove Theme Color once it has a colour.
+fn space_menu_head(space: u64, has_icon: bool, has_theme: bool) -> Vec<(MenuEntry, MenuAction)> {
     let mut items: Vec<(MenuEntry, MenuAction)> = vec![
         (
             MenuEntry::new("Rename Space", true),
@@ -597,6 +599,14 @@ fn space_menu_head(space: u64, has_icon: bool) -> Vec<(MenuEntry, MenuAction)> {
         MenuEntry::new("Edit Theme Color…", true),
         Box::new(move |shell, cx| shell.edit_space_theme(space, cx)),
     ));
+    // The way back to the system's accent, which the picker has none of (ours: Arc's isn't
+    // recorded).
+    if has_theme {
+        items.push((
+            MenuEntry::new("Remove Theme Color", true),
+            Box::new(move |shell, cx| shell.remove_space_theme(space, cx)),
+        ));
+    }
     items
 }
 
@@ -634,8 +644,8 @@ mod tests {
     use super::{MenuEntry, space_menu_head, space_menu_label};
     use crate::shell::{Folders, Page, Shell, drag::detents::shell_with, recorder::Recorder};
 
-    fn titles(has_icon: bool) -> Vec<String> {
-        let items = space_menu_head(1, has_icon);
+    fn titles(has_icon: bool, has_theme: bool) -> Vec<String> {
+        let items = space_menu_head(1, has_icon, has_theme);
         items.into_iter().map(|(entry, _)| entry.title.to_string()).collect()
     }
 
@@ -644,8 +654,16 @@ mod tests {
     #[test]
     fn remove_icon_is_offered_once_the_space_has_one() {
         let theme = "Edit Theme Color…";
-        assert_eq!(titles(false), ["Rename Space", "Change Icon…", theme]);
-        assert_eq!(titles(true), ["Rename Space", "Change Icon…", "Remove Icon", theme]);
+        assert_eq!(titles(false, false), ["Rename Space", "Change Icon…", theme]);
+        assert_eq!(titles(true, false), ["Rename Space", "Change Icon…", "Remove Icon", theme]);
+    }
+
+    /// Remove Theme Color follows Edit Theme Color… only once the Space has a colour, as Remove
+    /// Icon follows Change Icon….
+    #[test]
+    fn remove_theme_color_is_offered_once_the_space_has_one() {
+        let titles = titles(false, true);
+        assert_eq!(titles[2..], ["Edit Theme Color…", "Remove Theme Color"]);
     }
 
     /// The menu bar lists a Space by its name, after its emoji if it has one.
