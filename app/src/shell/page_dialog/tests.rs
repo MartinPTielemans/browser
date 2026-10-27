@@ -6,7 +6,7 @@ use std::rc::Rc;
 use gpui::{Entity, TestAppContext, VisualTestContext};
 
 use super::{DialogKind, PageDialog, PageReply};
-use crate::shell::{Folders, Shell, recorder::Recorder};
+use crate::shell::{Folders, Page, Shell, recorder::Recorder};
 
 /// A window on one Space of tabs 10 and 20, showing 10, drawn.
 fn window(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
@@ -117,4 +117,22 @@ fn the_password_never_reaches_a_log(cx: &mut TestAppContext) {
     );
     // The core still gets it.
     assert_eq!(host.replies.borrow()[0].password, "hunter2");
+}
+
+#[gpui::test]
+fn a_tab_in_safaris_engine_keeps_chromiums_dialog_back(cx: &mut TestAppContext) {
+    let (shell, cx, host) = window(cx);
+    ask(&shell, cx, 10, Some(prompt(1)));
+    assert_eq!(dialogs(&host), ["page dialog 10 1"]);
+    let engine = |shell: &Entity<Shell>, cx: &mut VisualTestContext, system_engine: bool| {
+        shell.update(cx, |shell, cx| {
+            let page = Page { system_engine, ..shell.page(10) };
+            shell.set_page(10, page, cx);
+        });
+        cx.run_until_parked();
+    };
+    engine(&shell, cx, true);
+    assert_eq!(dialogs(&host), ["page dialog none"]);
+    engine(&shell, cx, false);
+    assert_eq!(dialogs(&host), ["page dialog 10 1"]);
 }
