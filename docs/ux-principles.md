@@ -54,7 +54,7 @@ Each principle has what was **seen**, with the spec section it comes from, our *
 
 ## Teach the keys where they're used
 
-- **Seen.** The delete dialog's buttons carry ESC and ↩ chips. The toast after a delete names ⌘Z.
+- **Seen.** The delete dialog's buttons carry ESC and ↩ chips. The toast after a delete names ⌘Z. Every command in the command bar shows its key at its row's end, and a tab's menu shows Copy Link's ⇧⌘C; Help's Essential Keyboard Shortcuts is five keys, not a reference card (Command bar › Commands, Keyboard).
 - **Reading.** The keyboard path is learned at the moment it's useful, not from a help page.
 - **Applies.** A button with a key shows the key on the button. A message that can be undone names the undo's key.
 
