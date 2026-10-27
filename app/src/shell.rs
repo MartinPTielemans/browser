@@ -906,6 +906,9 @@ pub struct Shell {
     /// until ⌃ goes up, and then its last one does, though a click may have shown another since.
     walked: Option<u64>,
     hovered: Option<Row>,
+    /// A drag ended, so the tooltip of the tile or folder the pointer is on, which it kept from
+    /// asking while it was hovered under the drag, is asked for once the rows and tiles settle.
+    retip: bool,
     /// The tab whose menu is up, whose row keeps its hover fill until the menu closes.
     menu_row: Option<u64>,
     /// Rows the pointer left, whose hover fill is fading, and since when.
@@ -1174,6 +1177,7 @@ impl Shell {
             walked: None,
             selected: 0,
             hovered: None,
+            retip: false,
             menu_row: None,
             unhovered: Vec::new(),
             held_row: None,
@@ -2262,6 +2266,19 @@ impl Shell {
         }
     }
 
+    /// Once a drag has ended and its rows and tiles have stopped, asks for the tooltip of what the
+    /// pointer is on. A tile that came under the pointer in the drag, as the dropped row's does,
+    /// was hovered then, and GPUI tells a handler only when hover changes, so it would never ask.
+    fn step_retip(&mut self, cx: &mut Context<Self>) {
+        if !self.retip || !self.slides.is_empty() || !self.tile_slides.is_empty() {
+            return;
+        }
+        self.retip = false;
+        if let Some(row) = self.hovered {
+            self.hover_tooltip(row, true, cx);
+        }
+    }
+
     /// Drops the list's and the pages' motion that's done, and returns whether any is left.
     fn list_moving(&mut self) -> bool {
         let sliding = !self.slides.is_empty();
@@ -2439,6 +2456,7 @@ impl Render for Shell {
         if self.list_moving() {
             window.request_animation_frame();
         }
+        self.step_retip(cx);
         self.step_drag_shape(window, cx);
         self.step_held_row(window);
         self.step_form_going(cx);
@@ -2897,6 +2915,7 @@ impl Shell {
         if self.list_moving() {
             window.request_animation_frame();
         }
+        self.step_retip(cx);
         self.step_drag_shape(window, cx);
         self.step_held_row(window);
         self.step_form_going(cx);
