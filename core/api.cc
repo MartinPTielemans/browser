@@ -35,6 +35,7 @@
 #include "browser_core/window.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/lifetime/browser_shutdown.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
@@ -129,6 +130,10 @@ int bc_main(int argc, const char** argv, const bc_host* host) {
 
 void bc_quit(void) {
   browser_core::Quit();
+}
+
+bool bc_quitting(void) {
+  return browser_shutdown::IsTryingToQuit();
 }
 
 bc_id bc_window_open(bc_rect bounds, void* ui_view) {
