@@ -119,7 +119,7 @@ expect "^browser: page $second trouble fine\$" "the page loaded again wasn't fin
 
 # The tab behind loads once it's shown, with no card.
 send click $(row 1)
-expect "^browser: selected $tab\$" "the first tab wasn't shown"
+expect "^browser: selected $tab in " "the first tab wasn't shown"
 expect "^browser: loaded $tab ${site}busy.html\$" "the tab behind didn't load once shown"
 none_since "trouble crashed" || fail "the tab behind showed the crash card"
 
