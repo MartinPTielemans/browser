@@ -24,3 +24,4 @@ ours/chromium-core-open-links.patch
 ours/chromium-core-link-target.patch
 ours/chromium-core-hung-page.patch
 ours/chromium-core-error-page.patch
+ours/chromium-core-offline-game.patch

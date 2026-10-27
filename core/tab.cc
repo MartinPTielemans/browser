@@ -22,6 +22,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/recently_audible_helper.h"
 #include "chrome/browser/ui/tabs/tab_muted_utils.h"
+#include "components/error_page/content/browser/net_error_auto_reloader.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/favicon_base/favicon_types.h"
@@ -497,6 +498,17 @@ void Tab::PageHung(content::WebContents* contents,
   // check.sh waits for this line.
   LOG(ERROR) << "browser: tab " << tab->id_ << " page hung";
   tab->ReportStateSoon();
+}
+
+// static
+void Tab::GameRunning(content::WebContents* contents, bool running) {
+  if (Tab* tab = FromWebContents(contents)) {
+    // check.sh waits for these lines.
+    LOG(ERROR) << "browser: tab " << tab->id_ << " game " << (running ? "running" : "over");
+  }
+  if (auto* reloader = error_page::NetErrorAutoReloader::FromWebContents(contents)) {
+    reloader->SetHeld(running);
+  }
 }
 
 void Tab::OnRendererResponsive(content::RenderProcessHost* process) {
