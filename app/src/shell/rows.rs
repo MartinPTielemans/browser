@@ -699,13 +699,16 @@ impl Shell {
     pub(super) fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let (plus, label) = new_tab_label();
         // ⌥-click opens the new tab beside the page, as Dia's does.
-        self.row(Row::NewTab, plate(plus, label), false, cx).on_click(cx.listener(
-            |shell, event: &ClickEvent, _, cx| {
+        self.row(Row::NewTab, plate(plus, label), false, cx)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, _, _, cx| shell.pressed_bar_target(cx)),
+            )
+            .on_click(cx.listener(|shell, event: &ClickEvent, _, cx| {
                 let command =
                     if event.modifiers().alt { Command::AddSplit } else { Command::NewTab };
-                shell.run(command, "sidebar", cx)
-            },
-        ))
+                shell.clicked_bar_target(command, "sidebar", cx)
+            }))
     }
 }
 

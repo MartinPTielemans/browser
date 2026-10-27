@@ -5,9 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{Entity, Modifiers, Point, Pixels, TestAppContext, VisualTestContext};
+use gpui::{Entity, Modifiers, Pixels, Point, TestAppContext, VisualTestContext, point, px};
 
-use crate::shell::{Folders, Shell, empty::FADE, recorder::Recorder};
+use crate::shell::{Folders, ROW_HEIGHT, Shell, Slot, empty::FADE, recorder::Recorder};
 
 /// A drawn shell showing one Space with Today tabs 1 and 2, and no tab shown, as a fresh window.
 fn window_with_no_tab(
@@ -64,6 +64,7 @@ fn a_click_on_the_empty_card_opens_the_command_bar(cx: &mut TestAppContext) {
     let frame = shell.read_with(cx, |shell, _| shell.page_frame(shell.viewport).0);
     let corner = Point::new(frame.right() - gpui::px(20.), frame.bottom() - gpui::px(20.));
     for at in [middle(&shell, cx), corner] {
+        host.bar_open.set(false);
         cx.simulate_click(at, Modifiers::none());
         assert_eq!(host.command_bars.take(), [None], "a click at {at:?}");
     }
@@ -78,4 +79,45 @@ fn a_page_shown_takes_the_card_away(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.simulate_click(middle(&shell, cx), Modifiers::none());
     assert!(host.command_bars.take().is_empty());
+}
+
+/// With the bar open, a click on the card only closes it: the host has closed the bar at the press,
+/// and the app reports so after, so the release mustn't open it again. Once the report is in, the
+/// next click opens it.
+#[gpui::test]
+fn a_click_on_the_card_with_the_bar_open_only_closes_it(cx: &mut TestAppContext) {
+    let (shell, cx, host) = window_with_no_tab(cx);
+    let at = middle(&shell, cx);
+    cx.simulate_click(at, Modifiers::none());
+    assert_eq!(host.command_bars.take().len(), 1);
+
+    cx.simulate_click(at, Modifiers::none());
+    assert!(host.command_bars.take().is_empty(), "the click opened the bar it closed");
+
+    // The app's report, which the click's press came before.
+    host.bar_open.set(false);
+    shell.update(cx, |shell, cx| shell.command_bar_dismissed(cx));
+    cx.simulate_click(at, Modifiers::none());
+    assert_eq!(host.command_bars.take().len(), 1, "the next click opens it");
+}
+
+/// The sidebar's New Tab row and its URL field open the bar as the card does, so a click on either
+/// with the bar open closes it too.
+#[gpui::test]
+fn the_other_targets_that_open_the_bar_only_close_it_too(cx: &mut TestAppContext) {
+    let (shell, cx, host) = window_with_no_tab(cx);
+    shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+    cx.run_until_parked();
+    let (new_tab, field) = shell.read_with(cx, |shell, _| {
+        let row = shell.list_top_with(0) + shell.layout()[&Slot::NewTab] + ROW_HEIGHT / 2.;
+        let field = shell.url_field_bounds().expect("the URL field is drawn").center();
+        (point(px(100.), px(row)), field)
+    });
+    for at in [new_tab, field] {
+        host.bar_open.set(false);
+        cx.simulate_click(at, Modifiers::none());
+        assert_eq!(host.command_bars.take().len(), 1, "a click at {at:?} opens it");
+        cx.simulate_click(at, Modifiers::none());
+        assert!(host.command_bars.take().is_empty(), "a second click at {at:?} opened it again");
+    }
 }
