@@ -804,7 +804,8 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   send key n cmd shift
   expect '^browser: private window opened [0-9]* profile [0-9]*$' "⇧⌘N didn't open a private window again"
   private=$(grep '^browser: private window opened ' "$log" | tail -1 | cut -d' ' -f5)
-  send window 2
+  # The driver numbers windows in the order they were made, the closed one too.
+  send window 3
   private_session_page "" "$private"
   expect "^browser: title $private_tab session safari sees none\$" \
     "the next private window's Safari's engine saw the ended session's values, or the regular window's: $(grep "^browser: title $private_tab " "$log" | tail -1)"
