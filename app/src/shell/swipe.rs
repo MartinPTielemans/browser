@@ -582,7 +582,7 @@ mod tests {
             shell.set_spaces((1..=4).map(space).collect(), cx);
             shell.set_space(4, cx);
             let name = cx.new(|cx| TextInput::new("Space name", cx));
-            shell.form = Some(SpaceForm { space: 4, from: 3, name });
+            shell.form = Some(SpaceForm { space: 4, from: 3, name, tab: None });
             shell.set_favorites(vec![(10, 1)], cx);
         });
         cx.run_until_parked();
