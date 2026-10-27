@@ -106,6 +106,11 @@ void host_show_overlay(int overlay,
 // Makes the overlay |height| points tall, keeping its top edge, and draws it at that size.
 void host_set_overlay_height(int overlay, double height);
 
+// Whether this system's emoji font draws |emoji|, UTF-8, as the one emoji it is. A newer emoji than
+// the system knows draws as a missing glyph, and a newer sequence as the emoji it is made of. For
+// the icon picker's list. emoji.mm.
+bool host_can_draw_emoji(const char* emoji);
+
 // Hides the overlay. The browser window gets the keyboard back, with the focus where it was.
 void host_hide_overlay(int overlay);
 

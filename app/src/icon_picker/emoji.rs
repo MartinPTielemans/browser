@@ -3,7 +3,7 @@
 //! layout is *interim* until Arc's Emoji tab is captured (docs/ux-spec.md › Spaces › Icon), and
 //! these are the numbers a capture changes. The columns, pitch and plates are the Icon tab's.
 
-use std::ops::Range;
+use std::{collections::HashSet, ops::Range};
 
 use emojis::{Emoji, Group, SkinTone};
 
@@ -53,6 +53,24 @@ impl Recents {
     }
 }
 
+/// The emoji the system can draw. The table knows the newest Unicode's, which an older system's
+/// font draws as a missing glyph, or as its parts when it's a sequence, so the grid offers only
+/// these. Only the emoji the grid lists are asked about, once; a skin tone would be asked when the
+/// grid lists it.
+pub struct Drawable(HashSet<&'static str>);
+
+impl Drawable {
+    /// Asks `draws` about each emoji the grid lists.
+    pub fn new(draws: impl Fn(&str) -> bool) -> Self {
+        let base = emojis::iter().filter(|emoji| is_base(emoji));
+        Drawable(base.map(Emoji::as_str).filter(|emoji| draws(emoji)).collect())
+    }
+
+    fn has(&self, emoji: &Emoji) -> bool {
+        self.0.contains(emoji.as_str())
+    }
+}
+
 /// One row of the list: a header, or up to `COLUMNS` emoji, as a range of the grid's items.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Row {
@@ -69,17 +87,20 @@ pub struct Grid {
 
 impl Grid {
     /// The recently used, then every group in Unicode's order, for no search; else the emoji whose
-    /// name or shortcode has each word searched for, with no headers.
-    pub fn new(query: &str, recents: &Recents) -> Self {
+    /// name or shortcode has each word searched for, with no headers. Only `drawable` emoji: a
+    /// recent one a newer system saved stays in `recents`, and shows again where that system is.
+    pub fn new(query: &str, recents: &Recents, drawable: &Drawable) -> Self {
         let mut grid = Grid { items: Vec::new(), rows: Vec::new() };
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         if words.is_empty() {
-            grid.section("Recently Used", recents.emojis());
+            grid.section("Recently Used", recents.emojis().filter(|emoji| drawable.has(emoji)));
             for group in Group::iter() {
-                grid.section(group_name(group), group.emojis().filter(|emoji| is_base(emoji)));
+                let each = group.emojis().filter(|emoji| is_base(emoji) && drawable.has(emoji));
+                grid.section(group_name(group), each);
             }
         } else {
-            let found = emojis::iter().filter(|emoji| is_base(emoji) && matches(emoji, &words));
+            let found = emojis::iter()
+                .filter(|emoji| is_base(emoji) && drawable.has(emoji) && matches(emoji, &words));
             grid.section("", found);
         }
         grid
@@ -172,10 +193,14 @@ fn group_name(group: Group) -> &'static str {
 mod tests {
     use super::*;
 
+    fn all() -> Drawable {
+        Drawable::new(|_| true)
+    }
+
     #[test]
     fn the_groups_come_in_unicodes_order_after_the_recents() {
         let recents = Recents::parse("🦊\n🌱\n");
-        let grid = Grid::new("", &recents);
+        let grid = Grid::new("", &recents, &all());
         let headers: Vec<_> = grid
             .rows
             .iter()
@@ -194,13 +219,13 @@ mod tests {
 
     #[test]
     fn no_recents_leave_no_header() {
-        let grid = Grid::new("", &Recents::default());
+        let grid = Grid::new("", &Recents::default(), &all());
         assert_eq!(grid.rows[0], Row::Header("Smileys & Emotion"));
     }
 
     #[test]
     fn the_grid_has_no_skin_tones_and_no_components() {
-        let grid = Grid::new("", &Recents::default());
+        let grid = Grid::new("", &Recents::default(), &all());
         assert!(grid.items.len() > 1_500, "{}", grid.items.len());
         assert!(grid.position("👍").is_some());
         assert!(grid.position("👍🏽").is_none());
@@ -209,21 +234,21 @@ mod tests {
 
     #[test]
     fn a_search_matches_names_and_shortcodes() {
-        let grid = Grid::new("fox", &Recents::default());
+        let grid = Grid::new("fox", &Recents::default(), &all());
         assert_eq!(grid.items[0].as_str(), "🦊");
-        let grid = Grid::new("  GRINNING  face ", &Recents::default());
+        let grid = Grid::new("  GRINNING  face ", &Recents::default(), &all());
         assert_eq!(grid.items[0].as_str(), "😀");
         // A shortcode that isn't in the name.
-        let grid = Grid::new("+1", &Recents::default());
+        let grid = Grid::new("+1", &Recents::default(), &all());
         assert!(grid.position("👍").is_some());
-        assert!(Grid::new("zzzzzz", &Recents::default()).items.is_empty());
+        assert!(Grid::new("zzzzzz", &Recents::default(), &all()).items.is_empty());
         // Found emoji have no headers.
         assert!(grid.rows.iter().all(|row| matches!(row, Row::Cells(_))));
     }
 
     #[test]
     fn rows_hold_eight_and_cover_every_item_once() {
-        let grid = Grid::new("", &Recents::parse("🦊"));
+        let grid = Grid::new("", &Recents::parse("🦊"), &all());
         let mut next = 0;
         for row in &grid.rows {
             if let Row::Cells(cells) = row {
@@ -237,7 +262,7 @@ mod tests {
 
     #[test]
     fn steps_go_along_rows_and_keep_the_column_up_and_down() {
-        let grid = Grid::new("smil", &Recents::default());
+        let grid = Grid::new("smil", &Recents::default(), &all());
         let last = grid.items.len() - 1;
         assert_eq!(grid.step(None, 1, 0), Some(0));
         assert_eq!(grid.step(Some(0), 1, 0), Some(1));
@@ -256,7 +281,7 @@ mod tests {
 
     #[test]
     fn steps_skip_the_headers_between_groups() {
-        let grid = Grid::new("", &Recents::default());
+        let grid = Grid::new("", &Recents::default(), &all());
         let people = grid.rows.iter().position(|row| *row == Row::Header("People & Body")).unwrap();
         let Row::Cells(last_smileys) = &grid.rows[people - 1] else { panic!("not a row") };
         let Row::Cells(first_people) = &grid.rows[people + 1] else { panic!("not a row") };
@@ -276,6 +301,58 @@ mod tests {
         }
         assert_eq!(recents.0.len(), RECENTS);
         assert_eq!(Recents::parse(&recents.to_text()), recents);
+    }
+
+    /// A system whose font stops at Unicode 13: it draws no emoji added after, a sequence of them
+    /// included, which `host_can_draw_emoji` finds out from the font.
+    fn unicode_13(emoji: &str) -> bool {
+        emojis::get(emoji).is_some_and(|emoji| emoji.unicode_version().major() <= 13)
+    }
+
+    #[test]
+    fn the_grid_offers_only_what_the_system_draws() {
+        // 🫠 melting face is Unicode 14, and 🐦‍🔥 phoenix a 15.1 sequence of 🐦 and 🔥.
+        let (melting, phoenix) = (emojis::get("🫠").unwrap(), emojis::get("🐦‍🔥").unwrap());
+        assert!(phoenix.as_str().contains('\u{200d}'));
+        let old = Drawable::new(unicode_13);
+        let recents = Recents::parse("🫠\n🦊\n🐦‍🔥\n");
+        let grid = Grid::new("", &recents, &old);
+        assert!(grid.position(melting.as_str()).is_none());
+        assert!(grid.position(phoenix.as_str()).is_none());
+        assert!(grid.items.iter().all(|emoji| unicode_13(emoji.as_str())));
+        // The recents that draw are left, first.
+        assert_eq!(grid.items[0].as_str(), "🦊");
+        assert_eq!(grid.rows[0], Row::Header("Recently Used"));
+        // Searching doesn't find them either, while a newer system does.
+        assert!(Grid::new("melting", &recents, &old).items.is_empty());
+        assert!(Grid::new("melting", &recents, &all()).position(melting.as_str()).is_some());
+        // The whole is still most of the list.
+        assert!(grid.items.len() > 1_400, "{}", grid.items.len());
+    }
+
+    #[test]
+    fn what_the_system_cant_draw_stays_in_the_recents() {
+        let mut recents = Recents::parse("🫠\n");
+        let old = Drawable::new(unicode_13);
+        assert_eq!(Grid::new("", &recents, &old).rows[0], Row::Header("Smileys & Emotion"));
+        // Picking another doesn't lose it, so a newer system sharing the profile still lists it.
+        recents.push("🦊");
+        assert_eq!(recents.to_text(), "🦊\n🫠\n");
+        assert_eq!(Grid::new("", &recents, &all()).position("🫠"), Some(1));
+    }
+
+    #[test]
+    fn the_system_is_asked_once_about_each_emoji_the_grid_lists() {
+        let asked = std::cell::Cell::new(0);
+        let drawable = Drawable::new(|_| {
+            asked.set(asked.get() + 1);
+            true
+        });
+        let listed = Grid::new("", &Recents::default(), &drawable).items.len();
+        // Searches and the whole list again ask nothing more.
+        Grid::new("fox", &Recents::default(), &drawable);
+        Grid::new("", &Recents::default(), &drawable);
+        assert_eq!(asked.get(), listed);
     }
 
     #[test]

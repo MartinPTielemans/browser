@@ -24,7 +24,7 @@ use crate::{
 
 mod emoji;
 
-use emoji::{Grid, Row};
+use emoji::{Drawable, Grid, Row};
 pub use emoji::Recents;
 
 actions!(icon_picker, [Dismiss, Keep, Up, Down]);
@@ -82,6 +82,12 @@ pub trait Host {
     /// The emoji picked last have changed: `recents` is what `Recents::to_text` makes of them, for
     /// the host to keep and give `open` again after a relaunch.
     fn keep_recents(&self, recents: &str);
+    /// Whether the system's emoji font draws `emoji` as the one emoji it is. A system older than
+    /// the list draws a newer emoji as a missing glyph and a newer sequence as its parts, so the
+    /// grid leaves those out. A platform with no way to ask offers everything.
+    fn draws(&self, _emoji: &str) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -115,6 +121,8 @@ pub struct IconPicker {
     search: Entity<TextInput>,
     scroll: UniformListScrollHandle,
     recents: Recents,
+    /// The emoji the system draws, asked of the host when the Emoji tab first shows, once a launch.
+    drawable: Option<Drawable>,
     picking: Option<Picking>,
 }
 
@@ -178,6 +186,7 @@ pub fn open_at(
             search,
             scroll: UniformListScrollHandle::new(),
             recents,
+            drawable: None,
             picking: None,
         })
     });
@@ -312,7 +321,10 @@ impl IconPicker {
         // The whole list, with the Space's emoji on the plate and in view. The table is static, so
         // this is the work of a pass over it, and only when this tab shows.
         picking.query.clear();
-        picking.grid = Grid::new("", &self.recents);
+        let host = &self.host;
+        let drawable =
+            self.drawable.get_or_insert_with(|| Drawable::new(|emoji| host.draws(emoji)));
+        picking.grid = Grid::new("", &self.recents, drawable);
         picking.selected = current(&picking.icon, &picking.grid);
         self.search.update(cx, |field, cx| field.reset(SharedString::default(), window, cx));
         self.scroll_to_selected(ScrollStrategy::Center);
@@ -335,8 +347,12 @@ impl IconPicker {
         if picking.tab != Tab::Emoji || picking.query == text {
             return;
         }
+        // Asked for when the tab showed, which any search follows.
+        let Some(drawable) = &self.drawable else {
+            return;
+        };
         picking.query = text.to_string();
-        picking.grid = Grid::new(text, &self.recents);
+        picking.grid = Grid::new(text, &self.recents, drawable);
         picking.selected = if text.trim().is_empty() {
             current(&picking.icon, &picking.grid)
         } else {

@@ -7,6 +7,7 @@ fn main() {
         .cpp(true)
         .file("platform/mac/host.mm")
         .file("platform/mac/drive.mm")
+        .file("platform/mac/emoji.mm")
         // The driver calls the core for what only agent code will, once there is some.
         .include(root.join("../core/public"))
         .flag("-std=c++20")
@@ -39,6 +40,7 @@ fn main() {
         println!("cargo:rustc-link-arg-bin=Browser={arg}");
     }
     println!("cargo:rustc-link-lib=framework=Cocoa");
+    println!("cargo:rustc-link-lib=framework=CoreText");
     println!("cargo:rustc-link-lib=framework=ImageIO");
     println!("cargo:rustc-link-lib=framework=UniformTypeIdentifiers");
 
