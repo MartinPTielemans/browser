@@ -88,6 +88,8 @@ pub(super) struct Recorder {
     /// The URL each pinned tab or favorite goes back to, and the name each tab was given.
     pub(super) pinned_urls: RefCell<HashMap<u64, String>>,
     pub(super) names: RefCell<HashMap<u64, String>>,
+    /// The words of the toasts with no Undo button it was asked to show.
+    pub(super) toasts: RefCell<Vec<String>>,
     /// The words of the toasts with an Undo button it was asked to show, and what the last one's
     /// button does.
     pub(super) undo_toasts: RefCell<Vec<String>>,
@@ -540,8 +542,8 @@ impl Browser for Recorder {
 
     fn share(&self, _: &str, _: &str, _: usize, _: &mut App) {}
 
-    fn toast(&self, _: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {
-        Default::default()
+    fn toast(&self, text: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {
+        self.toasts.borrow_mut().push(text.into());
     }
 
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, _: Duration, _: &mut App) {
