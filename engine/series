@@ -27,3 +27,4 @@ ours/chromium-core-error-page.patch
 ours/chromium-core-offline-game.patch
 ours/chromium-xcode-build-define.patch
 ours/chromium-core-login-dialog.patch
+ours/chromium-core-external-protocol-dialog.patch
