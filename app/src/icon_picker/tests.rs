@@ -1,14 +1,17 @@
 //! The icon picker's tabs, clicks and keys, on a host that records what the picker asks of its
 //! window and what it picks.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
 
 use super::*;
 
 #[derive(Default)]
-struct Recorder(RefCell<Vec<String>>);
+struct Recorder(RefCell<Vec<String>>, Cell<usize>);
 
 impl Recorder {
     fn record(&self, call: String) {
@@ -27,6 +30,12 @@ impl Host for Recorder {
 
     fn keep_recents(&self, recents: &str) {
         self.record(format!("recents {recents:?}"));
+    }
+
+    /// A system too old for 🫠 melting face, which came with Unicode 14.
+    fn draws(&self, emoji: &str) -> bool {
+        self.1.set(self.1.get() + 1);
+        emoji != "🫠"
     }
 }
 
@@ -175,6 +184,29 @@ fn the_spaces_emoji_is_on_the_plate_when_it_opens(cx: &mut TestAppContext) {
     // A Space with no emoji has nothing on the plate.
     let mut picker = Picker::new("", cx);
     assert_eq!(picker.tab(), Some(Tab::Icon));
+}
+
+#[gpui::test]
+fn the_list_leaves_out_what_the_system_cant_draw_and_asks_once(cx: &mut TestAppContext) {
+    // Not asked until the Emoji tab shows.
+    let mut picker = Picker::new("glyph:star", cx);
+    assert_eq!(picker.host.1.get(), 0);
+    // The Emoji segment is the first of the two, centred under the arrow with the trash.
+    let left = (WIDTH - (2. * SEGMENT_WIDTH + TRASH_GAP + SEGMENTS_HEIGHT)) / 2.;
+    picker.click(left + SEGMENT_WIDTH / 2., ARROW + SEGMENTS_TOP + SEGMENTS_HEIGHT / 2.);
+    let (items, _) = picker.listed();
+    assert!(items.contains(&"🦊") && !items.contains(&"🫠"));
+    let asked = picker.host.1.get();
+    assert!(asked > 1_500, "{asked}");
+    // A search, and the tab shown again, ask nothing more.
+    picker.type_in_search("face");
+    assert!(!picker.listed().0.contains(&"🫠"));
+    assert_eq!(picker.host.1.get(), asked);
+
+    // A Space whose emoji the system can't draw opens on the Emoji tab with nothing on the plate.
+    let mut picker = Picker::new("🫠", cx);
+    assert_eq!(picker.tab(), Some(Tab::Emoji));
+    assert_eq!(picker.listed().1, None);
 }
 
 #[gpui::test]

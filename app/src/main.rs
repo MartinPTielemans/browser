@@ -90,6 +90,7 @@ mod platform {
         );
         pub fn host_set_overlay_height(overlay: c_int, height: f64);
         pub fn host_hide_overlay(overlay: c_int);
+        pub fn host_can_draw_emoji(emoji: *const c_char) -> bool;
         pub fn host_dismiss_overlay(overlay: c_int);
         pub fn host_hold_keys();
         pub fn host_add_find_bar(
@@ -1045,6 +1046,12 @@ impl icon_picker::Host for PickerHost {
         if let Err(error) = std::fs::write(recent_emoji_path(), recents) {
             log!("couldn't save the recent emoji: {error}");
         }
+    }
+
+    fn draws(&self, emoji: &str) -> bool {
+        // An emoji has no NUL, so the string always converts.
+        std::ffi::CString::new(emoji)
+            .is_ok_and(|emoji| unsafe { platform::host_can_draw_emoji(emoji.as_ptr()) })
     }
 }
 
