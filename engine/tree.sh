@@ -1,4 +1,4 @@
-# What setup.sh and check-linux.sh both do to a prepared Chromium tree. Sourced; each function
+# What setup.sh and linux/prepare.sh both do to a prepared Chromium tree. Sourced; each function
 # takes the tree's path.
 
 engine=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
