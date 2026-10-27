@@ -55,8 +55,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
                public TabStripModelObserver,
                public views::WidgetObserver {
  public:
-  // Returns null once Chromium is quitting.
-  static Window* Open(const gfx::Rect& bounds, void* ui_view);
+  // Returns null once Chromium is quitting. With |behind|, it opens behind the windows open and
+  // isn't key, as the windows a relaunch brings back after the first do.
+  static Window* Open(const gfx::Rect& bounds, void* ui_view, bool behind = false);
   // A private window for |profile|'s off-the-record profile, showing a Space of its own
   // (Space::CreateOffTheRecord). See bc_window_open_private. Null once Chromium is quitting.
   static Window* OpenPrivate(const gfx::Rect& bounds, void* ui_view, Profile* profile);
@@ -261,6 +262,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
 
   // views::WidgetObserver:
   void OnWidgetActivationChanged(views::Widget* widget, bool active) override;
+  void OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) override;
 
  private:
   class ClientView;
@@ -282,7 +284,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
     bc_id id;
     std::vector<Cleared> tabs;
   };
-  Window(bc_id id, const gfx::Rect& bounds, void* ui_view);
+  Window(bc_id id, const gfx::Rect& bounds, void* ui_view, bool behind);
 
   // The Browser for |profile|'s tabs in this window, made when there's none or it's closing. Null
   // while the window is closing or Chromium is quitting.

@@ -19,10 +19,21 @@ void drive_start(void);
 // top-left corner.
 void host_centered(double width, double height, double* x, double* y);
 
-// Puts a window on screen where the first browser window will open, |width| by |height|, with
-// the window's material and the sidebar as it was when the app last quit, from |profile_dir|.
-// For the moment between NSApp being made and the browser starting.
-void host_show_launch_window(const char* profile_dir, double width, double height);
+// Puts a window on screen at |x|, |y|, |width| by |height| in host_centered's terms, where the
+// first browser window will open, with the window's material and the sidebar as it was when the
+// app last quit at that size, from |profile_dir|. For the moment between NSApp being made and the
+// browser starting.
+void host_show_launch_window(const char* profile_dir, double x, double y, double width,
+                             double height);
+
+// The visible frames of the screens a window may open on, in host_centered's terms, as x, y,
+// width and height, four to a screen: the main display's first, or with BROWSER_DISPLAY=builtin
+// the Mac's own alone. Copies up to |count| screens into |frames| and returns how many there are.
+size_t host_screens(double* frames, size_t count);
+
+// The frame of the browser window of |ui_view|, in host_centered's terms. False, leaving them be,
+// while it's full screen.
+bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height);
 
 // Takes the launch window's sidebar picture off the browser window, once the UI has drawn under
 // it, and the launch window off screen if the browser window never came.
@@ -40,6 +51,11 @@ void* host_ui_view(void);
 // Shows the window holding |ui_view| in front, with its title bar over the UI, and makes the
 // app the active one.
 void host_show_window(void* ui_view);
+
+// Shows the window holding |ui_view| as host_show_window does, but right behind the browser window
+// of |above_ui_view|, neither key nor activating the app, as the windows a relaunch brings back
+// after the first.
+void host_show_window_behind(void* ui_view, void* above_ui_view);
 
 // Where the next browser window goes after the one of |ui_view|, in host_centered's terms: as
 // big, down and to the right as AppKit cascades windows, kept on its screen.

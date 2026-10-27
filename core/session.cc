@@ -17,6 +17,7 @@
 #include "base/functional/callback.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/no_destructor.h"
 #include "base/path_service.h"
 #include "base/pickle.h"
 #include "base/task/sequenced_task_runner.h"
@@ -46,19 +47,37 @@ namespace browser_core {
 
 namespace {
 
+// A regular window, as the session file keeps it.
+struct SavedWindow {
+  // The Space it showed, among the session's.
+  int space = 0;
+  // Its frame out of full screen, empty if it was saved before frames were kept.
+  gfx::Rect bounds;
+  // Its docked sidebar's width, or 0 for none.
+  double sidebar_width = 0;
+  bool fullscreen = false;
+};
+
 struct Saved {
   // Left to right.
   std::vector<SavedTab> favorites;
   std::vector<SavedSpace> spaces;
-  // The Space the window showed.
-  int shown = 0;
-  // The window's docked sidebar's width, or 0 for none.
-  double sidebar_width = 0;
-  // Whether the window was full screen.
-  bool fullscreen = false;
+  // Front to back, which is the order they were last active in.
+  std::vector<SavedWindow> windows;
   std::vector<ArchivedTab> archive;
   Settings settings;
 };
+
+// The windows the last launch saved, for the app to open again, and the Spaces RestoreSession
+// brought back, by their places in the session.
+std::vector<SavedWindow>& LoadedWindows() {
+  static base::NoDestructor<std::vector<SavedWindow>> windows;
+  return *windows;
+}
+std::vector<bc_id>& RestoredSpaces() {
+  static base::NoDestructor<std::vector<bc_id>> spaces;
+  return *spaces;
+}
 
 // A navigation's page state is left out past this, as in Chrome's sessions.
 constexpr int kMaxNavigationSize = 63 * 1024;
@@ -217,10 +236,9 @@ Saved Collect() {
   // The regular windows, as nothing of a private one is saved.
   std::vector<Window*> windows = Window::All();
   std::erase_if(windows, [](const Window* each) { return each->off_the_record(); });
-  const Window* window = windows.empty() ? nullptr : windows.front();
-  saved.sidebar_width = window ? window->sidebar_width() : 0;
-  saved.fullscreen = window && window->widget() && window->widget()->IsFullscreen();
   saved.settings = UserSettings();
+  // Each Space saved, by its place among them.
+  std::map<bc_id, int> spaces;
   // Each favorite saved, by its place among them. Those of a Space are saved with it.
   std::map<bc_id, int> favorites;
   for (bc_id id : Favorites::All()) {
@@ -232,9 +250,7 @@ Saved Collect() {
     saved.favorites.push_back(std::move(tab));
   }
   for (Space* space : Space::All()) {
-    if (window && space->id() == window->space()) {
-      saved.shown = saved.spaces.size();
-    }
+    spaces[space->id()] = saved.spaces.size();
     // The tab the window active last showed there, else the one another window showed.
     bc_id shown = 0;
     for (const Window* each : windows) {
@@ -246,6 +262,15 @@ Saved Collect() {
     if (auto favorite = favorites.find(shown); favorite != favorites.end()) {
       to.shown_favorite = favorite->second;
     }
+  }
+  for (const Window* window : windows) {
+    auto space = spaces.find(window->space());
+    views::Widget* widget = window->widget();
+    saved.windows.push_back(
+        {.space = space == spaces.end() ? 0 : space->second,
+         .bounds = widget ? widget->GetRestoredBounds() : gfx::Rect(),
+         .sidebar_width = window->sidebar_width(),
+         .fullscreen = widget && widget->IsFullscreen()});
   }
   saved.archive = Archived();
   return saved;
@@ -341,13 +366,25 @@ std::optional<std::string> ToJson(const Saved& saved) {
   base::DictValue root;
   root.Set("favorites", to_list(saved.favorites));
   root.Set("spaces", std::move(spaces));
-  root.Set("shown", saved.shown);
-  if (saved.sidebar_width > 0) {
-    root.Set("sidebar_width", saved.sidebar_width);
+  base::ListValue windows;
+  for (const SavedWindow& window : saved.windows) {
+    base::DictValue dict = base::DictValue().Set("space", window.space);
+    if (!window.bounds.IsEmpty()) {
+      dict.Set("bounds", base::ListValue()
+                             .Append(window.bounds.x())
+                             .Append(window.bounds.y())
+                             .Append(window.bounds.width())
+                             .Append(window.bounds.height()));
+    }
+    if (window.sidebar_width > 0) {
+      dict.Set("sidebar_width", window.sidebar_width);
+    }
+    if (window.fullscreen) {
+      dict.Set("fullscreen", true);
+    }
+    windows.Append(std::move(dict));
   }
-  if (saved.fullscreen) {
-    root.Set("fullscreen", true);
-  }
+  root.Set("windows", std::move(windows));
   base::ListValue archive;
   for (const ArchivedTab& tab : saved.archive) {
     archive.Append(base::DictValue()
@@ -511,10 +548,31 @@ std::optional<Saved> Read(const base::FilePath& path) {
   if (saved.spaces.empty()) {
     return std::nullopt;
   }
-  saved.shown = std::clamp(root->FindInt("shown").value_or(0), 0,
-                           static_cast<int>(saved.spaces.size()) - 1);
-  saved.sidebar_width = root->FindDouble("sidebar_width").value_or(0);
-  saved.fullscreen = root->FindBool("fullscreen").value_or(false);
+  const int last_space = static_cast<int>(saved.spaces.size()) - 1;
+  if (const base::ListValue* windows = root->FindList("windows")) {
+    for (const base::Value& value : *windows) {
+      const base::DictValue* window = value.GetIfDict();
+      if (!window) {
+        continue;
+      }
+      SavedWindow& to = saved.windows.emplace_back();
+      to.space = std::clamp(window->FindInt("space").value_or(0), 0, last_space);
+      const base::ListValue* bounds = window->FindList("bounds");
+      if (bounds && bounds->size() == 4 &&
+          std::ranges::all_of(*bounds, [](const base::Value& each) { return each.is_int(); })) {
+        to.bounds = gfx::Rect((*bounds)[0].GetInt(), (*bounds)[1].GetInt(), (*bounds)[2].GetInt(),
+                              (*bounds)[3].GetInt());
+      }
+      to.sidebar_width = window->FindDouble("sidebar_width").value_or(0);
+      to.fullscreen = window->FindBool("fullscreen").value_or(false);
+    }
+  } else {
+    // Saved when the session kept one window, without its frame.
+    saved.windows.push_back(
+        {.space = std::clamp(root->FindInt("shown").value_or(0), 0, last_space),
+         .sidebar_width = root->FindDouble("sidebar_width").value_or(0),
+         .fullscreen = root->FindBool("fullscreen").value_or(false)});
+  }
   if (const base::ListValue* archive = root->FindList("archive")) {
     for (const base::Value& value : *archive) {
       const base::DictValue* tab = value.GetIfDict();
@@ -611,6 +669,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
     if (saved) {
       LoadArchive(std::exchange(saved->archive, {}));
       UserSettings() = saved->settings;
+      LoadedWindows() = std::exchange(saved->windows, {});
     }
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
@@ -636,6 +695,7 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
 
 // Made by LoadSession and never deleted, as Chrome's shutdown may still be writing its file.
 Saver* g_saver = nullptr;
+
 
 }  // namespace
 
@@ -670,7 +730,41 @@ Settings& UserSettings() {
 }
 
 double SavedSidebarWidth() {
-  return g_saver && g_saver->loaded() ? g_saver->loaded()->sidebar_width : 0;
+  return LoadedWindows().empty() ? 0 : LoadedWindows().front().sidebar_width;
+}
+
+std::vector<gfx::Rect> SavedWindowFrames() {
+  std::vector<gfx::Rect> frames;
+  for (const SavedWindow& window : LoadedWindows()) {
+    frames.push_back(window.bounds);
+  }
+  return frames;
+}
+
+bool RestoreSavedWindow(Window& window, size_t index) {
+  if (index >= LoadedWindows().size()) {
+    return false;
+  }
+  const SavedWindow& saved = LoadedWindows()[index];
+  window.SetSidebarWidth(saved.sidebar_width);
+  const size_t at = static_cast<size_t>(saved.space);
+  const bc_id space = at < RestoredSpaces().size() ? RestoredSpaces()[at] : 0;
+  if (!space) {
+    return false;
+  }
+  // The tab the Space showed, which the Spaces were put back with in the first window.
+  for (const Window* each : Window::All()) {
+    if (bc_id tab = &window == each ? 0 : each->SelectedIn(space)) {
+      window.SetSelectedIn(space, tab);
+      break;
+    }
+  }
+  window.ShowSpace(space);
+  // The window is on screen already, so this is the transition the user would start.
+  if (saved.fullscreen && window.widget()) {
+    window.widget()->SetFullscreen(true);
+  }
+  return true;
 }
 
 bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved) {
@@ -795,23 +889,19 @@ bool RestoreSession(Window& window) {
                          /*space=*/0, saved_tab.site);
     }
   }
-  bc_id shown = 0;
-  for (size_t i = 0; i < saved->spaces.size(); ++i) {
-    const SavedSpace& saved_space = saved->spaces[i];
+  RestoredSpaces().clear();
+  for (const SavedSpace& saved_space : saved->spaces) {
     Space* space = RestoreSpace(window, ProfileFor(saved_space.profile), saved_space);
-    if (static_cast<int>(i) == saved->shown) {
-      shown = space->id();
-    }
+    RestoredSpaces().push_back(space->id());
     if (saved_space.shown_favorite >= 0 && favorites[saved_space.shown_favorite]) {
       window.SetSelectedIn(space->id(), favorites[saved_space.shown_favorite]);
     }
   }
   // Under Every Space, a profile that came up short of a site gets its tab for it.
   Favorites::Complete();
-  window.ShowSpace(shown);
-  // The window is on screen already, so this is the transition the user would start.
-  if (saved->fullscreen && window.widget()) {
-    window.widget()->SetFullscreen(true);
+  // A session saved with no regular window open shows the first Space.
+  if (!RestoreSavedWindow(window, 0)) {
+    window.ShowSpace(RestoredSpaces().front());
   }
   return true;
 }

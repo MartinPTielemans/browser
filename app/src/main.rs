@@ -10,6 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use browser::window_frames::{self, Frame};
 use browser::{
     capture, command_bar, dialog, icon_picker, link_target, log, offer, site_controls, toast,
     tooltip, zoom_hud,
@@ -52,7 +53,22 @@ mod platform {
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
         pub fn host_ui_view() -> *mut c_void;
         pub fn host_show_window(ui_view: *mut c_void);
-        pub fn host_show_launch_window(profile_dir: *const c_char, width: f64, height: f64);
+        pub fn host_show_window_behind(ui_view: *mut c_void, above_ui_view: *mut c_void);
+        pub fn host_show_launch_window(
+            profile_dir: *const c_char,
+            x: f64,
+            y: f64,
+            width: f64,
+            height: f64,
+        );
+        pub fn host_screens(frames: *mut f64, count: usize) -> usize;
+        pub fn host_window_frame(
+            ui_view: *mut c_void,
+            x: *mut f64,
+            y: *mut f64,
+            width: *mut f64,
+            height: *mut f64,
+        ) -> bool;
         pub fn host_close_launch_window();
         pub fn host_save_launch_picture(
             ui_view: *mut c_void,
@@ -2079,39 +2095,105 @@ unsafe extern "C" fn tab_key_unhandled(
     run_page_shortcut(tab, key, false)
 }
 
-/// Opens a browser window centered on the main display, or cascaded from the one of `after` and as
-/// big, with `ui_view` filling it under the page, and returns its id. With `private`, a profile,
-/// it's a private window in that profile's off-the-record session.
+/// Opens a browser window and returns its id, with `ui_view` filling it under the page: the first
+/// at the frame the front window had when the browser last quit, saved window `saved` behind the
+/// others at its own (bc_window_open_saved), each kept on screen, else centered on the main
+/// display, or cascaded from the one of `after` and as big. With `private`, a profile, it's a
+/// private window in that profile's off-the-record session.
 fn open_browser_window(
     ui_view: *mut c_void,
     after: Option<*mut c_void>,
     private: Option<bc::bc_id>,
+    saved: Option<usize>,
 ) -> Option<bc::bc_id> {
-    let (mut width, mut height) = WINDOW_SIZE;
-    let (mut x, mut y) = (0., 0.);
-    match after {
-        Some(after) => unsafe {
-            platform::host_cascaded(after, &mut x, &mut y, &mut width, &mut height)
-        },
-        None => unsafe { platform::host_centered(width, height, &mut x, &mut y) },
-    }
-    let bounds = bc::bc_rect {
-        x,
-        y,
-        width,
-        height,
-    };
-    let window = match private {
-        Some(profile) => unsafe { bc::bc_window_open_private(bounds, ui_view, profile) },
-        None => unsafe { bc::bc_window_open(bounds, ui_view) },
+    let frames = if after.is_none() || saved.is_some() { saved_frames() } else { Vec::new() };
+    let frame = frames.get(saved.unwrap_or(0)).copied().and_then(placed);
+    let bounds = frame.unwrap_or_else(|| {
+        let (mut width, mut height) = WINDOW_SIZE;
+        let (mut x, mut y) = (0., 0.);
+        match after {
+            Some(after) => unsafe {
+                platform::host_cascaded(after, &mut x, &mut y, &mut width, &mut height)
+            },
+            None => unsafe { platform::host_centered(width, height, &mut x, &mut y) },
+        }
+        bc::bc_rect {
+            x,
+            y,
+            width,
+            height,
+        }
+    });
+    let window = match (private, saved) {
+        (Some(profile), _) => unsafe { bc::bc_window_open_private(bounds, ui_view, profile) },
+        (None, Some(index)) => unsafe { bc::bc_window_open_saved(index, bounds, ui_view) },
+        (None, None) => unsafe { bc::bc_window_open(bounds, ui_view) },
     };
     (window != 0).then_some(window)
 }
 
-/// Shows the Spaces as the user left them in `window`, else a first Space with the first tab. A
-/// page given in BROWSER_URL, and the links from other apps that launched the browser, open on top
-/// either way.
-fn restore_spaces(window: bc::bc_id) {
+/// The frames of the windows open when the browser last quit, front to back.
+fn saved_frames() -> Vec<bc::bc_rect> {
+    let count = unsafe { bc::bc_saved_window_frames(std::ptr::null_mut(), 0) };
+    let mut frames = vec![
+        bc::bc_rect {
+            x: 0.,
+            y: 0.,
+            width: 0.,
+            height: 0.,
+        };
+        count
+    ];
+    let count = unsafe { bc::bc_saved_window_frames(frames.as_mut_ptr(), frames.len()) };
+    frames.truncate(count);
+    frames
+}
+
+/// Where a window saved at `saved` opens on the screens there are now, or None for the app's own
+/// place.
+fn placed(saved: bc::bc_rect) -> Option<bc::bc_rect> {
+    let count = unsafe { platform::host_screens(std::ptr::null_mut(), 0) };
+    let mut screens = vec![0.; count * 4];
+    let count = unsafe { platform::host_screens(screens.as_mut_ptr(), count) };
+    let screens: Vec<Frame> = screens
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .take(count)
+        .map(|&[x, y, width, height]| Frame { x, y, width, height })
+        .collect();
+    let saved = Frame { x: saved.x, y: saved.y, width: saved.width, height: saved.height };
+    let frame = window_frames::place(saved, &screens)?;
+    Some(bc::bc_rect {
+        x: frame.x,
+        y: frame.y,
+        width: frame.width,
+        height: frame.height,
+    })
+}
+
+/// The front window's frame, kept beside its launch picture, for the next launch's window to open
+/// at before the core can say where the browser window will.
+fn launch_frame_path() -> String {
+    format!("{}/launch-frame", profile_dir())
+}
+
+/// Opens the windows after the first that were open when the browser last quit, each behind the
+/// one before it, as they were.
+fn open_saved_windows(cx: &mut App) {
+    for index in 1..saved_frames().len() {
+        // The window it goes behind, which it starts from as ⌘N's window does.
+        let Some(above) = WINDOWS.with_borrow(|windows| windows.last().cloned()) else {
+            return;
+        };
+        open_window_as(Some(above), None, Some(index), cx);
+    }
+}
+
+/// Shows the Spaces as the user left them in `window`, else a first Space with the first tab, and
+/// says whether it brought them back. A page given in BROWSER_URL, and the links from other apps
+/// that launched the browser, open on top either way, in this window, the one in front.
+fn restore_spaces(window: bc::bc_id) -> bool {
     let start = Instant::now();
     let restored = unsafe { bc::bc_window_restore(window) };
     if restored {
@@ -2130,6 +2212,15 @@ fn restore_spaces(window: bc::bc_id) {
         Err(_) => {}
     }
     open_links_in(window, &links);
+    restored
+}
+
+/// Logs where the window is, for check.sh.
+fn log_frame(id: bc::bc_id, ui_view: *mut c_void) {
+    let (mut x, mut y, mut width, mut height) = (0., 0., 0., 0.);
+    if unsafe { platform::host_window_frame(ui_view, &mut x, &mut y, &mut width, &mut height) } {
+        log!("browser: window {id} frame {x:.0} {y:.0} {width:.0} {height:.0}");
+    }
 }
 
 /// Links another app sent: a link clicked in Mail, `open https://…`, an .html file from Finder.
@@ -2272,14 +2363,26 @@ fn open_window(
     private: Option<bc::bc_id>,
     cx: &mut App,
 ) -> Option<bc::bc_id> {
+    open_window_as(from, private, None, cx)
+}
+
+/// open_window, or with `saved`, the saved window after the first the launch brings back
+/// (bc_window_open_saved): behind `from` and not key, starting with its shell's state as ⌘N's
+/// window does, but showing the Space it showed, with its page.
+fn open_window_as(
+    from: Option<BrowserWindow>,
+    private: Option<bc::bc_id>,
+    saved: Option<usize>,
+    cx: &mut App,
+) -> Option<bc::bc_id> {
     let ui_view = unsafe { platform::host_ui_view() };
     let after = from.as_ref().map(|from| from.ui_view);
-    let id = open_browser_window(ui_view, after, private)?;
+    let id = open_browser_window(ui_view, after, private, saved)?;
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
     // Its Space, which the core made with the window.
     let private_space = private.map(|profile| (unsafe { bc::bc_window_space(id) }, profile));
-    if let Some(from) = &from {
-        // The shell reads its sidebar's width from the core as it's made.
+    // The shell reads its sidebar's width from the core as it's made. A saved window's is its own.
+    if let Some(from) = from.as_ref().filter(|_| saved.is_none()) {
         let width = unsafe { bc::bc_window_sidebar_width(from.id) };
         unsafe { bc::bc_window_set_sidebar_width(id, width) };
     }
@@ -2311,10 +2414,10 @@ fn open_window(
         });
         window.focus(&shell.focus_handle(cx), cx);
         CX.set(Some(cx.to_async()));
-        // In front, as it's about to be key.
+        // In front, as it's about to be key, or a saved one behind the others.
         WINDOWS.with_borrow_mut(|windows| {
             windows.insert(
-                0,
+                if saved.is_some() { windows.len() } else { 0 },
                 BrowserWindow {
                     id,
                     ui_view,
@@ -2351,22 +2454,32 @@ fn open_window(
         })
         .ok();
     if let Some(from) = from.as_ref().filter(|_| private.is_none()) {
-        let space = unsafe { bc::bc_window_space(from.id) };
-        unsafe { bc::bc_window_show_space_empty(id, space) };
+        // A saved window shows the Space the core put back in it.
+        let space = if saved.is_some() {
+            unsafe { bc::bc_window_space(id) }
+        } else {
+            let space = unsafe { bc::bc_window_space(from.id) };
+            unsafe { bc::bc_window_show_space_empty(id, space) };
+            space
+        };
         // Its Space drawn before it's on screen, rather than once the core's report comes.
         window.update(cx, |shell, _, cx| shell.set_space(space, cx)).ok();
     }
     let first = from.is_none();
-    if first {
-        // Once the page frame is set, so the tab shown loads at its size, and before the window is
-        // on screen, so the core's reports of its tabs can come before its first frame.
-        restore_spaces(id);
+    // Once the page frame is set, so the tab shown loads at its size, and before the window is on
+    // screen, so the core's reports of its tabs can come before its first frame.
+    let restored = first && restore_spaces(id);
+    match (&from, saved) {
+        (Some(from), Some(_)) => unsafe { platform::host_show_window_behind(ui_view, from.ui_view) },
+        _ => unsafe { platform::host_show_window(ui_view) },
     }
-    unsafe { platform::host_show_window(ui_view) };
+    log_frame(id, ui_view);
     if !first {
-        finish_opening(id, ui_view, window, true, private, cx);
+        finish_opening(id, ui_view, window, true, saved.is_none(), private, cx);
         return Some(id);
     }
+    // check.sh reads this line.
+    log!("browser: window on screen at {:.1} ms", unsafe { platform::host_since_launch() });
     // Making the overlays' windows takes the main thread for a while, so at launch they wait for
     // the frame after the first: the window goes on screen with its sidebar drawn, then they're
     // made. Later windows don't wait, as a page may open in them at once. A window that isn't
@@ -2377,7 +2490,11 @@ fn open_window(
         let pending = pending.clone();
         move |cx: &mut App| {
             if pending.replace(false) {
-                finish_opening(id, ui_view, window, false, private, cx);
+                finish_opening(id, ui_view, window, false, false, private, cx);
+                // After the overlays, so the window the user sees first waits for neither.
+                if restored {
+                    open_saved_windows(cx);
+                }
             }
         }
     };
@@ -2400,11 +2517,15 @@ fn open_window(
     Some(id)
 }
 
+/// The window's last steps: its own overlays, and the first's those every window shares. With
+/// `seeded`, it's a later window, whose keyboard is the UI's with `ui_keyboard`, as one without a
+/// page.
 fn finish_opening(
     id: bc::bc_id,
     ui_view: *mut c_void,
     window: WindowHandle<Shell>,
     seeded: bool,
+    ui_keyboard: bool,
     private: Option<bc::bc_id>,
     cx: &mut App,
 ) {
@@ -2449,7 +2570,7 @@ fn finish_opening(
     }
     if seeded {
         // With no page, the keyboard is the UI's, as in a Space without tabs.
-        if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
+        if ui_keyboard && let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
             unsafe { platform::host_focus(view) };
         }
         return;
@@ -2797,8 +2918,21 @@ unsafe extern "C" fn launching(_: *mut c_void) {
     let Ok(profile) = CString::new(profile_dir()) else {
         return;
     };
-    let (width, height) = WINDOW_SIZE;
-    unsafe { platform::host_show_launch_window(profile.as_ptr(), width, height) };
+    // Where the front window was, which the browser window opens at again.
+    let saved = std::fs::read_to_string(launch_frame_path()).ok().and_then(|text| {
+        let numbers: Vec<f64> = text.split_whitespace().filter_map(|n| n.parse().ok()).collect();
+        let [x, y, width, height] = numbers[..] else {
+            return None;
+        };
+        placed(bc::bc_rect { x, y, width, height })
+    });
+    let bc::bc_rect { x, y, width, height } = saved.unwrap_or_else(|| {
+        let (width, height) = WINDOW_SIZE;
+        let (mut x, mut y) = (0., 0.);
+        unsafe { platform::host_centered(width, height, &mut x, &mut y) };
+        bc::bc_rect { x, y, width, height }
+    });
+    unsafe { platform::host_show_launch_window(profile.as_ptr(), x, y, width, height) };
     // The launch's times, from the process's start, for the performance gate.
     log!("browser: launch window at {:.1} ms", unsafe { platform::host_since_launch() });
 }
@@ -2813,9 +2947,9 @@ unsafe extern "C" fn stopping(_: *mut c_void) {
     log!("browser: stopping");
 }
 
-// The next launch shows the front window's sidebar until its UI has drawn. Taken as the app stops
-// being the active one and on the user's Quit, as a window is already hidden when it closes. A
-// private window's isn't kept.
+// The next launch's first window opens where the regular window in front is, showing its sidebar
+// until its UI has drawn. Taken as the app stops being the active one and on the user's Quit, as a
+// window is already hidden when it closes. Nothing of a private window is kept.
 extern "C" fn launch_picture_on_resigning() {
     if let Some(cx) = CX.with_borrow(Clone::clone) {
         cx.update(save_launch_picture);
@@ -2823,11 +2957,18 @@ extern "C" fn launch_picture_on_resigning() {
 }
 
 fn save_launch_picture(cx: &mut App) {
-    let Some(window) = WINDOWS.with_borrow(|windows| windows.first().cloned()) else {
+    // The regular window in front, which the next launch opens first.
+    let Some(window) = WINDOWS.with_borrow(|windows| windows.iter().find(|w| !w.private).cloned())
+    else {
         return;
     };
-    let shell = window.shell.upgrade().filter(|_| !window.private);
-    let width = shell.map_or(0., |shell| shell.read(cx).card_left());
+    let (mut x, mut y, mut width, mut height) = (0., 0., 0., 0.);
+    // Out of full screen only: the core keeps the frame a window in full screen comes back at.
+    if unsafe { platform::host_window_frame(window.ui_view, &mut x, &mut y, &mut width, &mut height) }
+    {
+        _ = std::fs::write(launch_frame_path(), format!("{x} {y} {width} {height}\n"));
+    }
+    let width = window.shell.upgrade().map_or(0., |shell| shell.read(cx).card_left());
     let Ok(profile) = CString::new(profile_dir()) else {
         return;
     };
@@ -2966,6 +3107,8 @@ fn private_name(profile: bc::bc_id) -> SharedString {
 }
 
 unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space: bc::bc_id) {
+    // check.sh reads this line, as a relaunch brings back each window's Space.
+    log!("browser: window {window} in space {}", name(bc::bc_space_name, space));
     if name(bc::bc_space_agent, space).is_empty() {
         WINDOWS.with_borrow_mut(|windows| {
             if let Some(window) = windows.iter_mut().find(|w| w.id == window) {
