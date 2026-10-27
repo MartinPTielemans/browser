@@ -507,7 +507,7 @@ bc_id bc_window_reopen_closed_tab(bc_id window_id) {
 
 bc_id bc_window_reopen_tab(bc_id window_id, bc_id closed) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
-  return window ? window->ReopenClosed(closed) : 0;
+  return window ? window->ReopenClosed(closed, /*show=*/false) : 0;
 }
 
 bc_id bc_window_restore_archived(bc_id window_id, bc_id archived) {

@@ -600,6 +600,7 @@ impl Shell {
         // The release that ends the drag isn't a click.
         self.dragged = true;
         self.settle_drag();
+        self.putting_back = true;
         cx.notify();
         true
     }

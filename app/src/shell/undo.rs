@@ -113,8 +113,9 @@ pub(super) enum Value {
 /// any more, such as a tab that's gone.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Edit {
-    /// Reopens closed Today tabs, by the ids they had.
-    Reopen(Vec<u64>),
+    /// Reopens closed Today tabs, by the ids they had, behind the tab shown, and shows `show`, the
+    /// one that was shown when they closed, if it's among them.
+    Reopen { tabs: Vec<u64>, show: Option<u64> },
     /// Closes Today tabs.
     Close(Vec<u64>),
     /// Puts a tab, a favorite or a folder at a spot, and a pinned tab's or favorite's URL back.
@@ -193,7 +194,11 @@ impl Edit {
         };
         let ids = |ids: &mut Vec<u64>| ids.iter_mut().for_each(|each| id_of(each, from, to));
         match self {
-            Edit::Reopen(tabs) | Edit::Close(tabs) => ids(tabs),
+            Edit::Reopen { tabs, show } => {
+                ids(tabs);
+                show.iter_mut().for_each(|each| id_of(each, from, to));
+            }
+            Edit::Close(tabs) => ids(tabs),
             Edit::Put { tab, spot, .. } => {
                 id(tab);
                 if let At::Pinned { folder, .. } = &mut spot.at {
@@ -227,23 +232,32 @@ impl Edit {
     /// Does the step, and returns the one that undoes it.
     fn apply(self, shell: &mut Shell, cx: &mut Context<Shell>) -> Option<Edit> {
         match self {
-            Edit::Reopen(closed) => {
+            Edit::Reopen { tabs: closed, show } => {
                 let mut tabs = Vec::new();
+                let mut shown = None;
                 for old in closed {
                     let new = shell.browser.reopen_tab(old, cx);
                     if new != 0 {
                         shell.history.rekey(old, new);
                         tabs.push(new);
+                        if show == Some(old) {
+                            shown = Some(new);
+                        }
                     }
+                }
+                // The core leaves the tab shown alone, so a tab closed behind it comes back behind it.
+                if let Some(tab) = shown {
+                    shell.select(tab, cx);
                 }
                 (!tabs.is_empty()).then_some(Edit::Close(tabs))
             }
             Edit::Close(tabs) => {
                 let tabs: Vec<u64> = tabs.into_iter().filter(|&tab| shell.has_tab(tab)).collect();
+                let show = shell.shown_among(&tabs);
                 for &tab in &tabs {
                     shell.browser.close(tab, false, cx);
                 }
-                (!tabs.is_empty()).then_some(Edit::Reopen(tabs))
+                (!tabs.is_empty()).then_some(Edit::Reopen { tabs, show })
             }
             Edit::Put { tab, spot, url } => {
                 let now = shell.spot_of(tab)?;
@@ -428,13 +442,14 @@ impl Shell {
             (Some(_), true) => self.panes(tab),
             (Some(_), false) => vec![tab],
         };
+        let show = self.shown_among(&tabs);
         self.browser.close(tab, split, cx);
         let what = if tabs.len() > 1 {
             What::CLOSE_TABS
         } else {
             What::CLOSE_TAB
         };
-        self.keep(what, (!tabs.is_empty()).then_some(Edit::Reopen(tabs)), cx);
+        self.keep(what, (!tabs.is_empty()).then_some(Edit::Reopen { tabs, show }), cx);
     }
 
     /// Closes the Today tabs below `tab`.
@@ -446,6 +461,7 @@ impl Shell {
             Some(at) => today[at + 1..].to_vec(),
             None => Vec::new(),
         };
+        let show = self.shown_among(&below);
         self.browser.close_below(tab, cx);
         // The core closes them bottom up, so the top one reopens first, and each at its place.
         let what = if below.len() > 1 {
@@ -453,7 +469,8 @@ impl Shell {
         } else {
             What::CLOSE_TAB
         };
-        self.keep(what, (!below.is_empty()).then_some(Edit::Reopen(below)), cx);
+        let reopen = (!below.is_empty()).then_some(Edit::Reopen { tabs: below, show });
+        self.keep(what, reopen, cx);
     }
 
     /// Pins `tab`, or unpins it.
@@ -580,6 +597,11 @@ impl Shell {
             });
         }
         self.spaces.iter().find_map(|space| space.spot_of(tab))
+    }
+
+    /// The tab shown, if it's one of `tabs`.
+    fn shown_among(&self, tabs: &[u64]) -> Option<u64> {
+        tabs.contains(&self.selected).then_some(self.selected)
     }
 
     /// Whether some Space, or the favorites, has `tab`.

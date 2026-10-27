@@ -103,6 +103,43 @@ fn a_closed_tab_reopens_and_closes_again_under_its_new_id(cx: &mut TestAppContex
     assert_eq!(host.take_edits(), ["reopen 1001 as 1002"]);
 }
 
+/// The core reopens a tab behind the one shown, so ⌘Z brings the tabs back without showing them.
+#[gpui::test]
+fn tabs_closed_below_the_tab_shown_come_back_behind_it(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![1, 2, 3, 4]);
+    shell.update(cx, |shell, cx| shell.set_selected(2, cx));
+    shell.update(cx, |shell, cx| shell.close_tabs_below(2, cx));
+    report(&shell, cx, Vec::new(), vec![1, 2]);
+    host.take();
+    assert!(undo(&shell, cx));
+    assert!(!host.take().iter().any(|call| call.starts_with("select")));
+    report(&shell, cx, Vec::new(), vec![1, 2, 1001, 1002]);
+    assert!(redo(&shell, cx));
+    assert!(undo(&shell, cx));
+    assert!(!host.take().iter().any(|call| call.starts_with("select")));
+}
+
+#[gpui::test]
+fn the_tab_shown_when_it_closed_is_shown_again_when_it_comes_back(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10, 11, 12]);
+    shell.update(cx, |shell, cx| shell.set_selected(11, cx));
+    shell.update(cx, |shell, cx| shell.close_tab(11, false, cx));
+    report(&shell, cx, Vec::new(), vec![10, 12]);
+    shell.update(cx, |shell, cx| shell.set_selected(12, cx));
+    host.take();
+    assert!(undo(&shell, cx));
+    assert!(host.take().contains(&"select 1001".to_string()));
+    // Closed again while it's shown, it's shown again the next time too.
+    report(&shell, cx, Vec::new(), vec![10, 1001, 12]);
+    shell.update(cx, |shell, cx| shell.set_selected(1001, cx));
+    assert!(redo(&shell, cx));
+    report(&shell, cx, Vec::new(), vec![10, 12]);
+    shell.update(cx, |shell, cx| shell.set_selected(12, cx));
+    host.take();
+    assert!(undo(&shell, cx));
+    assert!(host.take().contains(&"select 1002".to_string()));
+}
+
 #[gpui::test]
 fn the_edit_menu_names_what_it_would_undo_and_redo(cx: &mut TestAppContext) {
     let (shell, host) = plain(cx, vec![10, 11]);

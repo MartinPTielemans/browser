@@ -304,6 +304,8 @@ expect '^browser: command stop via ' "escape during a tile's drag didn't reach t
 send release 100 300
 none_since '^browser: dragged' || fail "a tile's drag escape put back dropped it"
 [ "$(favorites)" = "$a" ] || fail "a tile's drag escape put back moved it: \"$(favorites)\""
+# A press hits the frame drawn, so the next drag waits for the put-back's.
+expect '^browser: drag put back$' "Escape's put-back didn't finish"
 # Three tiles in the sidebar at its narrowest take two rows, 94 points, more than 40 % of a window
 # 220 tall, so they scroll with the list, under the URL field (Ardia).
 send drag $(tiled_row 0) 200 112
