@@ -40,12 +40,8 @@ impl Shell {
         }
     }
 
-    /// Opens or closes the folder, unless the click ended a drag or renames it.
-    fn click_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
-        let renaming = self.renaming.as_ref().map(|renaming| renaming.naming);
-        if self.dragged || self.dragging().is_some() || renaming == Some(Naming::Folder(folder)) {
-            return;
-        }
+    /// Opens or closes the folder as it's pressed, as Arc's does, even if the press becomes a drag.
+    fn press_folder(&mut self, folder: u64, cx: &mut Context<Self>) {
         let open = self.shown_space().is_some_and(|space| space.is_open(folder));
         log!("browser: command toggle-folder via sidebar");
         self.folding = Some(!open);
@@ -66,6 +62,7 @@ impl Shell {
             Row::NewTab => (("new-tab", 0), Slot::NewTab),
             Row::Tab(tab) => (("tab", tab), Slot::Tab(tab)),
         };
+        let folder = matches!(row, Row::Tab(tab) if self.is_folder(tab));
         // Full for a dragged row's ghost, which the pointer holds, and none for the others then.
         let dragging = self.dragging();
         let hover = match dragging {
@@ -92,8 +89,9 @@ impl Shell {
             .when_some(hover.filter(|_| !selected), |plate, hover| {
                 plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
             })
-            // Pressed, it has the selected fill at once, as Arc's does, which selects on the press.
-            .when(!selected && dragging != Some(slot), |plate| {
+            // Pressed, a tab's row has the selected fill before the core answers its press, and a
+            // folder's keeps its hover fill, as Arc's do.
+            .when(!selected && dragging != Some(slot) && !folder, |plate| {
                 // GPUI keeps an element's pressed state only once a listener gives it a hitbox.
                 plate
                     .on_mouse_down(MouseButton::Left, |_, _, _| {})
@@ -180,7 +178,7 @@ impl Shell {
         }
     }
 
-    /// A folder's row: its icon, open or closed, and its name. A click opens or closes it, a
+    /// A folder's row: its icon, open or closed, and its name. A press opens or closes it, a
     /// double-click renames it and a right-click shows its menu.
     fn folder_row(
         &self,
@@ -208,10 +206,11 @@ impl Shell {
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
                     shell.browser.tooltip(None, cx);
-                    // The first click opened or closed it.
+                    // The first press opened or closed it.
                     if event.click_count == 2 {
                         return shell.rename_folder(folder, cx);
                     }
+                    shell.press_folder(folder, cx);
                     shell.press_row(folder, event.position)
                 }),
             )
@@ -223,7 +222,6 @@ impl Shell {
                     }
                 }),
             )
-            .on_click(cx.listener(move |shell, _, _, cx| shell.click_folder(folder, cx)))
         })
     }
 
@@ -248,6 +246,8 @@ impl Shell {
                 CLOSE_GLYPH,
                 rgba(SECONDARY).into(),
             ))
+            // Not the row's press, which would show the tab before closing it.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             // A pinned tab closed unloads, which the core does for the same call.
             .on_click(cx.listener(move |shell, _, _, cx| {
                 cx.stop_propagation();
@@ -278,12 +278,8 @@ impl Shell {
                     SPEAKER_DRAWN,
                     rgba(SECONDARY).into(),
                 ))
-                // Not a double-click's rename.
-                .on_mouse_down(MouseButton::Left, |event: &MouseDownEvent, _, cx| {
-                    if event.click_count == 2 {
-                        cx.stop_propagation();
-                    }
-                })
+                // Not the row's press, which would show the tab, nor a double-click's rename.
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .on_click(cx.listener(move |shell, _, _, cx| {
                     cx.stop_propagation();
                     log!("browser: command toggle-mute via sidebar");
@@ -308,12 +304,9 @@ impl Shell {
         }
     }
 
-    /// A click on `tab`'s row, or its segment of a split view's, shows it, unless it ended a drag.
-    fn click_row(&mut self, tab: u64, cx: &mut Context<Self>) {
-        let renaming = self.renaming.as_ref().map(|renaming| renaming.naming);
-        if self.dragged || self.dragging().is_some() || renaming == Some(Naming::Tab(tab)) {
-            return;
-        }
+    /// Shows `tab` for a press on its row, or its segment of a split view's, at once, as Arc's
+    /// does, even if the press becomes a drag.
+    fn show_row(&mut self, tab: u64, cx: &mut Context<Self>) {
         log!("browser: command select via sidebar");
         self.select(tab, cx)
     }
@@ -361,7 +354,7 @@ impl Shell {
             })
     }
 
-    /// `segment`, which a click shows focused, a double-click renames and a right-click shows the
+    /// `segment`, which a press shows focused, a double-click renames and a right-click shows the
     /// tab's menu for.
     fn split_segment(
         &self,
@@ -376,11 +369,12 @@ impl Shell {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                    // The first click selected the tab (Dia).
+                    // The first press selected the tab (Dia); the row's press may start a drag.
                     if event.click_count == 2 {
                         cx.stop_propagation();
-                        shell.rename_tab(tab, cx);
+                        return shell.rename_tab(tab, cx);
                     }
+                    shell.show_row(tab, cx)
                 }),
             )
             .on_mouse_down(
@@ -391,10 +385,9 @@ impl Shell {
                     }
                 }),
             )
-            .on_click(cx.listener(move |shell, _, _, cx| shell.click_row(tab, cx)))
     }
 
-    /// A split view's row, for its first tab: a segment per tab, left to right. A click on one
+    /// A split view's row, for its first tab: a segment per tab, left to right. A press on one
     /// shows the split with its page focused, and the close button closes them all.
     fn split_row(
         &self,
@@ -529,11 +522,16 @@ impl Shell {
                 }
                 cx.notify();
             }))
-            // The row's click selects the tab after this one.
+            // It shows the tab after going back, which the row's press leaves to it, so the old
+            // page never loads.
             .when(away, |icon| {
                 icon.on_click(cx.listener(move |shell, _, _, cx| {
+                    if shell.dragged {
+                        return;
+                    }
                     log!("browser: command back-to-pinned-url via sidebar");
                     shell.browser.back_to_pinned_url(tab, cx);
+                    shell.show_row(tab, cx)
                 }))
             })
             .child(icon);
@@ -549,9 +547,13 @@ impl Shell {
             row.on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                    // The first click selected the tab (Dia).
+                    // The first press selected the tab (Dia).
                     if event.click_count == 2 {
                         return shell.rename_tab(tab, cx);
+                    }
+                    // On the way back to the pinned URL, the favicon's click shows the tab.
+                    if !back {
+                        shell.show_row(tab, cx);
                     }
                     shell.press_row(tab, event.position)
                 }),
@@ -564,7 +566,6 @@ impl Shell {
                     }
                 }),
             )
-            .on_click(cx.listener(move |shell, _, _, cx| shell.click_row(tab, cx)))
         })
     }
 
@@ -801,8 +802,9 @@ mod tests {
     use super::{
         super::{
             CLOSE_RIGHT, CLOSE_SIZE, FAVICON_SIZE, FAVICON_X, Folders, NAME_HEIGHT, PLATE_INSET,
-            PRESS_SCALE, PRESS_TIME, ROW_HEIGHT, Row, SELECTED_UNHOVER, SPACE_ICON_PLATE, Shell,
-            Slot, Swapped, commands::bind_keys, drag::detents::shell_with, recorder::Recorder,
+            PRESS_SCALE, PRESS_TIME, Page, ROW_HEIGHT, ROW_PITCH, Row, SELECTED_UNHOVER,
+            SPACE_ICON_PLATE, Shell, Slot, Swapped, commands::bind_keys, drag::detents::shell_with,
+            recorder::Recorder,
         },
         CLOSE, LOADING_GAP, LOADING_TURN, Rings, UNLOAD,
     };
@@ -949,13 +951,24 @@ mod tests {
         today: Vec<u64>,
         shown: u64,
     ) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+        window_with(cx, pinned, today, shown, Folders::default())
+    }
+
+    /// `window`, with `folders` among the pinned tabs.
+    fn window_with(
+        cx: &mut TestAppContext,
+        pinned: Vec<u64>,
+        today: Vec<u64>,
+        shown: u64,
+        folders: Folders,
+    ) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
         let host = Rc::new(Recorder::default());
         let browser = host.clone();
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
             shell.set_spaces(vec![(1, "Space".into(), None, 1, "".into(), "".into())], cx);
             shell.set_space(1, cx);
-            shell.set_tabs(1, pinned, today, Vec::new(), Folders::default(), cx);
+            shell.set_tabs(1, pinned, today, Vec::new(), folders, cx);
             shell.set_selected(shown, cx);
         });
         cx.run_until_parked();
@@ -1084,5 +1097,93 @@ mod tests {
         cx.run_until_parked();
         assert!(shell.read_with(cx, |shell, _| shell.dragging().is_some()));
         assert_eq!(scale(&shell, cx), 1.);
+    }
+
+    /// A press on a row shows its tab at once, as Arc's does, before it's let go, and letting go
+    /// asks for nothing more. A row's ✕ closes its tab without showing it, and a right-click
+    /// shows the row's menu without showing its tab.
+    #[gpui::test]
+    fn a_press_shows_its_tab_before_it_is_let_go(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3, 4], 3);
+        let (x, y) = close_button(&shell, cx, 4);
+        let middle = point(px(x - 100.), px(y));
+        host.take();
+        cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["select 4"]);
+        cx.simulate_mouse_up(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(host.take().is_empty(), "letting go");
+
+        let close = close_button(&shell, cx, 2);
+        move_to(cx, close);
+        cx.simulate_click(point(px(close.0), px(close.1)), Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["close 2"], "the ✕ of a row not shown");
+
+        let middle = point(px(close.0 - 100.), px(close.1));
+        cx.simulate_mouse_down(middle, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        assert!(!host.take().contains(&"select 2".to_string()), "a right-click");
+    }
+
+    /// A press that becomes a drag has shown its tab, and still drags it: let go two rows up, the
+    /// tab moves there, and nothing is shown again.
+    #[gpui::test]
+    fn a_press_that_becomes_a_drag_still_drags(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, Vec::new(), vec![2, 3, 4], 2);
+        let (x, y) = close_button(&shell, cx, 4);
+        let from = point(px(x - 100.), px(y));
+        host.take();
+        cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["select 4"]);
+        let to = point(from.x, from.y - px(2. * ROW_PITCH));
+        cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |shell, _| shell.dragging() == Some(Slot::Tab(4))));
+        cx.simulate_mouse_up(to, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.moves.get(), 1);
+        assert!(!host.take().iter().any(|call| call.starts_with("select")));
+    }
+
+    /// A press on a folder's row closes it at once, as Arc's does, and a press again opens it.
+    #[gpui::test]
+    fn a_press_opens_or_closes_a_folder(cx: &mut TestAppContext) {
+        let docs = [(20, ("Docs".into(), true))];
+        let folders = Folders { folders: docs.into(), parents: Default::default() };
+        let (shell, cx, host) = window_with(cx, vec![20, 21], vec![4], 4, folders);
+        let (x, y) = close_button(&shell, cx, 20);
+        let middle = point(px(x - 100.), px(y));
+        host.take();
+        cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(false));
+        let calls = host.take();
+        assert!(!calls.iter().any(|call| call.starts_with("select")), "{calls:?}");
+    }
+
+    /// A press on an away pinned tab's favicon leaves showing the tab to its click, which takes
+    /// the tab back to its pinned URL first, so its old page never loads.
+    #[gpui::test]
+    fn the_way_back_shows_the_tab_once_it_is_back(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3], 3);
+        shell.update(cx, |shell, cx| {
+            let page = Page { away_from_pinned_url: true, ..shell.page(2) };
+            shell.set_page(2, page, cx)
+        });
+        let (_, y) = close_button(&shell, cx, 2);
+        let favicon = (FAVICON_X + FAVICON_SIZE / 2., y);
+        move_to(cx, favicon);
+        assert_eq!(shell.read_with(cx, |shell, _| shell.hovered_favicon), Some(2));
+        host.take();
+        let at = point(px(favicon.0), px(favicon.1));
+        cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(host.take().is_empty(), "the press");
+        cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["back to pinned url 2", "select 2"]);
     }
 }
