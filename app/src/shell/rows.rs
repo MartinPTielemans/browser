@@ -589,7 +589,11 @@ impl Shell {
                 .flex()
                 .items_center()
                 .when(!(hovered && closable), |label| label.pr(px(TITLE_END_INSET)))
-                .children(self.speaker(tab, cx))
+                // The mark takes the speaker's place while the page has died or hung.
+                .children(match self.trouble_mark(tab) {
+                    Some(mark) => Some(mark.into_any_element()),
+                    None => self.speaker(tab, cx).map(IntoElement::into_any_element),
+                })
                 .child(title)
                 .when(hovered && closable, |label| label.child(close))
                 .when(!hovered && loading, |label| label.child(self.loading_ring())),

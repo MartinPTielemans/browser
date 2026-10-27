@@ -17,7 +17,7 @@ use browser::{
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
     ExtensionAction, ExtensionCommand, FilePreview, Folders, MenuEntry, Page, Shell, SidePanel,
-    Split, WindowButton,
+    Split, Trouble, WindowButton,
 };
 use browser::text_input::{Chosen, Copy, Cut, FieldMenu, Paste, Redo, SelectAll, Undo};
 use gpui::{
@@ -1717,6 +1717,23 @@ impl Browser for Engine {
         }
     }
 
+    fn hang_note(&self, tab: u64, shown: bool, cx: &mut App) {
+        if !shown {
+            toast::hide_held(tab, cx);
+            return;
+        }
+        let button = |label: &str, name, run: fn(u64)| toast::Button {
+            label: toast::Label::Text(label.to_owned().into()),
+            name,
+            run: Rc::new(move |_, _| run(tab)),
+        };
+        let buttons = vec![
+            button(shell::WAIT, "wait", |tab| unsafe { bc::bc_tab_wait(tab) }),
+            button(shell::RELOAD, "reload", |tab| unsafe { bc::bc_tab_reload(tab, false) }),
+        ];
+        toast::show_held(shell::NOT_RESPONDING, buttons, tab, cx);
+    }
+
     fn tooltip(&self, tip: Option<(tooltip::Tip, tooltip::Anchor)>, cx: &mut App) {
         match tip {
             Some((tip, anchor)) => tooltip::hover(tip, anchor, cx),
@@ -2926,6 +2943,12 @@ unsafe extern "C" fn tab_state_changed(
         audible: state.audible,
         muted: state.muted,
         icon: unsafe { CStr::from_ptr(state.icon) }.to_string_lossy().into_owned().into(),
+        trouble: match state.trouble as u32 {
+            bc::BC_PAGE_CRASHED => Trouble::Crashed,
+            bc::BC_PAGE_HUNG => Trouble::Hung,
+            bc::BC_PAGE_NETWORK_ERROR => Trouble::NetworkError(state.net_error),
+            _ => Trouble::Fine,
+        },
     };
     update_shells(|shell, cx| shell.set_page(tab, page.clone(), cx));
 }

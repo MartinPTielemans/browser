@@ -134,6 +134,8 @@ struct Shown {
     settled: bool,
     /// Whether it's the note for full screen, which goes when the window leaves full screen.
     full_screen: bool,
+    /// The tab a held toast is about, which stays until it's answered or `hide_held` takes it.
+    held: Option<u64>,
     _timer: Task<()>,
 }
 
@@ -216,19 +218,39 @@ pub fn open(
 /// Shows `text`, then `key`'s chip and the words after it if there's a key, for `time` from now,
 /// in place of any toast showing.
 pub fn show(text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {
-    present(text, key, Vec::new(), time, false, cx);
+    present(text, key, Vec::new(), Some(time), false, None, cx);
 }
 
 /// Shows `text` with `buttons` after it, for `time` from now and for as long as the pointer is
 /// over it, in place of any toast showing.
 pub fn show_with_buttons(text: &str, buttons: Vec<Button>, time: Duration, cx: &mut App) {
-    present(text, None, buttons, time, false, cx);
+    present(text, None, buttons, Some(time), false, None, cx);
+}
+
+/// Shows `text` about `tab` with `buttons` after it, in place of any toast showing, until a button
+/// is pressed or `hide_held` takes it away, as for a page that stopped answering.
+pub fn show_held(text: &str, buttons: Vec<Button>, tab: u64, cx: &mut App) {
+    present(text, None, buttons, None, false, Some(tab), cx);
+}
+
+/// Takes away the held toast about `tab`, if it shows.
+pub fn hide_held(tab: u64, cx: &mut App) {
+    let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
+        return;
+    };
+    window
+        .update(cx, |toast, _, cx| {
+            if toast.shown.as_ref().is_some_and(|shown| shown.held == Some(tab)) {
+                toast.leave(cx);
+            }
+        })
+        .ok();
 }
 
 /// Shows how to leave full screen, as the window has gone full screen or another Space shows in
 /// it, in place of any toast showing.
 pub fn show_full_screen(cx: &mut App) {
-    present(NOTE, None, Vec::new(), NOTE_TIME, true, cx);
+    present(NOTE, None, Vec::new(), Some(NOTE_TIME), true, None, cx);
 }
 
 /// The window has left full screen: the note on how to goes, if it shows.
@@ -249,8 +271,9 @@ fn present(
     text: &str,
     key: Option<(&str, &str)>,
     buttons: Vec<Button>,
-    time: Duration,
+    time: Option<Duration>,
     full_screen: bool,
+    held: Option<u64>,
     cx: &mut App,
 ) {
     let Some(window) = cx.try_global::<ToastWindow>().map(|toast| toast.0) else {
@@ -264,10 +287,13 @@ fn present(
             let names =
                 if names.is_empty() { String::new() } else { format!(" [{}]", names.join(", ")) };
             log!("browser: toast shown {text}{words}{names}");
-            let timer = cx.spawn(async move |toast, cx| {
-                cx.background_executor().timer(time).await;
-                toast.update(cx, |toast, cx| toast.expire(cx)).ok();
-            });
+            let timer = match time {
+                Some(time) => cx.spawn(async move |toast, cx| {
+                    cx.background_executor().timer(time).await;
+                    toast.update(cx, |toast, cx| toast.expire(cx)).ok();
+                }),
+                None => Task::ready(()),
+            };
             // One already in place stays there with the new words, and one leaving comes back.
             let shown = toast.shown.take().filter(|shown| shown.leaving.is_none());
             toast.shown = Some(Shown {
@@ -280,6 +306,7 @@ fn present(
                 leaving: None,
                 settled: false,
                 full_screen,
+                held,
                 _timer: timer,
             });
             toast.take_clicks(cx);

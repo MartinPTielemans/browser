@@ -68,10 +68,11 @@ mod split_targets;
 mod swap;
 mod swipe;
 mod tile_theme;
+mod trouble;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
-pub use browser::{Browser, Folders, Page, Split, WindowButton};
+pub use browser::{Browser, Folders, Page, Split, Trouble, WindowButton};
 pub use commands::{
     BAR_ROWS, BAR_TABS_SHOWN, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT,
     KeepName, Match, bar_commands, bind_keys, copy_from_bar, find_commands, keystroke_label,
@@ -88,6 +89,7 @@ pub use menus::{MenuEntry, new_profile_name};
 pub use side_panel::SidePanel;
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
+pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
 pub use picture::is_picture;
 pub use recent_downloads::FilePreview;
 use clean_link::clean_link;
@@ -1102,6 +1104,13 @@ pub struct Shell {
     drm_notes: HashMap<u64, SharedString>,
     /// Where the note's card was drawn last, which the log says when it changes.
     drm_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The card of each tab whose page died while this window showed it, until it loads again.
+    crash_cards: HashMap<u64, trouble::CrashCard>,
+    /// Where a crash card and its Reload were drawn last, which the log says when they change.
+    crash_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    crash_reload_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The tab the toast's note is about while its page is hung and shown.
+    hang_noted: Option<u64>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -1251,6 +1260,10 @@ impl Shell {
             question_drawn: Rc::default(),
             drm_notes: HashMap::new(),
             drm_drawn: Rc::default(),
+            crash_cards: HashMap::new(),
+            crash_drawn: Rc::default(),
+            crash_reload_drawn: Rc::default(),
+            hang_noted: None,
             picker_pending: None,
             name_row_drawn: Rc::default(),
             tab_row_drawn: Rc::default(),
@@ -1322,6 +1335,7 @@ impl Shell {
         shell.extensions = from.extensions.clone();
         shell.questions = from.questions.clone();
         shell.drm_notes = from.drm_notes.clone();
+        shell.crash_cards = from.crash_cards.keys().map(|&tab| (tab, Default::default())).collect();
         shell
     }
 
@@ -1770,6 +1784,7 @@ impl Shell {
                     .any(|space| space.pinned.contains(tab) || space.today.contains(tab))
         };
         self.tabs.retain(|tab, _| open(tab));
+        self.crash_cards.retain(|tab, _| open(tab));
         self.recent.retain(open);
         if let Some(Naming::Tab(tab)) = self.renaming.as_ref().map(|renaming| renaming.naming)
             && !open(&tab)
@@ -1826,6 +1841,7 @@ impl Shell {
         self.selection_moved(before);
         self.adding_pane = None;
         self.link_tab_changed(cx);
+        self.note_hang(cx);
         cx.notify();
     }
 
@@ -1962,8 +1978,12 @@ impl Shell {
             log!("browser: page {tab} icon {icon}");
         }
         self.swaps.page_changed(tab, self.selected, &entry.page, &page, Instant::now());
+        let trouble = (page.trouble != entry.page.trouble).then_some(page.trouble);
         let changed = entry.keep_page(page);
         self.tab_changed(tab, changed, cx);
+        if let Some(trouble) = trouble {
+            self.trouble_changed(tab, trouble, cx);
+        }
     }
 
     /// Shows the page full screen, or back. The window goes full screen with it unless it already
@@ -2377,6 +2397,7 @@ impl Render for Shell {
         self.step_scroll_edge(window);
         self.step_tools(window);
         self.step_empty(window);
+        self.step_crash_cards(window);
         let drop_targets = self.drag.as_ref().is_some_and(|drag| drag.over_page.is_some());
         if drop_targets || self.drop_targets_shown {
             self.drop_targets_shown = drop_targets;
@@ -2511,6 +2532,7 @@ impl Render for Shell {
             .children(self.cards())
             .children(self.picture_element(cx))
             .children(self.empty_card(cx))
+            .children(self.crash_cards(cx))
             .children(self.pane_gaps(cx))
             .children(self.side_panel(cx))
             .children(under)

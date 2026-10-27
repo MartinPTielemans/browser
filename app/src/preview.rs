@@ -12,7 +12,7 @@ use std::{
 use browser::log;
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    Folders, Match, MenuEntry, Page, Shell, Split, WindowButton,
+    Folders, Match, MenuEntry, Page, Shell, Split, Trouble, WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
 use browser::icon_picker::{self, Recents};
@@ -824,6 +824,9 @@ impl Browser for Fake {
 
     fn full_screen_note(&self, _: bool, _: &mut App) {}
 
+    // The toast is a window over the page, which the preview has neither of.
+    fn hang_note(&self, _: u64, _: bool, _: &mut App) {}
+
     // The tooltip's window is the app's, over the page, which the preview has neither of.
     fn tooltip(&self, _: Option<(browser::tooltip::Tip, browser::tooltip::Anchor)>, _: &mut App) {}
 
@@ -1172,6 +1175,21 @@ fn main() {
                     (Some(_), _) => shell.set_selected(0, cx),
                     (None, Some(&tab)) => shell.set_selected(tab, cx),
                     (None, None) => shell.set_selected(1, cx),
+                }
+                // PREVIEW_TROUBLE=crashed shows the tab shown's page died, =hung that it stopped
+                // answering, which shows in its row (the note is the toast's, a window the preview
+                // hasn't), and =split that the second page of the split view died beside the first.
+                let trouble = match std::env::var("PREVIEW_TROUBLE").as_deref() {
+                    Ok("crashed") => Some((1, Trouble::Crashed)),
+                    Ok("hung") => Some((1, Trouble::Hung)),
+                    Ok("split") => {
+                        shell.set_selected(TABS.len() as u64 - 1, cx);
+                        Some((TABS.len() as u64, Trouble::Crashed))
+                    }
+                    _ => None,
+                };
+                if let Some((tab, trouble)) = trouble {
+                    shell.set_page(tab, Page { trouble, ..shell.page(tab) }, cx);
                 }
                 shell
             });
