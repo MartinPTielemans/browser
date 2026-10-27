@@ -147,6 +147,8 @@ struct Settings {
   bool warn_moving_profiles = true;
   // Who shares the favorites: a BC_FAVORITES_ value.
   int favorites_scope = BC_FAVORITES_PROFILE;
+  // Whether the browser blocks ads and trackers, in every profile.
+  bool ad_blocking = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.
