@@ -171,7 +171,7 @@ impl Shell {
     /// How full `row`'s hover fill is: full under the pointer or with its menu up, and for the
     /// selected row, easing back once it's left. None for none.
     pub(super) fn hover_fill(&self, row: Row) -> Option<f32> {
-        if self.hovered == Some(row) || self.menu_row.is_some_and(|tab| row == Row::Tab(tab)) {
+        if self.pointer_row() == Some(row) || self.menu_row.is_some_and(|tab| row == Row::Tab(tab)) {
             return Some(1.);
         }
         let selected = row == self.selected_row();
@@ -500,7 +500,7 @@ impl Shell {
     ) -> impl IntoElement + use<> {
         let first = panes[0];
         let row_selected = self.selected_row() == Row::Tab(first);
-        let hovered = self.hovered == Some(Row::Tab(first));
+        let hovered = self.pointer_row() == Some(Row::Tab(first));
         // A pinned tab closed already has nothing to close.
         let pinned = self.pinned().contains(&first);
         let closable = panes.iter().any(|&tab| !(self.page(tab).unloaded && pinned));
@@ -556,7 +556,7 @@ impl Shell {
     /// own at once.
     pub(super) fn selection_moved(&mut self, before: Row) {
         let after = self.selected_row();
-        let Some(Row::Tab(row)) = self.hovered else {
+        let Some(Row::Tab(row)) = self.pointer_row() else {
             return;
         };
         let moved = before != after && (before == Row::Tab(row) || after == Row::Tab(row));
@@ -577,10 +577,10 @@ impl Shell {
         let page = self.page(tab);
         let loading = page.loading;
         let closable = self.closable(tab);
-        let hovered = self.hovered == Some(Row::Tab(tab));
+        let hovered = self.pointer_row() == Some(Row::Tab(tab));
         // Away from its pinned URL, a pinned tab's favicon is a way back.
         let away = page.away_from_pinned_url;
-        let back = away && self.hovered_favicon == Some(tab);
+        let back = away && self.pointer_favicon() == Some(tab);
         let label = if back { "Back to Pinned URL".into() } else { self.title(tab) };
         let title = title(label, Row::Tab(tab) == self.selected_row());
         // The close button shows under the pointer, and the title truncates before it.
@@ -950,7 +950,9 @@ mod tests {
         super::{
             CLOSE_RIGHT, CLOSE_SIZE, FAVICON_SIZE, FAVICON_X, Folders, NAME_HEIGHT, PLATE_INSET,
             PRESS_SCALE, PRESS_TIME, Page, ROW_HEIGHT, ROW_PITCH, Row, SELECTED_UNHOVER,
-            SPACE_ICON_PLATE, Shell, Slot, Swapped, commands::bind_keys, drag::detents::shell_with,
+            SPACE_ICON_PLATE, Shell, Slot, Swapped,
+            commands::{Command, bind_keys},
+            drag::detents::shell_with,
             recorder::Recorder,
         },
         CLOSE, LOADING_GAP, LOADING_TURN, Rings, Subject, UNLOAD,
@@ -1465,5 +1467,87 @@ mod tests {
         cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
         assert_eq!(host.take(), ["back to pinned url 2", "select 2"]);
+    }
+
+    /// How the user goes back to the tab they came from.
+    #[derive(Clone, Copy, Debug)]
+    enum Back {
+        Click,
+        /// A key in the UI.
+        Key,
+        /// A key in the page, which hands it back.
+        PageKey,
+    }
+
+    /// The issue's steps: the pointer on pinned tab 2, shown, a click on tab 3 below it, whose page
+    /// may show the protected-media note, then `back` to tab 2. Returns the rows other than the one
+    /// shown that draw a hover fill, then the shell and where the pointer is. The two rows are
+    /// below where the note hangs, so a click reaches each.
+    fn switch_back(
+        cx: &mut TestAppContext,
+        back: Back,
+        note: bool,
+    ) -> (Vec<u64>, Entity<Shell>, &mut VisualTestContext) {
+        cx.update(bind_keys);
+        let (shell, cx, host) = window(cx, vec![5, 6, 7, 8, 2, 3], vec![4], 2);
+        cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+        let middle = |cx: &mut VisualTestContext, tab| {
+            let (x, y) = close_button(&shell, cx, tab);
+            point(px(x - 100.), px(y))
+        };
+        let click = |cx: &mut VisualTestContext, tab| {
+            let at = middle(cx, tab);
+            cx.simulate_mouse_move(at, None, Modifiers::none());
+            cx.simulate_click(at, Modifiers::none());
+        };
+        let at = middle(cx, 2);
+        cx.simulate_mouse_move(at, None, Modifiers::none());
+        cx.run_until_parked();
+        for tab in [3, 2] {
+            host.take();
+            match (tab, back) {
+                (3, _) | (_, Back::Click) => click(cx, tab),
+                (_, Back::Key) => cx.simulate_keystrokes("alt-cmd-up"),
+                (_, Back::PageKey) => {
+                    shell.update(cx, |shell, cx| shell.run_for_page(Command::PreviousTab, cx));
+                }
+            }
+            cx.run_until_parked();
+            assert!(host.take().contains(&format!("select {tab}")), "{back:?}");
+            shell.update(cx, |shell, cx| {
+                shell.set_selected(tab, cx);
+                let system = if tab == 3 && note { "com.widevine.alpha" } else { "" };
+                shell.set_media_unsupported(3, system, cx);
+            });
+            cx.run_until_parked();
+        }
+        (filled(&shell, cx), shell, cx)
+    }
+
+    /// The rows other than the one shown that draw a hover fill.
+    fn filled(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> Vec<u64> {
+        shell.read_with(cx, |shell, _| {
+            let rows = [2, 3, 4, 5, 6, 7, 8].into_iter().filter(|&tab| tab != shell.selected);
+            rows.filter(|&tab| shell.hover_fill(Row::Tab(tab)).is_some_and(|fill| fill > 0.))
+                .collect()
+        })
+    }
+
+    /// After a click on a tab and back to the one before, by a click or a key in the UI or in the
+    /// page, with or without the note on the other tab's page, only the shown tab's row reads as
+    /// selected. A key in the page hides the row the pointer rests on, as one in the UI does,
+    /// until the pointer moves.
+    #[gpui::test]
+    fn switching_back_leaves_one_row_selected(cx: &mut TestAppContext) {
+        for back in [Back::Click, Back::Key, Back::PageKey] {
+            for note in [false, true] {
+                let (filled, ..) = switch_back(cx, back, note);
+                assert_eq!(filled, Vec::<u64>::new(), "{back:?}, note {note}");
+            }
+        }
+        let (_, shell, cx) = switch_back(cx, Back::PageKey, false);
+        let (x, y) = close_button(&shell, cx, 3);
+        move_to(cx, (x - 101., y));
+        assert_eq!(filled(&shell, cx), [3], "the pointer moved on the row it rests on");
     }
 }
