@@ -124,10 +124,11 @@ expect "^browser: loaded $tab ${site}busy.html\$" "the tab behind didn't load on
 none_since "trouble crashed" || fail "the tab behind showed the crash card"
 
 # A host that doesn't resolve shows the core's error page, with no card and no mark. The host has
-# no address under a real domain, since the bar's first suggestion for a .invalid one is a search.
+# no address under a real domain, since the bar's first suggestion for a .invalid one is a search
+# (#265), and https, since over http Chromium's HTTPS-First warning would cover the page.
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
-send insert "http://nothing.example.com/"
+send insert "https://nothing.example.com/"
 send key return
 expect "^browser: page $tab trouble network -105\$" "a host that doesn't resolve wasn't a network error"
 await '^browser: title [0-9]* nothing.example.com$' || fail "the error page didn't take the host for its title"
