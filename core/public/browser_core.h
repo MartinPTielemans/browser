@@ -348,6 +348,29 @@ typedef struct bc_offer {
   const char* decline;
   const char* never;
 } bc_offer;
+// What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt().
+#define BC_DIALOG_ALERT 0
+#define BC_DIALOG_CONFIRM 1
+#define BC_DIALOG_PROMPT 2
+
+// A page's own dialog, for the user to answer while its tab shows, in Chrome's words.
+typedef struct bc_page_dialog {
+  // Answer it with this.
+  bc_id id;
+  // A BC_DIALOG_ kind.
+  int kind;
+  // Chrome's title, such as "example.com says".
+  const char* title;
+  // The page's message, or Chrome's under the title.
+  const char* message;
+  // The text a prompt's field starts with, else "".
+  const char* text;
+  // Chrome's labels for its buttons. |cancel| is "" for none, as an alert has only OK.
+  const char* accept;
+  const char* cancel;
+  // The label of a checkbox under the message, or "" for none.
+  const char* check;
+} bc_page_dialog;
 
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
@@ -556,6 +579,14 @@ typedef struct bc_host {
   // An entry for the activity log: the core checked an agent's call with bc_agent_may_act, and
   // let it act or refused it.
   void (*agent_activity)(void* context, const bc_agent_activity* entry);
+  // The tab's page asks with a dialog of its own, in place of Chrome's: show it over the tab's
+  // card while the tab shows, and answer with bc_tab_answer_dialog. A tab asks one at a time, and
+  // this comes again once the dialog has gone, answered or taken back, with the tab's next, or
+  // with |dialog| null if it has none. Chrome's rules stay: a page that isn't the front window's
+  // tab shown can't ask confirm() or prompt(), its alert() waits until the tab shows, and a
+  // confirm() or prompt() is cancelled once its tab no longer shows. An agent's tab asks the user
+  // the same way, and the agent can't answer.
+  void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1157,6 +1188,18 @@ BC_EXPORT void bc_tab_capture_end(bc_id tab);
 // change. Then tab_permission_asked. The user's: agents get none, as an answer can give a site the
 // camera or where the user is.
 BC_EXPORT void bc_tab_answer_permission(bc_id tab, int answer);
+
+// Answers the dialog tab_dialog put, if it's still asked: |accept| for its accept button, else its
+// cancel, with the text of its first field in |text| and of its password field in |password|,
+// either of which may be null for "", and whether its checkbox is ticked in |checked|. Then
+// tab_dialog. The core keeps neither text, nor logs it. The user's: agents get none, as the page
+// goes on with what it thinks the user chose.
+BC_EXPORT void bc_tab_answer_dialog(bc_id tab,
+                                    bc_id dialog,
+                                    bool accept,
+                                    const char* text,
+                                    const char* password,
+                                    bool checked);
 
 // Reads the site of the tab's page for its Site Controls, as Chrome's page info does, and watches
 // it until bc_site_controls_close or another tab's bc_tab_site_controls. Then tab_site_controls.
