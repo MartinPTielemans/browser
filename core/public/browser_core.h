@@ -385,6 +385,12 @@ typedef struct bc_host {
                            const char* url,
                            bc_id profile,
                            bool private_window);
+  // The page of |tab|, the tab |window| has selected, went to another window, which shows it live,
+  // and |window| shows no page; or |tab| is 0, and |window| shows a page again, or has selected
+  // another tab. Once for each change. window_selected doesn't say it: the tab stays selected.
+  // bc_tab_capture still gives a picture of the page, for the window to show in its place. The
+  // user's alone: agents have no windows.
+  void (*window_page_elsewhere)(void* context, bc_id window, bc_id tab);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

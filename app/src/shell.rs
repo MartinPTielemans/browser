@@ -45,6 +45,7 @@ mod naming;
 mod new_space;
 mod panes;
 mod permission;
+mod picture;
 mod recent_downloads;
 #[cfg(test)]
 mod recorder;
@@ -74,6 +75,7 @@ pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menus::{MenuEntry, new_profile_name};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
+pub use picture::is_picture;
 pub use recent_downloads::FilePreview;
 use clean_link::clean_link;
 use commands::ShellHandle;
@@ -1024,6 +1026,9 @@ pub struct Shell {
     downloads_seen: HashSet<u64>,
     downloads_read: bool,
     flight: Option<Flight>,
+    /// The picture of the page another window shows, in place of it, and the pictures to let go of.
+    picture: Option<picture::Picture>,
+    stale_pictures: Vec<Arc<gpui::RenderImage>>,
     /// Each profile's extensions, and those the menu bar lists, the shown Space's turned on.
     extensions: HashMap<u64, Vec<Extension>>,
     menu_extensions: Vec<Extension>,
@@ -1167,6 +1172,8 @@ impl Shell {
             downloads_seen: HashSet::new(),
             downloads_read: false,
             flight: None,
+            picture: None,
+            stale_pictures: Vec::new(),
             extensions: HashMap::new(),
             menu_extensions: Vec::new(),
             menu_spaces: Vec::new(),
@@ -1739,6 +1746,7 @@ impl Shell {
         if self.walked.is_none() {
             self.shown(tab);
         }
+        self.selected_for_picture(tab, cx);
         // check.sh reads this line.
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
@@ -1753,6 +1761,7 @@ impl Shell {
     pub fn became_key(&mut self, cx: &mut Context<Self>) {
         cx.set_global(ShellHandle(cx.weak_entity()));
         self.refresh_menus(cx);
+        self.refresh_picture(cx);
     }
 
     /// The user left the command bar without choosing anything in it.
@@ -1955,7 +1964,8 @@ impl Shell {
     }
 
     fn select(&mut self, tab: u64, cx: &mut Context<Self>) {
-        if tab == self.selected {
+        // The tab selected whose page another window shows is taken from it by selecting it again.
+        if tab == self.selected && !self.pictured(tab) {
             return;
         }
         self.switching = Some((tab, Instant::now()));
@@ -2235,6 +2245,7 @@ impl Render for Shell {
         self.step_library(window, cx);
         self.step_new_space(window);
         self.step_flight(window);
+        self.step_picture(window);
         self.step_recent_downloads(window);
         if let Some((_, left)) = &self.leaving_form {
             if left.elapsed().as_secs_f32() < FORM_LEAVE_TITLE + FORM_LEAVE {
@@ -2385,6 +2396,7 @@ impl Render for Shell {
             .child(div().absolute().size_full().bg(self.gradient(None)))
             // The page views go over the cards, as native views.
             .children(self.cards())
+            .children(self.picture_element(cx))
             .children(self.pane_gaps(cx))
             .children(under)
             .children(sidebar)

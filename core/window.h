@@ -263,8 +263,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Moves the pages of |tab| and its split view into this window's Browsers from the windows
   // holding them, live, as Chrome's tab dragging does. A window showing one lets it go first.
   void Adopt(bc_id tab);
-  // Shows no page, keeping the tab selected, as another window took its page.
-  void LetGo();
+  // Shows no page, keeping the tab selected, as another window took its page, and says so
+  // (window_page_elsewhere) unless |tell| is false.
+  void LetGo(bool tell = true);
+  // Sets let_go_, and tells the app when it changes.
+  void SetLetGo(bool let_go);
   // Moves every tab of this window's Browsers into |to|'s, unshown, which empties them.
   void HandOver(Window& to);
   // Whether another window shows |tab|'s page, which an implicit pick passes over.
