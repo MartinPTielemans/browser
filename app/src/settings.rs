@@ -99,6 +99,7 @@ const KNOB: u32 = 0xe1e2e2;
 /// The knob over the accent colour, which tints it.
 const KNOB_ON: u32 = 0xe1ebfe;
 const HAPTICS_TILE: u32 = 0x3f8ff7;
+const LINK_PREVIEWS_TILE: u32 = 0x30b0c7;
 const PROFILE_TILE: u32 = 0x8e8e93;
 /// A row's detail, such as a profile's Spaces, in the toolbar's grey.
 const DETAIL: u32 = 0x9e9f9f;
@@ -833,13 +834,22 @@ impl Settings {
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
+        let previews = unsafe { bc::bc_link_previews() };
+        let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
         let more = button("more-settings", "More Settings…").on_click(|_, _, cx| more_settings(cx));
         div()
-            .child(group([row(
-                Some(("icons/vibrate.svg", HAPTICS_TILE)),
-                "Haptic feedback when swiping between Spaces",
-                haptics,
-            )]))
+            .child(group([
+                row(
+                    Some(("icons/vibrate.svg", HAPTICS_TILE)),
+                    "Haptic feedback when swiping between Spaces",
+                    haptics,
+                ),
+                row(
+                    Some(("icons/app-window.svg", LINK_PREVIEWS_TILE)),
+                    "Preview links to other sites from pinned tabs and favorites",
+                    previews,
+                ),
+            ]))
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
     }
@@ -1046,6 +1056,10 @@ fn set_warn_before_quitting(warn: bool) {
 
 fn set_haptics(haptics: bool) {
     unsafe { bc::bc_set_haptics(haptics) };
+}
+
+fn set_link_previews(previews: bool) {
+    unsafe { bc::bc_set_link_previews(previews) };
 }
 
 /// Opens Chromium's settings in a new tab, for what this window doesn't offer yet, and goes to it.

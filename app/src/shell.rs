@@ -27,6 +27,8 @@ use crate::{
 #[cfg(test)]
 mod agent_spaces;
 #[cfg(test)]
+mod link_previews;
+#[cfg(test)]
 mod close_tab;
 #[cfg(test)]
 mod favorites_scope;
@@ -210,7 +212,7 @@ const BACK_X: f32 = 122.;
 const FORWARD_X: f32 = 156.;
 const RELOAD_X: f32 = 190.;
 const NAV_SIZE: f32 = 32.;
-const NAV_RADIUS: f32 = 6.;
+pub(crate) const NAV_RADIUS: f32 = 6.;
 // Header glyphs are drawn in points in a box this big, at Arc's sizes and centres.
 const NAV_GLYPH: f32 = 24.;
 // A header button shows while its plate ends this far inside the sidebar, so a narrow sidebar loses
@@ -222,9 +224,9 @@ const URL_FIELD_HEIGHT: f32 = 36.;
 const URL_FIELD_TEXT_X: f32 = 21.;
 // The URL field's button, which shows while the pointer is over the sidebar: 30 pt, as Arc's, 3 pt
 // inside the field's end (ours: Arc's frames end 1 pt past where its field would).
-const URL_BUTTON_SIZE: f32 = 30.;
-const URL_BUTTON_INSET: f32 = 3.;
-const URL_BUTTON_GLYPH: f32 = 14.;
+pub(crate) const URL_BUTTON_SIZE: f32 = 30.;
+pub(crate) const URL_BUTTON_INSET: f32 = 3.;
+pub(crate) const URL_BUTTON_GLYPH: f32 = 14.;
 // Arc puts favorites between the URL field and the Space's name. This is their gap while there are
 // none, which Arc has no layout for.
 const LIST_TOP: f32 = URL_FIELD_TOP + URL_FIELD_HEIGHT + 8.;
@@ -410,13 +412,13 @@ const CARD: u32 = 0x1212_1280;
 // Arc's row tokens (docs/ux-spec.md › Tab rows): the tab shown is white 0.2, a row under the
 // pointer 0.12 and a pressed one 0.065, with no line or shadow in dark mode. Titles are Dia's,
 // white, at 0.78 unless selected (ours: Arc's aren't measured).
-const TITLE: u32 = 0xffffffff;
+pub(crate) const TITLE: u32 = 0xffffffff;
 const UNSELECTED_TITLE: u32 = 0xffffffc7;
 const SELECTED: u32 = 0xffff_ff33;
 // The selected row under the pointer: Arc's (113–116) over the dark Space's (37, 35, 53).
 const SELECTED_HOVERED: u32 = 0xffff_ff5c;
 const HOVERED: u32 = 0xffff_ff1f;
-const PRESSED: u32 = 0xffff_ff11;
+pub(crate) const PRESSED: u32 = 0xffff_ff11;
 const SECONDARY: u32 = 0xffffff99;
 // The close button's square under the pointer: Dia's subtle fill, white 0.12, at the header
 // buttons' radius (ours: Dia's fill isn't measured).
@@ -444,9 +446,9 @@ const TILE_RING: u32 = 0xffff_ff73;
 const TILE_UNTHEMED: u32 = 0x0000_00ff;
 // The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
 // forward with nowhere to go, over a hover plate of white 0.077.
-const NAV: u32 = 0xffffff99;
+pub(crate) const NAV: u32 = 0xffffff99;
 const NAV_DISABLED: u32 = 0xffffff42;
-const NAV_HOVERED: u32 = 0xffffff14;
+pub(crate) const NAV_HOVERED: u32 = 0xffffff14;
 // The Space's name, white 0.56, and the switcher's dots: white 0.5 for the Space shown and 0.19
 // for the others (Arc), 0.3 under the pointer (ours: Arc's isn't measured).
 const SPACE_NAME: u32 = 0xffffff8f;
@@ -1510,6 +1512,19 @@ impl Shell {
     /// Whether the window shows `tab`'s page: the tab shown, or a page beside it in its split view.
     pub fn shows(&self, tab: u64) -> bool {
         self.selected != 0 && self.panes(self.selected).contains(&tab)
+    }
+
+    /// Whether a link from `tab`'s page to another site opens in a link preview: `tab` is a
+    /// favorite or pinned in the Space shown, as such a tab keeps its own site, and the Space is
+    /// the user's, as a preview is theirs alone.
+    pub fn previews_links_of(&self, tab: u64) -> bool {
+        let kept = self.favorites.contains(&tab) || self.pinned().contains(&tab);
+        kept && !self.agents_space_shown()
+    }
+
+    /// Where the page was laid out last, and the radius of its corners.
+    pub fn page_laid(&self) -> Option<(Bounds<Pixels>, f32)> {
+        self.page_laid
     }
 
     /// Where the card's left edge is: past the sidebar, or at the inset once ⌘S has hidden it,

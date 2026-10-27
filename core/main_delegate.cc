@@ -13,6 +13,7 @@
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
+#include "browser_core/link_preview.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/platform/keychain.h"
@@ -129,6 +130,7 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
   void CreateThrottlesForNavigation(content::NavigationThrottleRegistry& registry) override {
     ChromeContentBrowserClient::CreateThrottlesForNavigation(registry);
     system_engine::CreateThrottlesForNavigation(registry);
+    AddLinkPreviewThrottle(registry);
   }
 };
 

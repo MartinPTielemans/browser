@@ -51,6 +51,7 @@
 #include "content/public/common/result_codes.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "third_party/blink/public/common/input/web_input_event.h"
+#include "third_party/blink/public/common/input/web_mouse_event.h"
 #include "ui/base/page_transition_types.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/events/keycodes/dom/dom_key.h"
@@ -777,6 +778,7 @@ void Tab::DidGetUserInteraction(const blink::WebInputEvent& event) {
   // A click, not the keyboard coming to the page: the core moves the keyboard between the pages of
   // a split view itself, and focus reports posted from those moves arrive after the next one.
   if (event.GetType() == blink::WebInputEvent::Type::kMouseDown) {
+    last_click_ = static_cast<const blink::WebMouseEvent&>(event).PositionInWidget();
     base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
         FROM_HERE, base::BindOnce(&Window::OnPageClicked, id_));
   }
