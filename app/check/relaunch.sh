@@ -1,6 +1,8 @@
 # Launched again after ⌘Q, the app brings back every regular window that was open, as Arc and
 # Chrome do: each at the frame it had, in the Space it showed, stacked as they were, with the one
-# in front key. A window closed before the quit, and a private window, don't come back. Reports
+# in front key. A window closed before the quit, and a private window, don't come back. With
+# windows open, ⌘N's window is as big as the one in front, cascaded from it. Closing the last
+# regular window quits, and the next launch opens at its frame, not a private window's. Reports
 # the launch's times with one window brought back and with two.
 
 page='data:text/html,<title>relaunch</title>'
@@ -118,8 +120,47 @@ expect '^browser: order window 1 window 2, key window 1$' \
   "the windows came back out of order, or the one in front wasn't key"
 ../tools/window-screenshot.sh "$pid" "$out/relaunch-two.png" all || fail "no window to capture"
 two="window on screen $(launch_at 'window on screen') ms, first frame $(launch_at 'first frame') ms"
+
+# With windows open, ⌘N's window is as big as the one in front, down and to the right of it as
+# AppKit cascades windows.
+send window 1
+send key n cmd
+expect '^browser: window opened [0-9]' "⌘N didn't open a window over the two brought back"
+cascaded=$(windows_opened | tail -1)
+read -r x y width height <<EOF
+$(frame_of "$cascaded")
+EOF
+[ "$width $height" = "900 640" ] && [ "${x:-0}" -gt 320 ] && [ "${y:-0}" -gt 140 ] ||
+  fail "⌘N's window opened at $(frame_of "$cascaded"), not as big as the one in front at 320 140 900 640 and down and to its right"
+
+# Closed last, a regular window sets where the next launch's window opens, and a private window
+# open at another frame doesn't.
+send key n cmd shift
+expect '^browser: private window opened [0-9]' "⇧⌘N didn't open a private window"
+send window 4
+send place 500 300 700 500
+send window 2
+send key w cmd shift
+expect "^browser: window closed $back\$" "⇧⌘W didn't close the window behind"
+send window 3
+send key w cmd shift
+expect "^browser: window closed $cascaded\$" "⇧⌘W didn't close ⌘N's window"
+send window 1
+send place 140 100 1040 680
+# The last regular window's close quits, so the driver never reports it done.
+post key w cmd shift
+exec 3>&-
+exited
+
+launch_logged "$out/relaunch-d.log"
+await '^browser: window opened [0-9]' || fail "no window opened after the last one closed"
+grep -q '^browser: launch window frame 140 100 1040 680$' "$log" ||
+  fail "the launch window opened at $(grep '^browser: launch window frame ' "$log" | cut -d' ' -f5-), not where the last window closed at 140 100 1040 680"
+first=$(windows_opened | head -1)
+[ "$(frame_of "$first")" = "140 100 1040 680" ] ||
+  fail "the window opened at $(frame_of "$first"), not where the last window closed at 140 100 1040 680"
 exec 3>&-
 quit
 
-echo "ok: after ⌘Q, every regular window comes back at its frame, in its Space, stacked as it was with the one in front key; a window closed before the quit and a private window don't. Window: $out/relaunch-two.png"
+echo "ok: after ⌘Q, every regular window comes back at its frame, in its Space, stacked as it was with the one in front key; a window closed before the quit and a private window don't. ⌘N with windows open cascades from the one in front at its size, and after the last regular window closes the next launch opens at its frame, not a private window's. Window: $out/relaunch-two.png"
 echo "  Launch with one window: $one; with two: $two"

@@ -555,6 +555,10 @@ BC_EXPORT int bc_main(int argc, const char** argv, const bc_host* host);
 // Asks Chromium to quit. Pages get their unload handlers first, then bc_main returns.
 BC_EXPORT void bc_quit(void);
 
+// Whether Chromium is quitting: after bc_quit, the Dock's Quit or logging out. The windows it
+// closes then still call window_closed.
+BC_EXPORT bool bc_quitting(void);
+
 // Opens a window at |bounds| with the app's UI view in it, under the pages it shows: an NSView on
 // the Mac, which the window keeps. |ui_view| may be null. Returns 0 if Chromium is quitting. Every
 // window shows the same Spaces. The user's: agents get none, as it changes what the user sees.
