@@ -135,6 +135,31 @@ bool bc_window_restore(bc_id id) {
   return window && browser_core::RestoreSession(*window);
 }
 
+size_t bc_saved_window_frames(bc_rect* frames, size_t count) {
+  const std::vector<gfx::Rect> saved = browser_core::SavedWindowFrames();
+  for (size_t i = 0; i < std::min(count, saved.size()); ++i) {
+    frames[i] = {static_cast<double>(saved[i].x()), static_cast<double>(saved[i].y()),
+                 static_cast<double>(saved[i].width()), static_cast<double>(saved[i].height())};
+  }
+  return saved.size();
+}
+
+bc_id bc_window_open_saved(size_t index, bc_rect bounds, void* ui_view) {
+  if (index == 0 || index >= browser_core::SavedWindowFrames().size()) {
+    return 0;
+  }
+  browser_core::Window* window =
+      browser_core::Window::Open(ToRect(bounds), ui_view, /*behind=*/true);
+  if (!window) {
+    return 0;
+  }
+  if (!browser_core::RestoreSavedWindow(*window, index) &&
+      !browser_core::Space::All().empty()) {
+    window->ShowSpace(browser_core::Space::All().front()->id());
+  }
+  return window->id();
+}
+
 void bc_window_close(bc_id id) {
   if (browser_core::Window* window = browser_core::Window::FromId(id)) {
     window->Close();

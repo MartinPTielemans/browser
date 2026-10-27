@@ -45,6 +45,14 @@
 //   dragleave                             takes the drag away, as cancelled
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
+//   place <x> <y> <width> <height>        moves and resizes the window to that frame, in points
+//                                         from the main display's top-left corner
+//   order                                 logs the browser windows on screen front to back and
+//                                         the key one, as "browser: order window <n> window <m>
+//                                         …, key window <n>|none", numbered as window numbers
+//                                         them, the driven one too, after each one's frame, as
+//                                         "browser: frame window <n> <x> <y> <width> <height>"
+//                                         in place's terms
 //   layout                                logs the frames of the window's views and child
 //                                         windows, and the centres of its close, minimize and
 //                                         zoom buttons
@@ -948,6 +956,43 @@ bool Run(const std::string& line, void (^done)(void)) {
   }
   if (action == "fullscreen") {
     [window toggleFullScreen:nil];
+    done();
+    return true;
+  }
+  if (action == "place") {
+    double x, y, width, height;
+    if (!(words >> x >> y >> width >> height)) {
+      return false;
+    }
+    const CGFloat top = NSHeight(NSScreen.screens.firstObject.frame);
+    [window setFrame:NSMakeRect(x, top - y - height, width, height) display:YES];
+    done();
+    return true;
+  }
+  if (action == "order") {
+    NSMutableString* order = [NSMutableString string];
+    const CGFloat top = NSHeight(NSScreen.screens.firstObject.frame);
+    // Each by the order it opened in, the driven one too.
+    const auto name_of = [](NSWindow* each) -> NSString* {
+      for (size_t index = 0; index < 64; index++) {
+        if ((__bridge void*)each == host_browser_window(index)) {
+          return [NSString stringWithFormat:@"window %zu", index + 1];
+        }
+      }
+      return nil;
+    };
+    for (NSWindow* each in NSApp.orderedWindows) {
+      NSString* name = each.visible ? name_of(each) : nil;
+      if (!name) {
+        continue;
+      }
+      [order appendFormat:@" %@", name];
+      const NSRect frame = each.frame;
+      fprintf(stderr, "browser: frame %s %.0f %.0f %.0f %.0f\n", name.UTF8String, NSMinX(frame),
+              top - NSMaxY(frame), NSWidth(frame), NSHeight(frame));
+    }
+    fprintf(stderr, "browser: order%s, key %s\n", order.UTF8String,
+            (name_of(NSApp.keyWindow) ?: @"none").UTF8String);
     done();
     return true;
   }

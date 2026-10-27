@@ -11,6 +11,7 @@
 #include "browser_core/public/browser_core.h"
 #include "browser_core/space.h"
 #include "components/sessions/core/serialized_navigation_entry.h"
+#include "ui/gfx/geometry/rect.h"
 #include "url/gurl.h"
 
 class Profile;
@@ -118,8 +119,17 @@ void KeepSession();
 // Writes a save still waiting, as Chrome shuts down.
 void FlushSession();
 
-// The docked sidebar's width the last launch saved for its window, or 0.
+// The docked sidebar's width the last launch saved for its front window, or 0.
 double SavedSidebarWidth();
+
+// The frames of the regular windows open when the browser last quit, front to back, as they were
+// out of full screen. One saved before frames were kept is empty. Read with the Spaces.
+std::vector<gfx::Rect> SavedWindowFrames();
+
+// Has |window| show what the saved window |index| showed, the first being RestoreSession's: its
+// Space, its sidebar's width, and full screen if it was. Returns whether there's such a window
+// and its Space came back.
+bool RestoreSavedWindow(Window& window, size_t index);
 
 // What the user chose in the app's Settings. The core keeps it with the Spaces, and reads it back
 // with them, before the app opens its window.
@@ -139,8 +149,8 @@ struct Settings {
 // The user's settings. Call SessionChanged after changing them.
 Settings& UserSettings();
 
-// Puts the favorites and Spaces the last launch saved in |window|, which shows the Space it
-// showed, unless there are Spaces already. Returns whether it did.
+// Puts the favorites and Spaces the last launch saved in |window|, which shows what the front
+// window showed (RestoreSavedWindow), unless there are Spaces already. Returns whether it did.
 bool RestoreSession(Window& window);
 
 }  // namespace browser_core
