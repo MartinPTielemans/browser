@@ -32,6 +32,9 @@ mkdir -p build
 cp -cR "$(cd .deps/Chromium.app && pwd -P)" "$app"
 rm "$app/Contents/MacOS/Chromium"
 cp target/release/Browser "$app/Contents/MacOS/"
+# uBlock Origin goes in the framework's resources, where the core loads it into every profile.
+framework=$(echo "$app"/Contents/Frameworks/*Framework.framework)
+cp -R "$(./fetch-ublock.sh)" "$framework/Resources/ublock"
 # The dev engine's framework and helpers load its component libraries from beside the app. These
 # are links, so a rebuilt dev engine's core reaches the built app at once.
 rm -f build/*.dylib

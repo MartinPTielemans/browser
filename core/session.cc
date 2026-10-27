@@ -24,6 +24,7 @@
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
 #include "base/values.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/archive.h"
 #include "browser_core/favorites.h"
 #include "browser_core/profiles.h"
@@ -421,7 +422,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("haptics", saved.settings.haptics)
                            .Set("warn_before_quitting", saved.settings.warn_before_quitting)
                            .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
-                           .Set("favorites_scope", ScopeName(saved.settings.favorites_scope)));
+                           .Set("favorites_scope", ScopeName(saved.settings.favorites_scope))
+                           .Set("ad_blocking", saved.settings.ad_blocking));
   return base::WriteJson(root);
 }
 
@@ -624,6 +626,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     if (const std::string* scope = settings->FindString("favorites_scope")) {
       saved.settings.favorites_scope = ScopeFromName(*scope);
     }
+    saved.settings.ad_blocking = settings->FindBool("ad_blocking").value_or(true);
   }
   return saved;
 }
@@ -695,6 +698,8 @@ class Saver : public base::ImportantFileWriter::BackgroundDataSerializer {
       UserSettings() = saved->settings;
       LoadedWindows() = std::exchange(saved->windows, {});
     }
+    // The profile the browser started in loaded before the settings were read.
+    ApplyAdBlocking();
     // The profiles the Spaces and favorites are in load before they come back.
     std::set<std::string> profiles;
     if (saved) {

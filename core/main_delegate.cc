@@ -10,6 +10,7 @@
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
@@ -195,6 +196,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_offline_game = &Tab::GameRunning;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
+  SetUpAdBlock();
   return ChromeMain(argc, argv);
 }
 
