@@ -137,6 +137,13 @@ std::vector<base::WeakPtr<Profile>>& Ended() {
   return *ended;
 }
 
+// Whether |off_the_record|'s session has ended, and Chrome is still to destroy it.
+bool HasEnded(Profile* off_the_record) {
+  return std::ranges::any_of(Ended(), [off_the_record](const base::WeakPtr<Profile>& each) {
+    return each.get() == off_the_record;
+  });
+}
+
 // The profiles whose private session has started and whose end the app hasn't heard.
 std::set<bc_id>& Unheard() {
   static base::NoDestructor<std::set<bc_id>> unheard;
@@ -270,15 +277,12 @@ void ReleaseProfiles() {
   Used().clear();
 }
 
-Profile* PrivateProfileOf(Profile* profile, bool start) {
+Profile* StartPrivateSession(Profile* profile) {
   // A session that has ended is gone at once, so the new window's starts without its cookies, and
   // Chrome doesn't destroy the profile later under the new window's Browser. Not while the window
   // that ended it is still closing, as it holds things of the profile until it's gone.
   if (Profile* ending = profile->GetPrimaryOTRProfile(/*create_if_needed=*/false);
-      start && ending && !PrivateWindowOpen(profile) &&
-      std::ranges::any_of(Ended(), [ending](const base::WeakPtr<Profile>& each) {
-        return each.get() == ending;
-      })) {
+      ending && !PrivateWindowOpen(profile) && HasEnded(ending)) {
     ProfileDestroyer::DestroyOTRProfileImmediately(ending);
   }
   Profile* off_the_record = profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
@@ -287,6 +291,11 @@ Profile* PrivateProfileOf(Profile* profile, bool start) {
     Unheard().insert(ProfileId(DirOf(profile)));
   }
   return off_the_record;
+}
+
+Profile* PrivateProfileOf(Profile* profile) {
+  Profile* off_the_record = profile->GetPrimaryOTRProfile(/*create_if_needed=*/false);
+  return off_the_record && !HasEnded(off_the_record) ? off_the_record : nullptr;
 }
 
 void EndPrivateSession(Profile* profile) {

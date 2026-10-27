@@ -292,7 +292,7 @@ Window* Window::OpenPrivate(const gfx::Rect& bounds, void* ui_view, Profile* pro
   }
   window->off_the_record_ = true;
   // Its Browser now, which holds the private session for as long as the window is open.
-  window->BrowserFor(PrivateProfileOf(profile, /*start=*/true));
+  window->BrowserFor(StartPrivateSession(profile));
   window->ShowSpace(Space::CreateOffTheRecord(DirOf(profile))->id(), /*page=*/false);
   return window;
 }
