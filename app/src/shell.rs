@@ -35,6 +35,7 @@ mod browser;
 mod clean_link;
 mod commands;
 mod drag;
+mod drm_note;
 mod extensions;
 mod favorites;
 mod fly_in;
@@ -1067,6 +1068,11 @@ pub struct Shell {
     questions: HashMap<u64, Question>,
     /// Where the question's card was drawn last, which the log says when it changes.
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
+    /// goes to another site.
+    drm_notes: HashMap<u64, SharedString>,
+    /// Where the note's card was drawn last, which the log says when it changes.
+    drm_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -1204,6 +1210,8 @@ impl Shell {
             circle_exit: None,
             questions: HashMap::new(),
             question_drawn: Rc::default(),
+            drm_notes: HashMap::new(),
+            drm_drawn: Rc::default(),
             picker_pending: None,
             name_row_drawn: Rc::default(),
             name_row_before: None,
@@ -1273,6 +1281,7 @@ impl Shell {
         shell.downloads_read = from.downloads_read;
         shell.extensions = from.extensions.clone();
         shell.questions = from.questions.clone();
+        shell.drm_notes = from.drm_notes.clone();
         shell
     }
 
@@ -2494,7 +2503,8 @@ impl Shell {
                 .children(self.tiles(cx))
                 .children(self.dragged_tile(cx))
                 .children(self.turning_drag())
-                .children(self.question_card(cx)),
+                .children(self.question_card(cx))
+                .children(self.drm_note_card(cx)),
         };
         sidebar
             .children(self.new_space_circle())

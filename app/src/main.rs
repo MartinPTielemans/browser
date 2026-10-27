@@ -146,6 +146,7 @@ mod platform {
             ),
         );
         pub fn host_copy(text: *const c_char);
+        pub fn host_open_in_safari(url: *const c_char);
         pub fn host_share(
             ui_view: *mut c_void,
             x: f64,
@@ -1587,6 +1588,16 @@ impl Browser for Engine {
     fn copy(&self, text: &str, _: &mut App) {
         let text = CString::new(text.replace('\0', "")).unwrap_or_default();
         unsafe { platform::host_copy(text.as_ptr()) };
+    }
+
+    fn can_open_in_safari(&self) -> bool {
+        true
+    }
+
+    fn open_in_safari(&self, url: &str, _: &mut App) {
+        if let Ok(url) = CString::new(url) {
+            unsafe { platform::host_open_in_safari(url.as_ptr()) };
+        }
     }
 
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {
@@ -3087,6 +3098,20 @@ unsafe extern "C" fn tab_permission_asked(
     update_shells(|shell, cx| shell.set_question(tab, question.clone(), cx));
 }
 
+unsafe extern "C" fn tab_media_unsupported(
+    _: *mut c_void,
+    tab: bc::bc_id,
+    key_system: *const c_char,
+) {
+    let key_system = unsafe { CStr::from_ptr(key_system) }.to_string_lossy().into_owned();
+    // check.sh reads these lines.
+    match key_system.is_empty() {
+        true => log!("browser: page {tab} needs nothing"),
+        false => log!("browser: page {tab} needs {key_system}"),
+    }
+    update_shells(|shell, cx| shell.set_media_unsupported(tab, &key_system, cx));
+}
+
 unsafe extern "C" fn window_suggestions(
     _: *mut c_void,
     window: bc::bc_id,
@@ -3238,6 +3263,7 @@ fn main() {
         window_suggestions: Some(window_suggestions),
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
+        tab_media_unsupported: Some(tab_media_unsupported),
         ..Default::default()
     };
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };

@@ -402,6 +402,10 @@ void host_file_preview(const char* path, uint64_t id,
 // never touch the user's clipboard.
 void host_copy(const char* text);
 
+// Opens |url| in Safari, which plays the protected video the engine can't. A driven run only logs it,
+// so checks never launch Safari.
+void host_open_in_safari(const char* url);
+
 // Shows the system's share menu for the page at |url| titled |title|, hanging from the frame at
 // |x|, |y|, |width| by |height| points in |ui_view|'s window's content.
 void host_share(void* ui_view,

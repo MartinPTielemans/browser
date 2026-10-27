@@ -164,6 +164,14 @@ impl Browser for Recorder {
 
     fn answer_permission(&self, _: u64, _: Answer, _: &mut App) {}
 
+    fn can_open_in_safari(&self) -> bool {
+        true
+    }
+
+    fn open_in_safari(&self, url: &str, _: &mut App) {
+        self.record(format!("open in safari {url}"))
+    }
+
     fn stop(&self, _: u64, _: &mut App) {}
 
     fn zoom(&self, _: u64, _: i32, _: &mut App) {}
