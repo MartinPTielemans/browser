@@ -474,8 +474,8 @@ expect "^browser: themed space $first $blue intensity=0.3[45][0-9] " \
   "the core didn't keep the theme's intensity"
 ../tools/window-screenshot.sh "$pid" "$out/space-theme.png" || fail "no window to capture"
 send click $page_point
+# The host closes the picker for a click outside it, and only escape's own dismissal logs one.
 expect '^browser: theme picker hidden$' "a click outside the theme picker didn't close it"
-expect '^browser: theme picker dismissed$' "a click outside the theme picker didn't dismiss it"
 # Remove Theme Color, offered once the Space has a colour, takes its theme and colour away, and the
 # menu offers it no more.
 post rightclick $name_point
