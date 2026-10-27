@@ -21,19 +21,12 @@ done
 # Where portablelinux's scripts expect npm's global esbuild.
 [ -d /usr/lib/node_modules/esbuild ] || fail "esbuild is missing: sudo npm install -g --prefix /usr esbuild"
 
-version=$(git config -f "$engine/pins.ini" chromium.version)
-uc_tag=$(git config -f "$engine/pins.ini" ungoogled-chromium.tag)
 ucl_tag=$(git config -f "$engine/pins.ini" ungoogled-chromium-portablelinux.tag)
 if [ ! -d "$ucl" ]; then
   git clone -q -c advice.detachedHead=false --depth 1 --branch "$ucl_tag" --recurse-submodules \
     --shallow-submodules https://github.com/ungoogled-software/ungoogled-chromium-portablelinux.git "$ucl"
 fi
-pinned=$(git ls-remote https://github.com/ungoogled-software/ungoogled-chromium.git \
-  "refs/tags/$uc_tag^{}" | cut -f1)
-[ "$(git -C "$ucl/ungoogled-chromium" rev-parse HEAD)" = "$pinned" ] ||
-  fail "ungoogled-chromium-portablelinux $ucl_tag doesn't build ungoogled-chromium $uc_tag"
-[ "$(cat "$ucl/ungoogled-chromium/chromium_version.txt")" = "$version" ] ||
-  fail "ungoogled-chromium $uc_tag is for Chromium $(cat "$ucl/ungoogled-chromium/chromium_version.txt"), not $version"
+check_ungoogled "$ucl/ungoogled-chromium" "ungoogled-chromium-portablelinux $ucl_tag"
 
 # Their scripts/build.sh, up to its build. Each step that changes the tree runs once.
 . "$ucl/scripts/shared.sh"
