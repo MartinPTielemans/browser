@@ -73,8 +73,9 @@
 //                                         click showed, the page's too, or the button in the
 //                                         alert shown, Chrome's too
 //   ime on|off                            the scripted input method, for keys to the UI or the
-//                                         page: letters add to a composition, space converts it
-//                                         to 日本語, return commits it and escape cancels it
+//                                         page, Chromium's or Safari's engine's: letters add to a
+//                                         composition, space converts it to 日本語, return
+//                                         commits it and escape cancels it
 //   window <n>                            drives the n-th browser window opened, from 1, from
 //                                         now, bringing it to the front with the keyboard as a
 //                                         click on it does, logging "browser: drive window <n>"
@@ -490,12 +491,14 @@ void Swipe(NSWindow* window, double x, double y, double dx, double dy, int count
 }
 
 // The scripted input method makes the calls a Japanese one makes, at the same point: while the
-// view handles the key. GPUI hands keys to the input context and the page view interprets them
-// itself, so each gets its own hook. The composition is nil when there isn't one.
+// view handles the key. GPUI hands keys to the input context, Chromium's page view interprets them
+// itself, and WebKit's asks the input context without waiting, so each gets its own hook. The
+// composition is nil when there isn't one.
 bool g_ime_on = false;
 NSString* g_composition;
 IMP g_handle_event;
 IMP g_interpret_key_events;
+IMP g_handle_event_by_input_method;
 
 // Returns false for a key the input method leaves to the view.
 bool ImeKey(id<NSTextInputClient> client, NSEvent* event) {
@@ -545,6 +548,21 @@ BOOL HandleEvent(NSTextInputContext* context, SEL selector, NSEvent* event) {
   return ((BOOL (*)(id, SEL, NSEvent*))g_handle_event)(context, selector, event);
 }
 
+// WebKit's page view, which the core loads only when a tab first shows a page in Safari's engine,
+// so it's looked up as each key comes.
+void HandleEventByInputMethod(NSTextInputContext* context,
+                              SEL selector,
+                              NSEvent* event,
+                              void (^handled)(BOOL)) {
+  if ([(id)context.client isKindOfClass:NSClassFromString(@"WKWebView")] &&
+      ImeKey(context.client, event)) {
+    handled(YES);
+    return;
+  }
+  ((void (*)(id, SEL, NSEvent*, void (^)(BOOL)))g_handle_event_by_input_method)(context, selector,
+                                                                                event, handled);
+}
+
 void InterpretKeyEvents(NSView* view, SEL selector, NSArray<NSEvent*>* events) {
   if (events.count == 1 && ImeKey((id<NSTextInputClient>)view, events[0])) {
     return;
@@ -564,6 +582,12 @@ void HookIme() {
       class_getInstanceMethod(NSClassFromString(@"RenderWidgetHostViewCocoa"),
                               @selector(interpretKeyEvents:)),
       (IMP)InterpretKeyEvents);
+  if (Method method =
+          class_getInstanceMethod(NSTextInputContext.class,
+                                  NSSelectorFromString(@"handleEventByInputMethod:completionHandler:"))) {
+    g_handle_event_by_input_method =
+        method_setImplementation(method, (IMP)HandleEventByInputMethod);
+  }
 }
 
 // The system's character palette would go on the owner's screen, as their input method would

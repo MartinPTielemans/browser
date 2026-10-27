@@ -71,7 +71,7 @@ onkeydown = e => {
 </script>' > "$out/site/clear.html"
 # Pages that ask for a key system as soon as they load, Widevine, which ilo can't play, and ClearKey,
 # which it can. Each puts "asked" in its title once the request is answered, either way. Widevine's
-# is asked from a promise, so the title comes in an engine with no request, as Apple's may have none
+# is asked from a promise, so the title comes in an engine with no request, as Safari's may have none
 # for this page.
 printf '%s' '<title>loading</title><script>
 Promise.resolve().then(() => navigator.requestMediaKeySystemAccess("com.widevine.alpha", [{
@@ -85,9 +85,20 @@ navigator.requestMediaKeySystemAccess("org.w3.clearkey", [{
   videoCapabilities: [{contentType: `video/webm; codecs="vp8"`}],
 }]).catch(() => 0).then(() => document.title = "clearkey asked");
 </script>' > "$out/site/clearkey.html"
-# A page that names the engine showing it: Apple's sends Safari's user agent, without Chrome's name.
-printf '%s' '<title>loading</title><script>
-document.title = "engine " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "apple");
+# A page that names the engine showing it: Safari's sends Safari's user agent, without Chrome's name.
+# A text field covers it, so a click anywhere in it lands there, and the field's title says what it
+# did: a press, counted, its value, what ⌘A selected and ⌘C copied, and a committed composition.
+printf '%s' '<title>loading</title>
+<input id=f style="position:fixed;left:0;top:0;width:100%;height:100%;box-sizing:border-box">
+<script>
+document.title = "engine " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "safari");
+let presses = 0;
+onmousedown = () => document.title = "pressed " + ++presses;
+const selected = () => f.value.slice(f.selectionStart, f.selectionEnd);
+f.oninput = e => e.isComposing || (document.title = "value " + f.value);
+f.onselect = document.onselectionchange = () => selected() && (document.title = "select " + selected());
+oncopy = () => document.title = "copy " + selected();
+f.addEventListener("compositionend", e => document.title = "committed " + e.data);
 </script>' > "$out/site/engine.html"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
   base64 -D > "$out/site/icon.png"
