@@ -368,7 +368,7 @@ record() {
 # Moves tab $1 four ways and back, labelled $2.
 moves() {
   # The second window takes it by its row. No window has a picture of it yet.
-  send window 2
+  send window $driven_fourth
   mark
   send click $(row_of $1)
   expect "^browser: window $fourth shows $1\$" "$2: a click on its row in the second window didn't take it"
@@ -387,7 +387,7 @@ moves() {
   expect "^browser: window $fourth pictures tab $1\$" "$2: the second window's fresh picture didn't come"
   record "$2, picture" "$1"
   # The second window takes it again by its row, from the window it just gave its picture to.
-  send window 2
+  send window $driven_fourth
   expect "^browser: window $fourth pictures tab $1\$" "$2: the second window took no new picture as it came forward"
   mark
   send click $(row_of $1)
@@ -409,8 +409,10 @@ first_size=$(grep '^browser: layout content ' "$log" | tail -1 | sed 's/^browser
 send key n cmd
 expect '^browser: window opened [0-9]' "⌘N didn't open a window for the moves"
 fourth=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+# The driver counts windows in the order they opened, closed ones too.
+driven_fourth=$(grep -c '^browser: window opened ' "$log")
 rm -f "$out/handover.txt"
-send window 2
+send window $driven_fourth
 send resize 1000 700
 for round in 1 2; do
   send window 1
@@ -422,7 +424,7 @@ for round in 1 2; do
   expect "^browser: window $first shows $light\$" "the first window didn't show the light page"
   moves "$light" "light, other size"
 done
-send window 2
+send window $driven_fourth
 send resize $first_size
 for round in 1 2; do
   send window 1
@@ -446,7 +448,7 @@ awk -F'|' '
     }
   }' "$out/handover.txt" > "$out/handover-summary.txt"
 cat "$out/handover-summary.txt"
-send window 2
+send window $driven_fourth
 send key w cmd shift
 expect "^browser: window closed $fourth\$" "⇧⌘W didn't close the window the pages moved to"
 send window 1
