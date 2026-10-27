@@ -26,6 +26,7 @@
 #include "browser_core/host.h"
 #include "browser_core/search.h"
 #include "browser_core/space.h"
+#include "browser_core/system_engine.h"
 #include "browser_core/window.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
@@ -467,6 +468,8 @@ bool DeleteProfile(bc_id profile) {
   Used().erase(dir);
   manager->GetDeleteProfileHelper().MaybeScheduleProfileForDeletion(
       PathOf(dir), base::DoNothing(), ProfileMetrics::DELETE_PROFILE_SETTINGS);
+  // The system's engine keeps the profile's cookies apart, and no tab of it is open.
+  system_engine::DeleteStore(PathOf(dir));
   Ids().erase(dir);
   ReportChanged();
   return true;

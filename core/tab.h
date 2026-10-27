@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "base/callback_list.h"
 #include "base/functional/callback.h"
@@ -11,6 +12,7 @@
 #include "base/scoped_observation.h"
 #include "base/task/cancelable_task_tracker.h"
 #include "base/time/time.h"
+#include "browser_core/platform/system_page.h"
 #include "browser_core/public/browser_core.h"
 #include "components/favicon/core/favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
@@ -19,6 +21,7 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/native_ui_types.h"
 #include "url/gurl.h"
 
 class BrowserWindowInterface;
@@ -31,7 +34,8 @@ namespace browser_core {
 // A tab's id, and what the app hears about its page.
 class Tab : public content::WebContentsObserver,
             public content::WebContentsUserData<Tab>,
-            public favicon::FaviconDriverObserver {
+            public favicon::FaviconDriverObserver,
+            public platform::SystemPage::Delegate {
  public:
   // |contents|'s id, given the first time it's asked for.
   static bc_id IdOf(content::WebContents* contents);
@@ -47,6 +51,18 @@ class Tab : public content::WebContentsObserver,
   static void LinkTargetChanged(BrowserWindowInterface* browser,
                                 content::WebContents* source,
                                 const GURL& url);
+  // Every tab's page.
+  static std::vector<content::WebContents*> All();
+  // The view a window shows for |contents|'s page: its system page's, else its own.
+  static gfx::NativeView PageViewOf(content::WebContents* contents);
+  // Gives |contents|'s page the keyboard.
+  static void FocusPage(content::WebContents* contents);
+  // Asks the app, through |callback|, about a key going down in |tab|'s page, whose focused element
+  // takes text if |editing|. Returns whether the app used it.
+  static bool AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
+                             bc_id tab,
+                             const input::NativeWebKeyboardEvent& event,
+                             bool editing);
 
   Tab(const Tab&) = delete;
   Tab& operator=(const Tab&) = delete;
@@ -89,6 +105,26 @@ class Tab : public content::WebContentsObserver,
 
   // Mutes or unmutes the tab, as Chrome's speaker button does.
   void SetMuted(bool muted);
+
+  // The page the system's engine shows in place of Chromium's (system_engine.h), else null. Its
+  // WebContents stays, unloaded, with the history it had.
+  platform::SystemPage* system_page() const { return system_page_.get(); }
+  // Shows |url| in the system's engine. Going back from its first page goes back to Chromium's.
+  // False, doing nothing, if the tab may not.
+  bool UseSystemEngine(const GURL& url);
+  // Back to Chromium, which loads |url|, or if it's empty its page where it was.
+  void UseChromium(const GURL& url = GURL());
+  // For a tab showing a system page, as the user loads |url| in it: there for the page's site or
+  // one the profile keeps for it, else back in Chromium, which the caller has load it. Returns
+  // whether the system page took it.
+  bool LoadInSystemPage(const GURL& url);
+  // Back, forward, reload and stop, as the app's buttons, in whichever engine shows the page.
+  bool CanGoBack();
+  bool CanGoForward();
+  void GoBack();
+  void GoForward();
+  void Reload(bool bypass_cache);
+  void Stop();
 
   // The colour the tab's page shows until it draws its first frame, opaque. Each page view the tab
   // swaps in takes it too, which Chrome's views do on their own only off the Mac.
@@ -146,6 +182,16 @@ class Tab : public content::WebContentsObserver,
   void OnVisibilityChanged(content::Visibility visibility) override;
   void WebContentsDestroyed() override;
 
+  // platform::SystemPage::Delegate:
+  void SystemPageChanged() override;
+  void SystemPageCommitted() override;
+  void SystemPageLeft(const GURL& url) override;
+  void SystemPageOpen(const GURL& url) override;
+  bool SystemPageKey(const input::NativeWebKeyboardEvent& event,
+                     bool before_page,
+                     bool editing) override;
+  void SystemPageClicked() override;
+
   // favicon::FaviconDriverObserver:
   void OnFaviconUpdated(favicon::FaviconDriver* driver,
                         NotificationIconType type,
@@ -172,6 +218,12 @@ class Tab : public content::WebContentsObserver,
   void LayOutSoon();
   // Puts the core's error page on the pane's colour, and every other page back on Chrome's white.
   void ShowOnPageColor();
+  // Drops the system page, and has the window show Chromium's view in its place.
+  void DropSystemPage();
+  // Tells the window, Site Controls and the app that the tab's page is now the other engine's.
+  void EngineChanged();
+  // Finds the favicon of the system page's URL among the profile's, as Chrome's driver can't.
+  void FetchSystemPageFavicon();
 
   const bc_id id_;
   std::string name_;
@@ -200,6 +252,10 @@ class Tab : public content::WebContentsObserver,
   int net_error_ = 0;
   // The page base colour the tab last gave its pages, if not Chrome's.
   std::optional<SkColor> shown_on_;
+  std::unique_ptr<platform::SystemPage> system_page_;
+  // The system page's favicon, PNG, and its title, which the app was last told of.
+  std::vector<uint8_t> system_page_favicon_;
+  std::string system_page_title_;
   base::CancelableTaskTracker favicon_tracker_;
   base::WeakPtrFactory<Tab> weak_factory_{this};
 

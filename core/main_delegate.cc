@@ -18,6 +18,7 @@
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
+#include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
@@ -69,6 +70,9 @@ void OpenLinks(const std::vector<GURL>& urls) {
 // tells the app when it can call in and when it has to stop.
 class ExtraParts : public ChromeBrowserMainExtraParts {
  public:
+  // Before Chrome stops taking factories, as the first profile is made.
+  void PreProfileInit() override { system_engine::RegisterProfilePrefs(); }
+
   void PreBrowserStart() override {
     keep_alive_ = std::make_unique<ScopedKeepAlive>(KeepAliveOrigin::APP_CONTROLLER,
                                                     KeepAliveRestartOption::DISABLED);
@@ -120,6 +124,11 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
         ChromeContentBrowserClient::CreateBrowserMainParts(is_integration_test);
     static_cast<ChromeBrowserMainParts*>(parts.get())->AddParts(std::make_unique<ExtraParts>());
     return parts;
+  }
+
+  void CreateThrottlesForNavigation(content::NavigationThrottleRegistry& registry) override {
+    ChromeContentBrowserClient::CreateThrottlesForNavigation(registry);
+    system_engine::CreateThrottlesForNavigation(registry);
   }
 };
 

@@ -4,6 +4,10 @@
 #include "content/public/browser/render_frame_host.h"
 #include "mojo/public/cpp/bindings/binder_map.h"
 
+namespace content {
+class WebContents;
+}
+
 namespace browser_core {
 
 // g_browser_core_populate_frame_binders: lets a frame's page tell the core which protected-media
@@ -11,6 +15,10 @@ namespace browser_core {
 // (tab_media_unsupported), once for each key system a document asks for, and takes it back once the
 // tab goes to another site.
 void PopulateFrameBinders(mojo::BinderMapWithContext<content::RenderFrameHost*>* map);
+
+// Takes back what the app was told for |contents|, as its tab goes to the system's engine, which
+// plays what the page asked for.
+void ForgetMediaUnsupported(content::WebContents* contents);
 
 }  // namespace browser_core
 

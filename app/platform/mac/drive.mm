@@ -82,8 +82,10 @@
 //                                         <agent> and the name <name>, as agent code will once
 //                                         there is some, logging "browser: made space <space> for
 //                                         agent <agent>"
-//   agentmayact <agent> <tab>             logs whether the agent may act on the tab, as
-//                                         "browser: agent <agent> may act on <tab>: <0|1>"
+//   agentmayact <agent> <tab> [action]    logs whether the agent may do the action, "act" if none,
+//                                         to the tab, as "browser: agent <agent> may act on
+//                                         <tab>: <0|1>", and if not "browser: agent <agent>
+//                                         refused <tab>: <reason>"
 //
 // Clicks, drags and moves go to the app's window on top at that point of the browser window
 // driven, such as the sidebar reveal over its edge, scrolls and layout to the browser window
@@ -978,8 +980,18 @@ bool Run(const std::string& line, void (^done)(void)) {
     if (!(words >> agent >> tab)) {
       return false;
     }
+    std::string what;
+    if (!(words >> what)) {
+      what = "act";
+    }
+    char reason[256];
+    const bool may = bc_agent_may_act(agent.c_str(), tab, what.c_str(), reason, sizeof reason);
     fprintf(stderr, "browser: agent %s may act on %llu: %d\n", agent.c_str(),
-            (unsigned long long)tab, bc_agent_may_act(agent.c_str(), tab));
+            (unsigned long long)tab, may);
+    if (!may) {
+      fprintf(stderr, "browser: agent %s refused %llu: %s\n", agent.c_str(),
+              (unsigned long long)tab, reason);
+    }
     done();
     return true;
   }

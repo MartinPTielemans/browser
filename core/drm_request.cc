@@ -74,6 +74,15 @@ class Unsupported : public content::WebContentsObserver,
     Changed();
   }
 
+  // The tab's page is no longer Chromium's: what it asked for goes with it.
+  void Forget() {
+    asked_.clear();
+    if (!shown_.empty()) {
+      shown_.clear();
+      Changed();
+    }
+  }
+
  private:
   friend class content::WebContentsUserData<Unsupported>;
 
@@ -162,6 +171,12 @@ class DrmRequest final : public content::DocumentService<mojom::DrmRequest> {
 
 void PopulateFrameBinders(mojo::BinderMapWithContext<content::RenderFrameHost*>* map) {
   map->Add<mojom::DrmRequest>(&DrmRequest::Bind);
+}
+
+void ForgetMediaUnsupported(content::WebContents* contents) {
+  if (Unsupported* unsupported = Unsupported::FromWebContents(contents)) {
+    unsupported->Forget();
+  }
 }
 
 }  // namespace browser_core

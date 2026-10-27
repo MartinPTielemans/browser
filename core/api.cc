@@ -18,6 +18,7 @@
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/host.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/password_offer.h"
@@ -28,10 +29,12 @@
 #include "browser_core/session.h"
 #include "browser_core/site_controls.h"
 #include "browser_core/space.h"
+#include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
 #include "chrome/browser/devtools/devtools_window.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/navigator/browser_navigator.h"
@@ -98,7 +101,7 @@ Profile* ProfileOf(const browser_core::Window& window) {
 void LoadInTab(bc_id id, const GURL& url, ui::PageTransition transition) {
   content::WebContents* contents = browser_core::Tab::FromId(id);
   tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
-  if (!tab) {
+  if (!tab || browser_core::Tab::FromWebContents(contents)->LoadInSystemPage(url)) {
     return;
   }
   NavigateParams params(tab->GetBrowserWindowInterface(), url, transition);
@@ -168,8 +171,32 @@ size_t bc_space_agent_name(bc_id id, char* name, size_t capacity) {
                     capacity);
 }
 
-bool bc_agent_may_act(const char* agent, bc_id tab) {
-  return agent && *agent && browser_core::Space::AgentMayAct(agent, tab);
+bool bc_agent_may_act(const char* agent,
+                      bc_id tab,
+                      const char* action,
+                      char* reason,
+                      size_t capacity) {
+  content::WebContents* contents = browser_core::Tab::FromId(tab);
+  std::string refused;
+  if (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab)) {
+    refused = "The tab isn't in the agent's own Space.";
+  } else if (contents && browser_core::Tab::FromWebContents(contents)->system_page()) {
+    // Its Space never switches a tab there, but the rule is the core's to keep, not the UI's.
+    refused =
+        "The tab shows its page in the system's engine, where the browser can't keep an agent's "
+        "rules.";
+  }
+  CopyString(refused, reason, capacity);
+  if (browser_core::Host().agent_activity) {
+    const bc_agent_activity entry = {
+        .agent = agent ? agent : "",
+        .tab = tab,
+        .action = action ? action : "",
+        .refused = refused.c_str(),
+    };
+    browser_core::Host().agent_activity(browser_core::Host().context, &entry);
+  }
+  return refused.empty();
 }
 
 bc_id bc_space_profile(bc_id id) {
@@ -675,16 +702,14 @@ void bc_tab_back_to_pinned_url(bc_id id) {
 }
 
 void bc_tab_go_back(bc_id id) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  if (contents && contents->GetController().CanGoBack()) {
-    contents->GetController().GoBack();
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::Tab::FromWebContents(contents)->GoBack();
   }
 }
 
 void bc_tab_go_forward(bc_id id) {
-  content::WebContents* contents = browser_core::Tab::FromId(id);
-  if (contents && contents->GetController().CanGoForward()) {
-    contents->GetController().GoForward();
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::Tab::FromWebContents(contents)->GoForward();
   }
 }
 
@@ -704,9 +729,40 @@ void bc_tab_clear_site(bc_id id, bool cookies) {
   browser_core::ClearSiteAndReload(id, cookies);
 }
 
+bool bc_system_engine_available(void) {
+  return browser_core::system_engine::Available();
+}
+
+bool bc_tab_set_system_engine(bc_id id, bool on) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  const GURL url = contents ? browser_core::Tab::PageUrl(contents) : GURL();
+  if (!url.SchemeIsHTTPOrHTTPS() || !browser_core::system_engine::Allowed(id)) {
+    return false;
+  }
+  Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
+  if (on) {
+    if (!browser_core::Tab::FromWebContents(contents)->UseSystemEngine(url)) {
+      return false;
+    }
+    browser_core::system_engine::Remember(profile, url);
+    return true;
+  }
+  // Forgotten first, so Chromium doesn't hand the pages straight back.
+  browser_core::system_engine::Forget(profile, url);
+  const std::string site = browser_core::system_engine::SiteOf(url);
+  for (content::WebContents* each : browser_core::Tab::All()) {
+    browser_core::Tab* tab = browser_core::Tab::FromWebContents(each);
+    if (each->GetBrowserContext() == profile && tab->system_page() &&
+        browser_core::system_engine::SiteOf(tab->system_page()->url()) == site) {
+      tab->UseChromium(tab->system_page()->url());
+    }
+  }
+  return true;
+}
+
 void bc_tab_stop(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
-    contents->Stop();
+    browser_core::Tab::FromWebContents(contents)->Stop();
   }
 }
 
