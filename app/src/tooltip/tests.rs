@@ -74,11 +74,11 @@ fn frame(left: f32, top: f32, width: f32, height: f32) -> Bounds<Pixels> {
 
 /// Two favorites' tiles side by side, and a folder's plate under them.
 fn tile_a() -> Anchor {
-    Anchor::centred(frame(108., 100., 80., 41.), window())
+    Anchor::under(frame(108., 100., 80., 41.), window())
 }
 
 fn tile_b() -> Anchor {
-    Anchor::centred(frame(194., 100., 80., 41.), window())
+    Anchor::under(frame(194., 100., 80., 41.), window())
 }
 
 fn folder_row() -> Anchor {
@@ -144,12 +144,12 @@ fn the_next_tile_shows_at_once(cx: &mut TestAppContext) {
 
 /// Three tiles across a 228 pt sidebar in a wide window, the owner's: their tooltips of a long, a
 /// medium and a short title are each placed from their own width, never the last one's, going
-/// along them and back, each one's middle the tile's unless it would cross the window's edge.
+/// along them and back, each one's square corner under the tile's middle.
 #[gpui::test]
 fn each_tooltip_is_placed_from_its_own_width_whichever_was_before_it(cx: &mut TestAppContext) {
     let host = open_tooltip(cx);
     let tile =
-        |middle: f32| Anchor::centred(frame(middle - 33., 90., 66., 41.), size(px(1400.), px(900.)));
+        |middle: f32| Anchor::under(frame(middle - 33., 90., 66., 41.), size(px(1400.), px(900.)));
     let titles = [
         ("Creating A World That Doesn't Exist", tile(41.)),
         ("Elon Musk on X: a post / X", tile(114.)),
@@ -164,7 +164,7 @@ fn each_tooltip_is_placed_from_its_own_width_whichever_was_before_it(cx: &mut Te
         hover_on(cx, text, anchor);
         let mut shown = host.0.take();
         shown.extend(after(cx, &host, DELAY));
-        let want = (anchor.x - widths[index] / 2.).max(EDGE_INSET);
+        let want = anchor.x.max(EDGE_INSET);
         assert_eq!(shown.last().unwrap(), &format!("show {want} {}", 131. + GAP), "{text}");
     }
 }
@@ -182,13 +182,14 @@ fn the_delay_starts_again_after_it_went(cx: &mut TestAppContext) {
 }
 
 #[test]
-fn a_tooltip_is_centred_under_its_tile() {
-    // The tile spans 108 to 188, so its middle is 148 whichever point of it the pointer is on.
+fn a_tooltips_square_corner_is_under_the_middle_of_its_tile() {
+    // The tile spans 108 to 188, so its middle is 148 whichever point of it the pointer is on, and
+    // the tooltip goes right from there, 6 under the tile, for a name of any width.
     let (left, top) = place(tile_a(), SIZE);
-    assert_eq!((left, top), (148. - 50., 141. + GAP));
-    // Its middle is the tile's, for a name of any width.
-    let (left, _) = place(tile_a(), (60., HEIGHT));
-    assert_eq!(left + 30., 148.);
+    assert_eq!((left, top), (148., 141. + GAP));
+    assert_eq!(place(tile_a(), (60., HEIGHT)).0, 148.);
+    assert_eq!(place(tile_a(), (300., HEIGHT)).0, 148.);
+    assert_eq!(near(tile_a(), 300., HEIGHT), Near::TopLeft);
 }
 
 #[test]
@@ -200,56 +201,74 @@ fn a_folders_tooltip_has_its_text_over_the_title() {
 }
 
 #[test]
+fn a_tooltip_near_the_right_edge_mirrors_and_goes_left_from_its_tile() {
+    // A tile at the right edge, 965 across: 100 more would cross 992, so the square corner is the
+    // top right, at the tile's middle, and the tooltip ends there.
+    let right = Anchor::under(frame(930., 100., 70., 41.), window());
+    let (left, top) = place(right, SIZE);
+    assert_eq!((left + 100., top), (965., 141. + GAP));
+    assert_eq!(near(right, 100., HEIGHT), Near::TopRight);
+    // Right up to the inset it still goes right, and past it by a point it mirrors.
+    let fits = Anchor::under(frame(852., 100., 80., 41.), window());
+    assert_eq!(place(fits, SIZE).0, 892.);
+    assert_eq!(near(fits, 100., HEIGHT), Near::TopLeft);
+    let crosses = Anchor::under(frame(853., 100., 80., 41.), window());
+    assert_eq!(place(crosses, SIZE).0 + 100., 893.);
+    assert_eq!(near(crosses, 100., HEIGHT), Near::TopRight);
+}
+
+#[test]
 fn a_tooltip_stays_inside_the_window_across() {
-    // A tile at the right edge: the tooltip ends EDGE_INSET from the window's edge instead of
-    // having its middle at the tile's.
-    let right = Anchor::centred(frame(930., 100., 70., 41.), window());
-    assert_eq!(place(right, SIZE).0, 1000. - 100. - EDGE_INSET);
-    // And one whose middle is nearer the left than half its width.
-    let left = Anchor::centred(frame(0., 100., 40., 41.), window());
-    assert_eq!(place(left, SIZE).0, EDGE_INSET);
+    // A tile at the left edge keeps its square corner at its middle, 20 in.
+    let left = Anchor::under(frame(0., 100., 40., 41.), window());
+    assert_eq!(place(left, SIZE).0, 20.);
+    // And one with its middle nearer the edge than the inset has the corner at the inset.
+    let edge = Anchor::under(frame(0., 100., 10., 41.), window());
+    assert_eq!(place(edge, SIZE).0, EDGE_INSET);
     // A folder's text near the right edge.
     let folder = Anchor::titled(frame(900., 300., 100., 36.), 35., window());
     assert_eq!(place(folder, SIZE).0, 1000. - 100. - EDGE_INSET);
-    // Room for the tooltip but not the insets: the left one is kept.
-    let narrow = Anchor::centred(frame(8., 100., 80., 41.), size(px(110.), px(700.)));
+    // Room for the tooltip but not the insets, in either direction: the left one is kept.
+    let narrow = Anchor::under(frame(8., 100., 80., 41.), size(px(110.), px(700.)));
     assert_eq!(place(narrow, SIZE).0, EDGE_INSET);
 }
 
 /// The sidebar's three tiles, each 66.7 wide on the 8 pt gaps, and the tooltips of titles as long
 /// as the owner's, in a wide window.
 #[test]
-fn a_tooltip_over_a_tile_stays_centred_unless_it_crosses_the_edge() {
-    let tile = |left: f32| Anchor::centred(frame(left, 90., 66.7, 41.), size(px(1400.), px(900.)));
-    // The last tile, a short title: centred on it, 6 under it.
+fn a_tooltip_over_a_tile_goes_right_from_its_middle_whatever_its_width() {
+    let tile = |left: f32| Anchor::under(frame(left, 90., 66.7, 41.), size(px(1400.), px(900.)));
+    // The last tile, a short title: its corner is under the tile's middle, 6 under it. The tile is
+    // 153.3 to 220, so a tooltip's middle is nowhere near the sidebar's.
     let (left, top) = place(tile(153.3), (146., HEIGHT));
-    assert!((left + 73. - (153.3 + 33.35)).abs() < 0.01);
+    assert!((left - (153.3 + 33.35)).abs() < 0.01);
     assert_eq!(top, 131. + GAP);
-    // A long title over the first tile starts EDGE_INSET in, not at the window's edge.
+    // A long title over the first tile starts at the tile's middle and goes over the page.
     let (left, _) = place(tile(8.), (306., HEIGHT));
-    assert_eq!(left, EDGE_INSET);
-    // A tooltip as wide as its window is still centred on a tile in the middle of a wide window.
+    assert!((left - (8. + 33.35)).abs() < 0.01);
+    assert!(left + 306. > 228.);
+    // A tooltip as wide as its window is the same in the middle of a wide window.
     let (left, _) = place(tile(700.), (WINDOW_WIDTH, HEIGHT));
-    assert!((left + WINDOW_WIDTH / 2. - (700. + 33.35)).abs() < 0.01);
+    assert!((left - (700. + 33.35)).abs() < 0.01);
 }
 
 #[test]
 fn a_tooltip_goes_above_when_there_is_no_room_below() {
     // 41 tall at the window's bottom: 700 - 27 would be the lowest top.
-    let bottom = Anchor::centred(frame(8., 650., 80., 41.), window());
+    let bottom = Anchor::under(frame(8., 650., 80., 41.), window());
     let (_, top) = place(bottom, SIZE);
     assert_eq!(top, 650. - GAP - HEIGHT);
     // It fits below with exactly no room to spare.
-    let snug = Anchor::centred(frame(8., 700. - 41. - GAP - HEIGHT, 80., 41.), window());
+    let snug = Anchor::under(frame(8., 700. - 41. - GAP - HEIGHT, 80., 41.), window());
     assert_eq!(place(snug, SIZE).1, 700. - HEIGHT);
     // It never goes past the window's top.
-    let short = Anchor::centred(frame(8., 10., 80., 41.), size(px(1000.), px(60.)));
+    let short = Anchor::under(frame(8., 10., 80., 41.), size(px(1000.), px(60.)));
     assert_eq!(place(short, SIZE).1, 0.);
 }
 
 #[test]
 fn a_frame_gives_the_anchor_its_middle_and_edges() {
-    let anchor = Anchor::centred(frame(108., 100., 80., 41.), window());
+    let anchor = Anchor::under(frame(108., 100., 80., 41.), window());
     assert_eq!((anchor.x, anchor.top, anchor.bottom), (148., 100., 141.));
     assert_eq!(anchor.window, (1000., 700.));
 }
@@ -288,9 +307,9 @@ fn a_tooltip_beside_stays_inside_the_window() {
 }
 
 #[test]
-fn a_header_buttons_tooltip_is_centred_under_it() {
-    let (left, top) = place(Anchor::centred(back_button(), window()), SIZE);
-    assert_eq!(left + 50., 122. + 16.);
+fn a_header_buttons_tooltip_has_its_square_corner_under_its_middle() {
+    let (left, top) = place(Anchor::under(back_button(), window()), SIZE);
+    assert_eq!(left, 122. + 16.);
     assert_eq!(top, 7.5 + 32. + GAP);
 }
 
@@ -355,19 +374,25 @@ fn the_log_names_the_keys_as_a_menu_does() {
 }
 
 #[test]
-fn arcs_capsule_is_27_tall_and_round_but_toward_its_button() {
+fn arcs_capsule_is_27_tall_and_round_but_at_what_it_names() {
     assert_eq!(HEIGHT, 27.);
     assert_eq!(RADIUS, 13.5);
-    // Beside a button, and under a tile, the corner toward what it names is the top left.
+    // Beside a button, under a tile and under a row, the corner at what it names is the top left.
     let beside = Anchor::beside(library_button(), window());
-    assert_eq!(near(beside, HEIGHT), Near::TopLeft);
-    assert_eq!(near(tile_a(), HEIGHT), Near::TopLeft);
-    // Above it for want of room below, that corner is the bottom left.
-    let bottom = Anchor::centred(frame(8., 650., 80., 41.), window());
-    assert_eq!(near(bottom, HEIGHT), Near::BottomLeft);
-    // A footer button's tooltip never goes above, whatever the window's height.
+    assert_eq!(near(beside, 100., HEIGHT), Near::TopLeft);
+    assert_eq!(near(tile_a(), 100., HEIGHT), Near::TopLeft);
+    assert_eq!(near(folder_row(), 100., HEIGHT), Near::TopLeft);
+    // Above it for want of room below, that corner is the bottom left, or the bottom right when
+    // the tooltip goes left of a tile near the right edge.
+    let bottom = Anchor::under(frame(8., 650., 80., 41.), window());
+    assert_eq!(near(bottom, 100., HEIGHT), Near::BottomLeft);
+    let corner = Anchor::under(frame(930., 650., 70., 41.), window());
+    assert_eq!(near(corner, 100., HEIGHT), Near::BottomRight);
+    // A footer button's tooltip never goes above, whatever the window's height, and never mirrors.
     let low = Anchor::beside(frame(8., 690., 32., 10.), window());
-    assert_eq!(near(low, HEIGHT), Near::TopLeft);
+    assert_eq!(near(low, 100., HEIGHT), Near::TopLeft);
+    let right = Anchor::beside(frame(950., 300., 32., 32.), window());
+    assert_eq!(near(right, 100., HEIGHT), Near::TopLeft);
 }
 
 #[test]

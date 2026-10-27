@@ -330,13 +330,13 @@ impl Shell {
     }
 
     /// The tooltip over a favorite's tile, which has only an icon, or a folder's row: its name,
-    /// after a moment, hung from the tile or row, wherever the pointer is on it. The pointer
-    /// leaving, or a drag or a menu, ends it; other rows have none (the hover card is Dia's).
+    /// after a moment, hung from the tile or row, wherever the pointer is on it: a tile's square
+    /// corner is under its middle. The pointer leaving, or a drag or a menu, ends it; other rows have none (the hover card is Dia's).
     pub(super) fn hover_tooltip(&self, row: Row, hovered: bool, cx: &mut Context<Self>) {
         let Row::Tab(tab) = row else {
             return;
         };
-        // A tile's hangs from its middle, a folder's from its title.
+        // A tile's square corner is under its middle, a folder's text over its title.
         let (name, title) = if self.is_folder(tab) {
             (self.folder_name(tab), Some(FOLDER_TITLE_X))
         } else if self.favorites.contains(&tab) {
@@ -352,7 +352,7 @@ impl Shell {
             .zip(frame)
             .map(|(text, frame)| match title {
                 Some(title) => (text, Anchor::titled(frame, title, self.viewport)),
-                None => (text, Anchor::centred(frame, self.viewport)),
+                None => (text, Anchor::under(frame, self.viewport)),
             });
         self.hover_tip(tip, cx);
     }
