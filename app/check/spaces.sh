@@ -75,6 +75,7 @@ send ime off
 send click 100 299
 expect "^browser: theme picker for $second\$" "the form's Choose a Theme row didn't open the picker"
 expect '^browser: theme picker shown$' "the theme picker didn't show"
+expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
 at=$(grep '^browser: theme picker at' "$log" | tail -1 | cut -d' ' -f5-)
 [ "$(echo "$at" | awk '{ print $3, $4 }')" = "370 509" ] ||
   fail "the theme picker opened at $at, not 370 by 509"
@@ -452,6 +453,7 @@ expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, De
 send choose Edit Theme Color…
 expect "^browser: theme picker for $first\$" "Edit Theme Color… didn't open the theme picker"
 expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
+expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
 send clickkey "$(swatch_x 7)" $swatch_y
 blue='x=-0.619[0-9] y=-0.242[0-9] colors=1'
 expect "^browser: theme picker set $first $blue intensity=0.810 " "the blue swatch gave no colour"

@@ -104,6 +104,7 @@ expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, De
 # The theme picker's pink swatch, and + for a second colour, which a relaunch brings back.
 send choose Edit Theme Color…
 expect '^browser: theme picker shown$' "Edit Theme Color… didn't show the theme picker"
+expect '^browser: theme picker drawn$' "the theme picker didn't draw itself on screen"
 send clickkey "$(swatch_x 1)" $swatch_y
 expect "^browser: colored space $second [0-9a-f]*\$" "the pink swatch didn't colour the Space"
 color=$(grep "^browser: colored space $second " "$log" | tail -1 | cut -d' ' -f5)
