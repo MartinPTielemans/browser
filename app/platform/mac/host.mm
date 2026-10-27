@@ -499,8 +499,6 @@ void PlaceFindBar(Browser* browser) {
                                      size.height)];
 }
 
-// Where the UI asked, from the top left of the browser window's content, which a window resized
-// from its top moves.
 // The dialog's frame over |browser|'s window, by its insets.
 NSRect DialogFrame(Browser* browser) {
   NSWindow* window = browser->window;
@@ -514,6 +512,8 @@ NSRect DialogFrame(Browser* browser) {
                     NSHeight(content) - g_dialog_insets.top - g_dialog_insets.bottom);
 }
 
+// Where the UI asked, from the top left of the browser window's content, which a window resized
+// from its top moves.
 void PlaceSiteControls() {
   NSWindow* window = g_site_controls_over->window;
   NSRect content = [window contentRectForFrameRect:window.frame];

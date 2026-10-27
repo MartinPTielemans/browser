@@ -1,6 +1,7 @@
 #include "browser_core/main_delegate.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -12,6 +13,7 @@
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
 #include "browser_core/leave_dialog.h"
+#include "browser_core/open_app_dialog.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
@@ -28,6 +30,7 @@
 #include "chrome/common/profiler/main_thread_stack_sampling_profiler.h"
 #include "components/keep_alive_registry/keep_alive_types.h"
 #include "components/keep_alive_registry/scoped_keep_alive.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/common/content_features.h"
 #include "content/public/common/content_switches.h"
 
@@ -93,6 +96,32 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
     static_cast<ChromeBrowserMainParts*>(parts.get())->AddParts(std::make_unique<ExtraParts>());
     return parts;
   }
+
+  bool HandleExternalProtocol(
+      const GURL& url,
+      content::WebContents::Getter web_contents_getter,
+      content::FrameTreeNodeId frame_tree_node_id,
+      content::NavigationUIData* navigation_data,
+      bool is_primary_main_frame,
+      bool is_in_fenced_frame_tree,
+      network::mojom::WebSandboxFlags sandbox_flags,
+      ui::PageTransition page_transition,
+      bool has_user_gesture,
+      const std::optional<url::Origin>& initiating_origin,
+      content::RenderFrameHost* initiator_document,
+      const net::IsolationInfo& isolation_info,
+      mojo::PendingRemote<network::mojom::URLLoaderFactory>* out_factory) override {
+    // A page in an agent's Space opens no other app, as one Chrome's own agent acts on doesn't,
+    // and a saved "Always allow" doesn't count there.
+    content::WebContents* contents = web_contents_getter.Run();
+    if (contents && !OpenAppDialog::MayOpen(contents)) {
+      return false;
+    }
+    return ChromeContentBrowserClient::HandleExternalProtocol(
+        url, std::move(web_contents_getter), frame_tree_node_id, navigation_data,
+        is_primary_main_frame, is_in_fenced_frame_tree, sandbox_flags, page_transition,
+        has_user_gesture, initiating_origin, initiator_document, isolation_info, out_factory);
+  }
 };
 
 }  // namespace
@@ -116,6 +145,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
   g_browser_core_login_handler = &SignInDialog::Create;
+  g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
   return ChromeMain(argc, argv);
 }
 

@@ -17,3 +17,4 @@ ours/chromium-prefs-passwords-autofill-on.patch
 ours/chromium-core-sad-tab.patch
 ours/chromium-os-crypt-keychain-name.patch
 ours/chromium-core-login-dialog.patch
+ours/chromium-core-external-protocol-dialog.patch

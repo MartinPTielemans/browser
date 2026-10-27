@@ -1,0 +1,44 @@
+Lets the core ask whether a page may open another app with the app's dialog
+(//browser_core/hooks.h), in place of Chrome's views dialog, which needs a
+dialog host the core's windows don't have.
+
+--- a/chrome/browser/ui/views/external_protocol_dialog.cc
++++ b/chrome/browser/ui/views/external_protocol_dialog.cc
+@@ -8,6 +8,7 @@
+ 
+ #include "base/strings/string_util.h"
+ #include "base/types/optional_util.h"
++#include "browser_core/hooks.h"  // nogncheck
+ #include "build/build_config.h"
+ #include "chrome/browser/external_protocol/external_protocol_handler.h"
+ #include "chrome/browser/picture_in_picture/picture_in_picture_occlusion_observer.h"
+@@ -38,6 +39,14 @@
+ 
+ using content::WebContents;
+ 
++// browser_core: the core's windows ask with the app's dialog (//browser_core/hooks.h).
++void (*g_browser_core_external_protocol_dialog)(
++    const GURL& url,
++    content::WebContents* web_contents,
++    const std::optional<url::Origin>& initiating_origin,
++    content::WeakDocumentPtr initiator_document,
++    const std::u16string& program_name) = nullptr;
++
+ namespace {
+ 
+ std::u16string GetMessageTextForOrigin(
+@@ -108,6 +117,14 @@
+     return;
+   }
+ 
++  if (g_browser_core_external_protocol_dialog) {
++    // browser_core: the app asks, in place of Chrome's views dialog.
++    g_browser_core_external_protocol_dialog(url, web_contents, initiating_origin,
++                                            std::move(initiator_document),
++                                            program_name);
++    return;
++  }
++
+   // Windowing system takes ownership.
+   new ExternalProtocolDialog(web_contents, url, program_name, initiating_origin,
+                              std::move(initiator_document));
