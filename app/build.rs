@@ -8,6 +8,7 @@ fn main() {
         .file("platform/mac/host.mm")
         .file("platform/mac/drive.mm")
         .file("platform/mac/emoji.mm")
+        .file("platform/mac/dock.mm")
         // The driver calls the core for what only agent code will, once there is some.
         .include(root.join("../core/public"))
         .flag("-std=c++20")
