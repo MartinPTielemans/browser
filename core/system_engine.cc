@@ -119,7 +119,7 @@ constexpr char kTestHostSwitch[] = "streaming-test-host";
 std::string_view ListedEntry(const GURL& url) {
   static const base::NoDestructor<std::string> test_host(
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(kTestHostSwitch));
-  std::string_view host = url.host_piece();
+  std::string_view host = url.host();
   if (!test_host->empty() && host == *test_host) {
     return *test_host;
   }
