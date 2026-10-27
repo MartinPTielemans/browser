@@ -1501,7 +1501,8 @@ impl Browser for Engine {
         let percent = unsafe { bc::bc_tab_zoom(tab, step) };
         // check.sh reads this line.
         log!("browser: zoom {tab} {percent}%");
-        zoom_hud::show(tab, percent, shell_with_view(self.ui_view), cx);
+        let shell = shell_with_view(self.ui_view);
+        with_overlays(move |cx| zoom_hud::show(tab, percent, shell, cx), cx);
     }
 
     fn view_source(&self, tab: u64, _: &mut App) {
@@ -1715,7 +1716,7 @@ impl Browser for Engine {
         confirmed: Box<dyn FnOnce(&mut App)>,
         cx: &mut App,
     ) {
-        dialog::ask(message, detail, action, confirmed, cx);
+        with_overlays(move |cx| dialog::ask(message, detail, action, confirmed, cx), cx);
     }
 
     fn focus_ui(&self, _: &mut App) {
@@ -1834,11 +1835,18 @@ impl Browser for Engine {
     }
 
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App) {
-        toast::show(text, key, time, cx);
+        let text = text.to_string();
+        let key = key.map(|(keys, what)| (keys.to_string(), what.to_string()));
+        let show = move |cx: &mut App| {
+            let key = key.as_ref().map(|(keys, what)| (keys.as_str(), what.as_str()));
+            toast::show(&text, key, time, cx)
+        };
+        with_overlays(show, cx);
     }
 
     fn toast_undo(&self, text: &str, undo: Rc<dyn Fn(&mut App)>, time: Duration, cx: &mut App) {
-        toast::show_undo(text, undo, time, cx);
+        let text = text.to_string();
+        with_overlays(move |cx| toast::show_undo(&text, undo, time, cx), cx);
     }
 
     fn hide_undo_toast(&self, cx: &mut App) {
@@ -1847,7 +1855,7 @@ impl Browser for Engine {
 
     fn full_screen_note(&self, shown: bool, cx: &mut App) {
         match shown {
-            true => toast::show_full_screen(cx),
+            true => with_overlays(toast::show_full_screen, cx),
             false => toast::hide_full_screen(cx),
         }
     }
@@ -1866,7 +1874,7 @@ impl Browser for Engine {
             button(shell::WAIT, "wait", |tab| unsafe { bc::bc_tab_wait(tab) }),
             button(shell::RELOAD, "reload", |tab| unsafe { bc::bc_tab_reload(tab, false) }),
         ];
-        toast::show_held(shell::NOT_RESPONDING, buttons, tab, cx);
+        with_overlays(move |cx| toast::show_held(shell::NOT_RESPONDING, buttons, tab, cx), cx);
     }
 
     fn tooltip(&self, tip: Option<(tooltip::Tip, tooltip::Anchor)>, cx: &mut App) {
@@ -1897,7 +1905,7 @@ impl Browser for Engine {
         field: Option<Bounds<Pixels>>,
         cx: &mut App,
     ) {
-        command_bar::show(editing, tabs, field, cx);
+        with_overlays(move |cx| command_bar::show(editing, tabs, field, cx), cx);
     }
 
     fn command_bar_open(&self, cx: &App) -> bool {
@@ -1905,11 +1913,12 @@ impl Browser for Engine {
     }
 
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {
-        command_bar::show_split(with, pane, card, cx);
+        with_overlays(move |cx| command_bar::show_split(with, pane, card, cx), cx);
     }
 
     fn find(&self, tab: u64, cx: &mut App) {
-        find_bar::show(self.window, tab, cx);
+        let window = self.window;
+        with_overlays(move |cx| find_bar::show(window, tab, cx), cx);
     }
 
     fn site_controls(
@@ -1920,7 +1929,7 @@ impl Browser for Engine {
         extensions: Vec<site_controls::Extension>,
         cx: &mut App,
     ) {
-        site_controls::show(tab, place, window, extensions, cx);
+        with_overlays(move |cx| site_controls::show(tab, place, window, extensions, cx), cx);
     }
 
     fn capture(
@@ -1931,10 +1940,13 @@ impl Browser for Engine {
         full_page: bool,
         cx: &mut App,
     ) {
-        match full_page {
-            true => capture::full_page(tab, cx),
-            false => capture::start(tab, frame, radius, cx),
-        }
+        with_overlays(
+            move |cx| match full_page {
+                true => capture::full_page(tab, cx),
+                false => capture::start(tab, frame, radius, cx),
+            },
+            cx,
+        );
     }
 
     fn page_picture(&self, tab: u64, request: u64, _: &mut App) {
@@ -1952,7 +1964,8 @@ impl Browser for Engine {
     }
 
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App) {
-        find_bar::find_next(self.window, tab, forward, cx);
+        let window = self.window;
+        with_overlays(move |cx| find_bar::find_next(window, tab, forward, cx), cx);
     }
 
     fn jump_to_selection(&self, tab: u64, _: &mut App) {
@@ -2527,22 +2540,33 @@ fn open_window_as(
     }
     // check.sh reads this line.
     log!("browser: window on screen at {:.1} ms", unsafe { platform::host_since_launch() });
-    // Making the overlays' windows takes the main thread for a while, so at launch they wait for
-    // the frame after the first: the window goes on screen with its sidebar drawn, then they're
-    // made. Later windows don't wait, as a page may open in them at once. A window that isn't
-    // visible (another desktop, launched hidden) draws no frames, so a timer makes them if the
-    // frames haven't.
+    // Making the overlays' windows takes the main thread for a while, so at launch they wait for a
+    // turn of their own after the frame that follows the first. That frame draws the sidebar the
+    // core has reported by then and takes the launch picture down, so it goes on screen first. A
+    // shortcut that wants an overlay before makes them at once (with_overlays). Later windows
+    // don't wait, as a page may open in them at once. A window that isn't visible (another
+    // desktop, launched hidden) draws no frames, so a timer makes them if the frames haven't.
+    let open = move |cx: &mut App| {
+        finish_opening(id, ui_view, window, false, false, private, cx);
+        // After the overlays, so the window the user sees first waits for neither.
+        if restored {
+            open_saved_windows(cx);
+        }
+    };
+    OVERLAYS.set(Some(Box::new(open)));
     let pending = Rc::new(Cell::new(true));
     let finish = {
         let pending = pending.clone();
         move |cx: &mut App| {
-            if pending.replace(false) {
-                finish_opening(id, ui_view, window, false, false, private, cx);
-                // After the overlays, so the window the user sees first waits for neither.
-                if restored {
-                    open_saved_windows(cx);
-                }
+            if !pending.replace(false) {
+                return;
             }
+            // Once the frame this precedes is drawn.
+            cx.spawn(async move |cx| {
+                unsafe { platform::host_close_launch_window() };
+                cx.update(overlays_now)
+            })
+            .detach();
         }
     };
     let on_frame = finish.clone();
@@ -2564,6 +2588,33 @@ fn open_window_as(
     Some(id)
 }
 
+thread_local! {
+    /// The overlays' windows at launch, made on the turn after the frame that takes the launch
+    /// picture down, as making them holds the main thread a while.
+    static OVERLAYS: RefCell<Option<Box<dyn FnOnce(&mut App)>>> = const { RefCell::new(None) };
+}
+
+/// Makes the overlays' windows now if they're still to come.
+fn overlays_now(cx: &mut App) {
+    if let Some(open) = OVERLAYS.take() {
+        open(cx);
+    }
+}
+
+/// Shows an overlay, making the overlays' windows first if a shortcut asks for one before they're
+/// made. Then at the end of the update, as making them reads the shell, which is in one.
+fn with_overlays(show: impl FnOnce(&mut App) + 'static, cx: &mut App) {
+    match OVERLAYS.with_borrow(Option::is_some) {
+        true => cx.defer(move |cx| {
+            // check.sh reads this line.
+            log!("browser: overlays opened for a shortcut");
+            overlays_now(cx);
+            show(cx);
+        }),
+        false => show(cx),
+    }
+}
+
 /// The window's last steps: its own overlays, and the first's those every window shares. With
 /// `seeded`, it's a later window, whose keyboard is the UI's with `ui_keyboard`, as one without a
 /// page.
@@ -2576,7 +2627,6 @@ fn finish_opening(
     private: Option<bc::bc_id>,
     cx: &mut App,
 ) {
-    unsafe { platform::host_close_launch_window() };
     let Ok(shell) = window.entity(cx) else {
         return;
     };
