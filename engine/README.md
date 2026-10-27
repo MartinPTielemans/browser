@@ -46,3 +46,4 @@ CI (`.github/workflows/core-linux.yml`) runs `check-linux.sh` on pushes that cha
 - One concern per patch, named `chromium-<area>-<what>.patch`.
 - Each release, diff Helium's and Ardia's series against ours for anything worth taking.
 - A new Chromium version, or a change to the GN args, means a full build.
+- An Xcode update doesn't, because `chromium-xcode-build-define.patch` and `setup.sh` pin the Xcode build in the `CR_XCODE_BUILD` define, which every object is compiled with. At the next Chromium bump, which recompiles everything anyway, drop the patch and `setup.sh`'s `mac_xcode_build_define` line, and patch the define out of `build/config/mac/BUILD.gn` outright.
