@@ -115,7 +115,7 @@ expect '^browser: theme picker hidden$' "escape didn't close the theme picker"
 # Change Icon… in the Space's menu gives it an emoji from the icon picker's Emoji tab and the
 # character palette, which a relaunch brings back.
 post rightclick 100 112
-expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, \
+expect "^browser: menu shown Rename Space, Change Icon…, $themed, $profile, \
 Delete Space\$" "the Space's menu didn't offer Change Icon…"
 send choose Change Icon…
 expect "^browser: icon picker for $second on icon\$" "Change Icon… didn't open the icon picker"
