@@ -12,6 +12,16 @@ macro_rules! log {
     }};
 }
 
+/// Milliseconds on macOS's uptime clock, the one Chromium's `TimeTicks` and the host's lines read,
+/// so a step timed across the core, the host and the UI is one subtraction.
+pub fn uptime_ms() -> f64 {
+    unsafe extern "C" {
+        fn clock_gettime_nsec_np(clock_id: u32) -> u64;
+    }
+    const CLOCK_UPTIME_RAW: u32 = 8;
+    unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) as f64 / 1e6 }
+}
+
 pub mod capture;
 pub mod command_bar;
 pub mod dialog;

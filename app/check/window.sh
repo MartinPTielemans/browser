@@ -1,7 +1,8 @@
 # The page view keeps its margins and GPUI's view fills the window through a resize and full screen,
 # and the window's buttons stay in the header row. A page that goes full screen takes the window
 # with it, and escape or the page leaving brings both back, the page resized once each way, straight
-# to its new size, and its leaving reported once. The command bar opens in full screen and
+# to its new size, and its leaving reported once, timed from the page's request to the window's and
+# the UI's steps, going in and out. The command bar opens in full screen and
 # keeps the keyboard when a page commits under it, then gives the keyboard to the new page, and
 # scrolling a long page doesn't stutter. Dragging the window's background moves the window, and the
 # buttons, URL field and rows keep their presses. A double-click there zooms it, and one in the
@@ -90,6 +91,43 @@ check_buttons() {
   expected="20.0,24.0 43.0,24.0 66.0,24.0"
   [ "${2:-}" = hidden ] && expected="hidden hidden hidden"
   [ "$buttons" = "$expected" ] || fail "$1: the window's buttons are at $buttons, not $expected"
+}
+# Waits for a page's full screen $1 (enter or exit) to end in the window and the UI to have placed
+# the page and drawn at the window's new size. Their lines carry the clock the core's and the host's
+# do (drive.mm, tab.cc).
+full_screen_done() {
+  for each in did laid drawn; do
+    expect "^browser: full screen $1 $each " "a page's full screen $1 had no \"$each\" step"
+  done
+}
+# The medians, in milliseconds, of the steps of a page's full screen $3 (enter or exit) in the log's
+# lines $1 to $2: the core's request to the app's report (report), to the window's start
+# (toggle), the window's start to the page placed (placed), to the UI's first frame at the new size
+# (drawn) and to the transition's end (transition), and the request to the first frame and the end.
+full_screen_times() {
+  steps=$(sed -n "$1,${2}p" "$log" | awk -v way="$3" '
+    function between(name, from, to) {
+      if ((from in t) && (to in t)) print name, t[to] - t[from]
+    }
+    function flush() {
+      between("report", "asked", "told")
+      between("toggle", "told", "will")
+      between("placed", "will", "laid")
+      between("drawn", "will", "drawn")
+      between("transition", "will", "did")
+      between("to-drawn", "asked", "drawn")
+      between("total", "asked", "did")
+      delete t
+    }
+    $1 == "browser:" && $2 == "full" && $3 == "screen" && $4 == way {
+      if ($5 == "asked") flush()
+      if (!($5 in t)) t[$5] = $(NF - 1)
+    }
+    END { flush() }')
+  for each in report toggle placed drawn transition to-drawn total; do
+    echo "$steps" | awk -v name="$each" '$1 == name { print $2 }' | sort -n |
+      awk -v name="$each" '{ v[NR] = $1 } END { if (NR) printf "%s %.1f, ", name, v[int((NR + 1) / 2)] }'
+  done
 }
 # The page's resizes so far, from its title.
 page_resizes() {
@@ -198,6 +236,32 @@ left=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: page l
 [ "$left" = 1 ] || fail "the page leaving full screen itself was reported $left times"
 check_layout "after the page left full screen itself"
 resized_once "the page leaving full screen itself" "${view#* }"
+
+# A page's full screen timed three times each way, entered by a key as a video's button is and left
+# by the page, as its button leaves, and then by escape. The steps run from the core's line to the
+# window's and the UI's, and the checks wait for the last of them.
+timed_from=$(($(wc -l < "$log") + 1))
+for _ in 1 2 3; do
+  send key f
+  expect '^browser: page entered full screen$' "the page didn't go full screen to be timed"
+  full_screen_done enter
+  send key x
+  expect '^browser: page left full screen$' "exitFullscreen didn't take the page out of full screen to be timed"
+  full_screen_done exit
+done
+timed_escape=$(($(wc -l < "$log") + 1))
+for _ in 1 2 3; do
+  send key f
+  expect '^browser: page entered full screen$' "the page didn't go full screen to be timed"
+  full_screen_done enter
+  send key escape
+  expect '^browser: page left full screen$' "escape didn't take the page out of full screen to be timed"
+  full_screen_done exit
+done
+timed_to=$(($(wc -l < "$log")))
+enter_ms=$(full_screen_times "$timed_from" "$timed_to" enter)
+exit_ms=$(full_screen_times "$timed_from" "$((timed_escape - 1))" exit)
+escape_ms=$(full_screen_times "$timed_escape" "$timed_to" exit)
 
 # Chromium makes its window key when a new page's view replaces the focused one.
 send key n
@@ -426,4 +490,4 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
 fi
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
