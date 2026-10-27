@@ -153,13 +153,24 @@ fn a_swatch_gives_its_colour_and_keeps_the_rest(cx: &mut TestAppContext) {
     let mut picker = Picker::new(Some(theme), cx);
     picker.click(SWATCH_X + SWATCH_PITCH * 3., SWATCH_Y);
     let picked = picker.theme().unwrap();
-    assert_eq!(picked, Theme { x: picked.x, y: picked.y, ..theme });
+    let colour = Theme { x: picked.x, y: picked.y, saturation: picked.saturation, ..theme };
+    assert_eq!(picked, colour);
     let swatch = Theme::of_color(SWATCHES[3]);
     assert_eq!(picked, Theme { count: 2, intensity: 0.4, grain: 0.3, ..swatch });
-    // Without a colour yet, a swatch is the first.
+    assert_eq!(picked.main_color(), SWATCHES[3]);
+    // Without a colour yet, a swatch is the first, as itself: slate, not the field's vivid blue.
     let mut picker = Picker::new(None, cx);
-    picker.click(SWATCH_X, SWATCH_Y);
-    assert_eq!(picker.theme(), Some(Theme::of_color(SWATCHES[0])));
+    picker.click(SWATCH_X + SWATCH_PITCH * 8., SWATCH_Y);
+    assert_eq!(picker.theme(), Some(Theme::of_color(SWATCHES[8])));
+    assert_eq!(picker.theme().unwrap().main_color(), SWATCHES[8]);
+    // Its handle dragged takes the field's colour where it's let go.
+    let slate = picker.theme().unwrap();
+    let (x, y) = Picker::in_field(slate.x, slate.y);
+    let (to_x, to_y) = Picker::in_field(slate.x, slate.y + 0.1);
+    picker.drag((x, y), (to_x, to_y));
+    let dragged = picker.theme().unwrap();
+    assert_eq!(dragged.saturation, 1.);
+    assert_eq!(dragged.main_color(), theme::color_at(dragged.x, dragged.y, 1.));
 }
 
 #[gpui::test]
