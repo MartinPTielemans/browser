@@ -363,10 +363,13 @@ typedef struct bc_offer {
   const char* decline;
   const char* never;
 } bc_offer;
-// What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt().
+
+// What a page's own dialog asks, in tab_dialog: its alert(), confirm() or prompt(), or whether to
+// leave it, from its beforeunload handler, which Chrome words.
 #define BC_DIALOG_ALERT 0
 #define BC_DIALOG_CONFIRM 1
 #define BC_DIALOG_PROMPT 2
+#define BC_DIALOG_LEAVE 3
 
 // A page's own dialog, for the user to answer while its tab shows, in Chrome's words.
 typedef struct bc_page_dialog {
@@ -627,8 +630,9 @@ typedef struct bc_host {
   // this comes again once the dialog has gone, answered or taken back, with the tab's next, or
   // with |dialog| null if it has none. Chrome's rules stay: a page that isn't the front window's
   // tab shown can't ask confirm() or prompt(), its alert() waits until the tab shows, and a
-  // confirm() or prompt() is cancelled once its tab no longer shows. An agent's tab asks the user
-  // the same way, and the agent can't answer.
+  // confirm() or prompt() is cancelled once its tab no longer shows. A "Leave site?" holds up
+  // every other app-wide dialog, as Chrome's, so its tab comes to the front window if no window
+  // shows it. An agent's tab asks the user the same way, and the agent can't answer.
   void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
 } bc_host;
 
