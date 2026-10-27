@@ -1,0 +1,50 @@
+# Fails when a pull request makes AGENTS.md and the docs it links to larger than on its base
+# (tools/agent-context.sh). To accept growth on purpose, a maintainer adds the
+# agent-context-increase label. Adapted from T3 Code (https://github.com/pingdotgg/t3code, MIT) at
+# commit 570d4b03eef879bd60be3d74444046858c94dacd.
+name: Agent Context Budget
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    paths: ['**.md', tools/agent-context.sh, .github/workflows/agent-context-budget.yml]
+
+permissions: {}
+
+concurrency:
+  group: agent-context-budget-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  budget:
+    name: Agent context budget
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      ALLOW_INCREASE: ${{ contains(github.event.pull_request.labels.*.name, 'agent-context-increase') }}
+    steps:
+      # The merge commit and its first parent, the base. Nothing is built or run but the measure.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Compare with the base
+        run: |
+          echo "Base:"; tools/agent-context.sh HEAD^1 | tee "$RUNNER_TEMP/base"
+          echo "This pull request:"; tools/agent-context.sh HEAD | tee "$RUNNER_TEMP/head"
+          base=$(awk '$2 == "total" { print $1 }' "$RUNNER_TEMP/base")
+          head=$(awk '$2 == "total" { print $1 }' "$RUNNER_TEMP/head")
+          if [ "$head" -le "$base" ]; then
+            echo "Agent context is not larger than the base ($base -> $head bytes)."
+            exit 0
+          fi
+          echo "Agent context grew: $base -> $head bytes (+$((head - base)))."
+          if [ "$ALLOW_INCREASE" = "true" ]; then
+            echo "Accepted by the agent-context-increase label."
+            exit 0
+          fi
+          echo "::error file=AGENTS.md::Agent context grew by $((head - base)) bytes. Cut the added text, or ask a maintainer to add the agent-context-increase label."
+          exit 1

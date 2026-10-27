@@ -1,0 +1,61 @@
+# Keeps the labels the issue templates and the PR checks apply, in one list. Adapted from T3 Code
+# (https://github.com/pingdotgg/t3code, MIT) at commit 570d4b03eef879bd60be3d74444046858c94dacd.
+name: Labels
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/ISSUE_TEMPLATE/**, .github/workflows/labels.yml]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sync:
+    name: Sync labels
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const labels = [
+              // Issue templates.
+              ["bug", "d73a4a", "Something is broken or behaving incorrectly."],
+              ["site", "e99695", "A site works in Chrome but not in ilo."],
+              ["crash", "b60205", "ilo crashed or hung."],
+              ["enhancement", "a2eeef", "Requested improvement or new capability."],
+              ["agents", "5319e7", "Agents, the MCP server, and their permissions."],
+              ["via-triage", "c5def5", "Filed by an agent following .github/triage/PLAYBOOK.md."],
+              ["needs-triage", "fbca04", "Needs a maintainer's first look."],
+              // stale-needs-more-info.yml closes these after 7 quiet days.
+              ["needs more info", "d876e3", "Waiting on the reporter for details."],
+              // pr-vouch.yml.
+              ["vouch:trusted", "1f883d", "PR author is a collaborator or in the VOUCHED list."],
+              ["vouch:unvouched", "fbca04", "PR author is not in the VOUCHED list yet."],
+              ["vouch:denounced", "d1242f", "PR author is denounced in the VOUCHED list."],
+              // pr-size.yml.
+              ["size:XS", "0e8a16", "0-9 changed lines (tests left out in mixed PRs)."],
+              ["size:S", "5ebd3e", "10-29 changed lines (tests left out in mixed PRs)."],
+              ["size:M", "fbca04", "30-99 changed lines (tests left out in mixed PRs)."],
+              ["size:L", "fe7d37", "100-499 changed lines (tests left out in mixed PRs)."],
+              ["size:XL", "d93f0b", "500-999 changed lines (tests left out in mixed PRs)."],
+              ["size:XXL", "b60205", "1,000+ changed lines (tests left out in mixed PRs)."],
+              // agent-context-budget.yml.
+              ["agent-context-increase", "bfdadc", "A maintainer accepts this PR's growth of the agent context."],
+            ];
+
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            for (const [name, color, description] of labels) {
+              try {
+                const { data: existing } = await github.rest.issues.getLabel({ ...repo, name });
+                if (existing.color !== color || (existing.description ?? "") !== description) {
+                  await github.rest.issues.updateLabel({ ...repo, name, color, description });
+                }
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ ...repo, name, color, description });
+              }
+            }
