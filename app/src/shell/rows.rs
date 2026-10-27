@@ -365,31 +365,47 @@ impl Shell {
         self.select(tab, cx)
     }
 
-    /// A press on the page that slides in after a Space switch, where the page isn't yet: the
-    /// pointer is over the outgoing page, which takes no input, or over nothing. It acts on the
-    /// row that will be there, as the press that it is (docs/ux-principles.md: act on the press),
-    /// the Space having switched already. Returns whether it took the press; a press on the
-    /// sliding page's drawn part is the rows' own.
+    /// A press on the list where the row drawn isn't the one that rests there. On the page that
+    /// slides in after a Space switch, where the page isn't yet, the pointer is over the outgoing
+    /// page, which takes no input, or over nothing. Among rows that moved, as ⌘D or a close
+    /// moves them, the frame last drawn may have another row under the pointer, one on its way
+    /// out. Either way it acts on the row that will be there, as the press that it is
+    /// (docs/ux-principles.md: act on the press), so a click under a pointer that hasn't moved
+    /// acts on the row it rests on. Returns whether it took the press; a press on a row drawn
+    /// where it rests, or on the sliding page's drawn part, is the rows' own.
     pub(super) fn press_at_rest(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
-        let sliding = self.settle.is_some() && self.swipe.is_none() && self.drag.is_none();
-        if !sliding || self.form().is_some() || self.renaming.is_some() {
+        let busy = self.swipe.is_some() || self.form().is_some() || self.renaming.is_some();
+        if busy || self.dragging().is_some() || (self.settle.is_some() && self.drag.is_some()) {
             return false;
         }
-        let Some(&(_, page)) = self.pages().iter().find(|&&(space, _)| space == self.space) else {
-            return false;
-        };
         let at = in_sidebar(event.position, self.sidebar_origin.get());
         let width = self.width();
         let rows = self.drawn_list_top()..f32::from(self.viewport.height) - FOOTER_HEIGHT;
-        let on_page = (page..page + width).contains(&at.x);
-        if on_page || !(0. ..width).contains(&at.x) || !rows.contains(&at.y) {
+        if !(0. ..width).contains(&at.x) || !rows.contains(&at.y) {
             return false;
         }
         let y = self.list_y(at.y);
-        let tab = self.layout().into_iter().find_map(|(slot, top)| match slot {
-            Slot::Tab(tab) if (top..top + ROW_PITCH).contains(&y) => Some(tab),
-            _ => None,
-        });
+        let row_at = |tops: &[(u64, f32)]| {
+            tops.iter().find_map(|&(tab, top)| (top..top + ROW_PITCH).contains(&y).then_some(tab))
+        };
+        let layout: Vec<_> = (self.layout().into_iter())
+            .filter_map(|(slot, top)| match slot {
+                Slot::Tab(tab) => Some((tab, top)),
+                _ => None,
+            })
+            .collect();
+        let tab = row_at(&layout);
+        if self.settle.is_some() {
+            let Some(&(_, page)) = self.pages().iter().find(|&&(space, _)| space == self.space)
+            else {
+                return false;
+            };
+            if (page..page + width).contains(&at.x) {
+                return false;
+            }
+        } else if row_at(&self.drawn_rows.borrow()) == tab {
+            return false;
+        }
         let Some(tab) = tab.filter(|&tab| self.panes(tab).len() == 1) else {
             return false;
         };
@@ -1636,5 +1652,40 @@ mod tests {
         cx.simulate_click(point(px(pinned.0), px(pinned.1)), Modifiers::none());
         cx.run_until_parked();
         assert!(!host.take().iter().any(|call| call.starts_with("close")), "the pinned row");
+    }
+
+    /// ⌘D, from the UI or the page, unpins the tab shown under a pointer that doesn't move, and
+    /// the tab below slides up under it. A click there, as a trackpad tap makes, shows that tab,
+    /// whether the rows are still on their way or not yet drawn where they moved, and with no
+    /// row before it drawing a hover fill (#271).
+    #[gpui::test]
+    fn a_click_after_a_key_acts_on_the_row_under_the_pointer(cx: &mut TestAppContext) {
+        cx.update(bind_keys);
+        for (page, drawn) in [(false, false), (false, true), (true, false), (true, true)] {
+            let (shell, cx, host) = window(cx, vec![2, 3], vec![4], 4);
+            cx.update(|window, cx| window.focus(&shell.read(cx).focus_handle.clone(), cx));
+            let (x, y) = close_button(&shell, cx, 2);
+            let at = point(px(x - 100.), px(y));
+            cx.simulate_mouse_move(at, None, Modifiers::none());
+            cx.simulate_click(at, Modifiers::none());
+            cx.run_until_parked();
+            assert!(host.take().contains(&"select 2".into()));
+            shell.update(cx, |shell, cx| shell.set_selected(2, cx));
+            cx.run_until_parked();
+            if page {
+                shell.update(cx, |shell, cx| shell.run_for_page(Command::TogglePin, cx));
+            } else {
+                cx.simulate_keystrokes("cmd-d");
+            }
+            shell.update(cx, |shell, cx| {
+                shell.set_tabs(1, vec![3], vec![2, 4], Vec::new(), Folders::default(), cx)
+            });
+            if drawn {
+                cx.run_until_parked();
+                assert_eq!(filled(&shell, cx), Vec::<u64>::new(), "page {page}");
+            }
+            cx.simulate_click(at, Modifiers::none());
+            assert!(host.take().contains(&"select 3".into()), "page {page}, drawn {drawn}");
+        }
     }
 }
