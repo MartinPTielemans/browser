@@ -132,6 +132,8 @@ ln -sfn "$sdk" "$out/sdk/xcode_links/$(basename "$sdk")"
 {
   cat "$uc/flags.gn" "$ucm/flags.macos.gn" args.gn $extra_args
   echo "mac_sdk_path = \"//out/$config/sdk/xcode_links/$(basename "$sdk")\""
+  # The SDK is pinned, so an Xcode update changes nothing we compile and shouldn't recompile it all.
+  echo 'mac_xcode_build_define = "27A266a"'
 } >"$out/args.gn"
 (cd "$src" && "$gn" gen "$out" --fail-on-unused-args)
 echo "setup: ready. Build with engine/build.sh ${1:-}" >&2
