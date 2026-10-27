@@ -1,8 +1,8 @@
 # A Space the driver makes for an agent, through the core as agent code will, shows in the
 # switcher as the agent's, and comes back the agent's, with its owner, after a quit. The agent may
 # act only on the tabs of its own Space: not on the user's, nor another agent's on its. ⌃2 shows it
-# as any second Space, a tab opened there is the agent's, and the user's tab's Move to Space leaves
-# it out, so with no other Space of the user's it's disabled.
+# as any second Space, a tab opened there is the agent's, and the user's tab's Move to leaves it
+# out, listing only the user's own Space, checked, and New Space….
 
 log="$out/agents.log"
 step=0
@@ -38,9 +38,9 @@ if [ "$driven" = 1 ]; then
   send key 1 ctrl
   expect "^browser: space $first\( in .*\)\{0,1\}\$" "⌃1 didn't show the user's Space again"
   post rightclick $(row 0)
-  expect '^browser: menu shown .*, Move to Space (disabled), ' \
+  expect '^browser: menu shown .*, Move to › [^,]* (checked), Move to › New Space…, ' \
     "the user's tab's menu offered the agent's Space to move to"
-  send choose Pin Tab
+  send choose Duplicate
 fi
 quit
 

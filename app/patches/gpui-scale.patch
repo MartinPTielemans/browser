@@ -33,6 +33,20 @@ index 54b72a63ec..cf7cd404f3 100644
      /// Simulates the user resizing the window to the new size.
      pub fn simulate_resize(&self, size: Size<Pixels>) {
          self.simulate_window_resize(self.window, size)
+diff --git a/crates/gpui/src/platform/app_menu.rs b/crates/gpui/src/platform/app_menu.rs
+index 27c20c00ba..2835e76b38 100644
+--- a/crates/gpui/src/platform/app_menu.rs
++++ b/crates/gpui/src/platform/app_menu.rs
+@@ -318,6 +318,9 @@ pub enum OsAction {
+     /// The 'paste' action
+     Paste,
+ 
++    /// The 'paste and match style' action, which pastes as the text around it is styled
++    PasteAndMatchStyle,
++
+     /// The 'select all' action
+     SelectAll,
+ 
 diff --git a/crates/gpui/src/platform/test/window.rs b/crates/gpui/src/platform/test/window.rs
 index 5692b1e7cb..97632c7ab2 100644
 --- a/crates/gpui/src/platform/test/window.rs

@@ -54,6 +54,8 @@ pub enum Command {
     NewFolder,
     /// Closes every folder of the Space shown.
     CollapseFolders,
+    /// Shows the sidebar's row of the tab shown: opens its folders and scrolls the list to it.
+    RevealTab,
     /// Loads the selected pinned tab's pinned URL.
     BackToPinnedUrl,
     /// Mutes the selected tab, or unmutes it.
@@ -114,6 +116,8 @@ pub enum Command {
     NewSpace,
     /// Shows the Space shown with its name in a field.
     RenameSpace,
+    /// Puts the Space shown in this profile, or with none in a new one.
+    ChangeProfile(Option<u64>),
     /// The Space at this index in the switcher.
     SelectSpace(usize),
     NextSpace,
@@ -263,6 +267,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("Clear Archive", Command::ClearArchive, &[]),
     ("Favorite Tab", Command::FavoriteTab, &["add to favorites"]),
     ("Collapse All Folders", Command::CollapseFolders, &[]),
+    ("Reveal Tab in Sidebar", Command::RevealTab, &["locate"]),
     ("New Folder…", Command::NewFolder, &[]),
     ("Back to Pinned URL", Command::BackToPinnedUrl, &["reset tab"]),
     ("Mute/Unmute Tab", Command::ToggleMute, &["sound", "audio"]),
@@ -522,6 +527,7 @@ impl Command {
             Command::RenameTab => "rename-tab",
             Command::NewFolder => "new-folder",
             Command::CollapseFolders => "collapse-folders",
+            Command::RevealTab => "reveal-tab",
             Command::BackToPinnedUrl => "back-to-pinned-url",
             Command::ToggleMute => "toggle-mute",
             Command::Clear => "clear",
@@ -557,6 +563,7 @@ impl Command {
             Command::AddExtension => "add-extension",
             Command::NewSpace => "new-space",
             Command::RenameSpace => "rename-space",
+            Command::ChangeProfile(_) => "change-profile",
             Command::SelectSpace(_) => "select-space",
             Command::NextSpace => "next-space",
             Command::PreviousSpace => "previous-space",
@@ -720,6 +727,7 @@ impl Shell {
             Command::RenameTab => return self.rename_tab(self.selected, cx),
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
+            Command::RevealTab => return self.reveal_tab(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
             Command::ToggleMute => return self.toggle_mute(self.selected, cx),
             Command::Clear => return self.clear(cx),
@@ -822,6 +830,7 @@ impl Shell {
             Command::ClearArchive => return self.clear_archive(cx),
             Command::NewSpace => return self.new_space(cx),
             Command::RenameSpace => return self.rename_space(self.space, cx),
+            Command::ChangeProfile(profile) => return self.change_profile(profile, cx),
             Command::SelectSpace(index) => return self.show_space_at(Some(index), cx),
             Command::NextSpace => return self.show_space_at(space.map(|index| index + 1), cx),
             Command::PreviousSpace => {
@@ -1111,6 +1120,7 @@ fn private_runs(command: Command) -> bool {
             | Command::BackToPinnedUrl
             | Command::NewSpace
             | Command::RenameSpace
+            | Command::ChangeProfile(_)
             | Command::SelectSpace(_)
             | Command::NextSpace
             | Command::PreviousSpace

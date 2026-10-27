@@ -463,6 +463,15 @@ void host_share(void* ui_view,
                 const char* url,
                 const char* title);
 
+// Gives |each| the name of each of the system's share services for the page at |url|, as its
+// share menu lists them, with |context|.
+void host_share_services(const char* url,
+                         void (*each)(void* context, const char* name),
+                         void* context);
+
+// Shares the page at |url| titled |title| with the service at |index| in host_share_services's.
+void host_share_with(const char* url, const char* title, size_t index);
+
 // The starts of today, yesterday, this week and last week in the user's calendar and time zone, in
 // milliseconds since the Unix epoch.
 void host_day_starts(double starts[4]);
@@ -470,6 +479,10 @@ void host_day_starts(double starts[4]);
 // For the test driver: chooses the item titled |title| in the menu shown, or the button in the
 // alert shown. False if neither shows one.
 bool host_choose(const char* title);
+
+// For the test driver: closes the menu shown without choosing, as a click outside it does. False
+// if none shows.
+bool host_dismiss_menu(void);
 
 // For the test driver: the NSWindow of the browser window whose view host_ui_view made |index|th,
 // from 0, once it's shown, else null.
