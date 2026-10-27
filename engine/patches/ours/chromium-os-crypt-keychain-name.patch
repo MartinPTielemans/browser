@@ -1,0 +1,21 @@
+Lets the core name the Keychain item that holds the cookie encryption key after the app,
+so ilo keeps a key of its own instead of sharing "Chromium Safe Storage" with every other
+Chromium on the Mac. Chromium keeps the switch for embedders such as Electron and turns it on
+nowhere; this turns it on for its Keychain code and whatever names the item.
+
+--- a/components/os_crypt/common/BUILD.gn
++++ b/components/os_crypt/common/BUILD.gn
+@@ -17,7 +17,13 @@
+ }
+ 
+ if (is_apple) {
++  # browser_core: lets an app built on the framework name its Keychain item after itself.
++  config("keychain_names_configurable") {
++    defines = [ "ALLOW_RUNTIME_CONFIGURABLE_KEY_STORAGE" ]
++  }
++
+   source_set("keychain_password_mac") {
++    public_configs = [ ":keychain_names_configurable" ]
+     sources = [
+       "keychain_password_mac.h",
+       "keychain_password_mac.mm",
