@@ -353,6 +353,22 @@ glyph-alpha = 0.7
 # The popover level's rim, as the tooltip's.
 rim = 0.5
 
+[link-preview]
+# Ours, as nothing of Arc's preview is recorded yet (docs/ux-spec.md › Measurement plan, 8). The
+# card sits over the window's page, in from it by a share of the page's smaller side, within these.
+inset-share = 0.05
+inset-min = 16.0
+inset-max = 48.0
+# The card's frame round the page at its sides and bottom, and over it a header a button's
+# height, as the side panel's, with the site's name this far in.
+frame = 6.0
+header-left = 12.0
+header-text = 13.0
+# The page's corners, at least, where the window's page has none, as when it's full screen. The
+# card's are concentric round them, the frame further out. Its fill is the palette's overlay, with
+# the modal level's rim and shadow, over the dialog's dim.
+min-radius = 6.0
+
 [link-target]
 height = 24.0
 # Its distance from the card's left or right edge and from its bottom: more than the card's
@@ -585,6 +601,7 @@ knob = 0xe1e2e2
 # The knob over the accent colour, which tints it.
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
+link-previews-tile = 0x30b0c7
 profile-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f

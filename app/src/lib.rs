@@ -94,6 +94,7 @@ pub mod elevation;
 pub mod face;
 pub mod hover_card;
 pub mod icon_picker;
+pub mod link_preview;
 pub mod link_target;
 pub mod menu;
 pub mod offer;

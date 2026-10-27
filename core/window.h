@@ -273,6 +273,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Today tabs, shown if the window shows its Space, and closing it shows |pinned| again. Null as
   // OpenTab.
   content::WebContents* OpenFromPinned(bc_id pinned, const GURL& url);
+
+  // Opens a tab in no Space for |opener|'s profile, loading |url| at once as a link in |opener|'s
+  // page would, not shown: a link preview, which the app shows in a view of its own. Null while
+  // the window is closing or Chromium is quitting.
+  content::WebContents* OpenPreview(content::WebContents& opener, const GURL& url);
   // Opens a tab for |profile| with |history|, at its |current| page, not shown. It loads once it's
   // shown. Null while the window is closing or Chromium is quitting.
   content::WebContents* RestoreTab(Profile* profile,

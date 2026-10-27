@@ -423,6 +423,20 @@ bool host_can_draw_emoji(const char*) {
 // them is for the core's key handling to do.
 void host_hold_keys(void) {}
 
+// No link preview yet: the core shows a page in an app's view on the Mac alone, so links open in
+// the tab.
+void* host_add_link_preview(void* view, void (*dismissed)(void)) {
+  return nullptr;
+}
+
+void host_show_link_preview(void* ui_view) {}
+
+void host_link_preview_drew(double left, double top, double width, double height, double opacity) {}
+
+void host_release_link_preview(void) {}
+
+void host_hide_link_preview(void) {}
+
 // GPUI's clipboard and its file chooser portal copy and save a capture (platform/linux/system.rs).
 void host_copy_png(const uint8_t* png, size_t size) {}
 
