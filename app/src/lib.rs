@@ -35,4 +35,5 @@ pub mod space_icon;
 pub mod text_input;
 pub mod toast;
 pub mod tooltip;
+pub mod window_frames;
 pub mod zoom_hud;
