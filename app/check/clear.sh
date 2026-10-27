@@ -541,12 +541,14 @@ expect '^browser: sidebar tools shown$' \
 
 # The Site Controls list the site's permissions as Chrome's page info does, here the one Allow gave.
 # The panel hangs from the button at 206 64: 238 wide from x 87, its beak's tip 9 pt above its body
-# at y 91. With no extension pinned, its first row's middle is at y 262, the rows 43 apart, Reset
-# permissions under them, and the footer's middle 74 below the last row's top.
+# at y 91. With no extension pinned, its first row's middle is at y 262, the rows 43 apart, Block
+# ads and trackers first, Reset permissions last, and the footer's middle 74 below the last row's
+# top.
 controls="^browser: site controls http://localhost:$port: "
 row_y() { echo $((262 + 43 * $1)); }
 footer_y() { echo $((262 - 16 + 43 * ($(listed | wc -l)) + 74)); }
-# The permissions the Site Controls listed last, one a line, in their order.
+# The rows the Site Controls listed last, one a line, in their order: ad blocking, then the
+# permissions.
 listed() {
   grep "$controls" "$log" | tail -1 | sed 's/^[^;]*; //' | tr ',' '\n' | sed 's/^ //'
 }
