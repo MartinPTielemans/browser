@@ -1023,6 +1023,7 @@ impl command_bar::Host for Bar {
 
 /// The user left the command bar without choosing anything in it.
 extern "C" fn command_bar_dismissed() {
+    update_app(command_bar::dismissed);
     update_window(front().0, |shell, cx| shell.command_bar_dismissed(cx));
 }
 
@@ -1615,6 +1616,10 @@ impl Browser for Engine {
         cx: &mut App,
     ) {
         command_bar::show(editing, tabs, field, cx);
+    }
+
+    fn command_bar_open(&self, cx: &App) -> bool {
+        command_bar::is_open(cx)
     }
 
     fn split_bar(&self, with: u64, pane: Bounds<Pixels>, card: Bounds<Pixels>, cx: &mut App) {

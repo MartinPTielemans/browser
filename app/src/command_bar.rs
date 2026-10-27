@@ -7,7 +7,7 @@
 //! keyword mode does. A click on the sidebar's URL field opens a narrower panel over the field,
 //! as Arc's does. What it asks of the core and of its window goes through `Host`.
 
-use std::{collections::HashMap, rc::Rc, sync::Arc, time::Instant};
+use std::{cell::Cell, collections::HashMap, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, HoverListenerMode,
@@ -331,6 +331,10 @@ pub struct CommandBar {
     /// The Space's tabs it lists before anything is typed.
     tabs: Vec<shell::BarTab>,
     scroll: ScrollHandle,
+    /// Whether it shows, until it hides or the host reports a click outside it. The host closes
+    /// the window at that click's press, before the click reaches the shell, so this stays set
+    /// until the report, which comes after.
+    open: Cell<bool>,
 }
 
 struct CommandBarWindow(WindowHandle<CommandBar>);
@@ -431,6 +435,7 @@ pub fn open_at(
                 favicons: HashMap::new(),
                 tabs: Vec::new(),
                 scroll: ScrollHandle::new(),
+                open: Cell::new(false),
             }
         })
     });
@@ -516,6 +521,7 @@ fn reset(
                 }
             }
             bar.tabs = tabs;
+            bar.open.set(true);
             bar.page = text.to_string();
             if !text.is_empty() {
                 bar.favicons.insert(bar.page.clone(), None);
@@ -535,6 +541,21 @@ fn reset(
             bar.host.clone()
         })
         .ok()
+}
+
+/// The user left the bar with a click outside it, or Esc.
+pub fn dismissed(cx: &mut App) {
+    if let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) {
+        window.update(cx, |bar, _, _| bar.open.set(false)).ok();
+    }
+}
+
+/// Whether the bar shows, for a click on what opens it to close it rather than open it again: the
+/// click outside the bar has closed it by now, but the shell hears so only after the click's press.
+pub fn is_open(cx: &App) -> bool {
+    cx.try_global::<CommandBarWindow>()
+        .and_then(|bar| bar.0.read(cx).ok())
+        .is_some_and(|bar| bar.open.get())
 }
 
 /// The favicon `Host::page_favicon` asked for, for a row going to `url`.
@@ -969,7 +990,7 @@ impl CommandBar {
         // check.sh reads this line.
         log!("browser: command bar go {url}");
         self.show_page(url, cx);
-        self.host.hide();
+        self.close();
     }
 
     /// ⌘↩: opens where ↩ would go in a tab behind the one shown, at the top of Today, and the bar
@@ -1020,7 +1041,7 @@ impl CommandBar {
         // check.sh reads this line.
         log!("browser: command bar window {url}");
         // The bar leaves its window first, which the new one then takes the keyboard from.
-        self.host.hide();
+        self.close();
         self.host.open_window(url, cx);
     }
 
@@ -1107,14 +1128,14 @@ impl CommandBar {
         if let Some(result) = &row.result {
             // check.sh reads this line.
             log!("browser: command bar copies {result}");
-            self.host.hide();
+            self.close();
             self.host.copy(result, cx);
             return;
         }
         // check.sh reads these lines.
         if let Some(command) = row.command {
             log!("browser: command bar runs {}", row.text);
-            self.host.hide();
+            self.close();
             shell::run_from_bar(command, cx);
             return;
         }
@@ -1127,7 +1148,7 @@ impl CommandBar {
             (tab, _) => match self.host.tab_window(tab) {
                 Some(window) => {
                     log!("browser: command bar switch to tab {tab} in window {window}");
-                    self.host.hide();
+                    self.close();
                     return self.host.activate(window, tab, cx);
                 }
                 None => {
@@ -1136,7 +1157,7 @@ impl CommandBar {
                 }
             },
         }
-        self.host.hide();
+        self.close();
     }
 
     /// Selects the next row, or the one before, wrapping at the ends as Chrome does.
@@ -1171,6 +1192,12 @@ impl CommandBar {
             self.hovered = None;
         }
         cx.notify();
+    }
+
+    /// Hides the bar's window.
+    fn close(&self) {
+        self.open.set(false);
+        self.host.hide();
     }
 
     /// Esc leaves the site search first, then the bar.

@@ -29,6 +29,8 @@ pub(super) struct Recorder {
     pub(super) site_controls: RefCell<Vec<(u64, crate::site_controls::Place)>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
+    /// The command bar shows, until a test plays the app's report that it was dismissed.
+    pub(super) bar_open: Cell<bool>,
 }
 
 impl Recorder {
@@ -340,6 +342,11 @@ impl Browser for Recorder {
         _: &mut App,
     ) {
         self.command_bars.borrow_mut().push(field);
+        self.bar_open.set(true);
+    }
+
+    fn command_bar_open(&self, _: &App) -> bool {
+        self.bar_open.get()
     }
 
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {

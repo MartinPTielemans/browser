@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use gpui::{Context, Pixels, Point, Stateful, Window, div, prelude::*, px, rgba};
+use gpui::{Context, MouseButton, Pixels, Point, Stateful, Window, div, prelude::*, px, rgba};
 
 use super::{Command, SECONDARY, Shell, fade_at, keys::user_keys};
 
@@ -91,8 +91,14 @@ impl Shell {
                 .flex()
                 .items_center()
                 .justify_center()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|shell, _, _, cx| shell.pressed_bar_target(cx)),
+                )
                 // On release, so a press that drags the window by its background isn't a click.
-                .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::NewTab, "card", cx)))
+                .on_click(cx.listener(|shell, _, _, cx| {
+                    shell.clicked_bar_target(Command::NewTab, "card", cx)
+                }))
                 .child(line),
         )
     }

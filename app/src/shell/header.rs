@@ -303,7 +303,13 @@ impl Shell {
             .pr(px(text_end))
             .rounded(px(PLATE_RADIUS))
             .block_mouse_except_scroll()
-            .on_click(cx.listener(|shell, _, _, cx| shell.run(Command::EditUrl, "sidebar", cx)))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|shell, _, _, cx| shell.pressed_bar_target(cx)),
+            )
+            .on_click(cx.listener(|shell, _, _, cx| {
+                shell.clicked_bar_target(Command::EditUrl, "sidebar", cx)
+            }))
             .bg(rgba(URL_FIELD))
             // It brightens under the pointer as a tile does, from the same white 0.10 (ours).
             .hover(|style| style.bg(hsla(0., 0., 1., TILE_HOVERED)))

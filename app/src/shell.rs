@@ -937,6 +937,9 @@ pub struct Shell {
     empty_since: Option<Instant>,
     /// The fade has ended and said so.
     empty_settled: bool,
+    /// The press under way was on a target that opens the command bar while it was open, so the
+    /// click that follows only closes it.
+    press_closed_bar: bool,
     drag: Option<Drag>,
     /// A drag just ended, so the release isn't a click on the row.
     dragged: bool,
@@ -1142,6 +1145,7 @@ impl Shell {
             new_tab: false,
             empty_since: None,
             empty_settled: false,
+            press_closed_bar: false,
             drag: None,
             dragged: false,
             swipe: None,
@@ -1798,6 +1802,26 @@ impl Shell {
         if self.adding_pane.take().is_some() {
             self.lay_out_page(cx);
             cx.notify();
+        }
+    }
+
+    /// A press on a target that opens the command bar, such as the New Tab row. A click outside the
+    /// bar has closed it before the press reaches the shell, and the app reports so only after,
+    /// so the press is where to tell that this click closes the bar.
+    pub(super) fn pressed_bar_target(&mut self, cx: &mut Context<Self>) {
+        self.press_closed_bar = self.browser.command_bar_open(cx);
+    }
+
+    /// The release of a click on a target that opens the command bar with `command`: it does,
+    /// unless the press closed the bar.
+    pub(super) fn clicked_bar_target(
+        &mut self,
+        command: Command,
+        from: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if !std::mem::take(&mut self.press_closed_bar) {
+            self.run(command, from, cx);
         }
     }
 
