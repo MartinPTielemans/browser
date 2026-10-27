@@ -40,13 +40,16 @@
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
 
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
+#include "browser_core/platform/app_library.h"
+#endif
 #if BUILDFLAG(IS_WIN)
-#include <windows.h>
-
-#include "base/files/file_path.h"
-#include "base/path_service.h"
 #include "base/strings/utf_string_conversions.h"
-#else
+#endif
+#if BUILDFLAG(IS_LINUX)
+#include "ui/ozone/public/ozone_switches.h"
+#endif
+#if !BUILDFLAG(IS_WIN) && !BUILDFLAG(IS_LINUX)
 // chrome_main.cc's entry point, in the same framework.
 extern "C" int ChromeMain(int argc, const char** argv);
 #endif
@@ -189,35 +192,9 @@ void Install(const bc_host& host) {
   g_browser_core_find_native_host = &FindNativeHost;
 }
 
-#if BUILDFLAG(IS_WIN)
-// chrome.exe runs ChromeMain itself, so the app, a DLL beside it, hands over its callbacks and
-// switches here instead of calling bc_main. Returns false with no app to run.
-bool LoadApp(base::CommandLine* command_line) {
-  base::FilePath dir;
-  base::PathService::Get(base::DIR_EXE, &dir);
-  HMODULE app = LoadLibraryW(dir.Append(BC_APP_DLL).value().c_str());
-  auto entry = app ? reinterpret_cast<bc_app_entry>(GetProcAddress(app, BC_APP_ENTRY)) : nullptr;
-  if (!entry) {
-    return false;
-  }
-  int argc = 0;
-  const char** argv = nullptr;
-  const bc_host* host = entry(&argc, &argv);
-  Install(host ? *host : bc_host{});
-  // The app's switches, as bc_main takes them. It repeats the ones chrome.exe was given after its
-  // own, so those still win.
-  base::CommandLine::StringVector app_argv;
-  for (int i = 0; i < argc; ++i) {
-    app_argv.push_back(base::UTF8ToWide(argv[i]));
-  }
-  command_line->AppendArguments(base::CommandLine(app_argv), /*include_program=*/false);
-  return true;
-}
-#endif
-
 int Run(int argc, const char** argv, const bc_host& host) {
-#if BUILDFLAG(IS_WIN)
-  // chrome.exe starts Chromium on Windows; see LoadApp.
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
+  // Chromium's own executable starts Chromium here, and loads the app (platform/app_library.h).
   return 1;
 #else
   Install(host);
@@ -240,11 +217,33 @@ MainDelegate::~MainDelegate() = default;
 std::optional<int> MainDelegate::BasicStartupComplete() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!command_line->HasSwitch(switches::kProcessType)) {
-#if BUILDFLAG(IS_WIN)
-    // First, so the features below join the app's rather than being replaced by them.
-    if (!LoadApp(command_line)) {
-      LOG(ERROR) << "no app: " << BC_APP_DLL << " beside the engine has no " << BC_APP_ENTRY;
+#if BUILDFLAG(IS_WIN) || BUILDFLAG(IS_LINUX)
+    // First, so the features below join the app's rather than being replaced by them. The app's
+    // switches go after the ones Chromium was given, which still win.
+    std::vector<std::string> app_switches;
+    const bc_host* host = platform::LoadApp(&app_switches);
+    if (!host) {
+      LOG(ERROR) << "no app: the engine has no " << BC_APP_LIBRARY << " beside it with "
+                 << BC_APP_ENTRY;
       return 1;
+    }
+    Install(*host);
+    base::CommandLine::StringVector app_argv(1);
+    for (const std::string& app_switch : app_switches) {
+#if BUILDFLAG(IS_WIN)
+      app_argv.push_back(base::UTF8ToWide(app_switch));
+#else
+      app_argv.push_back(app_switch);
+#endif
+    }
+    command_line->AppendArguments(base::CommandLine(app_argv), /*include_program=*/false);
+#endif
+#if BUILDFLAG(IS_LINUX)
+    // X11, under XWayland on a Wayland desktop: the app's UI is a window of its own that the core
+    // puts inside the browser window, which Wayland can't do across the two's connections
+    // (platform/linux/window_views.cc).
+    if (!command_line->HasSwitch(switches::kOzonePlatform)) {
+      command_line->AppendSwitchASCII(switches::kOzonePlatform, "x11");
     }
 #endif
     // The app opens windows through the core, and Chrome's first run and default-browser prompts
