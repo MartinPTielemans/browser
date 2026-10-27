@@ -464,7 +464,8 @@ fn names_icons_and_colours_go_back_to_what_they_were(cx: &mut TestAppContext) {
     shell.update(cx, |shell, cx| {
         shell.change(Prop::TabName(10), Value::Text("New".into()), cx);
         shell.change(Prop::SpaceName(2), Value::Text("Work".into()), cx);
-        shell.change(Prop::SpaceColor(2), Value::Color(Some(0xff0000)), cx);
+        let red = Value::Color { color: Some(0xff0000), theme: "red".into() };
+        shell.change(Prop::SpaceColor(2), red, cx);
         shell.change(Prop::SpaceIcon(2), Value::Text("🌱".into()), cx);
     });
     assert_eq!(
@@ -472,6 +473,7 @@ fn names_icons_and_colours_go_back_to_what_they_were(cx: &mut TestAppContext) {
         [
             "rename tab 10 New",
             "rename space 2 Work",
+            "theme 2 red",
             "color 2 Some(16711680)",
             "space icon 2 🌱"
         ]
@@ -484,6 +486,7 @@ fn names_icons_and_colours_go_back_to_what_they_were(cx: &mut TestAppContext) {
         host.take_edits(),
         [
             "space icon 2 ",
+            "theme 2 none",
             "color 2 None",
             "rename space 2 Two",
             "rename tab 10 Old"
