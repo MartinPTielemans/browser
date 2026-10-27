@@ -87,26 +87,6 @@ impl Shell {
         first && !self.sidebar_hidden && !self.page_fullscreen && !self.private
     }
 
-    /// Fingers from the second Space that have brought the first all the way in carry on into the
-    /// Library beside it, in the same swipe, as Arc's do (Arc 1.170 rec, three Spaces): the first
-    /// Space shows, and the swipe goes on as if it began there.
-    fn carry_into_library(&mut self, swipe: &mut Swipe, cx: &mut Context<Self>) {
-        let width = self.width();
-        let Some(first) = self.spaces.first().map(|space| space.id) else {
-            return;
-        };
-        let second = self.spaces.get(1).is_some_and(|space| space.id == swipe.from);
-        let carries = second && !swipe.library && swipe.way >= width && self.form.is_none();
-        if !carries || !self.library_beside(first) {
-            return;
-        }
-        (swipe.from, swipe.nearest, swipe.way) = (first, first, swipe.way - width);
-        for (_, x) in &mut swipe.samples {
-            *x -= width;
-        }
-        self.show_space(first, cx);
-    }
-
     /// How far out a swipe has taken the Library (`library_out`), while it moves the Library.
     pub(super) fn library_swiped(&self, swipe: &Swipe) -> Option<f32> {
         if swipe.across != Some(true) {
@@ -192,7 +172,6 @@ impl Shell {
             let was_near = library_near(self, &swipe);
             let was_past = past_end(self, &swipe);
             swipe.way += SWIPE_TRACKING * delta.x;
-            self.carry_into_library(&mut swipe, cx);
             if !was_past && past_end(self, &swipe) {
                 // check.sh waits for this line.
                 log!("browser: library past its end");
@@ -533,29 +512,15 @@ mod tests {
         assert_eq!(*host.shown.borrow(), [1]);
     }
 
-    /// One long swipe from the second of three Spaces brings the first all the way in and carries
-    /// on into the Library beside it, as Arc's does, without the fingers letting go between.
+    /// One long swipe from the second of three Spaces stops on the first, however far the fingers
+    /// go, with the Library closed, and the next swipe from there brings the Library out.
     #[gpui::test]
-    fn one_swipe_from_the_second_space_carries_on_into_the_library(cx: &mut TestAppContext) {
+    fn a_swipe_from_the_second_space_stops_on_the_first(cx: &mut TestAppContext) {
         let (shell, host, cx) = three_spaces(cx, 2);
         shell.update_in(cx, |shell, window, cx| {
             let way = shell.width() + 0.8 * shell.library_width();
             swipe(shell, way, window, cx);
-            assert!(shell.library_open, "the swipe stopped at the first Space");
-        });
-        assert_eq!(*host.shown.borrow(), [1]);
-    }
-
-    /// Fingers let go once the first Space is in land on it with the Library closed, and the next
-    /// swipe from there brings the Library out.
-    #[gpui::test]
-    fn a_swipe_let_go_on_the_first_space_leaves_the_library_to_the_next(
-        cx: &mut TestAppContext,
-    ) {
-        let (shell, host, cx) = three_spaces(cx, 2);
-        shell.update_in(cx, |shell, window, cx| {
-            swipe(shell, 0.9 * shell.width(), window, cx);
-            assert!(!shell.library_open, "the Library came out with the first Space");
+            assert!(!shell.library_open, "the swipe went on past the first Space into the Library");
             shell.set_space(1, cx);
             swipe(shell, 0.9 * shell.library_width(), window, cx);
             assert!(shell.library_open, "the next swipe left the Library closed");
