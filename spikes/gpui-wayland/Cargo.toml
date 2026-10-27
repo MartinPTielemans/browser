@@ -1,0 +1,19 @@
+[package]
+name = "spike"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "spike"
+path = "src/main.rs"
+
+[dependencies]
+gpui = { path = ".deps/zed/crates/gpui" }
+gpui_platform = { path = ".deps/zed/crates/gpui_platform", features = ["wayland"] }
+gpui_linux = { path = ".deps/zed/crates/gpui_linux", default-features = false, features = ["wayland"] }
+libc = "0.2"
+# The host's connection through libwayland, as GPUI's is (gpui_linux turns on client_system), so the
+# two share one wl_display, as Chromium's and GPUI's would.
+wayland-client = "0.31.11"
+wayland-protocols = { version = "0.32.9", features = ["client"] }
