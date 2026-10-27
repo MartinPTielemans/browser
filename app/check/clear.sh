@@ -601,13 +601,14 @@ read -r nx ny nw nh <<EOF
 $(grep "^browser: drm note $tab at " "$log" | tail -1 | cut -d' ' -f6-)
 EOF
 ../tools/window-screenshot.sh "$pid" "$out/drm-note.png" || fail "no window to capture"
+# WebKit loads with the first page in it, or earlier only to clear a store a page made in an
+# earlier run, as Clear Cookies and Refresh above does once this run has played. Read before the
+# click, whose page can say it loaded WebKit before the next line runs.
+early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
 send click $((nx + nw / 2)) $((ny + nh - 26))
 # Safari's engine keeps a store for each profile from macOS 14; before it, the note offers Safari.
 if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   drm_done="Safari's engine"
-  # WebKit loads with the first page in it, or earlier only to clear a store a page made in an
-  # earlier run, as Clear Cookies and Refresh above does once this run has played.
-  early=$(grep '^browser: system engine loaded for ' "$log" | grep -v ' for clearing a site' || true)
   [ -z "$early" ] || fail "WebKit loaded before its first page: $early"
   # Play in This Tab shows the page in Safari's engine, in the tab, and the note goes.
   expect "^browser: system engine $tab on\$" "the note's button didn't show the page in Safari's engine"
