@@ -4,7 +4,7 @@
 # An alert goes with its tab and comes back with it. Leaving a page whose beforeunload handler
 # asks says "Leave site?": Esc stays and ↩ leaves. A site's HTTP sign-in asks for a username and
 # password: Esc shows the page the site sends without them, and ↩ signs in, with the password in
-# no log.
+# no log. A link to another app asks first, and ↩ there opens nothing.
 
 serve
 log="$out/dialogs.log"
@@ -68,6 +68,16 @@ expect '^browser: dialog settled$' "the alert didn't settle again"
 send key return
 expect "^browser: page $page dialog answered accept\$" "↩ didn't answer the alert that came back"
 
+# ↩ doesn't open the app, so a key the page timed can't.
+send click $page_point
+send key o
+expect "^browser: page $page dialog OpenApp Open .*?\$" "a link to Maps didn't ask to open it"
+expect '^browser: dialog settled$' "Open Maps? didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/dialog-open-app.png" || fail "no window to capture"
+send key return
+expect "^browser: page $page dialog answered cancel\$" "↩ didn't cancel opening Maps"
+expect '^browser: dialog hidden$' "Open Maps? didn't leave once answered"
+
 send click $page_point
 send key u
 expect "^browser: title $page armed\$" "the page didn't ask to be asked before it's left"
@@ -110,4 +120,5 @@ exec 3>&-
 quit
 echo "ok: a page's alert, confirm and prompt ask over its card, answer with ↩ and Esc, and an alert"
 echo "  comes back with its tab. Leave site? stays with Esc and leaves with ↩. A site's sign-in"
-echo "  cancels with Esc and signs in with ↩, and the password reaches no log."
+echo "  cancels with Esc and signs in with ↩, and the password reaches no log. A link to Maps asks,"
+echo "  and ↩ opens nothing."
