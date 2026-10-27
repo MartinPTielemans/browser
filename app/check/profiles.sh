@@ -251,7 +251,8 @@ expect '^browser: menu shown Back to Favorite URL, ' "the twin away from its URL
 send choose Back to Favorite URL
 expect "^browser: title $twin cookie none\$" \
   "the twin's Back to Favorite URL didn't load the favorite's URL in its own profile"
-# Back to In Each Profile's Spaces, the twin goes.
+# Back to In Each Profile's Spaces, each profile keeps the site as its own favorite. Removed and
+# closed, the second Space has only its tab again.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 post clickkey 500 213
@@ -262,7 +263,17 @@ expect "^browser: favorites scope In Each Profile's Spaces\$" \
   "choosing In Each Profile's Spaces in Settings didn't set it"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
-expect '^browser: favorites $' "the twin stayed after In Each Profile's Spaces"
+[ "$(grep '^browser: favorites' "$log" | tail -1)" = "browser: favorites $twin" ] ||
+  fail "the second profile didn't keep the twin as its own favorite: $(grep '^browser: favorites' "$log" | tail -1)"
+post rightclick $tile
+expect '^browser: menu shown Back to Favorite URL (disabled), Duplicate Tab, Remove from Favorites, ' \
+  "the second profile's favorite's menu didn't offer Remove from Favorites"
+send choose Remove from Favorites
+expect '^browser: favorites $' "Remove from Favorites left the second profile's tile"
+expect "^browser: today $twin $d\$" "the removed favorite isn't at the top of Today: Today is \"$(today)\""
+send click $page_point
+send key w cmd
+expect "^browser: today $d\$" "⌘W didn't close the removed favorite: Today is \"$(today)\""
 send click $(row 0)
 expect "^browser: selected $d\( in .*\)\{0,1\}\$" "a click on the second Space's row didn't show it"
 # Settings › Profiles lists the profiles, a row each from 129, 41 apart, and New Profile under
@@ -336,4 +347,4 @@ send key return
 expect "^browser: removed profile $work personal\$" "the profile wasn't deleted"
 exec 3>&-
 quit
-echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; in Every Space a favorite has a twin in the other profile, which goes with it when it’s removed, comes back with ⌘Z, and goes back to the favorite’s URL in its own profile; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"
+echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; in Every Space a favorite has a twin in the other profile, which goes with it when it’s removed, comes back with ⌘Z, and goes back to the favorite’s URL in its own profile, and stays the other profile’s own favorite after; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"
