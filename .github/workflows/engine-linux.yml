@@ -1,0 +1,84 @@
+# The engine on Linux: ungoogled-chromium-portablelinux's build with the core and our series
+# (engine/linux/), published as a release fetch.sh downloads. It runs on the owner's machine, which
+# keeps the tree and its build in $ILO_ENGINE_ROOT between runs, so a run recompiles only what
+# changed. Run by hand; on main when the pin, the series, the core or the Linux engine's scripts
+# change, so the download keeps up with the core; and on engine-build/ branches, which only those
+# who can push here make, to try an engine change before it merges. Never on other branches or pull requests,
+# as the repository is public. core-linux.yml compiles the core alone on every push.
+name: Engine on Linux
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'engine-build/**']
+    paths:
+      - core/**
+      - engine/pins.ini
+      - engine/series
+      - engine/patches/**
+      - engine/tree.sh
+      - engine/linux/**
+      - .github/workflows/engine-linux.yml
+
+# One engine build on the machine at a time, and one that started finishes. Of the runs waiting,
+# only the newest is kept, so a burst of merges builds once.
+concurrency:
+  group: ilo-engine
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.repository == 'MartinPTielemans/browser'
+    runs-on: [self-hosted, linux, x64, ilo-engine]
+    # The first build takes 6 to 10 hours on its 8 cores; a point release or a change to the core,
+    # much less.
+    timeout-minutes: 1440
+    permissions:
+      contents: write
+    env:
+      # A job per 3 GB of the job's 22 GB.
+      BUILD_JOBS: 7
+    steps:
+      - uses: actions/checkout@v4
+      # Dawn's code generators need the Go its go.mod names.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Prepare
+        run: |
+          [ -n "${ILO_ENGINE_ROOT:-}" ] || { echo "The runner doesn't set ILO_ENGINE_ROOT."; exit 1; }
+          engine/linux/prepare.sh "$ILO_ENGINE_ROOT/linux"
+      # With the time chrome's link took and the most memory it held, sampled every 5 s: with
+      # ThinLTO on 8 cores, the link may be most of an incremental build.
+      - name: Build
+        run: |
+          peak=$RUNNER_TEMP/link-peak
+          echo 0 >"$peak"
+          (
+            while sleep 5; do
+              kb=$(ps -eo rss=,args= | awk '$0 ~ / -o \.\/chrome( |$)/ { s += $1 } END { print s + 0 }')
+              [ "$kb" -le "$(cat "$peak")" ] || echo "$kb" >"$peak"
+            done
+          ) &
+          trap 'kill $!' EXIT
+          engine/linux/build.sh "$ILO_ENGINE_ROOT/linux"
+          link=$(awk -F'\t' '$4 == "chrome" { ms = $2 - $1 } END { print int(ms / 1000) }' \
+            "$ILO_ENGINE_ROOT/linux/src/out/Default/.ninja_log")
+          gb=$(awk '{ printf "%.1f", $1 / 1048576 }' "$peak")
+          echo "chrome's last link: $link s, at most $gb GB" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Package
+        run: engine/linux/package.sh "$ILO_ENGINE_ROOT/linux" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz"
+      # A release named after the commit, which holds the engine's source. fetch.sh takes the
+      # newest one in the checkout's history whose core API matches the checkout's.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=engine-linux-${GITHUB_SHA::12}
+          tag_ucl=$(git config -f engine/pins.ini ungoogled-chromium-portablelinux.tag)
+          gh release view "$tag" >/dev/null 2>&1 ||
+            gh release create "$tag" --target "$GITHUB_SHA" --title "Linux engine ${GITHUB_SHA::12}" \
+              --notes "The Linux engine (ungoogled-chromium-portablelinux $tag_ucl, x64) built from $GITHUB_SHA, which holds its source."
+          gh release upload "$tag" --clobber "$RUNNER_TEMP/Chromium-linux-x64.tar.xz" "$RUNNER_TEMP/Chromium-linux-x64.tar.xz.sha256"
+          rm "$RUNNER_TEMP"/Chromium-linux-x64.tar.xz*
