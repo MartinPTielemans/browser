@@ -123,6 +123,8 @@ struct Settings {
   bool warn_before_quitting = true;
   // Whether the app warns before moving a tab to another profile's Space, which it does once.
   bool warn_moving_profiles = true;
+  // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
+  bool link_previews = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.

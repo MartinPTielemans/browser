@@ -17,6 +17,7 @@
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "third_party/skia/include/core/SkColor.h"
+#include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/image/image.h"
 #include "url/gurl.h"
 
@@ -85,6 +86,9 @@ class Tab : public content::WebContentsObserver,
   // The modifier keys held at the user's last click or key in the page, as blink::WebInputEvent's
   // flags: what a link it opens was opened with.
   int input_modifiers() const { return input_modifiers_; }
+  // Where the user last pressed the mouse in the page, in points from the top-left of its view:
+  // where a link it opens was clicked.
+  gfx::PointF last_click() const { return last_click_; }
 
   // When a window last stopped showing the tab, else when it opened, for the auto-archive.
   base::Time last_seen() const { return last_seen_; }
@@ -136,6 +140,7 @@ class Tab : public content::WebContentsObserver,
   std::optional<SkColor> page_color_;
   bool state_report_posted_ = false;
   int input_modifiers_ = 0;
+  gfx::PointF last_click_;
   // Whether the app was last told the page is full screen.
   bool fullscreen_ = false;
   // The favicon the app was last told of.

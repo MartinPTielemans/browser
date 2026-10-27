@@ -212,6 +212,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Opens a tab for |profile| loading |url|, not shown, or with |when_shown| an http(s) |url| only
   // once it's first shown. Null while the window is closing or Chromium is quitting.
   content::WebContents* OpenTab(Profile* profile, const GURL& url, bool when_shown);
+  // Opens a tab in no Space for |opener|'s profile, loading |url| at once as a link in |opener|'s
+  // page would, not shown: a link preview, which the app shows in a view of its own. Null while
+  // the window is closing or Chromium is quitting.
+  content::WebContents* OpenPreview(content::WebContents& opener, const GURL& url);
   // Opens a tab for |profile| with |history|, at its |current| page, not shown. It loads once it's
   // shown. Null while the window is closing or Chromium is quitting.
   content::WebContents* RestoreTab(Profile* profile,

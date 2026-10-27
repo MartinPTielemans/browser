@@ -11,6 +11,7 @@
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
+#include "browser_core/link_preview.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
@@ -88,6 +89,11 @@ class ContentBrowserClient : public ChromeContentBrowserClient {
         ChromeContentBrowserClient::CreateBrowserMainParts(is_integration_test);
     static_cast<ChromeBrowserMainParts*>(parts.get())->AddParts(std::make_unique<ExtraParts>());
     return parts;
+  }
+
+  void CreateThrottlesForNavigation(content::NavigationThrottleRegistry& registry) override {
+    ChromeContentBrowserClient::CreateThrottlesForNavigation(registry);
+    AddLinkPreviewThrottle(registry);
   }
 };
 

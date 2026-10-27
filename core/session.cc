@@ -313,7 +313,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("archive_after", saved.settings.archive_after.InSecondsF())
                            .Set("haptics", saved.settings.haptics)
                            .Set("warn_before_quitting", saved.settings.warn_before_quitting)
-                           .Set("warn_moving_profiles", saved.settings.warn_moving_profiles));
+                           .Set("warn_moving_profiles", saved.settings.warn_moving_profiles)
+                           .Set("link_previews", saved.settings.link_previews));
   return base::WriteJson(root);
 }
 
@@ -475,6 +476,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
         settings->FindBool("warn_before_quitting").value_or(true);
     saved.settings.warn_moving_profiles =
         settings->FindBool("warn_moving_profiles").value_or(true);
+    saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
   }
   return saved;
 }
