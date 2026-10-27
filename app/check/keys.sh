@@ -32,7 +32,7 @@ addEventListener("keydown", e => {
 log="$out/keys.log"
 step=0
 # The user's keys, which a failed run may have left changed.
-rm -f "$saved" "$(dirname "$saved")/Shortcuts"
+rm -f "$saved" "$launch_frame" "$(dirname "$saved")/Shortcuts"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"

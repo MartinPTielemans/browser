@@ -2,7 +2,7 @@
 # through AppKit closes the page and ends every Chromium process.
 
 log="$out/load.log"
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
 pid=$!
 await_load

@@ -27,7 +27,7 @@ onkeydown = e => {
 </script>' > "$out/site/busy.html"
 log="$out/trouble.log"
 step=0
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 # DevTools' port takes the tab offline later, as a lost network would.
 ports="$(dirname "$saved")/DevToolsActivePort"
 rm -f "$ports"
