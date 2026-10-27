@@ -359,6 +359,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   SidePanel* ShownSidePanel() const;
   void ReportSidePanel();
   void ReportSelected();
+  // Tells Chrome the shown page's Browser is active while the window is key, and the others
+  // aren't, as Chrome's browser view does for its one Browser.
+  void ReportActiveBrowser();
 
   // Gives the page shown the keyboard if the window is key and its keyboard is the page's.
   void FocusPageSoon();
