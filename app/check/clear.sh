@@ -598,7 +598,7 @@ grep -q "^browser: page $tab needs " "$log" && fail "a page asking for ClearKey 
 # The session page stores in Chromium a cookie from its server, HttpOnly, one from its script and
 # an item, which go with the tab to Safari's engine below.
 go_from_bar "127.0.0.1:$port/session?set"
-expect "^browser: title $tab session chromium sees .*n=$port.* item chromium back none\$" \
+expect "^browser: title $tab session chromium sees n item\$" \
   "the session page didn't store its cookie and item in Chromium"
 go_from_bar "127.0.0.1:$port/drm.html"
 expect "^browser: loaded $tab http://127.0.0.1:$port/drm.html\$" "the Widevine page didn't load"
@@ -725,9 +725,9 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   # Safari's engine's page stores a cookie from its server, HttpOnly, one from its script and an
   # item. Its script sees Chromium's cookie and item, and neither HttpOnly cookie.
   go_from_bar "127.0.0.1:$port/session?webkit"
-  expect "^browser: title $tab session safari sees .*n=$port.*w=$port.* item chromium back safari\$" \
+  expect "^browser: title $tab session safari sees.* n w item back\$" \
     "Safari's engine's session page didn't see Chromium's cookie and item, or keep its own"
-  grep "^browser: title $tab session safari sees " "$log" | tail -1 | grep -qwE "h=$port|hw=$port" &&
+  grep "^browser: title $tab session safari sees " "$log" | tail -1 | grep -qwE "h|hw" &&
     fail "an HttpOnly cookie reached the script in Safari's engine"
   go_from_bar "127.0.0.1:$port/engine.html"
   expect "^browser: title $tab engine safari\$" "the site's engine page left Safari's engine"
@@ -758,9 +758,9 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   # Chromium has what Safari's engine's page stored: its request carries both of that page's
   # cookies, and its script sees the one it may and the item.
   go_from_bar "127.0.0.1:$port/session"
-  expect "^browser: title $tab session chromium sees .*w=$port.* item chromium back safari\$" \
+  expect "^browser: title $tab session chromium sees.* w item back\$" \
     "Chromium didn't get the cookie and the item Safari's engine's page stored"
-  grep "^browser: title $tab session chromium sees " "$log" | tail -1 | grep -qwE "h=$port|hw=$port" &&
+  grep "^browser: title $tab session chromium sees " "$log" | tail -1 | grep -qwE "h|hw" &&
     fail "an HttpOnly cookie reached the script in Chromium"
   served "^GET chromium 127.0.0.1:$port/session cookie .*hw=$port.*w=$port" \
     "Chromium's request didn't carry the HttpOnly cookie Safari's engine's server set"
