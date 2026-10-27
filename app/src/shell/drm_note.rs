@@ -87,7 +87,8 @@ mod tests {
         let host = Rc::new(Recorder::default());
         let shell = cx.new(|cx| Shell::new(host.clone(), cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+            let space = (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_tabs(1, Vec::new(), vec![10, 11], Vec::new(), Folders::default(), cx);
             shell.set_space(1, cx);
             let page = |url: &str| Page { url: url.to_owned().into(), ..Page::default() };

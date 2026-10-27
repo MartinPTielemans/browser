@@ -16,7 +16,7 @@ fn window_with_tabs(
     let browser = host.clone();
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
     shell.update(cx, |shell, cx| {
-        shell.set_spaces(vec![(1, "Space".into(), None, 0, "".into(), "".into())], cx);
+        shell.set_spaces(vec![(1, "Space".into(), None, 0, "".into(), "".into(), "".into())], cx);
         shell.set_space(1, cx);
         let splits = match split {
             true => vec![Split { tabs: vec![10, 11], ..Split::default() }],
