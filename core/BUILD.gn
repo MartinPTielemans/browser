@@ -51,6 +51,8 @@ config("app_calls") {
 source_set("browser_core") {
   configs += [ ":app_calls" ]
   sources = [
+    "ad_block.cc",
+    "ad_block.h",
     "agent_session.cc",
     "agent_session.h",
     "api.cc",
@@ -202,6 +204,7 @@ source_set("browser_core") {
     "//components/password_manager/core/common",
     "//components/performance_manager",
     "//components/permissions",
+    "//components/policy/core/common",
     "//components/pref_registry",
     "//components/prefs",
     "//components/renderer_context_menu",
