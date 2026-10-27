@@ -43,7 +43,8 @@ launch_frame="$(dirname "$saved")/launch-frame"
 # extensions pinned. The profile keeps the clear run's answers to its sites' questions, and how
 # often it dismissed them, for sites whose ports a later run may get, and a failed clear run the
 # site it kept for Safari's engine, whose pages would then open there, and the clear run the site
-# whose protected-video note it closed, which would never show it again.
+# whose protected-video note it closed, which would never show it again, and a failed one the
+# listed host it turned off.
 prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
 mkdir -p "$(dirname "$prefs")" "$out/downloads"
 python3 -I -c '
@@ -61,6 +62,7 @@ for kind in ("window_placement", "permission_autoblocking_data"):
 engine = prefs.get("browser_core", {}).get("system_engine", {})
 engine.pop("sites", None)
 engine.pop("closed_notes", None)
+engine.pop("listed_off", None)
 with open(sys.argv[1], "w") as f:
     json.dump(prefs, f)
 ' "$prefs" "$PWD/$out/downloads"

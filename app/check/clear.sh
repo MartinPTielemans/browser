@@ -29,7 +29,10 @@
 # list it and turn it off, which brings back to Chromium the cookies and the item its page stored.
 # Before 14 the button opens the page in Safari, and the note goes once the tab is at another site.
 # The pointer on a link shows its address in a plate in the card's bottom left corner, which goes
-# when it leaves.
+# when it leaves. From 14, a listed streaming service, a host of the run's server the dev build
+# lists, opens in Safari's engine from its first load, in a private window too, the Site Controls
+# show it on, and Off keeps it in Chromium after a reload, in a new tab, after another site and
+# back and after a relaunch, where On brings it back.
 
 # Clear, from the served page and two more, with the served page pinned for it to leave.
 serve
@@ -1049,5 +1052,120 @@ if none_since '^browser: site controls hidden$'; then
 fi
 exec 3>&-
 quit
+# A listed streaming service opens in Safari's engine from its first load, here 127.0.0.1, which
+# the dev build lists for the run (main.rs). The run above kept it, and turned its note off, so the
+# profile forgets both first, or the site kept would open there without the list. The app launches
+# at its page, a new tab's first load, as a link from another app's would be.
+listed_prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
 forget_engine_sites
-echo "ok: the pointer on a link shows its address in a plate that goes when the pointer leaves it, Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, Arc's for a Today tab: Duplicate copies the tab with its history and icon under it, Archive Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, Window › Open Library… and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field, while one that asks for ClearKey brings none. Its button used $drm_done: Safari's engine shows the page in the tab with the site's cookies, HttpOnly too, and localStorage from Chromium there before its first request and script, keeps the site for it until the Site Controls turn it off, which brings the cookies and the item its page stored back to Chromium, gives another site back to Chromium, keeps a link whose redirects pass through another site and come back, and gives back one whose redirects end there, opens a new tab from ⌘T at the site there, gives a private window's tab there a session of its own, which the regular window doesn't see and which ends with the window, and with its page focused ⌘T, ⌘L and ⌘W reach the UI, the click that closes the command bar reaches the page, as it does Chromium's, and in its text field ⌘A and ⌘C stay with the page and a Japanese composition commits; Safari opens the page there, leaving the note until the tab is at another site. The note's × closes it for the site, which leaves it closed after a reload, in another tab and after another site and back, while another site's note still shows; from macOS 14 the Site Controls offer Safari's engine for the site instead, and On shows the page there, as they do for a site turned off. ⇧⌘Z redoes Clear, and Archive Tabs Below offers Undo, which brings back its tabs in place and shows the one that was shown, and ⇧⌘Z closes them again. Windows: $out/link-target.png, $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png, and from macOS 14 $out/drm-engine.png, $out/engine-ime.png, $out/site-controls-engine.png and $out/site-controls-offered.png"
+listed_launch() {
+  log="$out/clear-listed-$1.log"
+  step=0
+  rm -f "$saved"
+  BROWSER_DRIVE=1 BROWSER_STREAMING_TEST_HOST=127.0.0.1 BROWSER_URL="http://127.0.0.1:$port/engine.html" \
+    "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+  pid=$!
+  exec 3> "$out/drive"
+  await_load
+  await '^browser: title [0-9]* engine ' || fail "the listed host's page didn't load $2"
+  tab=$(sed -n 's/^browser: title \([0-9]*\) engine .*/\1/p' "$log" | head -1)
+}
+# Opens the Site Controls of the tab shown, which list $1 for Safari's engine, and chooses $2 in its
+# row, whose menu checks $3.
+listed_controls() {
+  away
+  send move $sidebar_point
+  expect '^browser: sidebar tools shown$' "the URL field's buttons didn't fade in"
+  send click $site_controls_point
+  expect "^browser: site controls http://127.0.0.1:$port: .*; Safari's engine $1\$" \
+    "the Site Controls didn't list the listed host's Safari's engine $1: $(grep '^browser: site controls http' "$log" | tail -1)"
+  expect '^browser: site controls settled$' "the Site Controls didn't open at the listed host"
+  ../tools/window-screenshot.sh "$pid" "$out/site-controls-listed-$1.png" || fail "no window to capture"
+  post click 207 $(row_y 0)
+  expect "^browser: menu shown $3\$" "Safari's engine's row didn't offer On and Off"
+  send choose "$2"
+  expect "^browser: site controls set Safari's engine $2\$" "$2 in the menu didn't run"
+}
+listed_closed() {
+  # The page, taking the pane, may have closed them already.
+  if none_since '^browser: site controls hidden$'; then
+    send key escape
+    expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
+  fi
+}
+if [ "$drm_done" = "Safari's engine" ]; then
+  listed_launch on "on its first load"
+  # No page of Chromium's came first: its script would have named it.
+  grep -q '^browser: title [0-9]* engine chromium$' "$log" &&
+    fail "the listed host's first page loaded in Chromium before Safari's engine"
+  # await, as no command has been sent to read from.
+  await "^browser: title $tab engine safari\$" ||
+    fail "the listed host's first page didn't open in Safari's engine: $(grep "^browser: title $tab " "$log" | tail -1)"
+  grep -q '^browser: system engine loaded for ' "$log" || fail "Safari's engine's page didn't say WebKit loaded"
+  ../tools/window-screenshot.sh "$pid" "$out/listed.png" || fail "no window to capture"
+  # A private window's tab at the listed host opens there too, in the private window's own store.
+  send key n cmd shift
+  expect '^browser: private window opened [0-9]* profile [0-9]*$' "⇧⌘N didn't open a private window"
+  private=$(grep '^browser: private window opened ' "$log" | tail -1 | cut -d' ' -f5)
+  send window 2
+  send key t cmd
+  expect '^browser: command bar shown$' "⌘T didn't open the command bar in the private window"
+  send insert "127.0.0.1:$port/engine.html?private"
+  send key return
+  expect "^browser: loaded [0-9]* http://127.0.0.1:$port/engine.html?private\$" \
+    "the private window didn't load the listed host's page"
+  private_tab=$(sed -n "s|^browser: loaded \([0-9]*\) http://127.0.0.1:$port/engine.html?private\$|\1|p" \
+    "$log" | tail -1)
+  expect "^browser: title $private_tab engine safari\$" \
+    "the listed host opened in Chromium in a private window: $(grep "^browser: title $private_tab " "$log" | tail -1)"
+  send key w cmd shift
+  expect "^browser: window closed $private\$" "⇧⌘W didn't close the private window"
+  send window 1
+  # The Site Controls show it on, the reason it's there, and Off shows the page in Chromium, which it
+  # stays in after a reload, in a new tab, and after another site and back.
+  listed_controls on Off "On (checked), Off"
+  expect "^browser: title $tab engine chromium\$" "Off didn't show the listed host's page in Chromium"
+  listed_closed
+  send key r cmd
+  expect "^browser: loaded $tab http://127.0.0.1:$port/engine.html\$" "⌘R didn't reload the listed host's page"
+  expect "^browser: title $tab engine chromium\$" "the listed host turned off went to Safari's engine on a reload"
+  send key t cmd
+  expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+  send insert "127.0.0.1:$port/engine.html?new"
+  send key return
+  expect "^browser: loaded [0-9]* http://127.0.0.1:$port/engine.html?new\$" "⌘T to the listed host loaded nothing"
+  opened=$(sed -n "s|^browser: loaded \([0-9]*\) http://127.0.0.1:$port/engine.html?new\$|\1|p" "$log" | tail -1)
+  [ "$opened" != "$tab" ] || fail "⌘T to the listed host loaded it in the tab shown"
+  expect "^browser: title $opened engine chromium\$" "the listed host turned off went to Safari's engine in a new tab"
+  tab=$opened
+  go_from_bar "localhost:$port/index.html"
+  expect "^browser: loaded $tab http://localhost:$port/index.html\$" "localhost didn't load"
+  go_from_bar "127.0.0.1:$port/engine.html"
+  expect "^browser: title $tab engine chromium\$" \
+    "the listed host turned off went to Safari's engine after another site and back"
+  exec 3>&-
+  quit
+  # The profile keeps it off across launches, and the Site Controls offer it there, whose On brings
+  # it back.
+  listed_launch off "after a relaunch"
+  await "^browser: title $tab engine chromium\$" ||
+    fail "the listed host turned off went to Safari's engine after a relaunch"
+  listed_controls off On "On, Off (checked)"
+  expect "^browser: system engine $tab on\$" "On didn't show the listed host's page in Safari's engine"
+  expect "^browser: title $tab engine safari\$" "On didn't load the listed host's page in Safari's engine"
+  listed_closed
+  go_from_bar "127.0.0.1:$port/engine.html?again"
+  expect "^browser: title $tab engine safari\$" "the listed host turned on again left Safari's engine"
+  exec 3>&-
+  quit
+  # On took back the off, and never kept the listed host as the user's own.
+  python3 -I -c '
+import json, sys
+engine = json.load(open(sys.argv[1])).get("browser_core", {}).get("system_engine", {})
+for kind in ("sites", "listed_off"):
+    if "127.0.0.1" in engine.get(kind, []):
+        sys.exit(f"the profile has the listed host in its {kind}")
+' "$listed_prefs" || fail "On didn't leave the listed host as listed"
+fi
+forget_engine_sites
+echo "ok: the pointer on a link shows its address in a plate that goes when the pointer leaves it, Clear Cache and Refresh from the View menu fetches the page's script again, keeping its cookie, and Clear Cookies and Refresh from the command bar deletes its cookie, keeping the cached script. ⇧⌘C and ⌥⇧⌘C from the page and the UI copy the tab's URL and a Markdown link to it, without its tracking parameters, and ⇧⌘C's toast says Copied Current URL. The sidebar shows Clear and the URL field's button only while the pointer is over it, and the button copies the URL. ⇧⌘K from the page and the UI, and Clear on the divider, close the Today tabs but the one shown, with no toast, and ⌘Z from the page and the UI brings them back in place, unloaded, but not from the page's text field, where it undoes typing. With only the tab shown left, Clear has an arrow before it and closes that tab too, and ⌘Z brings it back, shown. ⇧⌘T from the page and the UI reopens the tab closed last, where it was, with its history, muted if it was and with its icon, and ⌘Z brings back only the tabs ⇧⌘T didn't. A right-click on a row shows its tab's menu, Arc's for a Today tab: Duplicate copies the tab with its history and icon under it, Archive Tabs Below closes the Today tabs under it without showing them, and Unpin Tab unpins. ⌘W archives a Today tab, and ⇧⌘L, Window › Open Library… and the footer's button open the Library, which pushes the page right at its width; a click on an archived tab reopens it at the top of Today with its history and closes the Library, a right-click on one shows its menu, whose Copy URL copies its URL and Delete from Archive takes it out; and Clear Archive asks, then empties it. A page's question about a permission shows under the URL field while its tab is shown, and brings a hidden sidebar out until it's answered: × dismisses it, Block refuses the site now and later, and Allow grants. The URL field's Site Controls button and the command bar's Site Controls list the site's permissions as Chrome does; Block there sticks and refuses the site, Reset permissions has it ask again, Share shares the page, the lock does nothing without a certificate, the … menu lists Arc's items and opens the site's settings, and the button, escape and a click outside close them. A page that asks for Widevine brings a note under the URL field, while one that asks for ClearKey brings none. Its button used $drm_done: Safari's engine shows the page in the tab with the site's cookies, HttpOnly too, and localStorage from Chromium there before its first request and script, keeps the site for it until the Site Controls turn it off, which brings the cookies and the item its page stored back to Chromium, gives another site back to Chromium, keeps a link whose redirects pass through another site and come back, and gives back one whose redirects end there, opens a new tab from ⌘T at the site there, gives a private window's tab there a session of its own, which the regular window doesn't see and which ends with the window, and with its page focused ⌘T, ⌘L and ⌘W reach the UI, the click that closes the command bar reaches the page, as it does Chromium's, and in its text field ⌘A and ⌘C stay with the page and a Japanese composition commits; Safari opens the page there, leaving the note until the tab is at another site. The note's × closes it for the site, which leaves it closed after a reload, in another tab and after another site and back, while another site's note still shows; from macOS 14 the Site Controls offer Safari's engine for the site instead, and On shows the page there, as they do for a site turned off. From macOS 14 a listed streaming service opens in Safari's engine on its first load, without Chromium's first, in a private window too; the Site Controls show it on, and Off shows it in Chromium after a reload, in a new tab, after another site and back and after a relaunch, where On brings it back without keeping it as the user's. ⇧⌘Z redoes Clear, and Archive Tabs Below offers Undo, which brings back its tabs in place and shows the one that was shown, and ⇧⌘Z closes them again. Windows: $out/link-target.png, $out/clear-site.png, $out/url-toast.png, $out/sidebar-hovered.png, $out/sidebar-away.png, $out/clear.png, $out/clear-arrow.png, $out/clear-arrow-undone.png, $out/reopen.png, $out/tab-menu.png, $out/library.png, $out/archived-menu.png, $out/library-empty.png, $out/question.png, $out/question-reveal.png, $out/site-controls.png, $out/site-controls-blocked.png, $out/drm-note.png, and from macOS 14 $out/drm-engine.png, $out/engine-ime.png, $out/site-controls-engine.png, $out/site-controls-offered.png, $out/listed.png, $out/site-controls-listed-on.png and $out/site-controls-listed-off.png"
