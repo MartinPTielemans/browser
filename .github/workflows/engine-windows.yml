@@ -1,14 +1,12 @@
 # The engine on Windows: ungoogled-chromium-windows's build with the core and our series
-# (engine/windows/prepare.sh). A push compiles only the core's own files, the check that per-OS code
-# stays in the platform layer, as core-linux.yml does. Run by hand, it builds chrome.dll and
-# chrome.exe, the engine the Windows app runs on, and leaves them as the run's `chromium` artifact.
+# (engine/windows/prepare.sh). Run by hand only, while Windows stays on an earlier Chromium than the
+# series: it builds chrome.dll and chrome.exe, the engine the Windows app runs on, and leaves them as
+# the run's `chromium` artifact, or with core_only compiles only the core's own files.
 # A runner has 6 hours, and the build takes longer, so it runs in stages that each build for 3.5
 # hours and hand the tree to the next as an artifact, as ungoogled-chromium-windows's CI does.
 name: Engine on Windows
 
 on:
-  push:
-    paths: [core/**, engine/**, .github/workflows/engine-windows.yml, .github/actions/engine-windows-stage/**, '!**/*.md']
   workflow_dispatch:
     inputs:
       core_only:
@@ -21,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ILO_CORE_ONLY: ${{ (github.event_name == 'push' || inputs.core_only) && '1' || '' }}
+  ILO_CORE_ONLY: ${{ inputs.core_only && '1' || '' }}
   ILO_BASH: C:\Program Files\Git\bin\bash.exe
 
 jobs:
