@@ -4,8 +4,8 @@
 # titles and favicons. A tab named with a double-click on its row, where escape cancels, keeps its
 # name over its page's title, and Rename Tab in its menu with no name gives the title back. An
 # emoji from the character palette, after Change Icon…, takes its favicon's place until Remove
-# Icon, as a Japanese conversion's first character does once it's committed. A Space's icon, from
-# the same palette, comes back too. A tab closed before the quit stays closed,
+# Icon, as a Japanese conversion's first character does once it's committed. A Space's icon, picked
+# in its icon picker, comes back too. A tab closed before the quit stays closed,
 # in the archive, from which the Library reopens it at its page. A page's downloads go in the
 # check's folder, a new one's icon flies into the Library button, none of those a relaunch reads
 # does, and ⇧⌘J opens the Library on Downloads, which lists them. With one running, ⌘Q
@@ -104,8 +104,8 @@ expect "^browser: menu shown Rename Space, Change Icon…, $colors, $profile, De
 send choose Pink
 expect "^browser: colored space $second bf556a\$" "Pink didn't give the Space its colour"
 ../tools/window-screenshot.sh "$pid" "$out/space-color.png" || fail "no window to capture"
-# Change Icon… in the Space's menu gives it an emoji from the icon picker's Emoji tab and the
-# character palette, which a relaunch brings back.
+# Change Icon… in the Space's menu gives it an emoji from the icon picker's Emoji tab, found by a
+# search and picked with ↩, which a relaunch brings back.
 pink=${colors/ (checked)/}
 post rightclick 100 112
 expect "^browser: menu shown Rename Space, Change Icon…, ${pink/Pink/Pink (checked)}, $profile, \
@@ -115,10 +115,10 @@ expect "^browser: icon picker for $second on icon\$" "Change Icon… didn't open
 expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker"
 # Emoji, the left half of Emoji | Icon at the picker's top.
 send clickkey 92.5 39.5
-expect '^browser: character palette shown$' "the Emoji tab didn't show the character palette"
-send insert 🌱
+send insert seedling
+send key return
 expect "^browser: iconed space $second 🌱\$" \
-  "an emoji from the palette didn't become the Space's icon"
+  "an emoji picked on the Emoji tab didn't become the Space's icon"
 ../tools/window-screenshot.sh "$pid" "$out/space-icon.png" || fail "no window to capture"
 send key 1 ctrl
 expect "^browser: space $first in " "⌃1 didn't show the first Space"

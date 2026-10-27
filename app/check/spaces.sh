@@ -365,19 +365,20 @@ expect "^browser: iconed space $first glyph:bolt\$" \
   "a click on a glyph didn't become the Space's icon"
 expect '^browser: icon picker hidden$' "a click on a glyph didn't close the icon picker"
 ../tools/window-screenshot.sh "$pid" "$out/space-icon.png" || fail "no window to capture"
-# A click on the icon opens the picker too. On its Emoji tab, the left half of Emoji | Icon, the
-# character palette shows, and an emoji committed there is the Space's icon at once.
+# A click on the icon opens the picker too. On its Emoji tab, the left half of Emoji | Icon, typing
+# narrows the list and ↩ gives the Space the emoji on the plate, the first match, at once. (Keys,
+# not a click: the tab slides in over 0.2 s, and a click's place depends on where it has got to.)
 send click 23 112
 expect "^browser: icon picker for $first on icon\$" \
   "a click on the Space's icon didn't open the picker"
 expect '^browser: icon picker shown$' "a click on the Space's icon didn't show the picker"
 send clickkey 92.5 39.5
 expect '^browser: icon picker on emoji$' "a click on Emoji didn't show the Emoji tab"
-expect '^browser: character palette shown$' "the Emoji tab didn't show the character palette"
-send insert 🦊
+send insert fox
+send key return
 expect "^browser: iconed space $first 🦊\$" \
-  "an emoji from the palette didn't become the Space's icon"
-expect '^browser: icon picker hidden$' "an emoji from the palette didn't close the icon picker"
+  "an emoji picked on the Emoji tab didn't become the Space's icon"
+expect '^browser: icon picker hidden$' "an emoji picked on the Emoji tab didn't close the icon picker"
 ../tools/window-screenshot.sh "$pid" "$out/space-emoji.png" || fail "no window to capture"
 # For a Space with an emoji, the picker opens on the Emoji tab, and its trash, after Emoji | Icon,
 # takes the icon away.
@@ -482,5 +483,5 @@ expect '^browser: rename cancelled$' "escape in the name's field didn't cancel"
 exec 3>&-
 quit
 spaces_ms=$(sed -n 's/^browser: space [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
-echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, its colours and Delete; an emoji from the character palette is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
+echo "ok: New Space makes an empty Space whose form takes the keyboard and Japanese input, and names it, and ⌘T opens a tab in it; ⌃1 ⌃2 ⌥⌘← ⌥⌘→ with the page or the UI focused, and the switcher's dots, show each Space with the tab it showed last; two fingers across the sidebar page to the Space a flick or the pages' place points at, never past the last, and a wheel's tick across pages once; past the first Space, fingers and a wheel's tick bring the Library out and put it back, its Spaces section as wide as its cards, and fingers let go short of halfway put it back, and past where it opens take it on a little, its column's fill at the window's edge; a right-click on a row as the Space's rows slide in shows its tab's menu; a tab's menu moves it to another Space, which shows with it; fingers held past the last Space ready a new Space and let go make it, with its form, and let go short of that don't; Cancel, and two fingers back, delete a new Space and go back to the Space it was made from, and fingers going on past its form rubber-band it. A right-click on a Space's name or dot shows Rename, Change Icon…, its colours and Delete; an emoji picked in its icon picker, by a search and ↩, is its icon, in its dot's place in the switcher, until Remove Icon, and escape leaves it as it was; a double-click on the name renames it too, a right-click in its field shows the field's menu, return keeps the name and escape cancels. Delete asks first for a Space with tabs, in a dialog a click around cancels and return confirms, closes them once it has gone, and the toast says so; ⌘Z brings the Space back where it was with its name and tabs, ⇧⌘T reopens them in the Space shown, and ⌘Z then leaves those out; the last Space can't go. The Spaces menu names each Space and shows it, and its Rename Space opens the name's field. Windows: $out/swipe.png, $out/library-swipe.png, $out/library-end.png, $out/new-space-pull.png, $out/space-menu.png, $out/space-delete.png, $out/space-deleted.png"
 echo "  Space switch, key to the core's report: $spaces_ms. Windows: $out/space-form.png, $out/space-form-ime.png, $out/new-space.png, $out/spaces.png"

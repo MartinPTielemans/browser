@@ -1041,9 +1041,21 @@ impl icon_picker::Host for PickerHost {
         unsafe { platform::host_hide_overlay(ICON_PICKER) };
     }
 
-    fn show_character_palette(&self, window: &mut Window) {
-        window.show_character_palette();
+    fn keep_recents(&self, recents: &str) {
+        if let Err(error) = std::fs::write(recent_emoji_path(), recents) {
+            log!("couldn't save the recent emoji: {error}");
+        }
     }
+}
+
+/// Where the emoji the icon picker offers first are kept: in the profile directory beside the
+/// shortcuts, as the core keeps no settings of the app's own.
+fn recent_emoji_path() -> String {
+    format!("{}/Recent Emoji", profile_dir())
+}
+
+fn recent_emoji() -> icon_picker::Recents {
+    icon_picker::Recents::parse(&std::fs::read_to_string(recent_emoji_path()).unwrap_or_default())
 }
 
 /// The user left the icon picker without picking.
@@ -2174,7 +2186,7 @@ fn finish_opening(
         let radius = command_bar::RADIUS.into();
         unsafe { platform::host_add_overlay(COMMAND_BAR, view, radius, command_bar_dismissed) };
     }
-    if let Some(picker) = icon_picker::open(Rc::new(PickerHost), cx)
+    if let Some(picker) = icon_picker::open(Rc::new(PickerHost), recent_emoji(), cx)
         && let Ok(view) = picker.update(cx, |_, window, _| ns_view(window))
     {
         let corners: Vec<f64> = icon_picker::corners()
