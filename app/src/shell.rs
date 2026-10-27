@@ -1378,6 +1378,22 @@ impl Shell {
         shell
     }
 
+    /// seeded_from, for a window that opens behind the key one, as the launch brings saved
+    /// windows back: the shortcuts, the menus and the Dock's dot stay with the window in front,
+    /// since macOS reports no key change for a window that already was.
+    pub fn seeded_behind(
+        from: &Entity<Shell>,
+        browser: Rc<dyn Browser>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let key = cx.try_global::<ShellHandle>().map(|handle| handle.0.clone());
+        let shell = Self::seeded_from(from, browser, cx);
+        if let Some(key) = key {
+            cx.set_global(ShellHandle(key));
+        }
+        shell
+    }
+
     /// The pinned tabs of the Space shown.
     pub fn pinned(&self) -> &[u64] {
         self.shown_space().map_or(&[], |space| &space.pinned)

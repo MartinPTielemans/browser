@@ -2483,6 +2483,7 @@ fn open_window_as(
                 (_, Some((space, profile))) => {
                     Shell::private_window(engine, space, private_name(profile), profile, cx)
                 }
+                (Some(from), None) if saved.is_some() => Shell::seeded_behind(from, engine, cx),
                 (Some(from), None) => Shell::seeded_from(from, engine, cx),
                 (None, None) => Shell::new(engine, cx),
             }
