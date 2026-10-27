@@ -5,6 +5,23 @@
 # Keychain and the product's bundle id, on the Release engine.
 set -e
 cd "$(dirname "$0")"
+# On Linux, build/Browser: a copy of the engine, chrome and what it runs with, and libBrowser.so
+# beside it, which chrome loads (linux/Cargo.toml). Hard links, as chrome finds its files and the
+# app's beside its own path, which a symbolic link would leave in the engine's folder.
+if [ "$(uname -s)" = Linux ]; then
+  [ -e .deps/engine/chrome ] || ./setup.sh
+  [ -e .deps/engine/chrome ] || { echo "No Linux engine in .deps/engine." >&2; exit 1; }
+  features=
+  [ "${1:-}" != prod ] || features="--features prod"
+  # In the browser crate's target, which has built the same dependencies for the tests.
+  # shellcheck disable=SC2086 # no features, or one flag and its value
+  cargo build --release --manifest-path linux/Cargo.toml --target-dir target $features
+  rm -rf build/Browser
+  mkdir -p build
+  cp -al "$(cd .deps/engine && pwd -P)" build/Browser
+  cp target/release/libBrowser.so build/Browser/
+  exit 0
+fi
 [ -e .deps/Chromium.app ] || ./setup.sh
 # setup.sh vendors it since the app patched it; a checkout set up before that hasn't got it.
 [ -d .deps/accesskit_macos ] || {
