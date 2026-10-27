@@ -101,6 +101,8 @@ void PageDialog::Report(bc_id tab) {
       .accept = words.accept.c_str(),
       .cancel = words.cancel.c_str(),
       .check = words.check.c_str(),
+      .username = words.username.c_str(),
+      .password = words.password.c_str(),
   };
   Host().tab_dialog(Host().context, tab, &dialog);
 }
