@@ -1,6 +1,7 @@
 #include "browser_core/site_controls.h"
 
 #include <algorithm>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -10,6 +11,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/host.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
@@ -134,6 +136,12 @@ const char* KeyOf(ContentSettingsType type) {
   return info ? info->name().c_str() : "";
 }
 
+// A BC_AD_BLOCKING_ value for the site of |contents|'s page.
+int AdBlockingOf(content::WebContents* contents) {
+  const std::optional<bool> on = AdBlockingOnSite(contents);
+  return !on ? BC_AD_BLOCKING_NONE : *on ? BC_AD_BLOCKING_ON : BC_AD_BLOCKING_OFF;
+}
+
 }  // namespace
 
 void SiteControls::Open(bc_id tab) {
@@ -197,6 +205,16 @@ void SiteControls::PageChanged(bc_id tab) {
   if (SiteControls* controls = ShownFor(tab)) {
     controls->Read();
   }
+}
+
+void SiteControls::SetAdBlocking(bc_id tab, bool on) {
+  SiteControls* controls = ShownFor(tab);
+  if (!controls) {
+    return;
+  }
+  SetAdBlockingOnSite(controls->web_contents(), on);
+  // At once, as the page it reloads only reports once it commits.
+  controls->Changed();
 }
 
 void SiteControls::PictureInPicture(bc_id tab) {
@@ -357,6 +375,7 @@ void SiteControls::Report() {
       .picture_in_picture = PictureInPictureOf(web_contents()),
       .certificate = CertificateOf(web_contents()) != nullptr,
       .system_engine = system_engine_,
+      .ad_blocking = AdBlockingOf(web_contents()),
   };
   Host().tab_site_controls(Host().context, tab_, &controls);
 }

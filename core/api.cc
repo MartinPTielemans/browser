@@ -9,6 +9,7 @@
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "browser_core/ad_block.h"
 #include "browser_core/archive.h"
 #include "browser_core/auto_archive.h"
 #include "browser_core/capture.h"
@@ -626,6 +627,16 @@ void bc_set_warn_moving_profiles(bool warn) {
   browser_core::SessionChanged();
 }
 
+bool bc_ad_blocking(void) {
+  return browser_core::UserSettings().ad_blocking;
+}
+
+void bc_set_ad_blocking(bool on) {
+  browser_core::UserSettings().ad_blocking = on;
+  browser_core::ApplyAdBlocking();
+  browser_core::SessionChanged();
+}
+
 void bc_page_favicon(const char* url) {
   if (url) {
     browser_core::FindFavicon(url);
@@ -823,6 +834,10 @@ void bc_tab_set_site_permission(bc_id id, int type, int value) {
 
 void bc_tab_reset_site_permissions(bc_id id) {
   browser_core::SiteControls::Reset(id);
+}
+
+void bc_tab_set_ad_blocking(bc_id id, bool on) {
+  browser_core::SiteControls::SetAdBlocking(id, on);
 }
 
 void bc_tab_picture_in_picture(bc_id id) {
