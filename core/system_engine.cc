@@ -19,6 +19,7 @@
 #include "base/values.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
+#include "browser_core/window.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_keyed_service_factory.h"
@@ -116,10 +117,49 @@ class Throttle : public content::NavigationThrottle {
   ThrottleCheckResult Check() {
     content::NavigationHandle* navigation = navigation_handle();
     content::WebContents* contents = navigation->GetWebContents();
-    Tab* tab = contents ? Tab::FromWebContents(contents) : nullptr;
-    if (!tab || !navigation->IsInPrimaryMainFrame()) {
+    if (!contents || !navigation->IsInPrimaryMainFrame()) {
       return PROCEED;
     }
+    if (Tab* tab = Tab::FromWebContents(contents)) {
+      return Decide(tab);
+    }
+    // A tab Chrome makes starts its first load before the core has the tab or its window has
+    // placed it in a Space, as ⌘T's does: one going to a site kept for the system's engine waits
+    // a turn for them. Any other goes on at once, so new tabs cost nothing more.
+    if (!Kept()) {
+      return PROCEED;
+    }
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&Throttle::Placed, weak_factory_.GetWeakPtr()));
+    return DEFER;
+  }
+
+  // Whether the navigation goes to a site the profile keeps for the system's engine, and could
+  // load there.
+  bool Kept() {
+    content::NavigationHandle* navigation = navigation_handle();
+    const GURL& url = navigation->GetURL();
+    // A form's answer stays: the system's engine would load it without what was sent.
+    return !navigation->IsPost() && url.SchemeIsHTTPOrHTTPS() &&
+           Remembered(Profile::FromBrowserContext(navigation->GetWebContents()->GetBrowserContext()),
+                      url);
+  }
+
+  // The deferred load, once its tab is made and placed. A page of no window's goes on in
+  // Chromium.
+  void Placed() {
+    content::WebContents* contents = navigation_handle()->GetWebContents();
+    Tab* tab = contents ? Tab::FromWebContents(contents) : nullptr;
+    const ThrottleCheckResult result = tab ? Decide(tab) : PROCEED;
+    if (result.action() == PROCEED) {
+      Resume();
+    } else {
+      // Last: the navigation, and this with it, can go here.
+      CancelDeferredNavigation(result);
+    }
+  }
+
+  ThrottleCheckResult Decide(Tab* tab) {
     // Its page is the system's, and Chromium's waits, as when Chrome reloads a discarded tab.
     if (tab->system_page()) {
       return CANCEL_AND_IGNORE;
@@ -130,11 +170,8 @@ class Throttle : public content::NavigationThrottle {
     if (tab->waiting()) {
       return CANCEL_AND_IGNORE;
     }
-    const GURL& url = navigation->GetURL();
-    Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
-    // A form's answer stays: the system's engine would load it without what was sent.
-    if (navigation->IsPost() || !url.SchemeIsHTTPOrHTTPS() || !Allowed(Tab::IdOf(contents)) ||
-        !Remembered(profile, url)) {
+    content::WebContents* contents = navigation_handle()->GetWebContents();
+    if (!Kept() || !Allowed(Tab::IdOf(contents))) {
       return PROCEED;
     }
     // Posted: the navigation is part way through.
@@ -145,9 +182,11 @@ class Throttle : public content::NavigationThrottle {
                            tab->UseSystemEngine(url);
                          }
                        },
-                       contents->GetWeakPtr(), url));
+                       contents->GetWeakPtr(), navigation_handle()->GetURL()));
     return CANCEL_AND_IGNORE;
   }
+
+  base::WeakPtrFactory<Throttle> weak_factory_{this};
 };
 
 }  // namespace
@@ -161,7 +200,9 @@ bool Available() {
 }
 
 bool Allowed(bc_id tab) {
-  const Space* space = Space::Holding(tab);
+  content::WebContents* contents = Tab::FromId(tab);
+  // Placed or about to be: a tab Chrome just made is in no Space yet.
+  const Space* space = contents ? Window::SpaceOf(contents) : Space::Holding(tab);
   return Available() && !(space && space->agent());
 }
 

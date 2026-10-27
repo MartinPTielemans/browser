@@ -1926,16 +1926,35 @@ content::WebContents* Window::OpenBehind(NavigateParams& params) {
   return contents;
 }
 
+// static
+Space* Window::SpaceOf(content::WebContents* contents) {
+  if (Space* space = Space::Holding(Tab::IdOf(contents))) {
+    return space;
+  }
+  tabs::TabInterface* tab = tabs::TabInterface::MaybeGetFromContents(contents);
+  BrowserWindowInterface* browser = tab ? tab->GetBrowserWindowInterface() : nullptr;
+  Window* window = browser ? ForBrowser(browser) : nullptr;
+  if (!window) {
+    return nullptr;
+  }
+  TabStripModel* tab_strip_model = browser->GetTabStripModel();
+  const int index = tab_strip_model->GetIndexOfWebContents(contents);
+  tabs::TabInterface* opener =
+      index == TabStripModel::kNoTab ? nullptr : tab_strip_model->GetOpenerOfTabAt(index);
+  return window->SpaceForOpened(opener ? Tab::IdOf(opener->GetContents()) : 0);
+}
+
+Space* Window::SpaceForOpened(bc_id opener) const {
+  Space* space = opener ? Space::Holding(opener) : nullptr;
+  return space ? space : Space::FromId(space_);
+}
+
 void Window::ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with) {
   // A popup can close itself at once.
   if (!Tab::FromId(tab)) {
     return;
   }
-  Space* space = Space::Holding(opener);
-  if (!space) {
-    space = Space::FromId(space_);
-  }
-  if (space) {
+  if (Space* space = SpaceForOpened(opener)) {
     space->Add(tab, opener, foreground);
     // Beside the page it came from, unless that page's split view is full.
     const bool split = split_with && space->Split(tab, split_with, Tab::PageUrl(Tab::FromId(tab)),
