@@ -986,6 +986,18 @@ content::WebContents* Window::OpenTab(Profile* profile, const GURL& url, bool wh
   return params.navigated_or_inserted_contents;
 }
 
+content::WebContents* Window::OpenFromPinned(bc_id pinned, const GURL& url) {
+  content::WebContents* from = Tab::FromId(pinned);
+  content::WebContents* contents =
+      from ? OpenTab(Profile::FromBrowserContext(from->GetBrowserContext()), url,
+                     /*when_shown=*/false)
+           : nullptr;
+  if (contents) {
+    ReportTabOpened(Tab::IdOf(contents), pinned, /*foreground=*/true, /*split_with=*/0);
+  }
+  return contents;
+}
+
 void Window::Show(content::WebContents* contents, const gfx::Rect& frame) {
   // The Browser's active tab is the one Chrome's keyboard shortcuts, find and fullscreen act on.
   TabStripModel* tabs =

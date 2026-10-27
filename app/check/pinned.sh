@@ -2,8 +2,9 @@
 # it to the top of Today. ⌘1–⌘9 count the pinned tabs first. ⌘W, or the ✕ under the pointer, which
 # is − on the tab shown, unloads a pinned tab and keeps its row, which has no ✕ then, and shows the
 # top Today tab, else the nearest pinned tab still loaded, else no page, as closing the last Today
-# tab does. Shown again, the tab loads. Away from its pinned URL, ⌘↩ from the page and the UI, and a
-# click on its favicon, go back there. Launched again, the app brings back the pinned tab pinned and
+# tab does. Shown again, the tab loads. A link in its page takes it away from its pinned URL, and ⌘↩
+# from the page and the UI, and a click on its favicon, go back there. An address typed into it opens
+# in a Today tab of its own, as in Arc, and closing that shows the pinned tab again. Launched again, the app brings back the pinned tab pinned and
 # away from its pinned URL, without loading it. Dragging a row moves its tab in the pinned tabs,
 # pins it and unpins it, without showing it, and escape puts it back. New Folder makes a folder
 # under the pinned tabs, which takes the name typed. A row dragged right under it goes in and
@@ -150,21 +151,33 @@ expect "^browser: page $c unloaded 1\$" "⌘W didn't unload the last pinned tab 
 none_since '^browser: loaded' || fail "closing a pinned tab loaded another"
 ../tools/window-screenshot.sh "$pid" "$out/pinned-unloaded.png" || fail "no window to capture"
 
-# ⌘D unpins a tab to the top of Today.
-send click $(pinned_row 1)
-expect "^browser: selected $a in " "a click on the unloaded pinned tab didn't show it"
-expect "^browser: loaded $a $site\$" "the unloaded pinned tab didn't load once shown"
+# ⌘D unpins a tab to the top of Today. The served page stays pinned, for its link, and the names
+# swap with it: from here $c is the pinned tab, the served page, and $a the Today tab.
+send click $(pinned_row 0)
+expect "^browser: selected $c in " "a click on the unloaded pinned tab didn't show it"
+expect "^browser: loaded $c https://example.org/\$" "the unloaded pinned tab didn't load once shown"
 send key d cmd
-expect_lists "$c" "$a" "after ⌘D on a pinned tab"
+expect_lists "$a" "$c" "after ⌘D on a pinned tab"
+unpinned=$c
+c=$a
+a=$unpinned
 
 # Away from its pinned URL, ⌘↩ goes back there, from the page and the UI.
 send click $(pinned_row 0)
 expect "^browser: selected $c in " "a click on the unloaded pinned tab didn't show it"
-expect "^browser: loaded $c https://example.org/\$" "the unloaded pinned tab didn't load once shown"
+expect "^browser: loaded $c $site\$" "the unloaded pinned tab didn't load once shown"
+# The served page's link, 200 by 40 points, 100 in from the card's top left, which is 228 and 10 in
+# from the window's (site.sh).
+link_point="430 130"
+# Away from it by its page's link.
+away() {
+  send click $link_point
+  expect "^browser: loaded $c ${site}notes.txt\$" "the page's link didn't load in the pinned tab"
+  expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
+}
 # Away from it, then back with ⌘↩ from side $1, which a click gives the keyboard.
 away_and_back() {
-  go_from_bar example.com
-  expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
+  away
   if [ "$1" = ui ]; then
     send click $sidebar_point
   else
@@ -172,13 +185,25 @@ away_and_back() {
   fi
   send key return cmd
   expect "^browser: command back-to-pinned-url via $1\$" "⌘↩ with the $1 focused didn't run Back to Pinned URL"
-  expect "^browser: loaded $c https://example.org/\$" "⌘↩ with the $1 focused didn't load the pinned URL"
+  expect "^browser: loaded $c $site\$" "⌘↩ with the $1 focused didn't load the pinned URL"
   expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pinned URL"
 }
 away_and_back page
 away_and_back ui
+# An address typed into it opens in a tab it opened, at the top of Today, shown, and the pinned tab
+# keeps its page. Closing that tab shows the pinned one again, its opener.
 go_from_bar example.com
-expect "^browser: page $c away 1\$" "a pinned tab at another page didn't read as away from its pinned URL"
+expect "^browser: tab [0-9]* opened by $c in the foreground\$" \
+  "an address typed into the pinned tab didn't open a tab of its own"
+typed=$(grep '^browser: tab [0-9]* opened by' "$log" | tail -1 | cut -d' ' -f3)
+expect_lists "$c" "$typed $a" "after an address typed into the pinned tab"
+expect "^browser: selected $typed\( in .*\)\{0,1\}\$" "the tab an address typed into the pinned tab opened wasn't shown"
+expect "^browser: loaded $typed https://example.com/\$" "the address typed into the pinned tab didn't load in its tab"
+none_since "^browser: loaded $c " || fail "the address typed into the pinned tab loaded in it"
+send key w cmd
+expect "^browser: tab $typed closed\$" "⌘W didn't close the tab the pinned tab opened"
+expect "^browser: selected $c\( in .*\)\{0,1\}\$" "closing the tab the pinned tab opened didn't show the pinned tab"
+away
 # The quit leaves Today's tab shown, so the pinned tab comes back unloaded.
 switch "2 cmd" "$a"
 # Its favicon under the pointer offers the way back.
@@ -203,8 +228,8 @@ await '^browser: today [0-9][0-9]*$' || fail "the Today tab didn't come back"
 c=$(pinned)
 a=$(today)
 await "^browser: selected $a\$" || fail "the relaunch didn't show the tab shown last"
-await "^browser: loaded $a $site\$" || fail "the tab shown didn't load"
-await "^browser: page $c back 1 forward 0 loading 0 https://example.com/\$" ||
+await "^browser: loaded $a https://example.org/\$" || fail "the tab shown didn't load"
+await "^browser: page $c back 1 forward 0 loading 0 ${site}notes.txt\$" ||
   fail "the pinned tab didn't come back at its page: $(grep "^browser: page $c" "$log" | tail -1)"
 await "^browser: page $c unloaded 1\$" || fail "the pinned tab didn't come back unloaded"
 await "^browser: page $c away 1\$" || fail "the pinned tab didn't come back away from its pinned URL"
@@ -224,9 +249,9 @@ expect "^browser: hover tab $c close [01] favicon $c\$" \
 send click $(pinned_favicon 0)
 expect '^browser: command back-to-pinned-url via sidebar$' "a click on an away pinned tab's favicon didn't run Back to Pinned URL"
 expect "^browser: selected $c in " "a click on the pinned tab's favicon didn't show it"
-expect "^browser: loaded $c https://example.org/\$" "a click on the pinned tab's favicon didn't load its pinned URL"
+expect "^browser: loaded $c $site\$" "a click on the pinned tab's favicon didn't load its pinned URL"
 expect "^browser: page $c away 0\$" "the pinned tab still read as away at its pinned URL"
-none_since "^browser: loaded $c https://example.com/" || fail "the unloaded tab loaded its old page on the way back"
+none_since "^browser: loaded $c ${site}notes.txt" || fail "the unloaded tab loaded its old page on the way back"
 
 # New Folder makes a folder under the pinned tabs with its name's field, which takes what's typed.
 # The pinned tabs and folders the app last drew: each folder with + if it's open, else -, and

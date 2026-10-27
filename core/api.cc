@@ -687,7 +687,18 @@ void bc_tab_show(bc_id id, bc_rect frame) {
 }
 
 void bc_tab_navigate(bc_id id, const char* url) {
-  LoadInTab(id, GURL(url), ui::PAGE_TRANSITION_TYPED);
+  const GURL to(url);
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  tabs::TabInterface* tab = contents ? tabs::TabInterface::MaybeGetFromContents(contents) : nullptr;
+  browser_core::Window* window =
+      tab ? browser_core::Window::ForBrowser(tab->GetBrowserWindowInterface()) : nullptr;
+  browser_core::Space* space = browser_core::Space::Holding(id);
+  // As in Arc, a pinned tab keeps what it was pinned as: another address opens in a tab of its own.
+  if (window && space && space->IsPinned(id) && browser_core::Tab::PageUrl(contents) != to) {
+    window->OpenFromPinned(id, to);
+    return;
+  }
+  LoadInTab(id, to, ui::PAGE_TRANSITION_TYPED);
 }
 
 void bc_tab_back_to_pinned_url(bc_id id) {
