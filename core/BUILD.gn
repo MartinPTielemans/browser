@@ -3,6 +3,14 @@
 # it into the framework.
 
 import("//build/config/sanitizers/sanitizers.gni")
+import("//mojo/public/tools/bindings/mojom.gni")
+
+# What a page tells the core about the key system it asks for. Blink's encrypted media module calls
+# it (engine/patches/ours/chromium-drm-request.patch), so it has a Blink variant.
+mojom("drm_request") {
+  sources = [ "drm_request.mojom" ]
+  generate_blink = true
+}
 
 config("exports") {
   # The framework exports only what chrome/app/framework.exports lists. This adds the C API.
@@ -24,6 +32,8 @@ source_set("browser_core") {
     "clear_site.h",
     "downloads.cc",
     "downloads.h",
+    "drm_request.cc",
+    "drm_request.h",
     "extensions.cc",
     "extensions.h",
     "favicon.cc",
@@ -66,6 +76,7 @@ source_set("browser_core") {
   ]
 
   deps = [
+    ":drm_request",
     "//base",
     "//chrome/app:command_ids",
     "//chrome/browser",
@@ -134,6 +145,7 @@ source_set("browser_core") {
     "//content/public/common",
     "//extensions/browser",
     "//extensions/common",
+    "//mojo/public/cpp/bindings",
     "//net",
     "//services/media_session/public/mojom",
     "//skia",

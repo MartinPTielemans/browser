@@ -17,3 +17,4 @@ ours/chromium-prefs-passwords-autofill-on.patch
 ours/chromium-core-sad-tab.patch
 ours/chromium-os-crypt-keychain-name.patch
 ours/chromium-disk-check-period.patch
+ours/chromium-drm-request.patch

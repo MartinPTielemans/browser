@@ -18,11 +18,17 @@ class ExtensionInstallPromptShowParams;
 struct NavigateParams;
 
 namespace content {
+class RenderFrameHost;
 class WebContents;
 }
 
 namespace extensions {
 class InstallPromptData;
+}
+
+namespace mojo {
+template <typename ContextType>
+class BinderMapWithContext;
 }
 
 namespace ui {
@@ -60,5 +66,11 @@ extern void (*g_browser_core_extension_install_dialog)(
     std::unique_ptr<ExtensionInstallPromptShowParams> show_params,
     extensions::ExtensionInstallPromptClient::DoneCallback done_callback,
     std::unique_ptr<extensions::InstallPromptData> prompt);
+
+// chrome/browser/chrome_content_browser_client_receiver_bindings.cc: adds the core's interfaces to
+// the ones a frame's page can ask the browser for, once Chrome has added its own. Only what a page
+// may be trusted with goes here: its calls are the page's own words.
+extern void (*g_browser_core_populate_frame_binders)(
+    mojo::BinderMapWithContext<content::RenderFrameHost*>* map);
 
 #endif  // BROWSER_CORE_HOOKS_H_

@@ -445,6 +445,13 @@ typedef struct bc_host {
   // or the extension's icon changed, or the window shows a tab with another panel or none. |panel|
   // is null for none. Once the tab shown changes, if it's different for it.
   void (*window_side_panel)(void* context, bc_id window, const bc_side_panel* panel);
+  // A page of |tab| asked for a protected-media key system ilo can't play, such as Widevine, which
+  // Netflix and Spotify play their video with: |key_system| is "com.widevine.alpha" or
+  // "com.microsoft.playready", never the page's own string. Once for each key system a document
+  // asks for, unless it's the one the app was last told. It comes with an empty |key_system| once
+  // the tab goes to another site: the note it asks for is gone. There's no call to answer it.
+  // Agents get none: the note hands the user's page to another app.
+  void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit

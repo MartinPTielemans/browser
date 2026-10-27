@@ -8,6 +8,7 @@
 #include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
 #include "browser_core/install_question.h"
@@ -111,6 +112,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_trim_page_menu = &Window::TrimPageMenu;
   g_browser_core_permission_prompt = &PermissionQuestion::Create;
   g_browser_core_extension_install_dialog = &InstallQuestion::Ask;
+  g_browser_core_populate_frame_binders = &PopulateFrameBinders;
   return ChromeMain(argc, argv);
 }
 
