@@ -149,6 +149,48 @@ document.title = "hop " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "
 </script>' > "$out/site/hop.html"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
   base64 -D > "$out/site/icon.png"
+# A heavy page, shaped like a video site's home grid: a sticky header over 300 tiles, each a 320 by
+# 180 picture of its own URL, which the browser decodes once a tile, and lines in a web font, a
+# copy of one of macOS's. Its title says "grid" once the pictures and the font are in and it has
+# drawn. Twelve pictures of noise, which compresses as little as a photo does.
+python3 -I - "$out/site" << 'PY'
+import random, struct, sys, zlib
+def chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+random.seed(292)
+for n in range(12):
+    tint = [random.randrange(256) for _ in range(3)]
+    rows = b"".join(b"\0" + bytes((tint[c] + random.randrange(96)) % 256
+                                   for _ in range(320) for c in range(3)) for _ in range(180))
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 320, 180, 8, 2, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+    open(f"{sys.argv[1]}/thumb{n}.png", "wb").write(png)
+PY
+cp /System/Library/Fonts/Supplemental/Georgia.ttf "$out/site/font.ttf" 2> /dev/null || true
+printf '%s' '<title>loading</title>
+<style>
+@font-face { font-family: Grid; src: url(font.ttf); }
+body { margin: 0; font: 14px Grid, system-ui; }
+header { position: sticky; top: 0; z-index: 1; height: 56px; display: flex; align-items: center;
+  gap: 16px; padding: 0 16px; background: #fff; box-shadow: 0 1px 4px #0003; }
+main { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;
+  padding: 16px; }
+img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 12px; }
+p { margin: 6px 0 0; } .meta { color: #606060; font-size: 12px; }
+</style>
+<header><b>Grid</b><input placeholder=Search style="flex:1;max-width:560px"></header>
+<main id=grid></main>
+<script>
+const tiles = [];
+for (let i = 0; i < 300; i++) {
+  tiles.push(`<div><img src="thumb${i % 12}.png?${i}"><p><b>Tile ${i}, with a title long enough to
+    wrap onto a second line</b></p><p class=meta>Channel ${i % 37} · ${i * 7 % 900}K views ·
+    ${i % 11 + 1} days ago</p></div>`);
+}
+grid.innerHTML = tiles.join("");
+Promise.all([document.fonts.ready, ...[...document.images].map(image => image.decode().catch(() => 0))])
+  .then(() => requestAnimationFrame(() => setTimeout(() => document.title = "grid")));
+</script>' > "$out/site/grid.html"
 # The server logs each GET as "GET <engine> <host><path> cookie <cookies sorted, or none>", the
 # engine named by the user agent as the engine page does.
 python3 -I -u -c '

@@ -11,10 +11,12 @@
 #include "base/functional/bind.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/host.h"
 #include "browser_core/tab.h"
+#include "browser_core/window.h"
 #include "components/viz/common/frame_sinks/copy_output_result.h"
 #include "content/public/browser/devtools_agent_host.h"
 #include "content/public/browser/host_zoom_map.h"
@@ -164,6 +166,8 @@ void PageCapture::Capture(uint64_t request, bool full_page, gfx::RectF rect) {
 }
 
 void PageCapture::CopiedSurface(uint64_t request, const content::CopyFromSurfaceResult& result) {
+  const std::string detail = "tab " + base::NumberToString(Tab::IdOf(&GetWebContents()));
+  LogHandover("picture copied", detail);
   std::optional<std::vector<uint8_t>> png;
   if (result.has_value() && !result->bitmap.drawsNothing()) {
     // The frame is in the display's colour space, and the PNG has no profile, so it reads as sRGB,
@@ -177,6 +181,7 @@ void PageCapture::CopiedSurface(uint64_t request, const content::CopyFromSurface
       }
     }
     png = gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, /*discard_transparency=*/true);
+    LogHandover("picture encoded", detail);
   }
   Captured(request, std::move(png));
 }

@@ -932,6 +932,7 @@ unsafe extern "C" fn tab_captured(
     let png = (!png.is_null()).then(|| unsafe { std::slice::from_raw_parts(png, size) }.to_vec());
     // A window's picture of a page another window shows, not capture mode's.
     if shell::is_picture(request) {
+        browser::log_handover("picture in", &format!("tab {tab}, {size} bytes"));
         if let Some(cx) = CX.with_borrow(Clone::clone) {
             let shells = WINDOWS
                 .with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
@@ -1265,6 +1266,7 @@ struct Engine {
 
 impl Browser for Engine {
     fn select(&self, tab: u64, _: &mut App) {
+        browser::handover_clicked();
         unsafe { bc::bc_window_select(self.window, tab) };
     }
 
@@ -3464,6 +3466,7 @@ unsafe extern "C" fn window_space_shown(_: *mut c_void, window: bc::bc_id, space
 unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
     // check.sh reads this line, as a tab's page moves between windows.
     log!("browser: window {window} shows {tab}");
+    browser::log_handover("window shows the tab", &format!("window {window}, tab {tab}"));
     update_window(window, |shell, cx| {
         shell.set_selected(tab, cx);
         find_bar::tab_shown(window, tab, cx);
@@ -3475,6 +3478,11 @@ unsafe extern "C" fn window_selected(_: *mut c_void, window: bc::bc_id, tab: bc:
 unsafe extern "C" fn window_page_elsewhere(_: *mut c_void, window: bc::bc_id, tab: bc::bc_id) {
     // check.sh reads this line.
     log!("browser: window {window} page elsewhere {tab}");
+    let (stage, detail) = match tab {
+        0 => ("taker told", format!("window {window}")),
+        _ => ("giver told", format!("window {window}, tab {tab}")),
+    };
+    browser::log_handover(stage, &detail);
     update_window(window, |shell, cx| shell.page_elsewhere(tab, cx));
     update_app(|cx| offer::page_elsewhere(window, tab != 0, cx));
 }
