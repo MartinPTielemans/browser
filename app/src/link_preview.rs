@@ -230,6 +230,8 @@ struct Preview {
     url: SharedString,
     /// Where the link was clicked in the browser window.
     link: Point<Pixels>,
+    /// When the app asked for it, from which its first frame is timed.
+    asked: Instant,
     /// When its window was first on screen, where the motion starts.
     shown: Option<Instant>,
     settled: bool,
@@ -341,6 +343,7 @@ pub fn show(
             tab,
             url,
             link,
+            asked: Instant::now(),
             shown: None,
             settled: false,
             leaving: None,
@@ -436,10 +439,10 @@ impl LinkPreview {
             return false;
         };
         shown.leaving = Some((Instant::now(), how, shown.pose()));
-        self.host.release();
-        // check.sh reads this line.
+        // check.sh reads this line, before the host's that it's released.
         let what = if how == Leave::Keep { "keeping" } else { "closing" };
         log!("browser: link preview {what} ({why})");
+        self.host.release();
         let tab = shown.tab;
         shown._leave = Some(cx.spawn(async move |preview, cx| {
             cx.background_executor().timer(Duration::from_secs_f32(seconds)).await;
@@ -498,6 +501,9 @@ impl Render for LinkPreview {
         // GPUI draw it, so the motion starts there rather than skip its start.
         if shown.shown.is_none() && window.is_visible() {
             shown.shown = Some(Instant::now());
+            // check.sh reads this line, for the motion's recording to start from.
+            let ms = shown.asked.elapsed().as_secs_f64() * 1000.;
+            log!("browser: link preview first frame in {ms:.1} ms");
         }
         let pose = shown.pose();
         let moving = shown.moving();

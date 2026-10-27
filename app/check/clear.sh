@@ -95,21 +95,6 @@ clear_point="200 185"
 copy_point="178 64"
 site_controls_point="206 64"
 field_point="600 760"
-# What the sidebar last logged of $1, "sidebar hovered" or "sidebar tools": 1 or shown, 0 or hidden,
-# or nothing before its first change.
-last() { grep "^browser: $1 " "$log" | tail -1 | sed 's/.* //'; }
-# The driver's clicks come with no move, and one in the sidebar tells it the pointer is there, so
-# where the sidebar last saw the pointer depends on the steps before. This moves it to the page and
-# waits until the sidebar has seen it go and its tools have faded out, whether or not this move was
-# what changed them, so the next move over the sidebar shows them anew.
-away() {
-  send move $page_point
-  for _ in $(seq 100); do
-    [ "$(last 'sidebar hovered')" != 1 ] && [ "$(last 'sidebar tools')" != shown ] && return 0
-    sleep 0.1
-  done
-  fail "Clear and the URL field's buttons stayed with the pointer over the page"
-}
 open_from_bar example.com
 b=$tab
 open_from_bar example.org
