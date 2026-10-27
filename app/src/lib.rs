@@ -74,6 +74,7 @@ pub mod link_target;
 pub mod menu;
 pub mod offer;
 pub mod palette;
+pub mod passwords;
 pub mod shell;
 pub mod site_controls;
 pub mod space_icon;

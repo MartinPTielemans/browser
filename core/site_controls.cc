@@ -12,6 +12,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/host.h"
+#include "browser_core/passwords.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -203,6 +204,14 @@ void SiteControls::PageChanged(bc_id tab) {
   }
 }
 
+void SiteControls::LoginsChanged(Profile* profile) {
+  SiteControls* controls = Shown().get();
+  if (controls && Profile::FromBrowserContext(controls->web_contents()->GetBrowserContext())
+                          ->GetOriginalProfile() == profile) {
+    controls->Changed();
+  }
+}
+
 void SiteControls::PictureInPicture(bc_id tab) {
   content::WebContents* contents = Tab::FromId(tab);
   content::MediaSession* session =
@@ -244,6 +253,7 @@ SiteControls::~SiteControls() {
 void SiteControls::Read() {
   platform::SystemPage* page = SystemPageOf(web_contents());
   const GURL url = page ? page->url() : web_contents()->GetLastCommittedURL();
+  url_ = url;
   page_info_.reset();
   permissions_.clear();
   ui_delegate_ = std::make_unique<ChromePageInfoUiDelegate>(web_contents(), url);
@@ -336,6 +346,16 @@ void SiteControls::Report() {
   if (!Host().tab_site_controls) {
     return;
   }
+  // The panel shows once, at its full height, so it waits for the profile's logins the first time
+  // they're read, which reports again.
+  Passwords* passwords =
+      Passwords::Of(Profile::FromBrowserContext(web_contents()->GetBrowserContext()));
+  if (passwords && !passwords->ready()) {
+    return;
+  }
+  const std::vector<Passwords::Login> logins =
+      passwords ? passwords->ForPage(url_) : std::vector<Passwords::Login>();
+  const std::vector<bc_login> c_logins = Passwords::ToC(logins);
   std::vector<std::string> names;
   std::vector<std::string> states;
   std::vector<bc_site_permission> permissions;
@@ -377,6 +397,8 @@ void SiteControls::Report() {
       .certificate = CertificateOf(web_contents()) != nullptr,
       .system_engine = system_engine_,
       .system_engine_offered = system_engine_offered_,
+      .logins = c_logins.data(),
+      .login_count = c_logins.size(),
   };
   Host().tab_site_controls(Host().context, tab_, &controls);
 }

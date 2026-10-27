@@ -3,7 +3,10 @@
 # and showing the tab again doesn't bring it back. Japanese input composes in its username field,
 # where return commits it without saving; return saves the username as left in the field, and the
 # login page fills the saved password in after. A changed password brings the offer to update it,
-# and escape there declines. On another site, Never answers. Each run has a profile of its own,
+# and escape there declines. On another site, Never answers, and that site's Site Controls list it
+# in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
+# All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
+# browser window's dialog and removes it, which Settings hears. Each run has a profile of its own,
 # which no other run or the owner's copy reaches.
 
 # The login page, in a new profile, whose passwords start empty.
@@ -144,6 +147,77 @@ offered save
 send click $(offer_never)
 expect "^browser: offer $tab answered Never check@example.test\$" "Never didn't answer"
 expect '^browser: offer hidden$' "Never didn't hide the offer"
+
+# The Site Controls list the site set to Never in a Passwords row, whose menu takes it off Never at
+# once. With no extension pinned and no permission set, it's the first row, its middle at y 262
+# (clear.sh measures the panel).
+last_controls() { grep '^browser: site controls http' "$log" | tail -1; }
+controls="^browser: site controls http://localhost:$port: "
+bar_command site-controls "Site Controls" "site controls"
+expect "${controls}.*; passwords never localhost:$port\$" \
+  "the Site Controls didn't list localhost as set to Never: $(last_controls)"
+expect '^browser: site controls settled$' "the Site Controls didn't open"
+../tools/window-screenshot.sh "$pid" "$out/site-controls-never.png" || fail "no window to capture"
+post click 207 262
+expect '^browser: menu shown Offer to Save Passwords, All Passwords…$' \
+  "the Passwords row didn't offer to take localhost off Never"
+send choose 'Offer to Save Passwords'
+expect "^browser: site controls allow saving localhost:$port\$" "Offer to Save Passwords didn't run"
+expect "^browser: remove login [0-9]* never localhost:$port\$" \
+  "Offer to Save Passwords didn't take localhost off Never"
+expect "${controls}[^;]*; [^;]*\$" \
+  "the Site Controls kept the Passwords row once localhost was off Never: $(last_controls)"
+send key escape
+expect '^browser: site controls hidden$' "escape didn't close the Site Controls"
+
+# On the first site the row names the saved login, and All Passwords… lists it in Settings, whose
+# Remove asks in an alert, where Cancel keeps it. With one profile there's no pop-up, so the first
+# login's row is the Shortcuts tab's first row, its Remove at the box's right.
+go_from_bar "${site#http://}login.html"
+expect "^browser: title $tab filled\$" "the login page didn't fill the saved password in again"
+controls="^browser: site controls http://127.0.0.1:$port: "
+bar_command site-controls "Site Controls" "site controls"
+expect "${controls}.*; passwords 127.0.0.1:$port check@example.test\$" \
+  "the Site Controls didn't list the saved login: $(last_controls)"
+expect '^browser: site controls settled$' "the Site Controls didn't open on the first site"
+../tools/window-screenshot.sh "$pid" "$out/site-controls-passwords.png" ||
+  fail "no window to capture"
+post click 207 262
+expect '^browser: menu shown Remove “check@example.test”…, All Passwords…$' \
+  "the Passwords row didn't offer to remove the saved login"
+send choose 'All Passwords…'
+expect '^browser: site controls run passwords$' "All Passwords… didn't run"
+expect '^browser: settings tab Passwords$' "All Passwords… didn't show Settings' Passwords tab"
+expect "^browser: passwords [0-9]*: 127.0.0.1:$port check@example.test\$" \
+  "Settings didn't list the saved login alone: $(grep '^browser: passwords ' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/settings-passwords.png" || fail "no window to capture"
+post clickkey 574 159
+expect "^browser: alert shown Remove the password for “check@example.test” on 127.0.0.1:$port?\$" \
+  "Remove in Settings didn't ask first"
+send choose Cancel
+none_since '^browser: remove login' || fail "Cancel removed the login"
+send key w cmd
+expect '^browser: settings hidden$' "⌘W didn't hide Settings"
+
+# The row's Remove closes the panel and asks in the browser window's dialog, where return removes
+# the login, and Settings, which asked for the logins, hears that it's gone. A click on the page
+# gives the browser window the keyboard back.
+send click $page_point
+bar_command site-controls "Site Controls" "site controls"
+expect '^browser: site controls settled$' "the Site Controls didn't open again"
+post click 207 262
+expect '^browser: menu shown Remove “check@example.test”…, All Passwords…$' \
+  "the Passwords row didn't offer to remove the saved login again"
+send choose 'Remove “check@example.test”…'
+expect '^browser: site controls run remove-login$' "Remove didn't run"
+expect "^browser: dialog shown Remove the password for “check@example.test” on 127.0.0.1:$port?\$" \
+  "Remove didn't ask first"
+expect '^browser: dialog settled$' "the dialog asking to remove the login didn't settle"
+../tools/window-screenshot.sh "$pid" "$out/password-remove.png" || fail "no window to capture"
+send key return
+expect "^browser: remove login [0-9]* 127.0.0.1:$port check@example.test\$" \
+  "return didn't remove the login"
+expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was removed"
 exec 3>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it for good; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in; a changed password offers to update it, which escape declines; and Never answers on another site. Windows: $out/password-offer.png, $out/password-offer-ime.png, $out/password-update.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it for good; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"

@@ -523,6 +523,8 @@ chip-width = 56.0
 chip-gap = 6.0
 # Ours, for the Profiles tab: rows as tall as a button's, so they're even with and without one.
 profile-row = 40.0
+# Ours, for the Passwords tab: a login's username under its site, a size down, in its row.
+username-size = 11.0
 bar = 0x282a2a
 bar-line = 0x303131
 background = 0x202222
@@ -541,6 +543,8 @@ knob = 0xe1e2e2
 knob-on = 0xe1ebfe
 haptics-tile = 0x3f8ff7
 profile-tile = 0x8e8e93
+# Ours: System Settings' Passwords tile is grey too.
+password-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14
