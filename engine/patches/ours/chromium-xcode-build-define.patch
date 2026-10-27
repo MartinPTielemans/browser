@@ -1,28 +1,18 @@
-Lets the build pin the Xcode build that the global CR_XCODE_BUILD define names, which upstream
-has only so an Xcode update recompiles everything. Our SDK is pinned to the Command Line Tools'
-and the compiler is Chromium's clang, so an Xcode update changes nothing we compile.
+Drops the global CR_XCODE_BUILD define, which upstream has only so an Xcode update recompiles
+everything. Our SDK is pinned to the Command Line Tools' and the compiler is Chromium's clang, so
+an Xcode update changes nothing we compile.
 
 --- a/build/config/mac/BUILD.gn
 +++ b/build/config/mac/BUILD.gn
-@@ -10,6 +10,12 @@
- import("//build/toolchain/rbe.gni")
- import("//build/toolchain/siso.gni")
- 
-+declare_args() {
-+  # browser_core: the Xcode build CR_XCODE_BUILD names. Our SDK is pinned, so an Xcode update
-+  # changes nothing we compile, and setup.sh pins this too rather than recompile everything.
-+  mac_xcode_build_define = xcode_build
-+}
-+
- # This is included by reference in the //build/config/compiler config that
- # is applied to all targets. It is here to separate out the logic.
- config("compiler") {
-@@ -29,7 +35,7 @@
-   # This is here so that all files get recompiled after an Xcode update.
-   # (defines are passed via the command line, and build system rebuild things
-   # when their commandline changes). Nothing should ever read this define.
+@@ -26,11 +26,6 @@
+     }
+   }
+
+-  # This is here so that all files get recompiled after an Xcode update.
+-  # (defines are passed via the command line, and build system rebuild things
+-  # when their commandline changes). Nothing should ever read this define.
 -  defines = [ "CR_XCODE_BUILD=$xcode_build" ]
-+  defines = [ "CR_XCODE_BUILD=$mac_xcode_build_define" ]
- 
+-
    asmflags = common_mac_flags
    cflags = common_mac_flags
+
