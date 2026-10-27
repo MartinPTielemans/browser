@@ -44,25 +44,30 @@ git -C .deps/accesskit_macos add -A
 git -C .deps/accesskit_macos -c user.name=setup -c user.email=setup@localhost commit -qm upstream
 git -C .deps/accesskit_macos apply "$PWD/patches/accesskit-macos-actions.patch"
 
-engines=$(cd .. && pwd)/engine
-if [ "$(uname -s | cut -c1-5)" = MINGW ]; then
-  # shortcut: no prebuilt Windows engine to fetch yet; publish engine-windows.yml's artifact as
-  # fetch.sh's download for Windows once it builds.
-  [ -d .deps/engine ] || echo "No engine in .deps/engine: unzip the chromium artifact of
-.github/workflows/engine-windows.yml there to build the browser. The preview runs without it." >&2
-else
-case ${1:-} in
-  "")
-    engine=$engines/.deps/src/out/Release/Chromium.app
-    [ -d "$engine" ] || engine=$("$engines/fetch.sh")
+# The engine: the Mac's, linked here; on Windows, an artifact unzipped by hand; elsewhere none yet,
+# so there is the UI alone: the tests and the preview (AGENTS.md, Dev).
+case $(uname -s) in
+  Darwin)
+    engines=$(cd .. && pwd)/engine
+    case ${1:-} in
+      "")
+        engine=$engines/.deps/src/out/Release/Chromium.app
+        [ -d "$engine" ] || engine=$("$engines/fetch.sh")
+        ;;
+      dev) engine=$engines/.deps/src/out/Dev/Chromium.app ;;
+      prebuilt) engine=$("$engines/fetch.sh") ;;
+      *) echo "usage: setup.sh [dev|prebuilt]" >&2 && exit 2 ;;
+    esac
+    [ -d "$engine" ] || { echo "No engine at $engine. Build it with engine/build.sh ${1:-}." >&2; exit 1; }
+    ln -sfn "$engine" .deps/Chromium.app
     ;;
-  dev) engine=$engines/.deps/src/out/Dev/Chromium.app ;;
-  prebuilt) engine=$("$engines/fetch.sh") ;;
-  *) echo "usage: setup.sh [dev|prebuilt]" >&2 && exit 2 ;;
+  MINGW*)
+    # shortcut: no prebuilt Windows engine to fetch yet; publish engine-windows.yml's artifact as
+    # fetch.sh's download for Windows once it builds.
+    [ -d .deps/engine ] || echo "No engine in .deps/engine: unzip the chromium artifact of
+.github/workflows/engine-windows.yml there to build the browser. The preview runs without it." >&2
+    ;;
 esac
-[ -d "$engine" ] || { echo "No engine at $engine. Build it with engine/build.sh ${1:-}." >&2; exit 1; }
-ln -sfn "$engine" .deps/Chromium.app
-fi
 
 # Downloaded code can bring instructions for coding agents (Zed's tell agents to edit its
 # README). They're written for that project's contributors and don't apply to work here.
