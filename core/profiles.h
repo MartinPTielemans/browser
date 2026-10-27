@@ -40,7 +40,7 @@ void ReleaseProfiles();
 // isn't handed out again while Chrome waits to destroy it: a new one starts.
 Profile* PrivateProfileOf(Profile* profile, bool start = false);
 // Ends |profile|'s private session once its last private window and Browser have gone, if Chrome
-// hasn't. Each way it doesn't end it is logged.
+// hasn't, and tells the app once it has ended. Each way it doesn't end it is logged.
 void EndPrivateSession(Profile* profile);
 
 // The profiles: the one the core started with, then the others in the order they were made.
