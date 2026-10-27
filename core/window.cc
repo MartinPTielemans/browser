@@ -273,15 +273,19 @@ class Window::ClientView : public views::ClientView {
 };
 
 // static
-Window* Window::Open(const gfx::Rect& bounds, void* ui_view) {
+Window* Window::Open(const gfx::Rect& bounds, void* ui_view, bool behind) {
   if (browser_shutdown::IsTryingToQuit()) {
     return nullptr;
   }
   const bc_id id = NewId();
-  Window* window = new Window(id, bounds, ui_view);
+  Window* window = new Window(id, bounds, ui_view, behind);
   Windows()[id] = base::WrapUnique(window);
-  // It opens active.
-  ToFront(id);
+  // It opens active, unless behind.
+  if (behind) {
+    Order().push_back(id);
+  } else {
+    ToFront(id);
+  }
   return window;
 }
 
@@ -848,7 +852,7 @@ bool Window::DeleteSpace(bc_id space) {
   return true;
 }
 
-Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view)
+Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view, bool behind)
     : id_(id), sidebar_width_(SavedSidebarWidth()) {
   delegate_ = std::make_unique<views::WidgetDelegate>();
   delegate_->SetCanFullscreen(true);
@@ -872,7 +876,11 @@ Window::Window(bc_id id, const gfx::Rect& bounds, void* ui_view)
   widget_->Init(std::move(params));
   widget_observation_.Observe(widget_.get());
   platform::AddWindowViews(widget_.get(), ui_view);
-  widget_->Show();
+  if (behind) {
+    widget_->ShowInactive();
+  } else {
+    widget_->Show();
+  }
 }
 
 Window::~Window() {
@@ -1850,7 +1858,9 @@ void Window::Destroy() {
   // the order of its members.
   suggestions_.reset();
   widget_->CloseNow();
-  // A private window's Space goes with it, its tabs closed, and the last one's session ends.
+  // A private window's Space goes with it, its tabs closed, and the last one's session ends. A
+  // regular one leaves the session while another stays open; the last stays in it, for the next
+  // launch to open again.
   if (off_the_record_) {
     const Space* space = Space::FromId(space_);
     const std::string profile = space ? space->profile() : std::string();
@@ -1861,6 +1871,10 @@ void Window::Destroy() {
       LOG(ERROR) << "browser: private window " << id_
                  << " closed with no Space to end its session";
     }
+  } else if (std::ranges::any_of(Windows(), [](const auto& entry) {
+               return !entry.second->off_the_record_;
+             })) {
+    SessionChanged();
   }
   InstallQuestion::WindowClosing(id_);
   if (Host().window_closed) {
@@ -1945,6 +1959,14 @@ void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
   // A page view hidden with the keyboard gives it to another view.
   page_had_keyboard_ = page_had_keyboard_ || platform::KeyboardForPage(widget_.get());
   platform::HidePages(widget_.get());
+}
+
+void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) {
+  // The session keeps each regular window's frame, saved a while after it moves, so a crash
+  // keeps it too.
+  if (!off_the_record_) {
+    SessionChanged();
+  }
 }
 
 void Window::FocusPageSoon() {
