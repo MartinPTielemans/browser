@@ -46,6 +46,7 @@ class WidgetDelegate;
 namespace browser_core {
 
 class SidePanel;
+class Space;
 class Suggestions;
 class WindowActions;
 
@@ -65,6 +66,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   static std::vector<Window*> All();
   // The window that holds |browser|'s tabs, if the core made |browser|.
   static Window* ForBrowser(const BrowserWindowInterface* browser);
+  // The Space |contents| is in, else the one it goes to as its window reports it opened, which a
+  // tab Chrome just made, with its first page on its way, isn't in yet. Null for a page of no
+  // window's.
+  static Space* SpaceOf(content::WebContents* contents);
   // Closes every window at once, at quit, once their Browsers are gone.
   static void CloseAll();
   // The window that shows |tab|'s page, focused or beside the tab it shows in a split view, else
@@ -296,6 +301,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bc_id Reopen(bc_id space, size_t index, const SavedTab& saved);
   // |split_with| is the tab whose page opened it to show beside it, or 0.
   void ReportTabOpened(bc_id tab, bc_id opener, bool foreground, bc_id split_with);
+  // The Space a tab opened by |opener|, or by nothing for 0, goes to: its opener's, else the one
+  // the window shows.
+  Space* SpaceForOpened(bc_id opener) const;
   // Opens the tab |params| asks for, behind, with nothing loaded until it's first shown.
   content::WebContents* OpenBehind(NavigateParams& params);
   // Moves the pages of |tab| and its split view into this window's Browsers from the windows
