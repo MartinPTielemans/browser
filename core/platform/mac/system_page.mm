@@ -23,10 +23,11 @@
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "url/gurl.h"
 
-// The core never links WebKit: it loads with the first system page, or to clear or delete a store
-// a profile made in an earlier run, so a launch without one never maps it. Its classes are found by
-// name and its constants by symbol, since a direct reference to either would link it. Check with
-// `otool -L` on Chromium's framework.
+// The core never links WebKit, and starts none of it, no view, store or WebKit process, before the
+// first system page, or before it clears or deletes a store a profile made in an earlier run. Its
+// code is mapped at launch all the same: system frameworks Chromium's framework links, such as
+// AuthenticationServices, SafariServices and Quartz, link it. Its classes are found by name and its
+// constants by symbol, so the core adds no link of its own.
 
 namespace browser_core::platform {
 class SystemPageMac;

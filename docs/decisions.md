@@ -15,7 +15,7 @@ A tab can show its page in the system's own engine instead: WebKit on the Mac, a
 - **Opt-in per site.** The user turns it on from the note, for the site in that profile. The site's pages then open in the system's engine, and a link to another site goes back to Chromium. Site Controls lists it and turns it off.
 - **No extensions and no agents.** Extensions run in Chromium only. The core refuses every agent call on such a tab and logs it, and an agent's Space never switches a tab. The browser can't enforce decision 8's rules inside an engine it doesn't own.
 - **Kept apart per profile.** Each profile has its own WebKit store, and a private window has one that keeps nothing. Deleting the profile deletes its store, and Clear Cookies and Clear Site Data clear both engines. The two engines don't share cookies, so the site asks the user to sign in once more.
-- **Loaded only when used.** WebKit is opened at run time, not linked, so launch and the other tabs don't pay for it. It needs macOS 14 (per-profile stores). On 13 the note offers Safari instead.
+- **Started only when used.** No WebKit view, store or process starts before a page needs one, so launch and the other tabs don't pay for it. WebKit's code is mapped at launch anyway, by system frameworks Chromium links (AuthenticationServices, SafariServices, Quartz). It needs macOS 14 (per-profile stores). On 13 the note offers Safari instead.
 
 Revisit when Chromium can play these sites itself, through a Widevine CDM we may ship or the platform's own CDM, or when keeping two engines costs more than the sites are worth.
 

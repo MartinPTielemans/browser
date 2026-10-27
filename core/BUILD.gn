@@ -195,8 +195,8 @@ source_set("browser_core") {
       "platform/mac/system_page.mm",
       "platform/mac/window_views.mm",
     ]
-    # WebKit isn't linked: system_page.mm loads it with the first system page, so a launch that
-    # shows none never maps it.
+    # WebKit isn't linked: system_page.mm starts it with the first system page, so a launch that
+    # shows none starts no WebKit process.
     deps += [
       "//components/os_crypt/common:keychain_password_mac",
       "//media",
