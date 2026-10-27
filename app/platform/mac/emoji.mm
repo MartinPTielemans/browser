@@ -1,7 +1,7 @@
 #import <CoreText/CoreText.h>
 #import <Foundation/Foundation.h>
 
-#include "host.h"
+#include "../host.h"
 
 // Apple Color Emoji draws a sequence it knows as one glyph, and one it doesn't as the glyphs of its
 // parts, or a missing glyph from the Last Resort font: so one glyph in that font is a drawn emoji.

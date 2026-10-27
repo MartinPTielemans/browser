@@ -1,4 +1,4 @@
-ChromeMain runs the core's MainDelegate, a ChromeMainDelegate, in every process.
+ChromeMain runs the core's MainDelegate, a ChromeMainDelegate, in every process, on every platform.
 
 --- a/chrome/app/chrome_main.cc
 +++ b/chrome/app/chrome_main.cc
@@ -10,9 +10,12 @@ ChromeMain runs the core's MainDelegate, a ChromeMainDelegate, in every process.
  #include "build/build_config.h"
  #if !defined(BUILDING_CHROME_RENDERER)
  #include "chrome/app/chrome_main_delegate.h"
-@@ -131,7 +132,7 @@
+@@ -129,9 +130,9 @@
+       base::TimeTicks::FromInternalValue(exe_entry_point_ticks),
+       base::TimeTicks::FromInternalValue(preread_begin_ticks),
        base::TimeTicks::FromInternalValue(preread_end_ticks)};
-   ChromeMainDelegate chrome_main_delegate(timestamps);
+-  ChromeMainDelegate chrome_main_delegate(timestamps);
++  browser_core::MainDelegate chrome_main_delegate(timestamps);
  #else  // BUILDFLAG(IS_WIN)
 -  ChromeMainDelegate chrome_main_delegate(
 +  browser_core::MainDelegate chrome_main_delegate(

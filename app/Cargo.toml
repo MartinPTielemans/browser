@@ -21,7 +21,6 @@ prod = []
 
 [dependencies]
 gpui = { path = ".deps/zed/crates/gpui" }
-gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
 gpui_platform = { path = ".deps/zed/crates/gpui_platform", features = ["font-kit", "runtime_shaders"] }
 # The version GPUI decodes with, for a favicon's pixels and the images drawn from them.
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -29,6 +28,13 @@ raw-window-handle = "0.6"
 unicode-segmentation = "1.10"
 # The emoji picker's table: names, groups and shortcodes, built in as static data.
 emojis = "0.9"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { path = ".deps/zed/crates/gpui_macos" }
+
+# Windows' GPUI platform, for the window the browser embeds GPUI in.
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui_windows = { path = ".deps/zed/crates/gpui_windows" }
 
 [build-dependencies]
 # 0.73 accepts syn 3 but only builds with syn 2, which 0.72 asks for.

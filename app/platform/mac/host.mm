@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-#include "host.h"
+#include "../host.h"
 
 // Takes the menu's choice, and says when it shows.
 @interface HostMenuTarget : NSObject <NSMenuDelegate>
