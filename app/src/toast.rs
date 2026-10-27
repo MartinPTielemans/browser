@@ -476,7 +476,8 @@ impl Render for Toast {
                     .font_weight(FontWeight::SEMIBOLD)
                     .when(a11y, |chip| {
                         let name = match &button.label {
-                            Label::Text(text) => text.to_string(),
+                            // A keyed button goes by its words: Undo.
+                            Label::Text(text) | Label::Keyed(text, _) => text.to_string(),
                             // A glyph's button goes by its name, "share" read as Share.
                             Label::Glyph(_) => {
                                 let mut name = button.name.to_owned();
