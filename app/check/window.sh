@@ -332,7 +332,8 @@ toggle() {
 }
 # moved <what>: the sidebar's motion moved the page's frame every step, so the core heard the page
 # moves before the first and is still after the last (issue #166). A check can't see the jiggle that
-# stops. Not for docking the sidebar out, which takes its place in one frame.
+# stops. Not for docking the sidebar out, which takes its place in one frame. Before toggle, whose
+# layout starts a new driver step that both lines precede.
 moved() {
   expect '^browser: page moving 1$' "$1 didn't tell the core the page moves"
   expect '^browser: page moving 0$' "$1 didn't tell the core the page is still"
@@ -343,19 +344,19 @@ send key s cmd
 # capture, and just after it if not.
 expect '^browser: page moving 1$' "⌘S with the page focused didn't tell the core the page moves"
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-moving.png" || fail "no window to capture"
-toggle page hidden "⌘S with the page focused"
 moved "⌘S with the page focused"
+toggle page hidden "⌘S with the page focused"
 ../tools/window-screenshot.sh "$pid" "$out/sidebar-hidden.png" || fail "no window to capture"
 send key s cmd
-toggle page shown "⌘S again with the page focused"
 moved "⌘S again with the page focused"
+toggle page shown "⌘S again with the page focused"
 send click 110 400
 send key s cmd
-toggle ui hidden "⌘S with the UI focused"
 moved "⌘S with the UI focused"
+toggle ui hidden "⌘S with the UI focused"
 send key s cmd
-toggle ui shown "⌘S again with the UI focused"
 moved "⌘S again with the UI focused"
+toggle ui shown "⌘S again with the UI focused"
 send click 93 24
 toggle sidebar hidden "a click on the sidebar button"
 send key s cmd
