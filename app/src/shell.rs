@@ -12,7 +12,7 @@ use std::{
 
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, DispatchPhase, Entity, FocusHandle, Focusable,
-    FontWeight, Hsla, Image, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
+    FontWeight, HitboxBehavior, Hsla, Image, MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent,
     MouseUpEvent, PathBuilder, Pixels, Point, Rgba, Role, ScrollHandle, SharedString, Size,
     Subscription, Task, Window, WindowTextSystem, canvas, div, img, point, prelude::*, px, rgb,
     rgba, size, svg,
@@ -886,6 +886,9 @@ pub struct Shell {
     held_row: Option<HeldRow>,
     /// Rows on their way to their place: how far from it each started, and when.
     slides: HashMap<Slot, (f32, Instant, Curve)>,
+    /// Where the frame last drawn had each tab's row in the list, which the pointer's presses hit
+    /// until the next one is drawn (`press_at_rest`).
+    drawn_rows: RefCell<Vec<(u64, f32)>>,
     /// The user opened a folder, or closed one, whose rows move once the browser reports it.
     folding: Option<bool>,
     /// The same for tiles, by their left, top and width, and for the list's top as the favorites
@@ -1170,6 +1173,7 @@ impl Shell {
             unhovered: Vec::new(),
             held_row: None,
             slides: HashMap::new(),
+            drawn_rows: RefCell::default(),
             folding: None,
             tile_slides: HashMap::new(),
             list_slide: None,
@@ -2840,18 +2844,19 @@ impl Shell {
             .bottom(px(FOOTER_HEIGHT))
             .overflow_hidden()
             .children(pages)
-            .children(self.settle.is_some().then(|| self.settle_press_listener(cx)))
+            .child(self.rest_press_listener(cx))
     }
 
-    /// Hears a press while a Space's page slides in, ahead of the rows, for the part of it that
-    /// the page isn't over yet (`press_at_rest`).
-    fn settle_press_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// Hears a press on the list ahead of the rows, for one the rows as drawn would take to
+    /// another row than the one at rest there (`press_at_rest`). Its hitbox leaves a press on
+    /// what's drawn over the list, such as a question, to that.
+    fn rest_press_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let shell = cx.weak_entity();
         canvas(
-            |_, _, _| {},
-            move |_, _, window, _| {
-                window.on_mouse_event(move |event: &MouseDownEvent, phase, _, cx| {
-                    if phase != DispatchPhase::Bubble {
+            |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            move |_, hitbox, window, _| {
+                window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
+                    if phase != DispatchPhase::Bubble || !hitbox.is_hovered(window) {
                         return;
                     }
                     let took = shell.update(cx, |shell, cx| shell.press_at_rest(event, cx));
@@ -2927,6 +2932,11 @@ impl Shell {
         let room = self.tiles_room();
         let mut rows = vec![(None, self.name_row(cx).into_any_element())];
         let (pinned, today) = self.rows();
+        let drawn = self.layout().into_iter().filter_map(|(slot, top)| match slot {
+            Slot::Tab(tab) => Some((tab, top + self.slide(slot))),
+            _ => None,
+        });
+        self.drawn_rows.replace(drawn.collect());
         for tab in pinned {
             rows.push((Some(tab), self.list_row(tab, cx)));
         }
