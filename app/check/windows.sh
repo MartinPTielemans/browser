@@ -64,8 +64,9 @@ none_since "^browser: window $first shows" || fail "⌘N changed what the first 
 shown_first=$(grep -c "^browser: window $first shows" "$log")
 send window 2
 ../tools/window-screenshot.sh "$pid" "$out/windows-new.png" all || fail "no window to capture"
-# The new window's card shows its line once the fade has ended, as the shell says in the log. The
-# first window shows a page, so the line is the new window's.
+# The new window's card shows its mark and line, and its URL field its placeholder, once the fade
+# has ended, as the shell says in the log. The first window shows a page, so the line is the new
+# window's.
 for _ in $(seq 100); do
   [ "$(grep -c '^browser: empty card shown$' "$log")" -gt "$empties" ] && break
   sleep 0.1

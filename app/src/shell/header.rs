@@ -3,11 +3,12 @@
 
 use std::time::Instant;
 
+use crate::command_bar::PLACEHOLDER_TEXT;
 use crate::site_controls::{Extension, Place};
 
 use gpui::{
-    Bounds, Context, Div, Hsla, MouseButton, Pixels, Stateful, Window, canvas, div, hsla, point,
-    prelude::*, px, rgba, size, svg,
+    Bounds, Context, Div, Hsla, MouseButton, Pixels, SharedString, Stateful, Window, canvas, div,
+    hsla, point, prelude::*, px, rgba, size, svg,
 };
 
 use super::{
@@ -34,6 +35,9 @@ pub(super) enum TipSide {
 /// field's end, and these go before them.
 const SITE_CONTROLS_END: f32 = -1.;
 const TOOL_PITCH: f32 = 28.;
+/// The URL field's words with no page shown: the command bar's placeholder, which a click opens
+/// over them, at white 0.32, which is to the host's 0.60 as the bar's placeholder is to its text.
+const URL_PLACEHOLDER: u32 = 0xffff_ff52;
 
 impl Shell {
     /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as
@@ -236,8 +240,21 @@ impl Shell {
             .rounded(px(NAV_RADIUS))
     }
 
+    /// What the URL field says, in its colour: the page's host, or with no page shown, the
+    /// command bar's placeholder, there from the frame the card's mark is.
+    pub(super) fn url_field_words(&self, url: &str) -> (SharedString, Hsla) {
+        if self.selected == 0 {
+            let mut color = Hsla::from(rgba(URL_PLACEHOLDER));
+            color.a *= self.empty_opacity(Instant::now());
+            return (PLACEHOLDER_TEXT.into(), color);
+        }
+        let words = self.extension_name(url).unwrap_or_else(|| host(url).to_string().into());
+        (words, rgba(SECONDARY).into())
+    }
+
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let url = self.url(self.selected);
+        let (words, color) = self.url_field_words(&url);
         // The pinned extensions' actions, at the field's end, and Copy URL and Site Controls
         // before them, where the host stops short of them.
         let actions = self.action_buttons(cx);
@@ -314,10 +331,7 @@ impl Shell {
             // It brightens under the pointer as a tile does, from the same white 0.10 (ours).
             .hover(|style| style.bg(hsla(0., 0., 1., TILE_HOVERED)))
             .text_size(px(13.))
-            .text_color(rgba(SECONDARY))
-            .child(div().truncate().child(
-                (self.extension_name(&url)).unwrap_or_else(|| host(&url).to_string().into()),
-            ))
+            .child(div().truncate().text_color(color).child(words))
             .children(copy)
             .children(site_controls)
             .children(actions)
