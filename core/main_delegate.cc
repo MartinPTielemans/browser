@@ -19,6 +19,7 @@
 #include "browser_core/platform/keychain.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
+#include "browser_core/sign_in_dialog.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -163,6 +164,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
+  g_browser_core_login_handler = &SignInDialog::Create;
   return ChromeMain(argc, argv);
 }
 

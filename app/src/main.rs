@@ -1514,12 +1514,17 @@ impl Browser for Engine {
             dialog::withdraw_page(cx);
             return;
         };
+        let field = |placeholder: &SharedString, text: &SharedString, secure| dialog::Field {
+            placeholder: placeholder.clone(),
+            text: text.clone(),
+            secure,
+        };
+        let none = SharedString::default();
         let fields = match asked.kind {
-            shell::DialogKind::Prompt => vec![dialog::Field {
-                placeholder: "".into(),
-                text: asked.text.clone(),
-                secure: false,
-            }],
+            shell::DialogKind::Prompt => vec![field(&none, &asked.text, false)],
+            shell::DialogKind::SignIn => {
+                vec![field(&asked.username, &none, false), field(&asked.password, &none, true)]
+            }
             _ => Vec::new(),
         };
         let question = dialog::Question {
@@ -1546,6 +1551,9 @@ impl Browser for Engine {
             let mut texts = reply.texts.into_iter();
             let (text, password) = match kind {
                 shell::DialogKind::Prompt => (texts.next().unwrap_or_default(), String::new()),
+                shell::DialogKind::SignIn => {
+                    (texts.next().unwrap_or_default(), texts.next().unwrap_or_default())
+                }
                 _ => (String::new(), String::new()),
             };
             let reply =
@@ -3866,6 +3874,7 @@ unsafe extern "C" fn tab_dialog(_: *mut c_void, tab: bc::bc_id, asked: *const bc
             bc::BC_DIALOG_CONFIRM => shell::DialogKind::Confirm,
             bc::BC_DIALOG_PROMPT => shell::DialogKind::Prompt,
             bc::BC_DIALOG_LEAVE => shell::DialogKind::Leave,
+            bc::BC_DIALOG_SIGN_IN => shell::DialogKind::SignIn,
             _ => shell::DialogKind::Alert,
         },
         title: text(asked.title),
@@ -3874,6 +3883,8 @@ unsafe extern "C" fn tab_dialog(_: *mut c_void, tab: bc::bc_id, asked: *const bc
         accept: text(asked.accept),
         cancel: text(asked.cancel),
         check: text(asked.check),
+        username: text(asked.username),
+        password: text(asked.password),
     });
     // check.sh waits for these lines.
     match &dialog {
