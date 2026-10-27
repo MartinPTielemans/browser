@@ -1,5 +1,5 @@
 //! Naming a Space, a tab or a folder in a field in place of its name, a new folder as
-//! it's made, and a tab's icon; and opening the picker for a Space's icon.
+//! it's made; and opening the picker for a Space's or a tab's icon.
 
 use std::{
     rc::Rc,
@@ -9,12 +9,11 @@ use std::{
 use gpui::{Context, SharedString, Window, div, point, prelude::*, px, rgb, rgba};
 
 use super::{
-    CancelName, EMOJI_SIZE, FAVICON_SIZE, FORM_PLACEHOLDER, FORM_TEXT, HOVERED, KeepName,
+    CancelName, FAVICON_SIZE, FAVICON_X, FOLDER_INDENT, FORM_PLACEHOLDER, FORM_TEXT, KeepName,
     NEW_FOLDER, Naming, PLATE_INSET, Renaming, SPACE_ICON_SLOT, SPACE_ICON_X, Shell, ShellHandle,
 };
 use crate::{
-    icon_picker::{self, Picked},
-    space_icon::first_character,
+    icon_picker::{self, Picked, Subject},
     text_input::TextInput,
 };
 
@@ -50,7 +49,6 @@ impl Shell {
             naming: Naming::Space(space),
             name,
             _blur: None,
-            _edit: None,
         });
         // As for the form.
         self.dock(cx);
@@ -72,7 +70,6 @@ impl Shell {
             naming: Naming::Tab(tab),
             name,
             _blur: None,
-            _edit: None,
         });
         // As for a Space's name.
         self.dock(cx);
@@ -81,21 +78,15 @@ impl Shell {
         cx.notify();
     }
 
-    /// Shows a field in the tab's icon's place, with the emoji it has, if any, selected, and the
-    /// system's character palette to pick one from.
+    /// Shows the icon picker under the tab's favicon, once its row has stopped moving, with the
+    /// sidebar docked.
     pub(super) fn change_icon(&mut self, tab: u64, cx: &mut Context<Self>) {
-        let icon = self.page(tab).icon;
-        let name = cx.new(|cx| TextInput::new("", cx).with_text(icon));
-        self.renaming = Some(Renaming {
-            naming: Naming::Icon(tab),
-            name,
-            _blur: None,
-            _edit: None,
-        });
-        // As for a tab's name.
-        self.dock(cx);
-        self.browser.focus_ui(cx);
-        self.focus_renaming = true;
+        if !self.dock(cx) && self.sidebar_hidden {
+            self.toggle_sidebar(cx);
+        }
+        self.picker_pending = Some((Subject::Tab(tab), Instant::now()));
+        self.tab_row_drawn.set(None);
+        self.name_row_before = None;
         cx.notify();
     }
 
@@ -114,30 +105,33 @@ impl Shell {
         if !self.dock(cx) && self.sidebar_hidden {
             self.toggle_sidebar(cx);
         }
-        self.picker_pending = Some((space, Instant::now()));
+        self.picker_pending = Some((Subject::Space(space), Instant::now()));
         self.name_row_drawn.set(None);
         self.name_row_before = None;
         cx.notify();
     }
 
-    /// Opens the icon picker asked for once the name row has drawn where it drew the frame before,
-    /// and the Library has gone, as the sidebar, the Library or a Space's slide may be moving it.
-    /// It points at where the icon goes, and gives up if the row doesn't settle in two seconds,
-    /// such as in a full-screen page, which has no sidebar.
+    /// Opens the icon picker asked for once the row it hangs under has drawn where it drew the
+    /// frame before, and the Library has gone, as the sidebar, the Library or a Space's slide may
+    /// be moving it. A Space's points at where its icon goes in the name row, a tab's at its
+    /// favicon. It gives up if the row doesn't settle in two seconds, such as in a full-screen
+    /// page, which has no sidebar.
     pub(super) fn open_icon_picker_when_settled(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((space, asked)) = self.picker_pending else {
+        let Some((subject, asked)) = self.picker_pending else {
             return;
         };
-        let drawn = self.name_row_drawn.get();
+        let (drawn, here) = match subject {
+            Subject::Space(space) => (self.name_row_drawn.get(), space == self.space),
+            Subject::Tab(_) => (self.tab_row_drawn.get(), true),
+        };
         // Not before the Library has gone and the sidebar has come in, as a frame of either can
         // leave the row where it was.
         let still = self.library.is_none() && self.sidebar_motion.is_none();
-        let settled =
-            still && drawn.is_some() && drawn == self.name_row_before && space == self.space;
+        let settled = still && drawn.is_some() && drawn == self.name_row_before && here;
         self.name_row_before = drawn;
         if !settled {
             if asked.elapsed() < PICKER_WAIT {
@@ -153,20 +147,38 @@ impl Shell {
         if !key {
             return;
         }
-        let (Some(row), Some(icon)) =
-            (drawn, self.spaces.iter().find(|each| each.id == space).map(|each| each.icon.clone()))
-        else {
+        let Some(row) = drawn else {
             return;
         };
-        let anchor = point(
-            f32::from(row.left()) + SPACE_ICON_X + SPACE_ICON_SLOT / 2.,
-            f32::from(row.center().y),
-        );
         let shell = cx.weak_entity();
-        let picked: Picked = Rc::new(move |icon, cx| {
-            shell.update(cx, |shell, cx| shell.browser.set_space_icon(space, icon, cx)).ok();
-        });
-        icon_picker::show(space, icon, anchor, self.accent_color, picked, cx);
+        let (icon, anchor, picked) = match subject {
+            Subject::Space(space) => {
+                let Some(icon) = self.spaces.iter().find(|each| each.id == space) else {
+                    return;
+                };
+                let anchor = point(
+                    f32::from(row.left()) + SPACE_ICON_X + SPACE_ICON_SLOT / 2.,
+                    f32::from(row.center().y),
+                );
+                let picked: Picked = Rc::new(move |icon, cx| {
+                    shell.update(cx, |shell, cx| shell.browser.set_space_icon(space, icon, cx)).ok();
+                });
+                (icon.icon.clone(), anchor, picked)
+            }
+            Subject::Tab(tab) => {
+                // The favicon's middle, in from the row by the folders the tab is in.
+                let x = f32::from(row.left())
+                    + FAVICON_X
+                    + self.depth(tab) as f32 * FOLDER_INDENT
+                    + FAVICON_SIZE / 2.;
+                let anchor = point(x, f32::from(row.center().y));
+                let picked: Picked = Rc::new(move |icon, cx| {
+                    shell.update(cx, |shell, cx| shell.browser.set_icon(tab, icon, cx)).ok();
+                });
+                (self.page(tab).icon, anchor, picked)
+            }
+        };
+        icon_picker::show(subject, icon, anchor, self.accent_color, picked, cx);
     }
 
     /// Shows the folder's name in a field, all selected, to type a new one over.
@@ -185,7 +197,6 @@ impl Shell {
             naming: Naming::Folder(folder),
             name,
             _blur: None,
-            _edit: None,
         });
         // As for a Space's name.
         self.dock(cx);
@@ -211,9 +222,9 @@ impl Shell {
         folder.map(|(name, _)| name.clone()).unwrap_or_default()
     }
 
-    /// Renames the Space, the tab or the folder to what the field holds, or gives the tab or the
-    /// Space its icon, and closes the field. A Space or a folder keeps its name rather than none,
-    /// and a tab named nothing shows its page's title again.
+    /// Renames the Space, the tab or the folder to what the field holds, and closes the field. A
+    /// Space or a folder keeps its name rather than none, and a tab named nothing shows its page's
+    /// title again.
     pub(super) fn keep_name(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(renaming) = self.renaming.take() else {
             return;
@@ -229,13 +240,6 @@ impl Shell {
                 self.browser.rename_folder(folder, &name, cx)
             }
             Naming::Folder(_) => {}
-            // The first character typed or picked; none gives the tab back its favicon.
-            Naming::Icon(tab) => {
-                let icon = first_character(&name);
-                if icon != self.page(tab).icon.as_ref() {
-                    self.browser.set_icon(tab, icon, cx);
-                }
-            }
         }
         window.focus(&self.focus_handle, cx);
         cx.notify();
@@ -264,36 +268,6 @@ impl Shell {
                 cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
             )
             .text_size(px(14.))
-            .text_color(rgb(FORM_TEXT))
-            .child(renaming.name.clone())
-    }
-
-    /// The field that changes a tab's icon, in its place.
-    pub(super) fn icon_field(&self, renaming: &Renaming, cx: &mut Context<Self>) -> gpui::Div {
-        self.emoji_field(renaming, FAVICON_SIZE, EMOJI_SIZE, cx)
-    }
-
-    /// A field `size` square for one emoji of `text` size.
-    fn emoji_field(
-        &self,
-        renaming: &Renaming,
-        size: f32,
-        text: f32,
-        cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        div()
-            .size(px(size))
-            .flex()
-            .items_center()
-            .rounded(px(4.))
-            .bg(rgba(HOVERED))
-            .overflow_hidden()
-            .key_context("Naming")
-            .on_action(cx.listener(|shell, _: &KeepName, window, cx| shell.keep_name(window, cx)))
-            .on_action(
-                cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
-            )
-            .text_size(px(text))
             .text_color(rgb(FORM_TEXT))
             .child(renaming.name.clone())
     }

@@ -18,6 +18,7 @@ use gpui::{
 };
 
 use crate::{
+    icon_picker::Subject,
     space_icon::{GLYPHS, SpaceIcon},
     text_input::TextInput,
 };
@@ -619,19 +620,14 @@ enum Naming {
     Space(u64),
     Tab(u64),
     Folder(u64),
-    /// A tab's icon, in a field in its place.
-    Icon(u64),
 }
 
-/// The field a Space's name or a tab's title turns into for renaming it, or a tab's icon for
-/// changing it.
+/// The field a Space's name, a tab's title or a folder's name turns into for renaming it.
 struct Renaming {
     naming: Naming,
     name: Entity<TextInput>,
     /// Keeps the name once the field loses GPUI's focus, as Finder does.
     _blur: Option<Subscription>,
-    /// Keeps an icon as soon as it's typed or picked.
-    _edit: Option<Subscription>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1087,11 +1083,13 @@ pub struct Shell {
     background_pressed: bool,
     /// The system's accent colour, as 0xRRGGBB.
     accent_color: u32,
-    /// The Space whose icon picker opens once its name row stops moving, and when it was asked
+    /// The Space or tab whose icon picker opens once its row stops moving, and when it was asked
     /// for.
-    picker_pending: Option<(u64, Instant)>,
-    /// Where the name row was drawn last, and the frame before.
+    picker_pending: Option<(Subject, Instant)>,
+    /// Where the name row was drawn last, and the frame before; and the same for the pending
+    /// tab's row, which draws it only while it is pending.
     name_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    tab_row_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     name_row_before: Option<Bounds<Pixels>>,
     /// A private window's: its one Space is its own, unsaved, in an off-the-record session.
     private: bool,
@@ -1225,6 +1223,7 @@ impl Shell {
             drm_drawn: Rc::default(),
             picker_pending: None,
             name_row_drawn: Rc::default(),
+            tab_row_drawn: Rc::default(),
             name_row_before: None,
             switching: None,
             background_pressed: false,
@@ -2261,24 +2260,6 @@ impl Render for Shell {
             // check.sh waits for this line, which says the field has the keyboard.
             if let Naming::Folder(folder) = renaming.naming {
                 log!("browser: rename folder {folder}");
-            }
-            if let Naming::Icon(tab) = renaming.naming {
-                log!("browser: change icon {tab}");
-                // A pick from the palette, or a key, is the icon at once, as no ↩ is needed for
-                // one character.
-                let start = renaming.name.read(cx).text().to_string();
-                renaming._edit = Some(cx.observe_in(
-                    &renaming.name,
-                    window,
-                    move |shell, name, window, cx| {
-                        let name = name.read(cx);
-                        let text = name.text();
-                        if !name.composing() && !text.trim().is_empty() && text != start {
-                            shell.keep_name(window, cx);
-                        }
-                    },
-                ));
-                window.show_character_palette();
             }
             renaming._blur =
                 Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));

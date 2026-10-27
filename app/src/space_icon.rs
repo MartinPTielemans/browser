@@ -1,8 +1,6 @@
 //! A Space's icon as the core keeps it: an emoji, or `glyph:` and the name of one of the icon
 //! picker's glyphs, or nothing for the dot (docs/ux-spec.md › Spaces › Icon).
 
-use unicode_segmentation::UnicodeSegmentation;
-
 /// What a Space keeps before a glyph's name.
 const GLYPH: &str = "glyph:";
 
@@ -99,12 +97,6 @@ impl<'a> SpaceIcon<'a> {
     }
 }
 
-/// The first character typed or picked into an icon's field: a whole emoji, a flag or a family as
-/// one, else nothing.
-pub fn first_character(text: &str) -> &str {
-    text.trim().graphemes(true).next().unwrap_or_default()
-}
-
 /// What a Space keeps for the glyph at `index` in `GLYPHS`.
 pub fn glyph(index: usize) -> String {
     format!("{GLYPH}{}", GLYPHS[index].0)
@@ -132,19 +124,6 @@ mod tests {
     #[test]
     fn anything_else_is_an_emoji() {
         assert_eq!(SpaceIcon::parse("🦊"), SpaceIcon::Emoji("🦊"));
-    }
-
-    /// The first character typed or picked is the icon, a whole emoji even when it's several
-    /// code points; an emptied field is none, which takes the icon away.
-    #[test]
-    fn the_first_character_is_the_icon() {
-        assert_eq!(first_character("🙂"), "🙂");
-        assert_eq!(first_character("🙂🚀"), "🙂");
-        assert_eq!(first_character("👨‍👩‍👧 family"), "👨‍👩‍👧");
-        assert_eq!(first_character("🇳🇱🇯🇵"), "🇳🇱");
-        assert_eq!(first_character("ab"), "a");
-        assert_eq!(first_character(""), "");
-        assert_eq!(first_character("  "), "");
     }
 
     #[test]

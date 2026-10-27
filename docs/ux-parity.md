@@ -105,7 +105,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | ⌃Tab | MVP | the tab used last, at once, no switcher; with ⌃ held, on back (ours) | Arc rec |
 | [x] | ⌘1–⌘8 / ⌘9 | MVP | sidebar order, a split is one row | Dia |
 | [x] | Rename | MVP | double-click or Rename Tab renames inline; the name shows over the page's title and is kept across a quit; an empty one gives the title back | Dia P§2, ours |
-| [x] | Emoji icon | MVP | Change Icon… puts a field in the favicon's place and opens the character palette; the first character picked or typed is the icon, kept as a name is; Remove Icon gives the favicon back. Dia's picker: measure | Dia P§2, ours |
+| [x] | Emoji icon | MVP | Change Icon… hangs the Space icon picker's Emoji tab (search, recents, grid) under the favicon; the emoji picked is the icon, kept as a name is, and Remove Icon or the picker's trash gives the favicon back. Dia's picker: measure | Dia P§2, ours |
 | [x] | Tab context menu | MVP | shortcut hints; Pin/Unpin, Back to Pinned URL, Rename, Duplicate, Move to Space, Close, Close Tabs Below *interim*. Arc's for a Today tab: Copy Link ⇧⌘C, Share › · Change Icon…, Rename…, Mute, Customize Page… · Add Split View, Duplicate, Move to › · Archive Tab, Archive Tabs Below; a pinned tab's: measure | Dia P§2, Arc 1.170.0 ax |
 | [x] | Folders | MVP | in the pinned tabs, indented 16 a level: New Folder…, a press opens and closes, a double-click or the menu renames, Delete Folder keeps the tabs, a drag right or left takes a row in or out, kept over a quit; motion and icon *interim* | Arc ax, cap, menus |
 | [x] | Tab shown in a closed folder | MVP | its row stays under the folder until another tab shows | Arc (confirm in the capture) |

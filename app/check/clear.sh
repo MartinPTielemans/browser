@@ -225,10 +225,13 @@ post rightclick $(row 2)
 expect '^browser: menu shown .*Rename Tab, Change Icon…, ' \
   "a right-click on the middle Today row didn't offer Change Icon…"
 send choose Change Icon…
-expect "^browser: change icon $e\$" \
-  "Change Icon… didn't put a field in the middle tab's icon's place"
-send insert ★
-expect "^browser: page $e icon ★\$" "the palette's pick didn't become the middle tab's icon"
+expect "^browser: icon picker for tab $e on emoji\$" \
+  "Change Icon… didn't open the icon picker for the middle tab"
+expect '^browser: icon picker shown$' "Change Icon… didn't show the icon picker under the middle tab"
+send insert glowing star
+send key return
+expect "^browser: page $e icon 🌟\$" "the picker's pick didn't become the middle tab's icon"
+expect '^browser: icon picker hidden$' "picking an emoji didn't close the icon picker"
 send click $page_point
 send key w cmd
 expect "^browser: tab $e closed\$" "⌘W didn't close the middle Today tab"
@@ -241,7 +244,7 @@ e=$(today | cut -d' ' -f2)
 tab=$e
 expect "^browser: selected $e\$" "⇧⌘T didn't show the tab it reopened"
 expect "^browser: page $e audible 0 muted 1\$" "⇧⌘T didn't keep the tab muted"
-expect "^browser: page $e icon ★\$" "⇧⌘T didn't keep the tab's icon"
+expect "^browser: page $e icon 🌟\$" "⇧⌘T didn't keep the tab's icon"
 expect_page example.org 1 0 "after ⇧⌘T"
 ../tools/window-screenshot.sh "$pid" "$out/reopen.png" || fail "no window to capture"
 
@@ -276,7 +279,7 @@ expect '^browser: command duplicate-tab via tab menu$' "Duplicate Tab didn't run
 expect_lists "$a" "$t $e [0-9][0-9]* $d" "after Duplicate Tab"
 tab=$(today | cut -d' ' -f3)
 expect "^browser: selected $tab\$" "Duplicate Tab didn't show the copy"
-expect "^browser: page $tab icon ★\$" "Duplicate Tab didn't copy the tab's icon"
+expect "^browser: page $tab icon 🌟\$" "Duplicate Tab didn't copy the tab's icon"
 expect_page example.org 1 0 "the copy Duplicate Tab made"
 # Close Tabs Below shows the tab right-clicked first, so none below it loads on the way out.
 post rightclick $(row 1)

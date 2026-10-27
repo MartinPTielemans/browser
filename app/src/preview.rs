@@ -1176,7 +1176,8 @@ fn main() {
                 .is_some()
             {
                 let picked: icon_picker::Picked = Rc::new(|_, _| {});
-                icon_picker::show(1, icon.into(), point(0., 0.), 0x3d81f9, picked, cx);
+                let subject = icon_picker::Subject::Space(1);
+                icon_picker::show(subject, icon.into(), point(0., 0.), 0x3d81f9, picked, cx);
             }
         }
         cx.activate(true);
