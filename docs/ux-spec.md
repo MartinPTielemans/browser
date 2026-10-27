@@ -534,7 +534,7 @@ Arc shows Space icons in place of dots when a Space has one: measure both looks.
 
 ### Command bar
 
-Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Arc's aren't measured (decision 6). Parsing, inline completion and ranking follow Chrome's omnibox, because Dia runs Chrome's AutocompleteController (O).
+Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Arc's aren't measured (decision 6). Parsing, inline completion and ranking follow Chrome's omnibox, because Dia runs Chrome's AutocompleteController (O), except that an open tab can take row 0 (Rows).
 
 **Opening**
 
@@ -587,10 +587,11 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 
 **Rows**
 
-- The Enter target is the inline match, else a typed URL, else a search for what was typed. Page titles are never the default (Chrome). Dia's "Use website first" setting puts a strongly matching page first instead, and "Prefer search engine" turns that off.
+- The Enter target is the inline match, else a typed URL, else a search for what was typed, except where an open tab takes row 0 (below). Page titles are never the default (Chrome). Dia's "Use website first" setting puts a strongly matching page first instead, and "Prefer search engine" turns that off.
 - The search row comes right after the top hit (Dia 1.49).
 - Row 0 is computed from local data only; remote suggestions append below it, so row 0 never flickers (Chrome).
 - Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia). Ours (*interim*, as Chrome's): a row for a tab another window shows live brings that window forward with the keyboard, rather than taking its page; any other comes to this window. Whether Arc raises or moves: measure.
+- ***Ours*, where Arc's ranking isn't recorded: an open tab can take row 0.** Arc's bar is first of all a tab switcher, so when the typing starts a word of a tab's title, or of its site's name (the host's labels without the top-level domain, and without www.), at two characters or more, case aside, that tab is row 0 with "Switch to Tab" and ↩ switches to it. Of several, the one shown most recently; the others stay where the core lists them. Chrome's row 0 stays when the typing reads as a URL (a dot, a colon or a slash), when the first row hints a site search (Tab to search), or when it completes inline to a page that isn't an open tab's; a completion to an open tab's own page makes that row the tab's. It looks only at the tabs the bar was opened with (the Space's and the favorites, never the tab shown or what shows with it), so the row doesn't wait for the core. A command that matches strongly still sits above the search row, under the tab.
 - Before anything is typed, the rows are the Space's open tabs, each with "Switch to Tab" (Arc cap). Ours (*interim*): its favorites, pinned tabs and Today tabs, the most recently shown first, without the tab shown or its split, at most ten; none over a split's new pane. ↩ switches to the selected one, and emptying the field lists them again.
 - History rows can be removed with a hover ✕ or ⇧⌦, and the selection moves to the next row (Chrome; Dia has the ✕).
 - Bookmarks, a calculator (↩ copies the result) and commands are also rows (Dia).

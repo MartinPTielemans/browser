@@ -723,6 +723,163 @@ fn return_with_nothing_typed_and_no_tabs_does_nothing(cx: &mut TestAppContext) {
     assert!(bar.calls().is_empty());
 }
 
+/// An open tab with a title of its own.
+fn titled(id: u64, title: &str, url: &str) -> shell::BarTab {
+    shell::BarTab { title: title.to_string().into(), ..tab(id, url) }
+}
+
+const CONVEX: &str = "https://dashboard.convex.dev/";
+
+#[gpui::test]
+fn the_start_of_an_open_tabs_name_puts_it_first_and_return_switches_to_it(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_tabs(cx, vec![titled(4, "Projects | Convex", CONVEX)]);
+    bar.type_text("conv");
+    bar.suggest("conv", vec![searching("conv")]);
+    assert_eq!(bar.rows(), [(CONVEX.to_string(), 4), (search("conv"), 0)]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["select 4", "hide"]);
+
+    // The site's name does as well as the title's words, and case doesn't matter.
+    let mut bar = Bar::with_tabs(cx, vec![titled(4, "Projects", CONVEX)]);
+    bar.type_text("CONV");
+    bar.suggest("CONV", vec![searching("CONV")]);
+    assert_eq!(bar.rows()[0], (CONVEX.to_string(), 4));
+
+    // A word's start, not its middle or the top-level domain.
+    for typed in ["vex", "dev"] {
+        let mut bar = Bar::with_tabs(cx, vec![titled(4, "Projects", CONVEX)]);
+        bar.type_text(typed);
+        bar.suggest(typed, vec![searching(typed)]);
+        assert_eq!(bar.rows()[0], (search(typed), 0), "{typed}");
+    }
+}
+
+#[gpui::test]
+fn a_tab_the_core_lists_moves_up_rather_than_twice(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
+    bar.type_text("conv");
+    let open = Suggestion { tab: 4, ..page(CONVEX) };
+    bar.suggest("conv", vec![searching("conv"), page("https://conv.test/"), open]);
+    let rows = bar.rows();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0], (CONVEX.to_string(), 4));
+}
+
+#[gpui::test]
+fn a_single_letter_does_not_jump_to_a_tab(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
+    bar.type_text("c");
+    bar.suggest("c", vec![searching("c")]);
+    assert_eq!(bar.rows(), [(search("c"), 0)]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), [format!("open {}", search("c")), "hide".into()]);
+}
+
+#[gpui::test]
+fn typing_that_reads_as_a_url_keeps_chromes_first_row(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
+    bar.type_text("convex.dev");
+    bar.suggest("convex.dev", vec![page("https://convex.dev/"), searching("convex.dev")]);
+    assert_eq!(bar.rows()[0], ("https://convex.dev/".to_string(), 0));
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["open https://convex.dev/", "hide"]);
+
+    for typed in ["localhost:3000", "https://conv", "conv/docs"] {
+        let mut bar = Bar::with_tabs(cx, vec![titled(4, "Convex", CONVEX)]);
+        bar.type_text(typed);
+        bar.suggest(typed, vec![searching(typed)]);
+        assert_eq!(bar.rows()[0], (search(typed), 0), "{typed}");
+    }
+}
+
+#[gpui::test]
+fn a_hinted_site_search_or_a_completion_to_another_page_keeps_chromes_first_row(
+    cx: &mut TestAppContext,
+) {
+    let tabs = vec![titled(4, "Convex", CONVEX)];
+    let mut bar = Bar::with_tabs(cx, tabs.clone());
+    bar.type_text("conv");
+    let hint = Suggestion { keyword: "conv.test".into(), ..searching("conv") };
+    bar.suggest("conv", vec![hint, page("https://conv.test/")]);
+    assert_eq!(bar.rows()[0], (search("conv"), 0));
+
+    let mut bar = Bar::with_tabs(cx, tabs);
+    bar.type_text("conv");
+    bar.suggest("conv", vec![completing("https://convoy.test/", "oy.test"), searching("conv")]);
+    assert_eq!(bar.rows()[0], ("https://convoy.test/".to_string(), 0));
+    assert_eq!(bar.input(), ("convoy.test".into(), 4..11));
+}
+
+#[gpui::test]
+fn a_completion_to_an_open_tabs_page_is_that_tabs_row(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_tabs(cx, vec![titled(4, "Home", "https://convex.dev/")]);
+    bar.type_text("conv");
+    let rows = vec![completing("https://convex.dev/", "ex.dev"), searching("conv")];
+    bar.suggest("conv", rows);
+    assert_eq!(bar.rows(), [("https://convex.dev/".to_string(), 4), (search("conv"), 0)]);
+    assert_eq!(bar.input(), ("convex.dev".into(), 4..10));
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["select 4", "hide"]);
+}
+
+#[gpui::test]
+fn of_two_matching_tabs_the_one_shown_last_is_first(cx: &mut TestAppContext) {
+    // The Space's tabs come most recently shown first.
+    let docs = "https://docs.convex.dev/";
+    let tabs = vec![titled(2, "Convex docs", docs), titled(4, "Convex", CONVEX)];
+    let mut bar = Bar::with_tabs(cx, tabs);
+    bar.type_text("conv");
+    // The core lists the other as its own row, which stays under the first.
+    let other = Suggestion { tab: 4, ..page(CONVEX) };
+    bar.suggest("conv", vec![searching("conv"), other]);
+    assert_eq!(bar.rows(), [(docs.to_string(), 2), (search("conv"), 0), (CONVEX.to_string(), 4)]);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["select 2", "hide"]);
+    let mut bar = Bar::with_tabs(cx, vec![titled(2, "Convex docs", docs)]);
+    bar.type_text("conv");
+    let other = Suggestion { tab: 4, ..page(CONVEX) };
+    bar.suggest("conv", vec![searching("conv"), other]);
+    bar.keys("down down enter");
+    assert_eq!(bar.calls(), ["select 4", "hide"]);
+}
+
+#[gpui::test]
+fn the_tab_shown_is_never_offered(cx: &mut TestAppContext) {
+    // Editing tab 4's URL, which is the tab shown, and tab 2 is another.
+    let mut bar = Bar::with_tabs(cx, Vec::new());
+    let docs = titled(2, "Convex docs", "https://docs.convex.dev/");
+    let tabs = vec![titled(4, "Convex", CONVEX), docs];
+    let editing = Some((4, SharedString::from(CONVEX)));
+    bar.cx.cx.update(|cx| show(editing, tabs, None, cx));
+    bar.cx.run_until_parked();
+    bar.type_text("conv");
+    bar.suggest("conv", vec![searching("conv")]);
+    assert_eq!(bar.rows()[0], ("https://docs.convex.dev/".to_string(), 2));
+
+    let editing = Some((4, SharedString::from(CONVEX)));
+    bar.cx.cx.update(|cx| show(editing, vec![titled(4, "Convex", CONVEX)], None, cx));
+    bar.cx.run_until_parked();
+    bar.type_text("conv");
+    bar.suggest("conv", vec![searching("conv")]);
+    assert_eq!(bar.rows(), [(search("conv"), 0)]);
+}
+
+#[test]
+fn a_tab_is_named_by_the_starts_of_its_titles_words_and_its_sites_labels() {
+    let url = "https://www.my-team.dashboard.convex.dev:8080/x";
+    let tab = titled(1, "Projects | Convex-Dashboard", url);
+    for yes in ["pro", "convex", "dash", "my", "team", "dashboard", "conv"] {
+        assert!(names_tab(&tab, yes), "{yes}");
+    }
+    for no in ["rojects", "ex", "dev", "www", "8080", "dashboard.c"] {
+        assert!(!names_tab(&tab, no), "{no}");
+    }
+    // A page that isn't on the web has no site to name.
+    assert!(!names_tab(&titled(2, "Home", "data:text/html,hi"), "dat"));
+    // A host with one label is named whole.
+    assert!(names_tab(&titled(3, "Home", "http://localhost:3000/"), "local"));
+}
+
 #[test]
 fn a_page_only_in_history_has_a_clock_and_an_open_tab_or_a_site_its_favicon() {
     assert_eq!(page("https://a.test/").icon(), Icon::Glyph("icons/clock.svg"));

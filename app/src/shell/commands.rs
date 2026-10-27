@@ -348,9 +348,10 @@ pub struct BarCommand {
 }
 
 /// The most tabs the command bar lists before anything is typed (ours: Arc's limit isn't measured).
-const BAR_TABS_SHOWN: usize = 10;
+pub const BAR_TABS_SHOWN: usize = 10;
 
-/// One of the Space's tabs, which the command bar lists before anything is typed.
+/// One of the Space's tabs, which the command bar lists before anything is typed, and puts first
+/// when what's typed starts its name.
 #[derive(Clone)]
 pub struct BarTab {
     pub tab: u64,
@@ -975,6 +976,8 @@ impl Shell {
     /// The tabs the command bar lists before anything is typed, as Arc's does: the favorites and
     /// the Space's pinned and Today tabs, those shown most recently first, then the rest in the
     /// sidebar's order. It leaves out the tab shown and what shows with it, as its suggestions do.
+    /// All of them: the bar lists the first BAR_TABS_SHOWN, and looks through the rest for a name
+    /// that what's typed starts.
     fn bar_tabs(&self) -> Vec<BarTab> {
         let mut tabs = self.favorites.clone();
         if let Some(space) = self.shown_space() {
@@ -992,7 +995,6 @@ impl Shell {
         order
             .into_iter()
             .filter(|tab| !shown.contains(tab) && !self.url(*tab).is_empty())
-            .take(BAR_TABS_SHOWN)
             .map(|tab| BarTab {
                 tab,
                 title: self.title(tab),
