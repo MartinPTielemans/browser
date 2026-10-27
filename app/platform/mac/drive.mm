@@ -90,9 +90,10 @@
 // driven, and keys and clickkey to the key window. It logs "browser: drive <n>: <command>" when
 // command n arrives and "browser: drive <n> done, key <window class>, focus <view class>, active
 // <0|1>, marked <location,length|none>" once AppKit has handled its events, "browser: menu
-// tracked <titles>" as a menu opens, such as the page's, and "browser: modal shown <texts and
-// buttons>" as an alert does. A page ignores clicks while the app isn't the active app, and macOS
-// doesn't let a background process make it active.
+// tracked <titles>" as a menu opens, such as the page's, "browser: modal shown <texts and
+// buttons>" as an alert does, and "browser: desktop space changed" once macOS has slid to another
+// Space. A page ignores clicks while the app isn't the active app, and macOS doesn't let a
+// background process make it active.
 #import <Cocoa/Cocoa.h>
 #import <objc/runtime.h>
 
@@ -1151,6 +1152,15 @@ void drive_start(void) {
   method_setImplementation(class_getInstanceMethod(NSApplication.class,
                                                    @selector(orderFrontCharacterPalette:)),
                            (IMP)OrderFrontCharacterPalette);
+  // A window leaving full screen tells AppKit it has before the desktop's Space slides back, and
+  // until it has, the window server still orders the window over the others and drops clicks.
+  [NSWorkspace.sharedWorkspace.notificationCenter
+      addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification*) {
+                fprintf(stderr, "browser: desktop space changed\n");
+              }];
   // Full-screen transitions animate, and end well after the command's done.
   for (NSNotificationName name :
        {NSWindowDidEnterFullScreenNotification, NSWindowDidExitFullScreenNotification}) {
