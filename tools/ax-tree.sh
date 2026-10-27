@@ -35,7 +35,9 @@ func text(_ object: AnyObject?) -> String? {
 }
 func line(_ element: AXUIElement, _ depth: Int) -> String {
   let role = text(value(element, kAXRoleAttribute)) ?? "?"
-  let subrole = text(value(element, kAXSubroleAttribute)) ?? "-"
+  // AppKit answers AXUnknown for an element with no subrole.
+  let subrole = text(value(element, kAXSubroleAttribute)).flatMap { $0 == "AXUnknown" ? nil : $0 }
+    ?? "-"
   let title = text(value(element, kAXTitleAttribute)).flatMap { $0.isEmpty ? nil : $0 }
     ?? text(value(element, kAXDescriptionAttribute)) ?? ""
   var words = ["\(depth) \(role)/\(subrole) \"\(title)\""]
