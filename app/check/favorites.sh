@@ -11,8 +11,9 @@
 # dragged across the other goes before it, one dragged into the list goes there, and escape puts a
 # dragged tile back. Tiles taller than 40 % of the window scroll with the list. ⌘, from the page and
 # the UI opens Settings, where switches turn the warning before quitting and the haptics off and the
-# menu of a pop-up button sets how long Today tabs wait for the archive, and all three stay after
-# the quit, when ⌘Q quits without asking. ⌘W and the window's close button hide it, and More
+# menus of two pop-up buttons set how long Today tabs wait for the archive and who shares the
+# favorites (Each Space, kept across the quit and its favorite with it, then Each Profile's Spaces
+# again), and all of them stay after the quit, when ⌘Q quits without asking. ⌘W and the window's close button hide it, and More
 # Settings… opens Chromium's settings in a tab.
 
 # Favorites, from the served page with example.org above it.
@@ -170,6 +171,11 @@ expect '^browser: menu shown 12 hours (default) (checked), 24 hours, 7 days, 30 
   "a click on Archive tabs after didn't show the times, with 12 hours chosen"
 send choose 24 hours
 expect '^browser: archive tabs after 24 hours$' "choosing 24 hours in Settings didn't set it"
+post clickkey 500 213
+expect "^browser: menu shown In Every Space, In Each Profile's Spaces (checked), In Each Space\$" \
+  "a click on Favorites didn't show the choices, with Each Profile's Spaces chosen"
+send choose In Each Space
+expect "^browser: favorites scope In Each Space\$" "choosing In Each Space in Settings didn't set it"
 send clickkey 430 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
@@ -313,6 +319,11 @@ expect '^browser: menu shown 12 hours (default), 24 hours (checked), 7 days, 30 
   "Settings didn't keep 24 hours across the quit"
 send choose "12 hours (default)"
 expect '^browser: archive tabs after 12 hours (default)$' "choosing 12 hours didn't set it"
+post clickkey 500 213
+expect "^browser: menu shown In Every Space, In Each Profile's Spaces, In Each Space (checked)\$" \
+  "Settings didn't keep Each Space across the quit"
+send choose "In Each Profile's Spaces"
+expect "^browser: favorites scope In Each Profile's Spaces\$" "choosing Each Profile's Spaces didn't set it"
 send clickkey 430 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
@@ -334,4 +345,4 @@ exec 3>&-
 await '^browser: command quit via ' || fail "⌘Q didn't reach the UI"
 exited
 grep -q '^browser: dialog shown Quit' "$log" && fail "⌘Q asked first with the warning off"
-echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which names itself in a tooltip, as the Library and sidebar buttons do with their keys, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-up sets the archive's time, all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorite-tooltip.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"
+echo "ok: Add to Favorites in a tab's menu makes the tab a tile above the Space's rows, which names itself in a tooltip, as the Library and sidebar buttons do with their keys, which a click shows and ⌘1–⌘9 count first, with an edge under them while the list is scrolled, which scrolls to the row of a tab shown under its bottom. A double-click on the tile takes it back to its URL, and ⌘W unloads it and keeps the tile. Its menu duplicates it into Today, and after a quit the favorite comes back, shown, and Remove from Favorites puts it at the top of Today. Rows dragged onto the tiles turn into tiles, and tiles dragged into the list into rows. Rows dragged onto the tiles become favorites where they're dropped, tiles reorder and go into Today, and Escape puts a dragged tile back. Tiles taller than 40 % of the window scroll with the list, under the URL field. ⌘, from the page and the UI opens Settings, whose switches set the warning before quitting and the haptics and whose pop-ups set the archive's time and who shares the favorites (Each Space, with the favorite kept in it across the quit, and back), all kept across a quit, when ⌘Q quits without asking; ⌘W and its close button hide it, and More Settings… opens Chromium's settings. Windows: $out/favorite-tooltip.png, $out/library-tooltip.png, $out/header-tooltip.png, $out/favorites.png, $out/scroll-edge.png, $out/list-scrolled.png, $out/favorite-unloaded.png, $out/favorites-restored.png, $out/favorite-drag.png, $out/favorite-drag-out.png, $out/tiles-tall.png, $out/tiles-scrolled.png, $out/settings.png"

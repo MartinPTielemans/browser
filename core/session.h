@@ -47,10 +47,15 @@ struct SavedTab {
   bool muted = false;
   // A favorite's profile's directory. A Space's tabs are in the Space's.
   std::string profile;
+  // What names a favorite's site, shared by its tabs in each profile under Every Space, or 0.
+  int site = 0;
 };
 
 // |contents|'s history, with the page it's loading, or waiting to load, if it has no page yet.
 SavedTab SaveTab(content::WebContents& contents);
+
+// Opens |saved| unloaded in |window|, as the tab it was. Returns its id, or 0.
+bc_id RestoreSavedTab(Window& window, Profile* profile, const SavedTab& saved);
 
 // A folder of pinned tabs, as the session file keeps it.
 struct SavedFolder {
@@ -79,12 +84,16 @@ struct SavedSpace {
   std::vector<SavedTab> today;
   // The tab the window showed there, counting the pinned tabs then the Today tabs, or -1.
   int shown = -1;
-  // The favorite the window showed there instead, or -1.
+  // The favorite the window showed there instead, among the session's favorites, or -1.
   int shown_favorite = -1;
+  // The favorites that belong to the Space under Each Space, left to right, and the one the window
+  // showed there among them, or -1.
+  std::vector<SavedTab> favorites;
+  int shown_own_favorite = -1;
 };
 
-// |space|, where a window shows |shown|, without its shown favorite. Puts the Today tabs it saved
-// in |today| if it isn't null.
+// |space|, where a window shows |shown|, without its shown favorite unless that's one of its own.
+// Puts the Today tabs it saved in |today| if it isn't null.
 SavedSpace SaveSpace(const Space& space, bc_id shown, std::vector<bc_id>* today = nullptr);
 
 // Makes |saved| a Space, its tabs unloaded in |window| and |profile|, with the id |id|, a deleted
@@ -123,6 +132,8 @@ struct Settings {
   bool warn_before_quitting = true;
   // Whether the app warns before moving a tab to another profile's Space, which it does once.
   bool warn_moving_profiles = true;
+  // Who shares the favorites: a BC_FAVORITES_ value.
+  int favorites_scope = BC_FAVORITES_PROFILE;
 };
 
 // The user's settings. Call SessionChanged after changing them.

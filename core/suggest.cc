@@ -66,7 +66,7 @@ bc_id TabAt(const GURL& url, const Window& window, bc_id shown, const TemplateUR
   }
   if (const Space* in = Space::FromId(window.space())) {
     std::ranges::stable_partition(
-        favorites, [&](bc_id tab) { return Favorites::ProfileOf(tab) == in->profile(); });
+        favorites, [&](bc_id tab) { return Favorites::ShownIn(tab, *in); });
   }
   std::vector<const std::vector<bc_id>*> lists = {&favorites};
   for (Space* space : spaces) {

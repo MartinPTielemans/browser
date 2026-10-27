@@ -177,7 +177,7 @@ impl Shell {
         (self.profiles.iter().skip(1))
             .filter(|(profile, _)| {
                 !self.spaces.iter().any(|each| each.profile == *profile)
-                    && !self.favorite_profiles.values().any(|each| each == profile)
+                    && !self.favorite_holders.values().any(|each| each == profile)
             })
             .map(|(profile, name)| {
                 let (profile, name) = (*profile, name.clone());

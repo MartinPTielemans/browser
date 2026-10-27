@@ -351,7 +351,8 @@ typedef struct bc_host {
   // A Space was made, renamed, deleted or given another profile, or a profile was made, renamed or
   // deleted. Read them with bc_spaces and bc_profiles.
   void (*spaces_changed)(void* context);
-  // A tab was made a favorite or taken out of them. Read them with bc_favorites.
+  // A tab was made a favorite, moved among them or taken out of them, or the favorites' scope
+  // changed. Read them with bc_favorites.
   void (*favorites_changed)(void* context);
   // The window shows another Space. Which of its tabs, if any, follows in window_selected.
   void (*window_space_shown)(void* context, bc_id window, bc_id space);
@@ -517,8 +518,9 @@ BC_EXPORT bool bc_agent_may_act(const char* agent, bc_id tab);
 BC_EXPORT bc_id bc_space_profile(bc_id space);
 
 // Puts the Space in |profile|, loading it first if it isn't, and returns whether it will: only an
-// empty Space changes, as its tabs' pages are in their profile. A window showing a favorite of the
-// profile it was in shows nothing. Then spaces_changed.
+// empty Space changes, as its tabs' pages are in their profile. A window showing a favorite the
+// Space no longer shows shows nothing. Under Each Space its favorites open again in |profile|, and
+// the old tabs close. Then spaces_changed, and favorites_changed for favorites.
 BC_EXPORT bool bc_space_set_profile(bc_id space, bc_id profile);
 
 // Copies up to |capacity| of the profiles into |profiles| and returns how many there are: the one
@@ -572,7 +574,8 @@ BC_EXPORT void bc_space_set_icon(bc_id space, const char* icon);
 // the Space before it, else the one after it. Its tabs close, and it goes with the last of them; a
 // page that keeps its tab open keeps the Space until it closes. Its Today tabs reopen with
 // bc_window_reopen_closed_tab, in the Space shown, and the Space with
-// bc_window_undo_delete_space. Then spaces_changed.
+// bc_window_undo_delete_space. Under BC_FAVORITES_SPACE its favorites close with it and come back
+// with it. Then spaces_changed.
 BC_EXPORT bool bc_space_delete(bc_id space);
 
 // Copies up to |capacity| of the Space's Today tabs into |tabs|, top to bottom, and returns how many
@@ -609,10 +612,37 @@ BC_EXPORT void bc_folder_move(bc_id folder, bc_id to, size_t index);
 // space_changed.
 BC_EXPORT void bc_folder_delete(bc_id folder);
 
-// Copies up to |capacity| of the favorites into |tabs|, left to right, and returns how many there
-// are. They're tabs in no Space, which every Space in their profile shows above its own, as Arc
-// does. Each profile's are in their order among them.
+// Where the favorites are kept, as the user chose: who shows the same ones above their own tabs. A
+// favorite is a site, and each profile that shows it has a tab of its own for it, in no Space,
+// which a Space opens in its own profile.
+// - BC_FAVORITES_EVERY: every Space shows the same sites, whatever its profile.
+// - BC_FAVORITES_PROFILE: the Spaces of one profile show the same favorites, as Arc's do. The
+//   default.
+// - BC_FAVORITES_SPACE: every Space has its own.
+#define BC_FAVORITES_EVERY 0
+#define BC_FAVORITES_PROFILE 1
+#define BC_FAVORITES_SPACE 2
+
+// Copies up to |capacity| of the favorites into |tabs|, and returns how many there are: every
+// profile's, and under BC_FAVORITES_SPACE every Space's. A Space shows those that are its profile's
+// or, under BC_FAVORITES_SPACE, its own (bc_favorite_space), above its own tabs, in their order
+// among them.
 BC_EXPORT size_t bc_favorites(bc_id* tabs, size_t capacity);
+
+// The Space the favorite belongs to, under BC_FAVORITES_SPACE, which alone shows it. Else, or for a
+// tab that isn't a favorite, 0: every Space of the favorite's profile (bc_tab_profile) shows it.
+BC_EXPORT bc_id bc_favorite_space(bc_id tab);
+
+// The scope of the favorites, a BC_FAVORITES_ value, and changes it, which the core keeps with the
+// Spaces. Switching never loses a favorite. Narrowing gives each Space or profile its own copy, its
+// tabs unloaded but for those already loaded, which stay with one Space. Widening merges the lists
+// by URL: the list the Space the window active last shows first, then each other list's extras in
+// the order of the Spaces, and a duplicate's extra tabs close, keeping a loaded one over an
+// unloaded one. A window showing a favorite its Space no longer shows shows the Space's top tab
+// instead. Then favorites_changed. The user's preference: agents have no call to change it, and
+// the calls they have for favorites follow the scope.
+BC_EXPORT int bc_favorites_scope(void);
+BC_EXPORT void bc_set_favorites_scope(int scope);
 
 // The profile the tab's page is in, or 0.
 BC_EXPORT bc_id bc_tab_profile(bc_id tab);
@@ -953,10 +983,12 @@ BC_EXPORT void bc_tab_jump_to_selection(bc_id tab);
 // tab_state_changed.
 BC_EXPORT void bc_tab_set_pinned(bc_id tab, bool pinned);
 
-// Makes the tab the favorite at |index| among its profile's, counted without it, else the last of
-// them. A tab of a Space leaves it and its split view, and its favorite's URL is its pinned URL if
-// it's pinned, else the page it's at. A window showing it keeps showing it. Then favorites_changed,
-// and space_changed and tab_state_changed for a tab of a Space.
+// Makes the tab the favorite at |index| among those its Space shows, counted without it, else the
+// last of them; or moves a favorite there. A tab of a Space leaves it and its split view, and its
+// favorite's URL is its pinned URL if it's pinned, else the page it's at. A window showing it keeps
+// showing it. Under BC_FAVORITES_EVERY the other profiles' Spaces get the site too, in tabs of
+// their own, and moving it moves it there. Under BC_FAVORITES_SPACE a tab of an agent's Space isn't
+// made one. Then favorites_changed, and space_changed and tab_state_changed for a tab of a Space.
 BC_EXPORT void bc_tab_move_to_favorites(bc_id tab, size_t index);
 
 // Moves the tab, with the rest of its split view, to |index| in its Space's Today tabs, or in its
@@ -964,8 +996,9 @@ BC_EXPORT void bc_tab_move_to_favorites(bc_id tab, size_t index);
 // split |index| is inside. In the pinned tabs or a folder, |index| counts the tabs and folders
 // directly in it. A Today tab moved to the pinned tabs is pinned at the page it's at, and a pinned
 // tab moved to Today is unpinned. A favorite leaves the favorites for the Space its window shows,
-// unless that's an agent's, pinned at its favorite's URL in the pinned tabs, and a window showing
-// it keeps showing it. Then space_changed and tab_state_changed, and favorites_changed for a
+// unless that's an agent's or doesn't show it, pinned at its favorite's URL in the pinned tabs, and
+// a window showing it keeps showing it. Under BC_FAVORITES_EVERY the site goes from every profile,
+// and its other tabs close. Then space_changed and tab_state_changed, and favorites_changed for a
 // favorite.
 BC_EXPORT void bc_tab_move(bc_id tab, bool pinned, bc_id folder, size_t index);
 
