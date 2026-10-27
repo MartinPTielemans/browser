@@ -2921,6 +2921,8 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
                         item("JavaScript Console", Command::JavaScriptConsole),
                     ],
                 )),
+                MenuItem::separator(),
+                item("Expand Current Split", Command::ExpandSplit),
             ],
         ),
         menu(
