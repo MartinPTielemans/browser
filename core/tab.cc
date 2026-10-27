@@ -439,6 +439,7 @@ void Tab::DropSystemPage() {
   favicon_ = gfx::Image();
   system_page_favicon_.clear();
   system_page_title_.clear();
+  system_page_loading_ = false;
   EngineChanged();
 }
 
@@ -485,6 +486,12 @@ void Tab::FetchSystemPageFavicon() {
 }
 
 void Tab::SystemPageChanged() {
+  // Done loading, as Chromium's DidFinishLoad reports a page.
+  const bool loading = system_page_ && system_page_->loading();
+  if (system_page_loading_ && !loading && Host().tab_loaded) {
+    Host().tab_loaded(Host().context, id_, system_page_->url().spec().c_str());
+  }
+  system_page_loading_ = loading;
   StateChanged();
 }
 

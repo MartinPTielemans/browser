@@ -256,6 +256,7 @@ class Tab : public content::WebContentsObserver,
   // The system page's favicon, PNG, and its title, which the app was last told of.
   std::vector<uint8_t> system_page_favicon_;
   std::string system_page_title_;
+  bool system_page_loading_ = false;
   base::CancelableTaskTracker favicon_tracker_;
   base::WeakPtrFactory<Tab> weak_factory_{this};
 
