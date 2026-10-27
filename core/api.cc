@@ -85,7 +85,8 @@ void SplitMoved(browser_core::Space& space, bc_id id) {
 }
 
 // The profile of the Space the window shows, which what it opens and suggests comes from: for a
-// private window's, the off-the-record one.
+// private window's, the off-the-record one, or null once its session has gone, as only opening a
+// private window starts one.
 Profile* ProfileOf(const browser_core::Window& window) {
   const browser_core::Space* space = browser_core::Space::FromId(window.space());
   Profile* profile = browser_core::ProfileFor(space ? space->profile() : std::string());
