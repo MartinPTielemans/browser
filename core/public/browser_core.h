@@ -1126,7 +1126,8 @@ BC_EXPORT void bc_tab_back_to_pinned_url(bc_id tab);
 BC_EXPORT size_t bc_tab_pinned_url(bc_id tab, char* url, size_t capacity);
 
 // Changes the URL a pinned tab or a favorite goes back to, which unpinning forgets, so an undo can
-// give a tab back the one it had. Does nothing for another tab or an invalid |url|. Then
+// give a tab back the one it had. Under BC_FAVORITES_EVERY a favorite's site gets it in every
+// profile. Does nothing for another tab or an invalid |url|. Then
 // space_changed or favorites_changed, and tab_state_changed. The user's: agents get none.
 BC_EXPORT void bc_tab_set_pinned_url(bc_id tab, const char* url);
 

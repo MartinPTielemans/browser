@@ -29,10 +29,11 @@ mod agent_spaces;
 mod close_tab;
 #[cfg(test)]
 mod favorites_scope;
-mod undo_tests;
 #[cfg(test)]
 mod full_screen;
 mod access;
+#[cfg(test)]
+mod undo_tests;
 mod assets;
 mod browser;
 mod clean_link;

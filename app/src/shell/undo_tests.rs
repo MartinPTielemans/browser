@@ -203,6 +203,47 @@ fn removing_a_favorite_is_said_in_the_toast_and_undone_to_its_place_and_url(
     assert_eq!(host.take_edits(), ["move 21 false 0 0"]);
 }
 
+/// Under Every Space the core keeps a twin of each favorite in the other profiles, which sit
+/// between the tiles the Space shown has; the core's Add makes them again, at the same place, as it
+/// moves and removes them with the favorite.
+#[gpui::test]
+fn an_every_space_favorite_is_put_back_by_its_place_among_the_tiles_its_space_shows(
+    cx: &mut TestAppContext,
+) {
+    let (shell, host) = plain(cx, vec![30]);
+    // Spaces 1 and 2 are in profile 1; the twins 40 to 42 are profile 2's.
+    let both = vec![(20, 1), (40, 2), (21, 1), (41, 2), (22, 1), (42, 2)];
+    shell.update(cx, |shell, cx| shell.set_favorites(both.clone(), cx));
+    assert_eq!(shell.read_with(cx, |shell, _| shell.favorites().to_vec()), [20, 21, 22]);
+    host.pinned_urls
+        .borrow_mut()
+        .insert(21, "https://a.example/".into());
+    shell.update(cx, |shell, cx| shell.move_tab_to(21, false, 0, 0, cx));
+    assert_eq!(host.take_edits(), ["move 21 false 0 0"]);
+
+    // The core closed 21's twin with it.
+    shell.update(cx, |shell, cx| {
+        shell.set_favorites(vec![(20, 1), (40, 2), (22, 1), (42, 2)], cx)
+    });
+    report(&shell, cx, Vec::new(), vec![21, 30]);
+    host.pinned_urls.borrow_mut().clear();
+    assert!(undo(&shell, cx));
+    // Index 1 among 20, 22 and 21's own, not 2 among the twins too.
+    assert_eq!(
+        host.take_edits(),
+        ["favorite 21 1", "pinned url 21 https://a.example/"]
+    );
+
+    // The core made the twin again, under a new id, in the same place.
+    shell.update(cx, |shell, cx| {
+        shell.set_favorites(vec![(20, 1), (40, 2), (21, 1), (43, 2), (22, 1), (42, 2)], cx)
+    });
+    report(&shell, cx, Vec::new(), vec![30]);
+    assert_eq!(shell.read_with(cx, |shell, _| shell.favorites().to_vec()), [20, 21, 22]);
+    assert!(redo(&shell, cx));
+    assert_eq!(host.take_edits(), ["move 21 false 0 0"]);
+}
+
 #[gpui::test]
 fn the_toasts_undo_button_does_what_command_z_does_and_goes(cx: &mut TestAppContext) {
     let (shell, host) = plain(cx, vec![30]);
