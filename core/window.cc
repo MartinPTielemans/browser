@@ -10,6 +10,7 @@
 
 #include "base/auto_reset.h"
 #include "base/functional/bind.h"
+#include "base/logging.h"
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
@@ -1782,6 +1783,9 @@ void Window::Destroy() {
     Space::Delete(space_);
     if (!profile.empty()) {
       EndPrivateSession(ProfileFor(profile));
+    } else {
+      LOG(ERROR) << "browser: private window " << id_
+                 << " closed with no Space to end its session";
     }
   }
   InstallQuestion::WindowClosing(id_);
