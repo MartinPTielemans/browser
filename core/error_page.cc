@@ -278,9 +278,11 @@ const game = (() => {
       hop();
     }
   });
-  // A hidden tab draws nothing, so its run ends.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && running) {
+  // A run ends once the keys go elsewhere: the command bar or another overlay, window or app, or
+  // another tab, which hides this one. Not on visibilitychange: a listener for it, as for pagehide,
+  // keeps the page out of the fast shutdown at a quit, and the quit then never finished.
+  addEventListener('blur', () => {
+    if (running) {
       end();
     }
   });
