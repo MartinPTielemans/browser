@@ -27,6 +27,7 @@ pub mod command_bar;
 pub mod default_browser;
 pub mod dialog;
 pub mod icon_picker;
+pub mod launch;
 pub mod link_target;
 pub mod offer;
 pub mod shell;

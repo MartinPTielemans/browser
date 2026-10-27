@@ -1068,6 +1068,21 @@ void host_close_launch_window(void) {
   g_launch_picture = nil;
 }
 
+void host_watch_finished_launching(void (*finished)(void)) {
+  // AppKit posts it once.
+  [NSNotificationCenter.defaultCenter
+      addObserverForName:NSApplicationDidFinishLaunchingNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification*) {
+                // After AppController's own handler, which hands the links to the core, as the
+                // order observers hear a notification in isn't promised.
+                dispatch_async(dispatch_get_main_queue(), ^{
+                  finished();
+                });
+              }];
+}
+
 bool host_save_launch_picture(void* ui_view, const char* profile_dir, double width) {
   NSWindow* window = ((__bridge NSView*)ui_view).window;
   const NSSize size = window.frame.size;

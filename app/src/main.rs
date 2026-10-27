@@ -11,8 +11,8 @@ use std::{
 };
 
 use browser::{
-    capture, command_bar, dialog, icon_picker, link_target, log, offer, site_controls, toast,
-    tooltip, zoom_hud,
+    capture, command_bar, dialog, icon_picker, launch::Launch, link_target, log, offer,
+    site_controls, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -54,6 +54,7 @@ mod platform {
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_show_launch_window(profile_dir: *const c_char, width: f64, height: f64);
         pub fn host_close_launch_window();
+        pub fn host_watch_finished_launching(finished: extern "C" fn());
         pub fn host_save_launch_picture(
             ui_view: *mut c_void,
             profile_dir: *const c_char,
@@ -337,9 +338,9 @@ thread_local! {
     static APP: RefCell<Option<ApplicationHandle>> = const { RefCell::new(None) };
     // The most recently key first, as the core keeps its windows.
     static WINDOWS: RefCell<Vec<BrowserWindow>> = const { RefCell::new(Vec::new()) };
-    // The links other apps sent before the first window had brought back the Spaces, which they
-    // open over; None after.
-    static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
+    // The first window's view, held off screen until it has drawn the links that launched the
+    // browser.
+    static LAUNCH: RefCell<Launch<*mut c_void>> = const { RefCell::new(Launch::new()) };
 }
 
 /// The core's id and the UI's view of the window that the overlays every window shares show over,
@@ -2034,7 +2035,7 @@ fn restore_spaces(window: bc::bc_id) {
     } else {
         unsafe { bc::bc_window_show_space(window, create_space("Space 1")) };
     }
-    let links = LAUNCH_LINKS.take().unwrap_or_default();
+    let links = LAUNCH.with_borrow_mut(Launch::take_links);
     match std::env::var("BROWSER_URL") {
         Ok(url) => open_tab(window, &url),
         Err(_) if !restored && links.is_empty() => open_tab(window, START_URL),
@@ -2051,12 +2052,9 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
         .iter()
         .map(|&url| unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned())
         .collect();
-    let launching = LAUNCH_LINKS.with_borrow_mut(|links| {
-        links.as_mut().map(|links| links.extend(urls.iter().cloned())).is_some()
-    });
-    if launching {
+    let Some(urls) = LAUNCH.with_borrow_mut(|launch| launch.links(urls)) else {
         return;
-    }
+    };
     // A private window's session is the user's on purpose, so a link from elsewhere goes to the
     // regular window in front, as Chrome's does.
     let Some(window) = WINDOWS.with_borrow(|windows| windows.iter().find(|w| !w.private).cloned())
@@ -2064,6 +2062,8 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
         return;
     };
     open_links_in(window.id, &urls);
+    // A first window held off screen shows once it has drawn them.
+    LAUNCH.with_borrow_mut(Launch::opened);
     unsafe { platform::host_activate(window.ui_view) };
 }
 
@@ -2273,16 +2273,18 @@ fn open_window(
         // on screen, so the core's reports of its tabs can come before its first frame.
         restore_spaces(id);
     }
-    unsafe { platform::host_show_window(ui_view) };
     if !first {
+        unsafe { platform::host_show_window(ui_view) };
         finish_opening(id, ui_view, window, true, private, cx);
         return Some(id);
     }
+    // The first goes on screen once it has drawn the links that launched the browser (Launch).
+    LAUNCH.with_borrow_mut(|launch| launch.hold(ui_view));
     // Making the overlays' windows takes the main thread for a while, so at launch they wait for
-    // the frame after the first: the window goes on screen with its sidebar drawn, then they're
-    // made. Later windows don't wait, as a page may open in them at once. A window that isn't
-    // visible (another desktop, launched hidden) draws no frames, so a timer makes them if the
-    // frames haven't.
+    // the frame after the first on screen: the window goes on screen with its sidebar drawn, then
+    // they're made. Later windows don't wait, as a page may open in them at once. A window that
+    // isn't visible (another desktop, launched hidden) draws no frames, so a timer shows it and
+    // makes them if the frames haven't.
     let pending = Rc::new(Cell::new(true));
     let finish = {
         let pending = pending.clone();
@@ -2292,23 +2294,56 @@ fn open_window(
             }
         }
     };
-    let on_frame = finish.clone();
-    window
-        .update(cx, |_, window, _| {
-            // Deferred, as the shell's window is borrowed while it draws.
-            window.on_next_frame(move |window, _| {
-                // check.sh reads this line.
-                log!("browser: first frame at {:.1} ms", unsafe { platform::host_since_launch() });
-                window.on_next_frame(move |_, cx| cx.defer(on_frame))
-            })
-        })
-        .ok();
+    watch_first_frames(window, finish.clone(), cx);
     cx.spawn(async move |cx| {
         cx.background_executor().timer(Duration::from_millis(500)).await;
-        cx.update(finish)
+        cx.update(|cx| {
+            if let Some(ui_view) = LAUNCH.with_borrow_mut(Launch::release_now) {
+                show_first(ui_view);
+            }
+            finish(cx)
+        })
     })
     .detach();
     Some(id)
+}
+
+/// Each frame the held first window draws, until one shows what it waits for and it goes on
+/// screen; then `finish` at the frame after.
+fn watch_first_frames(
+    window: WindowHandle<Shell>,
+    finish: impl FnOnce(&mut App) + Clone + 'static,
+    cx: &mut App,
+) {
+    window
+        .update(cx, |_, drawing, _| {
+            drawing.on_next_frame(move |_, cx| {
+                let frame = LAUNCH.with_borrow(Launch::frame);
+                // Once the frame is drawn, which follows this at once on the main thread.
+                cx.spawn(async move |cx| {
+                    cx.update(|cx| {
+                        if let Some(ui_view) = LAUNCH.with_borrow_mut(|l| l.drawn(frame)) {
+                            show_first(ui_view);
+                        }
+                        if LAUNCH.with_borrow(Launch::holding) {
+                            return watch_first_frames(window, finish, cx);
+                        }
+                        // Deferred, as the shell's window is borrowed while it draws.
+                        let finish = move |_: &mut Window, cx: &mut App| cx.defer(finish);
+                        window.update(cx, |_, drawing, _| drawing.on_next_frame(finish)).ok();
+                    })
+                })
+                .detach();
+            })
+        })
+        .ok();
+}
+
+/// The first window goes on screen, showing the frame its UI drew last.
+fn show_first(ui_view: *mut c_void) {
+    unsafe { platform::host_show_window(ui_view) };
+    // check.sh reads this line.
+    log!("browser: first frame at {:.1} ms", unsafe { platform::host_since_launch() });
 }
 
 fn finish_opening(
@@ -2463,9 +2498,18 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
         cx.set_menus(menus(&[], &[]));
+        // check.sh reads this line, as launches are timed from it.
+        log!("browser: started at {:.1} ms", unsafe { platform::host_since_launch() });
         open_window(None, None, cx);
     });
     APP.set(Some(app));
+}
+
+/// AppKit has finished launching, after handing over the links that launched the browser.
+extern "C" fn finished_launching() {
+    if let Some(ui_view) = LAUNCH.with_borrow_mut(Launch::finished) {
+        show_first(ui_view);
+    }
 }
 
 /// The menu bar: Arc's menus, with the commands the browser has, the Spaces named `spaces` and the
@@ -2700,6 +2744,7 @@ unsafe extern "C" fn window_open_link(
 }
 
 unsafe extern "C" fn launching(_: *mut c_void) {
+    unsafe { platform::host_watch_finished_launching(finished_launching) };
     let Ok(profile) = CString::new(profile_dir()) else {
         return;
     };

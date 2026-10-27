@@ -98,7 +98,7 @@ at() {
 
 launch "$out/links-plain.log"
 await '^browser: restored in ' || fail "the Spaces didn't come back"
-plain="launch window $(at 'launch window') ms, first frame $(at 'first frame') ms"
+plain="launch window $(at 'launch window') ms, started $(at 'started') ms, first frame $(at 'first frame') ms"
 quit_launched
 
 # The link that launches the browser opens over the Spaces it brings back, before the window has
@@ -112,7 +112,7 @@ opened=$(grep -n -m1 '^browser: link from another app ' "$log" | cut -d: -f1)
 drawn=$(grep -n -m1 '^browser: first frame at ' "$log" | cut -d: -f1)
 [ "$opened" -lt "$drawn" ] || fail "the link opened after the window's first frame"
 ../tools/window-screenshot.sh "$pid" "$out/links-cold.png" || fail "no window to capture"
-cold="launch window $(at 'launch window') ms, first frame $(at 'first frame') ms"
+cold="launch window $(at 'launch window') ms, started $(at 'started') ms, first frame $(at 'first frame') ms"
 quit_launched
 
 if [ "$driven" = 1 ]; then
