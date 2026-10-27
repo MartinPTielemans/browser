@@ -1,6 +1,8 @@
 <!--
-Title: a conventional commit in plain language, such as
-"fix(spike): page view keeps its margins on resize". One request is one PR.
+Read CONTRIBUTING.md first. Review capacity is limited: meeting it makes a PR eligible for
+review, not certain of a merge. One PR solves one underlying problem, and drafts meet the same
+bar. Title: a conventional commit in plain language, such as
+"fix(spike): page view keeps its margins on resize". Every commit is signed off (git commit -s).
 -->
 
 ## Problem
@@ -11,7 +13,20 @@ reproduce it where relevant. -->
 ## Change
 
 <!-- How this fixes it. If it spans layers (engine, core, UI, platform), why
-each part is needed for the same fix. -->
+each part is needed for the same fix. Split independent fixes into their own PRs. -->
+
+## Scope and approval
+
+<!-- Link the triaged issue, or the issue comment where a maintainer approved the
+direction and scope. A very small fix for an obvious bug needs neither: say why it
+qualifies. Maintainers can skip this section. -->
+
+## Surfaces
+
+<!-- Walk "Hit every surface" in AGENTS.md and say which entries applied and how you
+covered them: UI and agents, keyboard with the page focused, over the page, text
+input (IME), window states, profiles and Spaces, platforms, hot paths, docs, reverse
+states. -->
 
 ## Verification
 
@@ -20,6 +35,6 @@ check. "It builds" alone is not enough.
 
 UI changes: before/after window captures (tools/window-screenshot.sh); motion
 or timing: a short recording. Hot paths (tab switch, new tab, command bar,
-launch): numbers against the performance gate in docs/roadmap.md.
+launch): numbers against the performance gate in docs/roadmap.md, before and after.
 Upload images and video to GitHub and embed them here. Never commit PR-only
 assets. -->

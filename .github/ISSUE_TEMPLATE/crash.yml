@@ -1,0 +1,77 @@
+name: Crash or hang
+description: ilo quit unexpectedly, or stopped responding.
+labels:
+  - crash
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Crash.** macOS keeps a report in `~/Library/Logs/DiagnosticReports` (Console → Crash
+        Reports shows the same). Take the `.ips` file from the time of the crash whose name starts
+        with `Browser`, or a Helper's name if a page or the GPU process crashed.
+
+        **Hang.** While it's stuck, sample the browser for 10 seconds:
+        ```
+        sample "$(pgrep -x Browser)" 10 -file ~/Desktop/ilo-hang.txt
+        ```
+
+        Reports and samples hold file paths with your user name, and can hold URLs. Replace your
+        user name and anything private before uploading.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What happened
+      options:
+        - The whole browser quit
+        - A page crashed ("Aw, Snap" or a blank page)
+        - The browser stopped responding
+        - A page stopped responding
+    validations:
+      required: true
+
+  - type: textarea
+    id: doing
+    attributes:
+      label: What you were doing
+      description: The last few things before it happened, and whether you can make it happen again. Public URLs only.
+    validations:
+      required: true
+
+  - type: upload
+    id: report
+    attributes:
+      label: Crash report or sample
+      description: The sample, or the `.ips` file zipped or renamed to `.txt` (GitHub won't take `.ips`), redacted.
+    validations:
+      required: false
+      accept: ".txt,.log,.json,.zip"
+
+  - type: input
+    id: version
+    attributes:
+      label: ilo commit
+      description: ilo has no releases yet. The commit you built (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+
+  - type: input
+    id: chromium
+    attributes:
+      label: Chromium version
+      description: "`chromium.version` in `engine/pins.ini` at that commit."
+
+  - type: input
+    id: os
+    attributes:
+      label: macOS version and chip
+      description: "`sw_vers -productVersion` and `uname -m`."
+      placeholder: 26.1, arm64
+    validations:
+      required: true
+
+  - type: textarea
+    id: extensions
+    attributes:
+      label: Extensions installed

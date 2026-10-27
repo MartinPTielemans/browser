@@ -100,6 +100,35 @@ at commit 2b75f3ad12b420c9504ef05df8d2564a28f8500e.
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
+T3 Code (https://github.com/pingdotgg/t3code), MIT License
+Used in CONTRIBUTING.md, .github/pull_request_template.md, .github/VOUCHED.td,
+.github/ISSUE_TEMPLATE/bug_report.yml and via-triage.yml, .github/triage/PLAYBOOK.md,
+.github/workflows/pr-vouch.yml, pr-size.yml, labels.yml, stale-needs-more-info.yml,
+agent-context-budget.yml and ci.yml, .github/actions/ci-changes/action.yml and
+.github/scripts/ci-changes.cjs; at commit 570d4b03eef879bd60be3d74444046858c94dacd.
+
+  MIT License
+
+  Copyright (c) 2026 T3 Tools Inc.
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
 emojis (https://crates.io/crates/emojis, https://github.com/rossmacarthur/emojis) 0.9.1, MIT License
 or Apache License 2.0, with its emoji data under the Unicode License v3
 Used for the icon picker's Emoji tab (app/Cargo.toml, app/src/icon_picker/emoji.rs): the emoji, their

@@ -1,0 +1,77 @@
+name: Agents and MCP
+description: An agent driving ilo through its MCP server did the wrong thing, or couldn't do the right one.
+labels:
+  - agents
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never paste secrets or private page content.** No API keys, tokens, cookies or passwords,
+        and nothing an agent read from a page you're signed in to. Reproduce on a public site in a
+        throwaway profile, and redact the activity log.
+
+        If an agent could read a password, cookie or autofill data, run its own JavaScript in a page,
+        reach a page outside http(s), or get past a permission or confirmation, that's a security
+        bug: report it privately (SECURITY.md), not here.
+
+  - type: input
+    id: client
+    attributes:
+      label: Agent client and version
+      description: Claude Code, Codex or another MCP client, its version, and the model if you know it.
+      placeholder: Claude Code 2.4.1 (claude-opus-5-5)
+    validations:
+      required: true
+
+  - type: input
+    id: tool
+    attributes:
+      label: Tool
+      description: The MCP tool the agent called, as the activity log names it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What the agent asked for, what ilo did, and what you expected. Public URLs only.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: involved
+    attributes:
+      label: Also involved
+      multiple: true
+      options:
+        - A permission prompt or rule
+        - A confirmation
+        - A handoff (sign-in, 2FA or CAPTCHA)
+        - The Agent Space
+        - None of these
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Activity log
+      description: The relevant entries, redacted.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: ilo commit
+      description: ilo has no releases yet. The commit you built (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: macOS version and chip
+      description: "`sw_vers -productVersion` and `uname -m`."
+      placeholder: 26.1, arm64
+    validations:
+      required: true

@@ -1,0 +1,92 @@
+name: Site doesn't work
+description: A site works in Chrome but not in ilo.
+labels:
+  - site
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the site breaks in Chrome as well, it's the site's or Chromium's problem, not ilo's.
+
+        **Public pages only.** If it only breaks once you're signed in, say so and describe it;
+        never paste cookies, tokens, account details, or what the signed-in page shows.
+
+  - type: input
+    id: url
+    attributes:
+      label: URL
+      description: A public URL where it breaks.
+      placeholder: https://example.com/page
+    validations:
+      required: true
+
+  - type: textarea
+    id: broken
+    attributes:
+      label: What breaks
+      description: What you did and what went wrong. A sign-in that never finishes, a video that won't play, a button that does nothing.
+    validations:
+      required: true
+
+  - type: input
+    id: chrome
+    attributes:
+      label: Chrome version it works in
+      description: From chrome://version.
+      placeholder: 155.0.8059.84
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: What you tried in ilo
+      options:
+        - label: It breaks with every extension turned off.
+        - label: It breaks in a new profile.
+        - label: It breaks after a reload.
+
+  - type: textarea
+    id: console
+    attributes:
+      label: Errors in DevTools
+      description: Console errors or failed network requests (⌥⌘I), redacted. Leave out headers and cookies.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: ilo commit
+      description: ilo has no releases yet. The commit you built (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+
+  - type: input
+    id: chromium
+    attributes:
+      label: Chromium version
+      description: "`chromium.version` in `engine/pins.ini` at that commit."
+
+  - type: input
+    id: os
+    attributes:
+      label: macOS version and chip
+      description: "`sw_vers -productVersion` and `uname -m`."
+      placeholder: 26.1, arm64
+    validations:
+      required: true
+
+  - type: textarea
+    id: extensions
+    attributes:
+      label: Extensions installed
+
+  - type: upload
+    id: attachments
+    attributes:
+      label: Screenshots or recordings
+      description: Redact first.
+    validations:
+      required: false
+      accept: ".png,.jpg,.jpeg,.gif,.webp,.mp4,.mov,.webm,.txt,.log"

@@ -1,0 +1,92 @@
+# Adapted from T3 Code (https://github.com/pingdotgg/t3code, MIT) at commit
+# 570d4b03eef879bd60be3d74444046858c94dacd.
+name: Triage report
+description: Filed by a coding agent that followed .github/triage/PLAYBOOK.md on the user's Mac. For hand-written reports, use the other forms.
+labels:
+  - via-triage
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The structure agents follow from `.github/triage/PLAYBOOK.md`. One problem per issue.
+        Redact secrets, the user name in paths, and every private URL or page.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The problem in the user's own words.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: Diagnosis
+      description: What the investigation found, grounded in crash reports, samples, logs and source.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The fewest steps that show it, on public pages.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ilo commit
+      description: The commit the bug happened on, or unknown.
+      placeholder: a9a6941a
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Chromium version, macOS version and chip, prod or dev build, extensions if relevant.
+      placeholder: Chromium 155.0.8059.84, macOS 26.1 arm64, prod build, uBlock Origin
+    validations:
+      required: true
+
+  - type: dropdown
+    id: chrome
+    attributes:
+      label: Does it happen in Chrome too?
+      options:
+        - "No, only in ilo"
+        - "Not applicable"
+        - "Not checked"
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: The most relevant crash report frames, sample stacks or log lines only. Redacted.
+      render: text
+
+  - type: input
+    id: related
+    attributes:
+      label: Related issues
+      description: Existing issues that look similar, and why this is not a duplicate.
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Fix applied or workaround
+      description: Anything that was run on the Mac to unblock the user.
+
+  - type: input
+    id: agent
+    attributes:
+      label: Filed by
+      description: Which agent and model produced this report.
+      placeholder: Claude Code (claude-opus-5-5)
