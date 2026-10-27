@@ -94,7 +94,7 @@ fn defaults(command: Command) -> Vec<String> {
 /// The rebindable command `name` names, as Command::name writes it.
 fn named(name: &str) -> Option<Command> {
     let commands = SHORTCUTS.iter().map(|&(_, command, _)| command);
-    (commands.chain(BAR_COMMANDS.iter().map(|&(_, command)| command)))
+    (commands.chain(BAR_COMMANDS.iter().map(|&(_, command, _)| command)))
         .find(|&command| command.name() == name && rebindable(command))
 }
 

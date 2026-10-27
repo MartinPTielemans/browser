@@ -12,11 +12,12 @@ use crate::text_input::{self, Chosen, FieldMenu};
 
 /// A host that records what the bar asks of it, but its suggestions and its window's height, and
 /// apart from the rest, where it shows the window. A text with a dot names a page there; any other
-/// is searched for.
+/// is searched for. It has commands only if asked to.
 #[derive(Default)]
 struct Recorder {
     calls: RefCell<Vec<String>>,
     shown: RefCell<Vec<String>>,
+    commands: bool,
 }
 
 impl Recorder {
@@ -91,6 +92,13 @@ impl Host for Recorder {
         self.record("dismiss".into());
     }
 
+    /// Every command, as if each did something now, with its default key.
+    fn commands(&self, text: &str, _: &App) -> Vec<shell::BarCommand> {
+        if !self.commands {
+            return Vec::new();
+        }
+        shell::find_commands(text, &shell::UserKeys::default(), |name, _| Some(name))
+    }
 }
 
 /// The bar, opened for a new tab.
@@ -105,9 +113,18 @@ impl Bar {
         Bar::with_tabs(cx, Vec::new())
     }
 
+    /// The bar, opened for a new tab, finding the browser's commands.
+    fn with_commands(cx: &mut TestAppContext) -> Self {
+        Bar::open(cx, Vec::new(), Recorder { commands: true, ..Recorder::default() })
+    }
+
     /// The bar, opened for a new tab in a Space with `tabs`.
     fn with_tabs(cx: &mut TestAppContext, tabs: Vec<shell::BarTab>) -> Self {
-        let host = Rc::new(Recorder::default());
+        Bar::open(cx, tabs, Recorder::default())
+    }
+
+    fn open(cx: &mut TestAppContext, tabs: Vec<shell::BarTab>, host: Recorder) -> Self {
+        let host = Rc::new(host);
         cx.update(text_input::bind_keys);
         let window = cx.update(|cx| open(host.clone(), cx)).expect("no window for the bar");
         cx.update(|cx| show(None, tabs, None, cx));
@@ -130,6 +147,21 @@ impl Bar {
     fn suggest(&mut self, text: &str, rows: Vec<Suggestion>) {
         self.cx.cx.update(|cx| suggested(text.into(), rows, cx));
         self.cx.run_until_parked();
+    }
+
+    /// The rows listed: a command's name and its key, else the row's page.
+    fn listed(&mut self) -> Vec<String> {
+        self.window
+            .read_with(&self.cx.cx, |bar, _| {
+                (bar.rows.iter())
+                    .map(|row| match (&row.command, &row.shortcut) {
+                        (Some(_), Some(key)) => format!("{} {key}", row.text),
+                        (Some(_), None) => row.text.to_string(),
+                        (None, _) => row.url.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap()
     }
 
     /// What the input shows, and what's selected in it.
@@ -709,4 +741,166 @@ fn a_click_on_the_url_field_opens_the_bar_over_it_and_cmd_l_centred(cx: &mut Tes
     bar.edit("https://example.com/", None);
     assert_eq!(bar.shown(), ["centred 169 above the middle, 765 wide, radius 18"]);
     assert!(!bar.over_field());
+}
+
+/// The core's rows for `text`: its search row, then a page for each of `hosts`.
+fn suggestions(text: &str, hosts: &[&str]) -> Vec<Suggestion> {
+    let pages = hosts.iter().map(|host| page(&format!("https://{host}/")));
+    std::iter::once(searching(text)).chain(pages).collect()
+}
+
+/// Types `text` and has the core suggest `rows` for it.
+fn type_and_suggest(bar: &mut Bar, text: &str, rows: Vec<Suggestion>) {
+    bar.type_text(text);
+    bar.suggest(text, rows);
+}
+
+/// One letter is enough to find a command, as "q" lists Quit in Arc's bar, with its key at the
+/// row's end. Under three letters, commands come after the suggestions.
+#[gpui::test]
+fn one_letter_lists_quit_after_the_suggestions(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    type_and_suggest(&mut bar, "q", suggestions("q", &["quora.com"]));
+    let quit = concat!("Quit ", env!("APP_NAME"), " ⌘Q");
+    assert_eq!(bar.listed(), [search("q"), "https://quora.com/".into(), quit.into()]);
+}
+
+/// Arc's "copy": the best command above the search row, and the others a name or a hidden word
+/// starts with before the core's other rows, as "copy" finds New Window and Duplicate Current Tab.
+#[gpui::test]
+fn copy_puts_copy_url_above_the_search_row(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    type_and_suggest(&mut bar, "copy", suggestions("copy", &["copy.com"]));
+    let expected = [
+        "Copy URL ⇧⌘C".to_string(),
+        search("copy"),
+        "Copy URL as Markdown ⌥⇧⌘C".into(),
+        "New Window ⌘N".into(),
+        "Duplicate Current Tab".into(),
+        "https://copy.com/".into(),
+    ];
+    assert_eq!(bar.listed(), expected);
+    // ↩ on the first row runs it.
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["hide"]);
+}
+
+/// Arc's "clear": Clear Today first, then the others whose names start with it, and one with only
+/// its letters in order after the suggestions.
+#[gpui::test]
+fn clear_lists_clear_today_first_and_collapse_last(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    type_and_suggest(&mut bar, "clear", suggestions("clear", &["clearhaus.com"]));
+    let expected = [
+        "Clear Today ⇧⌘K".to_string(),
+        search("clear"),
+        "Clear Cache and Refresh".into(),
+        "Clear Cookies and Refresh".into(),
+        "Clear Archive".into(),
+        "https://clearhaus.com/".into(),
+        "Collapse All Folders".into(),
+    ];
+    assert_eq!(bar.listed(), expected);
+}
+
+/// Arc's "split": the command a word of whose name starts with it comes first, and the others
+/// such come after the suggestions. Arc's "theme" puts Edit Theme… first the same way, and
+/// "library" Open Library….
+#[gpui::test]
+fn a_word_of_the_name_puts_the_best_first_and_the_rest_after(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    type_and_suggest(&mut bar, "split", suggestions("split", &["splitwise.com"]));
+    let expected = [
+        "Add Split View ⌃+".to_string(),
+        search("split"),
+        "https://splitwise.com/".into(),
+        "Close this Split Pane ⌃⇧-".into(),
+        "Separate Page from Split View".into(),
+        "Flip Split View".into(),
+    ];
+    assert_eq!(bar.listed(), expected);
+    bar.keys("cmd-a");
+    type_and_suggest(&mut bar, "library", suggestions("library", &[]));
+    assert_eq!(bar.listed(), ["Open Library… ⇧⌘L".to_string(), search("library")]);
+}
+
+/// Arc's "space": New Space… first, as a word of its name starts with it, and the other Space
+/// commands after the suggestions.
+#[gpui::test]
+fn space_puts_new_space_first(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    type_and_suggest(&mut bar, "space", suggestions("space", &["spacex.com"]));
+    let expected = [
+        "New Space…".to_string(),
+        search("space"),
+        "https://spacex.com/".into(),
+        "Rename Space".into(),
+        "Next Space ⌥⌘→".into(),
+        "Previous Space ⌥⌘←".into(),
+    ];
+    assert_eq!(bar.listed(), expected);
+}
+
+/// The hidden words: "duplicate" finds New Window after Duplicate Current Tab, as Arc's does with
+/// a page, and "hide" Toggle Sidebar after Hide Sidebar.
+#[gpui::test]
+fn a_hidden_word_finds_its_command(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    type_and_suggest(&mut bar, "duplicate", suggestions("duplicate", &[]));
+    let expected =
+        ["Duplicate Current Tab".to_string(), search("duplicate"), "New Window ⌘N".into()];
+    assert_eq!(bar.listed(), expected);
+    bar.keys("cmd-a");
+    type_and_suggest(&mut bar, "hide", suggestions("hide", &[]));
+    let expected = ["Hide Sidebar ⌘S".to_string(), search("hide"), "Toggle Sidebar ⌘S".into()];
+    assert_eq!(bar.listed(), expected);
+}
+
+/// Arc's "tab", where a site completes what's typed: the site first, then the core's rows, then
+/// the commands, to Arc's 15 rows at most.
+#[gpui::test]
+fn a_site_completing_puts_every_command_after_the_suggestions(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    bar.type_text("tab");
+    let hosts = ["tabs.test", "tablet.test", "table.test", "tableau.test", "tabel.test"];
+    let mut rows = vec![completing("https://tabelog.com/", "elog.com"), searching("tab")];
+    rows.extend(hosts.iter().chain(&["a.test", "b.test", "c.test"]).map(|host| {
+        page(&format!("https://{host}/"))
+    }));
+    bar.suggest("tab", rows);
+    let listed = bar.listed();
+    assert_eq!(listed.len(), shell::BAR_ROWS);
+    assert_eq!(listed[0], "https://tabelog.com/");
+    let commands =
+        ["Pin Tab ⌘D", "Next Tab ⌥⌘↓", "Archive Tab ⌘W", "Clear Today ⇧⌘K", "Favorite Tab"];
+    assert_eq!(listed[10..], commands);
+}
+
+/// Fifteen rows show five at a time, and the list scrolls to keep the selection in view.
+#[gpui::test]
+fn the_list_scrolls_to_keep_the_selection_in_view(cx: &mut TestAppContext) {
+    let mut bar = Bar::with_commands(cx);
+    bar.cx.simulate_resize(size(px(WIDTH), px(height(ROWS_SHOWN))));
+    type_and_suggest(&mut bar, "c", suggestions("c", &["c1.test", "c2.test", "c3.test"]));
+    assert_eq!(bar.listed().len(), shell::BAR_ROWS);
+    // The rows' bounds as laid out, before the list's scroll moves them.
+    let in_view = |bar: &mut Bar, index: usize| {
+        bar.window
+            .read_with(&bar.cx.cx, |bar, _| {
+                let (list, offset) = (bar.scroll.bounds(), bar.scroll.offset().y);
+                let row = bar.scroll.bounds_for_item(index).expect("no such row");
+                list.top() <= row.top() + offset && row.bottom() + offset <= list.bottom()
+            })
+            .unwrap()
+    };
+    assert!(!in_view(&mut bar, 8));
+    for _ in 0..8 {
+        bar.keys("down");
+    }
+    assert_eq!(bar.plates().0, 8);
+    // A frame, for the list to scroll.
+    bar.cx.simulate_resize(size(px(WIDTH), px(height(ROWS_SHOWN) + 1.)));
+    bar.cx.run_until_parked();
+    assert!(in_view(&mut bar, 8));
+    assert!(!in_view(&mut bar, 0));
 }

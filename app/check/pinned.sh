@@ -298,20 +298,20 @@ expect "^browser: outline $f-\\[$c\\]\$" "a click on the open folder didn't clos
 send click $(pinned_row 0)
 expect "^browser: outline $f+\\[$c\\]\$" "a click on the closed folder didn't open it: $(outline)"
 # The command bar finds commands by their names' letters in order, those that start with what's
-# typed first, four at most, and one found by its letters alone after the search row. ↩ runs the
-# command selected.
+# typed first, and one found by its letters alone last, after the suggestions. ↩ runs the command
+# selected.
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 send type clear
-expect '^browser: command bar commands "clear": Clear Today, Clear Cache and Refresh, Clear Archive, Clear Cookies and Refresh$' "the command bar didn't find the four commands that start with \"clear\": $(grep '^browser: command bar commands' "$log" | tail -1)"
+expect '^browser: command bar commands "clear": Clear Today, Clear Cache and Refresh, Clear Cookies and Refresh, Clear Archive, Collapse All Folders$' "the command bar didn't find the four commands that start with \"clear\", then Collapse All Folders: $(grep '^browser: command bar commands' "$log" | tail -1)"
 send key escape
 expect '^browser: command bar hidden$' "escape didn't close the command bar"
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar again"
 send type cllps
 expect '^browser: command bar commands "cllps": Collapse All Folders$' "the command bar didn't find Collapse All Folders for \"cllps\""
-send key down
-expect '^browser: command bar selected Collapse All Folders$' "↓ didn't select Collapse All Folders, under the search row"
+send key pagedown
+expect '^browser: command bar selected Collapse All Folders$' "⇟ didn't select Collapse All Folders, the last row"
 send key return
 expect '^browser: command bar runs Collapse All Folders$' "↩ didn't run Collapse All Folders"
 expect '^browser: command collapse-folders via command bar$' "Collapse All Folders didn't run collapse-folders"

@@ -182,7 +182,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Paste and Go | MVP | with Paste and Search, in the command bar field's menu; the clipboard is read only once one is chosen | Dia P§7 |
 | [x] | Clean-link copy | MVP | Copy URL leaves out utm_ parameters and click IDs | Dia P§7 |
 | [x] | Copy URL / as Markdown | MVP | ⇧⌘C / ⌥⇧⌘C; as Quote ⌃⇧⌘C later | Arc 1.170.0 menus |
-| [ ] | Arc's command list and ⌘T over the page | MVP | ⌘T and ⌘L: the centred panel over the page, undimmed. One list of up to 15 rows, 5 shown, no section headings; commands among the suggestions from one letter, matched by name and by hidden keywords, each with its glyph and key; about 110 commands (ux-spec.md › Command bar › Commands). Built: ⌘T over the page; ours need two letters and show four at most | Arc 1.170.0 ax, cap |
+| [ ] | Arc's command list and ⌘T over the page | MVP | ⌘T and ⌘L: the centred panel over the page, undimmed. One list of up to 15 rows, 5 shown, no section headings; commands among the suggestions from one letter, matched by name and by hidden keywords, each with its glyph and key; about 110 commands (ux-spec.md › Command bar › Commands). Built: ⌘T over the page; one letter finds a command, by name or hidden word, among up to 15 rows, the strong ones above the suggestions and the rest after; Arc's bar names and hidden words for the commands we have. Not yet: Arc's commands we don't have, such as Mute All Tabs, Reveal Tab in Sidebar and Exit | Arc 1.170.0 ax, cap |
 
 ## New tab
 

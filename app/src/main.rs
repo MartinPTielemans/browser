@@ -958,6 +958,9 @@ impl command_bar::Host for Bar {
         unsafe { platform::host_dismiss_overlay(COMMAND_BAR) };
     }
 
+    fn commands(&self, text: &str, cx: &App) -> Vec<shell::BarCommand> {
+        shell::bar_commands(text, cx)
+    }
 }
 
 /// The user left the command bar without choosing anything in it.

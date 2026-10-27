@@ -58,8 +58,9 @@ mod tile_theme;
 pub use assets::Assets;
 pub use browser::{Browser, Folders, Page, Split, WindowButton};
 pub use commands::{
-    BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT, KeepName, bar_commands,
-    bind_keys, copy_from_bar, keystroke_label, menu_item, pane_added, run_from_bar, shown_tab,
+    BAR_ROWS, BarCommand, BarTab, CancelName, Command, CreateSpace, KEY_CONTEXT, KeepName, Match,
+    bar_commands, bind_keys, copy_from_bar, find_commands, keystroke_label, menu_item, pane_added,
+    run_from_bar, shown_tab,
 };
 pub use drag::dropped_urls;
 pub use extensions::{

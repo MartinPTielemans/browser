@@ -12,7 +12,7 @@ use std::{
 use browser::log;
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
-    Folders, MenuEntry, Page, Shell, Split, WindowButton,
+    Folders, Match, MenuEntry, Page, Shell, Split, WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
 use gpui::{
@@ -866,6 +866,9 @@ impl command_bar::Host for PreviewBar {
     fn set_height(&self, _: f32) {}
     fn hide(&self) {}
     fn dismiss(&self) {}
+    fn commands(&self, text: &str, cx: &App) -> Vec<shell::BarCommand> {
+        shell::bar_commands(text, cx)
+    }
 }
 
 /// Opens the command bar at `at`, with the suggestions for what `mode` has typed.
@@ -899,27 +902,28 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     .collect();
     let (typed, rows) = match mode {
         "empty" => ("", tabs.iter().cloned().map(Suggestion::from).collect()),
-        "commands" => (
-            "clear",
-            vec![
-                shell::BarCommand {
-                    name: "Clear Today".into(),
-                    command: Command::Clear,
-                    shortcut: Some("⇧⌘K".into()),
-                    strong: true,
-                }
-                .into(),
+        "commands" => {
+            let command = |name: &str, command, shortcut: Option<&str>, matched| {
+                Suggestion::from(shell::BarCommand {
+                    name: name.to_string().into(),
+                    command,
+                    shortcut: shortcut.map(|key| key.to_string().into()),
+                    matched,
+                })
+            };
+            // Arc's "clear": the best command above the search row, others whose names start
+            // with it under it, and a weaker one after the suggestions.
+            let (cache, cookies) = (Command::ClearCacheAndRefresh, Command::ClearCookiesAndRefresh);
+            let rows = vec![
+                command("Clear Today", Command::Clear, Some("⇧⌘K"), Match::Name),
                 search("clear"),
-                shell::BarCommand {
-                    name: "Collapse All Folders".into(),
-                    command: Command::CollapseFolders,
-                    shortcut: None,
-                    strong: false,
-                }
-                .into(),
+                command("Clear Cache and Refresh", cache, None, Match::Name),
+                command("Clear Cookies and Refresh", cookies, None, Match::Name),
                 page("clearhaus", "clearhaus.com", "https://clearhaus.com/", 0),
-            ],
-        ),
+                command("Collapse All Folders", Command::CollapseFolders, None, Match::Letters),
+            ];
+            ("clear", rows)
+        }
         "sites" => (
             "wik",
             vec![
