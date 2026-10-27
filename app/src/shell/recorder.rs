@@ -475,6 +475,7 @@ impl Browser for Recorder {
 
     fn set_space_theme(&self, space: u64, theme: &str, _: &mut App) {
         let theme = if theme.is_empty() { "none" } else { theme };
+        self.edit(format!("theme {space} {theme}"));
         self.record(format!("space theme {space} {theme}"))
     }
 

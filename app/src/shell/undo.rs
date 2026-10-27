@@ -49,7 +49,8 @@ impl What {
     pub const RENAME_FOLDER: What = What::quiet("Rename Folder");
     pub const RENAME_SPACE: What = What::quiet("Rename Space");
     pub const CHANGE_ICON: What = What::quiet("Change Icon");
-    pub const CHANGE_COLOR: What = What::quiet("Change Color");
+    pub const CHANGE_THEME: What = What::quiet("Change Theme Color");
+    pub const REMOVE_THEME: What = What::quiet("Remove Theme Color");
     pub const CLEAR: What = What::quiet("Clear");
     /// Arc says it in its own words (docs/ux-spec.md › Toast), so the shell shows that toast.
     pub const DELETE_SPACE: What = What::quiet("Delete Space");
@@ -92,7 +93,8 @@ pub(super) struct Folder {
     children: Vec<u64>,
 }
 
-/// What a name, an icon or a colour belongs to.
+/// What a name, an icon or a colour belongs to. A Space's colour comes with the theme it's the
+/// main colour of, as the theme picker gives both.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Prop {
     TabName(u64),
@@ -106,7 +108,9 @@ pub(super) enum Prop {
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Value {
     Text(String),
-    Color(Option<u32>),
+    /// A Space's colour, or none for the system's accent, and its theme as `Theme` writes it, or
+    /// empty for none.
+    Color { color: Option<u32>, theme: String },
 }
 
 /// A step. Applying one does it and returns the step that undoes it, or None if it can't be done
@@ -564,7 +568,10 @@ impl Shell {
             Prop::FolderName(_) => What::RENAME_FOLDER,
             Prop::SpaceName(_) => What::RENAME_SPACE,
             Prop::TabIcon(_) | Prop::SpaceIcon(_) => What::CHANGE_ICON,
-            Prop::SpaceColor(_) => What::CHANGE_COLOR,
+            Prop::SpaceColor(_) => match value {
+                Value::Color { color: None, .. } => What::REMOVE_THEME,
+                _ => What::CHANGE_THEME,
+            },
         };
         self.keep(what, before.map(|before| Edit::Set(prop, before)), cx);
     }
@@ -736,7 +743,11 @@ impl Shell {
             }
             Prop::SpaceName(id) => Value::Text(space(id)?.name.to_string()),
             Prop::SpaceIcon(id) => Value::Text(space(id)?.icon.to_string()),
-            Prop::SpaceColor(id) => Value::Color(space(id)?.color),
+            Prop::SpaceColor(id) => {
+                let space = space(id)?;
+                let theme = space.theme.map_or_else(String::new, |theme| theme.to_text());
+                Value::Color { color: space.color, theme }
+            }
         })
     }
 
@@ -750,8 +761,16 @@ impl Shell {
             }
             (Prop::SpaceName(space), Value::Text(name)) => browser.rename_space(space, name, cx),
             (Prop::SpaceIcon(space), Value::Text(icon)) => browser.set_space_icon(space, icon, cx),
-            (Prop::SpaceColor(space), Value::Color(color)) => {
-                browser.set_space_color(space, *color, cx)
+            (Prop::SpaceColor(space), Value::Color { color, theme }) => {
+                // The theme being made gives way to the one ⌘Z gives back.
+                if self.theme_preview.is_some_and(|(previewed, made)| {
+                    previewed == space && made.to_text() != *theme
+                }) {
+                    self.theme_preview = None;
+                }
+                browser.set_space_theme(space, theme, cx);
+                browser.set_space_color(space, *color, cx);
+                cx.notify();
             }
             _ => {}
         }
