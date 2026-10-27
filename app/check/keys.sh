@@ -13,7 +13,8 @@
 # while it composes. The Edit menu's Undo, Redo and Select All reach the focused page. ⌘Y opens the
 # history page from the page and the UI. A page whose renderer crashes leaves the browser running,
 # and ⌘R loads it again. Settings › Shortcuts gives New Tab ⌃⌘T, which stays reserved and reaches
-# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back.
+# the UI from both sides, while ⌘T no longer runs it, and its ↺ gives ⌘T back. ⌘T as the window
+# comes on screen, before the overlays' windows are made, makes them and opens the bar.
 
 # The test page puts what reached it in its title, which the app logs. Chromium drops input
 # to a page that hasn't drawn yet, so the page says when it has.
@@ -36,6 +37,23 @@ rm -f "$saved" "$launch_frame" "$(dirname "$saved")/Shortcuts"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
+# At once, as the overlays' windows are made a frame or two after the window comes on screen.
+for _ in $(seq 3000); do
+  grep -q '^browser: first frame at ' "$log" && break
+  kill -0 "$pid" 2>/dev/null || fail "the app exited"
+  sleep 0.005
+done
+send key t cmd
+if [ "$active" = 1 ]; then
+  expect '^browser: command bar shown$' "⌘T as the window came on screen didn't open the command bar"
+  send key escape
+  expect '^browser: command bar hidden$' "escape didn't close the bar ⌘T opened at launch"
+  launch_bar="ok: ⌘T as the window comes on screen opens the bar, its window made then."
+  grep -q '^browser: overlays opened for a shortcut$' "$log" ||
+    launch_bar="skip: ⌘T at launch came after the overlays' windows were made."
+else
+  launch_bar="skip: ⌘T at launch. Browser wasn't the active app."
+fi
 await_load
 await '^browser: title [0-9]* ready$' || fail "the test page didn't draw"
 
@@ -384,3 +402,4 @@ await '^browser: warn before quitting off$' ||
   fail "Quit, and don't ask again didn't turn the warning off"
 exited
 echo "ok: focus follows clicks, typing reaches the focused side, reserved shortcuts skip the page and the others reach it first, ⌘Q asks first in the dialog, and escape keeps the browser and Quit, and don't ask again quits, the command bar takes the keyboard and gives it back, keys typed right after ⌘T, ⌘L and ⌘F land in the bar they open from both sides, a composition too, and reach a page that keeps ⌘F after it, with New Tab's plate while ⌘T's is open, goes to a host over https and searches for words, Japanese input composes in both, and the Edit menu undoes, redoes and selects in the page, ⌘Y opens the history page from both sides, and New Tab rebound to ⌃⌘T in Settings › Shortcuts stays reserved from both sides while ⌘T runs nothing, until ↺ gives it back, and a killed page's renderer leaves the browser running and ⌘R loads the page again. Windows: $out/quit.png, $out/command-bar.png, $out/search.png, $out/ime.png, $out/shortcuts.png"
+echo "$launch_bar"
