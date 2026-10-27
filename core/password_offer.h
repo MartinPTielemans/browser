@@ -21,6 +21,20 @@ class PasswordOffer {
   // See bc_tab_answer_offer.
   static void Answer(bc_id tab, int answer, const char* username);
 
+  // While one lives, Chrome hiding |tab|'s offer, as it does when the tab leaves its Browser or
+  // another tab shows in its place there, keeps it: the tab's page is going to another window,
+  // which shows the offer.
+  class Moving {
+   public:
+    explicit Moving(bc_id tab);
+    Moving(const Moving&) = delete;
+    Moving& operator=(const Moving&) = delete;
+    ~Moving();
+
+   private:
+    const bc_id previous_;
+  };
+
  private:
   // Closes the tab's offer, as Chrome's widget closing does.
   static void Drop(bc_id tab);
