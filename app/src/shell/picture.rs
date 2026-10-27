@@ -75,6 +75,8 @@ pub(super) struct Picture {
     request: u64,
     pending: bool,
     image: Option<Ready>,
+    /// Whether the window has drawn `image`, for the handover lines.
+    drawn: bool,
     motion: Option<Move>,
     /// Taking the page back, once the picture has grown to the card.
     returning: Option<Task<()>>,
@@ -104,6 +106,7 @@ impl Shell {
             request: 0,
             pending: false,
             image: None,
+            drawn: false,
             motion: None,
             returning: None,
         });
@@ -140,6 +143,8 @@ impl Shell {
         picture.request = REQUESTS.fetch_add(1, Ordering::Relaxed);
         picture.pending = true;
         let (tab, request) = (picture.tab, picture.request);
+        let window = self.browser.window();
+        crate::log_handover("picture asked", &format!("window {window}, tab {tab}"));
         self.browser.page_picture(tab, request, cx);
     }
 
@@ -149,6 +154,8 @@ impl Shell {
         };
         if let Some(ready) = picture.image {
             self.stale_pictures.push(ready.image);
+            let window = self.browser.window();
+            crate::log_handover("picture dropped", &format!("window {window}, tab {}", picture.tab));
         }
         if picture.pending {
             self.browser.page_picture_end(picture.tab, cx);
@@ -195,6 +202,8 @@ impl Shell {
         if let Some(old) = picture.image.replace(ready) {
             self.stale_pictures.push(old.image);
         }
+        picture.drawn = false;
+        crate::log_handover("picture decoded", &format!("window {window}, tab {}", picture.tab));
         // check.sh waits for this line.
         log!("browser: window {window} pictures tab {}", picture.tab);
         cx.notify();
@@ -254,6 +263,9 @@ impl Shell {
         let Some(picture) = &mut self.picture else {
             return;
         };
+        if picture.image.is_some() && !std::mem::replace(&mut picture.drawn, true) {
+            crate::log_handover("picture drawn", &format!("window {id}, tab {}", picture.tab));
+        }
         let Some(motion) = picture.motion else {
             return;
         };
