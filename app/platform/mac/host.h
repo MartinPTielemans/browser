@@ -423,6 +423,15 @@ uint32_t host_accent_color(void);
 // Calls |changed| each time the user changes the system's accent colour.
 void host_watch_accent_color(void (*changed)(void));
 
+// Gives the Dock icon's dot the color it had when the app last quit, kept in |profile_dir|, and
+// follows the user's icon style from now on (dock.mm). For the launch, before the browser starts.
+void host_dock_dot_launch(const char* profile_dir);
+
+// Gives the Dock icon's dot |color|, as 0xRRGGBB, or without |colored| the icon's own green, once
+// it's drawn off the main thread. In the Tinted and Clear icon styles the icon stays as macOS draws
+// it. Asked again for the same color, it checks the style again.
+void host_dock_dot(bool colored, uint32_t color);
+
 // Calls |released| once, after the event that shows ⌃ is no longer held: ⌃ going up, a key or a
 // button pressed without it, or the app going to the background. Watches the whole app, whichever
 // view has the keyboard.

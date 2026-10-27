@@ -933,7 +933,7 @@ See Spaces › Agent Space. The confirmation UI and the activity log ship in the
 
 ## Picked by the owner, not on the roadmap
 
-Boosts are Arc's. Ad blocking and environments go beyond Arc and Dia; the owner picked them (decision 6). Add them to a phase before building them.
+Boosts are Arc's. Ad blocking, environments and the Dock dot go beyond Arc and Dia; the owner picked them (decision 6). Add them to a phase before building them; the Dock dot is built.
 
 ### Boosts
 
@@ -964,6 +964,14 @@ From Flecha: one project's origins, such as local, staging and production.
 - **Switching** (Flecha). ⌥⌘E (*interim*; check for clashes) opens the same page on the project's next origin. Only the origin changes; the path, query and hash stay. The command bar lists the page's other origins.
 - **Badge** (Flecha). The URL field names the environment of the page's origin. Production is red, so it's never mistaken for a safe place to click around.
 - **Agents.** On a production origin, an agent asks first, as for pay and send (decision 8). Owner to confirm.
+
+### Dock dot
+
+The green dot on ilo's Dock icon takes the color of the key window's Space, so the Dock says which Space you're in. A Space with no color, or a private window, shows the green.
+
+- **Native look.** The dot is recolored on macOS's own drawing of the icon, so it keeps the style's glass. In the Tinted and Clear icon styles, the icon stays exactly as macOS draws it: a colored dot would be the one icon out of style in the Dock.
+- **Never in the switch.** One swap takes the main thread 10–45 ms, more than the 16 ms a whole Space switch may take. The dot changes 400 ms after the last switch, once the slide has settled, so a run of quick switches is one swap.
+- **Launch.** The icon takes the color it quit with while the Dock still bounces.
 
 ## Measured in Dia, not on the roadmap
 
