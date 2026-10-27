@@ -9,7 +9,8 @@
 # which shows its page again; in the last window it quits. ⇧↩ in the command bar opens its page in
 # a new window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
 # forward rather than taking the page. With the first window in full screen, other apps take the
-# second for the window in front once the user is in it.
+# second for the window in front once the user is in it. A heavy page and a light one move between
+# two windows every way a page moves, and the run says how long each stage of a move takes.
 
 # The page counts in its title from its first frame, so a page that reloaded would count from 1
 # again. "o" in it opens a tab under it, as a link to a new tab does.
@@ -255,9 +256,136 @@ send key w cmd shift
 expect "^browser: window closed $third\$" "⇧⌘W didn't close ⇧↩'s window"
 send window 1
 
+# A heavy page shaped like a video grid and a light one move between two windows, twice with the
+# second window smaller than the first and twice at the first's size, each time four ways: a click
+# on its row in the window without it, when no window has a picture of it; a click on the picture
+# of it; a click on its row in the window with its picture; and the window showing it switching to
+# another tab, which gives it back. The core and the app log each stage of a move as "browser:
+# handover <stage> +<ms> ms (<ids>)", in ms since the click. Each move's go in handover.txt, and
+# the run ends with each stage's median for each way, in handover-summary.txt.
+serve
+# Opens $1 of the check's site from the first window's command bar, and sets $tab to its tab.
+open_site() {
+  send key t cmd
+  expect '^browser: command bar shown$' "⌘T didn't open the command bar for $1"
+  send insert "$site$1"
+  send key return
+  expect "^browser: loaded [0-9]* $site$1\$" "$1 didn't load"
+  tab=$(sed -n "s|^browser: loaded \([0-9]*\) $site$1\$|\1|p" "$log" | tail -1)
+  expect "^browser: window $first shows $tab\$" "the first window didn't show $1"
+}
+open_site grid.html
+heavy=$tab
+expect "^browser: title $heavy grid\$" "the heavy page didn't draw"
+open_site welcome.html
+light=$tab
+# The point of the Today row of tab $1, in either window, as both list the same.
+row_of() {
+  index=0
+  for each in $(today); do
+    [ "$each" = "$1" ] && row $index && return
+    index=$((index + 1))
+  done
+}
+# Marks where the next move's lines start in the log.
+mark() {
+  marked_at=$(wc -l < "$log")
+}
+# Writes the handover lines since the mark to handover.txt as "<$1>|<stage>|<ms>", the first of
+# each stage, leaving out those of a tab other than $2, such as the one the window switched to.
+record() {
+  tail -n +$((marked_at + 1)) "$log" |
+    sed -n 's/^browser: handover \(.*\) +\([0-9.]*\) ms (\(.*\))$/\1|\2|\3/p' |
+    awk -F'|' -v way="$1" -v tab="$2" '
+      $3 ~ /tab [0-9]+/ && $3 !~ ("tab " tab "([,)]|$)") { next }
+      !seen[$1]++ { print way "|" $1 "|" $2 }' >> "$out/handover.txt"
+}
+# Moves tab $1 four ways and back, labelled $2.
+moves() {
+  # The second window takes it by its row. No window has a picture of it yet.
+  send window 2
+  mark
+  send click $(row_of $1)
+  expect "^browser: window $fourth shows $1\$" "$2: a click on its row in the second window didn't take it"
+  expect "^browser: handover taker's page drew a frame .*tab $1," "$2: the page didn't draw in the second window"
+  expect "^browser: window $first picture rests\$" "$2: the first window's picture of the page didn't come"
+  record "$2, row, no picture" "$1"
+  # The first window takes it back by a click on its picture, once coming forward has taken it again.
+  send window 1
+  expect "^browser: window $first pictures tab $1\$" "$2: the first window took no new picture as it came forward"
+  mark
+  send click $page_point
+  expect "^browser: window $first shows $1\$" "$2: a click on the picture didn't take the page back"
+  expect "^browser: handover taker's page drew a frame .*tab $1," "$2: the page didn't draw back in the first window"
+  expect "^browser: window $fourth picture rests\$" "$2: the second window's picture of the page didn't come"
+  record "$2, picture" "$1"
+  # The second window takes it again by its row, from the window it just gave its picture to.
+  send window 2
+  expect "^browser: window $fourth pictures tab $1\$" "$2: the second window took no new picture as it came forward"
+  mark
+  send click $(row_of $1)
+  expect "^browser: window $fourth shows $1\$" "$2: a click on its row with its picture didn't take it"
+  expect "^browser: handover taker's page drew a frame .*tab $1," "$2: the page didn't draw in the second window again"
+  expect "^browser: window $first picture rests\$" "$2: the first window's picture of the page didn't come again"
+  record "$2, row" "$1"
+  # The second window shows another tab, which gives the page back to the first.
+  mark
+  send click $(row_of $b)
+  expect "^browser: window $fourth shows $b\$" "$2: a click on another row didn't show its tab"
+  expect "^browser: window $first shows $1\$" "$2: the page didn't go back to the first window"
+  expect "^browser: handover taker's page drew a frame .*tab $1," "$2: the page didn't draw back in the first window"
+  record "$2, let go" "$1"
+}
+send layout
+first_size=$(grep '^browser: layout content ' "$log" | tail -1 | sed 's/^browser: layout content \([0-9]*\)x\([0-9]*\).*/\1 \2/')
+send key n cmd
+expect '^browser: window opened [0-9]' "⌘N didn't open a window for the moves"
+fourth=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+rm -f "$out/handover.txt"
+send window 2
+send resize 1000 700
+for round in 1 2; do
+  send window 1
+  send click $(row_of $heavy)
+  expect "^browser: window $first shows $heavy\$" "the first window didn't show the heavy page"
+  moves "$heavy" "heavy, other size"
+  send window 1
+  send click $(row_of $light)
+  expect "^browser: window $first shows $light\$" "the first window didn't show the light page"
+  moves "$light" "light, other size"
+done
+send window 2
+send resize $first_size
+for round in 1 2; do
+  send window 1
+  send click $(row_of $heavy)
+  expect "^browser: window $first shows $heavy\$" "the first window didn't show the heavy page"
+  moves "$heavy" "heavy, same size"
+  send window 1
+  send click $(row_of $light)
+  expect "^browser: window $first shows $light\$" "the first window didn't show the light page"
+  moves "$light" "light, same size"
+done
+awk -F'|' '
+  { key = $1 "|" $2; if (!(key in n)) order[++keys] = key; v[key, ++n[key]] = $3 }
+  END {
+    for (k = 1; k <= keys; k++) {
+      key = order[k]; m = n[key]
+      for (i = 1; i <= m; i++) s[i] = v[key, i]
+      for (i = 2; i <= m; i++) for (j = i; j > 1 && s[j - 1] > s[j]; j--) { t = s[j]; s[j] = s[j - 1]; s[j - 1] = t }
+      split(key, part, "|")
+      printf "%s: %s, median %.1f ms of %d\n", part[1], part[2], s[int((m + 1) / 2)], m
+    }
+  }' "$out/handover.txt" > "$out/handover-summary.txt"
+cat "$out/handover-summary.txt"
+send window 2
+send key w cmd shift
+expect "^browser: window closed $fourth\$" "⇧⌘W didn't close the window the pages moved to"
+send window 1
+
 # ⇧⌘W in the last window quits. It's the driver's last command: the app doesn't report it done.
 post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
-echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"
+echo "ok: ⌘N opens a window on the same Spaces with no page, whose card shows its one line, and a click on it with the command bar open only closes the bar, which never takes another window's page on a Space switch, is the one other apps take for the window in front with the first in full screen, the Spaces menu acts on it, a click on a row moves its page there live and the window it left draws a picture of the page, a click on which takes the page back, a window switching away from the page gives it back to the one with its picture and keeps the keyboard, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Each stage of a page's move between windows: $out/handover-summary.txt. Windows: $out/windows-new.png, $out/empty-window.png, $out/windows-moved.png, $out/windows-pictured.png, $out/windows-pictured-back.png, $out/windows-handed-back.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"

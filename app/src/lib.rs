@@ -22,6 +22,28 @@ pub fn uptime_ms() -> f64 {
     unsafe { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) as f64 / 1e6 }
 }
 
+thread_local! {
+    static HANDOVER_CLICK: std::cell::Cell<Option<f64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The app asks a window to select a tab, which may move a page between windows. The core marks
+/// the same moment, in the same call.
+pub fn handover_clicked() {
+    HANDOVER_CLICK.set(Some(uptime_ms()));
+}
+
+/// The lines check.sh times a page's move between windows by, as the core's are: "browser: handover
+/// `stage` +<ms> ms (`detail`)", in ms since `handover_clicked`, within 3 s of it. No page content.
+pub fn log_handover(stage: &str, detail: &str) {
+    let Some(click) = HANDOVER_CLICK.get() else {
+        return;
+    };
+    let since = uptime_ms() - click;
+    if since <= 3000. {
+        log!("browser: handover {stage} +{since:.1} ms ({detail})");
+    }
+}
+
 pub mod capture;
 pub mod command_bar;
 pub mod default_browser;

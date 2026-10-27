@@ -50,6 +50,12 @@ class Space;
 class Suggestions;
 class WindowActions;
 
+// The app asked a window to select a tab, which may move a page between windows.
+void HandoverClicked();
+// The lines check.sh times a page's move between windows by, as the app's are: "browser: handover
+// |stage| +<ms> ms (|detail|)", in ms since HandoverClicked, within 3 s of it. No page content.
+void LogHandover(const char* stage, const std::string& detail);
+
 // One native window: the app's UI, the page it shows over that, and a Browser per profile holding
 // the window's tabs (decision 3). Closing it closes its Browsers, and it goes once they have.
 class Window : public web_modal::WebContentsModalDialogHost,
