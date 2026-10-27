@@ -56,6 +56,7 @@ mod platform {
         pub fn host_show_window(ui_view: *mut c_void);
         pub fn host_show_launch_window(profile_dir: *const c_char, width: f64, height: f64);
         pub fn host_close_launch_window();
+        pub fn host_watch_finished_launching(finished: extern "C" fn());
         pub fn host_save_launch_picture(
             ui_view: *mut c_void,
             profile_dir: *const c_char,
@@ -2206,6 +2207,9 @@ unsafe extern "C" fn open_links(_: *mut c_void, urls: *const *const c_char, coun
     };
     open_links_in(window.id, &urls);
     unsafe { platform::host_activate(window.ui_view) };
+    // AppKit hands over the links that launched the browser all at once, so the first window
+    // needn't wait for it to finish.
+    finished_launching();
 }
 
 /// Opens `urls` as new tabs in `window`, in the Space it shows, or in the user's it showed last if
@@ -2437,19 +2441,34 @@ fn open_window(
             // Once the frame this precedes is drawn.
             cx.spawn(async move |cx| {
                 unsafe { platform::host_close_launch_window() };
+                // check.sh reads this line: the UI comes out from under the launch picture.
+                log!("browser: UI shown at {:.1} ms", unsafe { platform::host_since_launch() });
                 cx.update(overlays_now)
             })
             .detach();
         }
     };
     let on_frame = finish.clone();
+    let handle = window;
     window
         .update(cx, |_, window, _| {
-            // Deferred, as the shell's window is borrowed while it draws.
             window.on_next_frame(move |window, _| {
                 // check.sh reads this line.
                 log!("browser: first frame at {:.1} ms", unsafe { platform::host_since_launch() });
-                window.on_next_frame(move |_, cx| cx.defer(on_frame))
+                // Deferred, as the shell's window is borrowed while it draws.
+                let next = move |window: &mut Window| {
+                    window.on_next_frame(move |_, cx| cx.defer(on_frame))
+                };
+                // The picture stays over the sidebar until a frame drawn once AppKit has handed
+                // over the links that launched the browser, so the restored tab never shows
+                // selected first. A plain launch has heard by now or within a few ms, before the
+                // next frame, so it doesn't wait.
+                match FINISHED_LAUNCHING.get() {
+                    true => next(window),
+                    false => AFTER_LAUNCH.set(Some(Box::new(move |cx| {
+                        handle.update(cx, |_, window, _| next(window)).ok();
+                    }))),
+                }
             })
         })
         .ok();
@@ -2462,6 +2481,10 @@ fn open_window(
 }
 
 thread_local! {
+    /// AppKit has finished launching the app, and so has handed over the links that launched it.
+    static FINISHED_LAUNCHING: Cell<bool> = const { Cell::new(false) };
+    /// What waits for it: the first window's frame that takes the launch picture down.
+    static AFTER_LAUNCH: RefCell<Option<Box<dyn FnOnce(&mut App)>>> = const { RefCell::new(None) };
     /// The overlays' windows at launch, made on the turn after the frame that takes the launch
     /// picture down, as making them holds the main thread a while.
     static OVERLAYS: RefCell<Option<Box<dyn FnOnce(&mut App)>>> = const { RefCell::new(None) };
@@ -2639,9 +2662,20 @@ unsafe extern "C" fn started(_: *mut c_void) {
             KeyBinding::new("cmd-m", Minimize, Some(shell::KEY_CONTEXT)),
         ]);
         cx.set_menus(menus(&shell::MenuBar::default(), None, None));
+        // check.sh reads this line, as launches are timed from it.
+        log!("browser: started at {:.1} ms", unsafe { platform::host_since_launch() });
         open_window(None, None, cx);
     });
     APP.set(Some(app));
+}
+
+/// AppKit has finished launching the app, and so has handed over the links that launched it.
+extern "C" fn finished_launching() {
+    if !FINISHED_LAUNCHING.replace(true)
+        && let Some(then) = AFTER_LAUNCH.take()
+    {
+        update_app(then);
+    }
 }
 
 /// The menu bar: Arc's menus, with the commands the browser has, what `bar` says of the key
@@ -2916,6 +2950,7 @@ unsafe extern "C" fn window_open_link(
 }
 
 unsafe extern "C" fn launching(_: *mut c_void) {
+    unsafe { platform::host_watch_finished_launching(finished_launching) };
     let Ok(profile) = CString::new(profile_dir()) else {
         return;
     };
