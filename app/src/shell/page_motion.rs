@@ -71,7 +71,7 @@ mod tests {
             shell.set_spaces(vec![(1, "Work".into(), None, 0, "".into(), "".into())], cx);
             shell.set_space(1, cx);
             let splits = match split {
-                true => vec![Split { tabs: vec![1, 2], stacked: false, shares: Vec::new() }],
+                true => vec![Split { tabs: vec![1, 2], stacked: false, ..Split::default() }],
                 false => Vec::new(),
             };
             shell.set_tabs(1, Vec::new(), vec![1, 2], splits, Folders::default(), cx);
