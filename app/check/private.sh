@@ -100,8 +100,9 @@ none_since '^browser: private session ended' || fail "the session ended with a p
 send window 2
 send key w cmd shift
 expect "^browser: window closed $first\$" "⇧⌘W didn't close the first private window"
-expect '^browser: private session ended [0-9]*$' \
-  "the last private window's closing didn't end the session"
+# await, which says so if the app has exited. Its line can only be this close's: none came before.
+await '^browser: private session ended [0-9]*$' ||
+  fail "the last private window's closing didn't end the session"
 # Chrome ends it as the session's last Browser goes. When something else kept one, the core ended
 # it, and its line, an error, names what.
 outlived=$(sed -n "/^browser: drive $step: /,\$p" "$log" |
@@ -114,6 +115,10 @@ expect '^browser: private window opened [0-9]* profile [0-9]*$' \
 third=$(grep '^browser: private window opened ' "$log" | tail -1 | cut -d' ' -f5)
 open_private_page "$third"
 expect "^browser: title $tab cookie none\$" "the new private session had the ended one's cookie"
+# Chrome destroying the profile and the core finding it gone both end the session, and the app
+# hears it once.
+[ "$(grep -c '^browser: private session ended ' "$log")" = 1 ] ||
+  fail "the app heard the session end more than once"
 
 # The quit, with the private window open, writes nothing of it.
 exec 3>&-

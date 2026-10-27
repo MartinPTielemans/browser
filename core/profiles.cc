@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -136,6 +137,34 @@ std::vector<base::WeakPtr<Profile>>& Ended() {
   return *ended;
 }
 
+// The profiles whose private session has started and whose end the app hasn't heard.
+std::set<bc_id>& Unheard() {
+  static base::NoDestructor<std::set<bc_id>> unheard;
+  return *unheard;
+}
+
+// Tells the app |profile|'s private session ended, once: Chrome destroying its off-the-record
+// profile and the core finding it gone can come in either order. |how| says which, for the log.
+void ReportEnded(bc_id profile, const char* how) {
+  if (!Unheard().erase(profile)) {
+    return;
+  }
+  // A quit ends them all, and the app has stopped hearing.
+  if (browser_shutdown::IsTryingToQuit()) {
+    LOG(ERROR) << "browser: private session over in the quit, as " << how;
+    return;
+  }
+  LOG(ERROR) << "browser: private session over, as " << how;
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(
+                     [](bc_id profile) {
+                       if (Host().private_session_ended) {
+                         Host().private_session_ended(Host().context, profile);
+                       }
+                     },
+                     profile));
+}
+
 // Whether a private window of |profile|'s is open, or closing.
 bool PrivateWindowOpen(Profile* profile) {
   return std::ranges::any_of(Window::All(), [dir = DirOf(profile)](const Window* window) {
@@ -150,18 +179,7 @@ void SessionEnd::OnProfileWillBeDestroyed(Profile* profile) {
   Ended().push_back(profile->GetWeakPtr());
   // Deletes this.
   Sessions().erase(profile);
-  // A quit ends them all, and the app has stopped hearing.
-  if (browser_shutdown::IsTryingToQuit()) {
-    return;
-  }
-  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
-      FROM_HERE, base::BindOnce(
-                     [](bc_id profile) {
-                       if (Host().private_session_ended) {
-                         Host().private_session_ended(Host().context, profile);
-                       }
-                     },
-                     id));
+  ReportEnded(id, "Chrome destroyed its profile");
 }
 
 void SessionEnd::OnTabStripModelDestroyed(TabStripModel* tab_strip_model) {
@@ -266,21 +284,25 @@ Profile* PrivateProfileOf(Profile* profile, bool start) {
   Profile* off_the_record = profile->GetPrimaryOTRProfile(/*create_if_needed=*/true);
   if (off_the_record && !Sessions().contains(off_the_record)) {
     Sessions()[off_the_record] = std::make_unique<SessionEnd>(off_the_record);
+    Unheard().insert(ProfileId(DirOf(profile)));
   }
   return off_the_record;
 }
 
 void EndPrivateSession(Profile* profile) {
   // Runs as each private window and each of the session's Browsers goes, and every way out says
-  // which it took, so a session that never ends says why.
+  // which it took, so a session that never ends says why. With its off-the-record profile gone,
+  // or going, the session has ended.
   Profile* off_the_record = profile->GetPrimaryOTRProfile(/*create_if_needed=*/false);
   if (!off_the_record) {
     LOG(ERROR) << "browser: private session to end has no off-the-record profile";
+    ReportEnded(ProfileId(DirOf(profile)), "its off-the-record profile has gone");
     return;
   }
   auto session = Sessions().find(off_the_record);
   if (session == Sessions().end()) {
     LOG(ERROR) << "browser: private session to end has ended";
+    ReportEnded(ProfileId(DirOf(profile)), "its off-the-record profile is going");
     return;
   }
   if (PrivateWindowOpen(profile)) {
