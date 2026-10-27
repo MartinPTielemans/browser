@@ -1,7 +1,7 @@
 //! The note on how to leave full screen, which the window shows as it goes full screen and again
 //! for each Space shown there, on a host that records what the shell asks.
 
-use std::rc::Rc;
+use std::{cell::Cell, rc::Rc};
 
 use gpui::{AppContext, Entity, TestAppContext};
 
@@ -46,6 +46,21 @@ fn the_note_shows_again_for_each_space_in_full_screen(cx: &mut TestAppContext) {
     assert_eq!(notes(&host), ["full screen note hidden"]);
     shell.update(cx, |shell, cx| shell.set_space(1, cx));
     assert!(notes(&host).is_empty());
+}
+
+#[gpui::test]
+fn the_shell_draws_again_when_the_window_enters_or_leaves_full_screen(cx: &mut TestAppContext) {
+    let (shell, _) = two_spaces(cx);
+    let draws = Rc::new(Cell::new(0));
+    let watch = {
+        let draws = draws.clone();
+        cx.update(|cx| cx.observe(&shell, move |_, _| draws.set(draws.get() + 1)))
+    };
+    shell.update(cx, |shell, cx| shell.set_full_screen(true, cx));
+    assert_eq!(draws.get(), 1);
+    shell.update(cx, |shell, cx| shell.set_full_screen(false, cx));
+    assert_eq!(draws.get(), 2);
+    drop(watch);
 }
 
 #[gpui::test]

@@ -1956,9 +1956,12 @@ impl Shell {
     }
 
     /// The window has gone full screen or left it: going, it says how to leave, as Arc's does,
-    /// unless a page took it there, and leaving takes that away.
+    /// unless a page took it there, and leaving takes that away. What's drawn follows the window's
+    /// state (no window buttons in full screen), which AppKit changes mid-transition, so it draws
+    /// again at the end rather than waiting for something else to.
     pub fn set_full_screen(&mut self, entered: bool, cx: &mut Context<Self>) {
         self.full_screen = entered;
+        cx.notify();
         if !entered || !self.page_fullscreen {
             self.browser.full_screen_note(entered, cx);
         }

@@ -220,7 +220,7 @@ index 4b48188131..dcdd630902 100644
          }
      }
 diff --git a/crates/gpui_macos/src/window.rs b/crates/gpui_macos/src/window.rs
-index f2208d35ec..c50adc8a09 100644
+index f2208d35ec..49660ab560 100644
 --- a/crates/gpui_macos/src/window.rs
 +++ b/crates/gpui_macos/src/window.rs
 @@ -11,7 +11,7 @@ use dispatch2::DispatchQueue;
@@ -877,7 +877,57 @@ index f2208d35ec..c50adc8a09 100644
              PlatformInput::ModifiersChanged(ModifiersChangedEvent {
                  modifiers,
                  capslock,
-@@ -3362,7 +3613,14 @@ extern "C" fn step(view: *mut c_void) {
+@@ -3312,13 +3563,45 @@ extern "C" fn set_frame_size(this: &AnyObject, _: Sel, size: NSSize) {
+     let drawable_size = new_size.to_device_pixels(scale_factor);
+     lock.renderer.update_drawable_size(drawable_size);
+ 
+-    if let Some(mut callback) = lock.resize_callback.take() {
+-        let content_size = lock.content_size();
+-        let scale_factor = lock.scale_factor();
+-        drop(lock);
++    let resize_callback = lock.resize_callback.take();
++    let content_size = lock.content_size();
++    let scale_factor = lock.scale_factor();
++    drop(lock);
++    if let Some(mut callback) = resize_callback {
+         callback(content_size, scale_factor);
+         window_state.lock().resize_callback = Some(callback);
+     };
++    draw_while_occluded(&window_state);
++}
++
++/// Draws the frame a resize asked for in a window GPUI doesn't own that AppKit reports occluded,
++/// as `display_layer` does. Its display link can't run then, and the browser's window is reported
++/// so through a full-screen transition, so the layout for its new size waited for the end of the
++/// animation.
++fn draw_while_occluded(window_state: &Mutex<MacWindowState>) {
++    let mut lock = window_state.lock();
++    if lock.host_window_observer.is_none()
++        || lock
++            .native_window()
++            .occlusionState()
++            .contains(NSWindowOcclusionState::Visible)
++    {
++        return;
++    }
++    let Some(mut callback) = lock.request_frame_callback.take() else {
++        return;
++    };
++    lock.renderer.set_presents_with_transaction(true);
++    drop(lock);
++    let signal_at = PlatformFrameSignal::capture(scheduler::Instant::now);
++    callback(RequestFrameOptions {
++        signal_at,
++        signal_source: FrameRequestSource::NativeCallback,
++        ..Default::default()
++    });
++    let mut lock = window_state.lock();
++    lock.request_frame_callback = Some(callback);
++    lock.renderer.set_presents_with_transaction(false);
+ }
+ 
+ extern "C" fn display_layer(this: &AnyObject, _: Sel, _: *mut AnyObject) {
+@@ -3362,7 +3645,14 @@ extern "C" fn step(view: *mut c_void) {
              signal_source,
              ..Default::default()
          });
@@ -893,7 +943,7 @@ index f2208d35ec..c50adc8a09 100644
      }
  }
  
-@@ -3555,6 +3813,10 @@ extern "C" fn view_did_change_effective_appearance(this: &AnyObject, _: Sel) {
+@@ -3555,6 +3845,10 @@ extern "C" fn view_did_change_effective_appearance(this: &AnyObject, _: Sel) {
      }
  }
  
@@ -904,7 +954,7 @@ index f2208d35ec..c50adc8a09 100644
  extern "C" fn accepts_first_mouse(this: &AnyObject, _: Sel, _: *mut AnyObject) -> Bool {
      let window_state = unsafe { get_window_state(this) };
      let mut lock = window_state.as_ref().lock();
-@@ -3717,54 +3979,11 @@ extern "C" fn dragging_session_ended(
+@@ -3717,54 +4011,11 @@ extern "C" fn dragging_session_ended(
      let window_state = unsafe { get_window_state(this) };
      {
          let mut lock = window_state.lock();
