@@ -4,6 +4,7 @@
 #include <string>
 
 #include "base/files/file_path.h"
+#include "base/functional/callback_forward.h"
 #include "browser_core/platform/system_page.h"
 #include "browser_core/public/browser_core.h"
 #include "url/gurl.h"
@@ -44,11 +45,15 @@ void Forget(Profile* profile, const GURL& url);
 // Where |profile|'s system pages keep their cookies: a store of its own, apart from Chromium's and
 // Safari's, or for a private window's profile one that keeps nothing.
 platform::SystemStore StoreOf(Profile* profile);
-// Whether |profile| ever had a system page, so its store has anything to clear.
+// Has |profile| keep its store's id, as a page of it made the store.
+void StoreMade(Profile* profile);
+// Whether |profile| ever made its store, in this run or an earlier one, so it has anything to
+// clear. Asks without loading the system's engine, which only a store made needs.
 bool StoreUsed(Profile* profile);
 
-// Deletes the store of the profile at |path|, as the profile goes.
-void DeleteStore(const base::FilePath& path);
+// Deletes the store of the profile at |path|, if it made one, as the profile goes, then runs
+// |then|. The profile's directory must still be there: an unloaded profile's preferences say.
+void DeleteStore(const base::FilePath& path, base::OnceClosure then);
 
 // For ContentBrowserClient::CreateThrottlesForNavigation: a navigation of a tab's page in
 // Chromium to a site its profile keeps for the system's engine loads there instead, and a tab

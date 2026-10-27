@@ -442,6 +442,14 @@ bc_id CreateProfile(const std::string& name, base::OnceCallback<void(Profile*)> 
   return ProfileId(path.BaseName().AsUTF8Unsafe());
 }
 
+// Chrome deletes the profile at |path| once it's unloaded.
+static void ScheduleDeletion(const base::FilePath& path) {
+  if (ProfileManager* manager = g_browser_process->profile_manager()) {
+    manager->GetDeleteProfileHelper().MaybeScheduleProfileForDeletion(
+        path, base::DoNothing(), ProfileMetrics::DELETE_PROFILE_SETTINGS);
+  }
+}
+
 bool DeleteProfile(bc_id profile) {
   ProfileManager* manager = g_browser_process->profile_manager();
   const std::string dir = ProfileDir(profile);
@@ -466,10 +474,9 @@ bool DeleteProfile(bc_id profile) {
     Window::LetProfileGo(loaded);
   }
   Used().erase(dir);
-  manager->GetDeleteProfileHelper().MaybeScheduleProfileForDeletion(
-      PathOf(dir), base::DoNothing(), ProfileMetrics::DELETE_PROFILE_SETTINGS);
-  // The system's engine keeps the profile's cookies apart, and no tab of it is open.
-  system_engine::DeleteStore(PathOf(dir));
+  // The system's engine keeps the profile's cookies apart, and no tab of it is open. Whether it
+  // has a store is read from the profile before Chrome deletes it.
+  system_engine::DeleteStore(PathOf(dir), base::BindOnce(&ScheduleDeletion, PathOf(dir)));
   Ids().erase(dir);
   ReportChanged();
   return true;

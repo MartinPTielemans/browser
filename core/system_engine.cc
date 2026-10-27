@@ -5,19 +5,25 @@
 #include <string>
 #include <utility>
 
+#include "base/files/file_util.h"
 #include "base/functional/bind.h"
+#include "base/json/json_reader.h"
 #include "base/hash/sha1.h"
 #include "base/no_destructor.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/supports_user_data.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/task/thread_pool.h"
 #include "base/uuid.h"
 #include "base/values.h"
 #include "browser_core/space.h"
 #include "browser_core/tab.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_keyed_service_factory.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/common/chrome_constants.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/prefs/pref_service.h"
@@ -32,9 +38,10 @@ namespace browser_core::system_engine {
 
 namespace {
 
-// The sites a profile keeps for the system's engine, and whether its store was ever used.
+// The sites a profile keeps for the system's engine, and the id of the store its pages made, if
+// they have: the system's engine is only loaded for a profile with one.
 constexpr char kSites[] = "browser_core.system_engine.sites";
-constexpr char kUsed[] = "browser_core.system_engine.used";
+constexpr char kStore[] = "browser_core.system_engine.store";
 
 // Builds no service: Chrome registers a profile's prefs through its factories.
 class PrefsFactory : public ProfileKeyedServiceFactory {
@@ -54,7 +61,7 @@ class PrefsFactory : public ProfileKeyedServiceFactory {
 
   void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) override {
     registry->RegisterListPref(kSites);
-    registry->RegisterBooleanPref(kUsed, false);
+    registry->RegisterStringPref(kStore, std::string());
   }
 };
 
@@ -77,6 +84,24 @@ std::string StoreIdFor(const base::FilePath& path) {
   const std::string hex = base::ToLowerASCII(base::HexEncode(digest.substr(0, 16)));
   return hex.substr(0, 8) + "-" + hex.substr(8, 4) + "-" + hex.substr(12, 4) + "-" +
          hex.substr(16, 4) + "-" + hex.substr(20, 12);
+}
+
+// The id of the store the profile at |path| made, read from its preferences on disk, for a
+// profile that isn't loaded. Empty for none.
+std::string StoreOnDisk(const base::FilePath& path) {
+  std::string json;
+  if (!base::ReadFileToString(path.Append(chrome::kPreferencesFilename), &json)) {
+    return std::string();
+  }
+  std::optional<base::DictValue> prefs = base::JSONReader::ReadDict(json, base::JSON_PARSE_RFC);
+  const std::string* id = prefs ? prefs->FindStringByDottedPath(kStore) : nullptr;
+  return id ? *id : std::string();
+}
+
+void DeleteStoreOf(const std::string& id) {
+  if (!id.empty()) {
+    platform::SystemPage::DeleteStore(id);
+  }
 }
 
 class Throttle : public content::NavigationThrottle {
@@ -169,18 +194,36 @@ platform::SystemStore StoreOf(Profile* profile) {
     }
     return {static_cast<PrivateStore*>(profile->GetUserData(PrivateStore::kKey))->id, false};
   }
-  // Asked for a page's, so the store has something to clear from now on.
-  profile->GetPrefs()->SetBoolean(kUsed, true);
   return {StoreIdFor(profile->GetPath()), true};
+}
+
+void StoreMade(Profile* profile) {
+  if (!profile->IsOffTheRecord()) {
+    profile->GetPrefs()->SetString(kStore, StoreIdFor(profile->GetPath()));
+  }
 }
 
 bool StoreUsed(Profile* profile) {
   return profile->IsOffTheRecord() ? profile->GetUserData(PrivateStore::kKey) != nullptr
-                                   : profile->GetPrefs()->GetBoolean(kUsed);
+                                   : !profile->GetPrefs()->GetString(kStore).empty();
 }
 
-void DeleteStore(const base::FilePath& path) {
-  platform::SystemPage::DeleteStore(StoreIdFor(path));
+void DeleteStore(const base::FilePath& path, base::OnceClosure then) {
+  ProfileManager* manager = g_browser_process->profile_manager();
+  if (Profile* loaded = manager ? manager->GetProfileByPath(path) : nullptr) {
+    DeleteStoreOf(loaded->GetPrefs()->GetString(kStore));
+    std::move(then).Run();
+    return;
+  }
+  base::ThreadPool::PostTaskAndReplyWithResult(
+      FROM_HERE, {base::MayBlock(), base::TaskPriority::USER_VISIBLE},
+      base::BindOnce(&StoreOnDisk, path),
+      base::BindOnce(
+          [](base::OnceClosure then, const std::string& id) {
+            DeleteStoreOf(id);
+            std::move(then).Run();
+          },
+          std::move(then)));
 }
 
 void CreateThrottlesForNavigation(content::NavigationThrottleRegistry& registry) {
