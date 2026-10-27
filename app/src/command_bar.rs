@@ -26,8 +26,8 @@ mod calculator;
 actions!(
     command_bar,
     [
-        Go, GoBeside, GoBehind, GoDotCom, Search, Dismiss, Next, Previous, First, Last, Remove,
-        EnterSite, LeaveSite
+        Go, GoBeside, GoBehind, GoDotCom, GoWindow, GoDotComWindow, Search, Dismiss, Next,
+        Previous, First, Last, Remove, EnterSite, LeaveSite
     ]
 );
 
@@ -250,8 +250,17 @@ pub trait Host {
     /// Opens a tab loading `url` at the top of the Space's Today tabs, and shows it unless
     /// `behind`, when it loads only once it's first shown.
     fn open_tab(&self, url: &str, behind: bool);
+    /// Opens a browser window after the one the bar shows over, as ⌘N does, and shows a tab
+    /// loading `url` in it. The user's: agents get none, as it opens a window (decision 8).
+    fn open_window(&self, url: &str, cx: &mut App);
     fn navigate(&self, tab: u64, url: &str);
     fn select(&self, tab: u64);
+    /// The browser window that shows `tab`'s page live (`bc_tab_window`), if it's another than
+    /// the one the bar shows over.
+    fn tab_window(&self, tab: u64) -> Option<u64>;
+    /// Makes browser window `window` key and puts it in front, showing `tab` there. The user's:
+    /// agents get none, as it takes the user's focus (decision 8).
+    fn activate(&self, window: u64, tab: u64, cx: &mut App);
     /// Puts `tab` in a split view with `with`, on its right, and shows it there.
     fn split(&self, tab: u64, with: u64, cx: &mut App);
     /// Opens a tab loading `url` in a split view with `with`, on its right, and shows it there.
@@ -357,6 +366,8 @@ pub fn open_at(
         KeyBinding::new("alt-enter", GoBeside, Some("CommandBar")),
         KeyBinding::new("cmd-enter", GoBehind, Some("CommandBar")),
         KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar")),
+        KeyBinding::new("shift-enter", GoWindow, Some("CommandBar")),
+        KeyBinding::new("ctrl-shift-enter", GoDotComWindow, Some("CommandBar")),
         KeyBinding::new("shift-cmd-enter", Search, Some("CommandBar")),
         KeyBinding::new("escape", Dismiss, Some("CommandBar")),
         KeyBinding::new("down", Next, Some("CommandBar")),
@@ -965,33 +976,81 @@ impl CommandBar {
     /// stays open (Arc). A command or a sum's result is taken as ↩ takes it, and over a new pane
     /// ⌘↩ is ↩.
     fn go_behind(&mut self, _: &GoBehind, window: &mut Window, cx: &mut Context<Self>) {
-        let command =
-            self.chosen().is_some_and(|row| row.command.is_some() || row.result.is_some());
-        if command || matches!(self.target, Target::Beside(_)) {
+        if self.takes_in_place() {
             return self.go(&Go, window, cx);
         }
-        let text = self.input.read(cx).text().trim().to_string();
-        let url = match self.chosen() {
-            Some(row) => Some(row.url.clone()),
-            None if text.is_empty() => None,
-            None => self.typed_url(&text),
-        };
-        if let Some(url) = url {
+        if let Some(url) = self.return_url(cx) {
             // check.sh reads this line.
             log!("browser: command bar behind {url}");
             self.host.open_tab(&url, true);
         }
     }
 
-    /// ⌃↩: goes to www.<word>.com for a word typed, as Chrome does, and else where ↩ goes, as in a
-    /// site search.
-    fn go_dot_com(&mut self, _: &GoDotCom, window: &mut Window, cx: &mut Context<Self>) {
+    /// Whether ↩'s row is a command or a sum, or the bar is over a new pane, where the keys that
+    /// open a page elsewhere take what ↩ takes.
+    fn takes_in_place(&self) -> bool {
+        let command =
+            self.chosen().is_some_and(|row| row.command.is_some() || row.result.is_some());
+        command || matches!(self.target, Target::Beside(_))
+    }
+
+    /// The page ↩ goes to: its row's, a tab's row's too, else the one what's typed names.
+    fn return_url(&self, cx: &App) -> Option<String> {
+        let text = self.input.read(cx).text().trim().to_string();
+        match self.chosen() {
+            Some(row) => Some(row.url.clone()),
+            None if text.is_empty() => None,
+            None => self.typed_url(&text),
+        }
+    }
+
+    /// ⇧↩: opens where ↩ would go in a new browser window, as Chrome does (Arc unrecorded). A
+    /// command or a sum's result is taken as ↩ takes it, and over a new pane ⇧↩ is ↩.
+    fn go_window(&mut self, _: &GoWindow, window: &mut Window, cx: &mut Context<Self>) {
+        if self.takes_in_place() {
+            return self.go(&Go, window, cx);
+        }
+        if let Some(url) = self.return_url(cx) {
+            self.go_to_window(&url, cx);
+        }
+    }
+
+    /// Opens `url` in a new browser window, and closes the bar.
+    fn go_to_window(&self, url: &str, cx: &mut App) {
+        // check.sh reads this line.
+        log!("browser: command bar window {url}");
+        // The bar leaves its window first, which the new one then takes the keyboard from.
+        self.host.hide();
+        self.host.open_window(url, cx);
+    }
+
+    /// www.<word>.com for a word typed outside a site search, where ⌃↩ goes, as in Chrome.
+    fn dot_com(&self, cx: &App) -> Option<String> {
         let typed = self.typed(cx);
         let word = !typed.is_empty() && typed.chars().all(|c| c.is_alphanumeric() || c == '-');
         let word = word && self.site.is_none();
-        match word.then(|| self.host.typed_url(&format!("www.{typed}.com"))).flatten() {
+        word.then(|| self.host.typed_url(&format!("www.{typed}.com"))).flatten()
+    }
+
+    /// ⌃↩: goes to www.<word>.com for a word typed, as Chrome does, and else where ↩ goes, as in a
+    /// site search.
+    fn go_dot_com(&mut self, _: &GoDotCom, window: &mut Window, cx: &mut Context<Self>) {
+        match self.dot_com(cx) {
             Some(url) => self.go_to(&url, cx),
             None => self.go(&Go, window, cx),
+        }
+    }
+
+    /// ⌃⇧↩: ⌃↩'s page in a new browser window, as ⇧↩ opens ↩'s, as in Chrome.
+    fn go_dot_com_window(
+        &mut self,
+        _: &GoDotComWindow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match self.dot_com(cx) {
+            Some(url) => self.go_to_window(&url, cx),
+            None => self.go_window(&GoWindow, window, cx),
         }
     }
 
@@ -1038,7 +1097,9 @@ impl CommandBar {
     }
 
     /// Goes where row `index` goes: to its tab, else its page, where the bar shows the page
-    /// chosen. Beside a tab, its tab moves into the split view. A sum's row copies its result.
+    /// chosen. Beside a tab, its tab moves into the split view. A tab another window shows live
+    /// brings that window forward with it, as Chrome's Switch to Tab does, rather than taking its
+    /// page (Arc unrecorded). A sum's row copies its result.
     fn take(&mut self, index: usize, cx: &mut App) {
         let Some(row) = self.rows.get(index) else {
             return;
@@ -1063,10 +1124,17 @@ impl CommandBar {
                 log!("browser: command bar split with tab {tab}");
                 self.host.split(tab, with, cx);
             }
-            (tab, _) => {
-                log!("browser: command bar switch to tab {tab}");
-                self.host.select(tab);
-            }
+            (tab, _) => match self.host.tab_window(tab) {
+                Some(window) => {
+                    log!("browser: command bar switch to tab {tab} in window {window}");
+                    self.host.hide();
+                    return self.host.activate(window, tab, cx);
+                }
+                None => {
+                    log!("browser: command bar switch to tab {tab}");
+                    self.host.select(tab);
+                }
+            },
         }
         self.host.hide();
     }
@@ -1347,6 +1415,8 @@ impl Render for CommandBar {
                 .on_action(cx.listener(Self::go_beside))
                 .on_action(cx.listener(Self::go_behind))
                 .on_action(cx.listener(Self::go_dot_com))
+                .on_action(cx.listener(Self::go_window))
+                .on_action(cx.listener(Self::go_dot_com_window))
                 .on_action(cx.listener(Self::search))
                 .on_action(cx.listener(Self::paste_and_go))
                 .on_action(cx.listener(Self::paste_and_search))

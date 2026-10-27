@@ -977,6 +977,22 @@ void host_set_window_title(void* ui_view, const char* title) {
   }
 }
 
+void host_activate(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  NSWindow* window = browser ? browser->window : nil;
+  if (!window) {
+    return;
+  }
+  if (window.miniaturized) {
+    [window deminiaturize:nil];
+  }
+  [window makeKeyAndOrderFront:nil];
+  // Its find bar takes the keyboard back if it had it, as when an overlay over it hides.
+  if (browser->find_bar_shown && browser->find_bar_keyboard) {
+    [browser->find_bar makeKeyWindow];
+  }
+}
+
 void host_watch_key_window(void (*changed)(void* ui_view)) {
   [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidBecomeKeyNotification
                                                   object:nil

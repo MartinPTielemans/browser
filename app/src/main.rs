@@ -59,6 +59,7 @@ mod platform {
             height: *mut f64,
         );
         pub fn host_set_window_title(ui_view: *mut c_void, title: *const c_char);
+        pub fn host_activate(ui_view: *mut c_void);
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_forget_window(ui_view: *mut c_void);
@@ -916,6 +917,16 @@ impl command_bar::Host for Bar {
         }
     }
 
+    fn open_window(&self, url: &str, cx: &mut App) {
+        let (id, url) = (front().0, url.to_string());
+        // Outside the bar's update, as ⌘N's window opens outside the shell's.
+        cx.defer(move |cx| {
+            if let Some(window) = open_window_after(id, cx) {
+                open_tab(window, &url);
+            }
+        });
+    }
+
     fn navigate(&self, tab: u64, url: &str) {
         if let Ok(url) = CString::new(url) {
             unsafe { bc::bc_tab_navigate(tab, url.as_ptr()) };
@@ -924,6 +935,25 @@ impl command_bar::Host for Bar {
 
     fn select(&self, tab: u64) {
         unsafe { bc::bc_window_select(front().0, tab) };
+    }
+
+    fn tab_window(&self, tab: u64) -> Option<u64> {
+        let window = unsafe { bc::bc_tab_window(tab) };
+        (window != 0 && window != front().0).then_some(window)
+    }
+
+    fn activate(&self, window: u64, tab: u64, cx: &mut App) {
+        let Some(ui_view) = WINDOWS.with_borrow(|windows| {
+            windows.iter().find(|open| open.id == window).map(|open| open.ui_view)
+        }) else {
+            return;
+        };
+        // Outside any update: the window reports that it's key at once, to its shell.
+        cx.spawn(async move |_| unsafe {
+            bc::bc_window_select(window, tab);
+            platform::host_activate(ui_view);
+        })
+        .detach();
     }
 
     fn split(&self, tab: u64, with: u64, cx: &mut App) {
@@ -1856,16 +1886,31 @@ extern "C" fn dragged(
     answer.unwrap_or(false)
 }
 
-/// Opens a browser window and the shell inside it under the page. The first opens the overlays
-/// every window shares and the Spaces as the user left them. Another, from `from`, starts with its
-/// shell's state and shows its Space with no page, as ⌘N's window does. With `private`, a profile,
-/// it's ⇧⌘N's private window, which shows a Space of its own instead, with no page.
-fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut App) {
+/// Opens a browser window after `id`'s, for ⇧↩ in the command bar: as ⌘N does, or from a private
+/// window as ⇧⌘N does, so what was typed there stays off the record. Returns it.
+fn open_window_after(id: bc::bc_id, cx: &mut App) -> Option<bc::bc_id> {
+    let from = WINDOWS.with_borrow(|windows| windows.iter().find(|w| w.id == id).cloned())?;
+    // The profile of the Space a private window shows, as ⇧⌘N takes it.
+    let private = from.private.then(|| unsafe { bc::bc_space_profile(bc::bc_window_space(id)) });
+    if private == Some(0) {
+        return None;
+    }
+    open_window(Some(from), private, cx)
+}
+
+/// Opens a browser window and the shell inside it under the page, and returns it. The first opens
+/// the overlays every window shares and the Spaces as the user left them. Another, from `from`,
+/// starts with its shell's state and shows its Space with no page, as ⌘N's window does. With
+/// `private`, a profile, it's ⇧⌘N's private window, which shows a Space of its own instead, with
+/// no page.
+fn open_window(
+    from: Option<BrowserWindow>,
+    private: Option<bc::bc_id>,
+    cx: &mut App,
+) -> Option<bc::bc_id> {
     let ui_view = unsafe { platform::host_ui_view() };
     let after = from.as_ref().map(|from| from.ui_view);
-    let Some(id) = open_browser_window(ui_view, after, private) else {
-        return;
-    };
+    let id = open_browser_window(ui_view, after, private)?;
     let from_shell = from.as_ref().and_then(|from| from.shell.upgrade());
     // Its Space, which the core made with the window.
     let private_space = private.map(|profile| (unsafe { bc::bc_window_space(id) }, profile));
@@ -1929,7 +1974,7 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
             } else {
                 unsafe { bc::bc_window_close(id) };
             }
-            return;
+            return None;
         }
     };
     window
@@ -1944,9 +1989,7 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
         window.update(cx, |shell, _, cx| shell.set_space(space, cx)).ok();
     }
     unsafe { platform::host_show_window(ui_view) };
-    let Ok(shell) = window.entity(cx) else {
-        return;
-    };
+    let shell = window.entity(cx).ok()?;
     let children: Vec<AnyWindowHandle> =
         [find_bar::open(id, ui_view, cx), reveal::open(shell, ui_view, cx)]
             .into_iter()
@@ -1969,7 +2012,7 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
         if let Ok(view) = window.update(cx, |_, window, _| ns_view(window)) {
             unsafe { platform::host_focus(view) };
         }
-        return;
+        return Some(id);
     }
     unsafe {
         platform::host_watch_accent_color(accent_color_changed);
@@ -2042,6 +2085,7 @@ fn open_window(from: Option<BrowserWindow>, private: Option<bc::bc_id>, cx: &mut
     drop_targets::open(cx);
     // Once the page frame is set, so the tab shown loads at its size.
     restore_spaces(id);
+    Some(id)
 }
 
 unsafe extern "C" fn started(_: *mut c_void) {
