@@ -15,6 +15,7 @@ use super::{
 };
 use crate::{
     icon_picker::{self, Picked, Subject},
+    space_icon::has_icon,
     text_input::TextInput,
 };
 
@@ -187,7 +188,38 @@ impl Shell {
                 (self.page(tab).icon, anchor, picked)
             }
         };
+        let iconless = !has_icon(&icon);
         icon_picker::show(subject, icon, anchor, self.accent_color, picked, cx);
+        if let Subject::Space(space) = subject
+            && iconless
+        {
+            self.hold_icon_place(space, cx);
+        }
+    }
+
+    /// Holds the icon's place in `space`'s name row, which has no icon, with the placeholder, the
+    /// name after it, while the icon picker shows for it (Arc), so the arrow points at where the
+    /// icon will go.
+    pub(super) fn hold_icon_place(&mut self, space: u64, cx: &mut Context<Self>) {
+        let Some(picker) = icon_picker::entity(cx) else {
+            return;
+        };
+        let watch = cx.observe(&picker, move |shell, picker, cx| {
+            if picker.read(cx).picking().map(|(subject, _)| subject) != Some(Subject::Space(space))
+            {
+                shell.icon_placeholder = None;
+                cx.notify();
+            }
+        });
+        self.icon_placeholder = Some((space, watch));
+        cx.notify();
+    }
+
+    /// Whether the shown Space's name row holds the icon's place with the placeholder: while the
+    /// icon picker shows for it, until it has an icon.
+    pub(super) fn holds_icon_place(&self) -> bool {
+        self.icon_placeholder.as_ref().is_some_and(|(space, _)| *space == self.space)
+            && self.shown_space().is_some_and(|space| !has_icon(&space.icon))
     }
 
     /// Shows the folder's name in a field, all selected, to type a new one over.
