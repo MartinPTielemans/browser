@@ -1026,10 +1026,9 @@ NSString* LaunchPicturePath(const char* profile_dir, double width, double height
 
 }  // namespace
 
-void host_show_launch_window(const char* profile_dir, double width, double height) {
-  double x = 0, y = 0;
-  host_centered(width, height, &x, &y);
-  // host_centered's y runs down from the main display's top, AppKit's up from its bottom.
+void host_show_launch_window(const char* profile_dir, double x, double y, double width,
+                             double height) {
+  // The core's y runs down from the main display's top, AppKit's up from its bottom.
   const NSRect frame =
       NSMakeRect(x, NSHeight(NSScreen.screens.firstObject.frame) - y - height, width, height);
   NSWindow* window = [[NSWindow alloc]
@@ -1148,10 +1147,15 @@ void* host_ui_view(void) {
 }
 
 void host_show_window(void* ui_view) {
+  host_show_window_behind(ui_view, nullptr);
+}
+
+void host_show_window_behind(void* ui_view, void* above_ui_view) {
   Browser* browser = BrowserWithView(ui_view);
   if (!browser) {
     return;
   }
+  Browser* above = above_ui_view ? BrowserWithView(above_ui_view) : nullptr;
   NSView* view = browser->ui_view;
   NSWindow* window = view.window;
   browser->window = window;
@@ -1162,7 +1166,7 @@ void host_show_window(void* ui_view) {
   // Views keeps a new window clear until its compositor's first frame, which waits for the GPU
   // process to start, though the UI's and the pages' views cover all of that compositor.
   window.alphaValue = 1;
-  if (g_launch_window) {
+  if (g_launch_window && !above) {
     // It takes the launch window's place, and its picture stays over the UI until the UI has
     // drawn. The launch window itself can't stay over it: Chromium counts a covered window's
     // pages as hidden, and they don't paint.
@@ -1172,10 +1176,14 @@ void host_show_window(void* ui_view) {
     }
   }
   WatchMainWindow();
-  [window makeKeyAndOrderFront:nil];
-  [g_launch_window orderOut:nil];
-  g_launch_window = nil;
-  [NSApp activateIgnoringOtherApps:YES];
+  if (above && above->window) {
+    [window orderWindow:NSWindowBelow relativeTo:above->window.windowNumber];
+  } else {
+    [window makeKeyAndOrderFront:nil];
+    [g_launch_window orderOut:nil];
+    g_launch_window = nil;
+    [NSApp activateIgnoringOtherApps:YES];
+  }
 
   // A click outside the command bar closes it first, so the click lands the way it would with
   // the bar closed. Otherwise it only makes the browser window key again: the page doesn't take
@@ -1254,6 +1262,43 @@ void host_show_window(void* ui_view) {
                                                   DismissCapture();
                                                 }
                                               }];
+}
+
+size_t host_screens(double* frames, size_t count) {
+  NSScreen* main = NSScreen.screens.firstObject;
+  NSScreen* first = WindowScreen();
+  NSMutableArray<NSScreen*>* screens = [NSMutableArray arrayWithObject:first];
+  // With BROWSER_DISPLAY=builtin, the Mac's own alone, so no window opens over the other.
+  if (strcmp(getenv("BROWSER_DISPLAY") ?: "", "builtin") != 0) {
+    for (NSScreen* screen in NSScreen.screens) {
+      if (screen != first) {
+        [screens addObject:screen];
+      }
+    }
+  }
+  for (size_t i = 0; i < MIN(count, (size_t)screens.count); i++) {
+    const NSRect visible = screens[i].visibleFrame;
+    frames[i * 4] = NSMinX(visible);
+    // AppKit's y runs up from the bottom of the main display, the core's down from its top.
+    frames[i * 4 + 1] = NSHeight(main.frame) - NSMaxY(visible);
+    frames[i * 4 + 2] = NSWidth(visible);
+    frames[i * 4 + 3] = NSHeight(visible);
+  }
+  return screens.count;
+}
+
+bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height) {
+  Browser* browser = BrowserWithView(ui_view);
+  NSWindow* window = browser ? browser->window : nil;
+  if (!window || (window.styleMask & NSWindowStyleMaskFullScreen)) {
+    return false;
+  }
+  const NSRect frame = window.frame;
+  *x = NSMinX(frame);
+  *y = NSHeight(NSScreen.screens.firstObject.frame) - NSMaxY(frame);
+  *width = NSWidth(frame);
+  *height = NSHeight(frame);
+  return true;
 }
 
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {
