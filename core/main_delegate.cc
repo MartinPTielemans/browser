@@ -25,6 +25,7 @@
 #include "browser_core/platform/native_hosts.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
+#include "browser_core/sign_in_dialog.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/window.h"
@@ -195,6 +196,7 @@ void Install(const bc_host& host) {
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
   g_browser_core_find_native_host = &FindNativeHost;
+  g_browser_core_login_handler = &SignInDialog::Create;
 }
 
 int Run(int argc, const char** argv, const bc_host& host) {

@@ -34,6 +34,8 @@ fn prompt(id: u64) -> PageDialog {
         accept: "OK".into(),
         cancel: "Cancel".into(),
         check: "".into(),
+        username: "".into(),
+        password: "".into(),
     }
 }
 

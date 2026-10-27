@@ -10,6 +10,7 @@
 # ⌘, ⌃ or ⌥ are the browser's. /wait is a page that never comes. login.html is a login form, its
 # username field across the page's top half and its password field across the bottom, that posts
 # to /login, which sends the browser on to welcome.html, as a site that took the login would.
+# /sign-in, with any query, asks for HTTP basic sign-in and takes ada with the password lovelace.
 mkdir "$out/site"
 printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <textarea id=text style="position:fixed;left:0;bottom:0;width:100%;height:60px"></textarea>
@@ -177,7 +178,7 @@ printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLM
 # The server logs each GET as "GET <engine> <host><path> cookie <cookies sorted, or none>", the
 # engine named by the user agent as the engine page does.
 python3 -I -u -c '
-import functools, http.server, sys, time, urllib.parse
+import base64, functools, http.server, sys, time, urllib.parse
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     sent = 0
@@ -223,6 +224,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         if self.path == "/wait":
             time.sleep(3600)
+            return
+        if path == "/sign-in":
+            signed_in = self.headers.get("Authorization") == "Basic " + base64.b64encode(
+                b"ada:lovelace").decode()
+            body = b"<title>signed in ada</title>" if signed_in else b"<title>signed out</title>"
+            self.send_response(200 if signed_in else 401)
+            if not signed_in:
+                self.send_header("WWW-Authenticate", "Basic realm=\"check\"")
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         if self.path != "/slow.bin":
             return super().do_GET()

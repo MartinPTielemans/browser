@@ -2,7 +2,9 @@
 # captured while it's up: alert(), confirm() and prompt() from the served page's keys. ↩ answers
 # OK, with what was typed in a prompt, and Esc Cancel, and the page puts the answer in its title.
 # An alert goes with its tab and comes back with it. Leaving a page whose beforeunload handler
-# asks says "Leave site?": Esc stays and ↩ leaves.
+# asks says "Leave site?": Esc stays and ↩ leaves. A site's HTTP sign-in asks for a username and
+# password: Esc shows the page the site sends without them, and ↩ signs in, with the password in
+# no log.
 
 serve
 log="$out/dialogs.log"
@@ -83,7 +85,29 @@ leave
 send key return
 expect "^browser: page $page dialog answered accept\$" "↩ didn't leave the page"
 expect "^browser: loaded $page https://example.org/\$" "the tab didn't go to example.org once left"
+
+# Each visit asks again, as a sign-in that was cancelled isn't asked for the page it shows.
+sign_in() {
+  go_from_bar "${site}sign-in?$1"
+  expect "^browser: page $page dialog SignIn Sign in\$" "the site's sign-in didn't ask"
+  expect '^browser: dialog settled$' "the sign-in didn't settle"
+}
+sign_in cancel
+../tools/window-screenshot.sh "$pid" "$out/dialog-sign-in.png" || fail "no window to capture"
+send key escape
+expect "^browser: page $page dialog answered cancel\$" "Esc didn't cancel the sign-in"
+expect "^browser: title $page signed out\$" "a cancelled sign-in didn't show what the site sent"
+sign_in again
+send type ada
+send key tab
+send type lovelace
+send key return
+expect "^browser: page $page dialog answered accept\$" "↩ didn't sign in"
+expect "^browser: title $page signed in ada\$" "the site didn't take the username and password"
+# The driver's own lines say what it typed.
+grep -v '^browser: drive ' "$log" | grep -q lovelace && fail "the password reached the log"
 exec 3>&-
 quit
 echo "ok: a page's alert, confirm and prompt ask over its card, answer with ↩ and Esc, and an alert"
-echo "  comes back with its tab. Leave site? stays with Esc and leaves with ↩."
+echo "  comes back with its tab. Leave site? stays with Esc and leaves with ↩. A site's sign-in"
+echo "  cancels with Esc and signs in with ↩, and the password reaches no log."

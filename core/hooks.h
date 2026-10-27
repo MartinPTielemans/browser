@@ -10,6 +10,7 @@
 #include "base/files/file_path.h"
 #include "base/functional/callback_forward.h"
 #include "components/permissions/permission_prompt.h"
+#include "content/public/browser/login_delegate.h"
 #include "extensions/browser/extension_install_prompt_client.h"
 
 // chrome/browser/ui/browser.cc: a Browser may be made with a window the core supplies, which has
@@ -21,6 +22,7 @@ class BrowserWindowInterface;
 class ExtensionInstallPromptShowParams;
 class RenderViewContextMenuBase;
 class GURL;
+class LoginHandler;
 struct NavigateParams;
 
 namespace content {
@@ -36,6 +38,10 @@ class InstallPromptData;
 namespace mojo {
 template <typename ContextType>
 class BinderMapWithContext;
+}
+
+namespace net {
+class AuthChallengeInfo;
 }
 
 namespace ui {
@@ -123,5 +129,12 @@ extern base::FilePath (*g_browser_core_find_native_host)(const std::string& name
 // display's events, which the app's UI shares (platform/linux/wayland.cc). Never called while
 // Chromium has a read prepared.
 extern void (*g_browser_core_wayland_dispatched)();
+
+// chrome/browser/ui/views/login_handler_views.cc: asks for a site's HTTP sign-in, in place of
+// Chrome's views dialog, which needs a dialog host the core's windows don't have.
+extern std::unique_ptr<LoginHandler> (*g_browser_core_login_handler)(
+    const net::AuthChallengeInfo& auth_info,
+    content::WebContents* web_contents,
+    content::LoginDelegate::LoginAuthRequiredCallback auth_required_callback);
 
 #endif  // BROWSER_CORE_HOOKS_H_
