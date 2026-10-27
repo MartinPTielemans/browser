@@ -3,7 +3,8 @@
 # Each run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
-#   split favorites extensions windows private capture passwords links access trouble dialogs
+#   split favorites extensions windows private capture passwords links preview access trouble
+#   dialogs
 # The store run installs from Google's Web Store, so it needs the network and runs only when named:
 # ./check.sh store.
 # Every run but load needs Browser to be the active app, and window and find take it full screen
@@ -15,7 +16,7 @@ set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
-runs="$runs split favorites extensions windows private capture passwords links access trouble"
+runs="$runs split favorites extensions windows private capture passwords links preview access trouble"
 runs="$runs dialogs"
 named="store"
 for run in "$@"; do
