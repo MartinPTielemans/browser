@@ -581,7 +581,9 @@ mod tests {
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(host.clone(), cx));
         // The fourth Space's form, made from the third, in a profile with a favorite.
         shell.update(cx, |shell, cx| {
-            let space = |id: u64| (id, format!("Space {id}").into(), None, 1, "".into(), "".into());
+            let space = |id: u64| {
+                (id, format!("Space {id}").into(), None, 1, "".into(), "".into(), "".into())
+            };
             shell.set_spaces((1..=4).map(space).collect(), cx);
             shell.set_space(4, cx);
             let name = cx.new(|cx| TextInput::new("Space name", cx));
