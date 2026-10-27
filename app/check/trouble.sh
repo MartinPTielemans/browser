@@ -123,13 +123,14 @@ expect "^browser: selected $tab in " "the first tab wasn't shown"
 expect "^browser: loaded $tab ${site}busy.html\$" "the tab behind didn't load once shown"
 none_since "trouble crashed" || fail "the tab behind showed the crash card"
 
-# A host that doesn't resolve shows the core's error page, with no card and no mark.
+# A host that doesn't resolve shows the core's error page, with no card and no mark. The host has
+# no address under a real domain, since the bar's first suggestion for a .invalid one is a search.
 send key l cmd
 expect '^browser: command bar shown$' "⌘L didn't open the command bar"
-send insert "http://nothing.invalid/"
+send insert "http://nothing.example.com/"
 send key return
 expect "^browser: page $tab trouble network -105\$" "a host that doesn't resolve wasn't a network error"
-await '^browser: title [0-9]* nothing.invalid$' || fail "the error page didn't take the host for its title"
+await '^browser: title [0-9]* nothing.example.com$' || fail "the error page didn't take the host for its title"
 ../tools/window-screenshot.sh "$pid" "$out/network-error.png" || fail "no window to capture"
 
 # A port with no server is refused, and loads by itself once a server takes it.
