@@ -3,7 +3,9 @@
 # shows. The Spaces menu acts on the window in front. A click on a row whose page another window
 # shows moves the page there live, with no second load, and the window it left keeps its rows.
 # ⇧⌘W closes a window and gives its tabs to the one that was in front before it, live, which shows
-# its page again; in the last window it quits.
+# its page again; in the last window it quits. ⇧↩ in the command bar opens its page in a new
+# window, as ⌘N makes one, and a Switch to Tab row for that window's page brings the window
+# forward rather than taking the page.
 
 # The page counts in its title from its first frame, so a page that reloaded would count from 1
 # again. "o" in it opens a tab under it, as a link to a new tab does.
@@ -96,9 +98,55 @@ send window 1
 check_layout "back in the first window"
 ../tools/window-screenshot.sh "$pid" "$out/windows-closed.png" || fail "no window to capture"
 
+# ⇧↩ in the command bar opens example.com in a new window, and the first keeps its page.
+send key t cmd
+expect '^browser: command bar shown$' "⌘T didn't open the command bar"
+send type example.com
+send key return shift
+# The bar sends what it suggested first, http:// while the https:// probe is out; the page upgrades.
+expect '^browser: command bar window https*://example.com/' "⇧↩ didn't open example.com in a window"
+expect '^browser: window opened [0-9]' "⇧↩ didn't open a window"
+third=$(grep '^browser: window opened ' "$log" | tail -1 | cut -d' ' -f4)
+expect "^browser: window $third shows [1-9][0-9]*\$" "⇧↩'s window didn't show a tab"
+c=$(grep "^browser: window $third shows [1-9]" "$log" | tail -1 | cut -d' ' -f5)
+expect "^browser: loaded $c https://example.com/\$" "example.com didn't load in ⇧↩'s window"
+none_since "^browser: window $first shows" || fail "⇧↩ changed what the first window shows"
+../tools/window-screenshot.sh "$pid" "$out/windows-shift-return.png" all ||
+  fail "no window to capture"
+
+# From the first window, the Switch to Tab row for that page brings its window forward, and the
+# first window keeps its own page. "example" is the start of the page's title and its URL.
+send window 1
+send key t cmd
+expect '^browser: command bar shown$' "⌘T in the first window didn't open the command bar"
+send type example
+expect '^browser: command bar completes "example" with "\.' \
+  "the command bar didn't complete \"example\""
+send key backspace
+suggested="^browser: command bar suggestions \"example\" in .* ms: .*https://example.com/ tab $c"
+expect "$suggested" "the command bar didn't suggest the tab ⇧↩'s window shows"
+for _ in 1 2 3 4 5 6 7 8; do
+  send key down
+  grep '^browser: command bar selected' "$log" | tail -1 | grep -q ' https://example.com/$' && break
+done
+send key return
+expect "^browser: command bar switch to tab $c in window $third\$" \
+  "↩ on the tab's row didn't go to the window that shows it"
+expect "^browser: key window $third\$" "Switch to Tab didn't make the window showing the tab key"
+none_since "^browser: window $first shows" ||
+  fail "Switch to Tab changed what the first window shows"
+counting "after Switch to Tab"
+../tools/window-screenshot.sh "$pid" "$out/windows-switch.png" all || fail "no window to capture"
+
+# ⇧↩'s window closes, so the next run doesn't bring back two.
+send window 3
+send key w cmd shift
+expect "^browser: window closed $third\$" "⇧⌘W didn't close ⇧↩'s window"
+send window 1
+
 # ⇧⌘W in the last window quits. It's the driver's last command: the app doesn't report it done.
 post key w cmd shift
 exec 3>&-
 await "^browser: window closed $first\$" || fail "⇧⌘W didn't close the last window"
 exited
-echo "ok: ⌘N opens a window on the same Spaces with no page, which never takes another window's page on a Space switch, the Spaces menu acts on it, a click on a row moves its page there live, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last. Windows: $out/windows-new.png, $out/windows-moved.png, $out/windows-closed.png"
+echo "ok: ⌘N opens a window on the same Spaces with no page, which never takes another window's page on a Space switch, the Spaces menu acts on it, a click on a row moves its page there live, ⇧⌘W gives the closed window's tabs back to the other, live, and quits from the last, ⇧↩ in the command bar opens a new window, and Switch to Tab brings forward the window showing the tab. Windows: $out/windows-new.png, $out/windows-moved.png, $out/windows-closed.png, $out/windows-shift-return.png, $out/windows-switch.png"

@@ -12,12 +12,14 @@ use crate::text_input::{self, Chosen, FieldMenu};
 
 /// A host that records what the bar asks of it, but its suggestions and its window's height, and
 /// apart from the rest, where it shows the window. A text with a dot names a page there; any other
-/// is searched for. It has commands only if asked to.
+/// is searched for. It has commands only if asked to. The tabs in `elsewhere` are live in the other
+/// browser window given.
 #[derive(Default)]
 struct Recorder {
     calls: RefCell<Vec<String>>,
     shown: RefCell<Vec<String>>,
     commands: bool,
+    elsewhere: RefCell<HashMap<u64, u64>>,
 }
 
 impl Recorder {
@@ -54,12 +56,24 @@ impl Host for Recorder {
         self.record(format!("open {url}{}", if behind { " behind" } else { "" }));
     }
 
+    fn open_window(&self, url: &str, _: &mut App) {
+        self.record(format!("window {url}"));
+    }
+
     fn navigate(&self, tab: u64, url: &str) {
         self.record(format!("navigate {tab} {url}"));
     }
 
     fn select(&self, tab: u64) {
         self.record(format!("select {tab}"));
+    }
+
+    fn tab_window(&self, tab: u64) -> Option<u64> {
+        self.elsewhere.borrow().get(&tab).copied()
+    }
+
+    fn activate(&self, window: u64, tab: u64, _: &mut App) {
+        self.record(format!("activate {window} with {tab}"));
     }
 
     fn split(&self, tab: u64, with: u64, _: &mut App) {
@@ -405,6 +419,67 @@ fn ctrl_return_puts_www_and_com_around_a_word(cx: &mut TestAppContext) {
     bar.type_text("two words");
     bar.keys("ctrl-enter");
     assert_eq!(bar.calls(), [format!("open {}", search("two words")), "hide".into()]);
+}
+
+#[gpui::test]
+fn shift_return_opens_where_return_goes_in_a_new_window(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("exa");
+    let rows = vec![completing("https://example.com/", "mple.com"), searching("exa")];
+    bar.suggest("exa", rows);
+    bar.keys("shift-enter");
+    assert_eq!(bar.calls(), ["hide", "window https://example.com/"]);
+
+    // Before the suggestions come, where what's typed names.
+    let mut bar = Bar::new(cx);
+    bar.type_text("example.org");
+    bar.keys("shift-enter");
+    assert_eq!(bar.calls(), ["hide", "window https://example.org/"]);
+
+    // A tab's row opens its page there, as ⌘↩ opens it behind.
+    let mut bar = Bar::new(cx);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), Suggestion { tab: 7, ..page("https://a.test/") }]);
+    bar.keys("down shift-enter");
+    assert_eq!(bar.calls(), ["hide", "window https://a.test/"]);
+}
+
+#[gpui::test]
+fn ctrl_shift_return_opens_www_and_com_around_a_word_in_a_new_window(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("exa");
+    bar.suggest("exa", vec![completing("https://example.com/", "mple.com")]);
+    bar.keys("ctrl-shift-enter");
+    assert_eq!(bar.calls(), ["hide", "window https://www.exa.com/"]);
+
+    // More than a word goes where ⇧↩ goes.
+    let mut bar = Bar::new(cx);
+    bar.type_text("two words");
+    bar.keys("ctrl-shift-enter");
+    assert_eq!(bar.calls(), ["hide".to_string(), format!("window {}", search("two words"))]);
+}
+
+#[gpui::test]
+fn a_tab_another_window_shows_brings_that_window_forward(cx: &mut TestAppContext) {
+    let tabs = vec![tab(4, "https://a.test/"), tab(2, "https://b.test/")];
+    let mut bar = Bar::with_tabs(cx, tabs);
+    bar.host.elsewhere.borrow_mut().insert(2, 9);
+    bar.keys("down enter");
+    assert_eq!(bar.calls(), ["hide", "activate 9 with 2"]);
+
+    // A tab no other window shows comes to this one.
+    let mut bar = Bar::with_tabs(cx, vec![tab(4, "https://a.test/")]);
+    bar.host.elsewhere.borrow_mut().insert(2, 9);
+    bar.keys("enter");
+    assert_eq!(bar.calls(), ["select 4", "hide"]);
+
+    // A suggestion for what's typed does the same.
+    let mut bar = Bar::new(cx);
+    bar.host.elsewhere.borrow_mut().insert(7, 3);
+    bar.type_text("ex");
+    bar.suggest("ex", vec![searching("ex"), Suggestion { tab: 7, ..page("https://a.test/") }]);
+    bar.keys("down enter");
+    assert_eq!(bar.calls(), ["hide", "activate 3 with 7"]);
 }
 
 #[gpui::test]

@@ -170,10 +170,10 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Well-known sites | MVP | built in; fill the rows left under the profile's own, never row 0 | ours |
 | [x] | Site search | MVP | Tab when hinted, Space after the keyword; ⌫ at the start, ⇧Tab or Esc leaves and restores; Arc's look: measure | Chrome O |
 | [x] | Keys | MVP | ↩, ⌘↩ behind with the bar open, ⌥↩ beside, ⇧⌘↩, ⌃↩, ↑↓ and Tab ⇧Tab wrap, ⌃N/⌃P, ⇞⇟, ⇧⌦, Esc | Arc 1.170.0 cap, Chrome, Dia O |
-| [ ] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows. Not started: multi-window step 5 | Chrome |
+| [x] | ⇧↩, ⌃⇧↩ | MVP | in a new window, with windows: where ↩ / ⌃↩ go, in a new window made as ⌘N makes one (from a private window, a private one), showing the page; a command or sum as ↩, over a new pane as ↩ *interim*; whether Arc opens a window, Little Arc or Peek: measure | Chrome |
 | [x] | ⌘V after ⌘T / ⌘L / ⌘F | MVP | lands in the new field (≤ 400 ms), with every key typed and a composition, from the page or the UI; a page that keeps the shortcut gets them after. The checks type, never paste | Ardia P§7 |
 | [x] | Click outside | MVP | closes and still acts | AGENTS.md |
-| [ ] | Switch to Tab rows | MVP | across windows, never the current tab. Partly: never the current tab, within the window; across windows waits on multi-window step 5 | Dia, O |
+| [x] | Switch to Tab rows | MVP | across windows, never the current tab: a tab another window shows live brings that window forward, key, rather than taking its page, as Chrome's does *interim*; whether Arc raises or moves: measure | Dia, O |
 | [x] | URL parsing | MVP | Chrome's Parse; https first, http fallback; local hosts http | Chrome O |
 | [x] | Commands | MVP | found by name, with their shortcuts; one whose name starts with what's typed comes first | Arc 1.170.0 cap |
 | [x] | Row icons | MVP | a clock for a page only in history; a favicon for an open tab or a site; a glyph for each command, Lucide's | Arc 1.170.0 cap |

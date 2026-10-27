@@ -572,7 +572,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 - The Enter target is the inline match, else a typed URL, else a search for what was typed. Page titles are never the default (Chrome). Dia's "Use website first" setting puts a strongly matching page first instead, and "Prefer search engine" turns that off.
 - The search row comes right after the top hit (Dia 1.49).
 - Row 0 is computed from local data only; remote suggestions append below it, so row 0 never flickers (Chrome).
-- Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia).
+- Open tabs appear as "Switch to Tab" rows across windows, never the current tab (Dia). Ours (*interim*, as Chrome's): a row for a tab another window shows live brings that window forward with the keyboard, rather than taking its page; any other comes to this window. Whether Arc raises or moves: measure.
 - Before anything is typed, the rows are the Space's open tabs, each with "Switch to Tab" (Arc cap). Ours (*interim*): its favorites, pinned tabs and Today tabs, the most recently shown first, without the tab shown or its split, at most ten; none over a split's new pane. ↩ switches to the selected one, and emptying the field lists them again.
 - History rows can be removed with a hover ✕ or ⇧⌦, and the selection moves to the next row (Chrome; Dia has the ✕).
 - Bookmarks, a calculator (↩ copies the result) and commands are also rows (Dia).
@@ -620,7 +620,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 | ↩ | open where the bar shows pages: a new tab for ⌘T, the tab for ⌘L | Chrome |
 | ⌘↩ | a tab behind the one shown, at the top of Today, which loads once first shown; the bar stays open. A command runs as for ↩ | Arc 1.170.0 cap |
 | ⌥↩ | a new pane on the right of the page, in a split view | Arc 1.170.0 cap |
-| ⇧↩ | new window | Chrome |
+| ⇧↩ | where ↩ goes, in a new window made as ⌘N makes one, a private one from a private window. A command runs as for ↩, and over a new pane it's ↩ (*interim*; whether Arc opens a window, Little Arc or Peek: measure) | Chrome |
 | ⇧⌘↩ | search for what was typed, even if it names a page | Dia |
 | ⌃↩ / ⌃⇧↩ | www.<word>.com for a word typed, else as ↩ / the same in a new window | Chrome |
 | ↑ ↓, ⌃N ⌃P | move, wrapping at the ends | Chrome |

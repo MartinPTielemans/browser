@@ -857,8 +857,13 @@ impl command_bar::Host for PreviewBar {
     }
     fn page_favicon(&self, _: &str) {}
     fn open_tab(&self, _: &str, _: bool) {}
+    fn open_window(&self, _: &str, _: &mut App) {}
     fn navigate(&self, _: u64, _: &str) {}
     fn select(&self, _: u64) {}
+    fn tab_window(&self, _: u64) -> Option<u64> {
+        None
+    }
+    fn activate(&self, _: u64, _: u64, _: &mut App) {}
     fn split(&self, _: u64, _: u64, _: &mut App) {}
     fn open_split(&self, _: &str, _: u64, _: &mut App) {}
     fn copy(&self, _: &str, _: &mut App) {}

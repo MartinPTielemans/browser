@@ -35,6 +35,11 @@ void host_cascaded(void* ui_view, double* x, double* y, double* width, double* h
 // Control. The window doesn't draw it.
 void host_set_window_title(void* ui_view, const char* title);
 
+// Makes the browser window of |ui_view| key and puts it in front, out of the Dock if it's
+// minimized, as a Switch to Tab row for a page it shows does. The user's: agents get none, as it
+// takes the user's focus (decision 8).
+void host_activate(void* ui_view);
+
 // Calls |changed| with the view of each browser window that becomes the key window.
 void host_watch_key_window(void (*changed)(void* ui_view));
 
