@@ -775,6 +775,13 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
     "Safari's engine's session page didn't see Chromium's cookie and item, or keep its own"
   grep "^browser: title $tab session safari sees " "$log" | tail -1 | grep -qwE "h|hw" &&
     fail "an HttpOnly cookie reached the script in Safari's engine"
+  # The tab leaves the page that sets them for one that only reads them, so Off below hands it back
+  # to a page in Chromium that can see only what the copy brought.
+  go_from_bar "127.0.0.1:$port/session"
+  expect "^browser: loaded $tab http://127.0.0.1:$port/session\$" "the plain session page didn't load"
+  expect "^browser: title $tab session safari sees.* n w item back\$" \
+    "Safari's engine's plain session page didn't see what the one before stored"
+  reader=$tab
   # ⌘T to the site opens a new tab in Safari's engine, though Chrome starts a new tab's first load
   # before the core has the tab. The new tab is the one shown from here.
   send key t cmd
@@ -855,6 +862,14 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
   expect "^browser: site controls set Safari's engine Off\$" "Off in the menu didn't run"
   expect "^browser: copied [0-9]* cookies and [0-9]* storage items for 127.0.0.1 back to Chromium\$" \
     "Off didn't copy the site's session back to Chromium"
+  expect "^browser: copied [1-9][0-9]* cookies and [1-9][0-9]* storage items for 127.0.0.1 back to Chromium\$" \
+    "Off copied none of the site's cookies or items back to Chromium: $(grep '^browser: system store has ' "$log" | tail -1)"
+  # The tab handed back at the plain session page loads it in Chromium, which sets nothing, so what
+  # its script sees came back with the copy: Safari's engine's page's cookie and item.
+  expect "^browser: title $reader session chromium sees.* w item back\$" \
+    "Chromium didn't get the cookie and the item Safari's engine's page stored: $(grep "^browser: title $reader " "$log" | tail -1)"
+  served "^GET chromium 127.0.0.1:$port/session cookie .*hw=$port.*w=$port" \
+    "Chromium's request didn't carry the HttpOnly cookie Safari's engine's server set"
   expect "^browser: title $tab engine chromium\$" "Off didn't show the page in Chromium"
   # Chromium's page, taking the pane, may have closed them already.
   if none_since '^browser: site controls hidden$'; then
@@ -872,6 +887,9 @@ if [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ]; then
     fail "an HttpOnly cookie reached the script in Chromium"
   served "^GET chromium 127.0.0.1:$port/session cookie .*hw=$port.*w=$port" \
     "Chromium's request didn't carry the HttpOnly cookie Safari's engine's server set"
+  # Chromium setting the session itself would hide a copy that brought nothing.
+  grep -q "^GET chromium 127.0.0.1:$port/session?webkit " "$out/site.log" &&
+    fail "Chromium loaded the page that sets Safari's engine's session, so the copy back went untested"
   go_from_bar "localhost:$port/index.html"
   expect "^browser: loaded $tab http://localhost:$port/index.html\$" "localhost didn't load again"
 else
