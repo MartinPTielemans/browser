@@ -95,6 +95,14 @@ expect() {
   done
   fail "$2"
 }
+# expect, looking every 10 ms, for a press that has to land within the first frames of a motion.
+expect_soon() {
+  for _ in $(seq 1000); do
+    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1" && return 0
+    sleep 0.01
+  done
+  fail "$2"
+}
 # Nothing logged since the last command was sent matches $1.
 none_since() {
   ! sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q "$1"

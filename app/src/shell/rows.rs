@@ -14,15 +14,16 @@ use gpui::{
 use super::{
     CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE,
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
-    FOLDER_INDENT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE, LOADING_TURN,
-    NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET, ROW_HEIGHT, Row,
-    SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
+    FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
+    LOADING_TURN, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
+    ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
     folder_icon, name_box, new_tab_label, plate, row_box, row_spring, scaled::scaled_from_middle,
     selected_plate, space_icon, split_plate, swap::{ARROW_DOWN, CLOSE, NONE, UNLOAD, folder_glyph},
     title,
 };
+use super::drag::in_sidebar;
 use crate::icon_picker;
 
 impl Shell {
@@ -309,6 +310,54 @@ impl Shell {
     fn show_row(&mut self, tab: u64, cx: &mut Context<Self>) {
         log!("browser: command select via sidebar");
         self.select(tab, cx)
+    }
+
+    /// A press on the page that slides in after a Space switch, where the page isn't yet: the
+    /// pointer is over the outgoing page, which takes no input, or over nothing. It acts on the
+    /// row that will be there, as the press that it is (docs/ux-principles.md: act on the press),
+    /// the Space having switched already. Returns whether it took the press; a press on the
+    /// sliding page's drawn part is the rows' own.
+    pub(super) fn press_at_rest(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
+        let sliding = self.settle.is_some() && self.swipe.is_none() && self.drag.is_none();
+        if !sliding || self.form().is_some() || self.renaming.is_some() {
+            return false;
+        }
+        let Some(&(_, page)) = self.pages().iter().find(|&&(space, _)| space == self.space) else {
+            return false;
+        };
+        let at = in_sidebar(event.position, self.sidebar_origin.get());
+        let width = self.width();
+        let rows = self.drawn_list_top()..f32::from(self.viewport.height) - FOOTER_HEIGHT;
+        let on_page = (page..page + width).contains(&at.x);
+        if on_page || !(0. ..width).contains(&at.x) || !rows.contains(&at.y) {
+            return false;
+        }
+        let y = self.list_y(at.y);
+        let tab = self.layout().into_iter().find_map(|(slot, top)| match slot {
+            Slot::Tab(tab) if (top..top + ROW_PITCH).contains(&y) => Some(tab),
+            _ => None,
+        });
+        let Some(tab) = tab.filter(|&tab| self.panes(tab).len() == 1) else {
+            return false;
+        };
+        match event.button {
+            MouseButton::Right => self.tab_menu(tab, event.position, cx),
+            MouseButton::Left if event.click_count == 2 && self.is_folder(tab) => {
+                self.rename_folder(tab, cx)
+            }
+            MouseButton::Left if event.click_count == 2 => self.rename_tab(tab, cx),
+            MouseButton::Left => {
+                self.browser.tooltip(None, cx);
+                if self.is_folder(tab) {
+                    self.press_folder(tab, cx);
+                } else {
+                    self.show_row(tab, cx);
+                }
+                self.press_row(tab, event.position);
+            }
+            _ => return false,
+        }
+        true
     }
 
     /// How wide each segment of a split view's row is, `count` of them `depth` folders in.
@@ -1162,6 +1211,60 @@ mod tests {
         assert_eq!(shell.read_with(cx, |shell, _| shell.folding), Some(false));
         let calls = host.take();
         assert!(!calls.iter().any(|call| call.starts_with("select")), "{calls:?}");
+    }
+
+    /// Presses in the first frames after ⌃2, while the second Space's rows still slide in from the
+    /// right, act on its row at the pointer, as they do once it has settled (docs/ux-principles.md:
+    /// act on the press): a right-click shows its menu, and a left-click shows its tab.
+    #[gpui::test]
+    fn a_press_while_a_space_slides_in_acts_on_its_row(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = |id: u64| (id, format!("Space {id}").into(), None, 1, "".into(), "".into());
+            shell.set_spaces(vec![space(1), space(2)], cx);
+            shell.set_space(1, cx);
+            shell.set_tabs(1, Vec::new(), vec![2, 3], Vec::new(), Folders::default(), cx);
+            shell.set_tabs(2, Vec::new(), vec![4, 5], Vec::new(), Folders::default(), cx);
+            shell.set_selected(2, cx);
+        });
+        cx.run_until_parked();
+        shell.update(cx, |shell, cx| {
+            shell.set_space(2, cx);
+            shell.set_selected(4, cx);
+        });
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |shell, _| shell.settle.is_some()), "the Space didn't slide");
+
+        let (x, y) = close_button(&shell, cx, 5);
+        let at = point(px(x - 100.), px(y));
+        host.take();
+        host.menus.borrow_mut().clear();
+        cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.menus.borrow().len(), 1, "a right-click mid-slide showed no menu");
+        cx.simulate_mouse_down(at, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        let calls = host.take();
+        assert_eq!(calls.iter().filter(|call| call.starts_with("select")).count(), 1, "{calls:?}");
+        assert!(calls.contains(&"select 5".to_string()), "a left-click mid-slide: {calls:?}");
+
+        // Where the page has come, its drawn row takes the press, and only once.
+        shell.update(cx, |shell, cx| {
+            if let Some(settle) = shell.settle.as_mut() {
+                settle.start -= Duration::from_millis(60);
+            }
+            cx.notify();
+        });
+        cx.run_until_parked();
+        let page = shell.read_with(cx, |shell, _| shell.pages()[0].1);
+        assert!(page > 0. && page < 100., "the page is {page} from its place");
+        host.menus.borrow_mut().clear();
+        let drawn = point(px(x + page - 100.), px(y));
+        cx.simulate_mouse_down(drawn, MouseButton::Right, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.menus.borrow().len(), 1, "a right-click on the drawn row");
     }
 
     /// A press on an away pinned tab's favicon leaves showing the tab to its click, which takes

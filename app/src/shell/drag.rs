@@ -156,7 +156,7 @@ impl Shell {
     }
 
     /// Where `y`, down from the sidebar's top, is in the list, scrolled as it is.
-    fn list_y(&self, y: f32) -> f32 {
+    pub(super) fn list_y(&self, y: f32) -> f32 {
         y - self.drawn_list_top() - f32::from(self.list_scroll.offset().y)
     }
 
