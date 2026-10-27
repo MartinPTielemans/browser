@@ -1066,6 +1066,8 @@ void host_show_launch_window(const char* profile_dir, double x, double y, double
     shown.imageScaling = NSImageScaleNone;
     [content addSubview:shown];
     g_launch_picture = shown;
+    // check.sh reads this line.
+    fprintf(stderr, "browser: launch picture shown\n");
   }
   [window makeKeyAndOrderFront:nil];
   [NSApp activateIgnoringOtherApps:YES];
