@@ -283,6 +283,9 @@ pub trait Browser {
     /// Shares the page at `url`, titled `title`, with the service at `service` in
     /// `share_services`.
     fn share(&self, url: &str, title: &str, service: usize, cx: &mut App);
+    /// The user closed the tab's protected-media note: the profile keeps it from showing again at
+    /// the site of its page, and Site Controls offer Safari's engine there instead.
+    fn close_media_note(&self, _tab: u64, _cx: &mut App) {}
     /// Shows `text` in the toast at the window's top right for `time`, then `key`'s chip and the
     /// words after it if there's a key.
     fn toast(&self, text: &str, key: Option<(&str, &str)>, time: Duration, cx: &mut App);

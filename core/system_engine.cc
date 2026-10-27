@@ -42,6 +42,8 @@ namespace {
 // The sites a profile keeps for the system's engine, and the id of the store its pages made, if
 // they have: the system's engine is only loaded for a profile with one.
 constexpr char kSites[] = "browser_core.system_engine.sites";
+// The sites whose protected-media note the user closed.
+constexpr char kClosedNotes[] = "browser_core.system_engine.closed_notes";
 constexpr char kStore[] = "browser_core.system_engine.store";
 
 // Builds no service: Chrome registers a profile's prefs through its factories.
@@ -62,6 +64,7 @@ class PrefsFactory : public ProfileKeyedServiceFactory {
 
   void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) override {
     registry->RegisterListPref(kSites);
+    registry->RegisterListPref(kClosedNotes);
     registry->RegisterStringPref(kStore, std::string());
   }
 };
@@ -232,6 +235,21 @@ void Forget(Profile* profile, const GURL& url) {
   if (profile && url.SchemeIsHTTPOrHTTPS()) {
     ScopedListPrefUpdate(profile->GetPrefs(), kSites)->EraseValue(base::Value(SiteOf(url)));
   }
+}
+
+bool NoteClosed(Profile* profile, const GURL& url) {
+  if (!profile || !url.SchemeIsHTTPOrHTTPS()) {
+    return false;
+  }
+  const base::ListValue& sites = profile->GetPrefs()->GetList(kClosedNotes);
+  return !sites.empty() && std::ranges::contains(sites, base::Value(SiteOf(url)));
+}
+
+void CloseNote(Profile* profile, const GURL& url) {
+  if (!profile || !url.SchemeIsHTTPOrHTTPS() || NoteClosed(profile, url)) {
+    return;
+  }
+  ScopedListPrefUpdate(profile->GetPrefs(), kClosedNotes)->Append(SiteOf(url));
 }
 
 platform::SystemStore StoreOf(Profile* profile) {

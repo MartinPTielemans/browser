@@ -750,7 +750,13 @@ impl site_controls::Host for SiteControlsHost {
     }
 
     fn set_system_engine(&self, tab: u64, on: bool) {
-        unsafe { bc::bc_tab_set_system_engine(tab, on) };
+        match on {
+            // As the protected-video note's button does.
+            true => use_system_engine(tab),
+            false => {
+                unsafe { bc::bc_tab_set_system_engine(tab, false) };
+            }
+        }
     }
 
     fn run(&self, run: site_controls::Run, tab: u64, cx: &mut App) {
@@ -1785,9 +1791,11 @@ impl Browser for Engine {
     }
 
     fn use_system_engine(&self, tab: u64, _: &mut App) {
-        // check.sh reads this line.
-        let used = unsafe { bc::bc_tab_set_system_engine(tab, true) };
-        log!("browser: system engine {tab} {}", if used { "on" } else { "refused" });
+        use_system_engine(tab);
+    }
+
+    fn close_media_note(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_close_media_note(tab) };
     }
 
     fn share_services(&self, url: &str) -> Vec<SharedString> {
@@ -3389,6 +3397,14 @@ unsafe extern "C" fn tab_closed(_: *mut c_void, tab: bc::bc_id) {
     }
 }
 
+/// Shows `tab`'s page in Safari's engine, in the tab, and has its profile keep the site for it: the
+/// protected-video note's button and Site Controls' On.
+fn use_system_engine(tab: u64) {
+    // check.sh reads this line.
+    let used = unsafe { bc::bc_tab_set_system_engine(tab, true) };
+    log!("browser: system engine {tab} {}", if used { "on" } else { "refused" });
+}
+
 unsafe extern "C" fn tab_site_controls(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -3435,7 +3451,11 @@ unsafe extern "C" fn tab_site_controls(
             })
             .collect(),
         reset: Some(string(controls.reset)).filter(|reset| !reset.is_empty()),
-        system_engine: controls.system_engine,
+        system_engine: match (controls.system_engine, controls.system_engine_offered) {
+            (true, _) => Some(true),
+            (false, true) => Some(false),
+            (false, false) => None,
+        },
     };
     update_app(|cx| site_controls::changed(tab, site, cx));
 }

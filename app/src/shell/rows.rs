@@ -774,7 +774,7 @@ impl Shell {
             let clear = clear.when(self.a11y, |clear| {
                 clear.accessibility_id("clear").button_named("Clear Today")
             });
-            let clear = clear.child(self.button_frame(Command::Clear));
+            let clear = clear.child(self.button_frame(Command::Clear.name()));
             clear.when(live, |clear| {
                 clear
                     .block_mouse_except_scroll()

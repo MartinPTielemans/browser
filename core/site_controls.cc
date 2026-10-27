@@ -10,6 +10,7 @@
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
+#include "browser_core/drm_request.h"
 #include "browser_core/host.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
@@ -236,8 +237,13 @@ void SiteControls::Read() {
   ui_delegate_ = std::make_unique<ChromePageInfoUiDelegate>(web_contents(), url);
   site_ = base::UTF16ToUTF8(url_formatter::FormatUrlForSecurityDisplay(
       url, url_formatter::SchemeDisplay::OMIT_CRYPTOGRAPHIC));
-  system_engine_ = system_engine::Remembered(
-      Profile::FromBrowserContext(web_contents()->GetBrowserContext()), url);
+  Profile* profile = Profile::FromBrowserContext(web_contents()->GetBrowserContext());
+  system_engine_ = system_engine::Remembered(profile, url);
+  // Where the protected-media note's button would show the page there: a page of the tab asked,
+  // or the user closed the site's note, which this is the way back from.
+  system_engine_offered_ =
+      !system_engine_ && !page && system_engine::Allowed(tab_) &&
+      (MediaUnsupported(web_contents()) || system_engine::NoteClosed(profile, url));
   if (page) {
     // Chromium's permissions aren't the system page's, which asks for none, and WebKit says only
     // whether the connection is secure.
@@ -357,6 +363,7 @@ void SiteControls::Report() {
       .picture_in_picture = PictureInPictureOf(web_contents()),
       .certificate = CertificateOf(web_contents()) != nullptr,
       .system_engine = system_engine_,
+      .system_engine_offered = system_engine_offered_,
   };
   Host().tab_site_controls(Host().context, tab_, &controls);
 }

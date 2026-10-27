@@ -292,6 +292,10 @@ typedef struct bc_site_controls {
   // (bc_tab_set_system_engine). A tab showing one lists no permissions: the system's engine asks
   // for none.
   bool system_engine;
+  // The profile doesn't keep the site for the system's engine, which can show the tab's page: a
+  // page of the tab asked for what only it plays, or the user closed the site's note
+  // (bc_tab_close_media_note). bc_tab_set_system_engine turns it on.
+  bool system_engine_offered;
 } bc_site_controls;
 
 // An agent's call the core checked, for the activity log (bc_agent_may_act).
@@ -511,8 +515,9 @@ typedef struct bc_host {
   // "com.microsoft.playready", never the page's own string. Once for each key system a document
   // asks for, unless it's the one the app was last told. It comes with an empty |key_system| once
   // the tab goes to another site, or once bc_tab_set_system_engine switches it: the note it asks
-  // for is gone. bc_tab_set_system_engine answers it where bc_system_engine_available. Agents get
-  // none: the note hands the user's page to another engine or app.
+  // for is gone. bc_tab_set_system_engine answers it where bc_system_engine_available. Never at a
+  // site whose note the user closed (bc_tab_close_media_note). Agents get none: the note hands the
+  // user's page to another engine or app.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
   // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
   // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,
@@ -1053,6 +1058,13 @@ BC_EXPORT bool bc_system_engine_available(void);
 // tab. Then tab_state_changed, tab_media_unsupported with an empty key system, and
 // tab_site_controls if watched. The user's: agents get none.
 BC_EXPORT bool bc_tab_set_system_engine(bc_id tab, bool on);
+
+// The user closed the tab's protected-media note: its profile keeps the site of its page from
+// asking again, kept across launches, and a private window's profile for its session.
+// tab_media_unsupported comes with an empty key system for each tab at the site that had it, and
+// never again there. Site Controls offer the system's engine for the site instead
+// (bc_site_controls). Does nothing for a page that isn't http(s). The user's: agents get none.
+BC_EXPORT void bc_tab_close_media_note(bc_id tab);
 
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as
