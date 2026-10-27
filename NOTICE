@@ -19,7 +19,7 @@ piano, picture-in-picture-2, pin, plus, printer, puzzle, rotate-ccw-clock, rotat
 settings, share, sliders-horizontal, speaker, square-mouse-pointer, terminal, text-search, trash,
 type, undo-2, usb, user, vibrate, video, volume-2, volume-x, x, zap, zoom-in and zoom-out,
 and rotate-cw and x scaled as nav-reload and nav-stop; and camera's path, drawn as Capture's
-pointer, in app/platform/mac/host.mm; at commit
+pointer, in app/platform/mac/host_children.mm; at commit
 7faf87628a1ad6175975bc595344337ce14a7db4.
 
   ISC License

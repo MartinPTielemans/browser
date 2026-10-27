@@ -5,7 +5,12 @@ fn main() {
     let header = root.join("../core/public/browser_core.h");
     cc::Build::new()
         .cpp(true)
-        .file("platform/mac/host.mm")
+        .file("platform/mac/host_window.mm")
+        .file("platform/mac/host_overlay.mm")
+        .file("platform/mac/host_children.mm")
+        .file("platform/mac/host_keys.mm")
+        .file("platform/mac/host_system.mm")
+        .file("platform/mac/host_menus.mm")
         .file("platform/mac/drive.mm")
         .file("platform/mac/emoji.mm")
         // The driver calls the core for what only agent code will, once there is some.
