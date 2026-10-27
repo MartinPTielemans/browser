@@ -152,6 +152,8 @@ struct Settings {
   bool ad_blocking = true;
   // Whether the browser sends its crash reports (crash_reports.h).
   bool send_crash_reports = false;
+  // Whether a link to another site in a pinned tab or a favorite opens in a link preview.
+  bool link_previews = true;
 };
 
 // The user's settings. Call SessionChanged after changing them.

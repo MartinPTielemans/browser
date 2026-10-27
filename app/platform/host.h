@@ -282,6 +282,26 @@ void host_release_site_controls(void);
 // Hides the Site Controls once they've left.
 void host_hide_site_controls(void);
 
+// Makes the window of |view| the link preview's, which covers a browser window when shown, as its
+// child, with the keyboard, and returns the view the preview's page goes in, over |view|. It
+// starts hidden. |dismissed| runs, after the event, when the user leaves it for another window.
+void* host_add_link_preview(void* view, void (*dismissed)(void));
+
+// Shows the link preview's window over |ui_view|'s window, as the UI draws it now, with the
+// keyboard, its page coming in with the UI's first frame.
+void host_show_link_preview(void* ui_view);
+
+// The UI drew a frame of the link preview's motion, with its page at |left|, |top|, |width| by
+// |height| from the window's top left and at |opacity|, which the page's view follows.
+void host_link_preview_drew(double left, double top, double width, double height, double opacity);
+
+// The link preview takes no more clicks or keys as it leaves: the mouse goes through it, and the
+// browser window gets the keyboard back, with the focus where it was, if it had it.
+void host_release_link_preview(void);
+
+// Hides the link preview once it has left.
+void host_hide_link_preview(void);
+
 // Makes the window of |view| Capture's, which covers a browser window's page when shown, as its
 // child, with the keyboard and a camera for the pointer. It starts hidden. |dismissed| runs, after
 // the event, when the user leaves it: a click outside it, another window taking the keyboard,
