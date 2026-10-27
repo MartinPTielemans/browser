@@ -561,7 +561,8 @@ BC_EXPORT void bc_quit(void);
 BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
-// window closed, in the window, which shows the Space it showed. The core saves them as they
+// last window closed, in the window, which shows the Space the front window showed, with its
+// sidebar's width, and goes full screen if it was. The core saves them as they
 // change, in Chrome's user data directory: the favorites, the Spaces' names and whose they are,
 // their pinned and Today tabs with each tab's history, and the tab each showed. A tab loads once
 // it's shown. Does nothing and returns false if nothing was saved or there are Spaces already.
@@ -569,6 +570,22 @@ BC_EXPORT bc_id bc_window_open(bc_rect bounds, void* ui_view);
 // tab_title_changed, tab_favicon_changed once a tab's favicon is found, window_space_shown and
 // window_selected.
 BC_EXPORT bool bc_window_restore(bc_id window);
+
+// The frames of the regular windows open when the browser last quit, or when its last window
+// closed, front to back, which is the order they were last active in: each as it was out of full
+// screen, in bc_window_open's terms, and empty (width 0) if it was saved before frames were kept.
+// None of a private window. Copies up to |count| into |frames| and returns how many there are.
+// Works from started. The first is the window bc_window_restore brings the Spaces back in; open it
+// there. The core saves them as the windows open, move, resize and close.
+BC_EXPORT size_t bc_saved_window_frames(bc_rect* frames, size_t count);
+
+// Opens saved window |index|, 1 or more, at |bounds|, as bc_window_open does but behind the windows
+// open and not key, once bc_window_restore has brought the Spaces back in the first. It shows the
+// Space it showed, with the tab it showed there unless another window shows that, its sidebar's
+// width (bc_window_sidebar_width), and goes full screen if it was. Returns 0 if there's no such
+// window or Chromium is quitting. Then window_space_shown and window_selected. The user's: agents
+// get none, as it changes what the user sees.
+BC_EXPORT bc_id bc_window_open_saved(size_t index, bc_rect bounds, void* ui_view);
 
 // Closes the window. With other windows open, its tabs go, their pages live, to the one active
 // before it, which shows its tab live again if it showed one this window took. Else its pages get
