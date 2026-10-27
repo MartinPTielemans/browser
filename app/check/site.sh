@@ -102,10 +102,12 @@ f.onselect = document.onselectionchange = () => selected() && (document.title = 
 oncopy = () => document.title = "copy " + selected();
 f.addEventListener("compositionend", e => document.title = "committed " + e.data);
 </script>' > "$out/site/engine.html"
-# The session page, whose title says the engine showing it, the cookies its script sees, sorted,
-# and the items "item" and "back" in its localStorage. At /session?set the server sets an HttpOnly
-# cookie, h, and the script a cookie, n, and the item; at /session?webkit the server sets hw and
-# the script w and back. Each cookie's value is the server's port, so a run sees only its own.
+# The session page, whose title says the engine showing it and which of the check's values its
+# script finds, in this order, or none: the cookies h, hw, n and w, and the localStorage items item
+# and back. It names what it found and never a value, since the app logs every title. At
+# /session?set the server sets an HttpOnly cookie, h, and the script a cookie, n, and item; at
+# /session?webkit the server sets hw and the script w and back. Each cookie's value is the
+# server's port, so a run finds only its own.
 printf '%s' '<title>loading</title><script>
 const port = location.port;
 if (location.search == "?set") {
@@ -115,9 +117,12 @@ if (location.search == "?set") {
   document.cookie = `w=${port}; path=/; max-age=3600`;
   localStorage.back = "safari";
 }
-const cookies = document.cookie.split("; ").filter(Boolean).sort().join(" ") || "none";
+const cookies = document.cookie.split("; ");
+const items = {item: "chromium", back: "safari"};
+const found = ["h", "hw", "n", "w"].filter(name => cookies.includes(`${name}=${port}`))
+  .concat(Object.keys(items).filter(name => localStorage[name] == items[name]));
 document.title = "session " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "safari") +
-  " sees " + cookies + " item " + (localStorage.item || "none") + " back " + (localStorage.back || "none");
+  " sees " + (found.join(" ") || "none");
 </script>' > "$out/site/session.html"
 # A page whose whole area is a link to /bounce, which the server redirects to another site,
 # localhost, and from there, at hop.html, back to this one's engine page, as a sign-in through an
