@@ -99,4 +99,8 @@ extern void (*g_browser_core_page_hung)(content::WebContents* contents,
                                         content::RenderWidgetHost* widget,
                                         base::RepeatingClosure restart_hang_monitor);
 
+// chrome/browser/net/net_error_tab_helper.cc: the core's offline page says whether a run of its
+// game is going. Only the error document in the tab's main frame can say it.
+extern void (*g_browser_core_offline_game)(content::WebContents* contents, bool running);
+
 #endif  // BROWSER_CORE_HOOKS_H_

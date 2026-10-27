@@ -99,6 +99,10 @@ class Tab : public content::WebContentsObserver,
   static void PageHung(content::WebContents* contents,
                        content::RenderWidgetHost* widget,
                        base::RepeatingClosure restart_hang_monitor);
+  // For g_browser_core_offline_game (//browser_core/hooks.h): while a run of the offline page's
+  // game is going, Chromium's auto-reload waits, and it loads the page once the run ends if the
+  // network came back meanwhile, so a page coming back never throws a run away.
+  static void GameRunning(content::WebContents* contents, bool running);
   // Loads the page again, as bc_tab_reload says, ending a hung page's renderer first.
   void Reload(bool bypass_cache);
   // Gives a hung page Chrome's hang timeout again, as Chrome's Wait does.

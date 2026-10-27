@@ -5,7 +5,9 @@
 # pane to the card's This page stopped, whose Reload loads it again, while a tab behind whose
 # renderer dies is unloaded instead and loads once it's shown, with no card. A load that fails
 # shows the core's error page, with the error's code, and one refused for want of a server loads
-# again by itself, through Chromium's auto-reload, once the server is there.
+# again by itself, through Chromium's auto-reload, once the server is there. Offline, the page
+# offers ilo's game, which Space starts and a click doesn't, at chrome://dino too, with ⌘L still
+# the browser's over a run; and a page whose network comes back mid-run loads once the run ends.
 
 serve
 # Typing w in it keeps its renderer busy for 20 s, past Chrome's 15 s hang timeout, then the title
@@ -26,7 +28,11 @@ onkeydown = e => {
 log="$out/trouble.log"
 step=0
 rm -f "$saved"
-BROWSER_DRIVE=1 BROWSER_URL="${site}busy.html" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+# DevTools' port takes the tab offline later, as a lost network would.
+ports="$(dirname "$saved")/DevToolsActivePort"
+rm -f "$ports"
+BROWSER_DRIVE=1 BROWSER_URL="${site}busy.html" "$app/Contents/MacOS/Browser" --remote-debugging-port=0 \
+  < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -133,6 +139,10 @@ send key return
 expect "^browser: page $tab trouble network -105\$" "a host that doesn't resolve wasn't a network error"
 await '^browser: title [0-9]* nothing.example.com$' || fail "the error page didn't take the host for its title"
 ../tools/window-screenshot.sh "$pid" "$out/network-error.png" || fail "no window to capture"
+# Space on it starts no game, which only the offline page has. A click away from its Reload focuses
+# it; the refused step after gives a run that started time to say so.
+send click 300 120
+send key space
 
 # A port with no server is refused, and loads by itself once a server takes it.
 free=$(python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
@@ -147,7 +157,130 @@ expect_late "^browser: loaded $tab http://127.0.0.1:$free/\$" "the refused page 
 expect "^browser: page $tab trouble fine\$" "the page that came wasn't fine"
 kill "$stuck"
 stuck=
+grep -q '^browser: tab [0-9]* game running$' "$log" && fail "Space started a game on a page that wasn't offline"
+
+# Offline. A DevTools session on the tab, which DevTools' own Offline is, fails its loads with
+# ERR_INTERNET_DISCONNECTED until it says online. It takes "offline" or "online" on its input and
+# says each back once Chromium has it.
+cat > "$out/network.py" <<'PY'
+import base64, json, os, socket, struct, sys, urllib.request
+
+port = open(sys.argv[1]).read().split()[0]
+targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list"))
+url = next(t["webSocketDebuggerUrl"] for t in targets
+           if t["type"] == "page" and t["url"].startswith(sys.argv[2]))
+sock = socket.create_connection(("127.0.0.1", int(port)))
+key = base64.b64encode(os.urandom(16)).decode()
+sock.sendall((f"GET {url.split(port, 1)[1]} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+              "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+              f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+head = b""
+while not head.endswith(b"\r\n\r\n"):
+    head += sock.recv(1)
+if b" 101 " not in head.split(b"\r\n")[0]:
+    sys.exit(head.decode())
+
+def read(size):
+    data = b""
+    while len(data) < size:
+        chunk = sock.recv(size - len(data))
+        if not chunk:
+            sys.exit("DevTools closed the session")
+        data += chunk
+    return data
+
+# A message from the browser: its frames aren't masked, and a long one may come in several.
+def receive():
+    message = b""
+    while True:
+        first, second = read(2)
+        size = second & 0x7F
+        if size == 126:
+            size = struct.unpack(">H", read(2))[0]
+        elif size == 127:
+            size = struct.unpack(">Q", read(8))[0]
+        data = read(size)
+        if first & 0x0F in (0, 1, 2):
+            message += data
+            if first & 0x80:
+                return message
+
+calls = 0
+def call(method, **params):
+    global calls
+    calls += 1
+    body = json.dumps({"id": calls, "method": method, "params": params}).encode()
+    mask = os.urandom(4)
+    size = bytes([0x80 | len(body)]) if len(body) < 126 else bytes([0xFE]) + struct.pack(">H", len(body))
+    sock.sendall(b"\x81" + size + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(body)))
+    while True:
+        reply = json.loads(receive())
+        if reply.get("id") == calls:
+            if "error" in reply:
+                sys.exit(f"{method}: {reply['error']}")
+            return
+
+call("Network.enable")
+for line in sys.stdin:
+    state = line.strip()
+    call("Network.emulateNetworkConditions", offline=state == "offline", latency=0,
+         downloadThroughput=-1, uploadThroughput=-1)
+    print(state, flush=True)
+PY
+rm -f "$out/network"
+mkfifo "$out/network"
+python3 -I "$out/network.py" "$ports" "http://127.0.0.1:$free/" < "$out/network" > "$out/network.log" 2>&1 &
+network=$!
+exec 4> "$out/network"
+# Takes the tab $1, offline or online.
+network() {
+  echo "$1" >&4
+  for _ in $(seq 100); do
+    grep -qx "$1" "$out/network.log" && return 0
+    kill -0 "$network" 2>/dev/null || fail "DevTools didn't take the tab $1: $(cat "$out/network.log")"
+    sleep 0.1
+  done
+  fail "DevTools didn't take the tab $1"
+}
+network offline
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send insert "${site}index.html"
+send key return
+expect "^browser: page $tab trouble network -106\$" "offline, a load wasn't ERR_INTERNET_DISCONNECTED"
+../tools/window-screenshot.sh "$pid" "$out/offline.png" || fail "no window to capture"
+# A click focuses the page and starts nothing: the run comes in Space's step, not the click's.
+send click $page_point
+send key space
+expect "^browser: tab $tab game running\$" "Space didn't start a run on the offline page"
+# The network comes back mid-run. Chromium's auto-reload, due a second after the page or every
+# few after, waits for the run, which ends at the first column with no more hops.
+network online
+../tools/window-screenshot.sh "$pid" "$out/offline-game.png" || fail "no window to capture"
+expect "^browser: tab $tab game over\$" "the run didn't end at the first column"
+sed -n "/^browser: tab $tab game running\$/,/^browser: tab $tab game over\$/p" "$log" |
+  grep -q "^browser: page $tab trouble fine\$\|^browser: loaded $tab ${site}index.html\$" &&
+  fail "the page came back mid-run"
+expect "^browser: loaded $tab ${site}index.html\$" "the page didn't load once the run ended"
+expect "^browser: page $tab trouble fine\$" "the page that came back wasn't fine"
+exec 4>&-
+wait "$network" || fail "DevTools' session ended badly: $(cat "$out/network.log")"
+
+# chrome://dino opens the offline page, and ⌘L stays the browser's over a run, since the page
+# keeps only Space and ↑.
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send insert "chrome://dino"
+send key return
+expect "^browser: page $tab trouble network -106\$" "chrome://dino didn't open the offline page"
+send click $page_point
+send key space
+expect "^browser: tab $tab game running\$" "Space didn't start a run at chrome://dino"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar over a run"
+send key escape
+expect "^browser: tab $tab game over\$" "the run at chrome://dino didn't end"
 
 quit_by_key
 exited
-echo "ok: a page that stops answering gets Not responding with Wait and Reload and goes by itself once it answers, Wait gives it longer and Reload ends its renderer and loads it again without the crash card, a dead page's pane shows This page stopped, whose Reload loads it again, a tab behind whose renderer dies is unloaded and loads once shown, a host that doesn't resolve shows the core's error page and a refused page loads by itself once its server comes. Windows: $out/hung.png, $out/crashed.png, $out/network-error.png"
+echo "ok: a page that stops answering gets Not responding with Wait and Reload and goes by itself once it answers, Wait gives it longer and Reload ends its renderer and loads it again without the crash card, a dead page's pane shows This page stopped, whose Reload loads it again, a tab behind whose renderer dies is unloaded and loads once shown, a host that doesn't resolve shows the core's error page and a refused page loads by itself once its server comes. Offline, Space starts the game and a click doesn't, a page whose network comes back mid-run loads only once the run ends, chrome://dino opens it, and ⌘L opens the bar over a run. Windows: $out/hung.png, $out/crashed.png, $out/network-error.png, $out/offline.png, $out/offline-game.png"

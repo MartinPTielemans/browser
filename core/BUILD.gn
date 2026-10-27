@@ -138,6 +138,7 @@ source_set("browser_core") {
     "//components/content_settings/core/common",
     "//components/download/content/public",
     "//components/download/public/common:public",
+    "//components/error_page/content/browser",
     "//components/favicon/content",
     "//components/favicon/core",
     "//components/favicon_base",

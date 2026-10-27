@@ -144,6 +144,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
   g_browser_core_open_links = &OpenLinks;
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
+  g_browser_core_offline_game = &Tab::GameRunning;
   return ChromeMain(argc, argv);
 }
 

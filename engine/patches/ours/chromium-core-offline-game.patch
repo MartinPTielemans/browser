@@ -1,0 +1,212 @@
+Lets the core's offline page hold Chromium's auto-reload while a run of its game is going
+(//browser_core/hooks.h), so a network that comes back mid-run doesn't throw the run away: the
+page loads once the run ends. The page says it through Chrome's own channel for its game, the
+error page controller's NetworkEasterEgg interface, which the browser takes only from the error
+document in a tab's main frame. The auto-reloader gets a hold, which waits as a hidden tab's
+reload waits; what holds it, and when, is the core's.
+
+--- a/chrome/common/network_easter_egg.mojom
++++ b/chrome/common/network_easter_egg.mojom
+@@ -14,4 +14,8 @@
+ 
+   // Clear any high score stored in the user's profile.
+   ResetHighScore();
++
++  // browser_core: whether a run of the page's own game is going, which holds
++  // the page's auto-reload until it ends (//browser_core/hooks.h).
++  SetGameRunning(bool running);
+ };
+--- a/chrome/renderer/net/net_error_page_controller.h
++++ b/chrome/renderer/net/net_error_page_controller.h
+@@ -51,6 +51,10 @@
+     // preferences.
+     virtual void ResetEasterEggHighScore() = 0;
+ 
++    // browser_core: whether a run of the page's own game is going
++    // (//browser_core/hooks.h).
++    virtual void SetGameRunning(bool running) = 0;
++
+    protected:
+     Delegate();
+     virtual ~Delegate();
+@@ -87,6 +91,9 @@
+   bool UpdateEasterEggHighScore(int high_score);
+   bool ResetEasterEggHighScore();
+ 
++  // browser_core: the page's game says whether a run is going.
++  bool SetGameRunning(bool running);
++
+   // Execute a "Diagnose Errors" button click.
+   bool DiagnoseErrorsButtonClick();
+ 
+--- a/chrome/renderer/net/net_error_page_controller.cc
++++ b/chrome/renderer/net/net_error_page_controller.cc
+@@ -72,6 +72,12 @@
+   return true;
+ }
+ 
++bool NetErrorPageController::SetGameRunning(bool running) {
++  if (delegate_)
++    delegate_->SetGameRunning(running);
++  return true;
++}
++
+ bool NetErrorPageController::DiagnoseErrorsButtonClick() {
+   return ButtonClick(NetErrorHelperCore::DIAGNOSE_ERROR);
+ }
+@@ -121,6 +127,7 @@
+                  &NetErrorPageController::UpdateEasterEggHighScore)
+       .SetMethod("resetEasterEggHighScore",
+                  &NetErrorPageController::ResetEasterEggHighScore)
++      .SetMethod("setGameRunning", &NetErrorPageController::SetGameRunning)
+       .SetMethod("savePageForLater", &NetErrorPageController::SavePageForLater)
+       .SetMethod("cancelSavePage", &NetErrorPageController::CancelSavePage);
+ }
+--- a/chrome/renderer/net/net_error_helper.h
++++ b/chrome/renderer/net/net_error_helper.h
+@@ -56,6 +56,7 @@
+   void CancelSavePage() override;
+   void UpdateEasterEggHighScore(int high_score) override;
+   void ResetEasterEggHighScore() override;
++  void SetGameRunning(bool running) override;
+ 
+   // RenderFrameObserver implementation.
+   void DidCommitProvisionalLoad(ui::PageTransition transition) override;
+--- a/chrome/renderer/net/net_error_helper.cc
++++ b/chrome/renderer/net/net_error_helper.cc
+@@ -299,6 +299,10 @@
+ 
+ void NetErrorHelper::ResetEasterEggHighScore() {
+   GetRemoteNetworkEasterEgg()->ResetHighScore();
++}
++
++void NetErrorHelper::SetGameRunning(bool running) {
++  GetRemoteNetworkEasterEgg()->SetGameRunning(running);
+ }
+ 
+ void NetErrorHelper::ReloadFrame() {
+--- a/chrome/browser/net/net_error_tab_helper.h
++++ b/chrome/browser/net/net_error_tab_helper.h
+@@ -139,6 +139,7 @@
+   void GetHighScore(GetHighScoreCallback callback) override;
+   void UpdateHighScore(uint32_t high_score) override;
+   void ResetHighScore() override;
++  void SetGameRunning(bool running) override;
+ 
+   // Shows the diagnostics dialog after its been sanitized, virtual for
+   // testing.
+--- a/chrome/browser/net/net_error_tab_helper.cc
++++ b/chrome/browser/net/net_error_tab_helper.cc
+@@ -5,6 +5,7 @@
+ #include "chrome/browser/net/net_error_tab_helper.h"
+ 
+ #include "base/functional/bind.h"
++#include "browser_core/hooks.h"  // nogncheck
+ #include "base/logging.h"
+ #include "chrome/browser/net/dns_probe_service.h"
+ #include "chrome/browser/net/dns_probe_service_factory.h"
+@@ -50,6 +51,11 @@
+ using error_page::DnsProbeStatusToString;
+ using ui::PageTransition;
+ 
++// browser_core: the core holds a page's auto-reload while its game runs
++// (//browser_core/hooks.h).
++void (*g_browser_core_offline_game)(content::WebContents* contents,
++                                    bool running) = nullptr;
++
+ namespace chrome_browser_net {
+ 
+ namespace {
+@@ -376,6 +382,18 @@
+     return;
+   }
+   easter_egg_high_score_.SetValue(0);
++}
++
++void NetErrorTabHelper::SetGameRunning(bool running) {
++  // Only the tab's own error page holds its reload. One on its way out ends
++  // its run as it goes, which is no bad message.
++  if (!IsValidEasterEggTarget(
++          network_easter_egg_receivers_.CurrentTargetFrame())) {
++    return;
++  }
++  if (g_browser_core_offline_game) {
++    g_browser_core_offline_game(web_contents(), running);
++  }
+ }
+ 
+ WEB_CONTENTS_USER_DATA_KEY_IMPL(NetErrorTabHelper);
+--- a/components/error_page/content/browser/net_error_auto_reloader.h
++++ b/components/error_page/content/browser/net_error_auto_reloader.h
+@@ -73,6 +73,11 @@
+   // notifications. Used in tests which want to drive this behavior explicitly.
+   void DisableConnectionChangeObservationForTesting();
+ 
++  // browser_core: while held, auto-reload waits as it does for a hidden tab.
++  // Let go, it reloads at once if a reload was due meanwhile. The document
++  // that commits next starts unheld (//browser_core/hooks.h).
++  void SetHeld(bool held);
++
+   // Returns the timer used internally to schedule the next auto-reload task,
+   // or null if no auto-reload task is currently scheduled.
+   std::optional<base::OneShotTimer>& next_reload_timer_for_testing() {
+@@ -118,6 +123,9 @@
+   std::optional<ErrorPageInfo> current_reloadable_error_page_info_;
+   size_t num_reloads_for_current_error_ = 0;
+   bool is_auto_reload_in_progress_ = false;
++  // browser_core: SetHeld().
++  bool held_ = false;
++  bool reload_held_ = false;
+   base::WeakPtrFactory<NetErrorAutoReloader> weak_ptr_factory_{this};
+ 
+   WEB_CONTENTS_USER_DATA_KEY_DECL();
+--- a/components/error_page/content/browser/net_error_auto_reloader.cc
++++ b/components/error_page/content/browser/net_error_auto_reloader.cc
+@@ -7,6 +7,7 @@
+ #include <algorithm>
+ #include <array>
+ #include <map>
++#include <utility>
+ 
+ #include "base/functional/callback.h"
+ #include "base/logging.h"
+@@ -211,6 +212,9 @@
+     return;
+   }
+ 
++  held_ = false;
++  reload_held_ = false;
++
+   if (!ShouldAutoReload(handle)) {
+     // We've committed something that doesn't support auto-reload. Reset
+     // all auto-reload state so nothing interesting happens until another
+@@ -279,6 +283,18 @@
+   if (connection_tracker_) {
+     connection_tracker_->RemoveNetworkConnectionObserver(this);
+     connection_tracker_ = nullptr;
++  }
++}
++
++void NetErrorAutoReloader::SetHeld(bool held) {
++  held_ = held;
++  if (held) {
++    reload_held_ |= next_reload_timer_.has_value();
++    PauseAutoReloadTimerIfRunning();
++  } else if (std::exchange(reload_held_, false) &&
++             current_reloadable_error_page_info_ &&
++             pending_navigations_.empty()) {
++    ReloadMainFrame();
+   }
+ }
+ 
+@@ -317,6 +333,10 @@
+   if (!is_online_ || !IsWebContentsVisible()) {
+     return;
+   }
++  if (held_) {
++    reload_held_ = true;
++    return;
++  }
+ 
+   // Note that Unretained is safe here because base::OneShotTimer will never
+   // run its callback once destructed.
