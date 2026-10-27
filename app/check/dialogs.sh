@@ -1,7 +1,8 @@
 # A page's own dialogs ask with the browser's dialog over the tab's card, in Chrome's words, each
 # captured while it's up: alert(), confirm() and prompt() from the served page's keys. ↩ answers
 # OK, with what was typed in a prompt, and Esc Cancel, and the page puts the answer in its title.
-# An alert goes with its tab and comes back with it.
+# An alert goes with its tab and comes back with it. Leaving a page whose beforeunload handler
+# asks says "Leave site?": Esc stays and ↩ leaves.
 
 serve
 log="$out/dialogs.log"
@@ -64,6 +65,25 @@ expect '^browser: dialog shown .* says$' "the alert didn't come back with its ta
 expect '^browser: dialog settled$' "the alert didn't settle again"
 send key return
 expect "^browser: page $page dialog answered accept\$" "↩ didn't answer the alert that came back"
+
+send click $page_point
+send key u
+expect "^browser: title $page armed\$" "the page didn't ask to be asked before it's left"
+# Going from the page asks first, with Chrome's title.
+leave() {
+  go_from_bar example.org
+  expect "^browser: page $page dialog Leave Leave site?\$" "going from the page didn't ask first"
+  expect '^browser: dialog settled$' "Leave site? didn't settle"
+}
+leave
+../tools/window-screenshot.sh "$pid" "$out/dialog-leave.png" || fail "no window to capture"
+send key escape
+expect "^browser: page $page dialog answered cancel\$" "Esc didn't stay on the page"
+leave
+send key return
+expect "^browser: page $page dialog answered accept\$" "↩ didn't leave the page"
+expect "^browser: loaded $page https://example.org/\$" "the tab didn't go to example.org once left"
 exec 3>&-
 quit
-echo "ok: a page's alert, confirm and prompt ask over its card, answer with ↩ and Esc, and an alert comes back with its tab"
+echo "ok: a page's alert, confirm and prompt ask over its card, answer with ↩ and Esc, and an alert"
+echo "  comes back with its tab. Leave site? stays with Esc and leaves with ↩."

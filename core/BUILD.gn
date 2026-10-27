@@ -56,6 +56,8 @@ source_set("browser_core") {
     "host.h",
     "install_question.cc",
     "install_question.h",
+    "leave_dialog.cc",
+    "leave_dialog.h",
     "link_target.cc",
     "link_target.h",
     "main_delegate.cc",
@@ -206,6 +208,7 @@ source_set("browser_core") {
     # WebKit isn't linked: system_page.mm starts it with the first system page, so a launch that
     # shows none starts no WebKit process.
     deps += [
+      "//chrome/browser:chrome_browser_application_mac",
       "//components/os_crypt/common:keychain_password_mac",
       "//media",
       "//components/remote_cocoa/app_shim",

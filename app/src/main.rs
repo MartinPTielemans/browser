@@ -1542,8 +1542,12 @@ impl Browser for Engine {
             list: Vec::new(),
             action: asked.accept.clone(),
             cancel: asked.cancel.clone(),
-            // A page's answer takes nothing back.
-            tone: dialog::Tone::Accent,
+            tone: match asked.kind {
+                // Leaving loses what the user changed in the page.
+                shell::DialogKind::Leave => dialog::Tone::Destructive,
+                // Another answer to a page takes nothing back.
+                _ => dialog::Tone::Accent,
+            },
             also: None,
             fields,
             check: (!asked.check.is_empty()).then(|| asked.check.clone()),
@@ -3875,6 +3879,7 @@ unsafe extern "C" fn tab_dialog(_: *mut c_void, tab: bc::bc_id, asked: *const bc
         kind: match asked.kind as u32 {
             bc::BC_DIALOG_CONFIRM => shell::DialogKind::Confirm,
             bc::BC_DIALOG_PROMPT => shell::DialogKind::Prompt,
+            bc::BC_DIALOG_LEAVE => shell::DialogKind::Leave,
             _ => shell::DialogKind::Alert,
         },
         title: text(asked.title),
