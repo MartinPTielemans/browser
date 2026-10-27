@@ -374,6 +374,7 @@ moves() {
   expect "^browser: window $fourth shows $1\$" "$2: a click on its row in the second window didn't take it"
   expect "^browser: handover taker's page drew a frame .*tab $1," "$2: the page didn't draw in the second window"
   expect "^browser: window $first picture rests\$" "$2: the first window's picture of the page didn't come"
+  expect "^browser: window $first pictures tab $1\$" "$2: the first window's fresh picture didn't come"
   record "$2, row, no picture" "$1"
   # The first window takes it back by a click on its picture, once coming forward has taken it again.
   send window 1
@@ -383,6 +384,7 @@ moves() {
   expect "^browser: window $first shows $1\$" "$2: a click on the picture didn't take the page back"
   expect "^browser: handover taker's page drew a frame .*tab $1," "$2: the page didn't draw back in the first window"
   expect "^browser: window $fourth picture rests\$" "$2: the second window's picture of the page didn't come"
+  expect "^browser: window $fourth pictures tab $1\$" "$2: the second window's fresh picture didn't come"
   record "$2, picture" "$1"
   # The second window takes it again by its row, from the window it just gave its picture to.
   send window 2
@@ -392,6 +394,7 @@ moves() {
   expect "^browser: window $fourth shows $1\$" "$2: a click on its row with its picture didn't take it"
   expect "^browser: handover taker's page drew a frame .*tab $1," "$2: the page didn't draw in the second window again"
   expect "^browser: window $first picture rests\$" "$2: the first window's picture of the page didn't come again"
+  expect "^browser: window $first pictures tab $1\$" "$2: the first window's fresh picture didn't come"
   record "$2, row" "$1"
   # The second window shows another tab, which gives the page back to the first.
   mark
