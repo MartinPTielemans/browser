@@ -6,7 +6,7 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use gpui::{App, Bounds, Pixels, Point, SharedString, Size};
 
-use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry};
+use super::{Answer, BarTab, DownloadAction, MenuBar, MenuEntry, PageReply, ShownPageDialog};
 
 /// What the shell asks of the browser. The browser answers by updating the shell afterwards, never
 /// during the call.
@@ -127,6 +127,11 @@ pub trait Browser {
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
     /// Answers what the tab's page asks (Shell::set_question), if it still asks.
     fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
+    /// Asks the dialog a tab's page asks over the tab's card, with the corners of its radius, or
+    /// takes back the one it asks (None).
+    fn show_page_dialog(&self, shown: Option<ShownPageDialog>, cx: &mut App);
+    /// Answers the dialog `id` of `tab`'s page (Shell::set_page_dialog), if it still asks.
+    fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, cx: &mut App);
     fn stop(&self, tab: u64, cx: &mut App);
     /// Zooms the tab's page in (1), out (-1) or to 100 % (0), for its site.
     fn zoom(&self, tab: u64, step: i32, cx: &mut App);

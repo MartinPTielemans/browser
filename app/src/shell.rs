@@ -56,6 +56,7 @@ mod menu_bar;
 mod menus;
 mod naming;
 mod new_space;
+mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
@@ -93,6 +94,7 @@ pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
 pub use side_panel::SidePanel;
+pub use page_dialog::{DialogKind, PageDialog, PageReply, ShownPageDialog};
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
@@ -1138,6 +1140,10 @@ pub struct Shell {
     crash_reload_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab the toast's note is about while its page is hung and shown.
     hang_noted: Option<u64>,
+    /// The dialogs the tabs' pages ask, such as an alert(): the tab shown's goes over its card.
+    page_dialogs: HashMap<u64, PageDialog>,
+    /// The page dialog asked over the card last, by its tab and id, and where.
+    page_dialog_shown: Option<(u64, u64, (Bounds<Pixels>, f32))>,
     /// The tab or Space the user asked for and when, until it's shown.
     switching: Option<(u64, Instant)>,
     /// A press on the window's background, until the pointer moves and it moves the window.
@@ -1300,6 +1306,8 @@ impl Shell {
             crash_drawn: Rc::default(),
             crash_reload_drawn: Rc::default(),
             hang_noted: None,
+            page_dialogs: HashMap::new(),
+            page_dialog_shown: None,
             picker_pending: None,
             name_row_drawn: Rc::default(),
             tab_row_drawn: Rc::default(),
@@ -1373,6 +1381,7 @@ impl Shell {
         shell.questions = from.questions.clone();
         shell.drm_notes = from.drm_notes.clone();
         shell.crash_cards = from.crash_cards.keys().map(|&tab| (tab, Default::default())).collect();
+        shell.page_dialogs = from.page_dialogs.clone();
         shell
     }
 
@@ -1902,6 +1911,9 @@ impl Shell {
     /// and the menu bar lists its Space's extensions.
     pub fn became_key(&mut self, cx: &mut Context<Self>) {
         cx.set_global(ShellHandle(cx.weak_entity()));
+        // Its tab's dialog goes over its card again, as another window's may have shown since.
+        self.page_dialog_shown = None;
+        cx.notify();
         self.refresh_menus(cx);
         self.refresh_picture(cx);
     }
@@ -2511,6 +2523,7 @@ impl Render for Shell {
             }
         }
         self.lay_out_moving_page(cx);
+        self.show_page_dialog(cx);
         let card_left = self.card_left();
         let focus_color = self.shown_space().and_then(|space| space.color);
         let focus_color = focus_color.unwrap_or(self.accent_color);
