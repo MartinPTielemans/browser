@@ -124,6 +124,12 @@ class Throttle : public content::NavigationThrottle {
     if (tab->system_page()) {
       return CANCEL_AND_IGNORE;
     }
+    // It loads the page it waits for once shown, as a tab unloaded from a system page does, not the
+    // page Chromium kept, which it reloads then, and which may be at a site kept for the system's
+    // engine.
+    if (tab->waiting()) {
+      return CANCEL_AND_IGNORE;
+    }
     const GURL& url = navigation->GetURL();
     Profile* profile = Profile::FromBrowserContext(contents->GetBrowserContext());
     // A form's answer stays: the system's engine would load it without what was sent.

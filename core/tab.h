@@ -8,6 +8,7 @@
 
 #include "base/callback_list.h"
 #include "base/functional/callback.h"
+#include "base/functional/function_ref.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "base/task/cancelable_task_tracker.h"
@@ -114,10 +115,9 @@ class Tab : public content::WebContentsObserver,
   bool UseSystemEngine(const GURL& url);
   // Back to Chromium, which loads |url|, or if it's empty its page where it was.
   void UseChromium(const GURL& url = GURL());
-  // For a tab showing a system page, as the user loads |url| in it: there for the page's site or
-  // one the profile keeps for it, else back in Chromium, which the caller has load it. Returns
-  // whether the system page took it.
-  bool LoadInSystemPage(const GURL& url);
+  // Loads |url| as the user asked: in the tab's system page for the page's site or one the profile
+  // keeps for it, else through |load|, which loads it in Chromium.
+  void Load(const GURL& url, base::FunctionRef<void()> load);
   // Back, forward, reload and stop, as the app's buttons, in whichever engine shows the page.
   bool CanGoBack();
   bool CanGoForward();
@@ -221,6 +221,8 @@ class Tab : public content::WebContentsObserver,
   void ShowOnPageColor();
   // Drops the system page, and has the window show Chromium's view in its place.
   void DropSystemPage();
+  // Drops the system page for Chromium's, which |load| has load |url|.
+  void HandBack(const GURL& url, base::FunctionRef<void()> load);
   // Tells the window, Site Controls and the app that the tab's page is now the other engine's.
   void EngineChanged();
   // Finds the favicon of the system page's URL among the profile's, as Chrome's driver can't.
