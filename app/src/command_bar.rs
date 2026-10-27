@@ -17,7 +17,7 @@ use gpui::{
 };
 
 use crate::{
-    shell,
+    shell::{self, Match},
     text_input::{self, PasteAndGo, PasteAndSearch, TextInput},
 };
 
@@ -200,7 +200,7 @@ fn command_glyph(command: shell::Command) -> &'static str {
         Command::InspectElements => "icons/square-mouse-pointer.svg",
         Command::JavaScriptConsole => "icons/terminal.svg",
         Command::ManageExtensions => "icons/puzzle.svg",
-        Command::RenameSpace => "icons/pencil.svg",
+        Command::RenameSpace | Command::RenameTab => "icons/pencil.svg",
         Command::NextTab => "icons/arrow-down.svg",
         Command::PreviousTab => "icons/arrow-up.svg",
         Command::ViewLibrary => "icons/library.svg",
@@ -267,6 +267,8 @@ pub trait Host {
     fn hide(&self);
     /// Hides the bar's window as the user leaves it without choosing anything.
     fn dismiss(&self);
+    /// The browser's commands that match `text` and do something now, best first.
+    fn commands(&self, text: &str, cx: &App) -> Vec<shell::BarCommand>;
 }
 
 /// A search engine's site search, which the bar's searches stay in until the user leaves it, as in
@@ -598,6 +600,7 @@ pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
                 None if text.is_empty() => bar.tab_rows(),
                 None => with_calculation(&text, bar.with_commands(&text, rows, cx)),
             };
+            rows.truncate(shell::BAR_ROWS);
             // The core doesn't say which are searches, so they're the rows that go where a search
             // for their words does.
             let site = bar.site.as_ref().map(|site| site.keyword.as_str());
@@ -836,30 +839,35 @@ impl CommandBar {
         self.show_completion(completion, window, cx);
     }
 
-    /// Puts the commands found for `text` among the core's `rows`, as Arc's bar does: the best
-    /// first if it's strong and the core doesn't complete what's typed, else after the core's
-    /// first row, and the others after that. None over a new pane.
+    /// Puts the commands found for `text` among the core's `rows`, as Arc's bar does: from three
+    /// letters, the best first, above the search row, if its name or a word of it starts with
+    /// what's typed, then those whose name or keyword does before the core's other rows; the rest
+    /// after them. A site completing what's typed puts them all after. None over a new pane.
     fn with_commands(&self, text: &str, rows: Vec<Suggestion>, cx: &App) -> Vec<Suggestion> {
         if matches!(self.target, Target::Beside(_)) {
             return rows;
         }
-        let commands = shell::bar_commands(text, cx);
+        let commands = self.host.commands(text, cx);
         if commands.is_empty() {
             return rows;
         }
         // check.sh reads these lines.
         let names: Vec<&str> = commands.iter().map(|command| command.name.as_ref()).collect();
         log!("browser: command bar commands \"{text}\": {}", names.join(", "));
-        let first = commands[0].strong && rows.first().is_none_or(|row| row.completion.is_empty());
-        let mut commands = commands.into_iter().map(Suggestion::from);
+        let completes = rows.first().is_some_and(|row| !row.completion.is_empty());
+        let strong = !completes && text.trim().chars().count() >= 3;
+        let mut commands = commands.into_iter().peekable();
         let mut rows = rows.into_iter();
-        let mut merged = Vec::new();
-        if first {
-            merged.extend(commands.next());
-        }
+        let mut merged = Vec::with_capacity(shell::BAR_ROWS + 1);
+        let first = |command: &shell::BarCommand| strong && command.matched >= Match::Word;
+        let early = |command: &shell::BarCommand| strong && command.matched >= Match::Keyword;
+        merged.extend(commands.next_if(first).map(Suggestion::from));
         merged.extend(rows.next());
-        merged.extend(commands);
+        while let Some(command) = commands.next_if(early) {
+            merged.push(command.into());
+        }
         merged.extend(rows);
+        merged.extend(commands.map(Suggestion::from));
         merged
     }
 

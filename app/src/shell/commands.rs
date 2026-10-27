@@ -1,14 +1,17 @@
 //! The browser's commands: their names, their keys and where the command bar offers
 //! them, and what each does, run from a key, a menu, the command bar or the page.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::{Arc, LazyLock},
+    time::Instant,
+};
 
 use gpui::{
     Action, App, Context, Global, Image, KeyBinding, MenuItem, SharedString, WeakEntity, actions,
 };
 
 use super::{
-    COPIED_TIME, Section, Shell, Swapped, Undo,
+    COPIED_TIME, Section, Shell, Swapped, Undo, UserKeys,
     browser::WindowButton,
     clean_link, extensions, keys,
     panes::pane_frames,
@@ -41,6 +44,12 @@ pub enum Command {
     SelectLastTab,
     /// Pins the selected tab, or unpins it.
     TogglePin,
+    /// Makes the selected tab a favorite, as its menu's Add to Favorites does.
+    FavoriteTab,
+    /// Copies the selected tab, with its history, under it, as its menu's Duplicate Tab does.
+    DuplicateTab,
+    /// Shows the selected tab's row with its name in a field, as its menu's Rename Tab does.
+    RenameTab,
     /// Makes a folder at the bottom of the pinned tabs, and names it.
     NewFolder,
     /// Closes every folder of the Space shown.
@@ -232,70 +241,99 @@ pub(super) const SHORTCUTS: &[(&str, Command, bool)] = &[
     ("ctrl-9", Command::SelectSpace(8), false),
 ];
 
-/// The commands the command bar finds by name: Arc's bar's names where they're known, else its
-/// menus' (docs/ux-spec.md › Command bar › Rows).
-pub(super) const BAR_COMMANDS: &[(&str, Command)] = &[
-    ("Clear Today", Command::Clear),
-    ("Clear Cache and Refresh", Command::ClearCacheAndRefresh),
-    ("Clear Archive", Command::ClearArchive),
-    ("Clear Cookies and Refresh", Command::ClearCookiesAndRefresh),
-    ("Collapse All Folders", Command::CollapseFolders),
-    ("New Folder", Command::NewFolder),
-    ("Pin/Unpin Tab", Command::TogglePin),
-    ("Back to Pinned URL", Command::BackToPinnedUrl),
-    ("Mute/Unmute Tab", Command::ToggleMute),
-    ("Archive Tab", Command::CloseTab),
-    ("New Window", Command::NewWindow),
-    ("New Incognito Window", Command::NewPrivateWindow),
-    ("Close Window", Command::CloseWindow),
-    ("Restore Last Closed Tab", Command::ReopenClosedTab),
-    ("Copy URL", Command::CopyUrl),
-    ("Copy URL as Markdown", Command::CopyMarkdownLink),
-    ("Find", Command::Find),
-    ("Site Controls", Command::SiteControls),
-    ("Go Back", Command::Back),
-    ("Go Forward", Command::Forward),
-    ("Refresh the Page", Command::Reload),
-    ("Force Refresh the Page", Command::ForceReload),
-    ("Stop Loading", Command::Stop),
-    ("Zoom In", Command::ZoomIn),
-    ("Zoom Out", Command::ZoomOut),
-    ("Zoom to Actual Size", Command::ActualSize),
-    ("Close this Split Pane", Command::CloseSplitPane),
-    ("Separate Page from Split View", Command::SeparatePane),
+/// The name of the sidebar's second row in the command bar, which it lists only while there's a
+/// sidebar to hide.
+const HIDE_SIDEBAR: &str = "Hide Sidebar";
+
+/// The commands the command bar finds, with the words besides their names' that find them, in
+/// lowercase: Arc's bar's names and words where they're known, else its menus' names and ours
+/// (docs/ux-spec.md › Command bar › Commands). Among equal matches, the first here comes first.
+pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
+    ("Pin Tab", Command::TogglePin, &["unpin"]),
+    ("Next Tab", Command::NextTab, &[]),
+    ("Archive Tab", Command::CloseTab, &["close tab"]),
+    ("Clear Today", Command::Clear, &["unpinned tabs"]),
+    ("Clear Cache and Refresh", Command::ClearCacheAndRefresh, &[]),
+    ("Clear Cookies and Refresh", Command::ClearCookiesAndRefresh, &[]),
+    ("Clear Archive", Command::ClearArchive, &[]),
+    ("Favorite Tab", Command::FavoriteTab, &["add to favorites"]),
+    ("Collapse All Folders", Command::CollapseFolders, &[]),
+    ("New Folder…", Command::NewFolder, &[]),
+    ("Back to Pinned URL", Command::BackToPinnedUrl, &["reset tab"]),
+    ("Mute/Unmute Tab", Command::ToggleMute, &["sound", "audio"]),
+    ("Copy URL", Command::CopyUrl, &["link"]),
+    ("Copy URL as Markdown", Command::CopyMarkdownLink, &["link"]),
+    ("New Window", Command::NewWindow, &["duplicate", "copy"]),
+    ("Duplicate Current Tab", Command::DuplicateTab, &["copy"]),
+    ("New Incognito Window", Command::NewPrivateWindow, &["private"]),
+    ("Close Window", Command::CloseWindow, &[]),
+    ("Restore Last Closed Tab", Command::ReopenClosedTab, &["reopen", "undo close"]),
+    ("Find…", Command::Find, &[]),
+    ("Site Controls", Command::SiteControls, &["permissions"]),
+    ("Go Back", Command::Back, &[]),
+    ("Go Forward", Command::Forward, &[]),
+    ("Refresh the Page", Command::Reload, &["reload"]),
+    ("Force Refresh the Page", Command::ForceReload, &["reload", "hard reload"]),
+    ("Stop Loading", Command::Stop, &[]),
+    ("Zoom In", Command::ZoomIn, &[]),
+    ("Zoom Out", Command::ZoomOut, &[]),
+    ("Zoom to Actual Size", Command::ActualSize, &["reset zoom"]),
+    ("Add Split View", Command::AddSplit, &["side by side"]),
+    ("Close this Split Pane", Command::CloseSplitPane, &[]),
+    ("Separate Page from Split View", Command::SeparatePane, &[]),
     // Dia's (docs/ux-spec.md › Split view).
-    ("Flip Split View", Command::FlipSplit),
-    ("Change Orientation", Command::ChangeOrientation),
-    ("Move Pane Left", Command::MovePaneLeft),
-    ("Move Pane Right", Command::MovePaneRight),
-    ("Separate All Pages", Command::SeparateSplit),
-    ("Show/Hide Sidebar", Command::ToggleSidebar),
-    ("Capture", Command::CapturePortion),
-    ("Capture Full Page", Command::CaptureFullPage),
-    ("Save Page As", Command::SavePage),
-    ("Print", Command::Print),
-    ("View Source", Command::ViewSource),
-    ("Developer Tools", Command::DevTools),
-    ("Inspect Elements", Command::InspectElements),
-    ("JavaScript Console", Command::JavaScriptConsole),
-    ("Open Task Manager", Command::TaskManager),
-    ("Manage Extensions", Command::ManageExtensions),
-    ("New Space", Command::NewSpace),
-    ("Rename Space", Command::RenameSpace),
-    ("Next Space", Command::NextSpace),
-    ("Previous Space", Command::PreviousSpace),
-    ("Next Tab", Command::NextTab),
-    ("Previous Tab", Command::PreviousTab),
-    ("View Library", Command::ViewLibrary),
-    ("View Archive", Command::ViewArchive),
-    ("View Downloads", Command::ViewDownloads),
-    ("View History", Command::ViewHistory),
-    ("Settings", Command::Settings),
-    ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts),
+    ("Flip Split View", Command::FlipSplit, &[]),
+    ("Change Orientation", Command::ChangeOrientation, &[]),
+    ("Move Pane Left", Command::MovePaneLeft, &[]),
+    ("Move Pane Right", Command::MovePaneRight, &[]),
+    ("Separate All Pages", Command::SeparateSplit, &[]),
+    ("Toggle Sidebar", Command::ToggleSidebar, &["hide", "show"]),
+    (HIDE_SIDEBAR, Command::ToggleSidebar, &[]),
+    ("Capture…", Command::CapturePortion, &["screenshot"]),
+    ("Capture Full Page", Command::CaptureFullPage, &["screenshot"]),
+    ("Save Page As", Command::SavePage, &[]),
+    ("Print", Command::Print, &["pdf"]),
+    ("View Source", Command::ViewSource, &[]),
+    ("Developer Tools", Command::DevTools, &["devtools"]),
+    ("Inspect Elements", Command::InspectElements, &[]),
+    ("JavaScript Console", Command::JavaScriptConsole, &[]),
+    ("Open Task Manager", Command::TaskManager, &[]),
+    ("Manage Extensions…", Command::ManageExtensions, &["plugins"]),
+    ("New Space…", Command::NewSpace, &[]),
+    ("Rename Space", Command::RenameSpace, &[]),
+    ("Rename Current Tab…", Command::RenameTab, &["title"]),
+    ("Next Space", Command::NextSpace, &[]),
+    ("Previous Space", Command::PreviousSpace, &[]),
+    ("Previous Tab", Command::PreviousTab, &[]),
+    ("Open Library…", Command::ViewLibrary, &["view library"]),
+    ("View Archive…", Command::ViewArchive, &[]),
+    ("View Downloads…", Command::ViewDownloads, &[]),
+    ("View History", Command::ViewHistory, &[]),
+    ("Settings", Command::Settings, &["preferences"]),
+    ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
+    (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
 ];
 
-/// The most commands the command bar lists at once.
-const BAR_COMMANDS_SHOWN: usize = 4;
+/// BAR_COMMANDS' names in lowercase, made once, since the bar matches them on every key.
+static LOWERCASE_NAMES: LazyLock<Vec<String>> =
+    LazyLock::new(|| BAR_COMMANDS.iter().map(|(name, ..)| name.to_lowercase()).collect());
+
+/// The most rows the command bar lists, five shown and the rest scrolled (Arc), so the most
+/// commands it's given.
+pub const BAR_ROWS: usize = 15;
+
+/// How well a command matches what's typed, the weakest first.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum Match {
+    /// What's typed has its letters in the name in order, from a word's start.
+    Letters,
+    /// A word of the name after its first, or of a keyword after its first, starts with it.
+    Word,
+    /// One of its keywords starts with it.
+    Keyword,
+    /// Its name starts with it.
+    Name,
+}
 
 /// A command the command bar offers for what's typed.
 pub struct BarCommand {
@@ -303,9 +341,7 @@ pub struct BarCommand {
     pub command: Command,
     /// The shortcut that runs it, as a menu shows it.
     pub shortcut: Option<SharedString>,
-    /// Whether its name starts with what's typed, three letters or more, which puts it above
-    /// the core's suggestions.
-    pub strong: bool,
+    pub matched: Match,
 }
 
 /// The most tabs the command bar lists before anything is typed (ours: Arc's limit isn't measured).
@@ -320,58 +356,72 @@ pub struct BarTab {
     pub favicon: Option<Arc<Image>>,
 }
 
-/// The commands that do something now whose names match `typed`, best first, as Arc's bar
-/// matches: the name starting with it, then a word of it, then its letters in order from a word's
-/// start. Nothing for under two letters.
+/// The commands that do something now that match `typed`, best first.
 pub fn bar_commands(typed: &str, cx: &App) -> Vec<BarCommand> {
-    let typed = typed.trim().to_lowercase();
     let shell = cx.try_global::<ShellHandle>().and_then(|handle| handle.0.upgrade());
-    let Some(shell) = shell.filter(|_| typed.chars().count() >= 2) else {
+    let Some(shell) = shell else {
         return Vec::new();
     };
     let shell = shell.read(cx);
-    let keys = user_keys(cx);
-    let mut found: Vec<(u8, BarCommand)> = BAR_COMMANDS
-        .iter()
-        .filter(|&&(_, command)| shell.offers(command))
-        .filter_map(|&(name, command)| {
-            let score = match_score(name, &typed)?;
-            Some((
-                score,
-                BarCommand {
-                    name: name.into(),
-                    command,
-                    shortcut: keys.label(command).map(Into::into),
-                    strong: score == 3 && typed.chars().count() >= 3,
-                },
-            ))
-        })
-        .collect();
-    found.sort_by_key(|&(score, _)| std::cmp::Reverse(score));
-    found.into_iter().take(BAR_COMMANDS_SHOWN).map(|(_, command)| command).collect()
+    find_commands(typed, user_keys(cx), |name, command| shell.bar_name(name, command))
 }
 
-/// How well `name` matches `typed`, which is lowercase: 3 if the name starts with it, 2 if a word
-/// of it does, 1 if its letters are in it in order from a word's start, else none.
-fn match_score(name: &str, typed: &str) -> Option<u8> {
-    let name = name.to_lowercase();
-    let words: Vec<&str> = name
-        .char_indices()
-        .filter(|&(at, _)| at == 0 || name[..at].ends_with([' ', '/']))
-        .map(|(at, _)| &name[at..])
+/// The commands of BAR_COMMANDS that match `typed`, best first and then in the table's order, at
+/// most BAR_ROWS, each with the name `named` gives it now, leaving out those it gives none.
+pub fn find_commands(
+    typed: &str,
+    keys: &UserKeys,
+    mut named: impl FnMut(&'static str, Command) -> Option<&'static str>,
+) -> Vec<BarCommand> {
+    let typed = typed.trim().to_lowercase();
+    if typed.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<(Match, &'static str, Command)> = (BAR_COMMANDS.iter())
+        .zip(LOWERCASE_NAMES.iter())
+        .filter_map(|(&(name, command, keywords), lowercase)| {
+            let matched = match_of(lowercase, keywords, &typed)?;
+            Some((matched, named(name, command)?, command))
+        })
         .collect();
+    // Stable, so equals keep the table's order.
+    found.sort_by_key(|&(matched, ..)| std::cmp::Reverse(matched));
+    found.truncate(BAR_ROWS);
+    (found.into_iter())
+        .map(|(matched, name, command)| BarCommand {
+            name: name.into(),
+            command,
+            shortcut: keys.label(command).map(Into::into),
+            matched,
+        })
+        .collect()
+}
+
+/// How `name`, lowercase, or its `keywords` match `typed`, which is lowercase too, if they do.
+fn match_of(name: &str, keywords: &[&str], typed: &str) -> Option<Match> {
+    let later_word = |text: &str| words(text).skip(1).any(|word| word.starts_with(typed));
+    if name.starts_with(typed) {
+        return Some(Match::Name);
+    }
+    if keywords.iter().any(|keyword| keyword.starts_with(typed)) {
+        return Some(Match::Keyword);
+    }
+    if later_word(name) || keywords.iter().any(|keyword| later_word(keyword)) {
+        return Some(Match::Word);
+    }
     let first = typed.chars().next()?;
     let in_order = |word: &str| {
         let mut letters = word.chars();
         typed.chars().all(|letter| letters.any(|other| other == letter))
     };
-    if name.starts_with(typed) {
-        Some(3)
-    } else if words.iter().any(|word| word.starts_with(typed)) {
-        Some(2)
-    } else {
-        words.iter().any(|word| word.starts_with(first) && in_order(word)).then_some(1)
-    }
+    words(name).any(|word| word.starts_with(first) && in_order(word)).then_some(Match::Letters)
+}
+
+/// `text` from each of its words' starts on, a word starting after a space or a slash.
+fn words(text: &str) -> impl Iterator<Item = &str> {
+    (text.char_indices())
+        .filter(move |&(at, _)| at == 0 || text[..at].ends_with([' ', '/']))
+        .map(move |(at, _)| &text[at..])
 }
 
 /// How a menu shows `keystroke`, as SHORTCUTS writes it: ⇧⌘K for shift-cmd-k.
@@ -460,6 +510,9 @@ impl Command {
             Command::SelectTab(_) => "select-tab",
             Command::SelectLastTab => "select-last-tab",
             Command::TogglePin => "toggle-pin",
+            Command::FavoriteTab => "add-to-favorites",
+            Command::DuplicateTab => "duplicate-tab",
+            Command::RenameTab => "rename-tab",
             Command::NewFolder => "new-folder",
             Command::CollapseFolders => "collapse-folders",
             Command::BackToPinnedUrl => "back-to-pinned-url",
@@ -646,6 +699,11 @@ impl Shell {
                 }
                 return;
             }
+            Command::FavoriteTab => {
+                return self.browser.move_to_favorites(self.selected, usize::MAX, cx);
+            }
+            Command::DuplicateTab => return self.browser.duplicate(self.selected, cx),
+            Command::RenameTab => return self.rename_tab(self.selected, cx),
             Command::NewFolder => return self.new_folder(cx),
             Command::CollapseFolders => return self.collapse_folders(cx),
             Command::BackToPinnedUrl => return self.browser.back_to_pinned_url(self.selected, cx),
@@ -974,6 +1032,12 @@ impl Shell {
                 space.folders.folders.keys().any(|&folder| space.is_open(folder))
             }),
             Command::Clear => !self.today().is_empty(),
+            Command::FavoriteTab => self.selected != 0 && !self.favorites.contains(&self.selected),
+            // A favorite's menu has no Rename, and the field is in the tab's row in the sidebar.
+            Command::RenameTab => {
+                let favorite = self.favorites.contains(&self.selected);
+                self.selected != 0 && !favorite && !self.sidebar_hidden
+            }
             Command::NextSpace => space.is_some_and(|index| index + 1 < self.spaces.len()),
             Command::PreviousSpace => space.is_some_and(|index| index > 0),
             Command::NextTab | Command::PreviousTab => self.sidebar_rows().len() > 1,
@@ -996,6 +1060,21 @@ impl Shell {
             _ => self.selected != 0,
         }
     }
+
+    /// What the command bar calls `command`, listed as `name`, if it offers it now: a toggle's row
+    /// says what it would do.
+    fn bar_name(&self, name: &'static str, command: Command) -> Option<&'static str> {
+        if !self.offers(command) {
+            return None;
+        }
+        match command {
+            Command::TogglePin if self.pinned().contains(&self.selected) => Some("Unpin Tab"),
+            Command::ToggleSidebar if name == HIDE_SIDEBAR => {
+                (!self.sidebar_hidden).then_some(name)
+            }
+            _ => Some(name),
+        }
+    }
 }
 
 /// Whether a private window runs `command`. It has one Space, unsaved, so nothing that keeps a tab
@@ -1006,6 +1085,7 @@ fn private_runs(command: Command) -> bool {
         command,
         Command::ReopenClosedTab
             | Command::TogglePin
+            | Command::FavoriteTab
             | Command::NewFolder
             | Command::CollapseFolders
             | Command::BackToPinnedUrl

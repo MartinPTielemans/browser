@@ -131,14 +131,18 @@ impl Shell {
         self.hover_tip(tip, cx);
     }
 
-    /// What a sidebar button's tooltip calls `command`: the menus' name, which the command bar
-    /// finds it by, as Arc's Library button says "View Library". The sidebar button's is what
-    /// Arc labels it, what a click does now.
+    /// What a sidebar button's tooltip calls `command`: the menus' name, as Arc's Library button
+    /// says "View Library" where its command bar says "Open Library…", else the bar's. The sidebar
+    /// button's is what Arc labels it, what a click does now.
     fn button_name(&self, command: Command) -> Option<&'static str> {
         match command {
             Command::ToggleSidebar if self.sidebar_hidden => Some("Lock Sidebar"),
             Command::ToggleSidebar => Some("Hide Sidebar"),
-            _ => (BAR_COMMANDS.iter()).find(|&&(_, each)| each == command).map(|&(name, _)| name),
+            Command::ViewLibrary => Some("View Library"),
+            Command::ViewDownloads => Some("View Downloads"),
+            _ => (BAR_COMMANDS.iter())
+                .find(|&&(_, each, _)| each == command)
+                .map(|&(name, ..)| name),
         }
     }
 
