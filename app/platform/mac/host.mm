@@ -2690,7 +2690,7 @@ void host_show_link_target(void* ui_view, double left, double top, double fade) 
     if (g_link.parentWindow != browser->window) {
       [g_link.parentWindow removeChildWindow:g_link];
       g_link.alphaValue = 0;
-      [browser->window addChildWindow:g_link ordered:NSWindowAbove];
+      AddOver(browser->window, g_link);
       RaiseOverlays(browser, g_link);
     }
     [NSAnimationContext
