@@ -85,10 +85,13 @@ BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" \
 pid=$!
 exec 3> "$out/drive"
 await_load
-await '^browser: extensions menu [a-p]* [a-p]* [a-p]* [a-p]*$' ||
-  fail "the Extensions menu didn't list the four extensions: $(grep '^browser: extensions' "$log")"
+# The browser's own ad blocker, uBlock Origin, is in every profile, last by name.
+ublock=oghkpboejbohceocapipmnjifoklonij
+listing="^browser: extensions menu [a-p]* [a-p]* [a-p]* [a-p]* $ublock\$"
+await "$listing" ||
+  fail "the Extensions menu didn't list the four extensions and the ad blocker: $(grep '^browser: extensions' "$log")"
 # By name.
-ids=$(grep -m1 '^browser: extensions menu [a-p]* ' "$log" | cut -d' ' -f4-)
+ids=$(grep -m1 "$listing" "$log" | cut -d' ' -f4-)
 clicked=$(echo "$ids" | cut -d' ' -f1)
 panel=$(echo "$ids" | cut -d' ' -f2)
 popup=$(echo "$ids" | cut -d' ' -f3)
@@ -262,7 +265,7 @@ expect '^browser: dialog shown Remove “Check Third”?$' "Remove didn't ask fi
 ../tools/window-screenshot.sh "$pid" "$out/extension-remove.png" || fail "no window to capture"
 send key return
 expect "^browser: remove extension $third removed\$" "Remove didn't remove Check Third"
-expect "^browser: extensions menu $clicked $panel $popup\$" \
+expect "^browser: extensions menu $clicked $panel $popup $ublock\$" \
   "the removed Check Third stayed in the Extensions menu"
 expect '^browser: extension actions $' "the removed Check Third's action stayed"
 # Check Panel's side panel, on the first tab. Its script sets its action to open the panel once it
