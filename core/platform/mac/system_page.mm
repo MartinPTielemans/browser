@@ -322,8 +322,12 @@ class SystemPageMac : public SystemPage {
 
 @implementation BrowserCoreSystemPageView {
   // The key equivalent last passed to the page, which WebKit sends round again if the page
-  // doesn't keep it.
-  NSEvent* __weak _sentToPage;
+  // doesn't keep it. Known by when it was typed and what it is: the app may hold it while a bar
+  // opens and post it again, and AppKit hands a posted event back as a new one.
+  BOOL _sent;
+  NSTimeInterval _sentTime;
+  unsigned short _sentKey;
+  NSEventModifierFlags _sentFlags;
   NSTimeInterval _lastClick;
 }
 
@@ -335,8 +339,11 @@ class SystemPageMac : public SystemPage {
   if (!_owner || event.type != NSEventTypeKeyDown || !_owner->Focused()) {
     return [super performKeyEquivalent:event];
   }
-  const bool unkept = event == _sentToPage;
-  _sentToPage = nil;
+  const NSEventModifierFlags flags =
+      event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask;
+  const bool unkept = _sent && event.timestamp == _sentTime && event.keyCode == _sentKey &&
+                      flags == _sentFlags;
+  _sent = NO;
   if (_owner->Key(event, /*before_page=*/!unkept)) {
     return YES;
   }
@@ -344,7 +351,10 @@ class SystemPageMac : public SystemPage {
   if (unkept) {
     return NO;
   }
-  _sentToPage = event;
+  _sent = YES;
+  _sentTime = event.timestamp;
+  _sentKey = event.keyCode;
+  _sentFlags = flags;
   return [super performKeyEquivalent:event];
 }
 
