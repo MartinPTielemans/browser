@@ -179,6 +179,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Shows |tab| at the page frame, and its Space if the window shows another. In a split view, it
   // shows the split with |tab| focused. A page another window shows moves here (Adopt).
   void Select(bc_id tab);
+  // Gives the page shown the keyboard, from the UI if it has it (bc_window_focus_page).
+  void GiveKeyboardToPage();
 
   // Closes the Today tabs of the Space the window shows, all but those any window shows, or all of
   // them if it shows every one, for UndoClear to bring back. Returns the Clear's id, or 0 if it

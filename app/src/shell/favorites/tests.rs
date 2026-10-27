@@ -1,4 +1,5 @@
-//! Where the tooltips of the favorites' tiles hang, on a host that records them.
+//! Where the tooltips of the favorites' tiles hang, and what a click on one asks for, on a host
+//! that records them.
 
 use std::rc::Rc;
 
@@ -141,4 +142,16 @@ fn a_tile_under_the_pointer_after_a_drag_names_itself(cx: &mut TestAppContext) {
     shell.update(cx, |_, cx| cx.notify());
     cx.run_until_parked();
     assert!(!host.take().iter().any(|call| call.starts_with("tooltip Docs")), "only once");
+}
+
+/// A click on a tile shows its tab and gives its page the keyboard, as a press on a row does.
+#[gpui::test]
+fn a_click_on_a_tile_gives_its_page_the_keyboard(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_tiles(cx);
+    let middle = shell.read_with(cx, |shell, _| shell.tip_frames.borrow()[&11].center());
+    cx.simulate_mouse_move(middle, None, Modifiers::none());
+    cx.simulate_click(middle, Modifiers::none());
+    cx.run_until_parked();
+    let calls = host.take();
+    assert!(calls.ends_with(&["select 11".into(), "focus page".into()]), "{calls:?}");
 }

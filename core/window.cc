@@ -1989,6 +1989,13 @@ void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_b
   }
 }
 
+void Window::GiveKeyboardToPage() {
+  // Held by the window, the keyboard is the page's (KeyboardForPage), as when the page shown before
+  // left with it, so FocusPage gives it to the page shown.
+  platform::ReleaseKeyboard(widget_.get());
+  FocusPageSoon();
+}
+
 void Window::FocusPageSoon() {
   // Posted: AppKit can be part way through moving the keyboard, as when a committing page hides the
   // view that had it and Chromium makes the window key. A page view focused inside that move

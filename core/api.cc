@@ -546,6 +546,12 @@ void bc_window_select(bc_id window_id, bc_id tab) {
   }
 }
 
+void bc_window_focus_page(bc_id window_id) {
+  if (browser_core::Window* window = browser_core::Window::FromId(window_id)) {
+    window->GiveKeyboardToPage();
+  }
+}
+
 bc_id bc_window_clear(bc_id window_id) {
   browser_core::Window* window = browser_core::Window::FromId(window_id);
   return window ? window->Clear() : 0;

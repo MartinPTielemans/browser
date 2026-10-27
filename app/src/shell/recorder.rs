@@ -494,6 +494,10 @@ impl Browser for Recorder {
 
     fn focus_ui(&self, _: &mut App) {}
 
+    fn focus_page(&self, _: &mut App) {
+        self.record("focus page".into())
+    }
+
     fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {
         self.page_events.borrow_mut().push("layout");
     }

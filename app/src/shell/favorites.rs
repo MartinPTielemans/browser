@@ -467,7 +467,9 @@ impl Shell {
                     return;
                 }
                 log!("browser: command select via favorite");
-                shell.select(tab, cx)
+                shell.select(tab, cx);
+                // As a row's press does (show_row).
+                shell.browser.focus_page(cx)
             }))
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)

@@ -777,6 +777,8 @@ impl Browser for Fake {
     // The preview's window is GPUI's own, which has the keyboard already.
     fn focus_ui(&self, _: &mut App) {}
 
+    fn focus_page(&self, _: &mut App) {}
+
     // There's no page, and the window's buttons stay where GPUI put them.
     fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {}
 

@@ -352,10 +352,12 @@ impl Shell {
     }
 
     /// Shows `tab` for a press on its row, or its segment of a split view's, at once, as Arc's
-    /// does, even if the press becomes a drag.
+    /// does, even if the press becomes a drag. Its page takes the keyboard, as a tab clicked in
+    /// Chrome's tab strip does, so the keys that follow, ⌘D or Space, are the page's.
     fn show_row(&mut self, tab: u64, cx: &mut Context<Self>) {
         log!("browser: command select via sidebar");
-        self.select(tab, cx)
+        self.select(tab, cx);
+        self.browser.focus_page(cx)
     }
 
     /// A press on the list where the row drawn isn't the one that rests there. On the page that
@@ -1343,9 +1345,10 @@ mod tests {
         assert_eq!(scale(&shell, cx), 1.);
     }
 
-    /// A press on a row shows its tab at once, as Arc's does, before it's let go, and letting go
-    /// asks for nothing more. A row's ✕ closes its tab without showing it, and a right-click
-    /// shows the row's menu without showing its tab.
+    /// A press on a row shows its tab at once, as Arc's does, before it's let go, and gives its
+    /// page the keyboard, as Chrome's tab strip does; letting go asks for nothing more. A press on
+    /// the row shown gives its page the keyboard too. A row's ✕ closes its tab without showing
+    /// it, and a right-click shows the row's menu without showing its tab or moving the keyboard.
     #[gpui::test]
     fn a_press_shows_its_tab_before_it_is_let_go(cx: &mut TestAppContext) {
         let (shell, cx, host) = window(cx, vec![2], vec![3, 4], 3);
@@ -1354,10 +1357,15 @@ mod tests {
         host.take();
         cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["select 4"]);
+        assert_eq!(host.take(), ["select 4", "focus page"]);
         cx.simulate_mouse_up(middle, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
         assert!(host.take().is_empty(), "letting go");
+        shell.update(cx, |shell, cx| shell.set_selected(4, cx));
+        cx.run_until_parked();
+        cx.simulate_click(middle, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["focus page"], "the row shown");
 
         let close = close_button(&shell, cx, 2);
         move_to(cx, close);
@@ -1368,7 +1376,8 @@ mod tests {
         let middle = point(px(close.0 - 100.), px(close.1));
         cx.simulate_mouse_down(middle, MouseButton::Right, Modifiers::none());
         cx.run_until_parked();
-        assert!(!host.take().contains(&"select 2".to_string()), "a right-click");
+        let calls = host.take();
+        assert!(!calls.iter().any(|call| ["select 2", "focus page"].contains(&call.as_str())));
     }
 
     /// A press that becomes a drag has shown its tab, and still drags it: let go two rows up, the
@@ -1381,7 +1390,7 @@ mod tests {
         host.take();
         cx.simulate_mouse_down(from, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["select 4"]);
+        assert_eq!(host.take(), ["select 4", "focus page"]);
         let to = point(from.x, from.y - px(2. * ROW_PITCH));
         cx.simulate_mouse_move(to, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
@@ -1482,7 +1491,7 @@ mod tests {
         assert!(host.take().is_empty(), "the press");
         cx.simulate_mouse_up(at, MouseButton::Left, Modifiers::none());
         cx.run_until_parked();
-        assert_eq!(host.take(), ["back to pinned url 2", "select 2"]);
+        assert_eq!(host.take(), ["back to pinned url 2", "select 2", "focus page"]);
     }
 
     /// How the user goes back to the tab they came from.
