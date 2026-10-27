@@ -1,6 +1,7 @@
 # Applied in order after ungoogled-chromium's own series. One patch per line, relative to engine/patches/.
 # Sections: helium/ (picks), ardia/ (picks), ours/.
 ours/chromium-core-link.patch
+ours/chromium-core-link-linux.patch
 ours/chromium-core-main.patch
 ours/chromium-core-browser-window.patch
 ours/chromium-core-embedded-view.patch

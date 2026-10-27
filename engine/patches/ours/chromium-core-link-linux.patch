@@ -1,0 +1,25 @@
+Links the core (//browser_core, the repository's core/) into chrome on Linux, where the
+executable holds all of Chrome, and exports its C API from it for the app library the core loads.
+
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -299,6 +299,7 @@
+         # On Linux, link the dependencies (libraries) that make up actual
+         # Chromium functionality directly into the executable.
+         ":dependencies",
++        "//browser_core",
+         "//chrome/app:chrome_crash_reporter_client",
+         "//chrome/browser:chrome_content_browser_client",
+         "//chrome/browser:chrome_process_singleton",
+--- a/build/linux/chrome.map
++++ b/build/linux/chrome.map
+@@ -112,6 +112,9 @@
+ 
+   v8dbg_*;
+ 
++  # The core's C API, for the app the core loads (browser_core/platform/linux/app_library.cc).
++  bc_*;
++
+ local:
+   *;
+ };

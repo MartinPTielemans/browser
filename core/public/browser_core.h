@@ -544,8 +544,16 @@ typedef struct bc_host {
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
-// code once it has quit. Call it once, on the main thread; it runs the main run loop.
+// code once it has quit. Call it once, on the main thread; it runs the main run loop. Not on
+// Linux, where the sandbox's zygote starts every process from Chromium's own chrome executable:
+// there the app is BC_APP_LIBRARY, beside chrome, and the core calls its BC_APP_ENTRY in the
+// browser process, as Chromium starts, for what the app would pass bc_main. It returns the
+// callbacks, which it keeps for as long as the process runs, and sets |argc| and |argv|.
 BC_EXPORT int bc_main(int argc, const char** argv, const bc_host* host);
+
+#define BC_APP_LIBRARY "libBrowser.so"
+#define BC_APP_ENTRY "bc_app_host"
+typedef const bc_host* (*bc_app_entry)(int* argc, const char*** argv);
 
 // Asks Chromium to quit. Pages get their unload handlers first, then bc_main returns.
 BC_EXPORT void bc_quit(void);

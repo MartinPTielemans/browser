@@ -8,6 +8,7 @@
 #include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/functional/bind.h"
+#include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
@@ -36,8 +37,13 @@
 #include "content/public/common/content_switches.h"
 #include "url/gurl.h"
 
+#if BUILDFLAG(IS_LINUX)
+#include "browser_core/platform/app_library.h"
+#include "ui/ozone/public/ozone_switches.h"
+#else
 // chrome_main.cc's entry point, in the same framework.
 extern "C" int ChromeMain(int argc, const char** argv);
+#endif
 
 namespace browser_core {
 
@@ -143,7 +149,8 @@ bc_id NewId() {
   return ++last;
 }
 
-int Run(int argc, const char** argv, const bc_host& host) {
+// Keeps the app's callbacks and puts the core's hooks in Chrome.
+void Install(const bc_host& host) {
   g_host = host;
   g_browser_core_supplies_windows = true;
   g_browser_core_adjust_navigate = &Window::AdjustNavigate;
@@ -160,7 +167,16 @@ int Run(int argc, const char** argv, const bc_host& host) {
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
+}
+
+int Run(int argc, const char** argv, const bc_host& host) {
+#if BUILDFLAG(IS_LINUX)
+  // chrome starts Chromium on Linux, and loads the app (platform/app_library.h).
+  return 1;
+#else
+  Install(host);
   return ChromeMain(argc, argv);
+#endif
 }
 
 void Quit() {
@@ -178,6 +194,25 @@ MainDelegate::~MainDelegate() = default;
 std::optional<int> MainDelegate::BasicStartupComplete() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
   if (!command_line->HasSwitch(switches::kProcessType)) {
+#if BUILDFLAG(IS_LINUX)
+    // First, so the features below join the app's rather than being replaced by them. The app's
+    // switches go after the ones chrome was given, which still win.
+    std::vector<std::string> app_switches;
+    const bc_host* host = platform::LoadApp(&app_switches);
+    if (!host) {
+      LOG(ERROR) << "no app: " << BC_APP_LIBRARY << " beside the engine has no " << BC_APP_ENTRY;
+      return 1;
+    }
+    Install(*host);
+    app_switches.insert(app_switches.begin(), "");
+    command_line->AppendArguments(base::CommandLine(app_switches), /*include_program=*/false);
+    // X11, under XWayland on a Wayland desktop: the app's UI is a window of its own that the core
+    // puts inside the browser window, which Wayland can't do across the two's connections
+    // (platform/linux/window_views.cc).
+    if (!command_line->HasSwitch(switches::kOzonePlatform)) {
+      command_line->AppendSwitchASCII(switches::kOzonePlatform, "x11");
+    }
+#endif
     // The app opens windows through the core, and Chrome's first run and default-browser prompts
     // are Chrome's UI, not ours.
     command_line->AppendSwitch(switches::kNoStartupWindow);
