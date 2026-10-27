@@ -27,6 +27,13 @@ config("exports") {
   ldflags = [ "-Wl,-exported_symbols_list," + rebase_path("exports.txt", root_build_dir) ]
 }
 
+config("linux_exports") {
+  # On Linux the core is in the chrome executable, which exports nothing unless asked: the app
+  # library it loads (platform/linux/app_library.cc) calls the C API from there.
+  # engine/patches/ours/chromium-core-link-linux.patch lists it in chrome.map too.
+  ldflags = [ "-Wl,--export-dynamic-symbol=bc_*" ]
+}
+
 source_set("browser_core") {
   sources = [
     "api.cc",
@@ -220,12 +227,28 @@ source_set("browser_core") {
   } else {
     sources += [ "platform/system_page_none.cc" ]
   }
+  if (is_win || is_linux) {
+    sources += [ "platform/app_library.h" ]
+  }
   if (is_win) {
     sources += [
       "platform/native_hosts_win.cc",
+      "platform/win/app_library.cc",
       "platform/win/window_views.cc",
     ]
   } else {
     sources += [ "platform/native_hosts_posix.cc" ]
+  }
+  if (is_linux) {
+    sources += [
+      "platform/linux/app_library.cc",
+      "platform/linux/window_views.cc",
+    ]
+    deps += [
+      "//ui/aura",
+      "//ui/gfx/x",
+      "//ui/ozone",
+    ]
+    all_dependent_configs = [ ":linux_exports" ]
   }
 }
