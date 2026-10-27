@@ -1,10 +1,12 @@
 # The browser blocks ads and trackers from a new profile's first page, with nothing to install:
 # uBlock Origin, in the framework, loads into every profile, listed last in the Extensions menu. A
 # filter given for the check, through the same managed settings the browser gives it its own,
-# blocks the served page's ad script and hides its ad. The Site Controls' Block ads and trackers
-# turns that off for the site, reloading the page, which then shows the ad, and on again. Settings'
-# Block ads and trackers turns it off in every profile, which takes it out of the Extensions menu
-# and the Site Controls, and on again. A private window blocks too.
+# blocks the served page's ad script and hides its ad, and it stays in the menu after uBlock Origin
+# reloads itself as it first starts. Its own lists take fbclid out of an address. The Site
+# Controls' Block ads and trackers turns that off for the site, reloading the page, which then
+# shows the ad, and on again. Settings' Block ads and trackers turns it off in every profile, which
+# takes it out of the Extensions menu and the Site Controls, and on again. A private window blocks
+# too.
 
 # The served ad page: its title says whether its script ran and whether its ad shows. uBlock Origin
 # hides the ad from a stylesheet of its own, which the page can't hear arrive, so it looks again
@@ -55,7 +57,8 @@ if [ "$active" != 1 ]; then
 fi
 # Reloads the tab until its page says $1, for at most 20 reloads, each waiting up to 2 s for the
 # page to say it. On a new profile, uBlock Origin lets everything through until it has read its
-# lists, a second or two in.
+# lists, and reloads itself as it first starts, which the core follows by loading it again: a few
+# seconds in.
 reload_until() {
   for _ in $(seq 20); do
     send key r cmd
@@ -70,6 +73,16 @@ reload_until() {
 blocked="ad script blocked, element hidden"
 reload_until "$blocked" "the check's filter didn't block the ad script and hide the ad"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-blocked.png" || fail "no window to capture"
+# It reloaded itself as it first started, and the core loaded it back into the menu.
+grep '^browser: extensions menu' "$log" | tail -1 | grep -q "$ublock\$" ||
+  fail "uBlock Origin left the Extensions menu: $(grep '^browser: extensions menu' "$log" | tail -1)"
+
+# Its own lists take Facebook's click id out of an address before the page loads, and leave the
+# site's own parameters.
+go_from_bar "${ads#http://}?id=1&fbclid=2"
+expect "^browser: loaded $tab ${ads}.id=1\$" \
+  "the tab kept fbclid in its address: $(grep "^browser: loaded $tab " "$log" | tail -1)"
+expect "^browser: title $tab $blocked\$" "the page without fbclid didn't block its ad"
 
 # Off for the site in the Site Controls, which reload the page with its ad, and on again. With no
 # extension turned on but the ad blocker, the panel's first row's middle is at y 262, as in the
@@ -147,4 +160,4 @@ reload_until "$blocked" "the private window didn't block the ad"
 ../tools/window-screenshot.sh "$pid" "$out/adblock-private.png" all || fail "no window to capture"
 
 quit
-echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too. Windows: $out/adblock-blocked.png, $out/adblock-off-for-site.png, $out/adblock-settings.png, $out/adblock-private.png"
+echo "ok: a new profile blocks ads from its first page: uBlock Origin is in the Extensions menu, and a filter given through its managed settings blocks the page's ad script and hides its ad, with uBlock Origin still in the menu after it reloads itself; its own lists take fbclid out of an address. The Site Controls' Block ads and trackers, first in its rows, turns it off for the site and on again, reloading the page; Settings' turns it off everywhere, taking it out of the Extensions menu and the Site Controls, and on again. A private window blocks too. Windows: $out/adblock-blocked.png, $out/adblock-off-for-site.png, $out/adblock-settings.png, $out/adblock-private.png"

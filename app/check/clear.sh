@@ -476,8 +476,10 @@ send key l cmd shift
 expect '^browser: library hidden$' "⇧⌘L didn't close the Library"
 # A copied URL leaves out the parameters that only tell a site where a click came from. On the
 # check's own site: the tabs run types example.org, which this URL in history would complete to.
-go_from_bar "${site#http://}?utm_source=check&id=1&fbclid=2"
-expect "^browser: loaded $r ${site}.utm_source=check&id=1&fbclid=2\$" \
+# Mailchimp's mc_cid, which uBlock Origin's lists leave in the address, as they do utm_ parameters,
+# while they take fbclid out before the page loads (the adblock run).
+go_from_bar "${site#http://}?utm_source=check&id=1&mc_cid=2"
+expect "^browser: loaded $r ${site}.utm_source=check&id=1&mc_cid=2\$" \
   "the tab didn't go to the URL with tracking parameters"
 send key c cmd shift
 expect "^browser: copied ${site}.id=1\$" \
