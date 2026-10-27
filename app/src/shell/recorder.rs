@@ -14,8 +14,43 @@ use super::{
     Answer, BarTab, Browser, DownloadAction, Extension, MenuEntry, browser::WindowButton,
 };
 
+/// What the core shares between its windows, as it keeps them: the Spaces deleted and the archive's
+/// removals, 25 of each at most, the newest last. Clears are each window's own.
+#[derive(Default)]
+pub(super) struct Core {
+    ticket: Cell<u64>,
+    /// The Spaces deleted.
+    pub(super) deleted: RefCell<Vec<u64>>,
+    /// The archive removals, each by its id and the tabs it took.
+    pub(super) removals: RefCell<Vec<(u64, usize)>>,
+}
+
+impl Core {
+    /// As many as the core keeps.
+    const KEPT: usize = 25;
+
+    fn ticket(&self) -> u64 {
+        self.ticket.set(self.ticket.get() + 1);
+        9000 + self.ticket.get()
+    }
+
+    fn removed(&self, tabs: usize) -> u64 {
+        let id = self.ticket();
+        let mut removals = self.removals.borrow_mut();
+        removals.push((id, tabs));
+        if removals.len() > Self::KEPT {
+            removals.remove(0);
+        }
+        id
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Recorder {
+    /// The core this window shares with the others a test makes with `Recorder::beside`.
+    pub(super) core: Rc<Core>,
+    /// This window's Clears, by id, the last ten.
+    cleared: RefCell<Vec<u64>>,
     calls: RefCell<Vec<String>>,
     /// How many detents the trackpad was asked for.
     pub(super) detents: Cell<usize>,
@@ -54,11 +89,17 @@ pub(super) struct Recorder {
     pub(super) undo_toast: RefCell<Option<Rc<dyn Fn(&mut App)>>>,
     /// The Edit menu's Undo and Redo titles it was last given.
     pub(super) edit_titles: RefCell<(Option<String>, Option<String>)>,
-    /// What the archive's last Delete or Clear took out, as its tab count, for the undo.
-    pub(super) archive_removed: RefCell<Vec<usize>>,
 }
 
 impl Recorder {
+    /// A host for another window of the same core.
+    pub(super) fn beside(other: &Recorder) -> Self {
+        Recorder {
+            core: other.core.clone(),
+            ..Default::default()
+        }
+    }
+
     fn record(&self, call: String) {
         self.calls.borrow_mut().push(call);
     }
@@ -172,19 +213,36 @@ impl Browser for Recorder {
 
     fn set_muted(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn clear(&self, _: &mut App) {
-        self.edit("clear".into());
-        self.record("clear".into())
+    fn clear(&self, _: &mut App) -> u64 {
+        let id = self.core.ticket();
+        self.edit(format!("clear as {id}"));
+        self.record("clear".into());
+        let mut cleared = self.cleared.borrow_mut();
+        cleared.push(id);
+        if cleared.len() > 10 {
+            cleared.remove(0);
+        }
+        id
     }
 
-    fn undo_clear(&self, _: &mut App) -> usize {
-        self.edit("undo clear".into());
+    fn undo_clear(&self, clear: u64, _: &mut App) -> usize {
+        let mut cleared = self.cleared.borrow_mut();
+        let Some(at) = cleared.iter().position(|&each| each == clear) else {
+            return 0;
+        };
+        cleared.remove(at);
+        self.edit(format!("undo clear {clear}"));
         self.record("undo clear".into());
         1
     }
 
-    fn undo_delete_space(&self, _: &mut App) -> bool {
-        self.edit("undo delete space".into());
+    fn undo_delete_space(&self, space: u64, _: &mut App) -> bool {
+        let mut deleted = self.core.deleted.borrow_mut();
+        let Some(at) = deleted.iter().position(|&each| each == space) else {
+            return false;
+        };
+        deleted.remove(at);
+        self.edit(format!("undo delete space {space}"));
         true
     }
 
@@ -208,21 +266,27 @@ impl Browser for Recorder {
         self.names.borrow().get(&tab).cloned().unwrap_or_default()
     }
 
-    fn undo_archive_remove(&self, _: &mut App) -> usize {
-        self.edit("undo archive remove".into());
-        self.archive_removed.borrow_mut().pop().unwrap_or(0)
+    fn undo_archive_remove(&self, removal: u64, _: &mut App) -> usize {
+        let mut removals = self.core.removals.borrow_mut();
+        let Some(at) = removals.iter().position(|&(id, _)| id == removal) else {
+            return 0;
+        };
+        self.edit(format!("undo archive remove {removal}"));
+        removals.remove(at).1
     }
 
     fn restore_archived(&self, _: u64, _: &mut App) {}
 
-    fn remove_archived(&self, archived: u64, _: &mut App) {
-        self.edit(format!("archive remove {archived}"));
-        self.archive_removed.borrow_mut().push(1);
+    fn remove_archived(&self, archived: u64, _: &mut App) -> u64 {
+        let id = self.core.removed(1);
+        self.edit(format!("archive remove {archived} as {id}"));
+        id
     }
 
-    fn clear_archive(&self, _: &mut App) {
-        self.edit("archive clear".into());
-        self.archive_removed.borrow_mut().push(2);
+    fn clear_archive(&self, _: &mut App) -> u64 {
+        let id = self.core.removed(2);
+        self.edit(format!("archive clear as {id}"));
+        id
     }
 
     fn act_on_download(&self, _: u64, _: DownloadAction, _: &mut App) {}
@@ -356,6 +420,11 @@ impl Browser for Recorder {
 
     fn delete_space(&self, space: u64, _: &mut App) -> bool {
         self.edit(format!("delete space {space}"));
+        let mut deleted = self.core.deleted.borrow_mut();
+        deleted.push(space);
+        if deleted.len() > Core::KEPT {
+            deleted.remove(0);
+        }
         true
     }
 

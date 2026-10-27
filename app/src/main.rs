@@ -1338,16 +1338,16 @@ impl Browser for Engine {
         unsafe { bc::bc_tab_set_muted(tab, muted) };
     }
 
-    fn clear(&self, _: &mut App) {
-        unsafe { bc::bc_window_clear(self.window) };
+    fn clear(&self, _: &mut App) -> u64 {
+        unsafe { bc::bc_window_clear(self.window) }
     }
 
-    fn undo_clear(&self, _: &mut App) -> usize {
-        unsafe { bc::bc_window_undo_clear(self.window) }
+    fn undo_clear(&self, clear: u64, _: &mut App) -> usize {
+        unsafe { bc::bc_window_undo_clear(self.window, clear) }
     }
 
-    fn undo_delete_space(&self, _: &mut App) -> bool {
-        unsafe { bc::bc_window_undo_delete_space(self.window) != 0 }
+    fn undo_delete_space(&self, space: u64, _: &mut App) -> bool {
+        unsafe { bc::bc_window_undo_delete_space(self.window, space) != 0 }
     }
 
     fn reopen_closed_tab(&self, _: &mut App) {
@@ -1371,8 +1371,8 @@ impl Browser for Engine {
         name(bc::bc_tab_name, tab).to_string()
     }
 
-    fn undo_archive_remove(&self, _: &mut App) -> usize {
-        unsafe { bc::bc_archive_undo_remove() }
+    fn undo_archive_remove(&self, removal: u64, _: &mut App) -> usize {
+        unsafe { bc::bc_archive_undo_remove(removal) }
     }
 
     fn restore_archived(&self, archived: u64, _: &mut App) {
@@ -1415,12 +1415,12 @@ impl Browser for Engine {
             .is_ok_and(|path| unsafe { platform::host_drag_file(path.as_ptr(), file_drag_ended) })
     }
 
-    fn remove_archived(&self, archived: u64, _: &mut App) {
-        unsafe { bc::bc_archive_remove(archived) };
+    fn remove_archived(&self, archived: u64, _: &mut App) -> u64 {
+        unsafe { bc::bc_archive_remove(archived) }
     }
 
-    fn clear_archive(&self, _: &mut App) {
-        unsafe { bc::bc_archive_clear() };
+    fn clear_archive(&self, _: &mut App) -> u64 {
+        unsafe { bc::bc_archive_clear() }
     }
 
     fn page_favicon(&self, url: &str, _: &mut App) {

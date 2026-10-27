@@ -167,15 +167,16 @@ class Window : public web_modal::WebContentsModalDialogHost,
   void Select(bc_id tab);
 
   // Closes the Today tabs of the Space the window shows, all but those any window shows, or all of
-  // them if it shows every one, for UndoClear to bring back. Returns how many.
-  size_t Clear();
-  // Brings back the tabs the last Clear closed that it hasn't brought back, at their places in
-  // their Space's Today tabs and unloaded, and shows the tab shown it closed. Not those
-  // ReopenClosedTab brought back. Returns how many.
-  size_t UndoClear();
-  // Brings back the Space DeleteSpace deleted last that isn't back, at its place and with its id,
-  // and shows it. See bc_window_undo_delete_space. Returns its id, or 0.
-  bc_id UndoDeleteSpace();
+  // them if it shows every one, for UndoClear to bring back. Returns the Clear's id, or 0 if it
+  // closed none.
+  bc_id Clear();
+  // Brings back the tabs the Clear |clear| of this window closed that it hasn't brought back, at
+  // their places in their Space's Today tabs and unloaded, and shows the tab shown it closed. Not
+  // those ReopenClosedTab brought back. Returns how many, 0 if the Clear is gone.
+  size_t UndoClear(bc_id clear);
+  // Brings back the Space |space|, which DeleteSpace deleted, if it isn't back, at its place and
+  // with its id, and shows it. See bc_window_undo_delete_space. Returns its id, or 0.
+  bc_id UndoDeleteSpace(bc_id space);
   // Reopens the tab closed last, in any window, with its history: at its place in its Space's Today
   // tabs, else at the top of the Space the window shows. Shows it, and its Space. Returns its id, or
   // 0 if there's none.
@@ -273,6 +274,11 @@ class Window : public web_modal::WebContentsModalDialogHost,
     // Whether it was the tab the window showed.
     bool selected;
   };
+  // What one Clear closed, under the id bc_window_clear gave the app.
+  struct ClearedTabs {
+    bc_id id;
+    std::vector<Cleared> tabs;
+  };
   Window(bc_id id, const gfx::Rect& bounds, void* ui_view);
 
   // The Browser for |profile|'s tabs in this window, made when there's none or it's closing. Null
@@ -346,9 +352,8 @@ class Window : public web_modal::WebContentsModalDialogHost,
   bool page_moving_ = false;
   double sidebar_width_;
   std::map<Profile*, Held> browsers_;
-  // The tabs the last Clear closed, top to bottom.
-  // What each Clear closed, the last at the back, for UndoClear.
-  std::vector<std::vector<Cleared>> cleared_;
+  // What each Clear closed, top to bottom, the last at the back, for UndoClear.
+  std::vector<ClearedTabs> cleared_;
   // Made when the command bar first asks for suggestions.
   std::unique_ptr<Suggestions> suggestions_;
   bool closing_ = false;

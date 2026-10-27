@@ -809,23 +809,24 @@ BC_EXPORT void bc_window_select(bc_id window, bc_id tab);
 // Clears the Space the window shows: closes its Today tabs but those any window shows, as
 // bc_tab_close does, for bc_window_undo_clear to bring back. While it shows every Today tab, a tab
 // alone or a split that is all of Today, it closes those too, and the window shows the tab the
-// close rule picks. Returns how many tabs it closed.
-BC_EXPORT size_t bc_window_clear(bc_id window);
+// close rule picks. Returns the id of the Clear, for bc_window_undo_clear, or 0 if it closed none.
+// The window keeps its last ten.
+BC_EXPORT bc_id bc_window_clear(bc_id window);
 
-// Brings back the tabs the window's last bc_window_clear closed, at their places in their Space's
-// Today tabs and unloaded, then the one before that on the next call, and so on for the last ten.
-// Not those bc_window_reopen_closed_tab brought back. Then space_changed. If the clear closed the
-// tab shown, it shows that tab again, with its split, and its Space, then window_selected. Returns
-// how many it brought back.
-BC_EXPORT size_t bc_window_undo_clear(bc_id window);
+// Brings back the tabs the window's bc_window_clear |clear| closed, at their places in their
+// Space's Today tabs and unloaded, once. Not those bc_window_reopen_closed_tab brought back. Then
+// space_changed. If the clear closed the tab shown, it shows that tab again, with its split, and
+// its Space, then window_selected. Returns how many it brought back, or 0 if that clear is gone:
+// it was undone, or ten others came after it, or it was another window's.
+BC_EXPORT size_t bc_window_undo_clear(bc_id window, bc_id clear);
 
-// Brings back the Space bc_space_delete deleted last, with its id at its place among the Spaces,
-// its name, colour, folders and pinned tabs, and the Today tabs that went to the archive and
-// haven't come back some other way, all unloaded and leaving the archive. The window shows it, at
-// the tab it showed there. Then the one deleted before it on the next call, and so on for the last
-// 25. Not while a page keeps one of its tabs open. Then spaces_changed and window_space_shown.
-// Returns the Space, or 0.
-BC_EXPORT bc_id bc_window_undo_delete_space(bc_id window);
+// Brings back the Space |space|, which bc_space_delete deleted, with its id at its place among the
+// Spaces, its name, colour, folders and pinned tabs, and the Today tabs that went to the archive
+// and haven't come back some other way, all unloaded and leaving the archive. The window shows it,
+// at the tab it showed there. The last 25 deleted, by any window, can come back, in any order. Not
+// while a page keeps one of its tabs open. Then spaces_changed and window_space_shown. Returns the
+// Space, or 0 if it can't: it is back, or 25 others were deleted since.
+BC_EXPORT bc_id bc_window_undo_delete_space(bc_id window, bc_id space);
 
 // Reopens the Today tab closed last, in any window, with its history: at its place in its Space's
 // Today tabs, else at the top of the Space the window shows. One closed from a split view goes back
@@ -880,18 +881,20 @@ BC_EXPORT void bc_extension_answer(bc_id question, bool accept);
 BC_EXPORT void bc_extensions_report(void);
 
 // Empties the archive. Tabs closed since the browser started still reopen with
-// bc_window_reopen_closed_tab. Then archive_changed.
-BC_EXPORT void bc_archive_clear(void);
+// bc_window_reopen_closed_tab. Then archive_changed. Returns the removal's id, for
+// bc_archive_undo_remove, or 0 if the archive was empty.
+BC_EXPORT bc_id bc_archive_clear(void);
 
 // Takes the archived tab out of the archive, as bc_archive_clear does with all of them. Its tab,
 // if it closed since the browser started, still reopens with bc_window_reopen_closed_tab. Then
-// archive_changed, unless the archive has no such tab.
-BC_EXPORT void bc_archive_remove(bc_id archived);
+// archive_changed, unless the archive has no such tab. Returns the removal's id, as
+// bc_archive_clear does, or 0 if it has none.
+BC_EXPORT bc_id bc_archive_remove(bc_id archived);
 
-// Puts back what the last bc_archive_remove or bc_archive_clear took out, each tab with its id
-// where it was, then the one before on the next call, and so on for the last 25. Then
-// archive_changed. Returns how many tabs it put back.
-BC_EXPORT size_t bc_archive_undo_remove(void);
+// Puts back what the bc_archive_remove or bc_archive_clear that returned |removal| took out, each
+// tab with its id where it was. The last 25, by any window, can come back, in any order. Then
+// archive_changed. Returns how many tabs it put back, or 0 if that removal is gone.
+BC_EXPORT size_t bc_archive_undo_remove(bc_id removal);
 
 // How long, in seconds, a Today tab no window shows waits before it goes in the archive: 12 hours,
 // else the time the user chose. Setting it archives at once the tabs that have waited that long.

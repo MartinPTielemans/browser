@@ -69,13 +69,14 @@ pub trait Browser {
     fn back_to_pinned_url(&self, tab: u64, cx: &mut App);
     /// Mutes `tab`, or unmutes it.
     fn set_muted(&self, tab: u64, muted: bool, cx: &mut App);
-    /// Closes the Today tabs of the Space shown, but the one shown, unless it shows them all.
-    fn clear(&self, cx: &mut App);
-    /// Brings back the tabs the last clear closed, showing the one shown it closed, and returns
-    /// how many.
-    fn undo_clear(&self, cx: &mut App) -> usize;
-    /// Brings back the Space deleted last, and shows it. Returns whether it did.
-    fn undo_delete_space(&self, cx: &mut App) -> bool;
+    /// Closes the Today tabs of the Space shown, but the one shown, unless it shows them all, and
+    /// returns the id of the clear, or 0 if it closed none.
+    fn clear(&self, cx: &mut App) -> u64;
+    /// Brings back the tabs the window's clear `clear` closed, showing the one shown it closed,
+    /// and returns how many, 0 if that clear is gone.
+    fn undo_clear(&self, clear: u64, cx: &mut App) -> usize;
+    /// Brings back the Space `space`, which was deleted, and shows it. Returns whether it did.
+    fn undo_delete_space(&self, space: u64, cx: &mut App) -> bool;
     /// Reopens the Today tab closed last, and shows it.
     fn reopen_closed_tab(&self, cx: &mut App);
     /// Reopens the Today tab that had the id `closed` when it closed, at its place, and returns its
@@ -87,14 +88,16 @@ pub trait Browser {
     fn set_pinned_url(&self, tab: u64, url: &str, cx: &mut App);
     /// The name the user gave the tab, or empty while it shows its page's title.
     fn tab_name(&self, tab: u64) -> String;
-    /// Puts back what the archive's last Delete or Clear took out, and returns how many tabs.
-    fn undo_archive_remove(&self, cx: &mut App) -> usize;
+    /// Puts back what the archive removal `removal` took out, and returns how many tabs, 0 if it
+    /// is gone. The removals are the core's, shared by its windows, so each asks for its own.
+    fn undo_archive_remove(&self, removal: u64, cx: &mut App) -> usize;
     /// Reopens the archived tab `archived` at the top of the Today tabs of the Space shown, and
     /// shows it.
     fn restore_archived(&self, archived: u64, cx: &mut App);
-    /// Takes the archived tab `archived` out of the archive.
-    fn remove_archived(&self, archived: u64, cx: &mut App);
-    fn clear_archive(&self, cx: &mut App);
+    /// Takes the archived tab `archived` out of the archive, and returns the removal's id, or 0.
+    fn remove_archived(&self, archived: u64, cx: &mut App) -> u64;
+    /// Empties the archive, and returns the removal's id, or 0 if it was empty.
+    fn clear_archive(&self, cx: &mut App) -> u64;
     /// Does `action` to the download.
     fn act_on_download(&self, download: u64, action: DownloadAction, cx: &mut App);
     /// Takes the downloads that aren't running or paused off the list, keeping their files.

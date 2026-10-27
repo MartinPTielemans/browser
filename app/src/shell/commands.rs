@@ -882,25 +882,26 @@ impl Shell {
     /// Clears the Space shown, but the tab shown, unless that's all there is to clear. Its rows go
     /// in one frame, with no toast (Arc).
     fn clear(&mut self, cx: &mut Context<Self>) {
-        if self.clear_now(cx) {
-            self.keep(What::CLEAR, Some(Edit::UndoClear(self.space)), cx);
+        if let Some(clear) = self.clear_now(cx) {
+            let space = self.space;
+            self.keep(What::CLEAR, Some(Edit::UndoClear { space, clear }), cx);
         }
     }
 
-    /// Clears, and says whether it closed any.
-    pub(super) fn clear_now(&mut self, cx: &mut Context<Self>) -> bool {
+    /// Clears, and returns the core's id for the Clear if it closed any.
+    pub(super) fn clear_now(&mut self, cx: &mut Context<Self>) -> Option<u64> {
         // A split view shown stays whole.
         let shown = self.panes(self.selected);
         let last = self.clears_last();
         let today = self.today().iter().copied();
         self.clearing = today.filter(|tab| last || !shown.contains(tab)).collect();
         if self.clearing.is_empty() {
-            return false;
+            return None;
         }
-        self.browser.clear(cx);
+        let clear = self.browser.clear(cx);
         // check.sh reads this line.
         log!("browser: cleared {}", self.clearing.len());
-        true
+        (clear != 0).then_some(clear)
     }
 
     /// Runs `command` for a key the page didn't keep, and returns whether it was used. With

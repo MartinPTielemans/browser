@@ -20,7 +20,18 @@ fn window(
     folders: Folders,
     splits: Vec<Split>,
 ) -> (Entity<Shell>, Rc<Recorder>) {
-    let host = Rc::new(Recorder::default());
+    on(cx, Rc::new(Recorder::default()), pinned, today, folders, splits)
+}
+
+/// As `window`, on `host`.
+fn on(
+    cx: &mut TestAppContext,
+    host: Rc<Recorder>,
+    pinned: Vec<u64>,
+    today: Vec<u64>,
+    folders: Folders,
+    splits: Vec<Split>,
+) -> (Entity<Shell>, Rc<Recorder>) {
     let shell = cx.new(|cx| Shell::new(host.clone(), cx));
     shell.update(cx, |shell, cx| {
         shell.set_spaces(
@@ -39,6 +50,16 @@ fn window(
 
 fn plain(cx: &mut TestAppContext, today: Vec<u64>) -> (Entity<Shell>, Rc<Recorder>) {
     window(cx, Vec::new(), today, Folders::default(), Vec::new())
+}
+
+/// A second window over the same core as `first`, with its own Today tabs.
+fn beside(
+    cx: &mut TestAppContext,
+    first: &Rc<Recorder>,
+    today: Vec<u64>,
+) -> (Entity<Shell>, Rc<Recorder>) {
+    let host = Rc::new(Recorder::beside(first));
+    on(cx, host, Vec::new(), today, Folders::default(), Vec::new())
 }
 
 /// The core reports the first Space's tabs.
@@ -463,22 +484,25 @@ fn clearing_and_deleting_a_space_are_undone_and_done_again(cx: &mut TestAppConte
         shell.set_selected(10, cx);
         shell.run(Command::Clear, "ui", cx);
     });
-    assert_eq!(host.take_edits(), ["clear"]);
+    assert_eq!(host.take_edits(), ["clear as 9001"]);
     assert!(
         host.undo_toasts.borrow().is_empty(),
         "Clear says nothing (Arc)"
     );
     report(&shell, cx, Vec::new(), vec![10]);
     undo(&shell, cx);
-    assert_eq!(host.take_edits(), ["undo clear"]);
+    assert_eq!(host.take_edits(), ["undo clear 9001"]);
     report(&shell, cx, Vec::new(), vec![10, 1001, 1002]);
     assert!(redo(&shell, cx));
-    assert_eq!(host.take_edits(), ["clear"]);
+    // The redo is a new Clear, which the next undo asks for by its new id.
+    assert_eq!(host.take_edits(), ["clear as 9002"]);
+    undo(&shell, cx);
+    assert_eq!(host.take_edits(), ["undo clear 9002"]);
 
     shell.update(cx, |shell, cx| shell.delete_space_now(2, cx));
     assert_eq!(host.take_edits(), ["delete space 2"]);
     undo(&shell, cx);
-    assert_eq!(host.take_edits(), ["undo delete space"]);
+    assert_eq!(host.take_edits(), ["undo delete space 2"]);
     redo(&shell, cx);
     assert_eq!(host.take_edits(), ["delete space 2"]);
 }
@@ -486,32 +510,140 @@ fn clearing_and_deleting_a_space_are_undone_and_done_again(cx: &mut TestAppConte
 #[gpui::test]
 fn the_archives_delete_and_clear_are_undone_and_done_again(cx: &mut TestAppContext) {
     let (shell, host) = plain(cx, vec![10]);
-    let archived = |id| Archived {
-        id,
-        url: "https://a.example/".into(),
-        title: "A".into(),
-        archived: 0.,
-    };
     shell.update(cx, |shell, cx| {
         shell.set_archive(vec![archived(7), archived(8)], cx)
     });
     shell.update(cx, |shell, cx| shell.delete_archived(7, cx));
-    assert_eq!(host.take_edits(), ["archive remove 7"]);
+    assert_eq!(host.take_edits(), ["archive remove 7 as 9001"]);
     assert_eq!(
         host.undo_toasts.borrow().as_slice(),
         ["Deleted from Archive"]
     );
     undo(&shell, cx);
-    assert_eq!(host.take_edits(), ["undo archive remove"]);
+    assert_eq!(host.take_edits(), ["undo archive remove 9001"]);
     redo(&shell, cx);
-    assert_eq!(host.take_edits(), ["archive remove 7"]);
+    assert_eq!(host.take_edits(), ["archive remove 7 as 9002"]);
 
     shell.update(cx, |shell, cx| shell.empty_archive(cx));
-    assert_eq!(host.take_edits(), ["archive clear"]);
+    assert_eq!(host.take_edits(), ["archive clear as 9003"]);
     undo(&shell, cx);
-    assert_eq!(host.take_edits(), ["undo archive remove"]);
+    assert_eq!(host.take_edits(), ["undo archive remove 9003"]);
     redo(&shell, cx);
-    assert_eq!(host.take_edits(), ["archive clear"]);
+    assert_eq!(host.take_edits(), ["archive clear as 9004"]);
+}
+
+fn archived(id: u64) -> Archived {
+    Archived {
+        id,
+        url: "https://a.example/".into(),
+        title: "A".into(),
+        archived: 0.,
+    }
+}
+
+#[gpui::test]
+fn two_windows_over_one_core_each_undo_only_their_own_archive_removals(cx: &mut TestAppContext) {
+    let (first, one) = plain(cx, vec![10]);
+    let (second, two) = beside(cx, &one, vec![20]);
+    for shell in [&first, &second] {
+        shell.update(cx, |shell, cx| {
+            shell.set_archive(vec![archived(7), archived(8)], cx)
+        });
+    }
+    first.update(cx, |shell, cx| shell.delete_archived(7, cx));
+    second.update(cx, |shell, cx| shell.delete_archived(8, cx));
+    assert_eq!(one.take_edits(), ["archive remove 7 as 9001"]);
+    assert_eq!(two.take_edits(), ["archive remove 8 as 9002"]);
+
+    // The newer removal is the second window's, so a pop of the core's stack would take that.
+    assert!(undo(&first, cx));
+    assert_eq!(one.take_edits(), ["undo archive remove 9001"]);
+    assert_eq!(*one.core.removals.borrow(), [(9002, 1)]);
+    assert!(two.take_edits().is_empty());
+
+    assert!(undo(&second, cx));
+    assert_eq!(two.take_edits(), ["undo archive remove 9002"]);
+    assert!(one.core.removals.borrow().is_empty());
+}
+
+#[gpui::test]
+fn two_windows_over_one_core_each_undo_only_the_space_they_deleted(cx: &mut TestAppContext) {
+    let (first, one) = plain(cx, vec![10]);
+    let (second, two) = beside(cx, &one, vec![20]);
+    first.update(cx, |shell, cx| shell.delete_space_now(2, cx));
+    second.update(cx, |shell, cx| shell.delete_space_now(3, cx));
+    one.take_edits();
+    two.take_edits();
+
+    assert!(undo(&first, cx));
+    assert_eq!(one.take_edits(), ["undo delete space 2"]);
+    assert_eq!(*one.core.deleted.borrow(), [3]);
+    assert!(two.take_edits().is_empty());
+    assert!(undo(&second, cx));
+    assert_eq!(two.take_edits(), ["undo delete space 3"]);
+}
+
+#[gpui::test]
+fn two_windows_clear_and_undo_on_their_own(cx: &mut TestAppContext) {
+    let (first, one) = plain(cx, vec![10, 11, 12]);
+    let (second, two) = beside(cx, &one, vec![20, 21, 22]);
+    first.update(cx, |shell, cx| {
+        shell.set_selected(10, cx);
+        shell.run(Command::Clear, "ui", cx);
+    });
+    second.update(cx, |shell, cx| {
+        shell.set_selected(20, cx);
+        shell.run(Command::Clear, "ui", cx);
+    });
+    one.take_edits();
+    two.take_edits();
+    assert!(undo(&first, cx));
+    assert_eq!(one.take_edits(), ["undo clear 9001"]);
+    assert!(two.take_edits().is_empty());
+    assert!(undo(&second, cx));
+    assert_eq!(two.take_edits(), ["undo clear 9002"]);
+}
+
+#[gpui::test]
+fn a_step_the_core_has_dropped_is_dropped_and_the_one_before_it_undone(cx: &mut TestAppContext) {
+    // The window closes a tab, then deletes an archived one; the other window then fills the
+    // core's 25 removals, which pushes the first window's out.
+    let (first, one) = plain(cx, vec![10, 11]);
+    let (second, _) = beside(cx, &one, vec![20]);
+    let others: Vec<Archived> = (100..126).map(archived).collect();
+    for shell in [&first, &second] {
+        let mut all = others.clone();
+        all.push(archived(7));
+        shell.update(cx, |shell, cx| shell.set_archive(all, cx));
+    }
+    first.update(cx, |shell, cx| shell.close_tab(11, false, cx));
+    first.update(cx, |shell, cx| shell.delete_archived(7, cx));
+    for id in 100..125 {
+        second.update(cx, |shell, cx| shell.delete_archived(id, cx));
+    }
+    assert_eq!(one.core.removals.borrow().len(), 25);
+    one.take_edits();
+
+    // Gone from the core, so the window's Undo does the close's instead.
+    assert!(undo(&first, cx));
+    assert_eq!(one.take_edits(), ["reopen 11 as 1001"]);
+}
+
+#[gpui::test]
+fn the_tenth_clear_back_is_the_last_the_core_keeps(cx: &mut TestAppContext) {
+    let (shell, host) = plain(cx, vec![10, 11, 12]);
+    shell.update(cx, |shell, cx| shell.set_selected(10, cx));
+    for _ in 0..11 {
+        shell.update(cx, |shell, cx| shell.run(Command::Clear, "ui", cx));
+    }
+    host.take_edits();
+    for _ in 0..10 {
+        assert!(undo(&shell, cx));
+    }
+    host.take_edits();
+    // The eleventh is gone from the core, so it drops out of the history and nothing is left.
+    assert!(!undo(&shell, cx));
+    assert!(host.take_edits().is_empty());
 }
 
 #[gpui::test]

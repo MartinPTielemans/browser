@@ -22,8 +22,12 @@ std::vector<ArchivedTab>& Tabs() {
   return *tabs;
 }
 
-// What one Delete or Clear took out, each tab with the place it had, in that order.
-using Removal = std::vector<std::pair<size_t, ArchivedTab>>;
+// What one Delete or Clear took out, under its own id, each tab with the place it had, in that
+// order.
+struct Removal {
+  bc_id id = 0;
+  std::vector<std::pair<size_t, ArchivedTab>> tabs;
+};
 
 // Newest last, as many as the closed tabs.
 constexpr size_t kMaxRemovals = 25;
@@ -125,46 +129,51 @@ void ClearArchive() {
   }
 }
 
-void RemoveArchived(bc_id id) {
-  auto it = std::ranges::find(Tabs(), id, &ArchivedTab::id);
-  if (it == Tabs().end()) {
-    return;
-  }
-  Removal removal;
-  removal.emplace_back(static_cast<size_t>(it - Tabs().begin()), std::move(*it));
-  Tabs().erase(it);
+// Keeps |removal| for UndoRemoved, and tells the app. Returns its id.
+static bc_id Keep(Removal removal) {
+  removal.id = NewId();
+  const bc_id id = removal.id;
   Removals().push_back(std::move(removal));
   if (Removals().size() > kMaxRemovals) {
     Removals().erase(Removals().begin());
   }
   Changed();
+  return id;
 }
 
-void RemoveAllArchived() {
+bc_id RemoveArchived(bc_id id) {
+  auto it = std::ranges::find(Tabs(), id, &ArchivedTab::id);
+  if (it == Tabs().end()) {
+    return 0;
+  }
+  Removal removal;
+  removal.tabs.emplace_back(static_cast<size_t>(it - Tabs().begin()), std::move(*it));
+  Tabs().erase(it);
+  return Keep(std::move(removal));
+}
+
+bc_id RemoveAllArchived() {
   if (Tabs().empty()) {
-    return;
+    return 0;
   }
   Removal removal;
   for (size_t index = 0; index < Tabs().size(); ++index) {
-    removal.emplace_back(index, std::move(Tabs()[index]));
+    removal.tabs.emplace_back(index, std::move(Tabs()[index]));
   }
   Tabs().clear();
-  Removals().push_back(std::move(removal));
-  if (Removals().size() > kMaxRemovals) {
-    Removals().erase(Removals().begin());
-  }
-  Changed();
+  return Keep(std::move(removal));
 }
 
-size_t UndoRemoved() {
-  if (Removals().empty()) {
+size_t UndoRemoved(bc_id removal_id) {
+  auto found = std::ranges::find(Removals(), removal_id, &Removal::id);
+  if (found == Removals().end()) {
     return 0;
   }
-  Removal removal = std::move(Removals().back());
-  Removals().pop_back();
-  const size_t count = removal.size();
+  Removal removal = std::move(*found);
+  Removals().erase(found);
+  const size_t count = removal.tabs.size();
   // In order of place, so each lands where it was.
-  for (auto& [index, tab] : removal) {
+  for (auto& [index, tab] : removal.tabs) {
     Tabs().insert(Tabs().begin() + std::min(index, Tabs().size()), std::move(tab));
   }
   Changed();
