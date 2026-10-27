@@ -267,6 +267,18 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [x] | Keyboard commands | MVP | fire with the page and the UI focused; actions' keys; never reserved keys; suggestions that are ours stay ours; media keys: later | Chrome P§15 |
 | [x] | Site Controls | MVP | 238 wide, radius 17, beak 12.5, tiles 48 × 32 on 8 gaps; Share and the two captures; the extensions with + and Manage; Chrome's permissions as Arc's rows with More; the lock opens the certificate, … the menu; Boost items: with Boosts; motion *interim* | Arc 1.170.0 cap |
 
+## Ad blocking
+
+| Done | Item | Phase | Target | Source |
+|---|---|---|---|---|
+| [ ] | On by default | MVP | every profile, new and existing, and private windows, from the first page; nothing to install | Helium, Flecha |
+| [ ] | Engine | MVP | upstream uBlock Origin 1.75.0, pinned with its sha256, in the framework, loaded at each launch; updates with the browser; listed in the Extensions menu, pinnable, no Remove | Ours |
+| [ ] | Turning it off | MVP | Site Controls' first row, per site, reloading the page; Settings › General, everywhere | Ours |
+| [ ] | Filter lists | MVP | weekly while open, and 37 s after a launch when stale; never more often; source a default service URL | principles 1, 2 |
+| [ ] | First launch | MVP | requests through for about 3 s until the lists load; closing it: measure first | principle 1 |
+| [ ] | Cost | MVP | page-load and memory numbers, with and without it, against the performance gate | principle 1 |
+| [ ] | No agent path | MVP | agents can't change it, everywhere or for a site | decision 8 |
+
 ## Passwords and autofill
 
 | Done | Item | Phase | Target | Source |
@@ -411,12 +423,6 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 | [ ] | Boosts: seeing and turning off | later | listed in Site Controls with an off switch; all off in Settings; look: measure | Arc |
 | [ ] | Boosts: script changed outside the browser | later | stays off until the user turns it on again | principle 3 |
 | [ ] | Boosts: no agent path | later | agents can't read, write or turn on a Boost | decision 8 |
-| [ ] | Ad blocking: on by default | later | every profile | Helium, Flecha |
-| [ ] | Ad blocking: engine | later | Helium's uBlock Origin fork *interim*; MV2 works on Chromium 155 through ungoogled-chromium's patch | Helium |
-| [ ] | Ad blocking: turning it off | later | per site in Site Controls; everywhere in Settings | Ours |
-| [ ] | Ad blocking: filter lists | later | updates never wake an idle browser; list URL is a default service URL | principles 1, 2 |
-| [ ] | Ad blocking: cost | later | page-load and memory numbers against the performance gate | principle 1 |
-| [ ] | Ad blocking: no agent path | later | agents can't change it | decision 8 |
 | [ ] | Environments: setup | later | add, edit, remove a project's origins in Settings | Flecha |
 | [ ] | Environments: switching | later | ⌥⌘E *interim*; only the origin changes; command bar lists the other origins | Flecha |
 | [ ] | Environments: badge | later | in the URL field; production red | Flecha |
