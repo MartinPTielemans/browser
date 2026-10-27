@@ -127,7 +127,7 @@ double SavedSidebarWidth();
 std::vector<gfx::Rect> SavedWindowFrames();
 
 // Has |window| show what the saved window |index| showed, the first being RestoreSession's: its
-// Space, its sidebar's width, and full screen if it was. Returns whether there's such a window
+// Space, its sidebar's width, and full screen if it was the front one. Returns whether there's such a window
 // and its Space came back.
 bool RestoreSavedWindow(Window& window, size_t index);
 

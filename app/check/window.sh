@@ -74,7 +74,7 @@ HTML
 )
 log="$out/window.log"
 step=0
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 serve
 url="data:text/html;base64,$page#${site}wait"
 BROWSER_DRIVE=1 BROWSER_URL="$url" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &

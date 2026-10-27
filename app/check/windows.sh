@@ -21,7 +21,7 @@ onkeydown = e => { if (e.key == "o") window.open(); };
 </script>'
 log="$out/windows.log"
 step=0
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"

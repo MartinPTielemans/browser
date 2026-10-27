@@ -24,7 +24,7 @@ onkeydown = e => {
 cookie_page="$(echo "$site" | sed 's/127\.0\.0\.1/localhost/')profile.html"
 log="$out/profiles.log"
 step=0
-rm -f "$saved"
+rm -f "$saved" "$launch_frame"
 BROWSER_DRIVE=1 BROWSER_URL="$cookie_page" "$app/Contents/MacOS/Browser" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
