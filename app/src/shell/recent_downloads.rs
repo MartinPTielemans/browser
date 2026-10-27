@@ -1,5 +1,5 @@
-//! The Library button's recent downloads: the newest finished files, in rows over the foot of the
-//! sidebar, the newest next to the button (Arc). When they show and how they come and go are ours
+//! The Library button's recent downloads: the newest files, in rows over the foot of the sidebar,
+//! the newest next to the button (Arc). When they show and how they come and go are ours
 //! until Arc's are recorded (docs/ux-spec.md › Downloads).
 
 use std::{
@@ -12,7 +12,7 @@ use gpui::{
 };
 
 use super::{
-    Download, DownloadState, FOOTER_HEIGHT, NAV_SIZE, SECONDARY, Shell,
+    Download, DownloadState, FOOTER_HEIGHT, NAV_SIZE, SECONDARY, Shell, library::of,
 };
 
 /// Ours: the rows wait half a second, so a pointer passing the button leaves them, and fade.
@@ -73,12 +73,18 @@ pub(super) struct RecentDownloads {
     settled: bool,
 }
 
-/// The downloads the rows show, newest first: the newest finished ones with a file.
+/// The downloads the rows show, newest first: the newest finished ones with a file, and those
+/// still coming, as a download that runs on shouldn't hide the files before it.
 fn recent(downloads: &[Download]) -> impl Iterator<Item = &Download> {
-    let finished = |each: &&Download| {
-        each.state == DownloadState::Done && !each.held && !each.path.is_empty()
+    let shown = |each: &&Download| {
+        !each.held
+            && match each.state {
+                DownloadState::Done => !each.path.is_empty(),
+                DownloadState::Running | DownloadState::Paused => true,
+                DownloadState::Cancelled | DownloadState::Failed => false,
+            }
     };
-    downloads.iter().filter(finished).take(RECENT_COUNT)
+    downloads.iter().filter(shown).take(RECENT_COUNT)
 }
 
 /// How long ago `started` is at `now`, in milliseconds since the Unix epoch, in words, with
@@ -187,8 +193,8 @@ impl Shell {
         still && shown && !self.page_fullscreen && self.recent_downloads.over_button
     }
 
-    /// Lists the newest finished downloads with their ages now, if there are any, and asks for
-    /// the previews it hasn't yet.
+    /// Lists the newest downloads with their ages now, if there are any, and asks for the
+    /// previews it hasn't yet.
     fn open_recent_downloads(&mut self, cx: &mut Context<Self>) {
         if !self.recent_downloads_can_show() {
             return;
@@ -200,7 +206,22 @@ impl Shell {
         if rows.is_empty() {
             return;
         }
+        let recent = &mut self.recent_downloads;
+        recent.rows = rows;
+        recent.going = false;
+        recent.fade = None;
+        recent.settled = false;
+        self.ask_download_previews(cx);
+        cx.notify();
+    }
+
+    /// Asks once for the preview of each row's file that has finished, as one still coming has
+    /// no file to look at yet.
+    fn ask_download_previews(&mut self, cx: &mut Context<Self>) {
+        let rows = &self.recent_downloads.rows;
         let asked: Vec<_> = recent(&self.downloads)
+            .filter(|each| each.state == DownloadState::Done)
+            .filter(|each| rows.iter().any(|(id, _)| *id == each.id))
             .filter(|each| !self.download_previews.contains_key(&each.id))
             .map(|each| (each.id, each.path.clone()))
             .collect();
@@ -208,12 +229,6 @@ impl Shell {
             self.download_previews.insert(id, None);
             self.browser.file_preview(id, &path, cx);
         }
-        let recent = &mut self.recent_downloads;
-        recent.rows = rows;
-        recent.going = false;
-        recent.fade = None;
-        recent.settled = false;
-        cx.notify();
     }
 
     /// Sends the rows away with their fade, from where they are, if they show.
@@ -262,21 +277,21 @@ impl Shell {
         if recent.going { 1. - t } else { t }
     }
 
-    /// The downloads changed: the rows keep those still there and finished, and go with none.
+    /// The downloads changed: the rows keep those still there, and go with none.
     pub(super) fn recent_downloads_changed(&mut self, cx: &mut Context<Self>) {
         if self.recent_downloads.rows.is_empty() {
             return;
         }
         let (downloads, rows) = (&self.downloads, &mut self.recent_downloads.rows);
-        let before = rows.len();
         rows.retain(|(id, _)| recent(downloads).any(|each| each.id == *id));
         if rows.is_empty() {
             // check.sh waits for this line.
             log!("browser: recent downloads hidden");
         }
-        if rows.len() != before {
-            cx.notify();
-        }
+        self.ask_download_previews(cx);
+        // A row still coming shows its bytes, which change with each report, and only while the
+        // pointer keeps the rows.
+        cx.notify();
     }
 
     /// The preview `Browser::file_preview` asked for.
@@ -396,6 +411,14 @@ impl Shell {
                 .text_color(rgba(SECONDARY))
                 .into_any_element(),
         };
+        // One still coming says how much has come, as its Library row does, and its age once done.
+        let detail: SharedString = match download.state {
+            DownloadState::Running => of(download.received, download.total).into(),
+            DownloadState::Paused => {
+                format!("Paused · {}", of(download.received, download.total)).into()
+            }
+            _ => age.clone(),
+        };
         let line = |text: SharedString, size: f32, height: f32, color: u32| {
             div()
                 .h(px(height))
@@ -445,7 +468,7 @@ impl Shell {
                     .flex_col()
                     .justify_center()
                     .child(line(download.name.clone(), NAME_SIZE, NAME_LINE, NAME))
-                    .child(line(age.clone(), AGE_SIZE, AGE_LINE, SECONDARY)),
+                    .child(line(detail, AGE_SIZE, AGE_LINE, SECONDARY)),
             )
             .into_any_element()
     }
@@ -458,7 +481,7 @@ mod tests {
     use gpui::{Entity, Modifiers, TestAppContext, VisualTestContext, point, px};
 
     use super::{
-        super::{Download, DownloadState, Shell, recorder::Recorder},
+        super::{Download, DownloadState, Shell, library::Section, recorder::Recorder},
         DAY, HOUR, MINUTE, RECENT_WAIT, WEEK, age, now,
     };
 
@@ -539,10 +562,12 @@ mod tests {
         })
     }
 
-    /// Resting on the Library button for the tooltip's delay shows the four newest finished
-    /// downloads with their ages, and asks for their previews once. They stay as the pointer
-    /// crosses from the button onto them, go once it's on neither, and come back from going when
-    /// it's on the button again. A click on the button opens the Library and takes them away.
+    /// Resting on the Library button for the tooltip's delay shows the four newest downloads, the
+    /// running one with the finished ones, with their ages, and asks for the finished ones'
+    /// previews once, and the running one's once it finishes. They stay as the pointer crosses
+    /// from the button onto them, go once it's on neither, and come back from going when it's on
+    /// the button again. While the download runs, the button still names itself View Library, and
+    /// a click opens the Library where it was, not on Downloads, and takes the rows away.
     #[gpui::test]
     fn the_recent_downloads_show_while_the_pointer_rests_on_the_button(cx: &mut TestAppContext) {
         let (shell, cx, host) = window(cx);
@@ -570,15 +595,15 @@ mod tests {
         assert!(rows(&shell, cx).0.is_empty(), "they wait the tooltip's delay");
         wait(cx, Duration::from_millis(100));
         let shown = vec![
+            (9, "just now".to_string()),
             (5, "2 hours ago".to_string()),
             (4, "4 days ago".to_string()),
             (3, "1 week ago".to_string()),
-            (2, "1 week ago".to_string()),
         ];
         assert_eq!(rows(&shell, cx), (shown.clone(), false));
-        let asked = ["file preview 5", "file preview 4", "file preview 3", "file preview 2"];
-        // The button's tooltip is asked for too, which this test isn't about.
+        let asked = ["file preview 5", "file preview 4", "file preview 3"];
         let calls = host.take();
+        assert!(calls.iter().any(|call| call == "tooltip View Library ⇧⌘L"), "{calls:?}");
         let previews: Vec<_> = calls.iter().filter(|c| !c.starts_with("tooltip")).collect();
         assert_eq!(previews, asked);
 
@@ -593,6 +618,20 @@ mod tests {
         move_to(cx, button.0, button.1);
         assert_eq!(rows(&shell, cx), (shown.clone(), false), "the button brings them back");
 
+        // The running one finishing keeps its row and gets its preview.
+        host.take();
+        let mut finished = shell.read_with(cx, |shell, _| shell.downloads.clone());
+        finished[0].state = DownloadState::Done;
+        shell.update(cx, |shell, cx| shell.set_downloads(finished, cx));
+        cx.run_until_parked();
+        assert_eq!(rows(&shell, cx), (shown.clone(), false));
+        let calls = host.take();
+        let previews: Vec<_> = calls.iter().filter(|c| c.starts_with("file preview")).collect();
+        assert_eq!(previews, ["file preview 9"]);
+        let mut running = shell.read_with(cx, |shell, _| shell.downloads.clone());
+        running[0].state = DownloadState::Running;
+        shell.update(cx, |shell, cx| shell.set_downloads(running, cx));
+
         // A later rest asks for no preview again.
         shell.update(cx, |shell, cx| shell.recent_downloads_gone(cx));
         move_to(cx, 120., 200.);
@@ -604,12 +643,15 @@ mod tests {
         cx.simulate_click(point(px(button.0), px(button.1)), Modifiers::none());
         cx.run_until_parked();
         assert!(rows(&shell, cx).0.is_empty(), "the Library takes them away at once");
+        let (open, archive) =
+            shell.read_with(cx, |shell, _| (shell.library_open, shell.section == Section::Archive));
+        assert!(open && archive, "a click opens the Library where it was");
     }
 
-    /// A pointer passing over the button leaves no rows, and with no finished download there are
-    /// none to show.
+    /// A pointer passing over the button leaves no rows. A download running alone shows as one, and
+    /// a held one, which Chrome keeps running until it's kept or deleted, never does.
     #[gpui::test]
-    fn the_recent_downloads_need_a_rest_and_a_finished_file(cx: &mut TestAppContext) {
+    fn the_recent_downloads_need_a_rest_and_a_download_not_held(cx: &mut TestAppContext) {
         let (shell, cx, _) = window(cx);
         shell.update(cx, |shell, cx| shell.set_downloads(vec![done(1, HOUR)], cx));
         let height = shell.read_with(cx, |shell, _| f32::from(shell.viewport.height));
@@ -621,9 +663,18 @@ mod tests {
 
         let mut running = done(2, 0.);
         running.state = DownloadState::Running;
+        shell.update(cx, |shell, cx| shell.set_downloads(vec![running.clone()], cx));
+        move_to(cx, 24., height - 25.);
+        wait(cx, RECENT_WAIT * 2);
+        assert_eq!(rows(&shell, cx).0, [(2, "just now".to_string())], "a running one shows");
+
+        move_to(cx, 300., 200.);
+        wait(cx, RECENT_WAIT * 2);
+        shell.update(cx, |shell, cx| shell.recent_downloads_gone(cx));
+        running.held = true;
         shell.update(cx, |shell, cx| shell.set_downloads(vec![running], cx));
         move_to(cx, 24., height - 25.);
         wait(cx, RECENT_WAIT * 2);
-        assert!(rows(&shell, cx).0.is_empty(), "a running download isn't a recent one");
+        assert!(rows(&shell, cx).0.is_empty(), "a held download isn't a recent one");
     }
 }

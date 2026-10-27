@@ -21,8 +21,6 @@ pub(super) enum Swapped {
     Speaker(u64),
     /// A folder's icon in the sidebar, open or closed.
     Folder(u64),
-    /// The footer's Library button, the downloads' glyph while they run.
-    Library,
     /// The URL field's Copy URL, a check for a while after a click.
     CopyUrl,
     /// The arrow before a Space's Clear, while Clear would close its last Today tabs.
@@ -401,10 +399,10 @@ mod tests {
     fn a_change_undone_goes_back_from_where_it_is() {
         let start = Instant::now();
         let mut swaps = Swaps::default();
-        swaps.start(Swapped::Library, "a", "b", start);
+        swaps.start(Swapped::CopyUrl, "a", "b", start);
         let back = start + Duration::from_secs_f32(COME / 2.);
         let came = coming(COME / 2.);
-        swaps.start(Swapped::Library, "b", "a", back);
+        swaps.start(Swapped::CopyUrl, "b", "a", back);
         let swap = &swaps.0[0];
         assert_eq!((swap.from, swap.to), ("b", "a"));
         let gone = leaving(swap.elapsed(back));
