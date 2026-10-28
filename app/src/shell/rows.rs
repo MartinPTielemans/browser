@@ -587,7 +587,20 @@ impl Shell {
                     shell.press_row(first, event.position)
                 }),
             )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(move |shell, _, _, cx| shell.middle_press(first, closable, cx)),
+            )
         })
+    }
+
+    /// A middle press on the row whose first tab is `row` closes it as its ✕ does, on the press as
+    /// a row's press shows its tab.
+    fn middle_press(&mut self, row: u64, closable: bool, cx: &mut Context<Self>) {
+        if closable && self.dragging().is_none() {
+            log!("browser: command close-tab via sidebar");
+            self.close_tab(row, true, cx);
+        }
     }
 
     /// Whether a tab's row has a ✕ to show: a pinned tab closed already has nothing to close.
@@ -727,6 +740,10 @@ impl Shell {
                         shell.tab_menu(tab, event.position, cx)
                     }
                 }),
+            )
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(move |shell, _, _, cx| shell.middle_press(tab, closable, cx)),
             )
         })
     }
@@ -1681,6 +1698,29 @@ mod tests {
         let (x, y) = close_button(&shell, cx, 3);
         move_to(cx, (x - 101., y));
         assert_eq!(filled(&shell, cx), [3], "the pointer moved on the row it rests on");
+    }
+
+    /// A middle press on a tab's row closes it, as its ✕ does: a Today tab goes, a pinned one lets
+    /// go of its page, and a pinned one without its page has nothing to close. The tab shown stays.
+    #[gpui::test]
+    fn a_middle_press_on_a_row_closes_its_tab(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2, 3], vec![4, 5], 4);
+        shell.update(cx, |shell, cx| {
+            let page = Page { unloaded: true, ..shell.page(2) };
+            shell.set_page(2, page, cx);
+        });
+        let middle = |cx: &mut VisualTestContext, tab| {
+            let (_, y) = close_button(&shell, cx, tab);
+            cx.simulate_mouse_down(point(px(60.), px(y)), MouseButton::Middle, Modifiers::none());
+            cx.simulate_mouse_up(point(px(60.), px(y)), MouseButton::Middle, Modifiers::none());
+            cx.run_until_parked();
+        };
+        host.take();
+        middle(cx, 5);
+        middle(cx, 3);
+        middle(cx, 2);
+        assert_eq!(host.take(), ["close 5", "close 3"]);
+        assert_eq!(shell.read_with(cx, |shell, _| shell.selected), 4);
     }
 
     /// A Today tab whose page was let go after hours unseen keeps its ✕, as the tab itself is
