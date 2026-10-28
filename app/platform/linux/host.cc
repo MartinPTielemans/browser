@@ -9,12 +9,21 @@
 
 #include "../host.h"
 
+#include <ctype.h>
+#include <spawn.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
 
 #include <functional>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+extern "C" char** environ;
 
 namespace {
 
@@ -49,6 +58,13 @@ constexpr unsigned kGlibIoIn = 1;
 // Chromium reads what it prepared to read, or gives that up; above it, GPUI would run with the read
 // still prepared, and opening a window, which Vulkan does with a roundtrip, would wait for it forever.
 constexpr int kGlibPriorityFdWatch = 200 - 10;
+extern "C" unsigned g_child_watch_add(int pid,
+                                      void (*function)(int pid, int status, void* data),
+                                      void* data) __attribute__((weak));
+
+// The core's (core/public/browser_core.h), from the chrome that loads the app. Weak, as GLib's.
+extern "C" void bc_window_set_title(uint64_t window, const char* title) __attribute__((weak));
+extern "C" void bc_window_activate(uint64_t window) __attribute__((weak));
 
 // Runs |task| once the caller has returned, from Chromium's loop: as AppKit's would, the answer
 // comes after the call that asked for it.
@@ -65,6 +81,138 @@ void Later(std::function<void()> task) {
         return 0;
       },
       new std::function<void()>(std::move(task)));
+}
+
+// The core's id for each browser window, by the view its UI draws in (host_window_opened).
+std::map<void*, uint64_t>& WindowIds() {
+  static auto* ids = new std::map<void*, uint64_t>;
+  return *ids;
+}
+
+uint64_t WindowOf(void* ui_view) {
+  auto it = WindowIds().find(ui_view);
+  return it == WindowIds().end() ? 0 : it->second;
+}
+
+void (*g_key_window_changed)(void* ui_view);
+void (*g_became_active)(void);
+void (*g_resigning_active)(void);
+
+// The browser windows that have the keyboard, of those whose whole window GPUI hears of: the app is
+// active while one does.
+std::set<void*>& ActiveWindows() {
+  static auto* active = new std::set<void*>;
+  return *active;
+}
+
+bool g_app_active = false;
+
+// Whether the app became active or stopped being, after the keyboard moved. Going from one
+// browser window to another, it leaves the first before it reaches the second, so this waits a
+// turn of the loop rather than calling the app inactive between them.
+void CheckAppActive() {
+  Later([] {
+    const bool active = !ActiveWindows().empty();
+    if (active == g_app_active) {
+      return;
+    }
+    g_app_active = active;
+    // Once the app has stopped being active, where the Mac's comes just before.
+    void (*changed)(void) = active ? g_became_active : g_resigning_active;
+    if (changed) {
+      changed();
+    }
+  });
+}
+
+// The desktop entry the desktop knows the browser by, which the Flatpak installs, from
+// branding/id (build.rs).
+constexpr char kDesktopId[] = APP_ID ".desktop";
+
+std::vector<std::string> Split(const char* list, const char* fallback) {
+  std::vector<std::string> parts;
+  std::string all = list && *list ? list : fallback;
+  for (size_t start = 0; start <= all.size();) {
+    size_t end = all.find(':', start);
+    end = end == std::string::npos ? all.size() : end;
+    if (end > start) {
+      parts.push_back(all.substr(start, end - start));
+    }
+    start = end + 1;
+  }
+  return parts;
+}
+
+// The mimeapps.list files that say which app opens a type, most telling first, as the XDG MIME
+// Applications spec orders them: the user's, the system's, then the old place in each data folder,
+// each led by the current desktop's own.
+std::vector<std::string> MimeappsLists() {
+  const char* home = getenv("HOME");
+  const std::string home_dir = home ? home : "";
+  const char* config_home = getenv("XDG_CONFIG_HOME");
+  const char* data_home = getenv("XDG_DATA_HOME");
+  std::vector<std::string> dirs = {config_home && *config_home ? config_home
+                                                               : home_dir + "/.config"};
+  for (const std::string& dir : Split(getenv("XDG_CONFIG_DIRS"), "/etc/xdg")) {
+    dirs.push_back(dir);
+  }
+  dirs.push_back((data_home && *data_home ? data_home : home_dir + "/.local/share") +
+                 std::string("/applications"));
+  for (const std::string& dir : Split(getenv("XDG_DATA_DIRS"), "/usr/local/share:/usr/share")) {
+    dirs.push_back(dir + "/applications");
+  }
+  std::vector<std::string> desktops = Split(getenv("XDG_CURRENT_DESKTOP"), "");
+  for (std::string& desktop : desktops) {
+    for (char& c : desktop) {
+      c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    }
+  }
+  std::vector<std::string> lists;
+  for (const std::string& dir : dirs) {
+    for (const std::string& desktop : desktops) {
+      lists.push_back(dir + "/" + desktop + "-mimeapps.list");
+    }
+    lists.push_back(dir + "/mimeapps.list");
+  }
+  return lists;
+}
+
+std::string Trimmed(const std::string& text) {
+  const size_t start = text.find_first_not_of(" \t\r\n");
+  const size_t end = text.find_last_not_of(" \t\r\n");
+  return start == std::string::npos ? "" : text.substr(start, end - start + 1);
+}
+
+// The desktop entry that opens |type|: the first the first list naming one gives. The desktop
+// skips one that isn't installed, which this doesn't, so a default browser since removed reads as
+// the default still, and this one as not.
+std::string DefaultFor(const std::string& type) {
+  for (const std::string& path : MimeappsLists()) {
+    FILE* file = fopen(path.c_str(), "r");
+    if (!file) {
+      continue;
+    }
+    std::string found;
+    bool defaults = false;
+    char line[4096];
+    while (found.empty() && fgets(line, sizeof(line), file)) {
+      const std::string text = Trimmed(line);
+      if (!text.empty() && text[0] == '[') {
+        defaults = text == "[Default Applications]";
+        continue;
+      }
+      const size_t equals = text.find('=');
+      if (defaults && equals != std::string::npos && Trimmed(text.substr(0, equals)) == type) {
+        const std::string apps = text.substr(equals + 1);
+        found = Trimmed(apps.substr(0, apps.find(';')));
+      }
+    }
+    fclose(file);
+    if (!found.empty()) {
+      return found;
+    }
+  }
+  return "";
 }
 
 }  // namespace
@@ -85,10 +233,15 @@ void host_centered(double width, double height, double* x, double* y) {
   *y = 0;
 }
 
+// No launch window. It shows the last sidebar where the first browser window opens, which Wayland
+// gives no client a say in (host_centered), and a tiling compositor such as Hyprland would lay the
+// screen out twice, for it and then for the browser window. Chromium's window goes on screen as the
+// core opens it instead.
 void host_show_launch_window(const char* profile_dir, double x, double y, double width, double height) {}
 
 void host_close_launch_window(void) {}
 
+// No launch window shows it (host_show_launch_window), so none is kept.
 bool host_save_launch_picture(void* ui_view, const char* profile_dir, double width) {
   return false;
 }
@@ -112,10 +265,40 @@ void host_watch_fd(int fd, void (*ready)(void)) {
       reinterpret_cast<void*>(ready), nullptr);
 }
 
+// The core shows the browser window as it opens it, in front or for a saved window behind,
+// since the window is Chromium's.
 void host_show_window(void* ui_view) {}
 
-void host_show_window_behind(void* ui_view, void* above_ui_view) {
-  host_show_window(ui_view);
+void host_show_window_behind(void* ui_view, void* above_ui_view) {}
+
+void host_window_opened(void* ui_view, uint64_t window) {
+  WindowIds()[ui_view] = window;
+}
+
+void host_window_active(void* ui_view, bool active, bool whole_window) {
+  if (active && g_key_window_changed) {
+    g_key_window_changed(ui_view);
+  }
+  // On X11 a click in the page takes the keyboard from GPUI's window but leaves the app active,
+  // and GPUI hears nothing of the browser window's own.
+  if (!whole_window) {
+    return;
+  }
+  if (active) {
+    ActiveWindows().insert(ui_view);
+  } else {
+    ActiveWindows().erase(ui_view);
+  }
+  CheckAppActive();
+}
+
+void host_capture_name(char* name, size_t capacity) {
+  const time_t now = time(nullptr);
+  tm local{};
+  localtime_r(&now, &local);
+  if (!strftime(name, capacity, "Capture %Y-%m-%d at %H.%M.%S.png", &local) && capacity) {
+    name[0] = 0;
+  }
 }
 
 // No sight of the displays' layout (host_centered), so a window opens where the compositor puts it.
@@ -132,41 +315,90 @@ void host_watch_finished_launching(void (*finished)(void)) {
   finished();
 }
 
-// No Dock.
+// No dock dot. The docks that badge a launcher, KDE's, Dash to Dock and Plank among them, read the
+// Unity LauncherEntry API, which gives it a count, progress or urgency but no colour, so the
+// Space's has nothing to show in.
 void host_dock_dot_launch(const char* profile_dir) {}
 
 void host_dock_dot(bool colored, uint32_t color) {}
 
+// The compositor places each window (host_centered), so the next opens where it's put, at the size
+// the app asks for, the default one, as nothing here reads the size of the one before.
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {}
 
-void host_set_window_title(void* ui_view, const char* title) {}
+// Through the core, as the window is Chromium's: under Wayland its toplevel, which GPUI's window is
+// a subsurface in.
+void host_set_window_title(void* ui_view, const char* title) {
+  if (const uint64_t window = WindowOf(ui_view); window && bc_window_set_title) {
+    bc_window_set_title(window, title);
+  }
+}
 
-void host_activate(void* ui_view) {}
+// Through the core, as host_set_window_title. Under Wayland the compositor decides whether the
+// window comes forward or only asks for attention, as Hyprland's focus_on_activate setting does.
+void host_activate(void* ui_view) {
+  if (const uint64_t window = WindowOf(ui_view); window && bc_window_activate) {
+    bc_window_activate(window);
+  }
+}
 
-void host_watch_key_window(void (*changed)(void* ui_view)) {}
+// The app reports each browser window GPUI's window in it hears become active (host_window_active).
+void host_watch_key_window(void (*changed)(void* ui_view)) {
+  g_key_window_changed = changed;
+}
 
+// shortcut: nothing says when the browser window goes full screen, as the window manager's own
+// shortcut does it, and only Chromium's window hears it; the core's widget would report it.
 void host_watch_full_screen(void (*changed)(void* ui_view, bool entered)) {}
 
+// GPUI's Wayland client hands the app the touchpad's three-finger swipes over the page
+// (gpui_linux::watch_embedder_swipes, in main.rs), which the compositor sends unless it keeps them
+// for its own, such as for workspaces. X11 sends them to the page's window alone, Chromium's.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back)) {}
 bool host_after_menus(void (*apply)(void)) { return false; }
 
-void host_watch_resigning_active(void (*resigning)(void)) {}
-
-void host_watch_active(void (*became_active)(void)) {}
-
-// shortcut: the default browser is the desktop's to say, through xdg-settings; not asked yet.
-bool host_is_default_browser(void) {
-  return false;
+void host_watch_resigning_active(void (*resigning)(void)) {
+  g_resigning_active = resigning;
 }
 
+void host_watch_active(void (*became_active)(void)) {
+  g_became_active = became_active;
+}
+
+// Read as xdg-settings reads it on most desktops. A Flatpak sees its own config rather than the
+// desktop's, and no portal reads the setting, so there it reads as not the default.
+bool host_is_default_browser(void) {
+  return DefaultFor("x-scheme-handler/http") == kDesktopId &&
+         DefaultFor("x-scheme-handler/https") == kDesktopId;
+}
+
+// xdg-settings sets it as each desktop keeps it, as Chromium does on Linux, and asks the user
+// nothing. A Flatpak has no xdg-settings and no portal that sets it, so there the answer comes
+// with nothing changed, and the row's detail says where to set it.
 void host_make_default_browser(void (*answered)(void)) {
-  Later([answered] { answered(); });
+  const char* argv[] = {"xdg-settings", "set", "default-web-browser", kDesktopId, nullptr};
+  pid_t pid = 0;
+  if (!g_child_watch_add ||
+      posix_spawnp(&pid, argv[0], nullptr, nullptr, const_cast<char**>(argv), environ) != 0) {
+    Later([answered] { answered(); });
+    return;
+  }
+  g_child_watch_add(
+      pid, [](int, int, void* answered) { reinterpret_cast<void (*)(void)>(answered)(); },
+      reinterpret_cast<void*>(answered));
 }
 
 double host_since_launch(void) {
   timespec now{};
   clock_gettime(CLOCK_BOOTTIME, &now);
   return (now.tv_sec + now.tv_nsec / 1e9 - StartedSinceBoot()) * 1000;
+}
+
+void host_forget_window(void* ui_view) {
+  WindowIds().erase(ui_view);
+  if (ActiveWindows().erase(ui_view)) {
+    CheckAppActive();
+  }
 }
 
 // shortcut: overlays don't shrink or cast a shadow on Linux yet (overlays.rs).
@@ -183,6 +415,9 @@ bool host_can_draw_emoji(const char*) {
   return true;
 }
 
+// shortcut: under Wayland Chromium and GPUI each get every key from a wl_keyboard of their own,
+// so the host can't keep the keys typed after the command bar's shortcut from the page; holding
+// them is for the core's key handling to do.
 void host_hold_keys(void) {}
 
 void host_add_offer(void* ui_view, void* offer_view, double right, double top) {}
@@ -231,10 +466,12 @@ void host_capture_camera(bool camera) {}
 
 void host_hide_capture(void) {}
 
+// GPUI's clipboard and its file chooser portal copy and save a capture (platform/linux/system.rs).
 void host_copy_png(const uint8_t* png, size_t size) {}
 
 void host_save_png(void* ui_view, const uint8_t* png, size_t size) {}
 
+// No system share menu on Linux: capture copies instead, and says so (capture.rs).
 void host_share_png(const uint8_t* png, size_t size, void* view, double x, double y, double width, double height, bool messages) {}
 
 void host_add_toast(void* toast_view) {}

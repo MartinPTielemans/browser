@@ -256,3 +256,24 @@ fn a_click_over_nothing_chooses_nothing(cx: &mut TestAppContext) {
     mode.keys("escape");
     assert_eq!(mode.calls(), ["hide".to_string(), format!("end {TAB}")]);
 }
+
+/// Send To shows the system's share menu from its field. Linux has none, so there it copies, as
+/// Copy does, and its toast says so.
+#[gpui::test]
+fn send_to_copies_where_the_system_has_no_share_menu(cx: &mut TestAppContext) {
+    let mut mode = Mode::shown(cx);
+    mode.hover(100., 100., rect(50., 60., 200., 80.));
+    mode.click(100., 100.);
+    assert_eq!(mode.calls(), ["camera false"]);
+    let menu = point(50. - RING + MENU_LEFT, 60. - RING);
+    mode.click(menu.x + MENU_WIDTH / 2., menu.y + FIELD_TOP + FIELD_HEIGHT / 2.);
+    assert_eq!(mode.calls(), [format!("capture {TAB} 2 50 60 200 80")]);
+    mode.captured(2);
+    let calls = mode.calls();
+    assert_eq!(calls[..2], ["hide".to_string(), format!("end {TAB}")]);
+    let len = png().len();
+    match SHARES {
+        true => assert!(calls[2].starts_with(&format!("share {len} Menu("))),
+        false => assert_eq!(calls[2], format!("copy {len}")),
+    }
+}

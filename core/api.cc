@@ -63,6 +63,8 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/views/widget/widget.h"
+#include "ui/views/widget/widget_delegate.h"
 #include "url/gurl.h"
 
 #if BUILDFLAG(IS_LINUX)
@@ -247,6 +249,25 @@ void bc_window_close(bc_id id) {
   if (browser_core::Window* window = browser_core::Window::FromId(id)) {
     window->Close();
   }
+}
+
+void bc_window_set_title(bc_id id, const char* title) {
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  if (window && window->widget() && title) {
+    window->widget()->widget_delegate()->SetTitle(base::UTF8ToUTF16(title));
+  }
+}
+
+void bc_window_activate(bc_id id) {
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  views::Widget* widget = window ? window->widget() : nullptr;
+  if (!widget) {
+    return;
+  }
+  if (widget->IsMinimized()) {
+    widget->Restore();
+  }
+  widget->Activate();
 }
 
 bc_id bc_space_create(const char* name) {
