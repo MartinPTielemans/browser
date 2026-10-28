@@ -34,7 +34,17 @@ config("linux_exports") {
   ldflags = [ "-Wl,--export-dynamic-symbol=bc_*" ]
 }
 
+config("app_calls") {
+  # The core calls the app through pointers it gets from the app (BC_APP_ENTRY, bc_host), which
+  # are in another library, so Clang's indirect-call check, on in official Linux builds, traps on
+  # every one.
+  if (is_cfi) {
+    cflags = [ "-fno-sanitize=cfi-icall" ]
+  }
+}
+
 source_set("browser_core") {
+  configs += [ ":app_calls" ]
   sources = [
     "api.cc",
     "archive.cc",
