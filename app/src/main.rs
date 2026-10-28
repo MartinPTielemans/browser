@@ -3900,6 +3900,11 @@ unsafe extern "C" fn crash_report_offered(_: *mut c_void) {
     });
 }
 
+unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
+    log!("browser: history added {added} to profile {profile}");
+    update_app_later(move |cx| import_host::history_added(added, cx));
+}
+
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
     // Each with its holder: the Space it belongs to under Each Space, else its profile.
     let holder = |tab| unsafe {
@@ -4873,6 +4878,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         ui_composed: Some(ui_composed),
         #[cfg(target_os = "linux")]
         ui_committed: Some(ui_committed),
+        history_added: Some(history_added),
         ..Default::default()
     };
     (args, host)
