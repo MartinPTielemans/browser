@@ -28,6 +28,11 @@ void* WaylandSurfaceOf(views::Widget* widget, gfx::Size* size);
 // don't.
 void SetUpWindow(views::Widget::InitParams& params, views::WidgetDelegate& delegate);
 
+// The width in DIPs of the band inside |widget|'s edges that resizes it, which Chromium's hit test
+// takes (SetUpWindow) and the app's UI lets through to the window (window_views.cc). None while
+// the window is maximized or full screen.
+int ResizeEdgeOf(views::Widget* widget);
+
 // Gives the keyboard in |widget|'s window to the app's UI (bc_window_ui_takes_keyboard), and whether
 // the UI has it (bc_window_keyboard_is_ui). In window_views.cc, as on X11 the core follows the X
 // server's focus.
