@@ -24,6 +24,10 @@ fn main() {
             host.file("platform/windows/host.cc")
                 .flag("/std:c++20")
                 .flag("/utf-8")
+                // C++/WinRT (the share sheet) throws, and its projection headers overflow the
+                // object file's default section count.
+                .flag("/EHsc")
+                .flag("/bigobj")
                 .define("UNICODE", None)
                 .define("_UNICODE", None);
         }
@@ -53,7 +57,7 @@ fn main() {
         // Chromium's framework on Windows is chrome.dll, which the browser loads from beside it.
         let engine = root.join(".deps/engine");
         println!("cargo:rustc-link-arg-bin=Browser={}", engine.join("chrome.dll.lib").display());
-        for lib in ["user32", "gdi32", "dwmapi", "shell32", "ole32", "comctl32", "comdlg32"] {
+        for lib in ["user32", "gdi32", "dwmapi", "shell32", "ole32", "comctl32", "comdlg32", "windowsapp"] {
             println!("cargo:rustc-link-lib={lib}");
         }
     } else if os == "macos" {
