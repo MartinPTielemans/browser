@@ -23,10 +23,10 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git i/crates/gpui_linux/src/gpui_linux.rs w/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..33cf39496e 100644
+index a5390e77f8..88127dea6d 100644
 --- i/crates/gpui_linux/src/gpui_linux.rs
 +++ w/crates/gpui_linux/src/gpui_linux.rs
-@@ -1,4 +1,13 @@
+@@ -1,4 +1,14 @@
  #![cfg(any(target_os = "linux", target_os = "freebsd"))]
  mod linux;
  
@@ -37,12 +37,13 @@ index a5390e77f8..33cf39496e 100644
 +    Corner, EmbeddedKeyboard, current_platform, dispatch_embedded, dispatch_embedded_after_read,
 +    embed, embed_wayland, embed_x11, embedded_fd, embedder_size, hide_overlay, hide_window, leave_overlay,
 +    linux_platform, move_overlay, new_host_window, overlay_size, set_overlay_keyboard,
-+    set_overlay_outline, set_overlay_panel, show_overlay, show_window, take_overlay_keyboard,
++    set_overlay_outline, set_overlay_panel, set_overlay_pointer, show_overlay, show_window,
++    take_overlay_keyboard,
 +};
 +#[cfg(feature = "wayland")]
 +pub use linux::{open_next_window_in_surface, resize_embedded};
 diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
-index e4da54b52b..e8506fbb83 100644
+index e4da54b52b..349529834d 100644
 --- i/crates/gpui_linux/src/linux.rs
 +++ w/crates/gpui_linux/src/linux.rs
 @@ -2,6 +2,7 @@ mod dispatcher;
@@ -53,13 +54,14 @@ index e4da54b52b..e8506fbb83 100644
  mod platform;
  mod system_notifications;
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -18,11 +19,24 @@ pub use dispatcher::*;
+@@ -18,11 +19,25 @@ pub use dispatcher::*;
  pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
  pub(crate) use headless::*;
  pub(crate) use keyboard::*;
 +pub use overlay::{
 +    Corner, embedder_size, hide_overlay, hide_window, leave_overlay, move_overlay, overlay_size,
-+    set_overlay_keyboard, set_overlay_outline, set_overlay_panel, show_overlay, show_window,
++    set_overlay_keyboard, set_overlay_outline, set_overlay_panel, set_overlay_pointer, show_overlay,
++    show_window,
 +    take_overlay_keyboard,
 +};
  pub(crate) use platform::*;
@@ -80,10 +82,10 @@ index e4da54b52b..e8506fbb83 100644
  
 diff --git i/crates/gpui_linux/src/linux/overlay.rs w/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..74bcdfbdcd
+index 0000000000..eb6e0291fd
 --- /dev/null
 +++ w/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,607 @@
+@@ -0,0 +1,644 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -163,6 +165,8 @@ index 0000000000..74bcdfbdcd
 +    /// The keyboard left the embedder's window, unless it's back by the time this runs, as a
 +    /// compositor sends a leave and an enter together when the keyboard's keymap changes.
 +    KeyboardLeft,
++    /// An overlay that shows takes the pointer where `set_overlay_pointer` last said.
++    Pointer(usize),
 +}
 +
 +thread_local! {
@@ -177,6 +181,8 @@ index 0000000000..74bcdfbdcd
 +    static OUTLINES: RefCell<Vec<(usize, Vec<Corner>)>> = const { RefCell::new(Vec::new()) };
 +    /// The panels (`set_overlay_panel`), with what a press in each runs.
 +    static PANELS: RefCell<Vec<(usize, fn(*mut c_void))>> = const { RefCell::new(Vec::new()) };
++    /// Where the overlays that don't take the pointer all over take it (`set_overlay_pointer`).
++    static POINTERS: RefCell<Vec<(usize, Vec<Bounds<Pixels>>)>> = const { RefCell::new(Vec::new()) };
 +}
 +
 +/// Makes the overlay `view` a panel of the window it shows over, from its next show on: on X11 a
@@ -264,6 +270,31 @@ index 0000000000..74bcdfbdcd
 +        all.retain(|(each, _)| *each != view);
 +        all.push((view, corners.to_vec()));
 +    });
++}
++
++/// Makes the overlay `view` take the pointer only in `areas`, in logical pixels from its top left,
++/// and let it through to what's under it elsewhere: nowhere with none, as for a HUD the mouse goes
++/// through. With no `areas` it takes it all over its outline again. From now on, if it shows.
++pub fn set_overlay_pointer(view: *mut c_void, areas: Option<&[Bounds<Pixels>]>) {
++    let view = view as usize;
++    POINTERS.with_borrow_mut(|all| {
++        all.retain(|(each, _)| *each != view);
++        if let Some(areas) = areas {
++            all.push((view, areas.to_vec()));
++        }
++    });
++    if is_shown(view) {
++        later(Op::Pointer(view));
++    }
++}
++
++/// Where the overlay `view` takes the pointer, if not all over.
++#[allow(dead_code)]
++fn pointer_areas(view: usize) -> Option<Vec<Bounds<Pixels>>> {
++    POINTERS.with_borrow(|all| {
++        let (_, areas) = all.iter().find(|(each, _)| *each == view)?;
++        Some(areas.clone())
++    })
 +}
 +
 +/// The outline of the overlay `view` at `bounds`: its own, else its rounded rectangle.
@@ -600,6 +631,10 @@ index 0000000000..74bcdfbdcd
 +                ..
 +            } => {
 +                super::wayland::show_overlay(view as _, parent as _, bounds, keyboard).log_err();
++                super::wayland::overlay_pointer(view as _, pointer_areas(view).as_deref());
++            }
++            Op::Pointer(view) => {
++                super::wayland::overlay_pointer(view as _, pointer_areas(view).as_deref())
 +            }
 +            Op::Move { view, bounds, .. } => super::wayland::move_overlay(view as _, bounds),
 +            Op::Hide { view, keyboard, .. } => super::wayland::hide_overlay(view as _, keyboard),
@@ -635,6 +670,10 @@ index 0000000000..74bcdfbdcd
 +                    if let Some(from) = from.log_err() {
 +                        focus_from(view, from);
 +                    }
++                    x11.overlay_pointer(view as _, pointer_areas(view).as_deref()).log_err();
++                }
++                Op::Pointer(view) => {
++                    x11.overlay_pointer(view as _, pointer_areas(view).as_deref()).log_err();
 +                }
 +                Op::Move {
 +                    view,
@@ -980,7 +1019,7 @@ index cbc962bcff..bcad8dfaae 100644
  use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
  
 diff --git i/crates/gpui_linux/src/linux/wayland/client.rs w/crates/gpui_linux/src/linux/wayland/client.rs
-index 2d40cf7fa9..345ffbc0ed 100644
+index 2d40cf7fa9..6ed9e7494d 100644
 --- i/crates/gpui_linux/src/linux/wayland/client.rs
 +++ w/crates/gpui_linux/src/linux/wayland/client.rs
 @@ -12,11 +12,7 @@ use std::{
@@ -1328,7 +1367,7 @@ index 2d40cf7fa9..345ffbc0ed 100644
                          if let Some(window) = state.keyboard_focused_window.clone() {
                              if state.composing && state.text_input.is_some() {
                                  drop(state);
-@@ -3479,3 +3586,201 @@ mod tests {
+@@ -3479,3 +3586,210 @@ mod tests {
          );
      }
  }
@@ -1498,6 +1537,15 @@ index 2d40cf7fa9..345ffbc0ed 100644
 +    }
 +}
 +
++/// The overlay window of the `view` surface takes the pointer only in `areas`, or all over.
++pub(crate) fn overlay_pointer(view: *mut std::ffi::c_void, areas: Option<&[Bounds<Pixels>]>) {
++    // Not through a WaylandWindow, whose drop would close the window.
++    if let Some(window) = overlay_window(view) {
++        window.set_input_region(areas);
++        flush(&window);
++    }
++}
++
 +/// The overlay window of the `view` surface that shows takes the keys, or gives them back.
 +pub(crate) fn overlay_keyboard(view: *mut std::ffi::c_void, keyboard: bool) {
 +    if let Some(window) = overlay_window(view) {
@@ -1531,7 +1579,7 @@ index 2d40cf7fa9..345ffbc0ed 100644
 +    }
 +}
 diff --git i/crates/gpui_linux/src/linux/wayland/window.rs w/crates/gpui_linux/src/linux/wayland/window.rs
-index 8d92234ef1..262a61875c 100644
+index 8d92234ef1..7e780c7064 100644
 --- i/crates/gpui_linux/src/linux/wayland/window.rs
 +++ w/crates/gpui_linux/src/linux/wayland/window.rs
 @@ -11,12 +11,13 @@ use calloop::ping::Ping;
@@ -1940,7 +1988,31 @@ index 8d92234ef1..262a61875c 100644
      pub fn retry_timer_fired(&self, signal_at: Instant) {
          if self.frame_loop.get() == FrameLoop::RetryScheduled {
              self.frame(
-@@ -1888,9 +2177,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -1598,6 +1887,23 @@ impl WaylandWindowStatePtr {
+         }
+     }
+ 
++    /// The surface takes the pointer only in `areas`, or all over, as `set_input_region`.
++    pub(crate) fn set_input_region(&self, areas: Option<&[Bounds<Pixels>]>) {
++        let state = self.state.borrow();
++        let region = areas.map(|areas| {
++            let region = state.globals.compositor.create_region(&state.globals.qh, ());
++            for area in areas {
++                let area = area.map(|pixels| f32::from(pixels) as i32);
++                region.add(area.origin.x, area.origin.y, area.size.width, area.size.height);
++            }
++            region
++        });
++        state.surface.set_input_region(region.as_ref());
++        if let Some(region) = region {
++            region.destroy();
++        }
++    }
++
+     pub fn set_focused(&self, focus: bool) {
+         self.state.borrow_mut().active = focus;
+         let callback = self.callbacks.borrow_mut().active_status_change.take();
+@@ -1888,9 +2194,11 @@ impl PlatformWindow for WaylandWindow {
      }
  
      fn set_title(&mut self, title: &str) {
@@ -1953,7 +2025,7 @@ index 8d92234ef1..262a61875c 100644
      }
  
      fn set_app_id(&mut self, app_id: &str) {
-@@ -2046,6 +2337,11 @@ impl PlatformWindow for WaylandWindow {
+@@ -2046,6 +2354,11 @@ impl PlatformWindow for WaylandWindow {
          if renderer.draw(scene) {
              state.presentation = PresentationState::Presented;
              self.0.frame_loop.set(FrameLoop::AwaitingCallback);
@@ -1977,7 +2049,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..235ce3a9c7 100644
+index e21f019c64..c2bab983b0 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -2152,7 +2224,7 @@ index e21f019c64..235ce3a9c7 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2176,331 @@ impl X11ClientState {
+@@ -2087,6 +2176,371 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -2334,6 +2406,46 @@ index e21f019c64..235ce3a9c7 100644
 +        Ok(())
 +    }
 +
++    /// Makes the overlay `view` take the pointer only in `areas`, in logical pixels from its top
++    /// left, and let it through elsewhere, or take it all over its shape.
++    pub(crate) fn overlay_pointer(
++        &self,
++        view: xproto::Window,
++        areas: Option<&[Bounds<Pixels>]>,
++    ) -> anyhow::Result<()> {
++        let xcb = &self.xcb_connection;
++        match areas {
++            Some(areas) => {
++                let scale = self.scale_factor;
++                let rectangles: Vec<_> = (areas.iter())
++                    .map(|area| {
++                        let at = |pixels: Pixels| (f32::from(pixels) * scale).round();
++                        xproto::Rectangle {
++                            x: at(area.origin.x) as i16,
++                            y: at(area.origin.y) as i16,
++                            width: at(area.size.width) as u16,
++                            height: at(area.size.height) as u16,
++                        }
++                    })
++                    .collect();
++                xcb.shape_rectangles(
++                    shape::SO::SET,
++                    shape::SK::INPUT,
++                    xproto::ClipOrdering::UNSORTED,
++                    view,
++                    0,
++                    0,
++                    &rectangles,
++                )?;
++            }
++            None => {
++                xcb.shape_mask(shape::SO::SET, shape::SK::INPUT, view, 0, 0, x11rb::NONE)?;
++            }
++        }
++        xcb.flush()?;
++        Ok(())
++    }
++
 +    /// Gives the overlay `view` that shows the input focus, and returns the window that had it.
 +    /// With `within`, the window it shows over, only if that one's top-level or an overlay has it,
 +    /// not another app or another of the embedder's windows, and otherwise returns none.
@@ -2484,7 +2596,7 @@ index e21f019c64..235ce3a9c7 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2620,6 +3034,11 @@ fn get_scale_factor(
+@@ -2620,6 +3074,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -2496,7 +2608,7 @@ index e21f019c64..235ce3a9c7 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3317,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3357,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -2540,7 +2652,7 @@ index e21f019c64..235ce3a9c7 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3669,101 @@ mod tests {
+@@ -3213,3 +3709,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
