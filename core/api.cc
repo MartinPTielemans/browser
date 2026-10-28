@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "base/files/file_path.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/numerics/safe_conversions.h"
@@ -1219,6 +1220,10 @@ void bc_profile_read_logins(bc_id profile) {
 
 void bc_profile_remove_login(bc_id profile, const char* key, const char* username, bool never) {
   browser_core::Passwords::Remove(profile, key ? key : "", username ? username : "", never);
+}
+
+bool bc_profile_import_passwords(bc_id profile, const char* path) {
+  return path && browser_core::Passwords::Import(profile, base::FilePath::FromUTF8Unsafe(path));
 }
 
 void bc_tab_jump_to_selection(bc_id id) {
