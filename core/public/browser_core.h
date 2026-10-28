@@ -601,7 +601,10 @@ typedef struct bc_host {
   // the tab goes to another site, or once bc_tab_set_system_engine switches it: the note it asks
   // for is gone. bc_tab_set_system_engine answers it where bc_system_engine_available. Never at a
   // site whose note the user closed (bc_tab_close_media_note). Agents get none: the note hands the
-  // user's page to another engine or app.
+  // user's page to another engine or app. For a tab in the system's engine, |key_system| is
+  // "output-restricted" once its page's protected video is kept off the screen, as the display
+  // connection's protection (HDCP) isn't enough for it: once a tab and site, with the empty one as
+  // the tab goes to another site or back to Chromium. Closing that note is the app's alone.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
   // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
   // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,

@@ -11,6 +11,11 @@
 //! button. The site's own error stays in the page. Agents get no path: it hands the user's page to
 //! another engine or app. The core reports it (tab_media_unsupported) and keeps the sites it was
 //! closed for (tab_close_media_note).
+//!
+//! In Safari's engine the note says why a protected video shows black when the display connection's
+//! protection (HDCP) falls short, as a dock's can, which the site never says. A statement, with
+//! nothing to offer: the fix is the user's cable. Its × and escape close it for the tab, until it
+//! goes to another site, as the cause is the desk's and not the site's.
 
 use gpui::{
     App, Context, FontWeight, KeyBinding, MouseButton, SharedString, actions, div, prelude::*, px,
@@ -34,6 +39,13 @@ const OPEN: &str = "Open in Safari";
 const OPEN_PRIVATE: &str = "Open in Safari, not private";
 /// Ours: what the × does, as there's no second control for it.
 const CLOSE_TIP: &str = "Don't Show for This Site";
+/// What the core reports for a page in Safari's engine whose protected video is kept off the
+/// screen, EME's own word for it.
+const OUTPUT_RESTRICTED: &str = "output-restricted";
+/// Ours, as the issue put it: what's wrong and the likely cause, without HDCP's name.
+const OUTPUT_WORDS: &str =
+    "This video needs a protected display connection. A dock or adapter may be limiting it.";
+const OUTPUT_CLOSE_TIP: &str = "Close";
 const CLOSE_KEY: &str = "drm-note-close";
 
 actions!(drm_note, [CloseNote]);
@@ -57,7 +69,8 @@ pub(super) fn bind(cx: &mut App) {
 
 impl Shell {
     /// The core reports the protected-media key system `tab`'s page asked for that ilo can't play,
-    /// or that there's no note any more (empty).
+    /// that its page in Safari's engine has its protected video kept off the screen
+    /// (`output-restricted`), or that there's no note any more (empty).
     pub fn set_media_unsupported(&mut self, tab: u64, key_system: &str, cx: &mut Context<Self>) {
         let changed = match key_system.is_empty() {
             true => self.drm_notes.remove(&tab).is_some(),
@@ -70,14 +83,23 @@ impl Shell {
     }
 
     /// The key system behind the note of the tab shown, if its page needs one. A page's question
-    /// takes the note's place until it's answered, as both hang from the same place.
+    /// takes the note's place until it's answered, as both hang from the same place. Each note is
+    /// its engine's: Chromium's until the tab is in Safari's, which has only the output's.
     pub(super) fn drm_note(&self) -> Option<&SharedString> {
         let playing = self.page(self.selected).system_engine;
-        self.drm_notes.get(&self.selected).filter(|_| !playing && self.question().is_none())
+        self.drm_notes.get(&self.selected).filter(|key_system| {
+            (key_system.as_ref() == OUTPUT_RESTRICTED) == playing && self.question().is_none()
+        })
+    }
+
+    /// Whether the note of the tab shown is the output's, which offers nothing.
+    fn output_note(&self) -> bool {
+        self.drm_note().is_some_and(|key_system| key_system.as_ref() == OUTPUT_RESTRICTED)
     }
 
     /// Closes the note of the tab shown for its site, which the core keeps from asking again. It
-    /// goes at once, before the core takes it back from the site's other tabs.
+    /// goes at once, before the core takes it back from the site's other tabs. The output's goes
+    /// for the tab alone, which the core tells once a site.
     fn close_drm_note(&mut self, cx: &mut Context<Self>) {
         if self.drm_note().is_none() {
             return;
@@ -85,8 +107,10 @@ impl Shell {
         let tab = self.selected;
         // check.sh reads this line.
         log!("browser: drm note {tab} closed");
+        if !self.output_note() {
+            self.browser.close_media_note(tab, cx);
+        }
         self.drm_notes.remove(&tab);
-        self.browser.close_media_note(tab, cx);
         cx.notify();
     }
 
@@ -95,9 +119,10 @@ impl Shell {
     fn hover_drm_close(&mut self, hovered: bool, cx: &mut Context<Self>) {
         let busy = self.dragging().is_some() || self.menu_row.is_some();
         let frame = self.button_frames.borrow().get(CLOSE_KEY).copied();
-        let tip = frame.filter(|_| hovered && !busy).map(|frame| {
-            (Tip::named(CLOSE_TIP.into()), Anchor::under(frame, self.viewport))
-        });
+        let name = if self.output_note() { OUTPUT_CLOSE_TIP } else { CLOSE_TIP };
+        let tip = frame
+            .filter(|_| hovered && !busy)
+            .map(|frame| (Tip::named(name.into()), Anchor::under(frame, self.viewport)));
         self.hover_tip(tip, cx);
     }
 
@@ -120,7 +145,7 @@ impl Shell {
 
     /// Shows the page of the tab shown in Safari's engine. The core takes the note away.
     fn use_system_engine(&mut self, cx: &mut Context<Self>) {
-        if self.drm_note().is_none() || !self.can_switch() {
+        if self.drm_note().is_none() || self.output_note() || !self.can_switch() {
             return;
         }
         self.browser.use_system_engine(self.selected, cx);
@@ -128,7 +153,7 @@ impl Shell {
 
     /// Opens the page of the tab shown in Safari. The tab keeps its page, and its note.
     fn open_in_safari(&mut self, cx: &mut Context<Self>) {
-        if self.drm_note().is_none() {
+        if self.drm_note().is_none() || self.output_note() {
             return;
         }
         let url = self.page(self.selected).url;
@@ -148,9 +173,12 @@ impl Shell {
             }
             return None;
         }
-        let switch = self.can_switch();
+        let output = self.output_note();
+        let switch = !output && self.can_switch();
         // Where neither is, the note says why and offers nothing.
-        let button = if switch {
+        let button = if output {
+            None
+        } else if switch {
             Some(
                 card_button(&self.palette, "drm-note-switch", SWITCH)
                     .on_click(cx.listener(|shell, _, _, cx| shell.use_system_engine(cx))),
@@ -162,7 +190,11 @@ impl Shell {
                     .on_click(cx.listener(|shell, _, _, cx| shell.open_in_safari(cx)))
             })
         };
-        let words = if switch { SWITCH_WORDS } else { WORDS };
+        let words = match (output, switch) {
+            (true, _) => OUTPUT_WORDS,
+            (false, true) => SWITCH_WORDS,
+            (false, false) => WORDS,
+        };
         // Shown under the pointer, as a row's ×, and always to VoiceOver's cursor, which is no
         // pointer. It takes clicks either way, as the pointer is over the card to click it.
         let close = card_close(&self.palette, CLOSE_KEY)
@@ -201,7 +233,7 @@ mod tests {
 
     use gpui::{App, AppContext, Modifiers, TestAppContext};
 
-    use super::CLOSE_KEY;
+    use super::{CLOSE_KEY, OUTPUT_RESTRICTED};
 
     use crate::shell::{Folders, Page, Question, Shell, bind_keys, recorder::Recorder};
 
@@ -372,6 +404,56 @@ mod tests {
         cx.simulate_click(close, Modifiers::none());
         cx.run_until_parked();
         assert!(host.take().contains(&"close media note 10".to_string()));
+        shell.read_with(cx, |shell, _| assert!(shell.drm_note().is_none()));
+    }
+
+    /// A page in Safari's engine whose protected video is kept off the screen says why, and
+    /// offers nothing to switch or open.
+    #[gpui::test]
+    fn the_outputs_note_shows_in_safaris_engine_and_offers_nothing(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        host.system_engine.set(true);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, OUTPUT_RESTRICTED, cx);
+            // Not while the tab is Chromium's, as the note is Safari's engine's.
+            assert!(shell.drm_note().is_none());
+            let page = Page { system_engine: true, ..shell.page(10) };
+            shell.set_page(10, page, cx);
+            assert!(shell.output_note());
+            host.take();
+            shell.use_system_engine(cx);
+            shell.open_in_safari(cx);
+        });
+        assert!(host.take().is_empty());
+    }
+
+    /// Its ×, under the pointer, says it closes, and a click closes it for the tab alone: the
+    /// core is told nothing, as the cause is the display connection and not the site.
+    #[gpui::test]
+    fn the_outputs_note_closes_for_the_tab(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_space(1, cx);
+            let url = "https://www.disneyplus.com/play/1".into();
+            shell.set_page(10, Page { url, system_engine: true, ..Page::default() }, cx);
+            shell.set_selected(10, cx);
+            shell.set_media_unsupported(10, OUTPUT_RESTRICTED, cx);
+        });
+        cx.run_until_parked();
+        let frame = |shell: &Shell, _: &App| shell.button_frames.borrow()[CLOSE_KEY].center();
+        let close = shell.read_with(cx, frame);
+        host.take();
+        cx.simulate_mouse_move(close, None, Modifiers::none());
+        cx.run_until_parked();
+        assert!(host.take().contains(&"tooltip Close ".to_string()));
+        cx.simulate_click(close, Modifiers::none());
+        cx.run_until_parked();
+        assert!(!host.take().iter().any(|asked| asked.starts_with("close media note")));
         shell.read_with(cx, |shell, _| assert!(shell.drm_note().is_none()));
     }
 
