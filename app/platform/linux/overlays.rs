@@ -17,6 +17,8 @@ struct Overlay {
     view: *mut c_void,
     radius: f64,
     dismissed: extern "C" fn(),
+    /// The height its UI asked for last, which it shows at; else its window's.
+    height: Option<Pixels>,
     shown: Option<Shown>,
 }
 
@@ -29,8 +31,8 @@ thread_local! {
     static OVERLAYS: RefCell<[Option<Overlay>; 2]> = const { RefCell::new([None, None]) };
 }
 
-/// The height an overlay shows at before its UI says how tall it is.
-const FIRST_HEIGHT: f32 = 60.;
+/// The overlays by index, as check.sh reads them in the log.
+const NAMES: [&str; 2] = ["command bar", "icon picker"];
 
 fn with_overlay<R>(overlay: c_int, f: impl FnOnce(&mut Overlay) -> R) -> Option<R> {
     OVERLAYS.with_borrow_mut(|overlays| overlays.get_mut(overlay as usize)?.as_mut().map(f))
@@ -45,7 +47,13 @@ pub extern "C" fn host_add_overlay(
 ) {
     OVERLAYS.with_borrow_mut(|overlays| {
         if let Some(slot) = overlays.get_mut(overlay as usize) {
-            *slot = Some(Overlay { view, radius, dismissed, shown: None });
+            *slot = Some(Overlay {
+                view,
+                radius,
+                dismissed,
+                height: None,
+                shown: None,
+            });
         }
     });
 }
@@ -78,14 +86,23 @@ pub extern "C" fn host_show_overlay(
         return;
     };
     let (content_width, content_height) = (f64::from(content.width), f64::from(content.height));
-    let (left, top) = match centered {
-        true => ((content_width - width) / 2., content_height / 2. - top),
-        false => (left.min(content_width - 8. - width), top),
+    let (left, top, width) = match centered {
+        true => (
+            (content_width - width) / 2.,
+            content_height / 2. - top,
+            width,
+        ),
+        false => (left, top, width.min(content_width - left - 8.)),
     };
     let window = crate::window_with_view(ui_view);
     let shown = with_overlay(overlay, |o| {
-        let height = o.shown.as_ref().map_or(px(FIRST_HEIGHT), |shown| shown.bounds.size.height);
-        let bounds = Bounds::new(point(px(left as f32), px(top as f32)), size(px(width as f32), height));
+        let height = (o.height)
+            .or_else(|| gpui_linux::overlay_size(o.view).map(|size| size.height))
+            .unwrap_or_default();
+        let bounds = Bounds::new(
+            point(px(left as f32), px(top as f32)),
+            size(px(width as f32), height),
+        );
         let was_shown = o.shown.replace(Shown { window, bounds }).is_some();
         (o.view, px(o.radius as f32), bounds, was_shown)
     });
@@ -96,17 +113,26 @@ pub extern "C" fn host_show_overlay(
         unsafe { bc::bc_window_overlay_takes_keyboard(window, true) };
     }
     gpui_linux::show_overlay(view, ui_view, bounds, radius, true, left_overlay);
+    let (origin, size) = (bounds.origin, bounds.size);
+    let name = NAMES[overlay as usize];
+    let at = [origin.x, origin.y, size.width, size.height].map(f32::from);
+    eprintln!("browser: {name} at {} {} {} {}", at[0], at[1], at[2], at[3]);
+    if !was_shown {
+        eprintln!("browser: {name} shown");
+    }
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn host_set_overlay_height(overlay: c_int, height: f64) {
     let moved = with_overlay(overlay, |o| {
+        o.height = Some(px(height as f32));
         let shown = o.shown.as_mut()?;
         shown.bounds.size.height = px(height as f32);
         Some((o.view, shown.bounds, px(o.radius as f32)))
     });
     if let Some(Some((view, bounds, radius))) = moved {
         gpui_linux::move_overlay(view, bounds, radius);
+        eprintln!("browser: {} height {height}", NAMES[overlay as usize]);
     }
 }
 
@@ -125,14 +151,15 @@ pub extern "C" fn host_dismiss_overlay(overlay: c_int) {
 /// Hides `overlay` if it shows, and says whether it did. The window has its keyboard back once
 /// the overlay's gone, as the input focus on X11 says who had it.
 fn hide(overlay: c_int) -> bool {
-    let Some(Some((view, window))) =
-        with_overlay(overlay, |o| o.shown.take().map(|shown| (o.view, shown.window)))
-    else {
+    let Some(Some((view, window))) = with_overlay(overlay, |o| {
+        o.shown.take().map(|shown| (o.view, shown.window))
+    }) else {
         return false;
     };
     gpui_linux::hide_overlay(view, move || unsafe {
         bc::bc_window_overlay_takes_keyboard(window, false)
     });
+    eprintln!("browser: {} hidden", NAMES[overlay as usize]);
     true
 }
 
@@ -140,7 +167,9 @@ fn hide(overlay: c_int) -> bool {
 /// says so once its events are dispatched, outside any update.
 fn left_overlay(view: *mut c_void) {
     let overlay = OVERLAYS.with_borrow(|overlays| {
-        overlays.iter().position(|o| o.as_ref().is_some_and(|o| o.view == view))
+        overlays
+            .iter()
+            .position(|o| o.as_ref().is_some_and(|o| o.view == view))
     });
     if let Some(overlay) = overlay
         && hide(overlay as c_int)
@@ -153,6 +182,8 @@ fn left_overlay(view: *mut c_void) {
 /// Runs `dismissed` once the update under way, if any, is over.
 fn later(dismissed: extern "C" fn()) {
     if let Some(cx) = crate::CX.with_borrow(Clone::clone) {
-        cx.foreground_executor().spawn(async move { dismissed() }).detach();
+        cx.foreground_executor()
+            .spawn(async move { dismissed() })
+            .detach();
     }
 }
