@@ -13,8 +13,8 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, BoxShadow, Context, Div, FocusHandle, FontWeight, Global, Hsla, Image,
-    KeyBinding, MouseButton, SharedString, Stateful, Task, TitlebarOptions, Window,
+    App, Bounds, BoxShadow, Context, Div, FocusHandle, FontWeight, Global, Hsla, Image, KeyBinding,
+    MouseButton, Pixels, SharedString, Stateful, Task, TitlebarOptions, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
     div, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -205,22 +205,30 @@ impl Global for DialogWindow {}
 /// Opens the dialog's window, hidden, for `host` to show over the browser window, ahead of time
 /// as the command bar's is.
 pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<Dialog>> {
+    let bounds = Bounds::new(point(px(0.), px(0.)), size(px(WIDTH), px(WIDTH)));
+    open_at(host, bounds, false, cx)
+}
+
+/// Opens the dialog's window at `bounds`, shown if `show`, which the preview does.
+pub fn open_at(
+    host: Rc<dyn Host>,
+    bounds: Bounds<Pixels>,
+    show: bool,
+    cx: &mut App,
+) -> Option<WindowHandle<Dialog>> {
     cx.bind_keys([
         KeyBinding::new("enter", Confirm, Some("Dialog")),
         KeyBinding::new("escape", Cancel, Some("Dialog")),
     ]);
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-            point(px(0.), px(0.)),
-            size(px(WIDTH), px(WIDTH)),
-        ))),
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
             title: None,
             appears_transparent: true,
             traffic_light_position: None,
         }),
         kind: WindowKind::Floating,
-        show: false,
+        show,
         focus: false,
         is_movable: false,
         is_resizable: false,

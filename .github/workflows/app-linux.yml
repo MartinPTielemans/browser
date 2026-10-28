@@ -1,12 +1,13 @@
-# The UI builds and its tests pass on Linux (AGENTS.md, Hit every surface: Platforms). The browser
-# itself needs a Linux engine first, so this is the UI's library and the preview, which need none.
+# The UI builds and its tests pass on Linux (AGENTS.md, Hit every surface: Platforms), and its
+# screens are captured there. The browser itself needs a Linux engine first, so this is the UI's
+# library and the preview, which need none.
 name: UI on Linux
 
 on:
   push:
-    paths: [app/**, core/public/**, .github/workflows/app-linux.yml, '!**/*.md']
+    paths: [app/**, core/public/**, tools/headless.sh, tools/parity.sh, .github/workflows/app-linux.yml, '!**/*.md']
   pull_request:
-    paths: [app/**, core/public/**, .github/workflows/app-linux.yml, '!**/*.md']
+    paths: [app/**, core/public/**, tools/headless.sh, tools/parity.sh, .github/workflows/app-linux.yml, '!**/*.md']
 
 jobs:
   test:
@@ -41,3 +42,20 @@ jobs:
       - run: ./setup.sh
       - run: cargo test --release --lib
       - run: cargo build --release --bin preview
+
+      # The same screens on Wayland and X11, side by side, so text that fits on the Mac but not here
+      # shows on every change to the app (tools/parity.sh). It only reports: nothing here fails the
+      # job. lavapipe draws GPUI's Vulkan in software, as the runner has no GPU.
+      - name: Capture the parity screens
+        continue-on-error: true
+        run: |
+          sudo apt-get install -yq --no-install-recommends sway grim xwayland imagemagick mesa-vulkan-drivers
+          export XDG_RUNTIME_DIR=$(mktemp -d)
+          ../tools/parity.sh target/release/preview ../parity
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parity-linux
+          path: parity/
+          if-no-files-found: ignore
