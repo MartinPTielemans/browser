@@ -332,7 +332,9 @@ void ShowPages(views::Widget* widget,
     aura::Window* parent = holder->GetNativeView();
     aura::Window* devtools = pane.devtools ? pane.devtools->view : nullptr;
     // A page or DevTools that left this pane leaves its slot.
-    for (aura::Window* child : std::vector<aura::Window*>(parent->children())) {
+    // A copy, as Detach changes the list; its raw_ptrs convert one at a time.
+    const aura::Window::Windows& children = parent->children();
+    for (aura::Window* child : std::vector<aura::Window*>(children.begin(), children.end())) {
       if (child != pane.page && child != devtools) {
         WindowViews::Detach(child);
       }
@@ -363,7 +365,9 @@ void ShowPages(views::Widget* widget,
   if (side_panel) {
     views::Widget* holder = views->WidgetFor(panel);
     aura::Window* parent = holder->GetNativeView();
-    for (aura::Window* child : std::vector<aura::Window*>(parent->children())) {
+    // A copy, as Detach changes the list; its raw_ptrs convert one at a time.
+    const aura::Window::Windows& children = parent->children();
+    for (aura::Window* child : std::vector<aura::Window*>(children.begin(), children.end())) {
       if (child != side_panel->page) {
         WindowViews::Detach(child);
       }
