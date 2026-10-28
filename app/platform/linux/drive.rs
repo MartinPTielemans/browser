@@ -15,9 +15,10 @@
 //! rightrelease, move, scroll, wheel, key, type, resize, place, order, layout, state, title, front,
 //! menu, menubar, choose, dismiss, window, agentspace, agentmayact, agentrelease, agentdisconnect,
 //! takeback and age. The Mac's modifiers are pressed as the app reads them off the Mac (keys.rs):
-//! cmd with Ctrl, ctrl with Alt and alt with both. scroll turns the wheel a notch for each event, where the Mac's moves the content by points. The
-//! others, such as ime, insert, flags, swipe, drags from other apps, full screen and displays, the
-//! driver can't do yet, and says so as drive.mm does.
+//! cmd with Ctrl, ctrl with Alt and alt with both. scroll turns the wheel a notch for each event,
+//! where the Mac's moves the content by points. choose and dismiss work on ilo's menu; Linux shows
+//! no alerts yet. The others, such as ime, insert, flags, swipe, drags from other apps, full screen
+//! and displays, the driver can't do yet, and says so as drive.mm does.
 //!
 //! It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, "browser: drive
 //! <n>: can't do that" for one it can't, and "browser: drive <n> done, key <window>, focus <view>,
@@ -45,7 +46,7 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 
-use crate::{BrowserWindow, CX, MENUS, WINDOWS, bc, overlays, platform};
+use crate::{BrowserWindow, CX, MENUS, WINDOWS, bc, menu_window, overlays, platform};
 
 unsafe extern "C" {
     // GLib's, from chrome, whose main loop is GLib's.
@@ -139,6 +140,13 @@ fn server() -> Option<Rc<(RustConnection, xproto::Window)>> {
     })
 }
 
+/// The views of the app's windows that show over a browser window: the overlays, then ilo's menu.
+fn overlay_views() -> Vec<*mut c_void> {
+    let mut views = overlays::shown();
+    views.extend(menu_window::shown());
+    views
+}
+
 /// Waits for the X server to have handled what the driver sent, and drops the errors it answered
 /// with, such as for a window that has closed since.
 fn sync() {
@@ -229,7 +237,7 @@ fn keyboard_window() -> Option<Keyboard> {
     let x = server()?;
     let (connection, _) = &*x;
     let focus = connection.get_input_focus().ok()?.reply().ok()?.focus;
-    for view in overlays::shown() {
+    for view in overlay_views() {
         if within(connection, focus, view as usize as u32) {
             return Some(Keyboard::Overlay(focus));
         }
@@ -301,7 +309,7 @@ fn target_at(x: f64, y: f64) -> Option<Target> {
         .ok()?
         .reply()
         .ok()?;
-    if let Some(view) = overlays::shown()
+    if let Some(view) = overlay_views()
         .into_iter()
         .find(|&view| view as usize as u32 == top.child)
     {
@@ -878,7 +886,7 @@ fn run_command(line: &str) -> Option<()> {
             );
             log!("browser: layout buttons hidden hidden hidden");
             let [left, top, ..] = frame(browser.window)?;
-            for view in overlays::shown() {
+            for view in overlay_views() {
                 let [x, y, width, height] = frame(view as usize as u32)?;
                 log!(
                     "browser: layout child {:.0},{:.0} {width:.0}x{height:.0}",
@@ -950,12 +958,14 @@ fn run_command(line: &str) -> Option<()> {
             })
             .ok()
         }
-        // An alert's button; the app's menus don't show on Linux yet, so there are none to choose
-        // from or dismiss.
+        // An item of ilo's menu that shows, or an alert's button.
         "choose" => {
             let title = CString::new(rest).ok()?;
-            unsafe { platform::host_choose(title.as_ptr()) }.then_some(())
+            (menu_window::choose(title.as_ptr())
+                || unsafe { platform::host_choose(title.as_ptr()) })
+            .then_some(())
         }
+        "dismiss" => menu_window::dismiss().then_some(()),
         "agentspace" => {
             let agent = words.next()?;
             let name = rest.get(agent.len() + 1..)?.trim();
