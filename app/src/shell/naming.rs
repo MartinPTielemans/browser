@@ -4,8 +4,9 @@
 use crate::tokens::text;
 use std::{
     rc::Rc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use gpui::{Context, SharedString, Window, div, point, prelude::*, px};
 

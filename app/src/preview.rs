@@ -1,13 +1,16 @@
 //! The UI alone, with made-up tabs, for working on how it looks: it needs no engine and rebuilds in
 //! seconds. `cargo run --release --bin preview`. The browser's own rules for tabs live in the core,
-//! so the ones here are only stand-ins.
+//! so the ones here are only stand-ins. Built for the web, it's the site's live demo instead (`web`),
+//! which draws the Spaces the site gives it and leaves the made-up ones and the env switches unused.
+#![cfg_attr(target_family = "wasm", allow(dead_code, unused_imports))]
 
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use browser::log;
 use browser::shell::{
@@ -29,6 +32,7 @@ thread_local! {
     static PREVIEW_AREA: Cell<Size<Pixels>> = Cell::new(size(px(1280.), px(800.)));
 }
 
+#[cfg(not(target_family = "wasm"))]
 unsafe extern "C" {
     // platform/mac/host.mm: where a window goes, centered on the main display or, with
     // BROWSER_DISPLAY=builtin, on the Mac's own.
@@ -665,10 +669,15 @@ impl Browser for Fake {
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,
-        _: Vec<BarTab>,
-        _: Option<Bounds<Pixels>>,
+        tabs: Vec<BarTab>,
+        field: Option<Bounds<Pixels>>,
         cx: &mut App,
     ) {
+        // On the web the bar draws in the one window, over the shell (web::Root), which is mid-update
+        // here, so the bar shows once that's over.
+        if cfg!(target_family = "wasm") {
+            return cx.defer(move |cx| command_bar::show(editing, tabs, field, cx));
+        }
         // No command bar here: a new tab opens at once.
         if editing.is_some() {
             return;
@@ -803,7 +812,11 @@ impl Browser for Fake {
     fn focus_ui(&self, _: &mut App) {}
 
     // There's no page, and the window's buttons stay where GPUI put them.
-    fn lay_out_page(&self, _: Bounds<Pixels>, _: f32, _: &mut App) {}
+    // The site lays its frame out under the canvas there.
+    fn lay_out_page(&self, _frame: Bounds<Pixels>, _radius: f32, _: &mut App) {
+        #[cfg(target_family = "wasm")]
+        web::lay_out(_frame, _radius);
+    }
 
     fn set_focus_color(&self, _: u32, _: &mut App) {}
 
@@ -813,9 +826,9 @@ impl Browser for Fake {
 
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
 
-    // No command bar here, as for a new tab, and no split views but the made-up one.
-    fn command_bar_open(&self, _: &App) -> bool {
-        false
+    // No command bar here but the web's, as for a new tab, and no split views but the made-up one.
+    fn command_bar_open(&self, cx: &App) -> bool {
+        cfg!(target_family = "wasm") && command_bar::is_open(cx)
     }
 
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {}
@@ -1114,6 +1127,12 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     }
 }
 
+/// wasm-bindgen runs `main` as the page loads the module, and the page starts the demo with
+/// `web::start`.
+#[cfg(target_family = "wasm")]
+fn main() {}
+
+#[cfg(not(target_family = "wasm"))]
 fn main() {
     gpui_platform::application().with_assets(shell::Assets).run(|cx| {
         browser::face::register(cx);
@@ -1524,4 +1543,561 @@ impl icon_picker::Host for PreviewPicker {
     fn hide(&self) {}
 
     fn keep_recents(&self, _: &str) {}
+}
+
+
+/// The site's live demo: the browser's UI in the canvas the site gives it, with the site's Spaces,
+/// over the site's frame, which the site lays out where the page goes and shows the selected tab
+/// in. Its JS:
+///
+/// ```js
+/// import init, { start } from "./ilo_demo.js";
+/// await init();
+/// start(canvas, spaces, host);
+/// ```
+///
+/// `spaces` is `{ favorites: [tab], spaces: [{ name, color, pinned: [tab], today: [tab] }] }`, a
+/// tab `{ title, url, icon }`, `color` 0xRRGGBB or none and `icon` a PNG's URL or none for the
+/// globe. `host` hears `layOut(x, y, width, height, radius)` for the page's frame, `show(url)`
+/// for the tab shown ("" for none), `space(index)` for the Space shown, `cover(covered)` while
+/// something draws over the frame, and `ready()` once the first frame is up.
+#[cfg(target_family = "wasm")]
+mod web {
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+        sync::Arc,
+    };
+
+    use browser::command_bar::{self, CommandBar, Suggestion};
+    use browser::log;
+    use browser::shell::{self, Command, Folders, Page, Shell, SpaceEntry};
+    use gpui::{
+        AnyWindowHandle, App, AppContext, AsyncApp, Bounds, Context, Entity, Focusable, Image,
+        ImageFormat, KeyBinding, MouseButton, NoAction, OperatingSystem, Pixels, Render,
+        SharedString, Subscription, WeakEntity, Window, WindowBackgroundAppearance, WindowOptions,
+        actions, div, prelude::*, px,
+    };
+    use wasm_bindgen::{JsCast, JsValue, prelude::wasm_bindgen};
+
+    use super::{Fake, set_today};
+
+    actions!(web, [OpenCommandBar]);
+
+    thread_local! {
+        /// The site's `host`.
+        static HOST: RefCell<JsValue> = const { RefCell::new(JsValue::UNDEFINED) };
+    }
+
+    /// Calls `host.<name>(…args)`, if the site has it.
+    fn call(name: &str, args: &[JsValue]) {
+        HOST.with_borrow(|host| {
+            let function = js_sys::Reflect::get(host, &name.into()).ok();
+            let Some(function) = function.as_ref().and_then(|f| f.dyn_ref::<js_sys::Function>())
+            else {
+                return;
+            };
+            let args: js_sys::Array = args.iter().collect();
+            if let Err(error) = function.apply(host, &args) {
+                log!("host.{name} threw {error:?}");
+            }
+        });
+    }
+
+    pub fn lay_out(frame: Bounds<Pixels>, radius: f32) {
+        let (origin, size) = (frame.origin, frame.size);
+        // The shell lays out once before the canvas gives the window its size, which leaves the
+        // frame inside out; the site gets an empty frame there instead.
+        let size = size.max(&gpui::Size::default());
+        let numbers = [origin.x, origin.y, size.width, size.height].map(f32::from);
+        let args = numbers.into_iter().chain([radius]).map(|n| JsValue::from(n as f64));
+        call("layOut", &args.collect::<Vec<_>>());
+    }
+
+    /// One tab the site gave.
+    struct Tab {
+        title: String,
+        url: String,
+        icon: Option<String>,
+    }
+
+    struct SiteSpace {
+        name: String,
+        color: Option<u32>,
+        pinned: Vec<Tab>,
+        today: Vec<Tab>,
+    }
+
+    fn get(object: &JsValue, key: &str) -> JsValue {
+        js_sys::Reflect::get(object, &key.into()).unwrap_or(JsValue::UNDEFINED)
+    }
+
+    fn list(object: &JsValue, key: &str) -> Vec<JsValue> {
+        let list = get(object, key);
+        match js_sys::Array::is_array(&list) {
+            true => js_sys::Array::from(&list).iter().collect(),
+            false => Vec::new(),
+        }
+    }
+
+    fn tabs(object: &JsValue, key: &str) -> Vec<Tab> {
+        let tab = |tab: JsValue| Tab {
+            title: get(&tab, "title").as_string().unwrap_or_default(),
+            url: get(&tab, "url").as_string().unwrap_or_default(),
+            icon: get(&tab, "icon").as_string().filter(|icon| !icon.is_empty()),
+        };
+        list(object, key).into_iter().map(tab).collect()
+    }
+
+    /// Starts the demo in `canvas`, with the Spaces in `spaces`, telling `host` what it does.
+    #[wasm_bindgen]
+    pub fn start(canvas: web_sys::HtmlCanvasElement, spaces: JsValue, host: JsValue) {
+        HOST.with_borrow_mut(|site| *site = host);
+        let favorites = tabs(&spaces, "favorites");
+        let spaces: Vec<SiteSpace> = list(&spaces, "spaces")
+            .into_iter()
+            .map(|space| SiteSpace {
+                name: get(&space, "name").as_string().unwrap_or_default(),
+                color: get(&space, "color").as_f64().map(|color| color as u32),
+                pinned: tabs(&space, "pinned"),
+                today: tabs(&space, "today"),
+            })
+            .collect();
+        gpui_web::draw_in(canvas);
+        gpui_platform::web_init();
+        gpui_platform::single_threaded_web().with_assets(shell::Assets).run(move |cx| {
+            browser::face::register(cx);
+            bind_keys(cx);
+            shell::bind_keys(cx);
+            browser::text_input::bind_keys(cx);
+            // The frame under the page's rect shows through.
+            let options = WindowOptions {
+                window_background: WindowBackgroundAppearance::Transparent,
+                ..Default::default()
+            };
+            let opened = cx.open_window(options, |window, cx| {
+                let mut icons = Vec::new();
+                let mut space_ids = Vec::new();
+                let mut pages = Vec::new();
+                let shell = cx.new(|cx| {
+                    let shell = shell_of(&favorites, &spaces, &mut icons, &mut space_ids, cx);
+                    pages = favorites
+                        .iter()
+                        .chain(spaces.iter().flat_map(|space| space.pinned.iter().chain(&space.today)))
+                        .map(|tab| (SharedString::from(tab.title.clone()), tab.url.clone()))
+                        .collect();
+                    shell
+                });
+                window.focus(&shell.focus_handle(cx), cx);
+                fetch_icons(&shell, icons, cx);
+                Root::new(shell, space_ids, pages, window, cx)
+            });
+            if let Err(error) = opened {
+                log!("couldn't open the demo: {error:#}");
+            }
+        });
+    }
+
+    /// The shell with the site's tabs, in one profile, the first Space shown with its top tab.
+    /// Fills `icons` with each tab's icon to fetch, and `space_ids` with the Spaces' ids in order.
+    fn shell_of(
+        favorites: &[Tab],
+        spaces: &[SiteSpace],
+        icons: &mut Vec<(u64, String)>,
+        space_ids: &mut Vec<u64>,
+        cx: &mut Context<Shell>,
+    ) -> Shell {
+        let mut next = 1;
+        let mut ids = |count: usize| {
+            let ids: Vec<u64> = (next..).take(count).collect();
+            next += count as u64;
+            ids
+        };
+        let favorite_ids = ids(favorites.len());
+        let space_tabs: Vec<(u64, Vec<u64>, Vec<u64>)> = spaces
+            .iter()
+            .map(|space| (ids(1)[0], ids(space.pinned.len()), ids(space.today.len())))
+            .collect();
+        let entries: Vec<SpaceEntry> = spaces
+            .iter()
+            .zip(&space_tabs)
+            .map(|(space, (id, ..))| {
+                (*id, space.name.clone().into(), space.color, 0, "".into(), "".into(), "".into())
+            })
+            .collect();
+        let browser = Rc::new(Fake {
+            shell: cx.weak_entity(),
+            next_id: Cell::new(next),
+            spaces: RefCell::new(entries.clone()),
+            archive: RefCell::new(Vec::new()),
+            downloads: RefCell::new(Vec::new()),
+        });
+        let mut shell = Shell::new(browser, cx);
+        shell.set_profiles(vec![(0, "Default".into())], cx);
+        shell.set_spaces(entries, cx);
+        let Some(&(first, ref pinned, ref today)) = space_tabs.first() else {
+            return shell;
+        };
+        shell.set_space(first, cx);
+        // The shell forgets what it knows of a tab in no list, so the lists come first.
+        shell.set_favorites(favorite_ids.iter().map(|&tab| (tab, 0)).collect(), cx);
+        for ((id, pinned, today), space) in space_tabs.iter().zip(spaces) {
+            let none = (Vec::new(), Folders::default());
+            shell.set_tabs(*id, pinned.clone(), today.clone(), none.0, none.1, cx);
+            space_ids.push(*id);
+            let tabs = pinned.iter().chain(today).zip(space.pinned.iter().chain(&space.today));
+            for (&tab, site) in tabs {
+                set_tab(&mut shell, tab, site, icons, cx);
+            }
+        }
+        for (&tab, site) in favorite_ids.iter().zip(favorites) {
+            set_tab(&mut shell, tab, site, icons, cx);
+        }
+        shell.set_space(first, cx);
+        let top = pinned.first().or(today.first()).copied().unwrap_or(0);
+        shell.set_selected(top, cx);
+        shell
+    }
+
+    fn set_tab(
+        shell: &mut Shell,
+        tab: u64,
+        site: &Tab,
+        icons: &mut Vec<(u64, String)>,
+        cx: &mut Context<Shell>,
+    ) {
+        shell.set_title(tab, site.title.clone().into(), cx);
+        shell.set_page(tab, Page { url: site.url.clone().into(), ..Default::default() }, cx);
+        if let Some(icon) = &site.icon {
+            icons.push((tab, icon.clone()));
+        }
+    }
+
+    /// Fetches the tabs' icons from the site, each its tab's favicon once it comes.
+    fn fetch_icons(shell: &Entity<Shell>, icons: Vec<(u64, String)>, cx: &mut App) {
+        let shell = shell.downgrade();
+        for (tab, url) in icons {
+            let shell = shell.clone();
+            cx.spawn(async move |cx| {
+                let Some(png) = fetch(&url).await else {
+                    log!("couldn't fetch the icon {url}");
+                    return;
+                };
+                let favicon = Arc::new(Image::from_bytes(ImageFormat::Png, png));
+                shell.update(cx, |shell, cx| shell.set_favicon(tab, Some(favicon), cx)).ok();
+            })
+            .detach();
+        }
+    }
+
+    async fn fetch(url: &str) -> Option<Vec<u8>> {
+        use wasm_bindgen_futures::JsFuture;
+        let response = JsFuture::from(web_sys::window()?.fetch_with_str(url)).await.ok()?;
+        let response: web_sys::Response = response.dyn_into().ok()?;
+        if !response.ok() {
+            return None;
+        }
+        let bytes = JsFuture::from(response.array_buffer().ok()?).await.ok()?;
+        Some(js_sys::Uint8Array::new(&bytes).to_vec())
+    }
+
+    /// The hosting browser keeps ⌘T, ⌘W, ⌘N and ⌘Q (⌃ off the Mac), so they do nothing here, and
+    /// ⌘K (⌃K) opens the command bar, as the web's command palettes do.
+    fn bind_keys(cx: &mut App) {
+        let (open, reserved) = match cx.platform_info().os {
+            OperatingSystem::Mac => ("cmd-k", ["cmd-t", "cmd-w", "cmd-n", "cmd-q"]),
+            _ => ("ctrl-k", ["ctrl-t", "ctrl-w", "ctrl-n", "ctrl-q"]),
+        };
+        let mut bindings = vec![KeyBinding::new(open, OpenCommandBar, Some(shell::KEY_CONTEXT))];
+        for key in reserved {
+            for context in [shell::KEY_CONTEXT, "CommandBar"] {
+                bindings.push(KeyBinding::new(key, NoAction, Some(context)));
+            }
+        }
+        cx.bind_keys(bindings);
+    }
+
+    /// Where the bar shows, as `command_bar::Host::show` asks.
+    #[derive(Clone, Copy)]
+    struct Place {
+        centered: bool,
+        left: f32,
+        top: f32,
+        width: f32,
+        radius: f32,
+    }
+
+    /// The web's one window: the shell, and over it the command bar, which is a window of its own
+    /// in the app.
+    pub struct Root {
+        shell: Entity<Shell>,
+        bar: Entity<CommandBar>,
+        place: Option<Place>,
+        height: f32,
+        /// The Spaces' ids, in the site's order.
+        spaces: Vec<u64>,
+        /// What the site last heard: the URL shown and the Space's index.
+        shown: Option<(SharedString, Option<usize>)>,
+        drawn: bool,
+        _shell: Subscription,
+    }
+
+    impl Root {
+        fn new(
+            shell: Entity<Shell>,
+            spaces: Vec<u64>,
+            pages: Vec<(SharedString, String)>,
+            window: &mut Window,
+            cx: &mut App,
+        ) -> Entity<Root> {
+            let handle = window.window_handle();
+            cx.new(|cx| {
+                let host = Rc::new(Bar {
+                    root: cx.weak_entity(),
+                    window: handle,
+                    app: cx.to_async(),
+                    shell: shell.downgrade(),
+                    pages,
+                    next_tab: Cell::new(1_000_000),
+                });
+                let bar = command_bar::open_in(host, window, cx);
+                let watch = cx.observe(&shell, |root: &mut Root, shell, cx| root.tell_site(&shell, cx));
+                let mut root = Root {
+                    shell: shell.clone(),
+                    bar,
+                    place: None,
+                    height: command_bar::height(0),
+                    spaces,
+                    shown: None,
+                    drawn: false,
+                    _shell: watch,
+                };
+                root.tell_site(&shell, cx);
+                root
+            })
+        }
+
+        /// Tells the site the page and the Space shown, when either changes.
+        fn tell_site(&mut self, shell: &Entity<Shell>, cx: &App) {
+            let shell = shell.read(cx);
+            let selected = shell.selected();
+            let url = match selected {
+                0 => SharedString::default(),
+                tab => shell.page(tab).url,
+            };
+            let space = self.spaces.iter().position(|&id| id == shell.space());
+            let shown = Some((url.clone(), space));
+            if shown == self.shown {
+                return;
+            }
+            let (last_url, last_space) = self.shown.take().unzip();
+            if last_url.as_ref() != Some(&url) {
+                call("show", &[JsValue::from_str(&url)]);
+            }
+            if let (Some(index), true) = (space, last_space != Some(space)) {
+                call("space", &[JsValue::from(index as f64)]);
+            }
+            self.shown = shown;
+        }
+
+        fn show(&mut self, place: Place, window: &mut Window, cx: &mut Context<Self>) {
+            if self.place.is_none() {
+                call("cover", &[JsValue::TRUE]);
+            }
+            self.place = Some(place);
+            if let Some(input) = command_bar::input_focus(cx) {
+                window.focus(&input, cx);
+            }
+            cx.notify();
+        }
+
+        /// The bar's gone, `dismissed` if the user left it without choosing.
+        fn close(&mut self, dismissed: bool, window: &mut Window, cx: &mut Context<Self>) {
+            if self.place.take().is_some() {
+                call("cover", &[JsValue::FALSE]);
+            }
+            if dismissed {
+                // The bar draws in this window, which is mid-update.
+                cx.defer(command_bar::dismissed);
+                self.shell.update(cx, |shell, cx| shell.command_bar_dismissed(cx));
+            }
+            window.focus(&self.shell.focus_handle(cx), cx);
+            cx.notify();
+        }
+    }
+
+    impl Render for Root {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            if !std::mem::replace(&mut self.drawn, true) {
+                window.on_next_frame(|_, _| call("ready", &[]));
+            }
+            let root = div()
+                .size_full()
+                .relative()
+                .on_action(cx.listener(|root, _: &OpenCommandBar, _, cx| {
+                    root.shell.update(cx, |shell, cx| shell.run(Command::NewTab, "web", cx));
+                }))
+                .child(self.shell.clone());
+            let Some(place) = self.place else {
+                return root;
+            };
+            let viewport = window.viewport_size();
+            let (left, top) = match place.centered {
+                true => ((viewport.width - px(place.width)) / 2., viewport.height / 2. - px(place.top)),
+                false => (px(place.left), px(place.top)),
+            };
+            // A click anywhere but the bar leaves it, as one outside its window does in the app.
+            let outside = div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .occlude()
+                .on_mouse_down(MouseButton::Left, cx.listener(|root, _, window, cx| {
+                    root.close(true, window, cx)
+                }));
+            let bar = div()
+                .absolute()
+                .left(left)
+                .top(top)
+                .w(px(place.width))
+                .h(px(self.height))
+                .rounded(px(place.radius))
+                .shadow_lg()
+                .occlude()
+                .child(self.bar.clone());
+            root.child(outside).child(bar)
+        }
+    }
+
+    /// The command bar's requests: the site's pages, and a search for anything typed.
+    struct Bar {
+        root: WeakEntity<Root>,
+        window: AnyWindowHandle,
+        app: AsyncApp,
+        shell: WeakEntity<Shell>,
+        /// The site's tabs, by title and URL, which the bar suggests.
+        pages: Vec<(SharedString, String)>,
+        next_tab: Cell<u64>,
+    }
+
+    impl Bar {
+        /// Runs `change` once the bar's update is over, as a host's reply comes after.
+        fn later(&self, change: impl FnOnce(&mut App) + 'static) {
+            let app = self.app.clone();
+            self.app.foreground_executor().spawn(async move { app.update(change) }).detach();
+        }
+
+        fn later_root(&self, change: impl FnOnce(&mut Root, &mut Window, &mut Context<Root>) + 'static) {
+            let (root, window) = (self.root.clone(), self.window);
+            self.later(move |cx| {
+                window
+                    .update(cx, |_, window, cx| root.update(cx, |root, cx| change(root, window, cx)))
+                    .ok();
+            });
+        }
+
+        fn later_shell(&self, change: impl FnOnce(&mut Shell, &mut Context<Shell>) + 'static) {
+            let shell = self.shell.clone();
+            self.later(move |cx| _ = shell.update(cx, change));
+        }
+    }
+
+    /// A page's title until it has its own: its host.
+    fn title(url: &str) -> SharedString {
+        let host = url.split_once("://").map_or(url, |(_, rest)| rest);
+        host.split('/').next().unwrap_or(host).to_string().into()
+    }
+
+    impl command_bar::Host for Bar {
+        fn suggest(&self, _: Option<&str>, text: &str, _: bool) {
+            let text = text.to_string();
+            let search = self.search_url(None, &text).filter(|_| !text.is_empty());
+            let typed = text.to_lowercase();
+            let matching = self.pages.iter().filter(|(title, url)| {
+                !typed.is_empty() && (title.to_lowercase().contains(&typed) || url.contains(&typed))
+            });
+            let mut rows: Vec<Suggestion> = search
+                .map(|url| Suggestion { url, text: text.clone().into(), ..Default::default() })
+                .into_iter()
+                .collect();
+            rows.extend(matching.map(|(text, url)| Suggestion {
+                url: url.clone(),
+                text: text.clone(),
+                detail: title(url),
+                ..Default::default()
+            }));
+            self.later(move |cx| command_bar::suggested(text, rows, cx));
+        }
+        fn remove_suggestion(&self, _: &str) {}
+        fn typed_url(&self, text: &str) -> Option<String> {
+            match text.contains('.') && !text.contains(' ') {
+                true if text.contains("://") => Some(text.to_string()),
+                true => Some(format!("https://{text}")),
+                false => self.search_url(None, text),
+            }
+        }
+        fn search_url(&self, _: Option<&str>, text: &str) -> Option<String> {
+            let query = String::from(js_sys::encode_uri_component(text));
+            Some(format!("https://duckduckgo.com/?q={query}"))
+        }
+        fn page_favicon(&self, _: &str) {}
+        // A new tab at the top of Today, shown.
+        fn open_tab(&self, url: &str, behind: bool) {
+            let (tab, url) = (self.next_tab.get(), url.to_string());
+            self.next_tab.set(tab + 1);
+            self.later_shell(move |shell, cx| {
+                shell.set_title(tab, title(&url), cx);
+                shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
+                let mut today = shell.today().to_vec();
+                today.insert(0, tab);
+                set_today(shell, today, cx);
+                if !behind {
+                    shell.set_selected(tab, cx);
+                }
+            });
+        }
+        // The demo has the one window.
+        fn open_window(&self, url: &str, _: &mut App) {
+            self.open_tab(url, false);
+        }
+        fn navigate(&self, tab: u64, url: &str) {
+            let url = url.to_string();
+            self.later_shell(move |shell, cx| {
+                shell.set_title(tab, title(&url), cx);
+                shell.set_page(tab, Page { url: url.into(), ..shell.page(tab) }, cx);
+            });
+        }
+        fn select(&self, tab: u64) {
+            self.later_shell(move |shell, cx| shell.set_selected(tab, cx));
+        }
+        fn tab_window(&self, _: u64) -> Option<u64> {
+            None
+        }
+        fn activate(&self, _: u64, _: u64, _: &mut App) {}
+        fn split(&self, _: u64, _: u64, _: &mut App) {}
+        fn open_split(&self, url: &str, _: u64, _: &mut App) {
+            self.open_tab(url, false);
+        }
+        fn copy(&self, _: &str, _: &mut App) {}
+        fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32) {
+            let place = Place { centered, left, top, width, radius };
+            self.later_root(move |root, window, cx| root.show(place, window, cx));
+        }
+        fn set_height(&self, height: f32) {
+            self.later_root(move |root, _, cx| {
+                root.height = height;
+                cx.notify();
+            });
+        }
+        fn hide(&self) {
+            self.later_root(|root, window, cx| root.close(false, window, cx));
+        }
+        fn dismiss(&self) {
+            self.later_root(|root, window, cx| root.close(true, window, cx));
+        }
+        fn commands(&self, text: &str, cx: &App) -> Vec<shell::BarCommand> {
+            shell::bar_commands(text, cx)
+        }
+    }
 }

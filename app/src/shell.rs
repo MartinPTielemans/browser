@@ -7,8 +7,9 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, DispatchPhase, Entity, FocusHandle, Focusable,
@@ -125,6 +126,8 @@ pub use crate::tokens::shell::CARD_RADIUS;
 use crate::tokens::shell::SPLIT_GAP;
 /// The most pages a split view shows, as the core's Space has it.
 const MAX_PANES: usize = 3;
+/// The web's demo, in a site's canvas, where the site's frame is the page.
+const WEB: bool = cfg!(target_family = "wasm");
 use crate::tokens::shell::FOCUS_GLOW;
 use crate::tokens::shell::FOCUS_GLOW_ALPHA;
 // Dragged, the gap between a split view's pages leaves each a tenth of the card, no less than 50 pt
@@ -203,6 +206,9 @@ const SPACE_COLOR_TAU: f32 = 0.03;
 const WHEEL_LINE: f32 = 10.;
 const WHEEL_BURST: Duration = Duration::from_millis(49);
 const WHEEL_REST: Duration = Duration::from_millis(250);
+/// A browser's wheel events say nothing of where fingers land and lift, so on the web fingers page
+/// as a wheel does, once they've moved this far across, and rest until they stop.
+const WEB_SWIPE: f32 = 30.;
 
 use crate::tokens::shell::NAV_TOP;
 use crate::tokens::shell::SIDEBAR_BUTTON_X;
@@ -2660,7 +2666,7 @@ impl Render for Shell {
             .size_full()
             .relative()
             .font_family(crate::face::UI)
-            .bg(self.palette.tint)
+            .when(!WEB, |shell| shell.bg(self.palette.tint))
             // The rows, buttons and fields keep their presses. Everywhere else is the window's
             // background, which moves the window as a title bar does.
             .on_mouse_down(
@@ -2685,9 +2691,10 @@ impl Render for Shell {
                     }
                 }),
             )
-            .child(self.window_background())
+            .children((!WEB).then(|| self.window_background()))
+            .children(WEB.then(|| self.web_backdrop()).into_iter().flatten())
             // The page views go over the cards, as native views.
-            .children(self.cards())
+            .children((!WEB).then(|| self.cards()).into_iter().flatten())
             .children(self.picture_element(cx))
             .children(self.empty_card(cx))
             .children(self.crash_cards(cx))
@@ -2702,6 +2709,52 @@ impl Render for Shell {
 }
 
 impl Shell {
+    /// On the web, the window's ground, tint and colour everywhere but the page's frame, where
+    /// the site's frame shows through the canvas from under it, as Chromium's page view goes over
+    /// the window in the app. GPUI paints over, never through, so the ground goes around the frame
+    /// in four bands, and the frame's rounded corners are filled with the window's colour there.
+    fn web_backdrop(&self) -> Vec<gpui::Div> {
+        let (frame, radius) = self.page_frame(self.viewport);
+        let (width, height) = (self.viewport.width, self.viewport.height);
+        let ground = |left: Pixels, top: Pixels, w: Pixels, h: Pixels| {
+            let window = div()
+                .absolute()
+                .left(-left)
+                .top(-top)
+                .w(width)
+                .h(height)
+                .bg(self.palette.underlay)
+                .child(div().absolute().size_full().bg(self.palette.tint))
+                .child(self.window_background());
+            div().absolute().left(left).top(top).w(w).h(h).overflow_hidden().child(window)
+        };
+        let mut backdrop = vec![
+            ground(px(0.), px(0.), width, frame.top()),
+            ground(px(0.), frame.bottom(), width, height - frame.bottom()),
+            ground(px(0.), frame.top(), frame.left(), frame.size.height),
+            ground(frame.right(), frame.top(), width - frame.right(), frame.size.height),
+        ];
+        if radius > 0. {
+            let radius = px(radius);
+            for top in [frame.top(), frame.bottom() - radius] {
+                let y = f32::from(top + radius / 2.) / f32::from(height).max(1.);
+                // A border's inner edge rounds by its outer radius less its width.
+                let ring = div()
+                    .absolute()
+                    .left(-radius)
+                    .top(frame.top() - radius - top)
+                    .w(frame.size.width + radius * 2.)
+                    .h(frame.size.height + radius * 2.)
+                    .rounded(radius * 2.)
+                    .border(radius)
+                    .border_color(self.window_fill_at(y));
+                let corners = div().absolute().left(frame.left()).top(top).w(frame.size.width);
+                backdrop.push(corners.h(radius).overflow_hidden().child(ring));
+            }
+        }
+        backdrop
+    }
+
     /// The cards under the pages shown: a page's own in a split view, so the gaps between them
     /// show the window, with the focused page's glowing in its ring's colour. While a pane is
     /// being added, its card is there, empty.

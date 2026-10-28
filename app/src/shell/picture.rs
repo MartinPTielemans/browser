@@ -6,8 +6,9 @@ use std::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use gpui::{
     AnyElement, AsyncApp, Bounds, Context, Corners, MouseButton, Pixels, RenderImage, Task,

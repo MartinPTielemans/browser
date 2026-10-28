@@ -666,10 +666,16 @@ dependencies = [
  "gpui",
  "gpui_macos",
  "gpui_platform",
+ "gpui_web",
  "gpui_windows",
  "image",
+ "js-sys",
  "raw-window-handle",
  "unicode-segmentation",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
 ]
 
 [[package]]

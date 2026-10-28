@@ -6,8 +6,9 @@
 
 use std::{
     rc::Rc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use gpui::{
     App, Bounds, ClickEvent, Context, FontWeight, Global, Hsla, Pixels, Point, Role,

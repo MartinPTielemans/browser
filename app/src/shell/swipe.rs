@@ -1,7 +1,8 @@
 //! Two fingers or a wheel across the sidebar, paging between Spaces and out to the
 //! Library (docs/ux-spec.md › Spaces › Switching), and the list's scroll edge.
 
-use std::{collections::VecDeque, time::Instant};
+use std::collections::VecDeque;
+use web_time::Instant;
 
 use gpui::{
     Context, DispatchPhase, Point, ScrollDelta, ScrollEvent, TouchPhase, Window, canvas, div,
@@ -10,8 +11,8 @@ use gpui::{
 
 use super::{
     SCROLL_EDGE, SCROLL_EDGE_FADE, SWIPE_FLICK, SWIPE_HISTORY, SWIPE_TRACKING,
-    Settle, Shell, Space, Swipe, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at, rubber_band,
-    library::library_band,
+    Settle, Shell, Space, Swipe, WEB, WEB_SWIPE, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at,
+    rubber_band, library::library_band,
 };
 
 impl Shell {
@@ -121,6 +122,10 @@ impl Shell {
             return false;
         }
         let delta = match event.delta {
+            ScrollDelta::Pixels(delta) if WEB => {
+                let lines = delta.map(|d| f32::from(d) / (WEB_SWIPE * WHEEL_LINE));
+                return self.wheel(lines, window, cx);
+            }
             ScrollDelta::Pixels(delta) => delta.map(f32::from),
             ScrollDelta::Lines(lines) => return self.wheel(lines, window, cx),
         };
@@ -263,6 +268,9 @@ impl Shell {
         }
         let now = Instant::now();
         if self.wheel_paged.is_some_and(|paged| now - paged < WHEEL_REST) {
+            if WEB {
+                self.wheel_paged = Some(now);
+            }
             return true;
         }
         let sum = match self.wheel {

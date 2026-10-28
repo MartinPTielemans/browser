@@ -12,8 +12,9 @@
 
 use std::{
     rc::Rc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use gpui::{
     AnyWindowHandle, App, BoxShadow, Bounds, Context, FocusHandle, Hsla, KeyDownEvent, MouseButton,

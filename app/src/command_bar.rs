@@ -7,13 +7,14 @@
 //! keyword mode does. A click on the sidebar's URL field opens a narrower panel over the field,
 //! as Arc's does. What it asks of the core and of its window goes through `Host`.
 
-use std::{cell::Cell, collections::HashMap, rc::Rc, sync::Arc, time::Instant};
+use std::{cell::Cell, collections::HashMap, rc::Rc, sync::Arc};
+use web_time::Instant;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, HoverListenerMode,
-    Hsla, Image, KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
-    img, point, prelude::*, px, size, svg,
+    AnyElement, AnyWindowHandle, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight,
+    Global, HoverListenerMode, Hsla, Image, KeyBinding, Pixels, ScrollHandle, SharedString,
+    TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
+    WindowOptions, actions, div, img, point, prelude::*, px, size, svg,
 };
 use gpui::{Role, accesskit::Live};
 
@@ -319,9 +320,23 @@ pub struct CommandBar {
     open: Cell<bool>,
 }
 
-struct CommandBarWindow(WindowHandle<CommandBar>);
+/// The bar, and the window it draws in: its own, or the browser's one window on the web.
+#[derive(Clone)]
+struct CommandBarWindow {
+    window: AnyWindowHandle,
+    bar: Entity<CommandBar>,
+}
 
 impl Global for CommandBarWindow {}
+
+/// Runs `update` on the bar, with the window it draws in. None if there's no bar.
+fn update_bar<R>(
+    cx: &mut App,
+    update: impl FnOnce(&mut CommandBar, &mut Window, &mut Context<CommandBar>) -> R,
+) -> Option<R> {
+    let CommandBarWindow { window, bar } = cx.try_global::<CommandBarWindow>()?.clone();
+    window.update(cx, |_, window, cx| bar.update(cx, |bar, cx| update(bar, window, cx))).ok()
+}
 
 /// Opens the command bar's window, hidden, for `host` to show over the browser window. Opening it
 /// ahead of time keeps window setup off the path from the shortcut to the bar on screen.
@@ -337,25 +352,7 @@ pub fn open_at(
     show: bool,
     cx: &mut App,
 ) -> Option<WindowHandle<CommandBar>> {
-    cx.bind_keys([
-        KeyBinding::new("enter", Go, Some("CommandBar")),
-        KeyBinding::new("alt-enter", GoBeside, Some("CommandBar")),
-        KeyBinding::new("cmd-enter", GoBehind, Some("CommandBar")),
-        KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar")),
-        KeyBinding::new("shift-enter", GoWindow, Some("CommandBar")),
-        KeyBinding::new("ctrl-shift-enter", GoDotComWindow, Some("CommandBar")),
-        KeyBinding::new("shift-cmd-enter", Search, Some("CommandBar")),
-        KeyBinding::new("escape", Dismiss, Some("CommandBar")),
-        KeyBinding::new("down", Next, Some("CommandBar")),
-        KeyBinding::new("up", Previous, Some("CommandBar")),
-        KeyBinding::new("ctrl-n", Next, Some("CommandBar")),
-        KeyBinding::new("ctrl-p", Previous, Some("CommandBar")),
-        KeyBinding::new("tab", EnterSite, Some("CommandBar")),
-        KeyBinding::new("shift-tab", LeaveSite, Some("CommandBar")),
-        KeyBinding::new("pageup", First, Some("CommandBar")),
-        KeyBinding::new("pagedown", Last, Some("CommandBar")),
-        KeyBinding::new("shift-delete", Remove, Some("CommandBar")),
-    ]);
+    bind_keys(cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         // The preview's has none, so it hasn't the window buttons the host's takes off.
@@ -375,46 +372,14 @@ pub fn open_at(
         ..Default::default()
     };
     let window = cx.open_window(options, |window, cx| {
-        let input = cx.new(|cx| {
-            TextInput::new(PLACEHOLDER_TEXT, cx)
-                .placeholder_color(palette::current(cx).on_overlay(PLACEHOLDER))
-                .caret_color(palette::current(cx).accent)
-                .selection_color(palette::current(cx).selection())
-                .paste_and_go()
-        });
-        window.focus(&input.focus_handle(cx), cx);
-        cx.new(|cx| {
-            cx.observe_in(&input, window, |bar: &mut CommandBar, _, window, cx| {
-                bar.edited(window, cx)
-            })
-            .detach();
-            CommandBar {
-                host,
-                input,
-                target: Target::NewTab,
-                asked: String::new(),
-                asked_at: Instant::now(),
-                complete: false,
-                completion: String::new(),
-                before: (0, 0),
-                rows: Vec::new(),
-                suggested: String::new(),
-                selected: 0,
-                hovered: None,
-                a11y: false,
-                over_field: false,
-                page: String::new(),
-                site: None,
-                favicons: HashMap::new(),
-                tabs: Vec::new(),
-                scroll: ScrollHandle::new(),
-                open: Cell::new(false),
-            }
-        })
+        let bar = new_bar(host, window, cx);
+        window.focus(&bar.read(cx).input.focus_handle(cx), cx);
+        bar
     });
     match window {
         Ok(window) => {
-            cx.set_global(CommandBarWindow(window));
+            let bar = window.entity(cx).ok()?;
+            cx.set_global(CommandBarWindow { window: window.into(), bar });
             Some(window)
         }
         Err(error) => {
@@ -422,6 +387,80 @@ pub fn open_at(
             None
         }
     }
+}
+
+/// Makes the command bar in `window`, the browser's, for a host that draws it there over the
+/// shell: the web's, which has one window. `Host::show` puts it on screen.
+pub fn open_in(host: Rc<dyn Host>, window: &mut Window, cx: &mut App) -> Entity<CommandBar> {
+    bind_keys(cx);
+    let bar = new_bar(host, window, cx);
+    let window = window.window_handle();
+    cx.set_global(CommandBarWindow { window, bar: bar.clone() });
+    bar
+}
+
+/// The bar's input, which a host that draws the bar in the browser's window focuses to show it.
+pub fn input_focus(cx: &App) -> Option<FocusHandle> {
+    let bar = cx.try_global::<CommandBarWindow>()?;
+    Some(bar.bar.read(cx).input.focus_handle(cx))
+}
+
+fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("enter", Go, Some("CommandBar")),
+        KeyBinding::new("alt-enter", GoBeside, Some("CommandBar")),
+        KeyBinding::new("cmd-enter", GoBehind, Some("CommandBar")),
+        KeyBinding::new("ctrl-enter", GoDotCom, Some("CommandBar")),
+        KeyBinding::new("shift-enter", GoWindow, Some("CommandBar")),
+        KeyBinding::new("ctrl-shift-enter", GoDotComWindow, Some("CommandBar")),
+        KeyBinding::new("shift-cmd-enter", Search, Some("CommandBar")),
+        KeyBinding::new("escape", Dismiss, Some("CommandBar")),
+        KeyBinding::new("down", Next, Some("CommandBar")),
+        KeyBinding::new("up", Previous, Some("CommandBar")),
+        KeyBinding::new("ctrl-n", Next, Some("CommandBar")),
+        KeyBinding::new("ctrl-p", Previous, Some("CommandBar")),
+        KeyBinding::new("tab", EnterSite, Some("CommandBar")),
+        KeyBinding::new("shift-tab", LeaveSite, Some("CommandBar")),
+        KeyBinding::new("pageup", First, Some("CommandBar")),
+        KeyBinding::new("pagedown", Last, Some("CommandBar")),
+        KeyBinding::new("shift-delete", Remove, Some("CommandBar")),
+    ]);
+}
+
+fn new_bar(host: Rc<dyn Host>, window: &mut Window, cx: &mut App) -> Entity<CommandBar> {
+    let input = cx.new(|cx| {
+        TextInput::new(PLACEHOLDER_TEXT, cx)
+            .placeholder_color(palette::current(cx).on_overlay(PLACEHOLDER))
+            .caret_color(palette::current(cx).accent)
+            .selection_color(palette::current(cx).selection())
+            .paste_and_go()
+    });
+    cx.new(|cx| {
+        cx.observe_in(&input, window, |bar: &mut CommandBar, _, window, cx| bar.edited(window, cx))
+            .detach();
+        CommandBar {
+            host,
+            input,
+            target: Target::NewTab,
+            asked: String::new(),
+            asked_at: Instant::now(),
+            complete: false,
+            completion: String::new(),
+            before: (0, 0),
+            rows: Vec::new(),
+            suggested: String::new(),
+            selected: 0,
+            hovered: None,
+            a11y: false,
+            over_field: false,
+            page: String::new(),
+            site: None,
+            favicons: HashMap::new(),
+            tabs: Vec::new(),
+            scroll: ScrollHandle::new(),
+            open: Cell::new(false),
+        }
+    })
 }
 
 /// Shows the command bar with the keyboard: empty for a new tab, listing `tabs`, or on `editing`'s
@@ -479,72 +518,60 @@ fn reset(
     over_field: bool,
     cx: &mut App,
 ) -> Option<Rc<dyn Host>> {
-    let window = cx.try_global::<CommandBarWindow>()?.0;
-    window
-        .update(cx, |bar, window, cx| {
-            bar.target = target;
-            bar.over_field = over_field;
-            // The pointer has been elsewhere since the bar last showed.
-            bar.hovered = None;
-            // Favicons change over time, and a long session shouldn't keep every one it saw. The
-            // tabs' are the ones their rows show.
-            bar.favicons.clear();
-            for tab in &tabs {
-                if let Some(favicon) = &tab.favicon {
-                    bar.favicons.insert(tab.url.to_string(), Some(favicon.clone()));
-                }
+    update_bar(cx, |bar, window, cx| {
+        bar.target = target;
+        bar.over_field = over_field;
+        // The pointer has been elsewhere since the bar last showed.
+        bar.hovered = None;
+        // Favicons change over time, and a long session shouldn't keep every one it saw. The
+        // tabs' are the ones their rows show.
+        bar.favicons.clear();
+        for tab in &tabs {
+            if let Some(favicon) = &tab.favicon {
+                bar.favicons.insert(tab.url.to_string(), Some(favicon.clone()));
             }
-            bar.tabs = tabs;
-            bar.open.set(true);
-            bar.page = text.to_string();
-            if !text.is_empty() {
-                bar.favicons.insert(bar.page.clone(), None);
-                bar.host.page_favicon(&bar.page);
-            }
-            bar.site_left(cx);
-            bar.asked = text.to_string();
-            bar.complete = false;
-            bar.completion.clear();
-            bar.before = (text.len(), 0);
-            // The tabs show at once, in the frame the bar opens with.
-            let rows = if text.is_empty() { bar.tab_rows() } else { Vec::new() };
-            bar.set_rows(String::new(), rows, window, cx);
-            bar.input.update(cx, |input, cx| input.reset(text, window, cx));
-            // The last query's suggestions are of no use now.
-            bar.host.suggest(None, "", false);
-            bar.host.clone()
-        })
-        .ok()
+        }
+        bar.tabs = tabs;
+        bar.open.set(true);
+        bar.page = text.to_string();
+        if !text.is_empty() {
+            bar.favicons.insert(bar.page.clone(), None);
+            bar.host.page_favicon(&bar.page);
+        }
+        bar.site_left(cx);
+        bar.asked = text.to_string();
+        bar.complete = false;
+        bar.completion.clear();
+        bar.before = (text.len(), 0);
+        // The tabs show at once, in the frame the bar opens with.
+        let rows = if text.is_empty() { bar.tab_rows() } else { Vec::new() };
+        bar.set_rows(String::new(), rows, window, cx);
+        bar.input.update(cx, |input, cx| input.reset(text, window, cx));
+        // The last query's suggestions are of no use now.
+        bar.host.suggest(None, "", false);
+        bar.host.clone()
+    })
 }
 
 /// The user left the bar with a click outside it, or Esc.
 pub fn dismissed(cx: &mut App) {
-    if let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) {
-        window.update(cx, |bar, _, _| bar.open.set(false)).ok();
-    }
+    update_bar(cx, |bar, _, _| bar.open.set(false));
 }
 
 /// Whether the bar shows, for a click on what opens it to close it rather than open it again: the
 /// click outside the bar has closed it by now, but the shell hears so only after the click's press.
 pub fn is_open(cx: &App) -> bool {
-    cx.try_global::<CommandBarWindow>()
-        .and_then(|bar| bar.0.read(cx).ok())
-        .is_some_and(|bar| bar.open.get())
+    cx.try_global::<CommandBarWindow>().is_some_and(|bar| bar.bar.read(cx).open.get())
 }
 
 /// The favicon `Host::page_favicon` asked for, for a row going to `url`.
 pub fn page_favicon(url: &str, favicon: Option<Arc<Image>>, cx: &mut App) {
-    let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
-        return;
-    };
-    window
-        .update(cx, |bar, _, cx| {
-            if let Some(entry) = bar.favicons.get_mut(url) {
-                *entry = favicon;
-                cx.notify();
-            }
-        })
-        .ok();
+    update_bar(cx, |bar, _, cx| {
+        if let Some(entry) = bar.favicons.get_mut(url) {
+            *entry = favicon;
+            cx.notify();
+        }
+    });
 }
 
 /// Where the centred panel's top is, down a browser window `height` tall.
@@ -571,59 +598,54 @@ pub fn field_height(rows: usize) -> f32 {
 
 /// The core's suggestions for `text`.
 pub fn suggested(text: String, rows: Vec<Suggestion>, cx: &mut App) {
-    let Some(window) = cx.try_global::<CommandBarWindow>().map(|bar| bar.0) else {
-        return;
-    };
-    window
-        .update(cx, |bar, window, cx| {
-            // Older text's come after the bar has asked about newer.
-            if text != bar.request() {
-                return;
+    update_bar(cx, |bar, window, cx| {
+        // Older text's come after the bar has asked about newer.
+        if text != bar.request() {
+            return;
+        }
+        // check.sh reads these lines.
+        let urls: Vec<String> = rows
+            .iter()
+            .map(|row| {
+                let tab = match row.tab {
+                    0 => String::new(),
+                    tab => format!(" tab {tab}"),
+                };
+                let site = match row.keyword.as_str() {
+                    "" => String::new(),
+                    keyword => format!(" site {keyword}"),
+                };
+                format!("{}{tab}{site}", row.url)
+            })
+            .collect();
+        log!(
+            "browser: command bar suggestions \"{text}\" in {:.1} ms: {}",
+            bar.asked_at.elapsed().as_secs_f64() * 1000.,
+            urls.join(", ")
+        );
+        // A site search lists only its searches, and nothing typed lists the Space's tabs.
+        let mut rows = match bar.site {
+            Some(_) => rows,
+            None if text.is_empty() => bar.tab_rows(),
+            None => {
+                let mut rows = rows;
+                let open = bar.take_open_tab(&text, &mut rows);
+                let mut rows = with_calculation(&text, bar.with_commands(&text, rows, cx));
+                rows.splice(0..0, open);
+                rows
             }
-            // check.sh reads these lines.
-            let urls: Vec<String> = rows
-                .iter()
-                .map(|row| {
-                    let tab = match row.tab {
-                        0 => String::new(),
-                        tab => format!(" tab {tab}"),
-                    };
-                    let site = match row.keyword.as_str() {
-                        "" => String::new(),
-                        keyword => format!(" site {keyword}"),
-                    };
-                    format!("{}{tab}{site}", row.url)
-                })
-                .collect();
-            log!(
-                "browser: command bar suggestions \"{text}\" in {:.1} ms: {}",
-                bar.asked_at.elapsed().as_secs_f64() * 1000.,
-                urls.join(", ")
-            );
-            // A site search lists only its searches, and nothing typed lists the Space's tabs.
-            let mut rows = match bar.site {
-                Some(_) => rows,
-                None if text.is_empty() => bar.tab_rows(),
-                None => {
-                    let mut rows = rows;
-                    let open = bar.take_open_tab(&text, &mut rows);
-                    let mut rows = with_calculation(&text, bar.with_commands(&text, rows, cx));
-                    rows.splice(0..0, open);
-                    rows
-                }
-            };
-            rows.truncate(shell::BAR_ROWS);
-            // The core doesn't say which are searches, so they're the rows that go where a search
-            // for their words does.
-            let site = bar.site.as_ref().map(|site| site.keyword.as_str());
-            for row in &mut rows {
-                row.search = row.command.is_none()
-                    && row.result.is_none()
-                    && bar.host.search_url(site, &row.text).is_some_and(|url| url == row.url);
-            }
-            bar.set_rows(bar.asked.clone(), rows, window, cx);
-        })
-        .ok();
+        };
+        rows.truncate(shell::BAR_ROWS);
+        // The core doesn't say which are searches, so they're the rows that go where a search
+        // for their words does.
+        let site = bar.site.as_ref().map(|site| site.keyword.as_str());
+        for row in &mut rows {
+            row.search = row.command.is_none()
+                && row.result.is_none()
+                && bar.host.search_url(site, &row.text).is_some_and(|url| url == row.url);
+        }
+        bar.set_rows(bar.asked.clone(), rows, window, cx);
+    });
 }
 
 /// The clipboard's text as a paste puts it in the input: on one line, trimmed. None if it has none.

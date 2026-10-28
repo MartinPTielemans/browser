@@ -1,0 +1,51 @@
+diff --git a/crates/gpui_wgpu/src/wgpu_renderer.rs b/crates/gpui_wgpu/src/wgpu_renderer.rs
+index a148a4ccfb..3299191530 100644
+--- a/crates/gpui_wgpu/src/wgpu_renderer.rs
++++ b/crates/gpui_wgpu/src/wgpu_renderer.rs
+@@ -418,10 +418,16 @@ impl WgpuRenderer {
+                     })
+             };
+ 
+-        let transparent_alpha_mode = pick_alpha_mode(&[
+-            wgpu::CompositeAlphaMode::PreMultiplied,
+-            wgpu::CompositeAlphaMode::Inherit,
+-        ])?;
++        // wgpu lists only Opaque for a browser's WebGPU canvas, which takes "premultiplied" too.
++        let transparent_alpha_mode =
++            if context.adapter.get_info().backend == wgpu::Backend::BrowserWebGpu {
++                wgpu::CompositeAlphaMode::PreMultiplied
++            } else {
++                pick_alpha_mode(&[
++                    wgpu::CompositeAlphaMode::PreMultiplied,
++                    wgpu::CompositeAlphaMode::Inherit,
++                ])?
++            };
+ 
+         let opaque_alpha_mode = pick_alpha_mode(&[
+             wgpu::CompositeAlphaMode::Opaque,
+@@ -993,6 +999,25 @@ impl WgpuRendererCore {
+ impl WgpuRenderer {
+     /// Records the new drawable size and reconfigures the surface when one is present.
+     /// The size is kept even without GPU resources so that recovery restores it.
++    /// Resizes the surface unless the GPU still has work in flight, which WebGL can't wait for
++    /// within a task: wgpu's reconfigure would then panic. Returns false when it waited, for the
++    /// caller to try again next frame. Browser WebGPU always reports its queue empty.
++    pub fn try_update_drawable_size(&mut self, size: Size<DevicePixels>) -> bool {
++        #[cfg(target_family = "wasm")]
++        if let Some(core) = self.core() {
++            let idle = core
++                .resources
++                .device
++                .poll(wgpu::PollType::Poll)
++                .is_ok_and(|status| status.is_queue_empty());
++            if !idle {
++                return false;
++            }
++        }
++        self.update_drawable_size(size);
++        true
++    }
++
+     pub fn update_drawable_size(&mut self, size: Size<DevicePixels>) {
+         let width = size.width.0 as u32;
+         let height = size.height.0 as u32;

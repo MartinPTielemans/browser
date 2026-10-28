@@ -1,16 +1,40 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let header = root.join("../core/public/browser_core.h");
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
+    // The web's preview has neither the core nor a host in C++: the page is its host.
+    let web = std::env::var("CARGO_CFG_TARGET_FAMILY").is_ok_and(|family| family == "wasm");
 
+    if !web {
+        native(&root, &header, &os);
+    }
+
+    // The name the user reads, from branding/, which build.sh also reads for the app's bundle.
+    let name = root.join("branding/name");
+    let name_text = std::fs::read_to_string(&name).expect("no branding/name");
+    println!("cargo:rustc-env=APP_NAME={}", name_text.trim());
+    println!("cargo:rerun-if-changed={}", name.display());
+    println!("cargo:rerun-if-changed=platform");
+    println!("cargo:rerun-if-changed={}", header.display());
+
+    // The look's values, from the file the code and the design file share (tools/design-sync.md).
+    let tokens = root.join("design/tokens.toml");
+    let tokens_text = std::fs::read_to_string(&tokens).expect("no design/tokens.toml");
+    let tokens_rs_path = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("tokens.rs");
+    std::fs::write(tokens_rs_path, tokens_rs(&tokens_text)).unwrap();
+    println!("cargo:rerun-if-changed={}", tokens.display());
+}
+
+/// The C++ host for the OS, the core's API from its header, and the engine the browser links.
+fn native(root: &Path, header: &Path, os: &str) {
     let mut host = cc::Build::new();
     host.cpp(true)
         // The driver calls the core for what only agent code will, once there is some.
         .include(root.join("../core/public"))
         .define("NDEBUG", None);
-    match os.as_str() {
+    match os {
         "macos" => {
             host.file("platform/mac/host.mm")
                 .file("platform/mac/drive.mm")
@@ -72,21 +96,6 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=ImageIO");
         println!("cargo:rustc-link-lib=framework=UniformTypeIdentifiers");
     }
-
-    // The name the user reads, from branding/, which build.sh also reads for the app's bundle.
-    let name = root.join("branding/name");
-    let name_text = std::fs::read_to_string(&name).expect("no branding/name");
-    println!("cargo:rustc-env=APP_NAME={}", name_text.trim());
-    println!("cargo:rerun-if-changed={}", name.display());
-    println!("cargo:rerun-if-changed=platform");
-    println!("cargo:rerun-if-changed={}", header.display());
-
-    // The look's values, from the file the code and the design file share (tools/design-sync.md).
-    let tokens = root.join("design/tokens.toml");
-    let tokens_text = std::fs::read_to_string(&tokens).expect("no design/tokens.toml");
-    let tokens_rs_path = PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("tokens.rs");
-    std::fs::write(tokens_rs_path, tokens_rs(&tokens_text)).unwrap();
-    println!("cargo:rerun-if-changed={}", tokens.display());
 }
 
 /// Turns tokens.toml into Rust: a module for each table, a `pub const` for each key, and the

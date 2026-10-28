@@ -2,7 +2,7 @@
 //! its profile and its theme (docs/ux-spec.md › Spaces).
 
 use crate::tokens::text;
-use std::time::Instant;
+use web_time::Instant;
 
 use gpui::{
     Context, FontWeight, MouseButton, MouseDownEvent, Pixels, Point, Window, div, point, prelude::*,
