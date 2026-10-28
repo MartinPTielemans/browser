@@ -721,7 +721,7 @@ impl Shell {
             entries,
             position,
             false,
-            Look::Dark,
+            Look { light: false, ..self.menu_look() },
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| match chosen {

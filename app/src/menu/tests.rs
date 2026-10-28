@@ -374,7 +374,7 @@ fn show_menu(cx: &mut VisualTestContext) -> Rc<Cell<Option<Option<usize>>>> {
             items: tab_menu(),
             at: at(100., 100.),
             area: area(),
-            look: Look::Dark,
+            look: Look::dark(),
             chosen: Box::new(move |index, _| answer.set(Some(index))),
         };
         super::show(request, cx);
@@ -397,12 +397,14 @@ fn the_host_drives_the_menu_and_the_menu_closes_outside_its_update(cx: &mut Test
     assert_eq!(chosen.get(), Some(Some(7)), "Move to › reading list");
     assert_eq!(*host.calls.borrow(), ["show", "hide"]);
 
-    // Press and release on Duplicate, in the window's terms, which start 24 left of the menu
-    // and 16 above it for its shadow.
+    // Press and release on Duplicate, in the window's terms, which start left of the menu and
+    // above it by the room its shadow takes.
     let chosen = show_menu(cx);
-    let duplicate = point(px(150. - 76.), px(100. + 85. + 12. - 84.));
+    let reach = crate::elevation::Level::Popover.reach();
+    let window_at = point(px(100. - reach.sides), px(100. - reach.above));
+    let duplicate = point(px(150.), px(100. + 85. + 12.)) - window_at;
     cx.cx.update(|cx: &mut App| {
-        super::pointer(Pointer::Released, point(px(26.), px(18.)), cx);
+        super::pointer(Pointer::Released, point(px(100.), px(100.)) - window_at, cx);
         assert!(super::pointer(Pointer::Moved, duplicate, cx));
         assert!(super::pointer(Pointer::Pressed, duplicate, cx));
         assert!(super::pointer(Pointer::Released, duplicate, cx));
@@ -583,30 +585,42 @@ fn contrast(a: u32, b: u32) -> f32 {
 }
 
 /// Every label a menu draws reads at 4.5:1 against what it's on, in both looks, which are all a
-/// theme picks of the menu, as the panel is opaque over it. Dimmed items are exempt, as WCAG's
-/// rule exempts what can't be used. Once the palette (#335) gives the highlight each Space's
-/// accent, this sweeps the accents too.
+/// theme picks of the menu, as the panel is opaque over it, and on the highlight of any Space's
+/// accent, pressed or not. Dimmed items are exempt, as WCAG's rule exempts what can't be used.
 #[test]
 fn every_label_reads_at_4_5_to_1_in_both_looks() {
-    use super::{DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL, PRESSED, highlight};
-    let (fill, label) = highlight();
-    for look in [Look::Dark, Look::Light] {
+    use super::{DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL, Highlight, PRESSED};
+    use crate::{palette::Palette, theme::{Appearance, Theme}};
+    for look in [Look { light: false, ..Look::dark() }, Look { light: true, ..Look::dark() }] {
         let palette = look.palette();
         let panel = palette.fill >> 8;
         for (what, color) in
             [("label", palette.label), ("shortcut", palette.secondary), ("destructive", palette.destructive)]
         {
             let ratio = contrast(over(color, palette.fill), panel);
-            assert!(ratio >= 4.5, "{look:?}'s {what} is {ratio:.2}:1");
+            assert!(ratio >= 4.5, "{:?}'s {what} is {ratio:.2}:1", look.light);
         }
-        for (what, on, text) in [("highlight", fill, label), ("delete", DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL)] {
-            let ratio = contrast(over(text, on), over(on, palette.fill));
-            assert!(ratio >= 4.5, "{look:?}'s {what} label is {ratio:.2}:1");
+        let ratio = contrast(over(DESTRUCTIVE_LABEL, DESTRUCTIVE_FILL), over(DESTRUCTIVE_FILL, palette.fill));
+        assert!(ratio >= 4.5, "{:?}'s delete label is {ratio:.2}:1", look.light);
+        let pressed = over(PRESSED, DESTRUCTIVE_FILL);
+        let ratio = contrast(over(DESTRUCTIVE_LABEL, DESTRUCTIVE_FILL), pressed);
+        assert!(ratio >= 4.5, "{:?}'s pressed delete label is {ratio:.2}:1", look.light);
+    }
+    let mut palettes = vec![Palette::default()];
+    for appearance in Appearance::ALL {
+        for step in 0..24 {
+            let angle = step as f32 * std::f32::consts::TAU / 24.;
+            for distance in [0., 0.35, 0.7, 1.] {
+                let theme = Theme { appearance, ..Theme::at(distance * angle.cos(), distance * angle.sin()) };
+                palettes.push(Palette::of(Some(&theme)));
+            }
         }
-        // The press darkens the highlight for as long as the button is down, under 4.5:1 with
-        // #324's Ink 0.18, so it's held to 3:1 until the palette (#335) settles it.
-        let pressed = over(PRESSED, fill);
-        let ratio = contrast(over(label, fill), pressed);
-        assert!(ratio >= 3., "{look:?}'s pressed label is {ratio:.2}:1");
+    }
+    for palette in &palettes {
+        let highlight = Highlight::of(palette);
+        for (what, fill) in [("highlight", highlight.fill), ("pressed", highlight.pressed)] {
+            let ratio = crate::palette::contrast(highlight.label, fill);
+            assert!(ratio >= 4.5, "the {what} label on {:?} is {ratio:.2}:1", highlight.fill);
+        }
     }
 }

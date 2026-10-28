@@ -9,7 +9,7 @@ use super::{
     user_keys,
 };
 use crate::{
-    menu::{Look, Swatch},
+    menu::{Highlight, Look, Swatch},
     space_icon::{SpaceIcon, has_icon},
     theme::Appearance,
 };
@@ -198,10 +198,10 @@ impl Shell {
     }
 
     /// The look of the window's menus: light only where the Space's theme asks for it, as the rest
-    /// of the window is dark.
+    /// of the window is dark, with the Space's accent under the row the pointer or the keys are on.
     pub fn menu_look(&self) -> Look {
         let light = self.theme_of(self.space).is_some_and(|theme| theme.appearance == Appearance::Light);
-        if light && !self.private { Look::Light } else { Look::Dark }
+        Look { light: light && !self.private, highlight: Highlight::of(&self.palette_of(self.space)) }
     }
 
     /// Shows `items` at `position` in ilo's menu, or with the one at `over` there, as a pop-up

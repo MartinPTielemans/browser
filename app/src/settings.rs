@@ -698,7 +698,7 @@ impl Settings {
     ) {
         self.choosing = Some(which);
         cx.notify();
-        show_menu(ns_view(window), items, popup_text(which), false, Look::Dark, picked, cx);
+        show_menu(ns_view(window), items, popup_text(which), false, Look::dark(), picked, cx);
     }
 
     /// The pop-up's menu closed.

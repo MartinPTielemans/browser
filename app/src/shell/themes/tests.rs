@@ -130,11 +130,11 @@ fn remove_theme_color_takes_the_space_back_to_the_accent(cx: &mut TestAppContext
     assert!(!titles.iter().any(|(title, _)| title == "Remove Theme Color"));
 }
 
-/// ilo's menu is Paper in a Space whose theme is light and Ink in the others, and the Space's menu
-/// keeps Delete Space apart, below a line.
+/// ilo's menu is Paper in a Space whose theme is light and Ink in the others, its highlight the
+/// Space's accent, and the Space's menu keeps Delete Space apart, below a line.
 #[gpui::test]
 fn the_menu_takes_a_light_themes_look(cx: &mut TestAppContext) {
-    use crate::menu::Look;
+    use crate::menu::Highlight;
     let host = Rc::new(Recorder::default());
     let browser = host.clone();
     let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
@@ -146,7 +146,11 @@ fn the_menu_takes_a_light_themes_look(cx: &mut TestAppContext) {
         shell.set_spaces(vec![entry(Some(BLUE), Some(Theme::at(0.5, 0.)))], cx);
         shell.space_menu(1, point(px(100.), px(112.)), cx);
     });
-    assert_eq!(*host.menu_looks.borrow(), [Look::Light, Look::Dark]);
+    let looks = host.menu_looks.borrow();
+    assert_eq!(looks.iter().map(|look| look.light).collect::<Vec<_>>(), [true, false]);
+    let accents = [light, Theme::at(0.5, 0.)].map(|theme| Highlight::of(&Palette::of(Some(&theme))));
+    assert_eq!(looks.iter().map(|look| look.highlight).collect::<Vec<_>>(), accents);
+    assert_ne!(accents[0].fill, Highlight::of(&Palette::default()).fill, "the theme's accent is ilo green");
     let entries = host.entries.borrow();
     let [.., line, delete] = &entries[..] else { panic!("no menu") };
     assert_eq!((line.title.as_ref(), delete.title.as_ref()), ("", "Delete Space"));

@@ -16,14 +16,15 @@ use std::{
 };
 
 use gpui::{
-    AnyWindowHandle, App, BoxShadow, Bounds, Context, FocusHandle, Hsla, KeyDownEvent, MouseButton,
+    AnyWindowHandle, App, Bounds, Context, FocusHandle, Hsla, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Radians, Role, SharedString,
     Task, TitlebarOptions, Transformation, Window, WindowBackgroundAppearance, WindowBounds,
     WindowHandle, WindowKind, WindowOptions, div, linear_color_stop, linear_gradient, point, prelude::*, px,
-    rgb, rgba, size, svg,
+    Rgba, rgb, rgba, size, svg,
 };
 
 use crate::{
+    elevation::Level as Elevation,
     shell::{MenuEntry, Shell, keystroke_label},
     text_input::FieldMenu,
 };
@@ -36,16 +37,11 @@ const DRAG_SLOP: f32 = 4.;
 const SAFE_TIMEOUT: Duration = Duration::from_millis(300);
 /// Type-to-select starts over after this long without a key.
 const TYPE_RESET: Duration = Duration::from_millis(1000);
-/// The window's room around the panels for their shadow.
-const MARGIN_SIDE: f32 = SHADOW_BLUR;
-const MARGIN_TOP: f32 = SHADOW_BLUR - SHADOW_Y;
-const MARGIN_BOTTOM: f32 = SHADOW_BLUR + SHADOW_Y;
 
 /// The colours of one look, 0xRRGGBBAA.
 struct Palette {
     fill: u32,
     rim: u32,
-    shadow: u32,
     label: u32,
     secondary: u32,
     line: u32,
@@ -56,7 +52,6 @@ struct Palette {
 const DARK: Palette = Palette {
     fill: DARK_FILL,
     rim: DARK_RIM,
-    shadow: DARK_SHADOW,
     label: DARK_LABEL,
     secondary: DARK_SECONDARY,
     line: DARK_LINE,
@@ -67,7 +62,6 @@ const DARK: Palette = Palette {
 const LIGHT: Palette = Palette {
     fill: LIGHT_FILL,
     rim: LIGHT_RIM,
-    shadow: LIGHT_SHADOW,
     label: LIGHT_LABEL,
     secondary: LIGHT_SECONDARY,
     line: LIGHT_LINE,
@@ -75,10 +69,20 @@ const LIGHT: Palette = Palette {
     destructive: LIGHT_DESTRUCTIVE,
 };
 
-/// The highlight and the label on it, which the palette (#335) replaces with the Space's accent
-/// by the contrast rule.
-fn highlight() -> (u32, u32) {
-    (HIGHLIGHT, HIGHLIGHT_LABEL)
+/// The row under the pointer or the keys: the Space's accent, the accent pressed while the button
+/// is down on it, and the label the palette solves on the accent, which the press moves the accent
+/// away from, so it reads at least as well pressed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Highlight {
+    pub fill: Rgba,
+    pub pressed: Rgba,
+    pub label: Rgba,
+}
+
+impl Highlight {
+    pub fn of(palette: &crate::palette::Palette) -> Self {
+        Highlight { fill: palette.accent, pressed: palette.accent_pressed().into(), label: palette.accent_label }
+    }
 }
 
 /// A Space's mark in a menu (#320): its theme's gradient, `from` at the top left to `to` at the
@@ -89,20 +93,28 @@ pub struct Swatch {
     pub to: u32,
 }
 
-/// The menu's look: the panel's material is Ink in a dark window and Paper in a light one.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Look {
-    #[default]
-    Dark,
-    Light,
+/// The menu's look: the panel's material, Ink in a dark window and Paper in a light one, and the
+/// highlight in its Space's accent.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    pub light: bool,
+    pub highlight: Highlight,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look::dark()
+    }
 }
 
 impl Look {
+    /// The dark panel with no theme's accent, for a window that isn't a Space's, such as Settings.
+    pub fn dark() -> Self {
+        Look { light: false, highlight: Highlight::of(&crate::palette::Palette::default()) }
+    }
+
     fn palette(self) -> &'static Palette {
-        match self {
-            Look::Dark => &DARK,
-            Look::Light => &LIGHT,
-        }
+        if self.light { &LIGHT } else { &DARK }
     }
 }
 
@@ -241,10 +253,12 @@ pub(crate) fn lay_out(
         let bounds = Bounds::new(origin, gpui::size(px(size.0), px(size.1)));
         levels.push(Level { parent, items, bounds, tops, checks });
     }
+    // The window's room around the panels for their shadow.
+    let reach = Elevation::Popover.reach();
     let union = (levels.iter().skip(1)).fold(levels[0].bounds, |all, level| all.union(&level.bounds));
     let frame = Bounds::from_corners(
-        union.origin - point(px(MARGIN_SIDE), px(MARGIN_TOP)),
-        union.bottom_right() + point(px(MARGIN_SIDE), px(MARGIN_BOTTOM)),
+        union.origin - point(px(reach.sides), px(reach.above)),
+        union.bottom_right() + point(px(reach.sides), px(reach.below)),
     );
     Layout { levels, frame }
 }
@@ -887,7 +901,7 @@ pub fn field_menu(show: Rc<ShowOver>) -> FieldMenu {
         cx.defer(move |cx| {
             // Looked up once the update is over, in case the window closed meanwhile.
             let Ok(look) = cx.update_window(handle, |root, _, cx| {
-                root.downcast::<Shell>().ok().map_or(Look::Dark, |shell| shell.read(cx).menu_look())
+                root.downcast::<Shell>().ok().map_or_else(Look::dark, |shell| shell.read(cx).menu_look())
             }) else {
                 return;
             };
@@ -1070,18 +1084,19 @@ impl ContextMenu {
                 .into_any_element();
         }
         let lit = lit == Some(item);
-        let (fill, on_fill) = match entry.destructive {
-            true => (DESTRUCTIVE_FILL, DESTRUCTIVE_LABEL),
-            false => highlight(),
+        let highlight = shown.look.highlight;
+        let (fill, on_fill): (Rgba, Rgba) = match entry.destructive {
+            true => (rgba(DESTRUCTIVE_FILL), rgba(DESTRUCTIVE_LABEL)),
+            false => (highlight.fill, highlight.label),
         };
         let label: Hsla = match (lit, entry.enabled, entry.destructive) {
-            (true, ..) => rgba(on_fill).into(),
+            (true, ..) => on_fill.into(),
             (false, false, _) => rgba(palette.disabled).into(),
             (false, true, true) => rgba(palette.destructive).into(),
             (false, true, false) => rgba(palette.label).into(),
         };
         let secondary: Hsla = match (lit, entry.enabled) {
-            (true, _) => rgba(on_fill).into(),
+            (true, _) => on_fill.into(),
             (false, false) => rgba(palette.disabled).into(),
             (false, true) => rgba(palette.secondary).into(),
         };
@@ -1138,8 +1153,12 @@ impl ContextMenu {
             .flex()
             .items_center()
             .gap(px(GAP))
-            .when(lit, |row| row.bg(rgba(fill)))
-            .child(div().absolute().inset_0().rounded(px(ROW_RADIUS)).when(pressed, |o| o.bg(rgba(PRESSED))))
+            .when(lit, |row| row.bg(fill))
+            .when(pressed && !entry.destructive, |row| row.bg(highlight.pressed))
+            // Ink darkens Delete's red under its Paper label.
+            .when(pressed && entry.destructive, |row| {
+                row.child(div().absolute().inset_0().rounded(px(ROW_RADIUS)).bg(rgba(PRESSED)))
+            })
             .children(check)
             .children(swatch)
             .child(div().flex_1().min_w_0().truncate().text_color(label).child(entry.title.clone()))
@@ -1194,13 +1213,7 @@ impl ContextMenu {
             .bg(rgba(palette.fill))
             .border_1()
             .border_color(rgba(palette.rim))
-            .shadow(vec![BoxShadow {
-                color: rgba(palette.shadow).into(),
-                offset: point(px(0.), px(SHADOW_Y)),
-                blur_radius: px(SHADOW_BLUR),
-                spread_radius: px(0.),
-                inset: false,
-            }])
+            .shadow(Elevation::Popover.shadow())
             .text_size(px(TEXT))
             .children(rows)
             // The root level's rows go under the window's own node, which has the keyboard.
