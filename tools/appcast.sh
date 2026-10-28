@@ -16,6 +16,8 @@
 #   SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh
 #   tools/appcast.sh notes.md --windows ilo-setup.exe     # then look at the appcast it made
 #   tools/appcast.sh notes.md --windows ilo-setup.exe --publish
+# In CI (release.yml) the key is UPDATE_PRIVATE_KEY, the backup's contents, which the tools read on
+# their standard input, and the Keychain is never read.
 # Usage: tools/appcast.sh notes.md [--windows installer.exe] [--publish]
 set -euo pipefail
 tools="$(cd "$(dirname "$0")" && pwd)"
@@ -50,11 +52,23 @@ feed_tag=${feed_tag%%/*}
 version=$(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")
 build=$(plutil -extract CFBundleVersion raw "$app/Contents/Info.plist")
 # An update signed with another key than the one the app carries is one it refuses.
-key=$(plutil -extract SUPublicEDKey raw "$app/Contents/Info.plist")
-if [ "$("$bin/generate_keys" --account "$name" -p)" != "$key" ]; then
-  echo "The key in the Keychain isn't the one $app carries." >&2
+# With UPDATE_PRIVATE_KEY, generate_appcast leaves an update whose app carries another key unsigned,
+# which the check after it catches.
+if [ -n "${UPDATE_PRIVATE_KEY:-}" ]; then
+  signing=(--ed-key-file -)
+elif [ -n "${CI:-}" ]; then
+  echo "In CI the signing key is UPDATE_PRIVATE_KEY; the Keychain isn't read." >&2
   exit 1
+else
+  signing=(--account "$name")
+  key=$(plutil -extract SUPublicEDKey raw "$app/Contents/Info.plist")
+  if [ "$("$bin/generate_keys" --account "$name" -p)" != "$key" ]; then
+    echo "The key in the Keychain isn't the one $app carries." >&2
+    exit 1
+  fi
 fi
+# The key, from UPDATE_PRIVATE_KEY, for a tool's standard input, and never in its arguments.
+private_key() { [ -z "${UPDATE_PRIVATE_KEY:-}" ] || printf '%s\n' "$UPDATE_PRIVATE_KEY"; }
 
 # generate_appcast adds to the appcast at its output, so it starts from the one published.
 work=$out/appcast
@@ -73,18 +87,18 @@ case $(curl -sSL -w '%{http_code}' -o "$work/appcast.xml" "$feed") in
     ;;
   *) echo "Couldn't fetch $feed." >&2 && exit 1 ;;
 esac
-"$bin/generate_appcast" --account "$name" \
+private_key | "$bin/generate_appcast" "${signing[@]}" \
   --download-url-prefix "$repo/releases/download/v$version/" \
   --full-release-notes-url "$repo/releases/tag/v$version" \
   --embed-release-notes --maximum-deltas 0 \
   -o "$work/appcast.xml" "$work"
 after=$(grep -c '<item>' "$work/appcast.xml")
-if ! grep -q 'sparkle:edSignature=' "$work/appcast.xml" || [ "$after" -lt "$before" ]; then
+if ! python3 -I "$tools/appcast.py" signed "$work/appcast.xml" "$build" || [ "$after" -lt "$before" ]; then
   echo "generate_appcast made an appcast without a signature, or lost an update: $work/appcast.xml" >&2
   exit 1
 fi
 if [ -n "$windows" ]; then
-  signature=$("$bin/sign_update" --account "$name" -p "$windows")
+  signature=$(private_key | "$bin/sign_update" "${signing[@]}" -p "$windows")
   python3 -I "$tools/appcast.py" finish "$work/appcast.xml" "$aside" --windows \
     "$repo/releases/download/v$version/$(basename "$windows")" "$(wc -c < "$windows" | tr -d ' ')" \
     "$signature" "$version" "$build" "$repo/releases/tag/v$version"
