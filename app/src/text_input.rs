@@ -14,7 +14,8 @@ use gpui::{
     Entity, EntityInputHandler, FocusHandle, Focusable, Global, GlobalElementId, Hsla, KeyBinding,
     LayoutId, MouseButton, Role,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, ShapedLine,
-    SharedString, Style, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div, fill, hsla,
+    SharedString, Style, Subscription, TextRun, UTF16Selection, UnderlineStyle, Window, actions, div,
+    fill, hsla,
     point, prelude::*, px, relative, rgb, size,
 };
 use unicode_segmentation::*;
@@ -54,6 +55,23 @@ pub type ShowMenu = dyn Fn(Vec<(SharedString, bool)>, Point<Pixels>, &Window, Ch
 pub type Chosen = Box<dyn FnOnce(usize, &mut Window, &mut App)>;
 
 impl Global for FieldMenu {}
+
+/// Calls `listener` once the keyboard leaves the field `focus` for something else in its window.
+/// A window that stops being the key one, as while the field's own menu, another window or another
+/// app has the keyboard, keeps the field focused for when it's back, so that isn't leaving it.
+pub fn on_leave<T: 'static>(
+    focus: &FocusHandle,
+    window: &mut Window,
+    cx: &mut Context<T>,
+    mut listener: impl FnMut(&mut T, &mut Window, &mut Context<T>) + 'static,
+) -> Subscription {
+    let field = focus.clone();
+    cx.on_blur(focus, window, move |view, window, cx| {
+        if !field.is_focused(window) {
+            listener(view, window, cx)
+        }
+    })
+}
 
 pub fn bind_keys(cx: &mut App) {
     let context = Some("TextInput");

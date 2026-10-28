@@ -332,3 +332,59 @@ impl Shell {
             .child(renaming.name.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{Entity, TestAppContext, VisualTestContext};
+
+    use crate::shell::{Shell, recorder::Recorder};
+
+    /// A window showing the Space Home with its name a field.
+    fn renaming(cx: &mut TestAppContext) -> (Entity<Shell>, &mut VisualTestContext, Rc<Recorder>) {
+        cx.update(|cx| {
+            crate::shell::commands::bind_keys(cx);
+            crate::text_input::bind_keys(cx);
+        });
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        cx.update(|window, _| window.activate_window());
+        shell.update(cx, |shell, cx| {
+            shell.set_spaces(vec![(1, "Home".into(), None, 1, "".into(), "".into(), "".into())], cx);
+            shell.set_space(1, cx);
+            shell.rename_space(1, cx);
+        });
+        cx.run_until_parked();
+        (shell, cx, host)
+    }
+
+    /// Another window taking the keyboard a moment, as ilo's menu does for the field's own menu,
+    /// leaves the name a field with the keyboard, so escape still cancels once it's back.
+    #[gpui::test]
+    fn the_name_stays_a_field_while_another_window_has_the_keyboard(cx: &mut TestAppContext) {
+        let (shell, cx, host) = renaming(cx);
+        cx.simulate_input("gone");
+        cx.deactivate_window();
+        cx.update(|window, _| window.refresh());
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |shell, _| shell.renaming.is_some()), "the field closed");
+        cx.update(|window, _| window.activate_window());
+        cx.run_until_parked();
+        cx.simulate_keystrokes("escape");
+        assert!(shell.read_with(cx, |shell, _| shell.renaming.is_none()), "escape didn't cancel");
+        assert!(host.take_edits().is_empty(), "the Space was renamed");
+    }
+
+    /// Leaving the field for something else in its window keeps the name typed.
+    #[gpui::test]
+    fn leaving_the_name_for_the_sidebar_keeps_it(cx: &mut TestAppContext) {
+        let (shell, cx, host) = renaming(cx);
+        cx.simulate_input("Work");
+        shell.update_in(cx, |shell, window, cx| window.focus(&shell.focus_handle, cx));
+        cx.run_until_parked();
+        assert!(shell.read_with(cx, |shell, _| shell.renaming.is_none()), "the field stayed");
+        assert_eq!(host.take_edits(), ["rename space 1 Work"]);
+    }
+}
