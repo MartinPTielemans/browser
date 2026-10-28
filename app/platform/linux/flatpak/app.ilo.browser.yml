@@ -1,0 +1,58 @@
+# ilo as a Flatpak: build/Browser, which `app/build.sh prod` makes, in /app/ilo. Cobalt starts it
+# through zypak, which hands Chromium's sandbox to Flatpak's, as Flathub's Brave does; Chromium's
+# own needs user namespaces, which a Flatpak can't make. tools/flatpak.sh builds the bundle.
+app-id: app.ilo.browser
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+base: org.chromium.Chromium.BaseApp
+base-version: '25.08'
+command: ilo
+separate-locales: false
+build-options:
+  no-debuginfo: true
+# Each one, and those left out, is in the commit that added this file.
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  - --socket=cups
+  - --filesystem=xdg-download
+  - --persist=.pki
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.freedesktop.Notifications
+  - --talk-name=org.freedesktop.ScreenSaver
+modules:
+  - name: zypak
+    sources:
+      - type: git
+        url: https://github.com/refi64/zypak
+        tag: v2025.09
+        commit: 693a71c5ffa80ec9c9ce2ae03b1ccc493c698e53
+
+  - name: ilo
+    buildsystem: simple
+    build-commands:
+      - cp -a Browser /app/ilo
+      - install -Dm755 ilo.sh /app/bin/ilo
+      - install -Dm644 -t /app/etc cobalt.ini
+      - install -Dm644 -t /app/share/applications app.ilo.browser.desktop
+      - install -Dm644 -t /app/share/icons/hicolor/scalable/apps app.ilo.browser.svg
+      - install -Dm644 -t /app/share/metainfo app.ilo.browser.metainfo.xml
+    sources:
+      - type: dir
+        path: ../../../build/Browser
+        dest: Browser
+      - type: file
+        path: ilo.sh
+      - type: file
+        path: cobalt.ini
+      - type: file
+        path: app.ilo.browser.desktop
+      - type: file
+        path: app.ilo.browser.svg
+      - type: file
+        path: app.ilo.browser.metainfo.xml
