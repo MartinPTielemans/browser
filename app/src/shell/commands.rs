@@ -436,17 +436,31 @@ fn words(text: &str) -> impl Iterator<Item = &str> {
         .map(move |(at, _)| &text[at..])
 }
 
-/// How a menu shows `keystroke`, as SHORTCUTS writes it: ⇧⌘K for shift-cmd-k.
+/// How a menu shows `keystroke`, as SHORTCUTS writes it: ⇧⌘K for shift-cmd-k, and Ctrl+Shift+K
+/// off the Mac, where it's pressed that way.
 pub fn keystroke_label(keystroke: &str) -> String {
-    keystroke_keys(keystroke).concat()
+    match super::keys::OFF_THE_MAC {
+        true => keystroke_keys(keystroke).join("+"),
+        false => keystroke_keys(keystroke).concat(),
+    }
 }
 
 /// The keys of `keystroke` as a menu shows them, one by one, for a chip each: ⇧, ⌘ and K for
-/// shift-cmd-k.
+/// shift-cmd-k, and Ctrl, Shift and K off the Mac. None if it can't be pressed here.
 pub fn keystroke_keys(keystroke: &str) -> Vec<String> {
+    match super::keys::OFF_THE_MAC {
+        true => (super::keys::pressed_as(keystroke).first())
+            .map(|pressed| keys_named(pressed, ["Ctrl", "Alt", "Shift", "Super"]))
+            .unwrap_or_default(),
+        false => keys_named(keystroke, ["⌃", "⌥", "⇧", "⌘"]),
+    }
+}
+
+/// The keys of `keystroke`, with its ctrl, alt, shift and cmd named `names`.
+fn keys_named(keystroke: &str, names: [&str; 4]) -> Vec<String> {
     let mut rest = keystroke;
     let mut keys = Vec::new();
-    for (modifier, glyph) in [("ctrl-", "⌃"), ("alt-", "⌥"), ("shift-", "⇧"), ("cmd-", "⌘")] {
+    for (modifier, glyph) in ["ctrl-", "alt-", "shift-", "cmd-"].into_iter().zip(names) {
         if let Some(after) = rest.strip_prefix(modifier) {
             keys.push(glyph.to_string());
             rest = after;
