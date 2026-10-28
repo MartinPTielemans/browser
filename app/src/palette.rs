@@ -348,6 +348,16 @@ impl Palette {
         theme.map_or(Window::of_none(), Window::of).samples(self.shade, self.layer_alpha)
     }
 
+    /// The pickers' card as they draw it. Only the Mac's host blurs what's behind a picker;
+    /// elsewhere what's behind shows sharp through the card and reads as noise, so there the card
+    /// is opaque over the dark overlay.
+    pub fn card_drawn(&self) -> Rgba {
+        if cfg!(target_os = "macos") {
+            return self.card;
+        }
+        over(rgb(OVERLAY_DARK), self.card, self.card.a)
+    }
+
     /// The pickers' card: Arc's measured grey, then a step at a time toward the dark overlay,
     /// opaque, until its hint and its segments' labels read on it over every point of the window.
     fn solve_card(&self, window: &Window) -> Rgba {

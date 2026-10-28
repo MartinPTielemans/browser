@@ -691,7 +691,7 @@ impl Render for ThemePicker {
         let palette = editing.palette;
         let card_x = |x: f32| px(ARROW + x);
         let arrow_y = editing.arrow_y;
-        let card_fill = palette::current(cx).card;
+        let card_fill = palette::current(cx).card_drawn();
         let card = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
