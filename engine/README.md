@@ -75,6 +75,10 @@ The zip is named after its contents' hash. The first build takes about as long a
 
 `windows/prepare.sh` is ungoogled-chromium-windows's own build on Windows, which `.github/workflows/engine-windows.yml` runs by hand on GitHub's runners, for when the cross build can't.
 
+## Releases
+
+A copy for other Macs is the Release engine with the prod app in it. `app/build.sh prod` builds it, and `SIGN_IDENTITY="Developer ID Application: … (TEAMID)" tools/release.sh` signs each part inside out with the hardened runtime, notarizes the app and then a DMG through the Keychain's `notary` profile (`xcrun notarytool store-credentials notary`), and staples both, leaving `app/build/release/ilo.dmg`. Only a Developer ID passes Gatekeeper on another Mac. The entitlements are Chromium's, trimmed to what a browser outside App Sandbox uses, in `app/entitlements/`. `tools/install.sh` signs the owner's own copy instead, and stays on its Apple Development identity: a new signature makes macOS ask again for the copy's Keychain items.
+
 ## What reaches Google
 
 ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patches/ardia/` bring back two of them, for security only (decision 2).
