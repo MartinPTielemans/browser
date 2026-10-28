@@ -441,7 +441,7 @@ void Tab::DropSystemPage() {
   system_page_.reset();
   favicon_ = gfx::Image();
   system_page_favicon_.clear();
-  system_page_title_.clear();
+  system_page_title_.reset();
   EngineChanged();
 }
 
@@ -518,6 +518,9 @@ void Tab::SystemPageCommitted() {
   }
   FetchSystemPageFavicon();
   SiteControls::PageChanged(id_);
+  // Chromium tells each new document's title. WebKit's can replace the empty one the commit set
+  // before the next report, and when it's the last page's, it would go untold.
+  system_page_title_.reset();
   StateChanged();
 }
 
@@ -647,7 +650,8 @@ void Tab::ReportState() {
   Host().tab_state_changed(Host().context, id_, &state);
   // The system page's comes from FetchSystemPageFavicon.
   if (page) {
-    // Its title changes as Chromium's page's does, which TitleWasSet reports.
+    // Its title changes as Chromium's page's does, which TitleWasSet reports, and is told once a
+    // document at least.
     if (Title() != system_page_title_) {
       system_page_title_ = Title();
       ReportTitle();
