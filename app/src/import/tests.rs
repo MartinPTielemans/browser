@@ -16,7 +16,7 @@ use super::found::{Found, FromProfile, Node, Page, Tab};
 use super::plan::{self, Counts, Existing, ExistingSpace, Row};
 use super::read::{self, Kind, ReadError};
 use super::sources::{self, Os, Roots};
-use super::{Host, ImportEvent, ImportView, Look};
+use super::{Host, ImportEvent, ImportView, Look, Passwords};
 use super::{firefox, safari};
 use crate::theme::{Appearance, Theme};
 
@@ -256,6 +256,10 @@ struct Browser {
     adding: RefCell<Vec<(usize, Box<dyn FnOnce(usize, &mut App)>)>>,
     /// What waits for the app to come back to the front.
     active: RefCell<Vec<Box<dyn FnOnce(&mut App)>>>,
+    /// The file the user picks in the open panel, or none to cancel it.
+    passwords_file: RefCell<Option<PathBuf>>,
+    /// The passwords file the core is importing, and what waits to hear what came of it.
+    importing: RefCell<Option<(PathBuf, Box<dyn FnOnce(Passwords, &mut App)>)>>,
 }
 
 #[derive(Default)]
@@ -366,6 +370,12 @@ impl Browser {
         for then in self.active.take() {
             then(cx);
         }
+    }
+
+    /// The core is done with the passwords file it was given.
+    fn imported(&self, passwords: Passwords, cx: &mut App) {
+        let (_, then) = self.importing.take().unwrap();
+        then(passwords, cx);
     }
 
     /// The core has added the history it was given.
@@ -508,6 +518,30 @@ impl Host for Browser {
 
     fn when_active(&self, then: Box<dyn FnOnce(&mut App)>) {
         self.active.borrow_mut().push(then);
+    }
+
+    /// As the system's panel answers, after the click that opened it.
+    fn choose_passwords_file(
+        &self,
+        then: Box<dyn FnOnce(Option<PathBuf>, &mut App)>,
+        cx: &mut App,
+    ) {
+        let file = self.passwords_file.borrow().clone();
+        cx.defer(move |cx| then(file, cx));
+    }
+
+    fn import_passwords(&self, file: &Path, then: Box<dyn FnOnce(Passwords, &mut App)>) -> bool {
+        let mut importing = self.importing.borrow_mut();
+        let idle = importing.is_none();
+        if idle {
+            *importing = Some((file.to_path_buf(), then));
+        }
+        idle
+    }
+
+    fn passwords_profile(&self) -> Option<String> {
+        let profiles = &self.state.borrow().profiles;
+        (profiles.len() > 1).then(|| profiles[0].1.clone())
     }
 }
 
@@ -1554,4 +1588,121 @@ fn a_file_kept_from_the_app_is_no_access() {
             .is_empty()
     );
     fs::remove_dir_all(home).unwrap();
+}
+
+/// A passwords export as Chrome writes one, of made-up logins.
+const PASSWORDS: &str = "name,url,username,password,note\n\
+    example.com,https://example.com/,check@example.test,not-a-real-password,\n";
+
+/// Passwords come from a file the user chooses: the view gives it to the core, says how many came
+/// in and how many conflicted, and offers to delete the file, which holds them in plain text. The
+/// view says when it starts and finishes, as for a browser's import.
+#[gpui::test]
+fn a_passwords_file_comes_in_and_the_view_offers_to_delete_it(cx: &mut TestAppContext) {
+    let browser = Rc::new(Browser::new(None));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, true));
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let _events = cx.update(|cx| {
+        let events = events.clone();
+        cx.subscribe(&view, move |_, event: &ImportEvent, _| {
+            events.borrow_mut().push(event.clone())
+        })
+    });
+    // Cancelling the panel imports nothing.
+    view.update(cx, |view, cx| view.choose_passwords(cx));
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| assert!(matches!(view.step, super::Step::List)));
+    assert!(browser.importing.borrow().is_none());
+
+    let file = write(home("passwords").join("Chrome Passwords.csv"), PASSWORDS);
+    *browser.passwords_file.borrow_mut() = Some(file.clone());
+    view.update(cx, |view, cx| view.choose_passwords(cx));
+    cx.run_until_parked();
+    let given = browser.importing.borrow().as_ref().map(|(file, _)| file.clone());
+    assert_eq!(given, Some(file.clone()));
+    view.read_with(cx, |view, _| {
+        assert_eq!(view.running().as_deref(), Some("Importing passwords…"));
+    });
+    let passwords = Passwords::Imported {
+        imported: 3,
+        conflicted: 1,
+        skipped: 0,
+    };
+    cx.update(|cx| browser.imported(passwords, cx));
+    let said = "3 passwords came in from Chrome Passwords.csv. 1 conflicted with a saved password, \
+                which was kept.";
+    view.read_with(cx, |view, _| {
+        let super::Step::Done(shown) = &view.step else {
+            panic!()
+        };
+        assert_eq!(shown.as_ref(), said);
+        assert_eq!(view.passwords_file.as_ref(), Some(&file));
+    });
+    assert_eq!(
+        *events.borrow(),
+        [ImportEvent::Started, ImportEvent::Finished(said.into())]
+    );
+    assert!(file.exists());
+    view.update(cx, |view, cx| view.delete_passwords_file(cx));
+    assert!(!file.exists());
+    view.read_with(cx, |view, _| {
+        let super::Step::Done(shown) = &view.step else {
+            panic!()
+        };
+        assert_eq!(shown.as_ref(), format!("{said} Chrome Passwords.csv is deleted."));
+        assert_eq!(view.passwords_file, None);
+    });
+    view.update(cx, |view, cx| view.done(cx));
+    view.read_with(cx, |view, _| assert!(matches!(view.step, super::Step::List)));
+    fs::remove_dir_all(file.parent().unwrap()).unwrap();
+}
+
+/// A file Chrome's importer can't take says why, and isn't offered for deleting, as the user may
+/// want it again.
+#[gpui::test]
+fn a_file_that_isnt_a_passwords_export_says_so(cx: &mut TestAppContext) {
+    let browser = Rc::new(Browser::new(None));
+    let host: Rc<dyn Host> = browser.clone();
+    let view = cx.new(|_| ImportView::new(host, false));
+    let file = write(home("not-passwords").join("notes.csv"), "a,b\n1,2\n");
+    *browser.passwords_file.borrow_mut() = Some(file.clone());
+    view.update(cx, |view, cx| view.choose_passwords(cx));
+    cx.run_until_parked();
+    cx.update(|cx| browser.imported(Passwords::NotExport, cx));
+    view.read_with(cx, |view, _| {
+        let super::Step::Done(shown) = &view.step else {
+            panic!()
+        };
+        assert_eq!(
+            shown.as_ref(),
+            "notes.csv isn't a passwords export: its first row needs url, username and password."
+        );
+        assert_eq!(view.passwords_file, None);
+    });
+    fs::remove_dir_all(file.parent().unwrap()).unwrap();
+}
+
+/// With more than one profile, the summary names the one they went to, and rows that weren't
+/// logins are counted.
+#[test]
+fn the_passwords_summary_names_the_profile_and_what_it_skipped() {
+    let passwords = Passwords::Imported {
+        imported: 1,
+        conflicted: 2,
+        skipped: 1,
+    };
+    let said = super::passwords_summary(Path::new("/tmp/export.csv"), passwords, Some("Work"));
+    assert_eq!(
+        said.as_ref(),
+        "1 password came in to Work from export.csv. 2 conflicted with saved passwords, which \
+         were kept. 1 row wasn't a login it could read."
+    );
+    let none = Passwords::Imported {
+        imported: 0,
+        conflicted: 0,
+        skipped: 0,
+    };
+    let said = super::passwords_summary(Path::new("export.csv"), none, None);
+    assert_eq!(said.as_ref(), "No passwords came in from export.csv.");
 }
