@@ -1,31 +1,36 @@
 //! Import from the other browsers on the machine (#453): one view, shown in Settings › Import and
 //! as a step of the first launch, that lists the browsers found, the one used last first, and
-//! brings in what the user picks from one. Arc's sidebar comes in so far: its Spaces with their
-//! names, icons, themes and profiles, their pinned tabs and folders, and its favorites.
+//! brings in what the user picks from one. From Chromium's family so far: Arc's Spaces with their
+//! names, icons, themes and profiles, their pinned tabs and folders, and its favorites; the
+//! others' bookmarks, as a Space named after the browser; and every one's history.
 //!
 //! It reads the user's data, so it's the user's alone: agents get no path to it. It only reads
 //! the other browser's files, and it adds through the core's calls a user's actions make, so a
 //! second run adds nothing the first did (plan.rs).
 
 pub mod arc;
+pub mod chromium;
+pub mod found;
 pub mod plan;
 pub mod sources;
 #[cfg(test)]
 mod tests;
 
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use gpui::{App, Context, EventEmitter, SharedString, div, prelude::*, px, rgb};
 
 use crate::palette::NO_THEME_ACCENT;
+pub use crate::settings_rows::Look;
 use crate::settings_rows::{SLIDE, button, group, row, switch};
 use crate::theme::Theme;
-use crate::tokens::settings::{BOX_GAP, BUTTONS_TOP, DETAIL, PADDING};
+use crate::tokens::settings::{BOX_GAP, BUTTONS_TOP, PADDING};
 use crate::tokens::text;
-use arc::Tab;
-use plan::{Add, Existing, Picked, Plan, ProfileRef, Target};
-use sources::{Roots, Source};
+use chromium::Kind;
+use found::{Found, Page, Tab};
+use plan::{Add, Counts, Existing, Plan, ProfileRef, Target};
+use sources::{Family, Roots, Source};
 
 /// What the import asks of the browser: the core's calls, which the tests stand in for.
 pub trait Host {
@@ -47,6 +52,16 @@ pub trait Host {
     fn add_pinned(&self, space: u64, folder: u64, tab: &Tab);
     /// Makes a tab at `tab`'s URL the last of the favorites `space` shows, in its profile.
     fn add_favorite(&self, space: u64, tab: &Tab);
+    /// Whether `profile` has loaded, so its history can take pages.
+    fn profile_loaded(&self, profile: u64) -> bool;
+    /// Adds `pages` to `profile`'s history but for those it has, and returns whether it will. If
+    /// it will, `then` gets how many it added, later.
+    fn add_history(
+        &self,
+        profile: u64,
+        pages: &[Page],
+        then: Box<dyn FnOnce(usize, &mut App)>,
+    ) -> bool;
     /// Calls `then` once, the next time the Spaces change, such as when a Space's profile has
     /// loaded.
     fn when_spaces_change(&self, then: Box<dyn FnOnce(&mut App)>);
@@ -78,6 +93,12 @@ impl Host for Detached {
     }
     fn add_pinned(&self, _: u64, _: u64, _: &Tab) {}
     fn add_favorite(&self, _: u64, _: &Tab) {}
+    fn profile_loaded(&self, _: u64) -> bool {
+        true
+    }
+    fn add_history(&self, _: u64, _: &[Page], _: Box<dyn FnOnce(usize, &mut App)>) -> bool {
+        false
+    }
     fn when_spaces_change(&self, _: Box<dyn FnOnce(&mut App)>) {}
 }
 
@@ -127,15 +148,26 @@ impl Job {
         }
     }
 
-    /// Whether every Space is in its profile, so its tabs can go in.
-    pub fn ready(&self, host: &dyn Host) -> bool {
-        self.spaces
-            .iter()
-            .all(|&(space, profile)| host.space_profile(space) == profile)
+    fn profile(&self, profile: ProfileRef) -> u64 {
+        match profile {
+            ProfileRef::Existing(id) => id,
+            ProfileRef::New(at) => self.profiles[at],
+        }
     }
 
-    /// Adds the pinned tabs, folders and favorites.
-    pub fn finish(self, host: &dyn Host) {
+    /// Whether every Space is in its profile, so its tabs can go in, and every profile history
+    /// goes to has loaded.
+    pub fn ready(&self, host: &dyn Host) -> bool {
+        let spaces =
+            (self.spaces.iter()).all(|&(space, profile)| host.space_profile(space) == profile);
+        let history = (self.plan.history.iter())
+            .all(|(profile, _)| host.profile_loaded(self.profile(*profile)));
+        spaces && history
+    }
+
+    /// Adds the pinned tabs, folders and favorites, and returns the history for each profile, which
+    /// the core adds away from the UI.
+    pub fn finish(mut self, host: &dyn Host) -> Vec<(u64, Vec<Page>)> {
         fn add(host: &dyn Host, space: u64, folder: u64, adds: &[Add]) {
             for each in adds {
                 match each {
@@ -157,10 +189,7 @@ impl Job {
         }
         let existing = host.existing();
         for (profile, tab) in &self.plan.favorites {
-            let profile = match *profile {
-                ProfileRef::Existing(id) => id,
-                ProfileRef::New(at) => self.profiles[at],
-            };
+            let profile = self.profile(*profile);
             // A favorite goes in through a Space of its profile; one with no Space there stays out.
             let imported = self
                 .spaces
@@ -176,13 +205,21 @@ impl Job {
                 host.add_favorite(space, tab);
             }
         }
+        let history = std::mem::take(&mut self.plan.history);
+        (history.into_iter())
+            .map(|(profile, pages)| (self.profile(profile), pages))
+            .collect()
     }
 }
 
 /// What the view tells whoever shows it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ImportEvent {
-    /// The user imported, and was told what came in.
+    /// An import began, which goes on while the view isn't shown; running() says so.
+    Started,
+    /// The import that began is over, and this says what came in, or why nothing did.
+    Finished(SharedString),
+    /// The user read what came in, and pressed Done.
     Done,
     /// The user went on without importing.
     Skipped,
@@ -192,11 +229,24 @@ enum Step {
     /// The browsers found.
     List,
     /// What can come from one, to pick from.
-    Pick { source: usize, picked: Picked },
-    /// Waiting for new profiles to load.
-    Running { source: usize, job: Option<Job> },
+    Pick { source: usize, picked: Vec<Kind> },
+    /// Reading the browser's files, then waiting for new profiles to load and for the history to
+    /// go in.
+    Running { source: usize, run: Run },
     /// What came in, or why nothing did.
     Done(SharedString),
+}
+
+/// An import under way.
+#[derive(Default)]
+struct Run {
+    counts: Counts,
+    /// Made once the browser's files are read.
+    job: Option<Job>,
+    /// The profiles whose history the core is still adding.
+    waiting: usize,
+    /// Pages the core added, which leaves out those that were here.
+    pages: usize,
 }
 
 /// The import's view: Settings shows it as its Import tab, and the first launch as a step, with
@@ -204,38 +254,75 @@ enum Step {
 pub struct ImportView {
     host: Rc<dyn Host>,
     skip: bool,
+    look: Look,
     sources: Vec<Source>,
     step: Step,
     /// Which switch last changed, and when, for its knob's slide.
-    switched: Option<(&'static str, Instant)>,
+    switched: Option<(Kind, Instant)>,
 }
 
 impl EventEmitter<ImportEvent> for ImportView {}
 
+/// The browsers under `roots` that have something this build can bring in, the one used last
+/// first.
+pub fn importable(roots: &Roots) -> Vec<Source> {
+    sources::find(roots)
+        .into_iter()
+        .filter(|source| source.browser.family == Family::Chromium && chromium::has_any(source))
+        .collect()
+}
+
 impl ImportView {
     /// Finds the browsers on the machine. With `skip`, it offers to go on without importing, as
-    /// the first launch's step does.
+    /// the first launch's step does. It's drawn in Settings' look until `look` gives another.
     pub fn new(host: Rc<dyn Host>, skip: bool) -> ImportView {
-        let sources: Vec<Source> = sources::find(&host.roots())
-            .into_iter()
-            .filter(|source| source.arc_sidebar().is_some())
-            .collect();
+        let sources = importable(&host.roots());
         let names: Vec<&str> = sources.iter().map(|source| source.browser.name).collect();
         // check.sh waits for this line.
         log!("browser: import found {}", names.join(", "));
         ImportView {
             host,
             skip,
+            look: Look::settings(),
             sources,
             step: Step::List,
             switched: None,
         }
     }
 
+    /// Draws it in `look`, the ground and text of the view it's shown in.
+    pub fn look(mut self, look: Look) -> ImportView {
+        self.look = look;
+        self
+    }
+
+    pub fn set_look(&mut self, look: Look, cx: &mut Context<Self>) {
+        if self.look != look {
+            self.look = look;
+            cx.notify();
+        }
+    }
+
+    /// Whether no browser to import from was found, so a first launch can leave its step out.
+    pub fn is_empty(&self) -> bool {
+        self.sources.is_empty()
+    }
+
+    /// What an import under way says, such as "Importing from Chrome…", for a host to show while
+    /// the view isn't.
+    pub fn running(&self) -> Option<SharedString> {
+        match &self.step {
+            Step::Running { source, .. } => {
+                Some(format!("Importing from {}…", self.sources[*source].browser.name).into())
+            }
+            _ => None,
+        }
+    }
+
     /// Lists the browsers found again, as Settings does each time it shows the tab.
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
         if matches!(self.step, Step::List | Step::Done(_)) {
-            *self = ImportView::new(self.host.clone(), self.skip);
+            *self = ImportView::new(self.host.clone(), self.skip).look(self.look);
             cx.notify();
         }
     }
@@ -243,82 +330,137 @@ impl ImportView {
     fn pick(&mut self, source: usize, cx: &mut Context<Self>) {
         // check.sh waits for this line.
         log!("browser: import pick {}", self.sources[source].browser.name);
-        self.step = Step::Pick {
-            source,
-            picked: Picked {
-                spaces: true,
-                favorites: true,
-            },
-        };
+        let picked = chromium::kinds(&self.sources[source]).to_vec();
+        self.step = Step::Pick { source, picked };
         cx.notify();
     }
 
-    /// Reads the source and starts bringing in what was picked.
-    fn import(&mut self, cx: &mut Context<Self>) {
-        let Step::Pick { source, picked } = self.step else {
-            return;
-        };
-        let from = &self.sources[source];
-        let name = from.browser.name;
-        let read = from
-            .arc_sidebar()
-            .ok_or_else(|| "its sidebar is gone".to_string())
-            .and_then(|path| {
-                let json = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
-                arc::parse(&json)
-            });
-        let sidebar = match read {
-            Ok(sidebar) => sidebar,
-            Err(error) => {
-                log!("browser: import from {name} failed: {error}");
-                self.step = Step::Done(format!("Couldn't read {name}'s data: {error}.").into());
-                cx.notify();
-                return;
+    fn toggle(&mut self, kind: Kind, cx: &mut Context<Self>) {
+        if let Step::Pick { picked, .. } = &mut self.step {
+            match picked.iter().position(|each| *each == kind) {
+                Some(at) => {
+                    picked.remove(at);
+                }
+                None => picked.push(kind),
             }
-        };
-        let names: Vec<(String, String)> = from
-            .profiles
-            .iter()
-            .map(|profile| (profile.dir.clone(), profile.name.clone()))
-            .collect();
-        let plan = plan::plan(&sidebar, &names, &self.host.existing(), picked);
-        let (spaces, pinned, favorites) = plan.counts();
-        // check.sh waits for this line.
-        log!(
-            "browser: import from {name}: {spaces} Spaces, {pinned} pinned tabs, {favorites} favorites"
-        );
-        if plan.is_empty() {
-            self.step = Step::Done(format!("Everything from {name} is here already.").into());
+            self.switched = Some((kind, Instant::now()));
             cx.notify();
-            return;
         }
-        let summary = summary(name, spaces, pinned, favorites);
-        let job = Job::start(plan, &*self.host);
-        self.step = Step::Running {
-            source,
-            job: Some(job),
-        };
-        self.advance(summary, cx);
     }
 
-    /// Finishes the job once its Spaces are in their profiles, else waits for the next change.
-    fn advance(&mut self, summary: SharedString, cx: &mut Context<Self>) {
-        let Step::Running { job, .. } = &mut self.step else {
+    /// Reads what was picked from the browser, away from the UI, then brings it in.
+    fn import(&mut self, cx: &mut Context<Self>) {
+        let Step::Pick { source, picked } = &self.step else {
             return;
         };
-        if job.as_ref().is_some_and(|job| !job.ready(&*self.host)) {
+        let (source, picked) = (*source, picked.clone());
+        let from = self.sources[source].clone();
+        self.step = Step::Running {
+            source,
+            run: Run::default(),
+        };
+        cx.emit(ImportEvent::Started);
+        cx.notify();
+        let read = cx.background_spawn(async move {
+            chromium::read(&from, &picked, SystemTime::now()).map(|found| (from, found))
+        });
+        cx.spawn(async move |view, cx| {
+            let read = read.await;
+            view.update(cx, |view, cx| view.read(read, cx)).ok();
+        })
+        .detach();
+    }
+
+    /// Plans what's read against what's here, and starts it.
+    fn read(&mut self, read: Result<(Source, Found), String>, cx: &mut Context<Self>) {
+        let Step::Running { source, run } = &mut self.step else {
+            return;
+        };
+        let name = self.sources[*source].browser.name;
+        let (from, found) = match read {
+            Ok(read) => read,
+            Err(error) => {
+                log!("browser: import from {name} failed: {error}");
+                return self.finish(format!("Couldn't read {name}'s data: {error}."), cx);
+            }
+        };
+        let names: Vec<(String, String)> = (from.profiles.iter())
+            .map(|profile| (profile.dir.clone(), profile.name.clone()))
+            .collect();
+        let plan = plan::plan(&found, &names, &self.host.existing());
+        let counts = plan.counts();
+        // check.sh waits for this line.
+        log!(
+            "browser: import from {name}: {} Spaces, {} pinned tabs, {} favorites, {} pages",
+            counts.spaces,
+            counts.pinned,
+            counts.favorites,
+            counts.pages
+        );
+        if plan.is_empty() {
+            return self.finish(format!("Everything from {name} is here already."), cx);
+        }
+        run.counts = counts;
+        run.job = Some(Job::start(plan, &*self.host));
+        self.advance(cx);
+    }
+
+    /// Adds what goes in once the Spaces are in their profiles, else waits for the next change.
+    fn advance(&mut self, cx: &mut Context<Self>) {
+        let Step::Running { run, .. } = &mut self.step else {
+            return;
+        };
+        let Some(job) = run.job.take_if(|job| job.ready(&*self.host)) else {
             let view = cx.entity().downgrade();
             self.host.when_spaces_change(Box::new(move |cx| {
-                view.update(cx, |view, cx| view.advance(summary, cx)).ok();
+                view.update(cx, |view, cx| view.advance(cx)).ok();
             }));
             return;
+        };
+        for (profile, pages) in job.finish(&*self.host) {
+            let view = cx.entity().downgrade();
+            let then = Box::new(move |added, cx: &mut App| {
+                view.update(cx, |view, cx| view.history_added(added, cx))
+                    .ok();
+            });
+            if self.host.add_history(profile, &pages, then) {
+                run.waiting += 1;
+            }
         }
-        if let Some(job) = job.take() {
-            job.finish(&*self.host);
+        if run.waiting == 0 {
+            self.complete(cx);
         }
+    }
+
+    fn history_added(&mut self, added: usize, cx: &mut Context<Self>) {
+        let Step::Running { run, .. } = &mut self.step else {
+            return;
+        };
+        run.pages += added;
+        run.waiting = run.waiting.saturating_sub(1);
+        if run.waiting == 0 {
+            self.complete(cx);
+        }
+    }
+
+    fn complete(&mut self, cx: &mut Context<Self>) {
+        let Step::Running { source, run } = &self.step else {
+            return;
+        };
+        let name = self.sources[*source].browser.name;
+        let counts = Counts {
+            pages: run.pages,
+            ..run.counts
+        };
+        self.finish(summary(name, counts), cx);
+    }
+
+    fn finish(&mut self, said: impl Into<SharedString>, cx: &mut Context<Self>) {
+        let said = said.into();
         // check.sh waits for this line.
-        log!("browser: import done");
-        self.step = Step::Done(summary);
+        log!("browser: import done: {said}");
+        self.step = Step::Done(said.clone());
+        cx.emit(ImportEvent::Finished(said));
         cx.notify();
     }
 
@@ -338,71 +480,54 @@ impl ImportView {
             return line("No browser to import from was found on this computer.")
                 .into_any_element();
         }
+        let look = &self.look;
         let rows = self.sources.iter().enumerate().map(|(index, source)| {
-            let profiles: Vec<&str> = source
-                .profiles
-                .iter()
+            let profiles: Vec<&str> = (source.profiles.iter())
                 .map(|profile| profile.name.as_str())
                 .collect();
-            let choose = button(("import-from", index), "Import…")
+            let choose = button(look, ("import-from", index), "Import…")
                 .on_click(cx.listener(move |view, _, _, cx| view.pick(index, cx)));
             detailed(
+                look,
                 source.browser.name.into(),
                 profiles.join(", ").into(),
                 choose.into_any_element(),
             )
         });
-        group(rows).into_any_element()
+        group(look, rows).into_any_element()
     }
 
-    fn picking(&self, source: usize, picked: Picked, cx: &mut Context<Self>) -> gpui::AnyElement {
+    fn picking(&self, source: usize, picked: &[Kind], cx: &mut Context<Self>) -> gpui::AnyElement {
+        let look = &self.look;
         let name = self.sources[source].browser.name;
-        let toggle = |key: &'static str, on: bool, cx: &mut Context<Self>| {
+        let rows = chromium::kinds(&self.sources[source]).iter().map(|&kind| {
             let slid = match self.switched {
-                Some((switched, at)) if switched == key => {
+                Some((switched, at)) if switched == kind => {
                     (at.elapsed().as_secs_f32() / SLIDE).min(1.)
                 }
                 _ => 1.,
             };
-            div()
-                .id(key)
-                .on_click(cx.listener(move |view, _, _, cx| {
-                    if let Step::Pick { picked, .. } = &mut view.step {
-                        let flag = if key == "spaces" {
-                            &mut picked.spaces
-                        } else {
-                            &mut picked.favorites
-                        };
-                        *flag = !*flag;
-                        view.switched = Some((key, Instant::now()));
-                        cx.notify();
-                    }
-                }))
-                .child(switch(on, slid, rgb(NO_THEME_ACCENT)))
-                .into_any_element()
-        };
-        let rows = [
-            row(
-                None,
-                "Spaces, with their pinned tabs and folders",
-                toggle("spaces", picked.spaces, cx),
-            ),
-            row(None, "Favorites", toggle("favorites", picked.favorites, cx)),
-        ];
-        let any = picked.spaces || picked.favorites;
-        let import = button("import", "Import")
+            let on = picked.contains(&kind);
+            let toggle = div()
+                .id(("import-kind", kind as usize))
+                .on_click(cx.listener(move |view, _, _, cx| view.toggle(kind, cx)))
+                .child(switch(look, on, slid, rgb(NO_THEME_ACCENT)));
+            row(None, kind.label(), toggle.into_any_element())
+        });
+        let any = !picked.is_empty();
+        let import = button(look, "import", "Import")
             .when(!any, |button| button.opacity(0.5))
             .when(any, |button| {
                 button.on_click(cx.listener(|view, _, _, cx| view.import(cx)))
             });
-        let back =
-            button("import-back", "Back").on_click(cx.listener(|view, _, _, cx| view.back(cx)));
+        let back = button(look, "import-back", "Back")
+            .on_click(cx.listener(|view, _, _, cx| view.back(cx)));
         div()
             .flex()
             .flex_col()
             .gap(px(BOX_GAP))
             .child(line(format!("From {name}")))
-            .child(group(rows))
+            .child(group(look, rows))
             .child(
                 div()
                     .mt(px(BUTTONS_TOP - BOX_GAP))
@@ -417,7 +542,12 @@ impl ImportView {
 }
 
 /// A row with a grey line under its name.
-fn detailed(name: SharedString, detail: SharedString, control: gpui::AnyElement) -> gpui::Div {
+fn detailed(
+    look: &Look,
+    name: SharedString,
+    detail: SharedString,
+    control: gpui::AnyElement,
+) -> gpui::Div {
     div()
         .px(px(PADDING))
         .py(px(PADDING))
@@ -432,7 +562,7 @@ fn detailed(name: SharedString, detail: SharedString, control: gpui::AnyElement)
                     div()
                         .truncate()
                         .text_size(px(text::SMALL))
-                        .text_color(rgb(DETAIL))
+                        .text_color(look.detail)
                         .child(detail),
                 ),
         )
@@ -445,22 +575,23 @@ fn line(text: impl Into<SharedString>) -> gpui::Div {
 }
 
 /// What an import brought in, as the view says it.
-fn summary(name: &str, spaces: usize, pinned: usize, favorites: usize) -> SharedString {
+fn summary(name: &str, counts: Counts) -> SharedString {
     let count = |count: usize, one: &str, many: &str| match count {
         0 => None,
         1 => Some(format!("1 {one}")),
         count => Some(format!("{count} {many}")),
     };
     let parts: Vec<String> = [
-        count(spaces, "Space", "Spaces"),
-        count(pinned, "pinned tab", "pinned tabs"),
-        count(favorites, "favorite", "favorites"),
+        count(counts.spaces, "Space", "Spaces"),
+        count(counts.pinned, "pinned tab", "pinned tabs"),
+        count(counts.favorites, "favorite", "favorites"),
+        count(counts.pages, "page of history", "pages of history"),
     ]
     .into_iter()
     .flatten()
     .collect();
     let what = match parts.as_slice() {
-        [] => "Folders".to_string(),
+        [] => return format!("Everything from {name} is here already.").into(),
         [one] => one.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
@@ -475,16 +606,13 @@ impl Render for ImportView {
         {
             window.request_animation_frame();
         }
+        let look = self.look;
         let content = match &self.step {
             Step::List => self.list(cx),
-            &Step::Pick { source, picked } => self.picking(source, picked, cx),
-            Step::Running { source, .. } => line(format!(
-                "Importing from {}…",
-                self.sources[*source].browser.name
-            ))
-            .into_any_element(),
+            Step::Pick { source, picked } => self.picking(*source, &picked.clone(), cx),
+            Step::Running { .. } => line(self.running().unwrap_or_default()).into_any_element(),
             Step::Done(said) => {
-                let done = button("import-done", "Done")
+                let done = button(&look, "import-done", "Done")
                     .on_click(cx.listener(|view, _, _, cx| view.done(cx)));
                 div()
                     .flex()
@@ -496,12 +624,13 @@ impl Render for ImportView {
             }
         };
         let skip = (self.skip && matches!(self.step, Step::List | Step::Pick { .. })).then(|| {
-            button("import-skip", "Skip")
+            button(&look, "import-skip", "Skip")
                 .on_click(cx.listener(|_, _, _, cx| cx.emit(ImportEvent::Skipped)))
         });
         div()
             .flex()
             .flex_col()
+            .text_color(look.ink)
             .child(content)
             .children(skip.map(|skip| div().mt(px(BUTTONS_TOP)).flex().justify_end().child(skip)))
     }

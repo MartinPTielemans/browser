@@ -1,8 +1,9 @@
-//! What an import of Arc's sidebar adds, worked out against what the browser has, so that running
-//! it again adds nothing: a Space joins the Space here with its name and profile, a folder the one
-//! with its name in the same place, and a tab or favorite whose URL is already there is skipped.
+//! What an import adds, worked out against what the browser has, so that running it again adds
+//! nothing: a Space joins the Space here with its name and profile, a folder the one with its name
+//! in the same place, and a tab or favorite whose URL is already there is skipped. History is
+//! added whole, and the core skips the pages it has (bc_profile_add_history).
 
-use super::arc::{ArcProfile, Node, Sidebar, Tab};
+use super::found::{Found, FromProfile, Node, Page, Tab};
 use crate::theme::Theme;
 
 /// What the browser has, as far as an import needs to know.
@@ -49,6 +50,19 @@ pub struct Plan {
     pub spaces: Vec<SpacePlan>,
     /// Favorites to add, each with the profile it's for.
     pub favorites: Vec<(ProfileRef, Tab)>,
+    /// Each profile's history.
+    pub history: Vec<(ProfileRef, Vec<Page>)>,
+}
+
+/// How much a plan brings in.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Counts {
+    /// Spaces it makes.
+    pub spaces: usize,
+    pub pinned: usize,
+    pub favorites: usize,
+    /// Pages of history, which may be here already.
+    pub pages: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -80,21 +94,15 @@ pub enum Add {
     },
 }
 
-/// What the user picked to bring in.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Picked {
-    /// Spaces, with their pinned tabs and folders.
-    pub spaces: bool,
-    pub favorites: bool,
-}
-
 impl Plan {
     pub fn is_empty(&self) -> bool {
-        self.new_profiles.is_empty() && self.spaces.is_empty() && self.favorites.is_empty()
+        self.new_profiles.is_empty()
+            && self.spaces.is_empty()
+            && self.favorites.is_empty()
+            && self.history.is_empty()
     }
 
-    /// The Spaces it makes, the pinned tabs and favorites it adds.
-    pub fn counts(&self) -> (usize, usize, usize) {
+    pub fn counts(&self) -> Counts {
         fn tabs(adds: &[Add]) -> usize {
             adds.iter()
                 .map(|add| match add {
@@ -108,23 +116,23 @@ impl Plan {
             .iter()
             .filter(|space| matches!(space.into, Target::New { .. }));
         let pinned = self.spaces.iter().map(|space| tabs(&space.pinned)).sum();
-        (made.count(), pinned, self.favorites.len())
+        Counts {
+            spaces: made.count(),
+            pinned,
+            favorites: self.favorites.len(),
+            pages: self.history.iter().map(|(_, pages)| pages.len()).sum(),
+        }
     }
 }
 
-/// What importing `sidebar` adds to `existing`. `names` are Arc's profiles' names by folder, from
-/// its `Local State`. Arc's default profile is the one the browser started with, and each other
-/// joins the profile here with its name, or a new one.
-pub fn plan(
-    sidebar: &Sidebar,
-    names: &[(String, String)],
-    existing: &Existing,
-    picked: Picked,
-) -> Plan {
+/// What importing `found` adds to `existing`. `names` are the browser's profiles' names by
+/// folder, from its `Local State`. Its default profile is the one this browser started with, and
+/// each other joins the profile here with its name, or a new one.
+pub fn plan(found: &Found, names: &[(String, String)], existing: &Existing) -> Plan {
     let mut plan = Plan::default();
     let start = existing.profiles.first().map_or(0, |(id, _)| *id);
-    let resolve = |profile: &ArcProfile, plan: &mut Plan| -> ProfileRef {
-        let ArcProfile::Custom(dir) = profile else {
+    let resolve = |profile: &FromProfile, plan: &mut Plan| -> ProfileRef {
+        let FromProfile::Custom(dir) = profile else {
             return ProfileRef::Existing(start);
         };
         let name = names
@@ -144,59 +152,60 @@ pub fn plan(
             });
         ProfileRef::New(at)
     };
-    if picked.spaces {
-        for space in &sidebar.spaces {
-            let profile = resolve(&space.profile, &mut plan);
-            let here = existing.spaces.iter().find(|each| {
-                each.name == space.name && profile == ProfileRef::Existing(each.profile)
-            });
-            // Two Arc Spaces of one name and profile become one here, as a rerun would merge them.
-            let planned = plan.spaces.iter().position(|each| match &each.into {
-                Target::New {
-                    name,
-                    profile: each,
-                    ..
-                } => *name == space.name && *each == profile,
-                Target::Existing(id) => here.is_some_and(|here| here.id == *id),
-            });
-            let rows = here.map_or(&[][..], |here| &here.pinned[..]);
-            let mut adds = Vec::new();
-            add(&space.pinned, rows, &mut adds);
-            match planned {
-                Some(at) => merge(&mut plan.spaces[at].pinned, adds),
-                None if here.is_some() && adds.is_empty() => {}
-                None => plan.spaces.push(SpacePlan {
-                    into: match here {
-                        Some(here) => Target::Existing(here.id),
-                        None => Target::New {
-                            name: space.name.clone(),
-                            profile,
-                            icon: space.icon.clone(),
-                            theme: space.theme,
-                        },
+    for space in &found.spaces {
+        let profile = resolve(&space.profile, &mut plan);
+        let here = existing
+            .spaces
+            .iter()
+            .find(|each| each.name == space.name && profile == ProfileRef::Existing(each.profile));
+        // Two Spaces of one name and profile become one here, as a rerun would merge them.
+        let planned = plan.spaces.iter().position(|each| match &each.into {
+            Target::New {
+                name,
+                profile: each,
+                ..
+            } => *name == space.name && *each == profile,
+            Target::Existing(id) => here.is_some_and(|here| here.id == *id),
+        });
+        let rows = here.map_or(&[][..], |here| &here.pinned[..]);
+        let mut adds = Vec::new();
+        add(&space.pinned, rows, &mut adds);
+        match planned {
+            Some(at) => merge(&mut plan.spaces[at].pinned, adds),
+            None if here.is_some() && adds.is_empty() => {}
+            None => plan.spaces.push(SpacePlan {
+                into: match here {
+                    Some(here) => Target::Existing(here.id),
+                    None => Target::New {
+                        name: space.name.clone(),
+                        profile,
+                        icon: space.icon.clone(),
+                        theme: space.theme,
                     },
-                    pinned: adds,
-                }),
+                },
+                pinned: adds,
+            }),
+        }
+    }
+    for (profile, tabs) in &found.favorites {
+        let profile = resolve(profile, &mut plan);
+        for tab in tabs {
+            let here = existing
+                .favorites
+                .iter()
+                .any(|(each, url)| ProfileRef::Existing(*each) == profile && *url == tab.url);
+            let planned = plan
+                .favorites
+                .iter()
+                .any(|(each, planned)| *each == profile && planned.url == tab.url);
+            if !here && !planned {
+                plan.favorites.push((profile, tab.clone()));
             }
         }
     }
-    if picked.favorites {
-        for (profile, tabs) in &sidebar.favorites {
-            let profile = resolve(profile, &mut plan);
-            for tab in tabs {
-                let here = existing
-                    .favorites
-                    .iter()
-                    .any(|(each, url)| ProfileRef::Existing(*each) == profile && *url == tab.url);
-                let planned = plan
-                    .favorites
-                    .iter()
-                    .any(|(each, planned)| *each == profile && planned.url == tab.url);
-                if !here && !planned {
-                    plan.favorites.push((profile, tab.clone()));
-                }
-            }
-        }
+    for (profile, pages) in &found.history {
+        let profile = resolve(profile, &mut plan);
+        plan.history.push((profile, pages.clone()));
     }
     plan
 }

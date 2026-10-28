@@ -3,10 +3,11 @@
 //! its place there, so it loads only once it's first shown.
 
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::ffi::CString;
 use std::path::Path;
 
-use browser::import::arc::Tab;
+use browser::import::found::{Page, Tab};
 use browser::import::plan::{Existing, ExistingSpace, Row};
 use browser::import::sources::{Os, Roots};
 use browser::theme::Theme;
@@ -17,12 +18,23 @@ use crate::{bc, front, ids, name, open_tab_behind};
 thread_local! {
     /// What waits for the Spaces to change, such as an import for its new profiles to load.
     static WAITING: RefCell<Vec<Box<dyn FnOnce(&mut App)>>> = const { RefCell::new(Vec::new()) };
+    /// What waits for history_added, in the order the history went in, which is the order the core
+    /// answers in.
+    static HISTORY: RefCell<VecDeque<Box<dyn FnOnce(usize, &mut App)>>> =
+        const { RefCell::new(VecDeque::new()) };
 }
 
 /// Runs what waited for the Spaces to change.
 pub fn spaces_changed(cx: &mut App) {
     for then in WAITING.take() {
         then(cx);
+    }
+}
+
+/// Tells what waited for the history it added that it's in, with how many pages were new.
+pub fn history_added(added: usize, cx: &mut App) {
+    if let Some(then) = HISTORY.with_borrow_mut(VecDeque::pop_front) {
+        then(added, cx);
     }
 }
 
@@ -184,6 +196,42 @@ impl browser::import::Host for CoreImport {
             unsafe { bc::bc_tab_move_to_favorites(id, usize::MAX) };
             keep(id, tab);
         }
+    }
+
+    fn profile_loaded(&self, profile: u64) -> bool {
+        ids(bc::bc_profiles).contains(&profile)
+    }
+
+    fn add_history(
+        &self,
+        profile: u64,
+        pages: &[Page],
+        then: Box<dyn FnOnce(usize, &mut App)>,
+    ) -> bool {
+        // A page whose text holds a nul can't cross; it's dropped rather than cut short.
+        let text: Vec<(CString, CString, &Page)> = pages
+            .iter()
+            .filter_map(|page| {
+                let url = CString::new(page.url.as_str()).ok()?;
+                let title = CString::new(page.title.as_str()).unwrap_or_default();
+                Some((url, title, page))
+            })
+            .collect();
+        let rows: Vec<bc::bc_history_page> = text
+            .iter()
+            .map(|(url, title, page)| bc::bc_history_page {
+                url: url.as_ptr(),
+                title: title.as_ptr(),
+                last_visit: page.last_visit,
+                visits: page.visits.min(i32::MAX as u32) as i32,
+                typed: page.typed.min(i32::MAX as u32) as i32,
+            })
+            .collect();
+        let started = unsafe { bc::bc_profile_add_history(profile, rows.as_ptr(), rows.len()) };
+        if started {
+            HISTORY.with_borrow_mut(|waiting| waiting.push_back(then));
+        }
+        started
     }
 
     fn when_spaces_change(&self, then: Box<dyn FnOnce(&mut App)>) {

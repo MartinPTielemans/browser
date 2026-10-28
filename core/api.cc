@@ -20,6 +20,7 @@
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/history_import.h"
 #include "browser_core/host.h"
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
@@ -353,6 +354,11 @@ bc_id bc_profile_create(const char* name) {
 
 bool bc_profile_delete(bc_id profile) {
   return browser_core::DeleteProfile(profile);
+}
+
+bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
+  return (pages || !count) &&
+         browser_core::AddImportedHistory(LoadedProfile(profile), profile, pages, count);
 }
 
 size_t bc_spaces(bc_id* spaces, size_t capacity) {

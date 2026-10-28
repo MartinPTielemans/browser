@@ -3488,6 +3488,11 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
     update_app_later(import_host::spaces_changed);
 }
 
+unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
+    log!("browser: history added {added} to profile {profile}");
+    update_app_later(move |cx| import_host::history_added(added, cx));
+}
+
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
     // Each with its holder: the Space it belongs to under Each Space, else its profile.
     let holder = |tab| unsafe {
@@ -4382,6 +4387,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         window_resized: Some(window_resized),
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
+        history_added: Some(history_added),
         ..Default::default()
     };
     (args, host)

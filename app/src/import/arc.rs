@@ -11,57 +11,11 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+use super::found::{Found, FromProfile, Node, Space, Tab, opens_here};
 use crate::theme::{Appearance, MAX_COLORS, Theme};
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ArcProfile {
-    Default,
-    /// A profile's folder under Arc's `User Data`, such as "Profile 1".
-    Custom(String),
-}
-
-impl ArcProfile {
-    /// Its folder under `User Data`, as `Local State` names it.
-    pub fn dir(&self) -> &str {
-        match self {
-            ArcProfile::Default => "Default",
-            ArcProfile::Custom(dir) => dir,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Tab {
-    pub url: String,
-    /// The name the user gave it, or empty for the page's title.
-    pub name: String,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Node {
-    Tab(Tab),
-    Folder { name: String, children: Vec<Node> },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Space {
-    pub name: String,
-    pub profile: ArcProfile,
-    /// As a Space keeps it here: an emoji, `glyph:` and one of ours, or empty.
-    pub icon: String,
-    pub theme: Option<Theme>,
-    pub pinned: Vec<Node>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Sidebar {
-    pub spaces: Vec<Space>,
-    /// Each profile's favorites, in Arc's order.
-    pub favorites: Vec<(ArcProfile, Vec<Tab>)>,
-}
-
 /// The sidebar `json` holds, or why it can't be read.
-pub fn parse(json: &str) -> Result<Sidebar, String> {
+pub fn parse(json: &str) -> Result<Found, String> {
     let root: Value = serde_json::from_str(json).map_err(|error| error.to_string())?;
     let containers = root
         .pointer("/sidebar/containers")
@@ -89,7 +43,11 @@ pub fn parse(json: &str) -> Result<Sidebar, String> {
             Some((profile, tabs))
         })
         .collect();
-    Ok(Sidebar { spaces, favorites })
+    Ok(Found {
+        spaces,
+        favorites,
+        history: Vec::new(),
+    })
 }
 
 /// The objects of a flat array of ids and objects, skipping the ids.
@@ -102,16 +60,12 @@ fn objects(array: Option<&Value>) -> impl Iterator<Item = &Value> {
 }
 
 /// `{"default": true}` or `{"custom": {"_0": {"directoryBasename": …}}}`.
-fn profile(value: &Value) -> Option<ArcProfile> {
+fn profile(value: &Value) -> Option<FromProfile> {
     if value.get("default").is_some() {
-        return Some(ArcProfile::Default);
+        return Some(FromProfile::Default);
     }
     let dir = value.pointer("/custom/_0/directoryBasename")?.as_str()?;
-    Some(if dir == "Default" {
-        ArcProfile::Default
-    } else {
-        ArcProfile::Custom(dir.into())
-    })
+    Some(FromProfile::of(dir))
 }
 
 struct Reader<'a> {
@@ -134,7 +88,7 @@ impl Reader<'_> {
             profile: space
                 .get("profile")
                 .and_then(profile)
-                .unwrap_or(ArcProfile::Default),
+                .unwrap_or(FromProfile::Default),
             icon: info
                 .and_then(|info| info.get("iconType"))
                 .map(icon)
@@ -210,8 +164,7 @@ impl Reader<'_> {
             .iter()
             .filter_map(|key| tab.get(*key)?.as_str())
             .find(|url| !url.is_empty())?;
-        let scheme = url.split_once(':')?.0.to_ascii_lowercase();
-        if !matches!(scheme.as_str(), "http" | "https" | "file") {
+        if !opens_here(url) {
             return None;
         }
         let name = item
