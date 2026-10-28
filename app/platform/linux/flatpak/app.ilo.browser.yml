@@ -25,6 +25,48 @@ finish-args:
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.freedesktop.Notifications
   - --talk-name=org.freedesktop.ScreenSaver
+  # Import from other browsers reads only these profile folders, read-only, copying each
+  # database to a temporary file first, so a browser that's running keeps its own untouched.
+  # Chrome, as installed, as a Flatpak.
+  - --filesystem=xdg-config/google-chrome:ro
+  - --filesystem=~/.var/app/com.google.Chrome/config/google-chrome:ro
+  # Edge, as installed, as a Flatpak.
+  - --filesystem=xdg-config/microsoft-edge:ro
+  - --filesystem=~/.var/app/com.microsoft.Edge/config/microsoft-edge:ro
+  # Brave, as installed, as a Flatpak, as a Snap (through its current revision).
+  - --filesystem=xdg-config/BraveSoftware/Brave-Browser:ro
+  - --filesystem=~/.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser:ro
+  - --filesystem=~/snap/brave/current/.config/BraveSoftware/Brave-Browser:ro
+  # Vivaldi, as installed, as a Flatpak, as a Snap.
+  - --filesystem=xdg-config/vivaldi:ro
+  - --filesystem=~/.var/app/com.vivaldi.Vivaldi/config/vivaldi:ro
+  - --filesystem=~/snap/vivaldi/current/.config/vivaldi:ro
+  # Opera, as installed, as a Flatpak, as a Snap.
+  - --filesystem=xdg-config/opera:ro
+  - --filesystem=~/.var/app/com.opera.Opera/config/opera:ro
+  - --filesystem=~/snap/opera/current/.config/opera:ro
+  # Chromium, as installed, as a Flatpak, ungoogled-chromium's Flatpak, as a Snap.
+  - --filesystem=xdg-config/chromium:ro
+  - --filesystem=~/.var/app/org.chromium.Chromium/config/chromium:ro
+  - --filesystem=~/.var/app/io.github.ungoogled_software.ungoogled_chromium/config/chromium:ro
+  - --filesystem=~/snap/chromium/common/chromium:ro
+  # Helium.
+  - --filesystem=xdg-config/net.imput.helium:ro
+  # Firefox in ~/.mozilla and, from 147, ~/.config/mozilla; as a Flatpak, as a Snap.
+  - --filesystem=~/.mozilla/firefox:ro
+  - --filesystem=xdg-config/mozilla/firefox:ro
+  - --filesystem=~/.var/app/org.mozilla.firefox/.mozilla/firefox:ro
+  - --filesystem=~/.var/app/org.mozilla.firefox/config/mozilla/firefox:ro
+  - --filesystem=~/snap/firefox/common/.mozilla/firefox:ro
+  # Zen, in its old folder and its new, as a Flatpak.
+  - --filesystem=~/.zen:ro
+  - --filesystem=xdg-config/zen:ro
+  - --filesystem=~/.var/app/app.zen_browser.zen/.zen:ro
+  - --filesystem=~/.var/app/app.zen_browser.zen/config/zen:ro
+  # LibreWolf, in its old folder and its new, as a Flatpak.
+  - --filesystem=~/.librewolf:ro
+  - --filesystem=xdg-config/librewolf/librewolf:ro
+  - --filesystem=~/.var/app/io.gitlab.librewolf-community/.librewolf:ro
 modules:
   - name: zypak
     sources:
