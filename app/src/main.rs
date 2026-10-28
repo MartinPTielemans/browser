@@ -4371,7 +4371,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         args.push(format!("{TEST_HOST}={host}"));
     }
     // The checks' crash, which has Crashpad write a minidump (core/crash_reports.h).
-    const CRASH_TEST: &str = "--crash-test";
+    const CRASH_TEST: &str = "--crash-after-start";
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
     args.extend(std::env::args().skip(1).filter(|arg| {

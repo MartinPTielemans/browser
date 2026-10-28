@@ -10,8 +10,9 @@ namespace browser_core::crash_reports {
 // app gave, not Chromium's default one, which another Chromium on the machine shares.
 void PlaceReports();
 
-// Once the app has started, with --crash-test: the browser crashes, so the checks see Crashpad write
-// its minidump (app/check/crash.sh). The prod app doesn't pass the switch on.
+// Once the app has started, with --crash-after-start: the browser crashes, once Crashpad's handler
+// is up, so the checks see it write its minidump (app/check/crash.sh). The prod app doesn't pass
+// the switch on.
 void CrashIfTesting();
 
 }  // namespace browser_core::crash_reports
