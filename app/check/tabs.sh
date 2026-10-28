@@ -615,11 +615,12 @@ quit 30
 
 app_ms=$(sed -n 's/^browser: selected [0-9]* in \([0-9.]*\) ms$/\1/p' "$log" | summary)
 [ -s "$trace" ] || fail "the app didn't write its trace"
-chrome_ms=$(python3 -I - "$trace" << 'PY' | summary
+spans=$(python3 -I - "$trace" << 'PY'
 import json, sys
 # Chrome's tab switch spans, begin and end events paired by id, in microseconds. A switch to a tab
 # whose page hasn't loaded yet, as when a new tab shows, times the page load; Chrome reports those
-# apart from switches, and so does this.
+# apart from switches, and so does this. A switch cut off before its frame showed, as by the next
+# switch while ⌃ is held, never finished, so Chrome's histograms leave it out; it's only counted.
 events = json.load(open(sys.argv[1]))
 events = events["traceEvents"] if isinstance(events, dict) else events
 begins = {}
@@ -627,15 +628,18 @@ for event in events:
     if event.get("name") != "TabSwitching::Latency":
         continue
     if event.get("ph") == "b":
-        state = event.get("args", {}).get("tab_switch_measurement", {}).get("tab_state", "")
-        begins[event.get("id")] = (event["ts"], "NOT_LOADED" in state)
+        measurement = event.get("args", {}).get("tab_switch_measurement", {})
+        begins[event.get("id")] = (event["ts"], "NOT_LOADED" in measurement.get("tab_state", ""),
+                                   measurement.get("result") == "RESULT_INCOMPLETE")
     elif event.get("ph") == "e" and event.get("id") in begins:
-        begin, not_loaded = begins.pop(event.get("id"))
+        begin, not_loaded, incomplete = begins.pop(event.get("id"))
         if not not_loaded:
-            print((event["ts"] - begin) / 1000)
+            print("incomplete" if incomplete else (event["ts"] - begin) / 1000)
 PY
 )
-[ -n "$chrome_ms" ] || fail "the trace has no tab switches"
+chrome_ms=$(echo "$spans" | grep -v incomplete | summary)
+[ -n "$chrome_ms" ] || fail "the trace has no finished tab switches"
+chrome_ms="$chrome_ms, $(echo "$spans" | grep -c incomplete) incomplete, not counted"
 echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
 echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png"
