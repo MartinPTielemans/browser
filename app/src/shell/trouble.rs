@@ -26,6 +26,7 @@ pub const WAIT: &str = "Wait";
 use crate::tokens::shell::trouble::WORDS_SIZE;
 use crate::tokens::shell::trouble::BUTTON_INSET;
 use crate::tokens::shell::trouble::LINE;
+use crate::tokens::text;
 /// Lucide's circle-alert, in the speaker's place in the row.
 pub(super) const MARK: &str = "icons/circle-alert.svg";
 
@@ -138,7 +139,7 @@ impl Shell {
                         .items_center()
                         .justify_center()
                         // The plates' type, so the button is theirs.
-                        .text_size(px(13.))
+                        .text_size(px(text::BODY))
                         .line_height(px(LINE))
                         .on_mouse_down(
                             MouseButton::Left,

@@ -1,6 +1,7 @@
 //! The New Space form, which a new Space's page shows in place of its list: its name,
 //! its profile and its theme (docs/ux-spec.md › Spaces).
 
+use crate::tokens::text;
 use std::time::Instant;
 
 use gpui::{
@@ -181,7 +182,7 @@ impl Shell {
             .flex()
             .items_center()
             .justify_center()
-            .text_size(px(17.))
+            .text_size(px(text::HEADING))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(rgb(FORM_TEXT))
             .child("New Space");
@@ -190,7 +191,7 @@ impl Shell {
             .opacity(field_opacity)
             .px(px(FORM_TEXT_X - FORM_INSET))
             .bg(rgba(FORM_PLATE))
-            .text_size(px(14.))
+            .text_size(px(text::BODY))
             .font_weight(FontWeight::MEDIUM)
             .text_color(rgb(FORM_TEXT))
             .child(form.name.clone());
@@ -201,7 +202,7 @@ impl Shell {
                 .opacity(rows_opacity)
                 .pl(px(FORM_GLYPH_X - FORM_GLYPH / 2. - FORM_INSET))
                 .bg(rgba(FORM_PLATE))
-                .text_size(px(13.))
+                .text_size(px(text::BODY))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(rgb(FORM_TEXT))
                 .child(svg().path(glyph).size(px(FORM_GLYPH)).text_color(rgba(FORM_GLYPH_COLOR)))
@@ -221,8 +222,8 @@ impl Shell {
             .pr(px(FORM_PILL_RIGHT))
             .rounded(px(FORM_PILL_HEIGHT / 2.))
             .bg(rgba(FORM_PILL))
-            .text_size(px(11.))
-            .font_weight(FontWeight::BOLD)
+            .text_size(px(text::SMALL))
+            .font_weight(FontWeight::SEMIBOLD)
             .child(profile)
             .child(
                 svg()
@@ -251,7 +252,7 @@ impl Shell {
             .justify_center()
             .opacity(buttons_opacity * if named { 1. } else { CREATE_UNNAMED })
             .bg(rgb(CREATE))
-            .text_size(px(13.))
+            .text_size(px(text::BODY))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(rgb(FORM_TEXT))
             .child("Create Space")
@@ -271,7 +272,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .block_mouse_except_scroll()
-                    .text_size(px(12.))
+                    .text_size(px(text::SMALL))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgba(SECONDARY))
                     // It brightens to the form's text under the pointer (ours: Arc's isn't

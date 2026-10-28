@@ -60,7 +60,7 @@ pub use crate::tokens::command_bar::ABOVE_MIDDLE;
 pub use crate::tokens::command_bar::FIELD_WIDTH;
 use crate::tokens::command_bar::FIELD_ABOVE;
 pub use crate::tokens::command_bar::FIELD_RADIUS;
-/// There the input's row is a row tall, with no line under it, and its icon and 14 pt text sit in
+/// There the input's row is a row tall, with no line under it, and its icon and text sit in
 /// the rows' icon and title columns.
 const FIELD_INPUT: f32 = ROW_HEIGHT;
 use crate::tokens::command_bar::FIELD_INPUT_TEXT;
@@ -82,6 +82,7 @@ use crate::tokens::command_bar::ACCENT_LIGHTNESS;
 use crate::tokens::command_bar::ACCENT;
 use crate::tokens::command_bar::TEXT;
 use crate::tokens::command_bar::CHIP_RADIUS;
+use crate::tokens::text;
 pub(crate) const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
 
 /// One of the core's suggestions for what's typed.
@@ -1328,7 +1329,7 @@ impl CommandBar {
                 .flex()
                 .items_center()
                 .gap(px(9.))
-                .text_size(px(14.))
+                .text_size(px(text::BODY))
                 .child(div().text_color(rgba(DIM)).child(format!("Search {}", row.site)))
                 .child(key),
         )
@@ -1404,7 +1405,7 @@ impl CommandBar {
                 .rounded(px(CHIP_RADIUS))
                 .bg(fill)
                 .text_color(text_color)
-                .text_size(px(13.))
+                .text_size(px(text::BODY))
                 .child(text)
         };
         div()
@@ -1575,7 +1576,7 @@ impl Render for CommandBar {
                 .text_color(rgb(TEXT))
                 // Arc's text is medium, by its strokes at 2× (Arc 1.170.0 cap).
                 .font_weight(FontWeight::MEDIUM)
-                .text_size(px(14.))
+                .text_size(px(text::BODY))
                 .child(
                     div()
                         .h(px(input_height))
@@ -1596,7 +1597,7 @@ impl Render for CommandBar {
                                     .py(px(2.))
                                     .rounded(px(CHIP_RADIUS))
                                     .bg(rgba(CHIP))
-                                    .text_size(px(14.))
+                                    .text_size(px(text::BODY))
                                     .child(site.name.clone()),
                             )
                         })

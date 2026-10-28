@@ -413,6 +413,7 @@ use crate::tokens::shell::WINDOW_BUTTON_GLYPH;
 use crate::tokens::shell::WINDOW_BUTTON_CLOSE;
 use crate::tokens::shell::WINDOW_BUTTON_MINIMIZE;
 use crate::tokens::shell::WINDOW_BUTTON_ZOOM;
+use crate::tokens::text;
 
 #[derive(Clone, Default)]
 struct Tab {
@@ -3215,7 +3216,7 @@ fn name_box(icon: bool) -> gpui::Div {
         .items_center()
         .pl(px(if icon { NAME_X } else { ICONLESS_NAME_X }))
         .pr(px(FAVICON_X))
-        .text_size(px(13.))
+        .text_size(px(text::BODY))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgba(SPACE_NAME))
 }
@@ -3305,7 +3306,7 @@ fn clear_label(arrow: AnyElement, room: f32, color: u32) -> gpui::Div {
         .h_full()
         .flex()
         .items_center()
-        .text_size(px(10.))
+        .text_size(px(text::SMALL))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(rgba(color))
         .child(
@@ -3334,7 +3335,7 @@ fn still_clear(arrow: bool) -> gpui::Div {
 /// label as a favicon does on its title; a "+" set in text sat on its font's baseline, 2 pt low.
 fn new_tab_label() -> (gpui::Svg, gpui::Div) {
     let plus = svg().path("icons/plus.svg").size(px(FAVICON_DRAWN)).text_color(rgba(NEW_TAB_PLUS));
-    let label = div().text_size(px(14.)).text_color(rgba(NEW_TAB)).child("New Tab");
+    let label = div().text_size(px(text::BODY)).text_color(rgba(NEW_TAB)).child("New Tab");
     (plus, label)
 }
 
@@ -3404,7 +3405,7 @@ fn title(title: SharedString, selected: bool) -> gpui::Div {
         .flex_1()
         .min_w_0()
         .truncate()
-        .text_size(px(14.))
+        .text_size(px(text::BODY))
         .text_color(rgba(if selected { TITLE } else { UNSELECTED_TITLE }))
         .child(title)
 }

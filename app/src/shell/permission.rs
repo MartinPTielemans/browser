@@ -30,6 +30,7 @@ use crate::tokens::shell::permission::CLOSE;
 use crate::tokens::shell::permission::CLOSE_INSET;
 use crate::tokens::shell::permission::CLOSE_GLYPH;
 use crate::tokens::shell::permission::SHADOW;
+use crate::tokens::text;
 /// The room a card's first line leaves for its ×.
 pub(super) const BESIDE_CLOSE: f32 = CLOSE + CLOSE_INSET - PADDING;
 
@@ -181,7 +182,7 @@ impl Shell {
                 inset: false,
             }])
             .block_mouse_except_scroll()
-            .text_size(px(13.))
+            .text_size(px(text::BODY))
             .line_height(px(LINE))
     }
 
