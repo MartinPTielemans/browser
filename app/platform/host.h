@@ -558,26 +558,30 @@ void host_share_with(const char* url, const char* title, size_t index);
 // milliseconds since the Unix epoch.
 void host_day_starts(double starts[4]);
 
-// Updates, on the Mac only so far (platform/mac/updates.mm).
+// Updates: Sparkle on the Mac (platform/mac/updates.mm), WinSparkle on Windows
+// (platform/windows/updates.cc).
 
-// Before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe Storage" in
+// On the Mac, before Chromium starts: makes sure Chromium can read its cookie key, "<name> Safe Storage" in
 // the Keychain, when the app's signature is new, as after a move to another signing identity.
 // Where macOS asks and the user doesn't allow it, an alert offers Try Again until it can, or Quit,
 // when this returns false and the app quits before Chromium starts. Without the key, Chromium
 // can't read the profile's cookies and passwords.
 bool host_keep_keychain_key(void);
 
-// Whether this build updates itself: a release build that carries Sparkle, its feed and its key.
+// Whether this build updates itself: a release build that carries the updater, its feed and its
+// key, and on Windows not an MSIX from the Microsoft Store, which the Store updates.
 bool host_updates_available(void);
 
-// Starts the updater, which checks every 8 hours, downloads an update in the background and
-// installs it when the app quits. Does nothing where host_updates_available is false.
-void host_start_updater(void);
+// Starts the updater, which checks every 8 hours. On the Mac it downloads an update in the
+// background and installs it when the app quits; on Windows it offers it, and calls |quit| on the
+// main thread once the installer it started waits for the browser to quit. Does nothing where
+// host_updates_available is false.
+void host_start_updater(void (*quit)(void));
 
 // Checks for updates now, showing what it finds: the app menu's Check for Updates….
 void host_check_for_updates(void);
 
-// Calls |notes| with the release notes' URL of the update this launch is the first of, once.
+// On the Mac: calls |notes| with the release notes' URL of the update this launch is the first of, once.
 void host_take_update_notes(void (*notes)(const char* url));
 
 // For the test driver: presses the button titled |title| in the alert shown. False if none shows.
