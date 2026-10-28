@@ -645,7 +645,8 @@ void host_watch_key_window(void (*changed)(void* ui_view)) {
   WatchForeground();
 }
 
-// shortcut: Windows' full screen isn't hooked yet; the core's page full screen still works.
+// Only Chromium's window hears full screen on Windows, as on Linux, so the host can't; the core
+// reports it through window_full_screen_changed instead (main.rs), and this stays empty.
 void host_watch_full_screen(void (*)(void*, bool)) {}
 
 // shortcut: Windows sends a touchpad's swipes as scrolls, which the page takes.

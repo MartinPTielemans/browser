@@ -4470,7 +4470,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         agent_activity: Some(agent_activity),
         #[cfg(target_os = "linux")]
         window_resized: Some(window_resized),
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
         window_full_screen_changed: Some(window_full_screen_changed),
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
@@ -4507,10 +4507,9 @@ unsafe extern "C" fn window_resized(_: *mut c_void, window: bc::bc_id, width: f6
     }
 }
 
-/// A browser window has gone full screen or left it, which on Linux only Chromium's window hears.
-/// Windows' host can't hear it either: setting this there too stands in for its
-/// host_watch_full_screen.
-#[cfg(target_os = "linux")]
+/// A browser window has gone full screen or left it, which on Linux and Windows only Chromium's
+/// window hears; their hosts can't, so setting this stands in for their host_watch_full_screen.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 unsafe extern "C" fn window_full_screen_changed(_: *mut c_void, window: bc::bc_id, entered: bool) {
     // The core can say it during a call the app makes in an update, such as bc_window_restore's.
     let Some(cx) = CX.with_borrow(Clone::clone) else {
