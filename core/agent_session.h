@@ -33,6 +33,15 @@ size_t EndAgentSessions(const std::string& agent, int why);
 // Ends whichever agent's session holds |tab| for |why|, and returns whether one did.
 bool EndTabSession(bc_id tab, int why);
 
+// The user holds |tab| from agents, as at a handoff or once they take it over: no agent may act
+// in it until they hand it back. For this run of the browser, as sessions are.
+void Hold(bc_id tab);
+
+// Hands |tab| back, and returns whether the user held it.
+bool HandBack(bc_id tab);
+
+bool IsHeld(bc_id tab);
+
 }  // namespace browser_core
 
 #endif  // BROWSER_CORE_AGENT_SESSION_H_

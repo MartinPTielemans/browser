@@ -998,12 +998,18 @@ fn breath_strength(phase: f32) -> f32 {
 }
 
 impl Shell {
-    /// A tab's status dot, in the slot at its row's end, if it has one: Signal green while an
-    /// agent is at work in it, else the row's text while its page loads, breathing while it loads
-    /// either way.
+    /// A tab's status dot, in the slot at its row's end, if it has one: a Signal ring while the
+    /// user holds it from its agent, Signal green while an agent is at work in it, else the row's
+    /// text while its page loads, breathing while it loads either way.
     fn status_dot(&self, tab: u64) -> Option<impl IntoElement + use<>> {
         let (loading, agent) = (self.page(tab).loading, self.agent_at_work(tab));
         let dot = match (agent, loading) {
+            // The user holds it from its agent: a ring with nothing in it, waiting on them.
+            _ if self.agent_holds(tab) => div()
+                .size(px(STATUS_DOT))
+                .rounded_full()
+                .border(px(STATUS_RING))
+                .border_color(rgb(STATUS_AGENT)),
             (true, _) => ringed_dot(STATUS_AGENT, STATUS_DOT),
             (false, true) => {
                 div().size(px(STATUS_DOT)).rounded_full().bg(self.palette.text(STATUS_LOADING))
