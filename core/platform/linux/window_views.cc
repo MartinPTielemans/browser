@@ -400,9 +400,16 @@ class WindowViews : public views::WidgetObserver,
   }
 
   void OnMouseEvent(ui::MouseEvent* event) override {
+    if (event->type() != ui::EventType::kMousePressed) {
+      return;
+    }
+    // On X11 a press outside an overlay with the keyboard takes the input focus from it, which
+    // tells GPUI the user left it. Under Wayland GPUI sees the press itself.
+    if (overlay_has_keyboard_ && ui_ != x11::Window::None) {
+      SetInputFocus(window());
+    }
     // A click in a page that's focused already focuses nothing.
-    if (event->type() == ui::EventType::kMousePressed &&
-        InSlot(static_cast<aura::Window*>(event->target()))) {
+    if (InSlot(static_cast<aura::Window*>(event->target()))) {
       PageTakesKeyboard();
     }
   }
