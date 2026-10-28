@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::Appearance;
 
 /// A theme as the design sweep (#320) names one: `count` colours, the main one at `hue` degrees,
 /// HSL `saturation` and `lightness` (its distance from the field's centre).
@@ -14,12 +15,12 @@ fn hex(color: Rgba) -> u32 {
 }
 
 /// The window, finer than the palette checks it: 17 points along the gradient's line and 17 down,
-/// the sidebar's and the page's alike, opaque.
+/// the sidebar's and the page's alike, each over a black and a white backdrop.
 fn fine_window(palette: &Palette, theme: Option<&Theme>) -> Vec<Rgba> {
     let steps = 16;
     (0..=steps)
         .flat_map(|along| (0..=steps).map(move |y| (along as f32 / steps as f32, y as f32 / steps as f32)))
-        .map(|(along, y)| palette.window_at(theme, along, y))
+        .flat_map(|(along, y)| palette.window_at(theme, along, y))
         .collect()
 }
 
@@ -31,9 +32,7 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
     let grain = theme.map_or(0., |theme| theme.grain);
     let ink = palette.ink;
     let grained: Vec<Rgba> = window.iter().map(|&at| over(at, ink, GRAIN_SHIFT * grain)).collect();
-    let plated = |plate: f32| -> Vec<Rgba> {
-        window.iter().map(|&at| over(at, ink, palette.plate_alpha(plate))).collect()
-    };
+    let plated = |plate: f32| -> Vec<Rgba> { window.iter().map(|&at| over(at, ink, plate)).collect() };
     let mut failed = Vec::new();
     let mut check = |name: &str, worst: f32, minimum: f32| {
         if worst < minimum - 1e-4 {
@@ -69,6 +68,13 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
     // What floats over the page.
     check("overlay text", contrast(ink, palette.overlay), TEXT);
     check("dialog text", contrast(ink, palette.dialog), TEXT);
+    // The pickers' card over the window, and the text on it.
+    let cards: Vec<Rgba> = window.iter().map(|&at| over(at, palette.card, palette.card.a)).collect();
+    let white = Hsla::from(WHITE);
+    check("picker hint", on(white.opacity(rgba(CARD_HINT).a), &cards), TEXT);
+    let segments: Vec<Rgba> = cards.iter().map(|&at| over(at, WHITE, rgba(CARD_SEGMENTS).a)).collect();
+    let label = segments.iter().map(|&at| contrast(rgb(CARD_LABEL), at)).fold(f32::MAX, f32::min);
+    check("picker segment label", label, TEXT);
     // The Space's swatch, ringed where its edge doesn't reach 3:1 on the window.
     let swatch = match theme {
         Some(theme) => Window::of(theme).swatch(),
@@ -117,45 +123,52 @@ fn sweep(themes: &[Theme]) -> Vec<String> {
         .collect()
 }
 
-/// A Space with no theme has ilo green made to read with Ink on it, and everything passes.
+/// A Space with no theme has the measured window, black 0.25 over the material and nothing more,
+/// and ilo green made to read with Ink on it, and everything passes.
 #[test]
-fn no_theme_is_ilo_green_with_ink() {
+fn no_theme_is_the_measured_window_and_ilo_green_with_ink() {
     let palette = Palette::of(None);
-    assert_eq!(hex(palette.accent), NO_THEME_ACCENT);
+    assert_eq!((palette.tint.a, palette.shade, palette.layer_alpha), (TINT, 0., 0.));
+    // #289054 reads 2.7:1 on the window over a white backdrop, so ilo green, lighter, at its hue.
+    assert_eq!(hex(palette.accent), 0x57b97a);
     assert_eq!(hex(palette.accent_label), INK);
     assert!(contrast(palette.accent_label, palette.accent) >= TEXT);
-    assert!(!palette.light && !palette.ink_family);
     // #0B8045 with Paper, the value #319 first had, is under 4.5.
     assert!(contrast(rgb(PAPER), rgb(0x0b8045)) < TEXT);
     assert_eq!(failures(None), Vec::<String>::new());
 }
 
-/// The port gives the design sweep's answers (model.py and sweep.py in #320) for its showcase
-/// themes: the underlay, Ink or Paper and the label's. k is never higher, and at most three steps
-/// lower: the port checks the plates the whole way down the window, where the sweep checked them
-/// halfway, so a selected tab at the sidebar's foot reads too. The accent is within 16 levels a
-/// channel: the port's label aims at 4.6 where the sweep's took 4.5, and its points checked have
-/// a margin.
+/// A theme lies over the window as a Space's colour did before themes, and only a theme too light
+/// for Paper over a white backdrop is shaded, by the least step that lets it read.
 #[test]
-fn it_matches_the_design_sweep() {
-    // name, theme, light underlay, Ink, k, accent, Ink label
-    let cases = [
-        ("Garden", Theme::of_color(0x00ff6a), true, true, 1., 0x007f31, false),
-        ("blue", Theme::of_color(0x1a79ff), false, false, 0.7, 0x96bfff, true),
-        ("yellow", theme(1, 0., "automatic", 60., 1., 0.55, 0.), true, true, 1., 0x717100, false),
-        ("near-white", theme(3, 1., "automatic", 300., 1., 0.95, 1.), true, true, 1., 0x7c667c, false),
-        ("violet", theme(3, 0., "automatic", 270., 1., 0.15, 0.2), false, false, 1., 0x8d71c3, true),
-        ("dusk", theme(2, 0., "automatic", 300., 0.35, 0.15, 0.3), false, false, 1., 0x947493, true),
-    ];
-    for (name, theme, light, ink, k, accent, ink_label) in cases {
-        let palette = Palette::of(Some(&theme));
-        let layer_k = palette.layer_alpha / (INTENSITY_FLOOR + INTENSITY_SPAN * theme.intensity);
-        let got = hex(palette.accent);
-        let near = (0..3).all(|i| ((got >> (8 * i) & 0xff) as i32 - (accent >> (8 * i) & 0xff) as i32).abs() <= 16);
-        assert_eq!((palette.light, palette.ink_family), (light, ink), "{name}");
-        assert!(layer_k <= k + 1e-4 && layer_k >= k - 3. * K_STEP - 1e-4, "{name}: k {layer_k}, the sweep's {k}");
-        assert!(near, "{name}: accent {got:06x}, the sweep's {accent:06x}");
-        assert_eq!(hex(palette.accent_label) == INK, ink_label, "{name}");
+fn the_window_is_shaded_only_where_paper_needs_it() {
+    // check/window.sh's black Space, measured against Dia's composite: neutral, unshaded.
+    let black = Palette::of(Some(&Theme::at(0., 0.)));
+    assert_eq!((black.tint.a, black.shade, black.layer_alpha), (TINT, 0., NEUTRAL_GRADIENT_ALPHA));
+    let violet = Palette::of(Some(&Theme::of_color(0x5a2a9a)));
+    assert_eq!((violet.shade, violet.layer_alpha), (0., GRADIENT_ALPHA));
+    // Blue lightens to #9AC3FF down the window, too light for Paper's plates over white.
+    let pale = Theme::of_color(0x1a79ff);
+    let palette = Palette::of(Some(&pale));
+    assert!(palette.shade > 0., "the blue isn't shaded");
+    let less = Palette { shade: palette.shade - SHADE_STEP, ..palette };
+    let paper = rgb(PAPER);
+    let fails = less.window_samples(Some(&pale)).iter().any(|&at| {
+        contrast(paper, over(at, paper, SELECTED_PLATE)) < TEXT + BETWEEN
+    });
+    assert!(fails, "a step less shade would have read");
+}
+
+/// The pickers' card keeps Arc's measured grey where its text reads, and Capture's glyphs reach
+/// 3:1 on its menu and a hovered row.
+#[test]
+fn the_pickers_card_and_captures_glyphs_read() {
+    let black = Palette::of(Some(&Theme::at(0., 0.)));
+    assert_eq!(hex(black.card), hex(rgba(CARD)), "the measured grey over the black Space");
+    assert_eq!(Palette::of(None).card, rgba(CARD), "the measured grey with no theme");
+    use crate::tokens::capture::{GLYPH_COLOR, MENU_FILL, ROW_HOVERED};
+    for ground in [rgba(MENU_FILL), over(rgba(MENU_FILL), WHITE, rgba(ROW_HOVERED).a)] {
+        assert!(contrast(over(ground, rgb(PAPER), GLYPH_COLOR), ground) >= GLYPH);
     }
 }
 
@@ -233,11 +246,15 @@ fn full_sweep() {
             .collect();
         chunks.into_iter().flat_map(|chunk| chunk.join().unwrap()).collect()
     });
-    let capped = themes.iter().filter(|t| {
-        let p = Palette::of(Some(t));
-        p.layer_alpha < INTENSITY_FLOOR + INTENSITY_SPAN * t.intensity - 1e-4
-    });
-    eprintln!("{} themes, {} capped, {} failing", themes.len(), capped.count(), failed.len());
+    let palettes: Vec<Palette> = themes.iter().map(|t| Palette::of(Some(t))).collect();
+    let shaded = palettes.iter().filter(|p| p.shade > 0.).count();
+    let most = palettes.iter().map(|p| p.shade).fold(0., f32::max);
+    let card = palettes.iter().filter(|p| p.card != rgba(CARD)).count();
+    eprintln!(
+        "{} themes, {shaded} shaded (at most {most}), {card} with a darker card, {} failing",
+        themes.len(),
+        failed.len()
+    );
     assert_eq!(failed.iter().take(20).collect::<Vec<_>>(), Vec::<&String>::new());
 }
 
