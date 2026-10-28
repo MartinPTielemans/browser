@@ -124,7 +124,7 @@ impl Shell {
 mod tests {
     use std::rc::Rc;
 
-    use gpui::{AppContext, Entity, SharedString, TestAppContext};
+    use gpui::{AppContext, Entity, SharedString, TestAppContext, point, px};
 
     use super::Bar;
     use crate::agents::Status;
@@ -193,5 +193,30 @@ mod tests {
         host.take();
         shell.update(cx, |shell, cx| shell.run(Command::BackToPinnedUrl, "page", cx));
         assert_eq!(host.take(), ["hand back 21"]);
+    }
+
+    /// The menu of a tab the user took back says so first, and Hand Back gives it back; the rest
+    /// of the menu keeps its submenus. A tab the agent still has says nothing of it.
+    #[gpui::test]
+    fn a_taken_back_tabs_menu_hands_it_back(cx: &mut TestAppContext) {
+        let (shell, host) = shell_in_agents_space(cx);
+        shell.update(cx, |shell, cx| shell.set_agent_status(status(vec![(21, "".into())]), cx));
+        let at = point(px(100.), px(200.));
+        shell.update(cx, |shell, cx| shell.tab_menu(21, at, cx));
+        let menu = host.menus.borrow().last().cloned().unwrap();
+        let head: Vec<_> = menu.iter().take(2).map(|(title, on)| (title.as_ref(), *on)).collect();
+        let hand_back = ("Hand Back to Claude Code", true);
+        assert_eq!(head, [("Taken Back from Claude Code", false), hand_back]);
+        let entries = host.entries.borrow().clone();
+        let move_to = entries.iter().position(|entry| entry.title == "Move to").unwrap();
+        let new_space = entries.iter().find(|entry| entry.title == "New Space…").unwrap();
+        assert_eq!(new_space.parent, Some(move_to), "the submenu lost its place");
+        host.take();
+        cx.update(|cx| host.choose("Hand Back to Claude Code", cx));
+        assert!(host.take().contains(&"hand back 21".to_string()));
+
+        shell.update(cx, |shell, cx| shell.tab_menu(20, at, cx));
+        let menu = host.menus.borrow().last().cloned().unwrap();
+        assert!(!menu.iter().any(|(title, _)| title.starts_with("Hand Back")));
     }
 }

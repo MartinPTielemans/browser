@@ -215,9 +215,11 @@ note.oninput = () => document.title = "noted";
   esac
 
   # hand_off waits, in a card in the window, until the user hands the tab back.
+  cards=$(grep -c '^browser: agent question [0-9]* at ' "$log")
   request hand_off "{\"tab\":$opened_tab,\"reason\":\"Sign in for the check\"}" >&4
   await_log "^browser: agent mcp-client hands off $opened_tab: Sign in for the check\$" \
     "hand_off didn't hand the tab to the user"
+  await_more '^browser: agent question [0-9]* at ' "$cards" || fail "the handoff wasn't drawn"
   q=$(grep '^browser: agent question [0-9]* at ' "$log" | tail -1 | cut -d' ' -f4)
   read -r qx qy qw qh <<CARD
 $(grep "^browser: agent question $q at " "$log" | tail -1 | cut -d' ' -f6-)
@@ -250,6 +252,25 @@ BAR
   esac
   await_log "^browser: agent activity mcp-client $opened_tab scroll refused: .*hand it back" \
     "the refusal didn't reach the activity log"
+  # The agent asks for the tab in a card, and Keep, at the left, keeps it the user's.
+  cards=$(grep -c '^browser: agent question [0-9]* at ' "$log")
+  request ask_for_tab "{\"tab\":$opened_tab,\"reason\":\"To finish the check\"}" >&4
+  await_log "^browser: agent mcp-client asks for $opened_tab back: To finish the check\$" \
+    "ask_for_tab didn't ask"
+  await_more '^browser: agent question [0-9]* at ' "$cards" || fail "the agent's ask wasn't drawn"
+  q=$(grep '^browser: agent question [0-9]* at ' "$log" | tail -1 | cut -d' ' -f4)
+  read -r qx qy qw qh <<CARD
+$(grep "^browser: agent question $q at " "$log" | tail -1 | cut -d' ' -f6-)
+CARD
+  ../tools/window-screenshot.sh "$pid" "$out/agent-ask-for-tab.png" || fail "no window to capture"
+  send click $((qx + 30)) $((qy + qh - 26))
+  await_log "^browser: agent mcp-client answered $q Never\$" "Keep didn't answer"
+  read -r -t 30 kept <&5 || fail "the browser didn't answer ask_for_tab"
+  kept=$(echo "$kept" | answered)
+  case "$kept" in
+    "error: The user keeps tab $opened_tab."*) ;;
+    *) fail "ask_for_tab answered: $kept" ;;
+  esac
   # Hand Back, the held tab's bar's one button, at its left.
   send click $((bx + 30)) $((by + bh - 26))
   await_log "^browser: agent mcp-client handed back $opened_tab\$" "the bar's Hand Back didn't"
@@ -339,7 +360,7 @@ fi
 quit
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi

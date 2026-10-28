@@ -15,6 +15,9 @@ use serde_json::json;
 
 use super::*;
 
+/// The core's refusal of a tab the user holds.
+const HELD: &str = "The user has this tab until they hand it back. Ask for it with ask_for_tab.";
+
 /// The user's Space 1 with the tab 10, on Wikipedia, and Claude Code's Space 2 with the tab 20, on
 /// example.com, once it has one.
 #[derive(Default)]
@@ -94,7 +97,7 @@ impl Browser for Made {
 
     fn may_act(&self, agent: &str, tab: u64, _: &str, _: &mut App) -> Result<(), String> {
         if self.held.borrow().contains(&tab) {
-            return Err("The tab is handed off to the user until they hand it back.".into());
+            return Err(HELD.into());
         }
         let space = self.agent_space(agent);
         match self
@@ -918,10 +921,7 @@ fn a_handoff_waits_for_the_user_to_hand_the_tab_back(cx: &mut TestAppContext) {
     let status = agents.read_with(cx, |agents, _| agents.status());
     assert_eq!(status[0].held, [(20, "Sign in to example.com".into())]);
     let refused = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
-    assert_eq!(
-        refused.recv().unwrap(),
-        ToolResult::error("The tab is handed off to the user until they hand it back.")
-    );
+    assert_eq!(refused.recv().unwrap(), ToolResult::error(HELD));
     assert!(handed.try_recv().is_err(), "the handoff answered before the tab came back");
 
     agents.update(cx, |agents, cx| agents.hand_back(20, cx));
@@ -956,6 +956,43 @@ fn the_user_takes_over_and_stops_an_agent(cx: &mut TestAppContext) {
     assert_eq!(*browser.asked.borrow(), None);
     assert_eq!(*browser.disconnected.borrow(), ["claude-code"]);
     assert_eq!(log(&agents, "claude-code", cx)[0].0, "stopped");
+}
+
+/// A tab the user took over stays theirs: the agent's calls on it are refused until it asks with
+/// ask_for_tab and the user hands it back. Keep refuses, and the tab stays the user's.
+#[gpui::test]
+fn a_tab_the_user_took_back_stays_theirs_until_they_hand_it_back(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    agents.update(cx, |agents, cx| agents.take_over("claude-code", 20, cx));
+    let refused = call(&agents, "claude-code", "click", json!({ "tab": 20, "ref": "e1" }), cx);
+    assert!(refused.recv().unwrap().error);
+    let other = json!({ "tab": 21, "reason": "To finish the order" });
+    let asked = call(&agents, "claude-code", "ask_for_tab", other, cx);
+    assert!(asked.recv().unwrap().text.starts_with("The user doesn't have that tab"));
+    let asked = call(&agents, "claude-code", "ask_for_tab", json!({ "tab": 20 }), cx);
+    assert!(asked.recv().unwrap().text.starts_with("reason is"));
+
+    let reason = json!({ "tab": 20, "reason": "To finish the order" });
+    let kept = call(&agents, "claude-code", "ask_for_tab", reason.clone(), cx);
+    let question = browser.asked.borrow().clone().expect("asking for the tab didn't ask");
+    assert_eq!((question.handoff, question.back), (Some(20), true));
+    assert_eq!(question.why, "To finish the order");
+    let again = call(&agents, "claude-code", "ask_for_tab", reason.clone(), cx);
+    assert!(again.recv().unwrap().text.starts_with("You're waiting on the user"));
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Never, cx));
+    let kept = kept.recv().unwrap();
+    assert!(kept.error && kept.text.starts_with("The user keeps tab 20."));
+    assert_eq!(*browser.asked.borrow(), None);
+    assert!(browser.held.borrow().contains(&20), "Keep gave the tab back");
+    assert_eq!(log(&agents, "claude-code", cx)[0].0, "kept");
+
+    let back = call(&agents, "claude-code", "ask_for_tab", reason, cx);
+    let question = browser.asked.borrow().clone().expect("asking again didn't ask");
+    agents.update(cx, |agents, cx| agents.answer(question.id, Answer::Once, cx));
+    assert!(back.recv().unwrap().text.starts_with("The user handed tab 20 back."));
+    assert!(browser.held.borrow().is_empty());
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
 }
 
 /// run_steps takes its steps one at a time, each checked and logged as alone, under the run's one
