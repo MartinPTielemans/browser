@@ -37,6 +37,9 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 mod drop_targets;
 mod find_bar;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/menu_window.rs"]
+mod menu_window;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/overlays.rs"]
 mod overlays;
 #[cfg(target_os = "linux")]
@@ -2652,11 +2655,13 @@ fn open_window_as(
                     shell.full_screen_step("laid", viewport);
                 }
                 // The panels keep their place from the page's top right corner, and the dialog
-                // its insets from the content's edges.
+                // its insets from the content's edges. A menu closes as the window resizes, as the
+                // Mac's does.
                 #[cfg(target_os = "linux")]
                 {
                     panels::place(ui_view);
                     overlays::place_dialog(ui_view);
+                    menu_window::resized(ui_view);
                 }
             })
             .detach();
