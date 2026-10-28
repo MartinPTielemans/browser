@@ -520,6 +520,8 @@ grep -q "^browser: extensions menu.* $installed" "$log" && fail "the cancelled i
 send click $page_point
 send key z
 expect '^browser: dialog shown Add "Check Install"?$' "the .crx didn't ask again"
+# Return adds it once it has been on screen a moment.
+expect '^browser: dialog takes input$' "the install dialog never took input"
 send key return
 expect '^browser: dialog confirmed$' "return didn't confirm adding Check Install"
 expect "^browser: extensions menu.* $installed" "Check Install wasn't added"

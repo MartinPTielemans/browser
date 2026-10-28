@@ -387,7 +387,9 @@ impl Browser for Recorder {
 
     fn clear_site(&self, _: u64, _: bool, _: &mut App) {}
 
-    fn answer_permission(&self, _: u64, _: Answer, _: &mut App) {}
+    fn answer_permission(&self, tab: u64, answer: Answer, _: &mut App) {
+        self.record(format!("answer {tab} {answer:?}"))
+    }
 
     fn can_open_in_safari(&self) -> bool {
         true

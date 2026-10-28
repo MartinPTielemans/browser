@@ -487,10 +487,12 @@ expect "^browser: copied ${site}.id=1\$" \
 # address bar. Another tab takes it down, and coming back brings it again. With the sidebar hidden,
 # a question brings it out and keeps it out until it's answered. × dismisses it, and the site may
 # ask again; Block refuses, and the site's next ask is refused without one; Allow grants.
-# asks <site> <what>: the page asks, and the card is drawn at $qx $qy, $qw by $qh inside its edge.
+# asks <site> <what>: the page asks, and the card is drawn at $qx $qy, $qw by $qh inside its edge
+# and has been on screen long enough for Block and Allow to work.
 asks() {
   expect "^browser: page $r asks $1 to Manage windows on all your displays\$" "$2"
   expect "^browser: question $r at " "the page's question wasn't drawn"
+  expect "^browser: question $r takes input\$" "the page's question never took input"
   send layout
   read -r qx qy qw qh <<EOF
 $(grep "^browser: question $r at " "$log" | tail -1 | cut -d' ' -f5-)

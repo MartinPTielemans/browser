@@ -76,6 +76,7 @@ expect '^browser: dialog shown Add "uBlock Origin Lite"?$' \
 grep -q "^browser: extension question $store_id asks .*all your data on all websites" "$log" ||
   fail "the question didn't list Chrome's warnings: $(grep 'extension question' "$log")"
 await '^browser: dialog settled$' || fail "the install dialog didn't settle"
+expect '^browser: dialog takes input$' "the install dialog never took input"
 ../tools/window-screenshot.sh "$pid" "$out/store-install.png" || fail "no window to capture"
 send key return
 expect '^browser: dialog confirmed$' "return didn't confirm adding the extension"

@@ -12,7 +12,10 @@ use gpui::{
     prelude::*, px, rgba, svg,
 };
 
-use crate::palette::{Palette, STATE_HOVERED, STATE_PRESSED};
+use crate::{
+    palette::{Palette, STATE_HOVERED, STATE_PRESSED},
+    settling::Settling,
+};
 use super::{
     NAV, NAV_RADIUS, PLATE_INSET, Shell, TITLE, URL_FIELD, URL_FIELD_HEIGHT,
     URL_FIELD_TOP,
@@ -57,10 +60,15 @@ pub enum Answer {
 impl Shell {
     /// The core reports what `tab`'s page asks, or that it no longer asks (None).
     pub fn set_question(&mut self, tab: u64, question: Option<Question>, cx: &mut Context<Self>) {
+        let changed = self.questions.get(&tab) != question.as_ref();
         match question {
             Some(question) => self.questions.insert(tab, question),
             None => self.questions.remove(&tab),
         };
+        // A question that changes under the pointer is a new one to settle.
+        if tab == self.selected && changed {
+            self.question_settling.replace(None);
+        }
         // The question needs the sidebar, so a hidden one comes out with it.
         if tab == self.selected && self.question().is_some() && self.can_reveal() {
             self.set_revealed(true, cx);
@@ -75,6 +83,11 @@ impl Shell {
 
     fn answer(&mut self, answer: Answer, cx: &mut Context<Self>) {
         let tab = self.selected;
+        let settled = (self.question_settling.borrow().as_ref())
+            .is_some_and(|(shown, settling)| *shown == tab && settling.settled(cx));
+        if answer != Answer::Dismiss && !settled {
+            return;
+        }
         if self.questions.remove(&tab).is_some() {
             self.browser.answer_permission(tab, answer, cx);
             cx.notify();
@@ -84,10 +97,18 @@ impl Shell {
     /// The question of the tab shown, as a card under the URL field.
     pub(super) fn question_card(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let Some(question) = self.question() else {
-            // Drawn again, it's logged again.
+            // Drawn again, it's logged again, and settles again.
             self.question_drawn.set(None);
+            self.question_settling.replace(None);
             return None;
         };
+        let mut settling = self.question_settling.borrow_mut();
+        if settling.as_ref().is_none_or(|(shown, _)| *shown != self.selected) {
+            let mut started = Settling::default();
+            started.start(format!("question {}", self.selected), cx);
+            *settling = Some((self.selected, started));
+        }
+        drop(settling);
         let button = |id: &'static str, label: &'static str, answer: Answer| {
             card_button(&self.palette, id, label)
                 .on_click(cx.listener(move |shell, _, _, cx| shell.answer(answer, cx)))
@@ -219,4 +240,63 @@ fn logged_at(
         f32::from(bounds.size.width),
         f32::from(bounds.size.height)
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use gpui::{Modifiers, Point, Pixels, TestAppContext, point, px};
+
+    use crate::{
+        settling::SETTLING,
+        shell::{Folders, Question, Shell, recorder::Recorder},
+    };
+
+    /// A page can time its question to come up under a double-click the user started, so for the
+    /// card's first moment on screen a click on Allow does nothing, while × dismisses at once.
+    #[gpui::test]
+    fn the_card_takes_no_answer_for_good_for_its_first_moment(cx: &mut TestAppContext) {
+        let host = Rc::new(Recorder::default());
+        let browser = host.clone();
+        let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
+        let ask = |shell: &mut Shell, cx: &mut gpui::Context<Shell>| {
+            let permissions = vec!["Use your camera".into()];
+            shell.set_question(10, Some(Question { site: "example.com".into(), permissions }), cx);
+        };
+        shell.update(cx, |shell, cx| {
+            let space = (1, "Space".into(), None, 1, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
+            shell.set_space(1, cx);
+            shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
+            shell.set_selected(10, cx);
+            ask(shell, cx);
+        });
+        cx.run_until_parked();
+        // Allow is at the right of the buttons along the card's bottom, × in its top corner.
+        let at = |shell: &Shell| -> (Point<Pixels>, Point<Pixels>) {
+            let card = shell.question_drawn.get().expect("the question wasn't drawn");
+            let (right, bottom) = (card.origin.x + card.size.width, card.origin.y + card.size.height);
+            let allow = point(card.origin.x + card.size.width * 0.75, bottom - px(26.));
+            (allow, point(right - px(18.), card.origin.y + px(18.)))
+        };
+        let (allow, close) = shell.read_with(cx, |shell, _| at(shell));
+        host.take();
+        cx.simulate_click(allow, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), Vec::<String>::new());
+        cx.executor().advance_clock(SETTLING);
+        cx.simulate_click(allow, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["answer 10 Allow"]);
+        // Asked again, it settles again, but × needn't wait.
+        shell.update(cx, |shell, cx| ask(shell, cx));
+        cx.run_until_parked();
+        cx.simulate_click(allow, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), Vec::<String>::new());
+        cx.simulate_click(close, Modifiers::none());
+        cx.run_until_parked();
+        assert_eq!(host.take(), ["answer 10 Dismiss"]);
+    }
 }
