@@ -1094,8 +1094,8 @@ impl SiteControls {
 
     fn footer(&self, site: &Site, y: f32, cx: &mut Context<Self>) -> [gpui::AnyElement; 2] {
         let lock = match site.connection {
-            Connection::Secure => "icons/lock-simple-fill.svg",
-            _ => "icons/lock-simple-open-fill.svg",
+            Connection::Secure => "icons/lock.svg",
+            _ => "icons/lock-open.svg",
         };
         let button = div()
             .id("site-lock")

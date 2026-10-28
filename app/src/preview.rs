@@ -1119,11 +1119,15 @@ fn main() {
             let shell = cx.new(|cx| {
                 let first_space = TABS.len() as u64 + 1;
                 // The preview's Spaces and favorites are in its one profile, 0.
+                // PREVIEW_SPACE_ICONS=1 gives them glyphs, for the footer's row of icons.
+                let glyphs = std::env::var_os("PREVIEW_SPACE_ICONS").is_some();
                 let spaces: Vec<SpaceEntry> =
                     (first_space..)
                         .zip(SPACES)
-                        .map(|(id, (name, color))| {
-                            (id, name.into(), color, 0, "".into(), "".into(), "".into())
+                        .zip(["glyph:star", "glyph:leaf"])
+                        .map(|((id, (name, color)), icon)| {
+                            let icon = if glyphs { icon } else { "" };
+                            (id, name.into(), color, 0, icon.into(), "".into(), "".into())
                         })
                         .collect();
                 let first_archived = first_space + SPACES.len() as u64;
