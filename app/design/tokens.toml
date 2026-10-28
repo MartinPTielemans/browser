@@ -607,6 +607,10 @@ link-previews-tile = 0x30b0c7
 profile-tile = 0x8e8e93
 # Ours: System Settings' Passwords tile is grey too.
 password-tile = 0x8e8e93
+# Ours, for the Agents tab: the switch on ilo's green, as agents are the browser's own, and each
+# client on the profiles' grey, as none is ours.
+agents-tile = 0x289054
+client-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14
