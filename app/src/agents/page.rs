@@ -100,11 +100,13 @@ pub fn outline(tab: &TabInfo, nodes: &[Value], refs: &mut Refs) -> String {
     if walk.password {
         notes.push(
             "This page has a password field, which is off limits to you: signing in is the user's \
-             to do. Ask them to.",
+             to do. Hand them the tab with hand_off.",
         );
     }
     if walk.captcha {
-        notes.push("This page shows a CAPTCHA, which is the user's to do. Ask them to.");
+        notes.push(
+            "This page shows a CAPTCHA, which is the user's to do. Hand them the tab with hand_off.",
+        );
     }
     let title = nodes.first().map(name).filter(|title| !title.is_empty());
     let title = title.unwrap_or_else(|| tab.title.to_string());
@@ -338,7 +340,7 @@ mod tests {
              - textbox \"Password\" [e3] (password: off limits)\n\
              - checkbox \"Gift\" [e4] (checked)\n\n\
              This page has a password field, which is off limits to you: signing in is the \
-             user's to do. Ask them to."
+             user's to do. Hand them the tab with hand_off."
         );
         assert_eq!(refs.get("e2").map(|element| element.node), Some(60));
         assert!(refs.get("e3").unwrap().password);

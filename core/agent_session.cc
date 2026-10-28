@@ -10,6 +10,7 @@
 #include "base/containers/fixed_flat_map.h"
 #include "base/containers/fixed_flat_set.h"
 #include "base/no_destructor.h"
+#include "browser_core/agent_autofill.h"
 #include "browser_core/agent_page.h"
 #include "browser_core/host.h"
 #include "browser_core/space.h"
@@ -110,6 +111,8 @@ std::string RefusedAction(std::string_view action) {
 
 void Hold(bc_id tab) {
   Held().insert(tab);
+  // Chrome kept its saved logins from the agent's page, which is the user's now.
+  FillForUser(tab);
 }
 
 bool HandBack(bc_id tab) {
