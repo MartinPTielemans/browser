@@ -829,7 +829,7 @@ impl Render for IconPicker {
         let Some(picking) = &self.picking else {
             return root;
         };
-        let card_fill = crate::palette::current(cx).card;
+        let card_fill = crate::palette::current(cx).card_drawn();
         let card = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| paint_card(bounds.origin, &corners(), card_fill, window),
