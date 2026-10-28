@@ -59,17 +59,21 @@ Revisit if a later engine or GPUI change breaks run-loop sharing or input across
 
 A Space is a tab container (pinned tabs, Today, color). Several Spaces can share one profile, and the profile holds cookies, history, logins and extensions. This is Arc's model. Ardia merges the two, which costs memory and repeated sign-ins.
 
-## 6. UX: copy Arc and Dia
+## 6. UX: Arc's feel, ilo's look
 
-No open-ended UX exploration. Arc's structure (sidebar, Spaces, pinned and Today tabs, favorites, archive, Peek, Little Arc, split view, Boosts) plus Dia's polish (command bar, motion, window materials) is the spec. Features beyond Arc and Dia come in only when the owner picks them, and `docs/ux-spec.md` lists each one.
+No open-ended UX exploration. Arc's structure (sidebar, Spaces, pinned and Today tabs, favorites, archive, Peek, Little Arc, split view, Boosts), its behavior, layout and timings, and Dia's command bar and motion are the spec. Features beyond Arc and Dia come in only when the owner picks them, and `docs/ux-spec.md` lists each one.
+
+The look is ilo's own: colour, window material, corner radii, type, icons, shadows and edges. It's built from ilo's brand and `docs/ux-principles.md`, not from Arc's or Dia's values. A Space's theme stays the user's, chosen freely; ilo owns the look of a Space with no theme, the preset swatches, and everything drawn on top, which has to read on any theme. ilo is Arc's successor, so an Arc user has to find everything where their hands expect it and feel the same speed and calm. It can't read as one more Arc clone. Familiarity comes from where things are and how they move, so those stay measured: the sidebar's layout, row pitch and plates, the state alphas, every timing and spring, and the nav glyphs.
 
 Dia's surfaces built around its assistant aren't copied, since our agents work from outside the browser and nothing would fill them. So ⌘T opens Arc's command bar over the page, not Dia's New Tab page, whose box is the assistant's chat field and whose empty card holds its answers. Without the assistant, that page was Arc's bar moved into the card with the page hidden behind it.
 
 - Start from Ardia's measured `docs/dia-spec.md` and `docs/dia-feature-parity.md` (Apache-2.0, credited).
 - Measure Arc ourselves before it is shut down on 2026-12-22.
-- Copy behavior, layout, timings and values. Never ship their assets or names.
+- Copy behavior, layout and timings. Never ship their assets or names.
 
 AI features are out of scope for v1, but the sidebar, command bar and core leave room for them.
+
+Revisit the look if Arc users moving over say ilo doesn't feel like Arc continued, and it traces to a look change rather than layout or motion.
 
 ## 7. License: open source, GPL-3.0-or-later
 
