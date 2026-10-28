@@ -1,6 +1,6 @@
 # Windows' counterpart of tools/headless.sh, for a CI runner, whose desktop is its own: runs a
 # program, and once it has logged a line matching <ready> and the picture has stopped changing,
-# captures the screen where its main window is, overlays over it included. Its log (stderr) goes
+# captures the screen where its largest window is, overlays over it included. Its log (stderr) goes
 # beside the capture, and the program goes when it ends. -Moving lets that many pixels keep
 # changing, such as a blinking caret. On a desktop someone uses, the capture holds whatever covers
 # the window, so it's for CI only.
@@ -21,16 +21,32 @@ using System.Runtime.InteropServices;
 public static class Capture {
   [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
   [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr window, int attribute, out Rect rect, int size);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc each, IntPtr data);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+  delegate bool EnumProc(IntPtr window, IntPtr data);
   [StructLayout(LayoutKind.Sequential)] struct Rect { public int Left, Top, Right, Bottom; }
 
   // Screen pixels, not the scaled points a DPI-unaware process gets.
   public static void Aware() { SetProcessDPIAware(); }
 
-  // The window's frame as drawn, without the invisible borders it resizes by.
-  public static Rectangle Bounds(IntPtr window) {
-    Rect rect;
-    Marshal.ThrowExceptionForHR(DwmGetWindowAttribute(window, 9, out rect, Marshal.SizeOf(typeof(Rect))));
-    return Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+  // The process's largest visible window as drawn, without the invisible borders it resizes by:
+  // the preview's own, not the overlay in front of it that Process.MainWindowHandle finds first.
+  // Empty while it has none.
+  public static Rectangle Largest(int process) {
+    var largest = Rectangle.Empty;
+    EnumWindows((window, _) => {
+      uint owner;
+      GetWindowThreadProcessId(window, out owner);
+      Rect rect;
+      if (owner == process && IsWindowVisible(window) &&
+          DwmGetWindowAttribute(window, 9, out rect, Marshal.SizeOf(typeof(Rect))) == 0) {
+        var bounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+        if (bounds.Width * bounds.Height > largest.Width * largest.Height) largest = bounds;
+      }
+      return true;
+    }, IntPtr.Zero);
+    return largest;
   }
 
   public static Bitmap Screen(Rectangle area) {
@@ -83,9 +99,9 @@ try {
   $last = $null
   $taken = $false
   for ($try = 0; $try -lt 100 -and -not $taken; $try++) {
-    $process.Refresh()
-    if ($process.MainWindowHandle -ne 0) {
-      $now = [Capture]::Screen([Capture]::Bounds($process.MainWindowHandle))
+    $area = [Capture]::Largest($process.Id)
+    if (-not $area.IsEmpty) {
+      $now = [Capture]::Screen($area)
       if ($last -and $last.Size -eq $now.Size -and [Capture]::Differ($last, $now) -le $Moving -and
           [Capture]::Varied($now) -gt $Moving) {
         $now.Save($Out, [Drawing.Imaging.ImageFormat]::Png)
