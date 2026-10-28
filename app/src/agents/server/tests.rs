@@ -204,7 +204,7 @@ fn the_server_answers_what_needs_no_browser() {
             "scroll",
             "screenshot",
             "run_steps",
-            "hand_off"
+            "hand_off", "ask_for_tab"
         ]
     );
     assert_eq!(list["id"], "a");

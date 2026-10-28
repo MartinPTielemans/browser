@@ -398,7 +398,7 @@ bool bc_agent_may_act(const char* agent,
     refused = "The tab isn't in the agent's own Space.";
   }
   if (refused.empty() && browser_core::IsHeld(tab)) {
-    refused = "The tab is handed off to the user until they hand it back.";
+    refused = "The user has this tab until they hand it back. Ask for it with ask_for_tab.";
   }
   if (refused.empty() && contents &&
       browser_core::Tab::FromWebContents(contents)->system_page()) {
