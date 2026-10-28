@@ -160,6 +160,37 @@ fn pressed_off_the_mac(key: &str) -> Vec<String> {
     std::iter::once(pressed).chain(chrome.map(|&(chrome, _)| chrome.to_string())).collect()
 }
 
+/// A key the core names (bc_key) as a keystroke in GPUI's terms, with the modifiers in the order
+/// SHORTCUTS writes them, and Ctrl as ⌘ off the Mac. With ⌘ held, a layout that isn't Latin, such
+/// as Hebrew, has its shortcuts by the key's place on the user's Latin layout, `latin_key`, as the
+/// Mac's menus and Chrome's have them: Hebrew's ⌘ on the key it types "א" with is ⌘T, and on the
+/// one it types "'" with is ⌘W, though that's ASCII.
+pub fn page_keystroke(key: &str, latin_key: &str, modifiers: u32) -> String {
+    use crate::bc;
+    let mut keystroke = String::new();
+    for (flag, modifier) in [
+        (bc::BC_MODIFIER_CONTROL, "ctrl-"),
+        (bc::BC_MODIFIER_ALT, "alt-"),
+        (bc::BC_MODIFIER_SHIFT, "shift-"),
+        (bc::BC_MODIFIER_META, "cmd-"),
+    ] {
+        if modifiers & flag != 0 {
+            keystroke.push_str(modifier);
+        }
+    }
+    let command = modifiers & bc::BC_MODIFIER_META != 0;
+    let name = if command && !latin_key.is_empty() { latin_key } else { key };
+    let name = match name {
+        "ArrowDown" => "down".to_string(),
+        "ArrowUp" => "up".to_string(),
+        "ArrowLeft" => "left".to_string(),
+        "ArrowRight" => "right".to_string(),
+        " " => "space".to_string(),
+        name => name.to_lowercase(),
+    };
+    written_as(&(keystroke + &name))
+}
+
 /// The key `keystroke`, as this platform names it, as SHORTCUTS writes it: cmd-t for ctrl-t and
 /// ctrl-2 for alt-2 off the Mac.
 pub fn written_as(keystroke: &str) -> String {
@@ -528,6 +559,30 @@ mod tests {
 
     fn keys(keys: &[&str]) -> Vec<String> {
         keys.iter().map(|key| key.to_string()).collect()
+    }
+
+    /// With the page focused on Hebrew, Arabic or Armenian, ⌘'s shortcuts are the keys' on the
+    /// Latin layout the core reads, the reserved ones and the rest, even where the layout types
+    /// ASCII, as Hebrew's "'" on the W key and "/" on the Q key.
+    #[test]
+    fn command_keys_on_a_layout_that_isnt_latin_are_the_latin_layouts() {
+        use crate::bc::{BC_MODIFIER_CONTROL, BC_MODIFIER_META, BC_MODIFIER_SHIFT};
+        let ran = |key, latin, reserved| {
+            DEFAULTS.command_for(&page_keystroke(key, latin, BC_MODIFIER_META), reserved)
+        };
+        assert_eq!(ran("א", "t", true), Some(Command::NewTab));
+        assert_eq!(ran("'", "w", true), Some(Command::CloseTab));
+        assert_eq!(ran("/", "q", true), Some(Command::Quit));
+        assert_eq!(ran("ل", "l", false), Some(Command::EditUrl));
+        assert_eq!(ran("ֆ", "f", false), Some(Command::Find));
+        // ⇧ comes with the Latin layout's character, as a page's key does on a Latin layout.
+        let shifted = BC_MODIFIER_META | BC_MODIFIER_SHIFT;
+        assert_eq!(page_keystroke("ט", "T", shifted), page_keystroke("T", "", shifted));
+        // A Latin layout's key, which the core gives none for, is its character, as on AZERTY.
+        assert_eq!(page_keystroke("a", "", BC_MODIFIER_META), "cmd-a");
+        assert_eq!(page_keystroke("ArrowLeft", "", BC_MODIFIER_META), "cmd-left");
+        // Without ⌘ the layout's own character stays.
+        assert_eq!(page_keystroke("א", "t", BC_MODIFIER_CONTROL), "ctrl-א");
     }
 
     /// A rebound key runs its command, and the key it had runs nothing.

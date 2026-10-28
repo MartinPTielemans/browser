@@ -17,6 +17,7 @@
 #include "browser_core/favorites.h"
 #include "browser_core/host.h"
 #include "browser_core/link_target.h"
+#include "browser_core/platform/keyboard.h"
 #include "browser_core/script_dialog.h"
 #include "browser_core/session.h"
 #include "browser_core/drm_request.h"
@@ -318,7 +319,11 @@ bool Tab::AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
       modifiers |= flag;
     }
   }
-  const bc_key key = {name.c_str(), modifiers, editing};
+  // ⌘'s shortcuts by the Latin layout's key, chosen by the app. Read only with ⌘ held, as every key
+  // the page gets comes here.
+  const std::string latin =
+      (held & blink::WebInputEvent::kMetaKey) ? platform::LatinKey(event) : std::string();
+  const bc_key key = {name.c_str(), modifiers, editing, latin.c_str()};
   return callback(Host().context, tab, &key);
 }
 
