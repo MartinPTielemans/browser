@@ -553,22 +553,24 @@ mod tests {
     #[gpui::test]
     fn the_library_fades_in_over_the_sidebar_both_ways(cx: &mut TestAppContext) {
         let (shell, _, cx) = three_spaces(cx, 1);
-        let crossing = |shell: &Shell| {
-            let (sidebar, library) = (shell.sidebar_opacity(), shell.library_opacity());
+        let crossing = |shell: &Shell, now: Instant| {
+            let sidebar = shell.sidebar_opacity_at(now);
+            let library = Shell::library_opacity(sidebar);
             sidebar > 0. && sidebar < 1. && (sidebar + library - 1.).abs() < 1e-6
         };
         shell.update_in(cx, |shell, window, cx| {
             fingers(shell, 0.2 * shell.library_width(), false, window, cx);
-            assert!(crossing(shell), "fingers: the sidebar {}", shell.sidebar_opacity());
+            assert!(crossing(shell, Instant::now()), "fingers: the sidebar {}", shell.sidebar_opacity());
             fingers(shell, 0.9 * shell.library_width(), true, window, cx);
             assert!(shell.library_open, "the swipe left the Library closed");
             shell.library_motion = None;
             shell.sidebar_fade = None;
             shell.set_library(false, cx);
-            // Halfway through the sidebar's fade back in.
-            let start = Instant::now() - Duration::from_millis(145);
+            // Halfway through the sidebar's fade back in, on a clock of the test's own.
+            let start = Instant::now();
             shell.sidebar_fade = shell.sidebar_fade.map(|(from, _)| (from, start));
-            assert!(crossing(shell), "a click: the sidebar {}", shell.sidebar_opacity());
+            let halfway = start + Duration::from_millis(145);
+            assert!(crossing(shell, halfway), "a click: the sidebar {}", shell.sidebar_opacity_at(halfway));
         });
     }
 

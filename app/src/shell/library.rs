@@ -445,11 +445,16 @@ impl Shell {
     /// The sidebar's opacity under the Library: receding with the card, or, after a click, gone
     /// fast as the Library comes and back late as it goes.
     pub(super) fn sidebar_opacity(&self) -> f32 {
+        self.sidebar_opacity_at(Instant::now())
+    }
+
+    /// The sidebar's opacity at `now`.
+    pub(super) fn sidebar_opacity_at(&self, now: Instant) -> f32 {
         let Some((from, start)) = self.clicked_fade() else {
             return receded_opacity(self.library_out());
         };
         let shown = if self.library_open { 0. } else { 1. };
-        let t = start.elapsed().as_secs_f32();
+        let t = now.saturating_duration_since(start).as_secs_f32();
         let done = match self.library_open {
             true => t / SIDEBAR_FADE_OUT,
             false => (t - SIDEBAR_FADE_IN_DELAY) / SIDEBAR_FADE_IN,
@@ -483,9 +488,10 @@ impl Shell {
     /// The Library's opacity: what the sidebar under it has lost, on every way in and out. Arc's
     /// is a sheet that covers the sidebar up to its edge, but ours has no fill, and cut there the
     /// half-faded sidebar looks sliced along a line with nothing on it, so the sidebar fades out
-    /// whole and the Library fades in over it.
-    pub(super) fn library_opacity(&self) -> f32 {
-        1. - self.sidebar_opacity()
+    /// whole and the Library fades in over it. It takes the sidebar's opacity of the same frame, as
+    /// a second read of the clock would leave the two not quite adding up.
+    pub(super) fn library_opacity(sidebar_opacity: f32) -> f32 {
+        1. - sidebar_opacity
     }
 
     /// Whether the Library's panel is at rest where it opens, or past it with the card, to within
@@ -760,6 +766,7 @@ impl Shell {
     pub(super) fn library_panel(
         &self,
         buttons: bool,
+        sidebar_opacity: f32,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let Some(library) = &self.library else {
@@ -890,7 +897,7 @@ impl Shell {
             .top_0()
             .bottom_0()
             .w(px(width))
-            .opacity(self.library_opacity())
+            .opacity(Shell::library_opacity(sidebar_opacity))
             .child(column)
             .child(edge);
         if spaces {

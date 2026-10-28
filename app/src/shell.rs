@@ -2606,7 +2606,9 @@ impl Render for Shell {
         let library = self.library.is_some() && !self.page_fullscreen;
         // Full screen has no window buttons, so the panel draws none.
         let buttons = self.library_buttons() && !window.is_fullscreen();
-        let library = library.then(|| self.library_panel(buttons, cx));
+        // The sidebar and the Library fade against each other, so both take this frame's one read.
+        let opacity = self.sidebar_opacity();
+        let library = library.then(|| self.library_panel(buttons, opacity, cx));
         // The Spaces section's cards slide in over the receding sidebar, as Arc's do; the other
         // sections slide in under it, its buttons receding over them.
         let (under, over) = match self.section {
@@ -2616,7 +2618,6 @@ impl Render for Shell {
         // The sidebar leaves with the card's edge, all of it by the time the edge stops.
         let width = self.width();
         let sidebar_left = (card_left - width) * width / (width - CARD_INSET);
-        let opacity = self.sidebar_opacity();
         let sidebar_shown = !self.page_fullscreen
             && opacity > 0.
             && (!self.sidebar_hidden || self.sidebar_motion.is_some());
