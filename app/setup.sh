@@ -51,6 +51,21 @@ git -C .deps/accesskit_macos add -A
 git -C .deps/accesskit_macos -c user.name=setup -c user.email=setup@localhost commit -qm upstream
 git -C .deps/accesskit_macos apply "$PWD/patches/accesskit-macos-actions.patch"
 
+# Sparkle, the Mac's updater: its headers for platform/mac/updates.mm, the framework a release
+# build carries, and generate_keys and generate_appcast for tools/appcast.sh.
+if [ "$(uname -s)" = Darwin ]; then
+  SPARKLE=2.10.1
+  SPARKLE_SHA256=1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27
+  archive=.deps/Sparkle-$SPARKLE.tar.xz
+  if ! echo "$SPARKLE_SHA256  $archive" | sha256 -c --status 2>/dev/null; then
+    curl -sSfL "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE/Sparkle-$SPARKLE.tar.xz" -o "$archive"
+    echo "$SPARKLE_SHA256  $archive" | sha256 -c --status
+  fi
+  rm -rf .deps/Sparkle
+  mkdir .deps/Sparkle
+  tar xJf "$archive" -C .deps/Sparkle
+fi
+
 # The engine: the Mac's, linked here; on Linux and Windows, the prebuilt one the engine's CI
 # publishes, when there is one for this checkout. Without one there is the UI alone: the tests and
 # the preview (AGENTS.md, Dev).
