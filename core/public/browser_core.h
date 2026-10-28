@@ -709,6 +709,12 @@ typedef struct bc_host {
   // that crash's report, and answer with bc_answer_crash_report. Once the browser has started, at
   // most once a launch, and never twice for a report.
   void (*crash_report_offered)(void* context);
+  // On Linux under Wayland, while a text field of the app's UI in |window| has the keys
+  // (bc_window_ui_text_input): the input method composes |text| there, shown underlined at the
+  // caret, or stops composing with |text| empty.
+  void (*ui_composed)(void* context, bc_id window, const char* text);
+  // As ui_composed: the input method commits |text| in place of what it composed.
+  void (*ui_committed)(void* context, bc_id window, const char* text);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -779,6 +785,15 @@ BC_EXPORT void bc_window_minimize(bc_id window);
 // does on every Linux desktop. Full screen, it leaves full screen instead, as Escape asks of that
 // button (the Mac's zoom button, which leaves it there too).
 BC_EXPORT void bc_window_toggle_maximized(bc_id window);
+
+// On Linux under Wayland, where the compositor gives the process one input method, the window's:
+// a text field of the app's UI in |window|, or of an overlay of it, is focused (|focused|), its
+// caret at |x|, |y| in points from the top left of the window's surface, |height| high. While the
+// keys are the UI's or the overlay's, the input method composes for it, into ui_composed and
+// ui_committed, and puts its candidates at the caret. Losing them commits what it composed, as a
+// page's field does.
+BC_EXPORT void bc_window_ui_text_input(bc_id window, bool focused, double x, double y,
+                                       double height);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its

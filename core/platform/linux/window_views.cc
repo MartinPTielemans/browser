@@ -17,6 +17,7 @@
 #include "base/scoped_observation.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
+#include "browser_core/platform/linux/ui_text_input.h"
 #include "browser_core/platform/linux/wayland.h"
 #include "browser_core/window.h"
 #include "ui/aura/client/focus_change_observer.h"
@@ -161,7 +162,8 @@ class WindowViews : public views::WidgetObserver,
   using ui::EventHandler::OnEvent;
 
   // |ui| is the UI's X window, or none on Wayland.
-  WindowViews(views::Widget* widget, x11::Window ui) : widget_(widget), ui_(ui) {
+  WindowViews(views::Widget* widget, x11::Window ui)
+      : widget_(widget), ui_(ui), ui_text_input_(widget) {
     observation_.Observe(widget);
     content()->AddPreTargetHandler(this);
     if (auto* client = aura::client::GetFocusClient(content())) {
@@ -186,6 +188,7 @@ class WindowViews : public views::WidgetObserver,
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
+  UITextInput& ui_text_input() { return ui_text_input_; }
 
   // A slot's holder, made the first time it's needed, over the window's own views.
   aura::Window* HolderFor(Slot& slot) {
@@ -309,6 +312,7 @@ class WindowViews : public views::WidgetObserver,
   // showed may have moved it.
   void OverlayTakesKeyboard(bool takes) {
     overlay_has_keyboard_ = takes;
+    ui_text_input_.SetKeyboard(ui_has_keyboard_ || overlay_has_keyboard_);
     if (!takes && ui_ != x11::Window::None && !ui_has_keyboard_ && IsWithin(InputFocus(), ui_)) {
       UITakesKeyboard();
     }
@@ -321,6 +325,7 @@ class WindowViews : public views::WidgetObserver,
       return;
     }
     ui_has_keyboard_ = false;
+    ui_text_input_.SetKeyboard(overlay_has_keyboard_);
     if (ui_ != x11::Window::None && IsWithin(InputFocus(), ui_)) {
       SetInputFocus(window());
     }
@@ -335,6 +340,7 @@ class WindowViews : public views::WidgetObserver,
     if (auto* client = aura::client::GetFocusClient(content())) {
       client->ResetFocusWithinActiveWindow(content());
     }
+    ui_text_input_.SetKeyboard(true);
     if (ui_ == x11::Window::None) {
       return;
     }
@@ -374,6 +380,7 @@ class WindowViews : public views::WidgetObserver,
   }
 
   void OnWidgetDestroying(views::Widget*) override {
+    ui_text_input_.SetKeyboard(false);
     x11_observation_.Reset();
     children_events_ = x11::ScopedEventSelector();
     focus_observation_.Reset();
@@ -498,6 +505,8 @@ class WindowViews : public views::WidgetObserver,
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
   x11::Window ui_main_ = x11::Window::None;
+  // Off Wayland, which the app never tells of a field, the UI's own input method composes for it.
+  UITextInput ui_text_input_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
   base::ScopedObservation<aura::client::FocusClient, aura::client::FocusChangeObserver>
       focus_observation_{this};
@@ -718,6 +727,12 @@ bool KeyboardIsUI(views::Widget* widget) {
 void OverlayTakesKeyboard(views::Widget* widget, bool takes) {
   if (WindowViews* views = ViewsOf(widget)) {
     views->OverlayTakesKeyboard(takes);
+  }
+}
+
+void SetUITextInput(views::Widget* widget, std::optional<gfx::Rect> caret) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->ui_text_input().SetCaret(caret);
   }
 }
 
