@@ -4429,6 +4429,30 @@ unsafe extern "C" fn profile_logins_changed(
     update_app(|cx| settings::logins_changed(profile, list, cx));
 }
 
+/// What came of a passwords file the import gave the core. Never logged: the counts are the
+/// user's.
+unsafe extern "C" fn passwords_imported(
+    _: *mut c_void,
+    profile: bc::bc_id,
+    result: i32,
+    imported: usize,
+    conflicted: usize,
+    skipped: usize,
+) {
+    let passwords = match result as u32 {
+        bc::BC_PASSWORDS_IMPORTED => browser::import::Passwords::Imported {
+            imported,
+            conflicted,
+            skipped,
+        },
+        bc::BC_PASSWORDS_IMPORT_UNREADABLE => browser::import::Passwords::Unreadable,
+        bc::BC_PASSWORDS_IMPORT_NOT_EXPORT => browser::import::Passwords::NotExport,
+        bc::BC_PASSWORDS_IMPORT_TOO_LARGE => browser::import::Passwords::TooLarge,
+        _ => browser::import::Passwords::Failed,
+    };
+    update_app_later(move |cx| import_host::passwords_imported(profile, passwords, cx));
+}
+
 unsafe extern "C" fn tab_find_changed(
     _: *mut c_void,
     tab: bc::bc_id,
@@ -4839,6 +4863,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         tab_offer_changed: Some(tab_offer_changed),
         tab_passwords_changed: Some(tab_passwords_changed),
         profile_logins_changed: Some(profile_logins_changed),
+        passwords_imported: Some(passwords_imported),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),
         #[cfg(target_os = "linux")]
