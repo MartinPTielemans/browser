@@ -342,6 +342,11 @@ void Tab::Unload() {
   if (!in || waiting_) {
     return;
   }
+  TabStripModel* tabs = in->GetBrowserWindowInterface()->GetTabStripModel();
+  // Quitting or closing its window, the page closes with the tab, which the session keeps from it.
+  if (browser_shutdown::IsTryingToQuit() || tabs->closing_all()) {
+    return;
+  }
   // A system page's URL is its history's last entry, so it loads again once shown, in Chromium,
   // which hands a site the engine is kept for back to it.
   SavedTab saved = SaveTab(*contents);
@@ -361,7 +366,6 @@ void Tab::Unload() {
   reload_after_kill_.reset();
   net_error_ = 0;
   shown_on_.reset();
-  TabStripModel* tabs = in->GetBrowserWindowInterface()->GetTabStripModel();
   {
     base::AutoReset<bool> unloading(&unloading_, true);
     tabs->DetachAndDeleteWebContentsAt(tabs->GetIndexOfWebContents(contents));
@@ -1198,12 +1202,17 @@ void Tab::WebContentsDestroyed() {
   favicon_observation_.Reset();
   audible_subscription_ = {};
   system_page_.reset();
-  Observe(nullptr);
   // Unloaded, it stays without its page.
   if (unloading_) {
+    Observe(nullptr);
     return;
   }
+  // Closed, as at a quit or with its window. Its page is still there, so the session kept as the
+  // first tab closes saves this one from it too.
   ReportClosed();
+  // What it posted, such as a report of its renderer ending, would tell the app of a closed tab.
+  weak_factory_.InvalidateWeakPtrs();
+  Observe(nullptr);
   Forget(id_);
 }
 
