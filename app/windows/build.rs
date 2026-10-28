@@ -6,4 +6,6 @@ fn main() {
     let name = std::fs::read_to_string("../branding/name").expect("no branding/name");
     println!("cargo:rustc-env=APP_NAME={}", name.trim());
     println!("cargo:rerun-if-changed=../branding/name");
+    // Its engine is always a prebuilt one, whose header engine/fetch.sh checked (../build.rs).
+    println!("cargo::rustc-check-cfg=cfg(engine_header_mismatch)");
 }

@@ -5,6 +5,9 @@
 set -euo pipefail
 [ $# -eq 1 ] || { echo "usage: build.sh <work directory>" >&2 && exit 2; }
 out=$1/src/out/Default
+# The checkout's series and core, as engine/build.sh takes them on the Mac.
+. "$(dirname "$0")/../tree.sh"
+apply_series "$1/src"
 # GN's scripts read the core count too, into every link command, so a BUILD.gn change is
 # regenerated before the cap below, as engine/build.sh does on the Mac.
 [ -f "$out/build.ninja" ] || (cd "$1/src" && out/Default/gn gen out/Default)
