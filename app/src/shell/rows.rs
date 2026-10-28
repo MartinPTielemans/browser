@@ -598,6 +598,8 @@ impl Shell {
     /// A middle press on the row whose first tab is `row` closes it as its ✕ does, on the press as
     /// a row's press shows its tab.
     fn middle_press(&mut self, row: u64, closable: bool, cx: &mut Context<Self>) {
+        // As every press does: the card would show a tab the press closes.
+        self.end_hovers(cx);
         if closable && self.dragging().is_none() {
             log!("browser: command close-tab via sidebar");
             self.close_tab(row, true, cx);
@@ -1723,9 +1725,9 @@ mod tests {
         middle(cx, 5);
         middle(cx, 3);
         middle(cx, 2);
-        // The pointer resting on the rows it pressed shows their cards too.
+        // Each press also ends the hovers, which hover_cards' tests check.
         let asked = host.take();
-        let closes: Vec<_> = asked.iter().filter(|call| !call.starts_with("card ")).collect();
+        let closes: Vec<_> = asked.iter().filter(|call| call.starts_with("close ")).collect();
         assert_eq!(closes, ["close 5", "close 3"]);
         assert_eq!(shell.read_with(cx, |shell, _| shell.selected), 4);
     }

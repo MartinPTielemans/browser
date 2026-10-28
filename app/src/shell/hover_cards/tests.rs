@@ -124,6 +124,21 @@ fn a_scroll_or_a_press_closes_the_card(cx: &mut TestAppContext) {
     assert!(host.take().contains(&"card close".to_string()), "a press");
 }
 
+/// A middle press closes the row's tab, and its card with it.
+#[gpui::test]
+fn a_middle_press_closes_the_card(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_tabs(cx);
+    let frame = shell.read_with(cx, |shell, _| shell.tip_frames.borrow()[&3]);
+    cx.simulate_mouse_move(frame.center(), None, Modifiers::none());
+    cx.run_until_parked();
+    host.take();
+    cx.simulate_mouse_down(frame.center(), MouseButton::Middle, Modifiers::none());
+    cx.run_until_parked();
+    let asked = host.take();
+    assert!(asked.contains(&"card close".to_string()), "{asked:?}");
+    assert!(asked.contains(&"close 3".to_string()), "{asked:?}");
+}
+
 #[gpui::test]
 fn a_rows_menu_closes_the_card(cx: &mut TestAppContext) {
     let (shell, cx, host) = with_tabs(cx);
