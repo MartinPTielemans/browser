@@ -17,6 +17,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(target_os = "linux")]
+use browser::flatpak;
 use browser::window_frames::{self, Frame};
 use browser::{
     capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker, link_preview,
@@ -398,7 +400,6 @@ const WINDOW_SIZE: (f64, f64) = (1280., 800.);
 const WEB_STORE: &str = "https://chromewebstore.google.com/";
 
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
-#[cfg(not(target_os = "linux"))]
 actions!(browser, [CheckForUpdates]);
 
 /// A browser window: the core's, with the view the UI draws in and the shell drawn there.
@@ -3080,14 +3081,7 @@ fn open_window_as(
             open_saved_windows(cx);
         }
         // Last, as nothing the user sees at launch waits for it.
-        #[cfg(not(target_os = "linux"))]
-        {
-            // The installer WinSparkle started waits for the browser to quit, which needs no asking.
-            extern "C" fn quit() {
-                unsafe { bc::bc_quit() };
-            }
-            unsafe { platform::host_start_updater(quit) };
-        }
+        start_updates(cx);
     };
     OVERLAYS.set(Some(Box::new(open)));
     let pending = Rc::new(Cell::new(true));
@@ -3457,8 +3451,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
         cx.on_action(|_: &Minimize, _| unsafe {
             platform::host_press_window_button(front().1, 1)
         });
-        #[cfg(not(target_os = "linux"))]
-        cx.on_action(|_: &CheckForUpdates, _| unsafe { platform::host_check_for_updates() });
+        cx.on_action(|_: &CheckForUpdates, cx| check_for_updates(cx));
         cx.bind_keys([
             KeyBinding::new("cmd-h", Hide, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
@@ -3498,11 +3491,128 @@ extern "C" fn finished_launching() {
     }
 }
 
-/// Whether this build updates itself, asked once, as the menu bar is rebuilt often.
-#[cfg(not(target_os = "linux"))]
+/// Whether this build updates itself, asked once, as the menu bar is rebuilt often: a release
+/// build with its updater, or on Linux the Flatpak.
 fn updates_available() -> bool {
     static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *AVAILABLE.get_or_init(|| unsafe { platform::host_updates_available() })
+    #[cfg(target_os = "linux")]
+    let available = flatpak::in_flatpak;
+    #[cfg(not(target_os = "linux"))]
+    let available = || unsafe { platform::host_updates_available() };
+    *AVAILABLE.get_or_init(available)
+}
+
+/// Starts checking for updates: Sparkle or WinSparkle, or on Linux Flatpak's portal.
+fn start_updates(cx: &mut App) {
+    #[cfg(not(target_os = "linux"))]
+    {
+        _ = cx;
+        // The installer WinSparkle started waits for the browser to quit, which needs no asking.
+        extern "C" fn quit() {
+            unsafe { bc::bc_quit() };
+        }
+        unsafe { platform::host_start_updater(quit) };
+    }
+    #[cfg(target_os = "linux")]
+    if updates_available() {
+        cx.spawn(async move |cx| {
+            let (portal, events) = match flatpak::Portal::open_session().await {
+                Ok(opened) => opened,
+                Err(error) => return log!("browser: no updates: {error}"),
+            };
+            FLATPAK.set(Some((portal.clone(), flatpak::State::Current)));
+            log!("browser: updater started");
+            flatpak::watch(&portal, events, |state| {
+                log!("browser: update {state:?}");
+                FLATPAK.with_borrow_mut(|known| known.as_mut().map(|known| known.1 = state.clone()));
+                if *state == flatpak::State::Ready {
+                    cx.update(offer_restart);
+                }
+            })
+            .await;
+        })
+        .detach();
+    }
+}
+
+/// The app menu's Check for Updates…. Flatpak's portal can't be asked to look now, as it looks
+/// every half hour by itself, so on Linux this says where the update stands.
+fn check_for_updates(cx: &mut App) {
+    #[cfg(not(target_os = "linux"))]
+    {
+        _ = cx;
+        unsafe { platform::host_check_for_updates() };
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let state = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.1.clone()));
+        let (message, detail) = match state {
+            Some(flatpak::State::Ready) => return offer_restart(cx),
+            Some(flatpak::State::Installing) => (
+                concat!(env!("APP_NAME"), " is updating"),
+                "It will offer to restart once the new version is in.".to_string(),
+            ),
+            Some(flatpak::State::Failed(error)) => {
+                (concat!(env!("APP_NAME"), " couldn’t update"), error)
+            }
+            _ => (
+                "No update yet",
+                concat!(env!("APP_NAME"), " looks for one every half hour while it’s open.").into(),
+            ),
+        };
+        dialog::pose(notice(message, detail), Box::new(|_| {}), cx);
+    }
+}
+
+#[cfg(target_os = "linux")]
+thread_local! {
+    // Linux's update portal and where the update stands, once the portal has answered.
+    static FLATPAK: RefCell<Option<(flatpak::Portal, flatpak::State)>> = const { RefCell::new(None) };
+}
+
+/// A dialog that only tells, with OK.
+#[cfg(target_os = "linux")]
+fn notice(message: &str, detail: String) -> dialog::Question {
+    dialog::Question {
+        icon: None,
+        message: message.to_string().into(),
+        detail: detail.into(),
+        list: Vec::new(),
+        action: "".into(),
+        cancel: "OK".into(),
+        tone: dialog::Tone::Accent,
+        also: None,
+        fields: Vec::new(),
+        check: None,
+        return_cancels: false,
+    }
+}
+
+/// Offers to restart into the build Flatpak installed, which starts once this one has quit.
+#[cfg(target_os = "linux")]
+fn offer_restart(cx: &mut App) {
+    let question = dialog::Question {
+        action: "Restart".into(),
+        cancel: "Later".into(),
+        ..notice(
+            concat!("A new version of ", env!("APP_NAME"), " is ready"),
+            concat!("Restart ", env!("APP_NAME"), " to use it.").into(),
+        )
+    };
+    let restart = |cx: &mut App| {
+        let Some(portal) = FLATPAK.with_borrow(|known| known.as_ref().map(|known| known.0.clone()))
+        else {
+            return;
+        };
+        let lock = std::path::Path::new(&profile_dir()).join("SingletonLock");
+        let argv: Vec<String> = std::env::args().collect();
+        cx.spawn(async move |_| match portal.restart(&lock, &argv).await {
+            Ok(()) => unsafe { bc::bc_quit() },
+            Err(error) => log!("browser: no restart: {error}"),
+        })
+        .detach();
+    };
+    dialog::pose(question, Box::new(restart), cx);
 }
 
 /// The menu bar: Arc's menus, with the commands the browser has, what `bar` says of the key
@@ -3516,7 +3626,6 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     let (spaces, extensions) = (&bar.spaces, &bar.extensions);
     // Only a release build that carries Sparkle has updates to check for.
     let mut app = Vec::new();
-    #[cfg(not(target_os = "linux"))]
     if updates_available() {
         app.extend([MenuItem::action("Check for Updates…", CheckForUpdates), MenuItem::separator()]);
     }
