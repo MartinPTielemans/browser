@@ -59,7 +59,7 @@ page=$(base64 << 'HTML' | tr -d '\n'
     if (e.key == "f") document.documentElement.requestFullscreen();
     if (e.key == "x" && document.fullscreenElement) document.exitFullscreen();
   });
-  // Its full screen shows in the title as the document's changes.
+  // The title says whether the document is full screen, each time that changes.
   document.addEventListener("fullscreenchange", () => {
     document.title = `fullscreen ${document.fullscreenElement ? 1 : 0}`;
   });
