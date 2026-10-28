@@ -13,7 +13,7 @@ use gpui::{
     AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, HoverListenerMode,
     Hsla, Image, KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
-    img, point, prelude::*, px, rgb, rgba, size, svg,
+    img, point, prelude::*, px, size, svg,
 };
 use gpui::{Role, accesskit::Live};
 
@@ -75,8 +75,6 @@ use crate::tokens::command_bar::PLACEHOLDER;
 use crate::tokens::command_bar::ROW_GLYPH;
 use crate::tokens::command_bar::ARROW;
 use crate::tokens::command_bar::SELECTED_DIM;
-use crate::tokens::command_bar::CARET;
-use crate::tokens::command_bar::SELECTION;
 use crate::tokens::command_bar::CHIP;
 use crate::tokens::command_bar::ARROW_TILE;
 use crate::tokens::command_bar::CHIP_RADIUS;
@@ -380,8 +378,8 @@ pub fn open_at(
         let input = cx.new(|cx| {
             TextInput::new(PLACEHOLDER_TEXT, cx)
                 .placeholder_color(palette::current(cx).on_overlay(PLACEHOLDER))
-                .caret_color(rgb(CARET))
-                .selection_color(rgba(SELECTION))
+                .caret_color(palette::current(cx).accent)
+                .selection_color(palette::current(cx).selection())
                 .paste_and_go()
         });
         window.focus(&input.focus_handle(cx), cx);
@@ -1523,8 +1521,10 @@ impl Render for CommandBar {
                 .border_color(color)
         };
         let palette = palette::current(cx);
-        // The placeholder follows the Space's overlay, which may have changed since it opened.
-        self.input.update(cx, |input, _| input.set_placeholder_color(palette.on_overlay(PLACEHOLDER)));
+        // The placeholder and the accent follow the Space's, which may have changed since it opened.
+        self.input.update(cx, |input, _| {
+            input.set_colors(palette.on_overlay(PLACEHOLDER), palette.accent.into(), palette.selection())
+        });
         // The browser's shortcuts work here too, below the bar's own keys.
         div().key_context(shell::KEY_CONTEXT).size_full().child(
             div()

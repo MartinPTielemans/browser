@@ -1208,7 +1208,8 @@ fn save_shortcuts(cx: &App) {
 
 impl Render for Settings {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let accent = rgb(unsafe { platform::host_accent_color() });
+        // The app's window, not a Space's, so ilo green rather than a Space's accent (#319).
+        let accent = rgb(browser::palette::NO_THEME_ACCENT);
         if self.switched.is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE) {
             window.request_animation_frame();
         }

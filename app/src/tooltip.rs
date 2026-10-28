@@ -12,7 +12,7 @@ use std::{
 };
 
 use gpui::{
-    App, Bounds, Context, Div, FontWeight, Global, Pixels, SharedString, Size, Task, TextRun,
+    App, Bounds, Context, Div, FontWeight, Global, Pixels, Rgba, SharedString, Size, Task, TextRun,
     TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
     WindowOptions, WindowTextSystem, div, font, point, prelude::*, px, rgb, size,
 };
@@ -50,11 +50,8 @@ use crate::tokens::tooltip::CHIP_PADDING;
 use crate::tokens::tooltip::CHIP_AFTER_TEXT;
 use crate::tokens::tooltip::CHIP_GAP;
 use crate::tokens::tooltip::CHIP_TEXT_SIZE;
-use crate::tokens::tooltip::FILL;
-use crate::tokens::tooltip::TEXT;
-use crate::tokens::tooltip::CHIP_FILL;
 use crate::tokens::tooltip::CHIP_LIP_FILL;
-use crate::tokens::tooltip::CHIP_TEXT;
+use crate::palette::{INK, OVERLAY_DARK, PAPER, over};
 
 /// What the tooltip asks of its window.
 pub trait Host {
@@ -226,7 +223,7 @@ pub(crate) fn text_width(
     let run = TextRun {
         len: text.len(),
         font: gpui::Font { weight, ..font(".SystemUIFont") },
-        color: rgb(TEXT).into(),
+        color: rgb(PAPER).into(),
         background_color: None,
         underline: None,
         strikethrough: None,
@@ -404,13 +401,13 @@ impl Render for Tooltip {
             .items_center()
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgb(TEXT))
+            .text_color(rgb(PAPER))
             // Untruncated, it's as wide as it shaped, and a box that wide could round under it.
             .when(layout.truncated, |text| text.w(px(layout.text)).truncate())
             .child(tip.text);
         let chip_top = (HEIGHT - CHIP_BODY) / 2.;
         let chips = tip.keys.into_iter().zip(layout.chips).flat_map(|(key, (left, width))| {
-            let chip = |top: f32, fill: u32| {
+            let chip = |top: f32, fill: Rgba| {
                 div()
                     .absolute()
                     .left(px(left))
@@ -418,15 +415,16 @@ impl Render for Tooltip {
                     .w(px(width))
                     .h(px(CHIP_BODY))
                     .rounded(px(CHIP_RADIUS))
-                    .bg(rgb(fill))
+                    .bg(fill)
             };
             // The lip is the chip's shape again, lower, under it.
-            let body = (chip(chip_top, CHIP_FILL).flex().items_center().justify_center())
+            let body = (chip(chip_top, rgb(PAPER)).flex().items_center().justify_center())
                 .text_size(px(CHIP_TEXT_SIZE))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(CHIP_TEXT))
+                .text_color(rgb(INK))
                 .child(key);
-            [chip(chip_top + CHIP_LIP, CHIP_LIP_FILL), body]
+            let lip = over(rgb(OVERLAY_DARK), rgb(PAPER), CHIP_LIP_FILL);
+            [chip(chip_top + CHIP_LIP, lip), body]
         });
         // Round at half the height but for the corner toward what it names.
         let shape = |shape: Div| {
@@ -445,7 +443,7 @@ impl Render for Tooltip {
         root.child(
             shape(div().relative().w(px(layout.width)).h(px(HEIGHT)))
                 .shadow(Level::Popover.shadow())
-                .bg(rgb(FILL))
+                .bg(rgb(OVERLAY_DARK))
                 .child(text)
                 .children(chips)
                 .child(rim),

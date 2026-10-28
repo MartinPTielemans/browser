@@ -110,7 +110,7 @@ fn asking_to_quit(cx: &mut TestAppContext) -> Asking {
             list: Vec::new(),
             action: "Quit".into(),
             cancel: "Cancel".into(),
-            tone: Tone::Safe,
+            tone: Tone::Accent,
             also: Some((
                 "Quit, and don’t ask again".into(),
                 Box::new(move |_: &mut App| always.0.borrow_mut().push("always".into())),

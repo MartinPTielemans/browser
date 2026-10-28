@@ -397,12 +397,6 @@ bool host_close_other_window(void);
 // A detent on the trackpad, as a swipe's nearest Space changes.
 void host_detent(void);
 
-// The system's accent colour in sRGB, as 0xRRGGBB.
-uint32_t host_accent_color(void);
-
-// Calls |changed| each time the user changes the system's accent colour.
-void host_watch_accent_color(void (*changed)(void));
-
 // Gives the Dock icon's dot the color it had when the app last quit, kept in |profile_dir|, and
 // follows the user's icon style from now on (dock.mm). For the launch, before the browser starts.
 void host_dock_dot_launch(const char* profile_dir);
