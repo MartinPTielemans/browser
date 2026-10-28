@@ -328,6 +328,7 @@ source_set("browser_core") {
       "//ui/ozone",
       "//ui/ozone/platform/wayland:wayland_proxy",
       "//ui/platform_window",
+      "//ui/platform_window/wm",
     ]
     # libxkbcommon, for the keyboard's layouts in keyboard.cc.
     configs += [ "//ui/events/ozone/layout:xkbcommon" ]
