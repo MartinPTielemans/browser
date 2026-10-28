@@ -224,11 +224,19 @@ void bc_window_minimize(bc_id id) {
 #endif
 }
 
-void bc_window_toggle_full_screen(bc_id id) {
+void bc_window_toggle_maximized(bc_id id) {
 #if BUILDFLAG(IS_LINUX)
   browser_core::Window* window = browser_core::Window::FromId(id);
-  if (window && window->widget()) {
-    window->widget()->SetFullscreen(!window->widget()->IsFullscreen());
+  views::Widget* widget = window ? window->widget() : nullptr;
+  if (!widget) {
+    return;
+  }
+  if (widget->IsFullscreen()) {
+    widget->SetFullscreen(false);
+  } else if (widget->IsMaximized()) {
+    widget->Restore();
+  } else {
+    widget->Maximize();
   }
 #endif
 }

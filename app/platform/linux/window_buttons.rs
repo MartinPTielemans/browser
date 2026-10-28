@@ -20,7 +20,7 @@ pub extern "C" fn host_press_window_button(ui_view: *mut c_void, button: i32) {
         match button {
             0 => bc::bc_window_close(window),
             1 => bc::bc_window_minimize(window),
-            _ => bc::bc_window_toggle_full_screen(window),
+            _ => bc::bc_window_toggle_maximized(window),
         }
     });
 }
