@@ -1578,7 +1578,8 @@ void host_copy(const char* text) {
   CloseClipboard();
 }
 
-// There's no Safari: Windows plays protected video with Chromium's own PlayReady (decision 1).
+// There's no Safari, and the note never offers it: Windows plays protected video with Chromium's
+// own PlayReady, or WebView2's where it can't (decision 1).
 void host_open_in_safari(const char* url) {
   fprintf(stderr, "browser: no system engine for %s\n", url);
 }

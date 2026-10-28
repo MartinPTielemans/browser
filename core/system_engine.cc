@@ -538,7 +538,13 @@ bool Remembered(Profile* profile, const GURL& url) {
   if (!profile || !url.SchemeIsHTTPOrHTTPS() || !Available()) {
     return false;
   }
-  if (const std::string_view entry = ListedEntry(url); !entry.empty()) {
+  // Where Chromium plays the listed services, what the system's engine plays beyond it is the
+  // hardware's, which a private window's store that keeps nothing doesn't get.
+  if (!platform::SystemPage::OpensListedSites() && profile->IsOffTheRecord()) {
+    return false;
+  }
+  if (const std::string_view entry = ListedEntry(url);
+      !entry.empty() && platform::SystemPage::OpensListedSites()) {
     const base::ListValue& off = profile->GetPrefs()->GetList(kListedOff);
     if (!std::ranges::contains(off, base::Value(entry))) {
       return true;
@@ -552,8 +558,9 @@ void Remember(Profile* profile, const GURL& url) {
   if (!profile || !url.SchemeIsHTTPOrHTTPS()) {
     return;
   }
-  // A listed service is never kept: turning it on takes back the user's off.
-  if (const std::string_view entry = ListedEntry(url); !entry.empty()) {
+  // A listed service is never kept where the list opens: turning it on takes back the user's off.
+  if (const std::string_view entry = ListedEntry(url);
+      !entry.empty() && platform::SystemPage::OpensListedSites()) {
     ScopedListPrefUpdate(profile->GetPrefs(), kListedOff)->EraseValue(base::Value(entry));
     return;
   }

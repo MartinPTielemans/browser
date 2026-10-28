@@ -1955,7 +1955,7 @@ impl Browser for Engine {
     }
 
     fn can_open_in_safari(&self) -> bool {
-        true
+        cfg!(target_os = "macos")
     }
 
     fn open_in_safari(&self, url: &str, _: &mut App) {
@@ -1966,6 +1966,10 @@ impl Browser for Engine {
 
     fn can_use_system_engine(&self) -> bool {
         unsafe { bc::bc_system_engine_available() }
+    }
+
+    fn system_engine_offered(&self, tab: u64) -> bool {
+        unsafe { bc::bc_tab_system_engine_offered(tab) }
     }
 
     fn use_system_engine(&self, tab: u64, _: &mut App) {

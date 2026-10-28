@@ -275,7 +275,7 @@ source_set("browser_core") {
     if (!is_component_build && !using_sanitizer) {
       all_dependent_configs = [ ":exports" ]
     }
-  } else {
+  } else if (!is_win) {
     sources += [ "platform/system_page_none.cc" ]
   }
   if (is_win || is_linux) {
@@ -286,9 +286,19 @@ source_set("browser_core") {
       "platform/native_hosts_win.cc",
       "platform/win/app_library.cc",
       "platform/win/playready.cc",
+      "platform/win/system_page.cc",
       "platform/win/window_views.cc",
     ]
-    deps += [ "//components/cdm/common:buildflags" ]
+    deps += [
+      "//components/cdm/common:buildflags",
+      "//media",
+      "//ui/aura",
+      "//ui/compositor",
+    ]
+    # WebView2's SDK, which engine/tree.sh puts in the tree: its headers, and the loader linked in
+    # so no DLL of Microsoft's ships with ilo. The runtime is the one Windows has.
+    include_dirs = [ "//third_party/webview2/include" ]
+    libs = [ "//third_party/webview2/x64/WebView2LoaderStatic.lib" ]
   } else {
     sources += [
       "platform/native_hosts_posix.cc",

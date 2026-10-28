@@ -38,7 +38,7 @@ toolchain_hash=$(basename "${zips[0]}" .zip)
 mountpoint -q "$toolchain/vs_files" ||
   fail "$toolchain/vs_files isn't mounted case-insensitively (engine/README.md, Windows)"
 
-for tool in ninja node gperf go clang-format rsync tsc 7z; do
+for tool in ninja node gperf go clang-format rsync tsc 7z unzip; do
   command -v "$tool" >/dev/null || fail "$tool is missing"
 done
 [ -d /usr/lib/node_modules/esbuild ] || fail "esbuild is missing: sudo npm install -g --prefix /usr esbuild"
@@ -186,6 +186,7 @@ _out_dir=$src/out/Default
 target_tools "$src"
 remove_agent_instructions "$src"
 apply_series "$src"
+webview2_sdk "$src"
 # Rewritten only when they change, as a newer args.gn makes ninja run gn again.
 args=$(mktemp -d)
 trap 'rm -rf "$args"' EXIT

@@ -8,7 +8,7 @@ Work that doesn't change the core needs no build: `./fetch.sh` downloads the pre
 
 | Path | What |
 |---|---|
-| `pins.ini` | Chromium version and the ungoogled-chromium, ungoogled-chromium-macos, ungoogled-chromium-portablelinux and ungoogled-chromium-windows tags. Bumped together, every Chromium release |
+| `pins.ini` | Chromium version and the ungoogled-chromium, ungoogled-chromium-macos, ungoogled-chromium-portablelinux and ungoogled-chromium-windows tags, bumped together every Chromium release. Also WebView2's SDK, by version and sha256 |
 | `series` | Ordered list of patches applied after ungoogled-chromium's own series |
 | `patches/helium/` | Patches taken from Helium, header naming the upstream path and commit |
 | `patches/ardia/` | Patches taken from Ardia, same convention |
@@ -75,7 +75,7 @@ The zip is named after its contents' hash. The first build takes about as long a
 
 `windows/prepare.sh` is ungoogled-chromium-windows's own build on Windows, which `.github/workflows/engine-windows.yml` runs by hand on GitHub's runners, for when the cross build can't.
 
-Both add `enable_playready=true` to the args. Chromium sets it only in Chrome-branded builds, and nothing else on PlayReady's path checks branding, so with it protected video plays through Windows' own PlayReady (decision 1).
+Both add `enable_playready=true` to the args. Chromium sets it only in Chrome-branded builds, and nothing else on PlayReady's path checks branding, so with it protected video plays through Windows' own PlayReady (decision 1). Both also put WebView2's SDK, its header and static loader under BSD-3-Clause, in the tree as `//third_party/webview2` (`webview2_sdk` in `tree.sh`), for the system page where Chromium's PlayReady can't play.
 
 ## Releases
 

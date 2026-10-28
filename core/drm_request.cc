@@ -11,6 +11,7 @@
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/drm_request.mojom.h"
 #include "browser_core/host.h"
+#include "browser_core/platform/system_page.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
 #include "browser_core/widevine.h"
@@ -87,6 +88,7 @@ class Unsupported : public content::WebContentsObserver,
   }
 
   bool shown() const { return !shown_.empty(); }
+  const std::string& system() const { return shown_; }
 
   // Whether the user closed the note for |url|'s site in the tab's profile.
   bool NoteClosed(const GURL& url) {
@@ -227,6 +229,13 @@ void ForgetMediaUnsupported(content::WebContents* contents) {
 bool MediaUnsupported(content::WebContents* contents) {
   Unsupported* unsupported = Unsupported::FromWebContents(contents);
   return unsupported && unsupported->shown();
+}
+
+bool SystemEngineOffered(content::WebContents* contents) {
+  Unsupported* unsupported = Unsupported::FromWebContents(contents);
+  return unsupported && unsupported->shown() &&
+         platform::SystemPage::Offered(unsupported->system(),
+                                       contents->GetBrowserContext()->IsOffTheRecord());
 }
 
 void CloseMediaNote(content::WebContents* contents) {
