@@ -565,8 +565,13 @@ bool Key(NSWindow* window,
 // is a private CoreGraphics call. Fine for a test driver, never for the browser.
 constexpr CGEventField kWindowNumberField = (CGEventField)51;
 extern "C" void CGEventSetWindowLocation(CGEventRef event, CGPoint location);
+
+}  // namespace
+
 // host.mm's, as AppKit has no way to make a swipe event of one's own.
 bool SwipeBetweenPages(NSWindow* window, NSPoint in_window, bool back);
+
+namespace {
 
 // Trackpads report about every 8 ms while a finger moves. Each event carries pixel deltas, as a
 // trackpad's do, so Chromium scrolls by exactly that much instead of animating a wheel tick.
