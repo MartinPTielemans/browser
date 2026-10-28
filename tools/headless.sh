@@ -61,10 +61,11 @@ done
 read -r wayland display <"$dir/env"
 [ -z "$x11" ] || [ -n "$display" ] || { echo "The session has no Xwayland." >&2; exit 1; }
 
+# The owner's session's scale (Chromium reads GDK_SCALE on X11) isn't this session's, which is 1.
 if [ -n "$x11" ]; then
-  setsid env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE DISPLAY="$display" "$@" >"$log" 2>&1 &
+  setsid env -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u GDK_SCALE DISPLAY="$display" "$@" >"$log" 2>&1 &
 else
-  setsid env -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE WAYLAND_DISPLAY="$wayland" "$@" >"$log" 2>&1 &
+  setsid env -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u GDK_SCALE WAYLAND_DISPLAY="$wayland" "$@" >"$log" 2>&1 &
 fi
 pid=$!
 for _ in $(seq 300); do
