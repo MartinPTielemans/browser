@@ -302,7 +302,10 @@ mod platform {
         );
         pub fn host_capture_camera(camera: bool);
         pub fn host_hide_capture();
+        // GPUI's on Linux (platform/linux/system.rs).
+        #[cfg(not(target_os = "linux"))]
         pub fn host_copy_png(png: *const u8, size: usize);
+        #[cfg(not(target_os = "linux"))]
         pub fn host_save_png(ui_view: *mut c_void, png: *const u8, size: usize);
         pub fn host_share_png(
             png: *const u8,
