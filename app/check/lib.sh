@@ -90,9 +90,10 @@ post() {
   step=$((step + 1))
   echo "$*" >&3
 }
-# A Today tab's Share as its menu logs it: this Mac's share services, or dimmed with none. A check
-# reads past them and never chooses one.
-share='\(Share (disabled)\|Share › [^,]*\(, Share › [^,]*\)*\)'
+# A Today tab's Share as its menu logs it: this Mac's share services, or with none its one Share…
+# for the share sheet, dimmed for a page with no link. A check reads past them and never chooses
+# one.
+share='\(Share…\( (disabled)\)\?\|Share › [^,]*\(, Share › [^,]*\)*\)'
 # Waits for a line matching $1 logged after the last command was sent.
 expect() {
   for _ in $(seq 100); do

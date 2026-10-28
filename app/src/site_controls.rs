@@ -363,6 +363,9 @@ pub trait Host {
     );
     /// Shows the app's tooltip, hanging from a tile in the browser window, or takes it away.
     fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, cx: &mut App);
+    /// Whether the system has a share sheet for the Share tile to open, as the tab menu's Share…
+    /// asks.
+    fn has_share_sheet(&self) -> bool;
 }
 
 /// A heading whose link shows under the pointer.
@@ -1315,7 +1318,12 @@ impl Render for SiteControls {
         .top_0()
         .left_0()
         .size_full();
-        let tiles: Vec<_> = (TILES.iter().enumerate())
+        // Without a share sheet, as on Linux, Share would do nothing, so it goes and the rest
+        // close up from the left, leaving the row's right end empty, as it already is.
+        let share = self.host.has_share_sheet();
+        let tiles: Vec<_> = (TILES.iter())
+            .filter(|tile| share || tile.run != TileRun::Share)
+            .enumerate()
             .map(|(index, &tile)| self.tile(index, tile, at.tiles, cx))
             .collect();
         let extensions = self.extensions(open, at.extensions, cx);
