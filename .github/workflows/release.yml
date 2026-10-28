@@ -152,13 +152,13 @@ jobs:
           MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
           MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
           MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
           UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
         working-directory: .
         run: |
           missing=
           for name in MAC_CERTIFICATE_P12 MAC_CERTIFICATE_PASSWORD MAC_NOTARY_KEY MAC_NOTARY_KEY_ID \
-            MAC_NOTARY_ISSUER_ID SPARKLE_PRIVATE_KEY UPDATE_PUBLIC_KEY; do
+            MAC_NOTARY_ISSUER_ID UPDATE_PRIVATE_KEY UPDATE_PUBLIC_KEY; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
@@ -176,8 +176,8 @@ jobs:
           rustup update stable --no-self-update
           ./setup.sh
 
-      # A keychain of the run's own, which the runner deletes, with the Developer ID, the
-      # notarization key as notarytool's profile "notary", and Sparkle's signing key.
+      # A keychain of the run's own, which the runner deletes, with the Developer ID and the
+      # notarization key as notarytool's profile "notary".
       - name: Keychain
         env:
           MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
@@ -185,7 +185,6 @@ jobs:
           MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
           MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
           MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
-          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           keychain=$RUNNER_TEMP/release.keychain-db
           password=$(uuidgen)
@@ -209,9 +208,6 @@ jobs:
           xcrun notarytool store-credentials notary --key "$RUNNER_TEMP/notary.p8" \
             --key-id "$MAC_NOTARY_KEY_ID" --issuer "$MAC_NOTARY_ISSUER_ID"
           rm "$RUNNER_TEMP/notary.p8"
-          printf %s "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/update.key"
-          .deps/Sparkle/bin/generate_keys --account "$(cat branding/name)" -f "$RUNNER_TEMP/update.key"
-          rm "$RUNNER_TEMP/update.key"
 
       - name: Build
         env:
@@ -232,9 +228,12 @@ jobs:
           name: notes
           path: ${{ runner.temp }}/notes
 
-      # appcast.sh names the DMG ilo.dmg in the appcast; the release's is ilo-mac-arm64.dmg.
+      # Signed with UPDATE_PRIVATE_KEY, which appcast.sh hands Sparkle's tools on their standard
+      # input, never through the Keychain. appcast.sh names the DMG ilo.dmg in the appcast; the
+      # release's is ilo-mac-arm64.dmg.
       - name: Appcast
         env:
+          UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
           version: ${{ needs.version.outputs.version }}
         run: |
           installer=$RUNNER_TEMP/windows/ilo-windows-x64-setup.exe
