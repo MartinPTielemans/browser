@@ -1062,6 +1062,12 @@ bool bc_system_engine_available(void) {
   return browser_core::system_engine::Available();
 }
 
+bool bc_tab_system_engine_offered(bc_id id) {
+  content::WebContents* contents = browser_core::Tab::FromId(id);
+  return contents && browser_core::system_engine::Allowed(id) &&
+         browser_core::SystemEngineOffered(contents);
+}
+
 bool bc_tab_set_system_engine(bc_id id, bool on) {
   content::WebContents* contents = browser_core::Tab::FromId(id);
   const GURL url = contents ? browser_core::Tab::PageUrl(contents) : GURL();

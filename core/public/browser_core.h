@@ -1449,8 +1449,9 @@ BC_EXPORT void bc_tab_stop(bc_id tab);
 // system's engine's store loses the site's too, once the profile has used it.
 BC_EXPORT void bc_tab_clear_site(bc_id tab, bool cookies);
 
-// The system's engine, WebKit on the Mac, plays the protected video Chromium can't (decision 1).
-// A short built-in list of streaming services opens in it from the first visit, until
+// The system's engine, WebKit on the Mac and WebView2 on Windows, plays the protected video
+// Chromium can't (decision 1). Where Chromium plays none of it, a short built-in list of streaming
+// services opens in it from the first visit, until
 // bc_tab_set_system_engine turns one off, which the profile keeps. Any other site's pages show in
 // it once the user switches a tab there, from the protected-media note, and the profile keeps the
 // site, never a listed one: its pages open there from then on, in any of the profile's tabs,
@@ -1462,9 +1463,16 @@ BC_EXPORT void bc_tab_clear_site(bc_id tab, bool cookies);
 // a URL typed for one, or back from its first page; redirects through other sites, as a sign-in's,
 // stay. Agents' tabs never switch, and bc_agent_may_act refuses agents a tab that has.
 
-// Whether the platform has a system engine that keeps a store a profile: macOS 14 or later.
-// Answers without loading it.
+// Whether the platform has a system engine that keeps a store a profile: macOS 14 or later, or
+// Windows with WebView2's runtime where Chromium's PlayReady can't play everywhere. Answers without
+// loading it.
 BC_EXPORT bool bc_system_engine_available(void);
+
+// Whether the tab's protected-media note offers the system's engine: what its page was refused is
+// what the system's engine plays where Chromium can't, as PlayReady is on Windows 10, or outside a
+// private window on a PC without PlayReady's hardware. Else the note only says why the video
+// can't play.
+BC_EXPORT bool bc_tab_system_engine_offered(bc_id tab);
 
 // With |on|, shows the tab's page in the system's engine, loading its URL there, and has the
 // profile keep its site for it, or take back its off for a listed service. Else has the profile

@@ -18,9 +18,11 @@
 //! way back. In an agent's Space it says why and offers nothing, as the yes is the user's alone.
 //!
 //! On Windows, Chromium plays sites that offer Microsoft's PlayReady where the PC can, so the note
-//! shows only where it can't, and says why: it needs Windows 11, an x64 PC and graphics with
-//! hardware DRM, outside private windows (bc_playready_needs). It offers nothing, as there's no
-//! other engine to give.
+//! shows only where it can't. Where Microsoft Edge's WebView2 plays what Chromium was refused, on
+//! Windows 10 and outside private windows on graphics without hardware DRM, its button shows the
+//! page in Edge's engine as Safari's does on the Mac (bc_tab_system_engine_offered). Without
+//! WebView2's runtime the note says so, and nothing downloads it. Elsewhere it says why and offers
+//! nothing: PlayReady needs an x64 PC, and a private window keeps no licence (bc_playready_needs).
 //!
 //! In Safari's engine the note says why a protected video shows black when the display connection's
 //! protection (HDCP) falls short, as a dock's can, which the site never says. A statement, with
@@ -43,7 +45,13 @@ use crate::widevine::Widevine;
 /// plays here, in this tab. There's no sign-in to warn of, as the core brings the site's cookies and
 /// localStorage over with the tab.
 const SWITCH_WORDS: &str = "This site's video needs Safari's engine. Play it in this tab.";
+const EDGE_SWITCH_WORDS: &str =
+    "This site's video needs Microsoft Edge's engine. Play it in this tab.";
 const SWITCH: &str = "Play in This Tab";
+/// Windows without WebView2's runtime, which the user installs: ilo doesn't download it.
+const WEBVIEW2: &str =
+    "This site's video needs Microsoft Edge WebView2, which this PC doesn't have.";
+const PLAYREADY: &str = "com.microsoft.playready";
 const WORDS: &str =
     concat!("This site's video needs a module ", env!("APP_NAME"), " doesn't have yet.");
 const PLAYREADY_WINDOWS_11: &str =
@@ -199,10 +207,19 @@ impl Shell {
         true
     }
 
-    /// Whether the note's button shows the page in Safari's engine, in the tab: where the Mac has
-    /// one, and not in an agent's Space, whose tabs never switch.
+    /// Whether the note's button shows the page in the system's engine, in the tab: where the core
+    /// offers it for what the page was refused, and not in an agent's Space, whose tabs never
+    /// switch.
     fn can_switch(&self) -> bool {
-        self.browser.can_use_system_engine() && !self.agents_space_shown()
+        self.browser.system_engine_offered(self.selected) && !self.agents_space_shown()
+    }
+
+    /// What the note says over its button: the engine that plays the site.
+    fn switch_words(&self) -> &'static str {
+        match self.browser.playready_needs() {
+            PlayReady::None => SWITCH_WORDS,
+            _ => EDGE_SWITCH_WORDS,
+        }
     }
 
     /// Shows the page of the tab shown in Safari's engine. The core takes the note away.
@@ -267,14 +284,21 @@ impl Shell {
         }
     }
 
-    /// What the note says where it has no engine to give: on Windows, what PlayReady needs.
-    fn unplayable_words(&self) -> &'static str {
+    /// What the note says where it has no engine to give for `system`, the key system the page
+    /// was refused: on Windows, what PlayReady needs, or WebView2's runtime, which would play it.
+    fn unplayable_words(&self, system: &str) -> &'static str {
+        let playready = system == PLAYREADY;
+        let webview2 = self.browser.can_use_system_engine();
         match self.browser.playready_needs() {
             PlayReady::None => WORDS,
+            PlayReady::Windows11 if !webview2 => WEBVIEW2,
             PlayReady::Windows11 => PLAYREADY_WINDOWS_11,
+            // Chromium has no other module for a site that asked for another, such as Widevine.
+            PlayReady::X64 | PlayReady::Hardware if !playready => WORDS,
             PlayReady::X64 => PLAYREADY_X64,
             // A private window keeps no licence, so it's the one place a capable PC can't play.
             PlayReady::Hardware if self.private => PLAYREADY_PRIVATE,
+            PlayReady::Hardware if !webview2 => WEBVIEW2,
             PlayReady::Hardware => PLAYREADY_HARDWARE,
         }
     }
@@ -293,14 +317,14 @@ impl Shell {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<impl IntoElement + use<>> {
-        if self.drm_note().is_none() {
+        let Some(system) = self.drm_note() else {
             // Drawn again, it's logged again.
             if self.drm_drawn.take().is_some() {
                 // check.sh waits for this line.
                 log!("browser: drm note hidden");
             }
             return None;
-        }
+        };
         let output = self.output_note();
         let switch = !output && self.can_switch();
         // Where none is, the note says why and offers nothing.
@@ -310,7 +334,7 @@ impl Shell {
             self.widevine_card(state, cx)
         } else if switch {
             (
-                SWITCH_WORDS,
+                self.switch_words(),
                 Some(
                     card_button(&self.palette, "drm-note-switch", SWITCH)
                         .on_click(cx.listener(|shell, _, _, cx| shell.use_system_engine(cx))),
@@ -322,7 +346,7 @@ impl Shell {
                 card_button(&self.palette, "drm-note-safari", label)
                     .on_click(cx.listener(|shell, _, _, cx| shell.open_in_safari(cx)))
             });
-            (self.unplayable_words(), open)
+            (self.unplayable_words(system), open)
         };
         // Shown under the pointer, as a row's ×, and always to VoiceOver's cursor, which is no
         // pointer. It takes clicks either way, as the pointer is over the card to click it.
@@ -363,7 +387,8 @@ mod tests {
     use gpui::{App, AppContext, Modifiers, TestAppContext};
 
     use super::{
-        CLOSE_KEY, OUTPUT_RESTRICTED, PLAYREADY_PRIVATE, PLAYREADY_WINDOWS_11, PlayReady, WORDS,
+        CLOSE_KEY, OUTPUT_RESTRICTED, PLAYREADY, PLAYREADY_PRIVATE, PLAYREADY_WINDOWS_11, PlayReady,
+        WEBVIEW2, WORDS,
     };
 
     use crate::widevine::Widevine;
@@ -686,17 +711,20 @@ mod tests {
         });
     }
 
-    /// On Windows the note shows only where PlayReady can't play, and says what the PC lacks:
-    /// Windows 11 first, then an x64 PC, then the graphics' hardware DRM.
+    /// On Windows the note shows only where PlayReady can't play, and where it has no engine to
+    /// give, as in an agent's Space, says what the PC lacks: Windows 11 first, then an x64 PC, then
+    /// the graphics' hardware DRM.
     #[gpui::test]
     fn on_windows_the_note_says_what_playready_needs(cx: &mut TestAppContext) {
         let (shell, host) = window_with_tabs(cx);
+        host.system_engine.set(true);
         shell.update(cx, |shell, cx| {
-            shell.set_media_unsupported(10, "com.microsoft.playready", cx);
-            assert_eq!(shell.unplayable_words(), WORDS, "a Mac or Linux note named Windows");
+            shell.set_media_unsupported(10, PLAYREADY, cx);
+            let words = shell.unplayable_words(PLAYREADY);
+            assert_eq!(words, WORDS, "a Mac or Linux note named Windows");
             let said = |needs| {
                 host.playready.set(needs);
-                shell.unplayable_words()
+                shell.unplayable_words(PLAYREADY)
             };
             assert!(said(PlayReady::Windows11).contains("Windows 11"));
             assert!(said(PlayReady::X64).contains("ARM"));
@@ -709,13 +737,68 @@ mod tests {
     #[gpui::test]
     fn a_private_window_says_it_cant_play(cx: &mut TestAppContext) {
         let (shell, host) = window_with_tabs(cx);
+        host.system_engine.set(true);
         shell.update(cx, |shell, cx| {
             shell.private = true;
-            shell.set_media_unsupported(10, "com.widevine.alpha", cx);
+            shell.set_media_unsupported(10, PLAYREADY, cx);
             host.playready.set(PlayReady::Hardware);
-            assert_eq!(shell.unplayable_words(), PLAYREADY_PRIVATE);
+            assert_eq!(shell.unplayable_words(PLAYREADY), PLAYREADY_PRIVATE);
             host.playready.set(PlayReady::Windows11);
-            assert_eq!(shell.unplayable_words(), PLAYREADY_WINDOWS_11);
+            assert_eq!(shell.unplayable_words(PLAYREADY), PLAYREADY_WINDOWS_11);
+        });
+    }
+
+    /// Where WebView2 plays what Chromium's PlayReady was refused, the button shows the page in
+    /// Microsoft Edge's engine, in the tab, as Safari's on the Mac.
+    #[gpui::test]
+    fn on_windows_the_button_shows_the_page_in_edges_engine_where_it_plays(
+        cx: &mut TestAppContext,
+    ) {
+        let (shell, host) = window_with_tabs(cx);
+        host.system_engine.set(true);
+        host.playready.set(PlayReady::Hardware);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, PLAYREADY, cx);
+            assert!(shell.can_switch());
+            assert!(shell.switch_words().contains("Microsoft Edge"));
+            host.take();
+            shell.use_system_engine(cx);
+        });
+        assert_eq!(host.take(), ["system engine 10"]);
+    }
+
+    /// Where the core doesn't offer it, as in a private window on a PC without hardware DRM, the
+    /// note says why and switches nothing, though WebView2 is there.
+    #[gpui::test]
+    fn where_the_core_doesnt_offer_edges_engine_the_note_says_why(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        host.system_engine.set(true);
+        host.offered.set(Some(false));
+        host.playready.set(PlayReady::Hardware);
+        shell.update(cx, |shell, cx| {
+            shell.private = true;
+            shell.set_media_unsupported(10, PLAYREADY, cx);
+            assert!(!shell.can_switch());
+            host.take();
+            shell.use_system_engine(cx);
+            assert_eq!(shell.unplayable_words(PLAYREADY), PLAYREADY_PRIVATE);
+        });
+        assert!(host.take().is_empty());
+    }
+
+    /// Without WebView2's runtime, the note says that's what would play the video, and offers no
+    /// download. A site that asked for another module than PlayReady gets the words it always has.
+    #[gpui::test]
+    fn without_webview2_the_note_says_so(cx: &mut TestAppContext) {
+        let (shell, host) = window_with_tabs(cx);
+        shell.update(cx, |shell, cx| {
+            shell.set_media_unsupported(10, PLAYREADY, cx);
+            host.playready.set(PlayReady::Hardware);
+            assert_eq!(shell.unplayable_words(PLAYREADY), WEBVIEW2);
+            assert_eq!(shell.unplayable_words("com.widevine.alpha"), WORDS);
+            host.playready.set(PlayReady::Windows11);
+            assert_eq!(shell.unplayable_words(PLAYREADY), WEBVIEW2);
+            assert!(!shell.can_switch());
         });
     }
 
