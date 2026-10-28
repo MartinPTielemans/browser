@@ -606,6 +606,9 @@ impl Browser for Fake {
     // The made-up pages ask nothing.
     fn answer_permission(&self, _: u64, _: shell::Answer, _: &mut App) {}
 
+    // The preview has no agents.
+    fn answer_agent(&self, _: u64, _: browser::agents::Answer, _: &mut App) {}
+
     // The made-up pages ask no dialogs.
     fn show_page_dialog(&self, _: Option<shell::ShownPageDialog>, _: &mut App) {}
     fn answer_page_dialog(&self, _: u64, _: u64, _: shell::PageReply, _: &mut App) {}
@@ -721,6 +724,22 @@ impl Browser for Fake {
     fn settings(&self, _: &mut App) {}
 
     fn passwords(&self, _: u64, _: &mut App) {}
+
+    fn agent_activity(&self, _: &mut App) {}
+
+    fn agent_permissions(&self, _: u64, _: &App) -> (Vec<(SharedString, bool)>, bool) {
+        (Vec::new(), false)
+    }
+
+    fn revoke_agent(&self, _: u64, _: Option<SharedString>, _: &mut App) {}
+
+    fn disconnect_agent(&self, _: u64, _: &mut App) {}
+
+    fn take_over(&self, _: SharedString, _: u64, _: &mut App) {}
+
+    fn hand_back(&self, _: u64, _: &mut App) {}
+
+    fn stop_agent(&self, _: SharedString, _: &mut App) {}
 
     fn shortcuts(&self, _: &mut App) {}
 
@@ -1306,6 +1325,38 @@ fn main() {
                 if agent.is_some() {
                     shell.set_space(first_space + 1, cx);
                     shell.agent_acted("claude-code".into(), reading[2], cx);
+                    // =handoff has it hand its fourth tab to the user, shown, for a sign-in;
+                    // =back has the user take that tab over, and the agent ask for it back.
+                    let back = agent.as_deref() == Some("back");
+                    let handoff = back || agent.as_deref() == Some("handoff");
+                    let why: SharedString = match back {
+                        true => "To finish the order".into(),
+                        false => "Sign in to finish the order".into(),
+                    };
+                    let held = match (handoff, back) {
+                        (true, true) => vec![(reading[3], SharedString::default())],
+                        (true, false) => vec![(reading[3], why.clone())],
+                        _ => Vec::new(),
+                    };
+                    let status = browser::agents::Status {
+                        agent: "claude-code".into(),
+                        space: first_space + 1,
+                        doing: "Clicked · en.wikipedia.org".into(),
+                        held,
+                    };
+                    shell.set_agent_status(vec![status], cx);
+                    if handoff {
+                        shell.set_selected(reading[3], cx);
+                        let question = browser::agents::Question {
+                            id: 1,
+                            agent: "Claude Code".into(),
+                            what: "hand you a tab".into(),
+                            why,
+                            handoff: Some(reading[3]),
+                            back,
+                        };
+                        shell.set_agent_question(Some(question), cx);
+                    }
                 }
                 let favorite = std::env::var("PREVIEW_FAVORITE").ok().and_then(|n| n.parse().ok());
                 match (empty.as_deref(), favorite.and_then(|n: usize| favorites.get(n))) {

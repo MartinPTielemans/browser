@@ -2,11 +2,13 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "base/no_destructor.h"
+#include "browser_core/agent_page.h"
 #include "browser_core/host.h"
 #include "browser_core/space.h"
 
@@ -21,6 +23,12 @@ std::map<bc_id, std::string>& Sessions() {
   return *sessions;
 }
 
+// The tabs the user holds from agents.
+std::set<bc_id>& Held() {
+  static base::NoDestructor<std::set<bc_id>> held;
+  return *held;
+}
+
 bool End(bc_id tab, std::optional<std::string_view> agent, int why) {
   auto it = Sessions().find(tab);
   if (it == Sessions().end() || (agent && it->second != *agent)) {
@@ -28,6 +36,7 @@ bool End(bc_id tab, std::optional<std::string_view> agent, int why) {
   }
   const std::string held = std::move(it->second);
   Sessions().erase(it);
+  AgentPage::SessionEnded(tab);
   // One whose tab closed or left the agent's Space ended then, and the app saw it.
   if (!Space::AgentMayAct(held, tab)) {
     return false;
@@ -42,7 +51,11 @@ bool End(bc_id tab, std::optional<std::string_view> agent, int why) {
 
 void AgentActed(const std::string& agent, bc_id tab) {
   std::erase_if(Sessions(), [](const auto& session) {
-    return !Space::AgentMayAct(session.second, session.first);
+    if (Space::AgentMayAct(session.second, session.first)) {
+      return false;
+    }
+    AgentPage::SessionEnded(session.first);
+    return true;
   });
   Sessions()[tab] = agent;
 }
@@ -70,6 +83,18 @@ size_t EndAgentSessions(const std::string& agent, int why) {
 
 bool EndTabSession(bc_id tab, int why) {
   return End(tab, std::nullopt, why);
+}
+
+void Hold(bc_id tab) {
+  Held().insert(tab);
+}
+
+bool HandBack(bc_id tab) {
+  return Held().erase(tab) > 0;
+}
+
+bool IsHeld(bc_id tab) {
+  return Held().contains(tab);
 }
 
 }  // namespace browser_core

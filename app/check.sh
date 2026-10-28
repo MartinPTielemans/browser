@@ -4,7 +4,7 @@
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites extensions adblock windows private capture passwords links access trouble
-#   dialogs import onboarding crash
+#   dialogs import onboarding crash mcp
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
 # Every run but load and crash needs Browser to be the active app, and window and find take it
@@ -19,7 +19,7 @@ export BROWSER_ONBOARDING=skip
 cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites extensions adblock windows private capture passwords links access"
-runs="$runs trouble dialogs import onboarding crash"
+runs="$runs trouble dialogs import onboarding crash mcp"
 named="store adblock-live"
 for run in "$@"; do
   case " $runs $named " in
@@ -41,6 +41,8 @@ saved="$HOME/Library/Caches/browser-app/Spaces.json"
 # The frame the launch window opens at, which the app keeps next to them. A run that starts without
 # the Spaces starts without it too, so its launch window isn't at the last run's frame.
 launch_frame="$(dirname "$saved")/launch-frame"
+# The mcp run turns agents on with a token of its own, which a failed one left.
+rm -f "$(dirname "$saved")/Agents"
 # DevTools open where the profile last had them, so an undocked try would leave them in a window.
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its

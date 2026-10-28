@@ -69,6 +69,8 @@ mod page_dialog;
 mod page_motion;
 mod panes;
 mod permission;
+mod agent_bar;
+mod agent_question;
 mod picture;
 mod recent_downloads;
 #[cfg(test)]
@@ -1117,6 +1119,13 @@ pub struct Shell {
     question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The tab whose question's card shows, and its moment on screen before Block and Allow work.
     question_settling: RefCell<Option<(u64, crate::settling::Settling)>>,
+    /// What an agent asks the user first, in every window (agent_question.rs).
+    agent_question: Option<crate::agents::Question>,
+    agent_question_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
+    /// What the agents do and what the user holds from them, for the bar in an agent's Space
+    /// (agent_bar.rs).
+    agent_status: Vec<crate::agents::Status>,
+    agent_bar_drawn: Rc<Cell<Option<Bounds<Pixels>>>>,
     /// The protected-media key system each tab's page asked for that ilo can't play, until the tab
     /// goes to another site.
     drm_notes: HashMap<u64, SharedString>,
@@ -1307,6 +1316,10 @@ impl Shell {
             questions: HashMap::new(),
             question_drawn: Rc::default(),
             question_settling: RefCell::default(),
+            agent_question: None,
+            agent_question_drawn: Rc::default(),
+            agent_status: Vec::new(),
+            agent_bar_drawn: Rc::default(),
             drm_notes: HashMap::new(),
             keys: HashMap::new(),
             drm_drawn: Rc::default(),
@@ -2854,6 +2867,8 @@ impl Shell {
                 .children(self.dragged_tile(cx))
                 .children(self.turning_drag())
                 .children(self.question_card(cx))
+                .children(self.agent_question_card(cx))
+                .children(self.agent_bar_card(cx))
                 .children(self.drm_note_card(cx)),
         };
         sidebar

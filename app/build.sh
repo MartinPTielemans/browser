@@ -16,10 +16,12 @@ if [ "$(uname -s)" = Linux ]; then
   # In the browser crate's target, which has built the same dependencies for the tests.
   # shellcheck disable=SC2086 # no features, or one flag and its value
   cargo build --release --manifest-path linux/Cargo.toml --target-dir target $features
+  # The bridge an agent's MCP client runs, which finds the browser's socket (src/agents/bridge.rs).
+  cargo build --release --bin mcp-bridge
   rm -rf build/Browser
   mkdir -p build
   cp -al "$(cd .deps/engine && pwd -P)" build/Browser
-  cp target/release/libBrowser.so build/Browser/
+  cp target/release/libBrowser.so target/release/mcp-bridge build/Browser/
   exit 0
 fi
 [ -e .deps/Chromium.app ] || ./setup.sh
@@ -40,7 +42,7 @@ if [ "${1:-}" = prod ]; then
   id=$(cat branding/id)
   features="--features prod"
 fi
-cargo build --release --bin Browser $features
+cargo build --release --bin Browser --bin mcp-bridge $features
 
 app=build/Browser.app
 rm -rf "$app"
@@ -48,7 +50,8 @@ mkdir -p build
 # A clone, so it's instant, and rebuilding the engine leaves a built app as it was.
 cp -cR "$(cd .deps/Chromium.app && pwd -P)" "$app"
 rm "$app/Contents/MacOS/Chromium"
-cp target/release/Browser "$app/Contents/MacOS/"
+# The bridge goes beside it, where Settings › Agents points an agent's MCP client.
+cp target/release/Browser target/release/mcp-bridge "$app/Contents/MacOS/"
 # uBlock Origin goes in the framework's resources, where the core loads it into every profile.
 framework=$(echo "$app"/Contents/Frameworks/*Framework.framework)
 cp -R "$(./fetch-ublock.sh)" "$framework/Resources/ublock"

@@ -637,6 +637,8 @@ dependencies = [
  "bindgen",
  "cc",
  "emojis",
+ "futures",
+ "getrandom 0.3.4",
  "gpui",
  "gpui_linux",
  "gpui_macos",

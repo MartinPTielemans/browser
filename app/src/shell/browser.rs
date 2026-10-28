@@ -130,6 +130,8 @@ pub trait Browser {
     fn clear_site(&self, tab: u64, cookies: bool, cx: &mut App);
     /// Answers what the tab's page asks (Shell::set_question), if it still asks.
     fn answer_permission(&self, tab: u64, answer: Answer, cx: &mut App);
+    /// Answers what an agent asks (Shell::set_agent_question), if it still asks.
+    fn answer_agent(&self, question: u64, answer: crate::agents::Answer, cx: &mut App);
     /// Asks the dialog a tab's page asks over the tab's card, with the corners of its radius, or
     /// takes back the one it asks (None).
     fn show_page_dialog(&self, shown: Option<ShownPageDialog>, cx: &mut App);
@@ -392,6 +394,23 @@ pub trait Browser {
     fn shortcuts(&self, cx: &mut App);
     /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
     fn passwords(&self, space: u64, cx: &mut App);
+    /// Opens the Settings window on its Agents tab, which lists what each agent did.
+    fn agent_activity(&self, cx: &mut App);
+    /// The sites where the user answered the agent whose Space is `space` for good, by name:
+    /// Always Allow (true) or Never (false); and whether the agent is connected.
+    fn agent_permissions(&self, space: u64, cx: &App) -> (Vec<(SharedString, bool)>, bool);
+    /// Forgets the user's answer for good to the agent whose Space is `space` on `site`, or on
+    /// every site with None.
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, cx: &mut App);
+    /// Disconnects the agent whose Space is `space`, whose token then stops working.
+    fn disconnect_agent(&self, space: u64, cx: &mut App);
+    /// The user takes over `tab`, where the agent with the id `agent` is at work: it may not act
+    /// there until they hand it back.
+    fn take_over(&self, agent: SharedString, tab: u64, cx: &mut App);
+    /// The user hands `tab` back to its agent.
+    fn hand_back(&self, tab: u64, cx: &mut App);
+    /// The user stops the agent with the id `agent`: what it's doing and asking ends.
+    fn stop_agent(&self, agent: SharedString, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.

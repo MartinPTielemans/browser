@@ -165,3 +165,58 @@ fn an_agents_row_stops_saying_its_at_work_once_its_session_ends(cx: &mut TestApp
     acted(&shell, cx, "claude-code", 20);
     assert!(at_work(&shell, cx, 20));
 }
+
+/// An agent's Space's menu leads to what the agent did, in Settings › Agents, and the user's
+/// Space's has no such item.
+#[gpui::test]
+fn an_agents_space_menu_shows_its_activity(cx: &mut TestAppContext) {
+    let (shell, host) = shell_with_agent(cx);
+    shell.update(cx, |shell, cx| {
+        shell.space_menu(1, point(px(100.), px(200.)), cx)
+    });
+    let menu = host.menus.borrow().last().cloned().unwrap_or_default();
+    assert_eq!(item(&menu, "Agent Activity…"), None);
+    shell.update(cx, |shell, cx| {
+        shell.space_menu(2, point(px(100.), px(200.)), cx)
+    });
+    let menu = host.menus.borrow().last().cloned().unwrap_or_default();
+    assert_eq!(item(&menu, "Agent Activity…"), Some(true));
+    host.take();
+    cx.update(|cx| host.choose("Agent Activity…", cx));
+    assert_eq!(host.take(), ["agent activity"]);
+}
+
+/// An agent's Space's menu lists what the user answered it for good on each site under Revoke
+/// Permission, each to revoke, and all at once for several, and Disconnect while it's connected.
+#[gpui::test]
+fn an_agents_space_menu_lists_its_permissions_to_revoke(cx: &mut TestAppContext) {
+    let (shell, host) = shell_with_agent(cx);
+    let menu = |cx: &mut TestAppContext| {
+        shell.update(cx, |shell, cx| shell.space_menu(2, point(px(100.), px(200.)), cx));
+        host.menus.borrow().last().cloned().unwrap_or_default()
+    };
+    let menu_now = menu(cx);
+    assert_eq!(item(&menu_now, "Revoke Permission"), Some(false));
+    assert_eq!(item(&menu_now, "Disconnect Claude Code"), Some(false));
+    cx.update(|cx| host.dismiss(cx));
+
+    let grants = vec![("bank.example".into(), false), ("shop.example".into(), true)];
+    *host.agent_permissions.borrow_mut() = (grants, true);
+    let menu_now = menu(cx);
+    assert_eq!(item(&menu_now, "Revoke Permission"), Some(true));
+    assert_eq!(item(&menu_now, "Never on bank.example"), Some(true));
+    assert_eq!(item(&menu_now, "Always Allow on shop.example"), Some(true));
+    assert_eq!(item(&menu_now, "All Sites"), Some(true));
+    host.take();
+    cx.update(|cx| host.choose("Always Allow on shop.example", cx));
+    assert_eq!(host.take(), ["revoke agent 2 shop.example"]);
+    menu(cx);
+    cx.update(|cx| host.choose("All Sites", cx));
+    assert_eq!(host.take(), ["revoke agent 2 all"]);
+    menu(cx);
+    cx.update(|cx| host.choose("Disconnect Claude Code", cx));
+    assert_eq!(host.take(), ["disconnect agent 2"]);
+
+    *host.agent_permissions.borrow_mut() = (vec![("shop.example".into(), true)], true);
+    assert_eq!(item(&menu(cx), "All Sites"), None, "one site had All Sites");
+}
