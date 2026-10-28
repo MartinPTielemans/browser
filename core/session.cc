@@ -286,7 +286,9 @@ Saved Collect() {
         {.space = space == spaces.end() ? 0 : space->second,
          .bounds = widget ? widget->GetRestoredBounds() : gfx::Rect(),
          .sidebar_width = window->sidebar_width(),
-         .fullscreen = widget && widget->IsFullscreen()});
+         // The user's full screen, not a page's: one saved as a video plays would come back
+         // without it.
+         .fullscreen = widget && widget->IsFullscreen() && !window->FullScreenForPage()});
   }
   saved.archive = Archived();
   return saved;

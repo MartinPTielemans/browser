@@ -2219,6 +2219,17 @@ void Window::LeavingFullScreen() {
   }
 }
 
+bool Window::FullScreenForPage() const {
+  for (const auto& [profile, held] : browsers_) {
+    ExclusiveAccessManager* manager = ExclusiveAccessManager::From(held.browser);
+    FullscreenController* controller = manager ? manager->fullscreen_controller() : nullptr;
+    if (controller && controller->IsFullscreenCausedByTab()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void Window::OnWidgetBoundsChanged(views::Widget* widget, const gfx::Rect& new_bounds) {
   // The session keeps each regular window's frame, saved a while after it moves, so a crash
   // keeps it too.

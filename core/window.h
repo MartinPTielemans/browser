@@ -327,6 +327,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   BrowserWindowInterface* BrowserFor(Profile* profile);
   // From the platform's window, as it starts to leave full screen: a page full screen leaves now.
   void LeavingFullScreen();
+  // Whether the window is full screen because a page took it there, not the user, so it leaves
+  // with the page.
+  bool FullScreenForPage() const;
 
   // Opens |saved|, a closed tab, without its page, at |index| in |space|'s Today tabs, else at the
   // top of the Space the window shows. Returns its id, or 0.
