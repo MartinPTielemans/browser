@@ -16,7 +16,7 @@ mkdir -p "$profile_dir"
 log="$out/adblock-live.log"
 step=0
 BROWSER_DRIVE=1 BROWSER_URL="${site}live.html" BROWSER_PROFILE_DIR="$profile_dir" \
-  "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+  "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
