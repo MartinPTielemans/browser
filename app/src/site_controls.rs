@@ -1,10 +1,11 @@
 //! The Site Controls: the panel the URL field's Site Controls button opens, as Arc's Site
 //! Control Center (docs/ux-spec.md › Extensions › Site Controls). For the site of the page shown:
 //! the action tiles, the turned-on extensions, whether ads and trackers are blocked there, its
-//! permissions as Chrome's page info lists them, each changeable, and its connection. GPUI can't
-//! draw over the page's native view, so it's a window of its own that the host shows over the
-//! browser window, as its child, with the keyboard, as the command bar is, over a blur in its shape
-//! with a shadow. What it asks of its window and the core goes through `Host`.
+//! saved logins, its permissions as Chrome's page info lists them, each changeable, and its
+//! connection. GPUI can't draw over the page's native view, so it's a window of its own that the
+//! host shows over the browser window, as its child, with the keyboard, as the command bar is,
+//! over a blur in its shape with a shadow. What it asks of its window and the core goes through
+//! `Host`.
 
 use std::{
     rc::Rc,
@@ -22,6 +23,7 @@ use gpui::{
 use crate::{
     icon_picker,
     palette::{self, Palette, STATE_HOVERED, STATE_PRESSED},
+    passwords::{self, Login},
     shell::{Command, MenuEntry, cubic_bezier, scaled::scaled},
     tooltip,
 };
@@ -73,6 +75,9 @@ const ENGINE_NAME: &str = "Safari's engine";
 
 /// Ours: the ad blocking row's, which Arc's panel didn't have.
 const AD_BLOCKING: &str = "icons/shield.svg";
+/// Ours: the site's logins, in place of Chrome's key icon and its manage bubble.
+const PASSWORDS: &str = "icons/key-round.svg";
+const PASSWORDS_NAME: &str = "Passwords";
 use crate::tokens::site_controls::MANAGED_OPACITY;
 use crate::tokens::site_controls::DIVIDER;
 use crate::tokens::site_controls::FOOTER;
@@ -168,6 +173,8 @@ pub struct Site {
     /// the profile keeps for it, off for one it offers it for, where a page of the tab asked or the
     /// user closed the site's note, else none. The row turns it on or off.
     pub system_engine: Option<bool>,
+    /// The logins the profile keeps for the site, and Never if it's set to it.
+    pub logins: Vec<Login>,
     /// Whether ads and trackers are blocked on the site, none where that isn't the user's to change
     /// there: a page that isn't http(s), one Safari's engine shows, a private window, or with
     /// blocking off in Settings.
@@ -207,6 +214,10 @@ pub enum Run {
     Extension(SharedString, Bounds<Pixels>),
     /// The certificate the page came with, in the system's viewer.
     Certificate,
+    /// Removes the login, once the user confirms in the browser window's dialog.
+    RemoveLogin(Login),
+    /// Every login of the tab's profile, in Settings.
+    Passwords,
 }
 
 /// An action tile. Arc's row is Share, Boost, Capture a portion and Capture the full page; the
@@ -348,6 +359,8 @@ pub trait Host {
     /// Has the profile keep the site for Safari's engine or not, and the tab show its page there or
     /// in Chromium. The user's, as above.
     fn set_system_engine(&self, tab: u64, on: bool);
+    /// Takes the site, set to Never in the tab's profile, off Never. The user's, as above.
+    fn allow_saving(&self, tab: u64, login: &Login);
     /// Blocks ads and trackers on the site or lets them load, and reloads the page. The user's, as
     /// above.
     fn set_ad_blocking(&self, tab: u64, on: bool);
@@ -475,10 +488,12 @@ fn layout(site: &Site, extensions: usize, beak: bool) -> Layout {
     }
 }
 
-/// The Settings heading's rows: ad blocking, the permissions, then Reset.
+/// The Settings heading's rows: Safari's engine, ad blocking, Passwords, the permissions, then
+/// Reset.
 fn rows(site: &Site) -> usize {
     let firsts = site.system_engine.is_some() as usize + site.ad_blocking.is_some() as usize;
-    firsts + site.permissions.len() + site.reset.is_some() as usize
+    let logins = passwords::state(&site.logins).is_some() as usize;
+    firsts + logins + site.permissions.len() + site.reset.is_some() as usize
 }
 
 /// The panel's corners in its window, clockwise from the beak's tip, or its top left without one.
@@ -707,13 +722,17 @@ fn describe(site: &Site) -> String {
         )
         .collect();
     format!(
-        "{}: {}; {}{}",
+        "{}: {}; {}{}{}",
         site.site,
         site.connection_summary,
         if permissions.is_empty() { "no permissions".into() } else { permissions.join(", ") },
         match site.system_engine {
             Some(on) => format!("; {ENGINE_NAME} {}", if on { "on" } else { "off" }),
             None => String::new(),
+        },
+        match site.logins.is_empty() {
+            true => String::new(),
+            false => format!("; passwords {}", passwords::describe(&site.logins)),
         }
     )
 }
@@ -883,6 +902,47 @@ impl SiteControls {
                 .ok();
         });
         self.host.menu(items.to_vec(), position, chosen, cx);
+    }
+
+    /// Shows the Passwords row's menu at `position`: Remove for each login, which closes the panel
+    /// for the browser window's dialog to ask, Never's way back, and every login in Settings.
+    fn choose_login(
+        &mut self,
+        logins: Vec<Login>,
+        position: Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(tab) = self.open.as_ref().map(|open| open.tab) else {
+            return;
+        };
+        let (items, actions): (Vec<MenuEntry>, Vec<Option<passwords::Action>>) =
+            passwords::menu(&logins).into_iter().unzip();
+        let panel = cx.weak_entity();
+        let chosen = Box::new(move |chosen: Option<usize>, cx: &mut App| {
+            let Some(Some(action)) = chosen.and_then(|index| actions.get(index).cloned()) else {
+                return;
+            };
+            panel
+                .update(cx, |panel, cx| {
+                    let open = panel.open.as_ref();
+                    if !open.is_some_and(|open| open.tab == tab && open.closing.is_none()) {
+                        return;
+                    }
+                    match action {
+                        passwords::Action::Remove(login) => {
+                            panel.run("remove-login", Run::RemoveLogin(login), cx)
+                        }
+                        passwords::Action::Allow(login) => {
+                            // check.sh reads this line.
+                            log!("browser: site controls allow saving {}", login.site);
+                            panel.host.allow_saving(tab, &login);
+                        }
+                        passwords::Action::ShowAll => panel.run("passwords", Run::Passwords, cx),
+                    }
+                })
+                .ok();
+        });
+        self.host.menu(items, position, chosen, cx);
     }
 
     /// Turns blocking on the site the other way. The core reloads the page and reports the site
@@ -1364,6 +1424,18 @@ impl Render for SiteControls {
                 let row = row.on_click(
                     cx.listener(move |panel, _, _, cx| panel.toggle_ad_blocking(!on, cx)),
                 );
+                rows.push(row.into_any_element());
+                y += ROW_PITCH;
+            }
+            let logins = passwords::state(&site.logins);
+            if let Some((state, on)) = logins {
+                let name = PASSWORDS_NAME.into();
+                let row =
+                    Self::row(&palette, "site-passwords".into(), y, PASSWORDS, on, name, Some(state));
+                let logins = site.logins.clone();
+                let row = row.on_click(cx.listener(move |panel, event: &ClickEvent, _, cx| {
+                    panel.choose_login(logins.clone(), event.position(), cx)
+                }));
                 rows.push(row.into_any_element());
                 y += ROW_PITCH;
             }
