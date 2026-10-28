@@ -122,7 +122,7 @@ fn bindings_of(key: &str, action: Box<dyn Action>, cx: &App) -> Vec<KeyBinding> 
 
 /// Off the Mac, as on Linux and Windows, the keys SHORTCUTS writes the Mac's way are pressed with
 /// Ctrl for ⌘ and Alt for ⌃ (docs/ux-spec.md › Keyboard). The tests run the Mac's keys everywhere.
-pub(super) const OFF_THE_MAC: bool = cfg!(not(any(target_os = "macos", test)));
+pub const OFF_THE_MAC: bool = cfg!(not(any(target_os = "macos", test)));
 
 /// Chrome's Alt keys on Linux and Windows, which keep Chrome's meaning there, so no ⌃ key becomes
 /// one, with the key of ours that does what Chrome's does, if one does.

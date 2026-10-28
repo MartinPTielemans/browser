@@ -5,8 +5,8 @@
 // shortcut: most of it does nothing yet. Menus, alerts and the rest that float over the page need
 // child windows of their own; a function with an empty body leaves its part out, and one that
 // answers says "no" or "none". The overlays, the command bar, the icon picker and the dialog, are
-// overlays.rs's, the find bar is panels.rs's and ilo's menus are menu_window.rs's, as GPUI's Linux
-// platform shows them.
+// overlays.rs's, the find bar is panels.rs's, ilo's menus are menu_window.rs's and Settings is
+// settings_window.rs's, as GPUI's Linux platform shows them.
 
 #include "../host.h"
 
@@ -269,12 +269,6 @@ void host_add_reveal(void* ui_view, void* reveal_view, void (*pointer_moved)(voi
 void host_show_reveal(void* ui_view, double width) {}
 
 void host_hide_reveal(void* ui_view) {}
-
-void host_add_settings(void* settings_view) {}
-
-void host_show_settings(void) {}
-
-void host_hide_settings(void) {}
 
 bool host_close_other_window(void) {
   return false;
