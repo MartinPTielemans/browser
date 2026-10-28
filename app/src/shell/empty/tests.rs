@@ -156,3 +156,29 @@ fn the_url_field_says_what_to_type_only_with_no_page(cx: &mut TestAppContext) {
     cx.run_until_parked();
     assert_eq!(words(cx).0, PLACEHOLDER_TEXT);
 }
+
+/// The first run's welcome stays until a page shows, and an empty card after that has the Space's
+/// name and line again, not the welcome.
+#[gpui::test]
+fn the_welcome_shows_once(cx: &mut TestAppContext) {
+    let (shell, cx, _) = window_with_no_tab(cx);
+    shell.update(cx, |shell, cx| shell.set_welcome(cx));
+    cx.run_until_parked();
+    assert!(shell.read_with(cx, |shell, _| shell.welcome), "the empty card has the welcome");
+
+    shell.update(cx, |shell, cx| shell.set_selected(1, cx));
+    cx.run_until_parked();
+    shell.update(cx, |shell, cx| shell.set_selected(0, cx));
+    cx.run_until_parked();
+    assert!(!shell.read_with(cx, |shell, _| shell.welcome), "once a page showed, it's gone");
+}
+
+/// A click on the welcome, in the card's middle, opens the command bar, as ⌘T and its button do.
+#[gpui::test]
+fn the_welcome_opens_a_new_tab(cx: &mut TestAppContext) {
+    let (shell, cx, host) = window_with_no_tab(cx);
+    shell.update(cx, |shell, cx| shell.set_welcome(cx));
+    cx.run_until_parked();
+    cx.simulate_click(middle(&shell, cx), Modifiers::none());
+    assert_eq!(host.command_bars.take(), [None]);
+}

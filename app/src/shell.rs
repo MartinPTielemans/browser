@@ -43,6 +43,7 @@ mod browser;
 mod clean_link;
 mod commands;
 mod drag;
+mod display_face;
 mod drm_note;
 mod empty;
 mod extensions;
@@ -912,6 +913,8 @@ pub struct Shell {
     empty_since: Option<Instant>,
     /// The fade has ended and said so.
     empty_settled: bool,
+    /// The first run's welcome takes the empty card until a page shows (set_welcome).
+    welcome: bool,
     /// The press under way was on a target that opens the command bar while it was open, so the
     /// click that follows only closes it.
     press_closed_bar: bool,
@@ -1165,6 +1168,7 @@ impl Shell {
             new_tab: false,
             empty_since: None,
             empty_settled: false,
+            welcome: false,
             press_closed_bar: false,
             drag: None,
             dragged: false,

@@ -1,13 +1,22 @@
 //! The card of a window that shows no page, which is a fresh ⌘N window, a Space with no tab shown
 //! and what's left after the last Today tab closes (docs/ux-spec.md › Window › Card, no page).
 //! Nothing native covers it, since the core lays out no page view with no tab shown
-//! (`Window::ShowNothing`), so GPUI draws ilo's mark and one quiet line on it and takes its clicks.
+//! (`Window::ShowNothing`), so GPUI draws ilo's mark, the Space's name and one quiet line on it and
+//! takes its clicks. On the first run it shows the welcome instead, until a page shows.
 
 use std::time::Instant;
 
-use gpui::{Context, MouseButton, Pixels, Point, Stateful, Window, div, prelude::*, px, rgba};
+use gpui::{
+    Context, FontWeight, MouseButton, Pixels, Point, Stateful, Window, div, prelude::*, px, rgba,
+};
 
-use super::{Command, SECONDARY, Shell, fade_at, keys::user_keys};
+use super::{
+    Command, SECONDARY, Shell,
+    display_face::{cap_top, display_text},
+    fade_at,
+    keys::user_keys,
+};
+use crate::tokens::text;
 
 /// The mark and the line fade in over this long on the scroll edge's curve, as the hover card's
 /// opacity does, from nothing, so a window that shows a page a frame later never shows them.
@@ -29,13 +38,42 @@ const MARK_STEM_HEIGHT: f32 = 358.4 * MARK_SCALE;
 use crate::tokens::shell::empty::MARK_DOT_FILL;
 use crate::tokens::shell::empty::MARK_STEM_FILL;
 use crate::tokens::shell::empty::MARK_GAP;
+use crate::tokens::shell::empty::NAME_SIZE;
+use crate::tokens::shell::empty::NAME_LINE;
+use crate::tokens::shell::empty::NAME_GAP;
+use crate::tokens::shell::empty::NAME;
+use crate::tokens::shell::empty::WELCOME_MARK;
+use crate::tokens::shell::empty::WELCOME_SIZE;
+use crate::tokens::shell::empty::WELCOME_LINE;
+use crate::tokens::shell::empty::TAGLINE_SIZE;
+use crate::tokens::shell::empty::TAGLINE_LINE;
+use crate::tokens::shell::empty::TAGLINE;
+use crate::tokens::shell::empty::BUTTON_GAP;
+use crate::tokens::shell::empty::BUTTON_HEIGHT;
+use crate::tokens::shell::empty::BUTTON_INSET;
+use crate::tokens::shell::empty::BUTTON_RADIUS;
+use crate::tokens::shell::empty::BUTTON_FILL;
+use crate::tokens::shell::empty::BUTTON_TEXT;
+use crate::tokens::shell::empty::BUTTON_KEYS;
+use crate::tokens::shell::empty::BUTTON_KEYS_HEIGHT;
+use crate::tokens::shell::empty::BUTTON_KEYS_INSET;
+use crate::tokens::shell::empty::BUTTON_KEYS_RADIUS;
 
 impl Shell {
-    /// Starts the fade as the card comes to show no page, and ends it as a page shows.
+    /// Shows the first run's welcome on the empty card until a page shows: the launch had no
+    /// Spaces to bring back and nothing to open.
+    pub fn set_welcome(&mut self, cx: &mut Context<Self>) {
+        self.welcome = true;
+        cx.notify();
+    }
+
+    /// Starts the fade as the card comes to show no page, and ends it as a page shows, which ends
+    /// the welcome for good.
     pub(super) fn step_empty(&mut self, window: &mut Window) {
         if self.selected != 0 {
             self.empty_since = None;
             self.empty_settled = false;
+            self.welcome = false;
             return;
         }
         let since = *self.empty_since.get_or_insert_with(Instant::now);
@@ -44,6 +82,9 @@ impl Shell {
         } else if !std::mem::replace(&mut self.empty_settled, true) {
             // check.sh waits for this line before it captures the empty card.
             log!("browser: empty card shown");
+            if self.welcome {
+                log!("browser: welcome shown");
+            }
         }
     }
 
@@ -60,53 +101,18 @@ impl Shell {
         self.selected == 0 && self.page_frame(self.viewport).0.contains(&at)
     }
 
-    /// ilo's mark over the card's one line, the next step and its key, centred, while no page is
-    /// shown. A click anywhere on the card does what that key does: ⌘T's command bar, centred on
-    /// the window.
+    /// ilo's mark over the Space's name and the card's one line, the next step and its key,
+    /// centred, while no page is shown, or the welcome on the first run. A click anywhere on the
+    /// card does what that key does: ⌘T's command bar, centred on the window.
     pub(super) fn empty_card(&self, cx: &mut Context<Self>) -> Option<Stateful<gpui::Div>> {
         if self.selected != 0 {
             return None;
         }
         let (frame, _) = self.page_frame(self.viewport);
-        let keys = user_keys(cx).label(Command::NewTab).map(|keys| {
-            div()
-                .h(px(KEYS_HEIGHT))
-                .px(px(KEYS_INSET))
-                .flex()
-                .items_center()
-                .rounded(px(KEYS_RADIUS))
-                .bg(rgba(KEYS_FILL))
-                .text_size(px(KEYS_SIZE))
-                .child(keys)
-        });
-        let line = div()
-            .flex()
-            .items_center()
-            .gap(px(KEYS_GAP))
-            .text_color(rgba(SECONDARY))
-            .child(div().text_size(px(WORDS_SIZE)).child("New Tab"))
-            .children(keys);
-        let mark = div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(MARK_DOT_GAP))
-            .child(div().size(px(MARK_DOT)).rounded_full().bg(rgba(MARK_DOT_FILL)))
-            .child(
-                div()
-                    .w(px(MARK_STEM_WIDTH))
-                    .h(px(MARK_STEM_HEIGHT))
-                    .rounded_full()
-                    .bg(rgba(MARK_STEM_FILL)),
-            );
-        let sign = div()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(MARK_GAP))
-            .opacity(self.empty_opacity(Instant::now()))
-            .child(mark)
-            .child(line);
+        let sign = match self.welcome {
+            true => welcome(cx),
+            false => self.sign(cx),
+        };
         Some(
             div()
                 .id("empty-card")
@@ -126,9 +132,104 @@ impl Shell {
                 .on_click(cx.listener(|shell, _, _, cx| {
                     shell.clicked_bar_target(Command::NewTab, "card", cx)
                 }))
-                .child(sign),
+                .child(sign.opacity(self.empty_opacity(Instant::now()))),
         )
     }
+
+    /// The mark, the Space's name in the display face, and the line.
+    fn sign(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let keys = user_keys(cx).label(Command::NewTab).map(|keys| {
+            div()
+                .h(px(KEYS_HEIGHT))
+                .px(px(KEYS_INSET))
+                .flex()
+                .items_center()
+                .rounded(px(KEYS_RADIUS))
+                .bg(rgba(KEYS_FILL))
+                .text_size(px(KEYS_SIZE))
+                .child(keys)
+        });
+        let line = div()
+            .flex()
+            .items_center()
+            .gap(px(KEYS_GAP))
+            .text_color(rgba(SECONDARY))
+            .child(div().text_size(px(WORDS_SIZE)).child("New Tab"))
+            .children(keys);
+        let sign = div().flex().flex_col().items_center().child(mark(1.));
+        match self.shown_space().map(|space| space.name.clone()).filter(|name| !name.is_empty()) {
+            // The name's caps, not its line, start the mark's gap below the mark.
+            Some(name) => sign
+                .child(
+                    display_text(name, NAME_SIZE, NAME_LINE, cx)
+                        .mt(px(MARK_GAP - cap_top(NAME_SIZE, NAME_LINE)))
+                        .text_color(rgba(NAME)),
+                )
+                .child(line.mt(px(NAME_GAP))),
+            None => sign.child(line.mt(px(MARK_GAP))),
+        }
+    }
+}
+
+/// ilo's mark, the app icon's i, at `scale` of its size on the card.
+fn mark(scale: f32) -> gpui::Div {
+    div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .gap(px(MARK_DOT_GAP * scale))
+        .child(div().size(px(MARK_DOT * scale)).rounded_full().bg(rgba(MARK_DOT_FILL)))
+        .child(
+            div()
+                .w(px(MARK_STEM_WIDTH * scale))
+                .h(px(MARK_STEM_HEIGHT * scale))
+                .rounded_full()
+                .bg(rgba(MARK_STEM_FILL)),
+        )
+}
+
+/// The first run's welcome: a bigger mark, "Welcome to ilo" and "a good tool." in the display
+/// face, and a button that opens a new tab, as a click anywhere on the card does.
+fn welcome(cx: &mut Context<Shell>) -> gpui::Div {
+    let keys = user_keys(cx).label(Command::NewTab).map(|keys| {
+        div()
+            .h(px(BUTTON_KEYS_HEIGHT))
+            .px(px(BUTTON_KEYS_INSET))
+            .flex()
+            .items_center()
+            .rounded(px(BUTTON_KEYS_RADIUS))
+            .bg(rgba(BUTTON_KEYS))
+            .text_size(px(text::SMALL))
+            .child(keys)
+    });
+    let button = div()
+        .mt(px(BUTTON_GAP))
+        .h(px(BUTTON_HEIGHT))
+        .px(px(BUTTON_INSET))
+        .flex()
+        .items_center()
+        .gap(px(KEYS_GAP))
+        .rounded(px(BUTTON_RADIUS))
+        .bg(rgba(BUTTON_FILL))
+        .text_color(rgba(BUTTON_TEXT))
+        .text_size(px(text::BODY))
+        .font_weight(FontWeight::MEDIUM)
+        .child("Open a new tab")
+        .children(keys);
+    div()
+        .flex()
+        .flex_col()
+        .items_center()
+        .child(mark(WELCOME_MARK))
+        .child(
+            display_text("Welcome to ilo", WELCOME_SIZE, WELCOME_LINE, cx)
+                .mt(px(MARK_GAP - cap_top(WELCOME_SIZE, WELCOME_LINE)))
+                .text_color(rgba(NAME)),
+        )
+        .child(
+            display_text("a good tool.", TAGLINE_SIZE, TAGLINE_LINE, cx).text_color(rgba(TAGLINE)),
+        )
+        .child(button)
 }
 
 #[cfg(test)]

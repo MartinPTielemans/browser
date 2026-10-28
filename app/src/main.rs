@@ -352,7 +352,6 @@ fn key_equivalent(keystroke: &str) -> (String, [bool; 4]) {
     };
     (key, held)
 }
-const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
 /// Where Add Extension… goes, as Dia's does.
 const WEB_STORE: &str = "https://chromewebstore.google.com/";
 
@@ -2386,10 +2385,11 @@ fn open_saved_windows(cx: &mut App) {
     }
 }
 
-/// Shows the Spaces as the user left them in `window`, else a first Space with the first tab, and
-/// says whether it brought them back. A page given in BROWSER_URL, and the links from other apps
-/// that launched the browser, open on top either way, in this window, the one in front.
-fn restore_spaces(window: bc::bc_id) -> bool {
+/// Shows the Spaces as the user left them in `window`, else a first Space, and says whether it
+/// brought them back. A page given in BROWSER_URL, and the links from other apps that launched the
+/// browser, open on top either way, in this window, the one in front. With nothing to bring back
+/// and nothing to open, it's the first run, and `shell` shows the welcome on the empty card.
+fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -> bool {
     let start = Instant::now();
     let restored = unsafe { bc::bc_window_restore(window) };
     if restored {
@@ -2404,7 +2404,9 @@ fn restore_spaces(window: bc::bc_id) -> bool {
     let links = LAUNCH_LINKS.take().unwrap_or_default();
     match std::env::var("BROWSER_URL") {
         Ok(url) => open_tab(window, &url),
-        Err(_) if !restored && links.is_empty() => open_tab(window, START_URL),
+        Err(_) if !restored && links.is_empty() => {
+            shell.update(cx, |shell, _, cx| shell.set_welcome(cx)).ok();
+        }
         Err(_) => {}
     }
     open_links_in(window, &links);
@@ -2671,7 +2673,7 @@ fn open_window_as(
     let first = from.is_none();
     // Once the page frame is set, so the tab shown loads at its size, and before the window is on
     // screen, so the core's reports of its tabs can come before its first frame.
-    let restored = first && restore_spaces(id);
+    let restored = first && restore_spaces(id, window, cx);
     match (&from, saved) {
         (Some(from), Some(_)) => unsafe { platform::host_show_window_behind(ui_view, from.ui_view) },
         _ => unsafe { platform::host_show_window(ui_view) },
