@@ -53,6 +53,7 @@ mod fly_in;
 mod footer;
 mod keys;
 mod header;
+mod hover_cards;
 mod library;
 mod link;
 #[cfg(test)]
@@ -109,6 +110,7 @@ pub use panes::page_frame;
 pub use permission::{Answer, Question};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
 pub use picture::{PagePicture, picture_answered};
+pub(crate) use picture::next_request;
 pub use recent_downloads::FilePreview;
 use clean_link::clean_link;
 use commands::ShellHandle;
@@ -1011,6 +1013,10 @@ pub struct Shell {
     reveal_wait: Option<Task<()>>,
     /// The Copy URL button shows a checkmark until this one-shot timer ends.
     url_copied: Option<Task<()>>,
+    /// The tabs the switches since the last quiet moment hid, whose hover cards' pictures are
+    /// taken once they've been quiet a while, and that wait.
+    card_hidden: Vec<u64>,
+    card_wait: Option<Task<()>>,
     /// What the button showed when last drawn, for the lines check.sh waits for.
     drawn_copied: &'static str,
     /// The Space shown at the last draw, and whether its Clear had the arrow, while it had a
@@ -1239,6 +1245,8 @@ impl Shell {
             reveal_motion: None,
             reveal_wait: None,
             url_copied: None,
+            card_hidden: Vec::new(),
+            card_wait: None,
             drawn_copied: "shows link",
             drawn_arrow: None,
             clear_hovered: false,
@@ -1696,7 +1704,7 @@ impl Shell {
             }
             _ => log!("browser: space {space}"),
         }
-        self.browser.tooltip(None, cx);
+        self.end_hovers(cx);
         let before = std::mem::replace(&mut self.space, space);
         // Arc says again how to leave full screen in each Space it shows there.
         if before != space && self.full_screen && !self.page_fullscreen {
@@ -1804,7 +1812,7 @@ impl Shell {
         if has_tabs && self.form.as_ref().is_some_and(|form| form.space == space) {
             self.form = None;
         }
-        self.forget_closed();
+        self.forget_closed(cx);
         // The folders Reveal Tab in Sidebar opened have moved its row.
         if space == self.space
             && let Some(tab) = self.revealing.take()
@@ -1836,7 +1844,7 @@ impl Shell {
         } else {
             self.move_tiles(tiles, Curve::Slide);
         }
-        self.forget_closed();
+        self.forget_closed(cx);
         cx.notify();
     }
 
@@ -1864,7 +1872,7 @@ impl Shell {
 
     /// What the shell knew of a closed tab goes with it. The core reports a tab in its new place
     /// before it leaves the old, so one moving between a Space and the favorites stays.
-    fn forget_closed(&mut self) {
+    fn forget_closed(&mut self, cx: &mut App) {
         let (spaces, favorites) = (&self.spaces, &self.all_favorites);
         let open = |tab: &u64| {
             favorites.contains(tab)
@@ -1872,7 +1880,12 @@ impl Shell {
                     .iter()
                     .any(|space| space.pinned.contains(tab) || space.today.contains(tab))
         };
-        self.tabs.retain(|tab, _| open(tab));
+        // A closed tab's hover card picture goes with it.
+        let closed: Vec<u64> = self.tabs.keys().copied().filter(|tab| !open(tab)).collect();
+        for tab in closed {
+            self.tabs.remove(&tab);
+            crate::hover_card::forget(tab, cx);
+        }
         // An agent is at work only in its own Space's tabs, so not in one the user took out.
         self.agents_at.retain(|_, tab| {
             spaces.iter().any(|space| {
@@ -1922,6 +1935,7 @@ impl Shell {
             _ => log!("browser: selected {tab}"),
         }
         let before = self.selected_row();
+        let hidden = self.panes(self.selected);
         self.selected = tab;
         self.show_in_space(tab);
         self.scroll_to_row(tab);
@@ -1929,6 +1943,7 @@ impl Shell {
             self.shown(tab);
         }
         self.selected_for_picture(tab, cx);
+        self.hid_for_cards(hidden, cx);
         // check.sh reads this line.
         let panes = self.panes(tab).iter().map(u64::to_string).collect::<Vec<_>>().join(" ");
         log!("browser: panes {panes}");
@@ -2072,6 +2087,10 @@ impl Shell {
         let entry = self.tabs.entry(tab).or_default();
         if page.unloaded != entry.page.unloaded {
             log!("browser: page {tab} unloaded {}", flag(page.unloaded));
+            // The picture of a page that's gone is of what the tab no longer holds.
+            if page.unloaded {
+                crate::hover_card::forget(tab, cx);
+            }
         }
         if page.away_from_pinned_url != entry.page.away_from_pinned_url {
             log!("browser: page {tab} away {}", flag(page.away_from_pinned_url));
@@ -2417,9 +2436,10 @@ impl Shell {
         }
     }
 
-    /// Once a drag has ended and its rows and tiles have stopped, asks for the tooltip of what the
-    /// pointer is on. A tile that came under the pointer in the drag, as the dropped row's does,
-    /// was hovered then, and GPUI tells a handler only when hover changes, so it would never ask.
+    /// Once a drag has ended and its rows and tiles have stopped, asks for the tooltip or the hover
+    /// card of what the pointer is on. A tile that came under the pointer in the drag, as the
+    /// dropped row's does, was hovered then, and GPUI tells a handler only when hover changes, so
+    /// it would never ask.
     fn step_retip(&mut self, cx: &mut Context<Self>) {
         if !self.retip || !self.slides.is_empty() || !self.tile_slides.is_empty() {
             return;
@@ -2427,6 +2447,7 @@ impl Shell {
         self.retip = false;
         if let Some(row) = self.hovered {
             self.hover_tooltip(row, true, cx);
+            self.hover_card(row, true, cx);
         }
     }
 
@@ -2738,7 +2759,7 @@ impl Render for Shell {
                 }
                 shell.pointer_at(event.position.x.into(), cx);
             }))
-            .on_scroll(cx.listener(|shell, _, _, cx| shell.browser.tooltip(None, cx)))
+            .on_scroll(cx.listener(|shell, _, _, cx| shell.end_hovers(cx)))
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(|shell, event: &MouseUpEvent, window, cx| {

@@ -322,6 +322,12 @@ pub trait Browser {
     /// Shows `tip` in a tooltip after its delay, hung from `anchor` in the window, or at once if
     /// one shows; `None` ends it. The app does the same on the window losing the keyboard.
     fn tooltip(&self, tip: Option<(crate::tooltip::Tip, crate::tooltip::Anchor)>, cx: &mut App);
+    /// Tells a tab's hover card the pointer rests on its row or tile, or left it, or ends it
+    /// (crate::hover_card). The app ends it too on the window losing the keyboard.
+    fn hover_card(&self, hover: crate::hover_card::Hover, cx: &mut App);
+    /// Asks for a small picture of `tab`'s page, as it was last drawn, for its hover card, which
+    /// the browser keeps for it. The user's: agents get none, as with the page's picture.
+    fn card_picture(&self, tab: u64, cx: &mut App);
     /// Shows `plate`, the address of the link the pointer is on, at `frame` in the window, in
     /// `side` of the card, after its delay or at once if one shows or just went; or moves it there
     /// if it shows. `None` ends it.

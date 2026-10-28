@@ -1,6 +1,6 @@
-//! The tooltip: the name Arc shows after a moment over a favorite's tile, which has only an icon,
-//! over a folder, and over a sidebar button, with its shortcut's keys on chips after it
-//! (docs/ux-spec.md › Tooltips). GPUI can't draw over the page's native view, and a tooltip may
+//! The tooltip: the name Arc shows after a moment over a folder and over a sidebar button, with
+//! its shortcut's keys on chips after it (docs/ux-spec.md › Tooltips). A favorite's tile, which
+//! Arc's names too, has its hover card instead (hover_card.rs), which names its tab. GPUI can't draw over the page's native view, and a tooltip may
 //! cross the sidebar's edge onto it, so as the toast is, it's a window of its own that the host
 //! shows over the browser window, as its child, and the mouse goes through it. What it asks of its
 //! window goes through `Host`.

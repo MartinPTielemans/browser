@@ -387,6 +387,21 @@ double g_tooltip_margin = 0;
 unsigned g_tooltip_changes = 0;
 void (*g_tooltip_away)(void);
 
+// The hover card's window and view, as the tooltip's, and the plate in it, from the window's top
+// left, which alone takes the mouse, for its buttons; while it shows, the monitor that hears the
+// pointer move on and off the plate and a press, a scroll or a key outside it, which end it.
+Browser* g_card_over;
+NSWindow* g_card;
+NSView* g_card_view;
+bool g_card_shown = false;
+double g_card_left = 0;
+double g_card_top = 0;
+double g_card_margin = 0;
+NSRect g_card_plate = NSZeroRect;
+unsigned g_card_changes = 0;
+void (*g_card_away)(void);
+id g_card_monitor;
+
 // The link target's window and view, the browser it shows over, where its top left goes there, a
 // count of its shows and hides as the tooltip's, the UI's handler for the pointer, and while it
 // shows, the monitor that hands the handler the pointer.
@@ -721,6 +736,15 @@ void PlaceTooltip() {
   [g_tooltip setFrameOrigin:NSMakePoint(NSMinX(content) + g_tooltip_left - g_tooltip_margin,
                                         NSMaxY(content) - g_tooltip_top + g_tooltip_margin -
                                             size.height)];
+}
+
+// As the tooltip's.
+void PlaceHoverCard() {
+  NSWindow* window = g_card_over->window;
+  NSRect content = [window contentRectForFrameRect:window.frame];
+  NSSize size = g_card.frame.size;
+  [g_card setFrameOrigin:NSMakePoint(NSMinX(content) + g_card_left - g_card_margin,
+                                     NSMaxY(content) - g_card_top + g_card_margin - size.height)];
 }
 
 // As the tooltip's: where the UI asked, inside the browser window, and its window wider than the
@@ -1590,6 +1614,9 @@ void host_forget_window(void* ui_view) {
   }
   if (g_tooltip_over == browser) {
     host_hide_tooltip(0);
+  }
+  if (g_card_over == browser) {
+    host_hide_hover_card(0);
   }
   if (g_link_shown && g_link_over == browser) {
     host_hide_link_target(0);
@@ -2867,6 +2894,167 @@ void host_hide_tooltip(double fade) {
     return;
   }
   FadeTooltip(0, fade, gone);
+}
+
+void host_add_hover_card(void* card_view, double margin, void (*away)(void)) {
+  g_card_margin = margin;
+  g_card_view = (__bridge NSView*)card_view;
+  g_card = g_card_view.window;
+  g_card_away = away;
+  MakeOverlay(g_card);
+  g_card.styleMask = NSWindowStyleMaskBorderless;
+  g_card.hasShadow = NO;
+  g_card.ignoresMouseEvents = YES;
+  // A click on its buttons leaves the keyboard where it was, in the page or the browser window.
+  ((NSPanel*)g_card).becomesKeyOnlyIfNeeded = YES;
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  void (^left_window)(NSNotification*) = ^(NSNotification*) {
+    if (g_card_shown && g_card_away) {
+      g_card_away();
+    }
+  };
+  [center addObserverForName:NSWindowDidResignKeyNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:^(NSNotification* notification) {
+                    if (g_card_shown && notification.object == g_card_over->window) {
+                      left_window(notification);
+                    }
+                  }];
+  [center addObserverForName:NSApplicationDidResignActiveNotification
+                      object:nil
+                       queue:nil
+                  usingBlock:left_window];
+}
+
+// Lets the mouse through the card's window but on its plate, with the pointer at |screen|.
+void PlaceCardClicks(NSPoint screen) {
+  NSPoint at = [g_card convertPointFromScreen:screen];
+  at.y = NSHeight(g_card.frame) - at.y;
+  g_card.ignoresMouseEvents = !NSPointInRect(at, g_card_plate);
+}
+
+// The pointer's moves over the page go to the page's view, so the card's window doesn't hear them:
+// this sets where it takes the mouse from them, and ends the card on a press, a scroll or a key
+// anywhere else, which still go where they were aimed. Only while it shows, so an idle browser is
+// never woken.
+void WatchCard() {
+  if (g_card_monitor) {
+    return;
+  }
+  constexpr NSEventMask kEnds = NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown |
+                                NSEventMaskOtherMouseDown | NSEventMaskScrollWheel |
+                                NSEventMaskKeyDown;
+  g_card_monitor = [NSEvent
+      addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged |
+                                           kEnds
+                                   handler:^NSEvent*(NSEvent* event) {
+                                     if (NSEventMaskFromType(event.type) & kEnds) {
+                                       if (event.window != g_card && g_card_shown && g_card_away) {
+                                         g_card_away();
+                                       }
+                                       return event;
+                                     }
+                                     NSPoint at = event.locationInWindow;
+                                     if (event.window) {
+                                       at = [event.window convertPointToScreen:at];
+                                     }
+                                     PlaceCardClicks(at);
+                                     return event;
+                                   }];
+}
+
+void host_show_hover_card(void* ui_view, double left, double top, double width, double height) {
+  Browser* browser = BrowserWithView(ui_view);
+  if (!g_card || !browser || !browser->window) {
+    return;
+  }
+  if (g_card_shown && g_card_over != browser) {
+    host_hide_hover_card(0);
+  }
+  g_card_left = left;
+  g_card_top = top;
+  g_card_plate = NSMakeRect(g_card_margin, g_card_margin, width, height);
+  g_card_shown = true;
+  g_card_over = browser;
+  const unsigned change = ++g_card_changes;
+  // After the UI's update that asked, since the window draws here, before it shows or moves, since
+  // it keeps the last frame it drew, the last tab's.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    if (change != g_card_changes) {
+      return;
+    }
+    PlaceHoverCard();
+    {
+      // Where the window really is, for check.sh to compare with where the UI asked.
+      NSWindow* over = browser->window;
+      NSRect content = [over contentRectForFrameRect:over.frame];
+      fprintf(stderr, "browser: hover card window at %g %g\n",
+              NSMinX(g_card.frame) - NSMinX(content) + g_card_margin,
+              NSMaxY(content) - NSMaxY(g_card.frame) + g_card_margin);
+    }
+    [g_card_view.layer setNeedsDisplay];
+    [g_card_view.layer displayIfNeeded];
+    // Still fading out over this window, it comes back at once.
+    if (g_card.parentWindow != browser->window) {
+      [g_card.parentWindow removeChildWindow:g_card];
+      AddOver(browser->window, g_card);
+      RaiseOverlays(browser, g_card);
+    }
+    [NSAnimationContext runAnimationGroup:^(NSAnimationContext* context) {
+      context.duration = 0;
+      g_card.animator.alphaValue = 1;
+    }];
+    WatchCard();
+    PlaceCardClicks(NSEvent.mouseLocation);
+    // check.sh waits for this line, so a capture after it shows the card whole.
+    fprintf(stderr, "browser: hover card window shown\n");
+  });
+}
+
+void host_hide_hover_card(double fade) {
+  if (!g_card_shown && fade > 0) {
+    return;
+  }
+  g_card_shown = false;
+  const unsigned change = ++g_card_changes;
+  // The mouse goes through it at once, to what's under it, while it fades.
+  g_card.ignoresMouseEvents = YES;
+  [NSEvent removeMonitor:g_card_monitor];
+  g_card_monitor = nil;
+  void (^gone)(void) = ^{
+    if (change != g_card_changes) {
+      return;
+    }
+    [g_card.parentWindow removeChildWindow:g_card];
+    [g_card orderOut:nil];
+  };
+  if (fade == 0) {
+    gone();
+    return;
+  }
+  [NSAnimationContext
+      runAnimationGroup:^(NSAnimationContext* context) {
+        context.duration = fade;
+        context.timingFunction =
+            [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseOut];
+        g_card.animator.alphaValue = 0;
+      }
+      completionHandler:gone];
+}
+
+void host_watch_memory_pressure(void (*pressed)(void)) {
+  static dispatch_source_t source;
+  if (source) {
+    return;
+  }
+  source = dispatch_source_create(DISPATCH_SOURCE_TYPE_MEMORYPRESSURE, 0,
+                                  DISPATCH_MEMORYPRESSURE_WARN | DISPATCH_MEMORYPRESSURE_CRITICAL,
+                                  dispatch_get_main_queue());
+  dispatch_source_set_event_handler(source, ^{
+    pressed();
+  });
+  dispatch_resume(source);
 }
 
 void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {

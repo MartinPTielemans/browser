@@ -15,8 +15,8 @@ use std::{
 
 use browser::window_frames::{self, Frame};
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, icon_picker, link_target, log, menu, offer, site_controls,
-    theme_picker, toast, tooltip, zoom_hud,
+    capture, command_bar, dialog, dock_dot, elevation::Level, hover_card, icon_picker, link_target, log, menu, offer,
+    site_controls, theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState, Extension,
@@ -282,6 +282,14 @@ mod platform {
         pub fn host_add_tooltip(tooltip_view: *mut c_void, margin: f64, away: extern "C" fn());
         pub fn host_show_tooltip(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
         pub fn host_hide_tooltip(fade: f64);
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_add_hover_card(card_view: *mut c_void, margin: f64, away: extern "C" fn());
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_show_hover_card(ui_view: *mut c_void, left: f64, top: f64, width: f64, height: f64);
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_hide_hover_card(fade: f64);
+        #[cfg(not(target_os = "linux"))]
+        pub fn host_watch_memory_pressure(pressed: extern "C" fn());
         pub fn host_add_link_target(
             link_view: *mut c_void,
             margin: f64,
@@ -978,6 +986,14 @@ unsafe extern "C" fn tab_pictured(
 ) {
     // check.sh reads this line.
     log!("browser: tab {tab} pictured {request}: {width}x{height}");
+    if hover_card::is_card_request(request) {
+        let (width, height) = (width.max(0) as u32, height.max(0) as u32);
+        let size = width as usize * height as usize * 4;
+        let picture = (!bgra.is_null() && size > 0)
+            .then(|| unsafe { std::slice::from_raw_parts(bgra, size) }.to_vec())
+            .and_then(|bgra| PagePicture::from_bgra(bgra, width, height));
+        return update_app_later(move |cx| hover_card::answered(request, picture, cx));
+    }
     browser::log_handover("picture in", &format!("tab {tab}, {width}x{height}"));
     let (width, height) = (width.max(0) as u32, height.max(0) as u32);
     let size = width as usize * height as usize * 4;
@@ -1248,6 +1264,35 @@ impl tooltip::Host for TooltipHost {
 /// The window lost the keyboard, or the app stopped being the active one.
 extern "C" fn tooltip_away() {
     update_app(tooltip::dismiss);
+}
+
+/// The hover card's requests, to the host's card window, over the browser window in front.
+#[cfg(not(target_os = "linux"))]
+struct CardHost;
+
+#[cfg(not(target_os = "linux"))]
+impl hover_card::Host for CardHost {
+    fn show(&self, left: f32, top: f32, width: f32, height: f32) {
+        let (left, top, width, height) = (left.into(), top.into(), width.into(), height.into());
+        unsafe { platform::host_show_hover_card(front().1, left, top, width, height) };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_hover_card(tooltip::FADE_OUT.as_secs_f64()) };
+    }
+}
+
+/// The window lost the keyboard, the app stopped being the active one, or a press, a scroll or a
+/// key landed outside the card.
+#[cfg(not(target_os = "linux"))]
+extern "C" fn card_away() {
+    update_app(hover_card::close);
+}
+
+/// The system is short of memory: the hover cards' pictures, which the core can take again, go.
+#[cfg(not(target_os = "linux"))]
+extern "C" fn memory_pressed() {
+    update_app(hover_card::forget_all);
 }
 
 /// The link target's requests, to the host's link target window.
@@ -2108,7 +2153,17 @@ impl Browser for Engine {
 
     fn page_picture(&self, tab: u64, request: u64, _: &mut App) {
         // The page's whole view, which is the shape it has where it's live; the card fits it.
-        unsafe { bc::bc_tab_picture(tab, request) };
+        unsafe { bc::bc_tab_picture(tab, request, 0, 0) };
+    }
+
+    fn hover_card(&self, hover: hover_card::Hover, cx: &mut App) {
+        hover_card::hover(hover, cx);
+    }
+
+    fn card_picture(&self, tab: u64, cx: &mut App) {
+        let request = hover_card::asking(tab, cx);
+        let (width, height) = hover_card::PICTURE_PIXELS;
+        unsafe { bc::bc_tab_picture(tab, request, width, height) };
     }
 
     fn window(&self) -> u64 {
@@ -2960,6 +3015,16 @@ fn finish_opening(
         && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))
     {
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
+    }
+    // shortcut: Linux's host has no card window yet, so the card is off there.
+    #[cfg(not(target_os = "linux"))]
+    if let Some(card) = hover_card::open(Rc::new(CardHost), cx)
+        && let Ok(view) = card.update(cx, |_, window, _| ns_view(window))
+    {
+        unsafe {
+            platform::host_add_hover_card(view, margin, card_away);
+            platform::host_watch_memory_pressure(memory_pressed);
+        }
     }
     if let Some(target) =
         link_target::open(Rc::new(LinkTargetHost), move |cx| look(cx).unwrap_or_default(), cx)

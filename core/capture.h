@@ -15,6 +15,7 @@
 #include "content/public/browser/web_contents_user_data.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect_f.h"
+#include "ui/gfx/geometry/size.h"
 
 namespace content {
 class DevToolsAgentHost;
@@ -22,8 +23,8 @@ class DevToolsAgentHost;
 
 namespace browser_core {
 
-// See bc_tab_picture.
-void PicturePage(content::WebContents* contents, uint64_t request);
+// See bc_tab_picture: |at_most| empty for the whole view.
+void PicturePage(content::WebContents* contents, uint64_t request, gfx::Size at_most);
 
 // A tab's Capture: the element under the pointer and the picture of the page, which the app's
 // capture mode draws. DevTools hit tests the page and draws it beyond its view, without the

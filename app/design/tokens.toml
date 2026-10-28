@@ -314,6 +314,45 @@ header-text = 11.0
 header-left = 4.0
 header-bottom = 3.0
 
+[hover-card]
+# Resting on a sidebar tab shows its card beside the row (#430). Ours, from the design system: a
+# floating card at the panel radius in the palette's overlay, with the popover level's rim and
+# shadow, and the picture of the tab's page inside it at the row radius, concentric: 16 - 4.
+width = 272.0
+radius = 16.0
+padding = 4.0
+picture-radius = 12.0
+# The picture's box is as wide as the card inside its padding and takes the page's shape, as tall
+# as these shares of its width at least and at most, and this share while there's no picture yet.
+picture-least = 0.5
+picture-most = 0.75
+picture-default = 0.625
+# A tab with no picture shows its favicon on a ground of the ink at this.
+ground = 0.05
+favicon = 24.0
+# The card starts this far right of the row's plate, and stays this far inside the window.
+gap = 8.0
+edge = 8.0
+# The title, one line of body type at medium, and under it the page's host in small type, at these
+# alphas of the ink, raised to the overlay's floor (palette.rs).
+text-x = 12.0
+text-top = 10.0
+title-size = 13.0
+title-line = 18.0
+title = 0.9
+host-size = 11.0
+host = 0.55
+# The actions, beside the host: control-sized buttons, inset from the card's right and bottom
+# edges by as much as keeps their corners concentric with its: 16 - 10.
+button = 28.0
+button-radius = 6.0
+button-gap = 2.0
+button-inset = 10.0
+glyph = 16.0
+glyph-alpha = 0.7
+# The popover level's rim, as the tooltip's.
+rim = 0.5
+
 [link-target]
 height = 24.0
 # Its distance from the card's left or right edge and from its bottom: more than the card's
