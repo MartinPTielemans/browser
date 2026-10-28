@@ -17,7 +17,7 @@ use super::{
     access::Accessible,
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
     HOVERED, LIST_TOP,
-    PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE,
+    PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, Space, TALL_FAVORITES, TILE,
     TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
     TILE_UNTHEMED, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
     title,
@@ -62,8 +62,8 @@ impl FavoritesScope {
 }
 
 impl Shell {
-    /// The favorites' tiles under the URL field, which stay put while the Spaces' pages move under
-    /// them, and slide to their places as tiles come, go and make room for a dragged tab. Taller
+    /// The favorites' tiles under the URL field, which page with their Space's page (`with_page`),
+    /// and slide to their places as tiles come, go and make room for a dragged tab. Taller
     /// than TALL_FAVORITES of the window, they scroll with the list, under the URL field.
     pub(super) fn tiles(&self, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
         let drawn = self.drawn_tiles();
@@ -410,18 +410,7 @@ impl Shell {
             false if selected => shown,
             false => fill,
         };
-        let icon = div()
-            .size(px(FAVICON_SIZE))
-            .flex()
-            .items_center()
-            .justify_center()
-            .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
-            .child(match theme.as_deref() {
-                Some(TileTheme::Flat { template, .. }) => {
-                    img(template.clone()).size(px(FAVICON_DRAWN)).into_any_element()
-                }
-                _ => self.tab_icon(tab),
-            });
+        let icon = self.tile_icon(tab, theme.as_deref());
         div()
             .id(("tile", tab))
             .when(self.a11y, |tile| {
@@ -475,6 +464,67 @@ impl Shell {
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
+    }
+
+    /// A tile's favicon, or a one-colour icon's white template on the tile it themes.
+    fn tile_icon(&self, tab: u64, theme: Option<&TileTheme>) -> gpui::Div {
+        div()
+            .size(px(FAVICON_SIZE))
+            .flex()
+            .items_center()
+            .justify_center()
+            .when(self.page(tab).unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
+            .child(match theme {
+                Some(TileTheme::Flat { template, .. }) => {
+                    img(template.clone()).size(px(FAVICON_DRAWN)).into_any_element()
+                }
+                _ => self.tab_icon(tab),
+            })
+    }
+
+    /// The favorites `space` shows: its own, or its profile's.
+    pub(super) fn favorites_of(&self, space: &Space) -> Vec<u64> {
+        let held_by = [space.id, space.profile];
+        let holders = &self.favorite_holders;
+        (self.all_favorites.iter().copied())
+            .filter(|tab| holders.get(tab).is_some_and(|holder| held_by.contains(holder)))
+            .collect()
+    }
+
+    /// The tiles of `favorites` on the page of a Space beside the shown one's, at their places
+    /// as they show once it's shown, `selected`'s filled and ringed. They take no input.
+    pub(super) fn still_tiles(&self, favorites: &[u64], selected: u64) -> Option<gpui::Div> {
+        let places = self.tile_places(favorites.len());
+        let tiles = places.into_iter().zip(favorites).map(|([left, top, width], &tab)| {
+            let selected = tab == selected;
+            let theme = selected.then(|| self.tile_theme(tab)).flatten();
+            let (shown, ring_width, ring) = shown_look(theme.as_deref(), &self.palette);
+            let tile = div()
+                .absolute()
+                .left(px(left))
+                .top(px(top))
+                .w(px(width))
+                .h(px(TILE_HEIGHT))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(TILE_RADIUS))
+                .border(px(if selected { ring_width } else { HAIRLINE }))
+                .border_color(match selected {
+                    true => ring,
+                    false => Level::Resting.rim_in(&self.palette).into(),
+                })
+                .bg(if selected { shown } else { self.palette.plate(TILE) })
+                .children(theme.as_deref().and_then(TileTheme::layers))
+                .child(self.tile_icon(tab, theme.as_deref()));
+            #[cfg(test)]
+            let tile =
+                tile.child(self.beside_framed(tab, if selected { ring_width } else { HAIRLINE }));
+            tile
+        });
+        (!favorites.is_empty()).then(|| {
+            div().absolute().top(px(LIST_TOP)).left_0().w(px(self.width())).children(tiles)
+        })
     }
 }
 

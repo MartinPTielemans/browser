@@ -122,6 +122,14 @@ expect "^browser: title $b cookie none\$" \
   "the new profile's tab saw the first profile's cookie: $(grep "^browser: title $b" "$log" |
   tail -1)"
 ../tools/window-screenshot.sh "$pid" "$out/profile-space.png" || fail "no window to capture"
+# Held partway back, the first profile's Space comes in beside this one's whole: its URL field
+# with the tab it would show, its favorite and its rows at its offset, as this one's go out.
+post swipe 110 500 10 0 10 1500
+await '^browser: swipe across$' || fail "two fingers across the sidebar didn't page"
+../tools/window-screenshot.sh "$pid" "$out/profile-swipe.png" || fail "no window to capture"
+await "^browser: drive $step done" || fail "the driver didn't finish the swipe"
+none_since '^browser: space [0-9]' || fail "a swipe let go short of halfway showed another Space"
+expect "^browser: settled space $second\$" "the Space's page didn't settle back"
 # Its menu, with a tab, can't change its profile.
 post rightclick $name_point
 expect "^browser: menu shown Rename Space, Change Icon…, $themed, Profile › Default (disabled), \
@@ -356,4 +364,4 @@ send key return
 expect "^browser: removed profile $work personal\$" "the profile wasn't deleted"
 exec 3>&-
 quit
-echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; in Every Space a favorite has a twin in the other profile, which goes with it when it’s removed, comes back with ⌘Z, and goes back to the favorite’s URL in its own profile, and stays the other profile’s own favorite after; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"
+echo "ok: the New Space form's Profile row makes a profile and puts the Space in it, where its tabs open without the first profile's cookie, and its Choose a Theme row colours it; an empty Space's menu moves it between profiles, and a Space with tabs keeps its profile; held partway between two profiles' Spaces, each page has its own URL field and favorites; a new Space is in the profile of the Space it's made from; favorites show only in their profile's Spaces; after a relaunch each Space is in its profile and each tab loads in it; a tab moved to another profile's Space loads there with its cookies, after a warning only the first time; in Every Space a favorite has a twin in the other profile, which goes with it when it’s removed, comes back with ⌘Z, and goes back to the favorite’s URL in its own profile, and stays the other profile’s own favorite after; Settings › Profiles renames a profile on a double-click, which the Space menu shows, and makes one, named with Japanese input, and deletes it once the user confirms; a profile nothing is in is deleted from the menu once the user confirms. Windows: $out/profile-popup.png, $out/profile-form.png, $out/profile-made.png, $out/profile-menu.png, $out/profile-space.png, $out/profile-swipe.png, $out/profile-move.png, $out/settings-profile-name.png, $out/settings-profiles.png, $out/profile-delete.png"

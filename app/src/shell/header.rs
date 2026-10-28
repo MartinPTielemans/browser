@@ -245,9 +245,15 @@ impl Shell {
     /// What the URL field says, in its colour: the page's host, or with no page shown, the
     /// command bar's placeholder, there from the frame the card's mark is.
     pub(super) fn url_field_words(&self, url: &str) -> (SharedString, Hsla) {
-        if self.selected == 0 {
+        self.url_words(self.selected, url, self.empty_opacity(Instant::now()))
+    }
+
+    /// What a URL field showing `tab`, at `url`, says, in its colour: the page's host, or with no
+    /// tab, the command bar's placeholder, `shown` of the way in.
+    pub(super) fn url_words(&self, tab: u64, url: &str, shown: f32) -> (SharedString, Hsla) {
+        if tab == 0 {
             let mut color = Hsla::from(rgba(URL_PLACEHOLDER));
-            color.a *= self.empty_opacity(Instant::now());
+            color.a *= shown;
             return (PLACEHOLDER_TEXT.into(), color);
         }
         let words = self.extension_name(url).unwrap_or_else(|| host(url).to_string().into());
@@ -308,13 +314,7 @@ impl Shell {
                         .text_color(self.palette.glyph(NAV)),
                 )
         });
-        // A tab showing its page in Safari's engine says so after the host, quietly (ours): the
-        // Site Controls name it and turn it off.
-        let engine = (self.selected != 0 && self.page(self.selected).system_engine).then(|| {
-            let mut quiet = self.palette.text(SECONDARY);
-            quiet.a *= 0.6;
-            svg().path("icons/compass.svg").flex_none().ml(px(5.)).size(px(12.)).text_color(quiet)
-        });
+        let engine = self.engine_mark(self.selected);
         let text_end = match tools {
             true => end + TOOL_PITCH + URL_BUTTON_SIZE,
             false if actions.is_empty() => URL_FIELD_TEXT_X - PLATE_INSET,
@@ -355,6 +355,69 @@ impl Shell {
             .children(copy)
             .children(site_controls)
             .children(actions)
+    }
+
+    /// A tab showing its page in Safari's engine says so after the host, quietly (ours): the Site
+    /// Controls name it and turn it off.
+    fn engine_mark(&self, tab: u64) -> Option<gpui::Svg> {
+        (tab != 0 && self.page(tab).system_engine).then(|| {
+            let mut quiet = self.palette.text(SECONDARY);
+            quiet.a *= 0.6;
+            svg().path("icons/compass.svg").flex_none().ml(px(5.)).size(px(12.)).text_color(quiet)
+        })
+    }
+
+    /// The URL field on the page of a Space beside the shown one's, as it shows `tab` once that
+    /// Space is shown, with Copy URL and the Site Controls while the shown field has them, but not
+    /// the pinned extensions' actions, which are its profile's. It takes no input.
+    pub(super) fn still_url_field(&self, tab: u64) -> Div {
+        let url = self.url(tab);
+        let (words, color) = self.url_words(tab, &url, 1.);
+        let tools = self.tools_shown() && !url.is_empty();
+        let tool = |end: f32, glyph: &'static str| {
+            div()
+                .opacity(self.tools_opacity())
+                .absolute()
+                .top(px(URL_BUTTON_INSET))
+                .right(px(end))
+                .size(px(URL_BUTTON_SIZE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    svg()
+                        .path(glyph)
+                        .size(px(URL_BUTTON_GLYPH))
+                        .text_color(self.palette.glyph(NAV)),
+                )
+        };
+        let text_end = match tools {
+            true => SITE_CONTROLS_END + TOOL_PITCH + URL_BUTTON_SIZE,
+            false => URL_FIELD_TEXT_X - PLATE_INSET,
+        };
+        let field = div()
+            .absolute()
+            .top(px(URL_FIELD_TOP))
+            .left(px(PLATE_INSET))
+            .w(px(self.width() - 2. * PLATE_INSET))
+            .h(px(URL_FIELD_HEIGHT))
+            .flex()
+            .items_center()
+            .pl(px(URL_FIELD_TEXT_X - PLATE_INSET))
+            .pr(px(text_end))
+            .rounded(px(PLATE_RADIUS))
+            .bg(self.palette.plate(URL_FIELD))
+            .text_size(px(text::BODY))
+            .child(div().min_w(px(0.)).truncate().text_color(color).child(words))
+            .children(self.engine_mark(tab))
+            .when(tools, |field| {
+                field
+                    .child(tool(SITE_CONTROLS_END + TOOL_PITCH, LINK))
+                    .child(tool(SITE_CONTROLS_END, "icons/sliders-horizontal.svg"))
+            });
+        #[cfg(test)]
+        let field = field.child(self.beside_framed(0, 0.));
+        field
     }
 
     /// Whether the sidebar draws Clear and the URL field's button, which it does from the pointer
