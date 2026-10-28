@@ -161,6 +161,8 @@ jobs:
       - run: rustup update stable --no-self-update && ./setup.sh prebuilt && ./build.sh
 
       - run: |
+          # The check's status, not tee's: Actions sets pipefail only for an explicit shell: bash.
+          set -o pipefail
           status=0
           # GNU's timeout, which macOS doesn't have under that name, if the runner has it.
           limit=$(command -v timeout || command -v gtimeout || true)
