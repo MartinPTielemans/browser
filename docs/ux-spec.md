@@ -583,7 +583,7 @@ Arc's panel and rows (Arc 1.170.0 cap, ax); Dia's materials and colours where Ar
 | Height | 328.5 with five rows: the input row 64, a 0.5 pt line, 4, the rows at 50 each, 10 below. The table holds more rows (11 in "wik") and scrolls inside the five |
 | Radius | ≈ 18 (cap, ± 1) |
 | Edge | a 0.5 pt outline (4, 4, 4) with a 1 pt grey one inside it, (89, 89, 93) |
-| Fill | translucent: (23–25) over a dark page, (39–47) over a blue one, (47) over a light grey one: #191919 at 0.86 over a blur of what's behind. Ours: the same over AppKit's behind-window blur with its tint taken out, opaque where Reduce Transparency is on |
+| Fill | translucent: (23–25) over a dark page, (39–47) over a blue one, (47) over a light grey one: #191919 at 0.86 over a blur of what's behind. Ours: the same over AppKit's behind-window blur with its tint taken out, opaque where Reduce Transparency is on. Off the Mac nothing blurs, so the fill is opaque over grey 110, which makes 37; the icon picker's is over the sidebar's #131313 |
 | Shadow | soft, no offset: over a light grey page it darkens ≈ 11 % at the edge and fades out over ≈ 30 pt on every side. Ours: drawn to that fit, a shadow radius of 20 at 0.23 black, in a window of its own that clicks pass through, so the panel's frame is the panel's |
 | Scrim | none: the page stays visible and undimmed |
 | Input row | 64 tall; the search glyph 18 × 18 at 23 in, centred; the text at 53 in, 23 tall, ≈ 18 pt, "Search or Enter URL…" in white 0.55; the text field is 656 wide, 534 while the hint shows |

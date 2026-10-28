@@ -11,9 +11,9 @@ use std::{cell::Cell, collections::HashMap, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, Focusable, FontWeight, Global, HoverListenerMode,
-    Hsla, Image, KeyBinding, Pixels, ScrollHandle, SharedString, TitlebarOptions, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, div,
-    img, point, prelude::*, px, rgb, rgba, size, svg,
+    Hsla, Image, KeyBinding, Pixels, Rgba, ScrollHandle, SharedString, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
+    div, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 use gpui::{Role, accesskit::Live};
 
@@ -81,6 +81,24 @@ const FIELD_INPUT_TEXT: f32 = 14.;
 const BESIDE_END: f32 = 70.;
 /// Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
 const FILL: u32 = 0x1919_19db;
+/// What stands for the blur under the bar where there is none: a mid grey, so the fill comes to
+/// 37, between Arc's (23–25) over a dark page and (47) over a light one.
+const BLUR_STAND_IN: u32 = 0x6e6e6e;
+
+/// An overlay's `fill`, 0xRRGGBBAA. Only the Mac's host blurs what's behind an overlay. Elsewhere a
+/// page sharp through the fill reads as noise, and an X server can't blend a child window at all,
+/// so the fill is opaque over `blur`, 0xRRGGBB, standing for the blur, as Reduce Transparency is.
+pub(crate) fn overlay_fill(fill: u32, blur: u32) -> Rgba {
+    if cfg!(target_os = "macos") {
+        return rgba(fill);
+    }
+    let alpha = (fill & 0xff) as f32 / 255.;
+    let channel = |shift: u32| {
+        let (over, under) = ((fill >> (shift + 8)) & 0xff, (blur >> shift) & 0xff);
+        (over as f32 * alpha + under as f32 * (1. - alpha)).round() as u32
+    };
+    rgb(channel(16) << 16 | channel(8) << 8 | channel(0))
+}
 pub(crate) const OUTLINE: u32 = 0x040404;
 pub(crate) const EDGE: u32 = 0x59595d;
 const LINE_COLOR: u32 = 0xffff_ff1a;
@@ -1589,7 +1607,7 @@ impl Render for CommandBar {
                 .size_full()
                 .overflow_hidden()
                 .rounded(px(radius))
-                .bg(rgba(FILL))
+                .bg(overlay_fill(FILL, BLUR_STAND_IN))
                 .text_color(rgb(0xffffff))
                 // Arc's text is medium, by its strokes at 2× (Arc 1.170.0 cap).
                 .font_weight(FontWeight::MEDIUM)

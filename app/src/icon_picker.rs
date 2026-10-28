@@ -48,6 +48,9 @@ pub const HEIGHT: f32 = ARROW + CARD;
 const BELOW_ICON: f32 = 25.;
 /// Grey at 0.565 over the blur: lighter than the command bar's fill, as Arc's is.
 const FILL: u32 = 0x4848_4890;
+/// What stands for the blur under the card where there is none: the sidebar's material, which the
+/// card hangs over (command_bar::overlay_fill).
+const BLUR_STAND_IN: u32 = 0x131313;
 /// Emoji | Icon, 14.5 under the card's top, with the trash button 7 after it, the two centred; with
 /// no icon to remove, Emoji | Icon is centred alone (Arc 1.170 cap).
 const SEGMENTS_TOP: f32 = 14.5;
@@ -814,7 +817,7 @@ impl Render for IconPicker {
                 let mut fill = PathBuilder::fill();
                 outline(&mut fill, bounds.origin, &corners(), 0.);
                 if let Ok(path) = fill.build() {
-                    window.paint_path(path, rgba(FILL));
+                    window.paint_path(path, command_bar::overlay_fill(FILL, BLUR_STAND_IN));
                 }
                 // The command bar's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
                 for (inset, width, color) in [
