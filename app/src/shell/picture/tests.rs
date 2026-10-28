@@ -53,13 +53,17 @@ fn card(shell: &Entity<Shell>, cx: &mut VisualTestContext) -> Bounds<Pixels> {
     shell.read_with(cx, |shell, _| shell.picture_card())
 }
 
-/// Where the picture is `later` from now.
+/// Where the picture is `later` from the start of its motion, or from now if it has none, so a test
+/// on a busy machine reads the motion where it means to.
 fn picture_at(
     shell: &Entity<Shell>,
     cx: &mut VisualTestContext,
     later: Duration,
 ) -> Option<Bounds<Pixels>> {
-    shell.read_with(cx, |shell, _| shell.picture_bounds(Instant::now() + later))
+    shell.read_with(cx, |shell, _| {
+        let motion = shell.picture.as_ref().and_then(|picture| picture.motion);
+        shell.picture_bounds(motion.map_or_else(Instant::now, |motion| motion.start) + later)
+    })
 }
 
 /// What the shell asked of the core about pictures since the last time.
