@@ -10,6 +10,7 @@
 #include "base/memory/ptr_util.h"
 #include "base/no_destructor.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/sequenced_task_runner.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
 #include "browser_core/profiles.h"
@@ -19,6 +20,8 @@
 #include "chrome/browser/password_manager/factories/profile_password_store_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/keyed_service/core/service_access_type.h"
+#include "components/password_manager/core/browser/import/import_results.h"
+#include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_ui_utils.h"
 #include "components/password_manager/core/browser/ui/credential_ui_entry.h"
@@ -112,6 +115,74 @@ void Passwords::Remove(bc_id profile,
   }
 }
 
+bool Passwords::Import(bc_id profile, const base::FilePath& path) {
+  Passwords* passwords = Of(ProfileOf(profile));
+  if (!passwords || path.empty() || !passwords->import_path_.empty()) {
+    return false;
+  }
+  passwords->import_path_ = path;
+  if (passwords->ready_) {
+    passwords->StartImport();
+  }
+  return true;
+}
+
+void Passwords::StartImport() {
+  importer_ = std::make_unique<password_manager::PasswordImporter>(presenter_);
+  importer_->Import(import_path_, password_manager::PasswordForm::Store::kProfileStore,
+                    base::BindOnce(&Passwords::Imported, weak_factory_.GetWeakPtr()));
+}
+
+void Passwords::Imported(const password_manager::ImportResults& results) {
+  using password_manager::ImportResults;
+  if (results.status == ImportResults::CONFLICTS) {
+    // Chrome's page asks which to replace. The saved password is the one the user signs in with
+    // here, so it stays, and the counts say how many did. Continued from a task of its own, as the
+    // importer calls this before it's done with the call.
+    conflicted_ = results.displayed_entries.size();
+    base::SequencedTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](base::WeakPtr<Passwords> passwords) {
+                         if (passwords && passwords->importer_) {
+                           passwords->importer_->ContinueImport(
+                               {}, base::BindOnce(&Passwords::Imported, passwords));
+                         }
+                       },
+                       weak_factory_.GetWeakPtr()));
+    return;
+  }
+  int result = BC_PASSWORDS_IMPORT_FAILED;
+  switch (results.status) {
+    case ImportResults::SUCCESS:
+      result = BC_PASSWORDS_IMPORTED;
+      break;
+    case ImportResults::IO_ERROR:
+      result = BC_PASSWORDS_IMPORT_UNREADABLE;
+      break;
+    case ImportResults::BAD_FORMAT:
+      result = BC_PASSWORDS_IMPORT_NOT_EXPORT;
+      break;
+    case ImportResults::MAX_FILE_SIZE:
+    case ImportResults::NUM_PASSWORDS_EXCEEDED:
+      result = BC_PASSWORDS_IMPORT_TOO_LARGE;
+      break;
+    default:
+      break;
+  }
+  const bool imported = result == BC_PASSWORDS_IMPORTED;
+  // After a success, the rows it lists are the ones it couldn't take.
+  const size_t skipped = imported ? results.displayed_entries.size() : 0;
+  const size_t conflicted = std::exchange(conflicted_, 0);
+  import_path_.clear();
+  // The importer is still in the call that brought this.
+  base::SequencedTaskRunner::GetCurrentDefault()->DeleteSoon(FROM_HERE, std::move(importer_));
+  if (Host().passwords_imported) {
+    Host().passwords_imported(Host().context, ProfileId(DirOf(profile_)), result,
+                              imported ? results.number_imported : 0, imported ? conflicted : 0,
+                              skipped);
+  }
+}
+
 std::vector<bc_login> Passwords::ToC(const std::vector<Login>& logins) {
   std::vector<bc_login> c_logins;
   c_logins.reserve(logins.size());
@@ -187,7 +258,11 @@ std::vector<Passwords::Login> Passwords::All() {
 }
 
 void Passwords::OnSavedPasswordsChanged(const password_manager::PasswordStoreChangeList& changes) {
+  const bool first = !ready_;
   ready_ = true;
+  if (first && !import_path_.empty()) {
+    StartImport();
+  }
   Changed();
 }
 

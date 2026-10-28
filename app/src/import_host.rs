@@ -5,13 +5,14 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ffi::CString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use browser::import::Passwords;
 use browser::import::found::{Page, Tab};
 use browser::import::plan::{Existing, ExistingSpace, Row};
 use browser::import::sources::{Os, Roots};
 use browser::theme::Theme;
-use gpui::App;
+use gpui::{App, PathPromptOptions};
 
 use crate::{bc, front, ids, name, open_tab_behind, platform};
 
@@ -24,6 +25,9 @@ thread_local! {
         const { RefCell::new(VecDeque::new()) };
     /// What waits for the app to come back to the front, such as an import for Full Disk Access.
     static ACTIVE: RefCell<Vec<Box<dyn FnOnce(&mut App)>>> = const { RefCell::new(Vec::new()) };
+    /// What waits for passwords_imported, with the profile the passwords went to.
+    static PASSWORDS: RefCell<Vec<(u64, Box<dyn FnOnce(Passwords, &mut App)>)>> =
+        const { RefCell::new(Vec::new()) };
 }
 
 /// Runs what waited for the app to become the active one.
@@ -45,6 +49,25 @@ pub fn history_added(added: usize, cx: &mut App) {
     if let Some(then) = HISTORY.with_borrow_mut(VecDeque::pop_front) {
         then(added, cx);
     }
+}
+
+/// Tells what waited for the passwords imported into `profile` what came of it.
+pub fn passwords_imported(profile: u64, passwords: Passwords, cx: &mut App) {
+    let at = PASSWORDS.with_borrow(|waiting| waiting.iter().position(|(each, _)| *each == profile));
+    if let Some(at) = at {
+        let (_, then) = PASSWORDS.with_borrow_mut(|waiting| waiting.remove(at));
+        then(passwords, cx);
+    }
+}
+
+/// The profile passwords go into: the one of the Space the front window shows, unless that's an
+/// agent's, whose sessions aren't the user's to fill, else the one the browser started with.
+fn passwords_profile() -> u64 {
+    let space = unsafe { bc::bc_window_space(front().0) };
+    if space != 0 && name(bc::bc_space_agent, space).is_empty() {
+        return unsafe { bc::bc_space_profile(space) };
+    }
+    ids(bc::bc_profiles).first().copied().unwrap_or(0)
 }
 
 pub struct CoreImport;
@@ -253,5 +276,45 @@ impl browser::import::Host for CoreImport {
 
     fn when_active(&self, then: Box<dyn FnOnce(&mut App)>) {
         ACTIVE.with_borrow_mut(|waiting| waiting.push(then));
+    }
+
+    fn choose_passwords_file(
+        &self,
+        then: Box<dyn FnOnce(Option<PathBuf>, &mut App)>,
+        cx: &mut App,
+    ) {
+        // A check run names its made-up file, as it can't drive the system's panel.
+        if let Some(file) = std::env::var_os("BROWSER_IMPORT_PASSWORDS") {
+            return cx.defer(move |cx| then(Some(file.into()), cx));
+        }
+        let chosen = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: Some("Import".into()),
+        });
+        cx.spawn(async move |cx| {
+            let chosen = chosen.await.ok().and_then(Result::ok).flatten();
+            let file = chosen.and_then(|files| files.into_iter().next());
+            cx.update(|cx| then(file, cx));
+        })
+        .detach();
+    }
+
+    fn import_passwords(&self, file: &Path, then: Box<dyn FnOnce(Passwords, &mut App)>) -> bool {
+        let profile = passwords_profile();
+        let Ok(path) = CString::new(file.to_string_lossy().as_bytes()) else {
+            return false;
+        };
+        let started = unsafe { bc::bc_profile_import_passwords(profile, path.as_ptr()) };
+        if started {
+            PASSWORDS.with_borrow_mut(|waiting| waiting.push((profile, then)));
+        }
+        started
+    }
+
+    fn passwords_profile(&self) -> Option<String> {
+        let profiles = ids(bc::bc_profiles);
+        (profiles.len() > 1).then(|| name(bc::bc_profile_name, passwords_profile()).to_string())
     }
 }
