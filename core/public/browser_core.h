@@ -1159,9 +1159,11 @@ BC_EXPORT void bc_tab_element_at(bc_id tab, double x, double y);
 // Captures the tab's page as a PNG: |rect|, in points from the top-left of the page's view, or the
 // whole view if |rect| is empty, as the compositor last drew it; or with |full_page| the whole
 // page, beyond the view, as DevTools' full-size screenshot does, which lays the page out at its
-// full height while it draws. In pixels at the display's scale. Then tab_captured with |request|.
-// The user's: agents get none, as a picture shows what a page holds, and agents read pages through
-// their own tool, by its rules.
+// full height while it draws. In pixels at the display's scale. A page in the system's engine gives
+// only its whole view, as WebKit draws it, with protected video black. Then tab_captured with
+// |request|, always from a task of its own, never inside this call, so the app may ask from inside
+// an update of what the answer goes to. The user's: agents get none, as a picture shows what a page
+// holds, and agents read pages through their own tool, by its rules.
 BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_rect rect);
 
 // Ends what bc_tab_element_at and bc_tab_capture began: drops their questions and lets go of the

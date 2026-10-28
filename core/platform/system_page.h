@@ -6,8 +6,10 @@
 #ifndef BROWSER_CORE_PLATFORM_SYSTEM_PAGE_H_
 #define BROWSER_CORE_PLATFORM_SYSTEM_PAGE_H_
 
+#include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -119,6 +121,10 @@ class SystemPage {
   // Reads the localStorage of the origin the page shows, then runs |done| with it: nothing for a
   // page that has none, or doesn't answer within a moment.
   virtual void GetStorage(base::OnceCallback<void(url::Origin, StorageItems)> done) = 0;
+
+  // Draws the page as its view shows it, then runs |done| with a PNG of it in sRGB at the
+  // display's scale, or nothing if it couldn't. Protected video comes out black.
+  virtual void Snapshot(base::OnceCallback<void(std::optional<std::vector<uint8_t>>)> done) = 0;
 
   virtual GURL url() = 0;
   virtual std::u16string title() = 0;

@@ -100,7 +100,7 @@ pub use side_panel::SidePanel;
 pub use panes::page_frame;
 pub use permission::{Answer, Question};
 pub use trouble::{NOT_RESPONDING, RELOAD, WAIT};
-pub use picture::is_picture;
+pub use picture::{is_picture, picture_answered};
 pub use recent_downloads::FilePreview;
 use clean_link::clean_link;
 use commands::ShellHandle;

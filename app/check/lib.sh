@@ -258,6 +258,24 @@ pinned_favicon() {
   echo "26 $((90 + 44 + 41 * $1 + 20))"
 }
 
+# Forgets the sites the profile keeps for Safari's engine, the notes it closed and the listed hosts
+# it turned off, which a run that turns them on leaves for the runs after. Only while the app isn't
+# running, as it writes its preferences as it quits.
+forget_engine_sites() {
+  prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
+  [ -e "$prefs" ] || return 0
+  python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    prefs = json.load(f)
+engine = prefs.get("browser_core", {}).get("system_engine", {})
+for kind in ("sites", "closed_notes", "listed_off"):
+    engine.pop(kind, None)
+with open(sys.argv[1], "w") as f:
+    json.dump(prefs, f)
+' "$prefs" || fail "the profile's sites for Safari's engine couldn't be reset"
+}
+
 # Starts the check's web server, in site.sh, unless a run before has. Its pages are at $site.
 serve() {
   [ -n "${site:-}" ] || . check/site.sh

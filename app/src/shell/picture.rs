@@ -10,8 +10,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, Bounds, BoxShadow, Context, Corners, MouseButton, Pixels, RenderImage, Task,
-    Window, canvas, div, hsla, point, prelude::*, px, rgba, size,
+    AnyElement, AsyncApp, Bounds, BoxShadow, Context, Corners, MouseButton, Pixels, RenderImage,
+    Task, WeakEntity, Window, canvas, div, hsla, point, prelude::*, px, rgba, size,
 };
 use image::{Frame, RgbaImage};
 
@@ -35,6 +35,23 @@ static REQUESTS: AtomicU64 = AtomicU64::new(FIRST_REQUEST);
 /// Whether the core's answer `request` is for a picture of this kind, not capture mode's.
 pub fn is_picture(request: u64) -> bool {
     request >= FIRST_REQUEST
+}
+
+/// The core's answer to `request`, a picture of this kind, for whichever of `shells` asked. It
+/// reaches them once the update under way, if any, is over: an answer the core gave inside the call
+/// that asked would come while that shell is being updated, and a second update of it panics.
+pub fn picture_answered(
+    shells: Vec<WeakEntity<Shell>>,
+    request: u64,
+    png: Option<Vec<u8>>,
+    cx: &AsyncApp,
+) {
+    cx.spawn(async move |cx| {
+        for shell in shells {
+            shell.update(cx, |shell, cx| shell.page_pictured(request, png.clone(), cx)).ok();
+        }
+    })
+    .detach();
 }
 
 /// A page's picture, decoded in the BGRA GPUI draws, and its size in pixels.

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include "base/containers/flat_map.h"
 #include "base/functional/callback.h"
@@ -60,7 +61,9 @@ class PageCapture : public content::WebContentsUserData<PageCapture>,
 
   void CopiedSurface(uint64_t request, const content::CopyFromSurfaceResult& result);
   void Screenshot(uint64_t request, const base::DictValue* result);
-  void Captured(uint64_t request, const std::vector<uint8_t>* png);
+  // Answers bc_tab_capture's |request| with |png|, or nothing, from a task of its own.
+  void Captured(uint64_t request, std::optional<std::vector<uint8_t>> png);
+  void ReportCaptured(uint64_t request, std::optional<std::vector<uint8_t>> png);
 
   // The zoom the tab's page is shown at, by which a CSS pixel is that many points.
   double Zoom();

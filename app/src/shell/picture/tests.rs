@@ -87,6 +87,26 @@ fn a_page_elsewhere_is_asked_for_once(cx: &mut TestAppContext) {
     assert!(shell.read_with(cx, |shell, _| shell.pictured(10) && !shell.pictured(20)));
 }
 
+/// A core that answers inside the call that asked, while the shell is being updated, gives its
+/// picture once that update is over, as the core's report of a page that went and the window coming
+/// to the front both ask; nothing panics (#364).
+#[gpui::test]
+fn a_picture_answered_inside_the_ask_comes_after_it(cx: &mut TestAppContext) {
+    let (shell, cx, host) = window(cx);
+    host.pictures.replace(Some((shell.downgrade(), png())));
+    shell.update(cx, |shell, cx| shell.page_elsewhere(10, cx));
+    assert_eq!(asked(&host), ["picture 10"]);
+    cx.run_until_parked();
+    assert_eq!(asked(&host), ["picture end 10"]);
+    assert!(picture_at(&shell, cx, Duration::from_millis(300)).is_some());
+
+    shell.update(cx, |shell, cx| shell.became_key(cx));
+    assert_eq!(asked(&host), ["picture 10"]);
+    cx.run_until_parked();
+    assert_eq!(asked(&host), ["picture end 10"]);
+    assert!(picture_at(&shell, cx, Duration::from_millis(300)).is_some());
+}
+
 /// Nothing shows until the picture comes. Then it's fitted to 0.8 of the card, centred, once it has
 /// stepped back from the card's size, and it asks the core to let go of what it held.
 #[gpui::test]

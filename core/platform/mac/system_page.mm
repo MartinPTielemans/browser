@@ -246,6 +246,24 @@ NSArray<NSString*>* ObservedKeys(WKWebView* web) {
   return keys;
 }
 
+// |image| as a PNG at its pixels' size, which WebKit's snapshot draws at the display's scale, in
+// sRGB, as the app reads a PNG's pixels and as the core gives Chromium's pages.
+std::optional<std::vector<uint8_t>> SrgbPng(NSImage* image) {
+  CGImageRef pixels = [image CGImageForProposedRect:nullptr context:nil hints:nil];
+  if (!pixels) {
+    return std::nullopt;
+  }
+  NSBitmapImageRep* bitmap = [[NSBitmapImageRep alloc] initWithCGImage:pixels];
+  bitmap = [bitmap bitmapImageRepByConvertingToColorSpace:NSColorSpace.sRGBColorSpace
+                                          renderingIntent:NSColorRenderingIntentDefault] ?: bitmap;
+  NSData* png = [bitmap representationUsingType:NSBitmapImageFileTypePNG properties:@{}];
+  if (!png.length) {
+    return std::nullopt;
+  }
+  const uint8_t* bytes = static_cast<const uint8_t*>(png.bytes);
+  return std::vector<uint8_t>(bytes, bytes + png.length);
+}
+
 }  // namespace
 
 // The view the window shows in the tab's pane, holding the WebKit page. A page full screen leaves
@@ -386,6 +404,14 @@ class SystemPageMac : public SystemPage {
                        std::move(then).Run(url::Origin(), StorageItems());
                      }
                    });
+  }
+
+  void Snapshot(base::OnceCallback<void(std::optional<std::vector<uint8_t>>)> done) override {
+    __block base::OnceCallback<void(std::optional<std::vector<uint8_t>>)> then = std::move(done);
+    [web_ takeSnapshotWithConfiguration:nil
+                      completionHandler:^(NSImage* image, NSError* error) {
+                        std::move(then).Run(image ? SrgbPng(image) : std::nullopt);
+                      }];
   }
 
   // Until Start, the URL it will load, which WebKit reports once its load starts.

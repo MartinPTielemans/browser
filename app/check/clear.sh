@@ -39,20 +39,6 @@ serve
 # The run turns 127.0.0.1 on for Safari's engine and closes its note, which the profile keeps: a
 # run before would leave the note closed here, and the runs after would open their pages there. It
 # forgets them before its first launch and after its last.
-forget_engine_sites() {
-  prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
-  [ -e "$prefs" ] || return 0
-  python3 -I -c '
-import json, sys
-with open(sys.argv[1]) as f:
-    prefs = json.load(f)
-engine = prefs.get("browser_core", {}).get("system_engine", {})
-for kind in ("sites", "closed_notes", "listed_off"):
-    engine.pop(kind, None)
-with open(sys.argv[1], "w") as f:
-    json.dump(prefs, f)
-' "$prefs" || fail "the profile's sites for Safari's engine couldn't be reset"
-}
 forget_engine_sites
 
 log="$out/clear.log"
