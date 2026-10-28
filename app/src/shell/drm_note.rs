@@ -354,7 +354,8 @@ mod tests {
         let browser = host.clone();
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+            let space = (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
             shell.set_space(1, cx);
             let page = Page { url: "https://www.netflix.com/browse".into(), ..Page::default() };
@@ -384,7 +385,8 @@ mod tests {
         cx.update(bind_keys);
         let (shell, cx) = cx.add_window_view(|_, cx| Shell::new(browser, cx));
         shell.update(cx, |shell, cx| {
-            shell.set_spaces(vec![(1, "Space 1".into(), None, 0, "".into(), "".into())], cx);
+            let space = (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into());
+            shell.set_spaces(vec![space], cx);
             shell.set_tabs(1, Vec::new(), vec![10], Vec::new(), Folders::default(), cx);
             shell.set_space(1, cx);
             let page = Page { url: "https://www.netflix.com/browse".into(), ..Page::default() };
