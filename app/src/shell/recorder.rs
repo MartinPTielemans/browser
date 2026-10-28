@@ -59,6 +59,8 @@ pub(super) struct Recorder {
     pub(super) moves: Cell<usize>,
     /// Whether the system opens links with it, as `is_default_browser` answers.
     pub(super) default_browser: Cell<bool>,
+    /// The import finds no browser on the machine.
+    pub(super) no_browsers: Cell<bool>,
     /// The Spaces it was asked to show, in order.
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
@@ -579,9 +581,13 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    // The import's made-up Arc, so the first launch has a browser to import from, unless a test
+    // says there's none.
     fn import_host(&self) -> std::rc::Rc<dyn crate::import::Host> {
-        let nowhere = std::path::Path::new("/nonexistent");
-        let roots = crate::import::sources::Roots::under(nowhere, crate::import::sources::Os::Mac);
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/src/import/fixture");
+        let home = if self.no_browsers.get() { "/nonexistent" } else { fixture };
+        let os = crate::import::sources::Os::Mac;
+        let roots = crate::import::sources::Roots::under(std::path::Path::new(home), os);
         std::rc::Rc::new(crate::import::Detached(roots))
     }
 
