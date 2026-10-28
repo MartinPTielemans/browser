@@ -8,8 +8,8 @@
 # --page waits only for the right half, the page's, to stand still, as the preview's sidebar has a
 # loading tab that never stops. --scale gives the output that scale, 1 by default, at 1280 by 800
 # points. --then runs a
-# command once the capture is taken, before the session ends, with the session's WAYLAND_DISPLAY
-# and SWAYSOCK and the program's log as $LOG: to click (swaymsg seat seat0 cursor ...), type or
+# command once the capture is taken, before the session ends, with the session's WAYLAND_DISPLAY,
+# SWAYSOCK and Xwayland's DISPLAY, and the program's log as $LOG: to click (swaymsg seat seat0 cursor ...), type or
 # capture again.
 # Usage: tools/headless.sh [--x11] [--page] [--scale <n>] [--then <command>] <output.png> <ready>
 #   <program> [arguments...]
@@ -94,7 +94,7 @@ for _ in $(seq 100); do
   now=$(magick "$out" "${still[@]}" rgb:- | sha256sum)
   if [ "$now" = "$last" ]; then
     echo "$out"
-    [ -z "$then" ] || WAYLAND_DISPLAY=$wayland SWAYSOCK=$swaysock LOG=$log bash -c "$then"
+    [ -z "$then" ] || WAYLAND_DISPLAY=$wayland SWAYSOCK=$swaysock DISPLAY=$display LOG=$log bash -c "$then"
     exit 0
   fi
   last=$now
