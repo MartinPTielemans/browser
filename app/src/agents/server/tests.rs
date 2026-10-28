@@ -1,7 +1,9 @@
-//! The server as an MCP client and a web page reach it, over the loopback interface.
+//! The server as an MCP client's bridge reaches it, over a real socket.
 
-use std::io::{Cursor, Read, Write};
-use std::net::TcpStream;
+use std::io::{BufReader, Cursor, Write};
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+use std::os::unix::net::UnixStream;
+use std::sync::atomic::AtomicUsize;
 use std::thread;
 
 use futures::StreamExt;
@@ -11,95 +13,149 @@ use super::*;
 
 const TOKEN: &str = "s3cret";
 
-/// A server on any free port, with Claude Code's token.
-fn server() -> (Server, UnboundedReceiver<Event>) {
+/// A socket path of the test's own, in a folder of its own, so tests run beside each other.
+pub fn socket() -> PathBuf {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let number = NEXT.fetch_add(1, Ordering::SeqCst);
+    let folder = std::env::temp_dir().join(format!("agents-{}-{number}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    folder.join("Agents.sock")
+}
+
+/// A server with Claude Code's token.
+fn server() -> (Server, Tokens, UnboundedReceiver<Event>) {
     let tokens: Tokens = Arc::default();
     tokens
         .lock()
         .unwrap()
         .insert(TOKEN.into(), "claude-code".into());
     let (events, handed) = futures::channel::mpsc::unbounded();
-    (Server::start(0, tokens, events).unwrap(), handed)
+    (
+        Server::start(&socket(), tokens.clone(), events).unwrap(),
+        tokens,
+        handed,
+    )
 }
 
-/// What the server answers: its status, headers and body.
-struct Answer {
-    status: u16,
-    head: String,
-    body: String,
+/// A client's connection, as its bridge makes it.
+struct Client {
+    writer: UnixStream,
+    reader: BufReader<UnixStream>,
 }
 
-impl Answer {
-    fn json(&self) -> Value {
-        serde_json::from_str(&self.body).unwrap()
+impl Client {
+    fn open(server: &Server) -> Client {
+        let stream = UnixStream::connect(server.path()).unwrap();
+        Client {
+            writer: stream.try_clone().unwrap(),
+            reader: BufReader::new(stream),
+        }
     }
 
-    fn header(&self, name: &str) -> Option<String> {
-        let prefix = format!("{}: ", name.to_ascii_lowercase());
-        (self.head.lines())
-            .find(|line| line.to_ascii_lowercase().starts_with(&prefix))
-            .map(|line| line[prefix.len()..].to_string())
+    /// Connects and sends `token` first, and gives the server's answer to it.
+    fn with(server: &Server, token: &str) -> (Client, Value) {
+        let mut client = Client::open(server);
+        let answer = client.ask(json!({ "token": token }));
+        (client, answer)
     }
-}
 
-/// Sends a request with `headers` and closes the connection after the answer.
-fn send(port: u16, method: &str, headers: &[(&str, &str)], body: &str) -> Answer {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    let mut request = format!("{method} /mcp HTTP/1.1\r\nConnection: close\r\n");
-    for (name, value) in headers {
-        request += &format!("{name}: {value}\r\n");
+    fn connect(server: &Server) -> Client {
+        let (client, answer) = Client::with(server, TOKEN);
+        assert_eq!(answer, json!({ "ok": true }));
+        client
     }
-    request += &format!("Content-Length: {}\r\n\r\n{body}", body.len());
-    stream.write_all(request.as_bytes()).unwrap();
-    let mut answer = String::new();
-    stream.read_to_string(&mut answer).unwrap();
-    let (head, body) = answer.split_once("\r\n\r\n").unwrap();
-    let status = head.split(' ').nth(1).unwrap().parse().unwrap();
-    Answer {
-        status,
-        head: head.into(),
-        body: body.into(),
-    }
-}
 
-/// A client's POST, with its token and the Host it sends.
-fn post(port: u16, session: Option<&str>, body: Value) -> Answer {
-    let host = format!("127.0.0.1:{port}");
-    let mut headers = vec![
-        ("Host", host.as_str()),
-        ("Authorization", "Bearer s3cret"),
-        ("Content-Type", "application/json"),
-        ("Accept", "application/json, text/event-stream"),
-    ];
-    if let Some(session) = session {
-        headers.push(("Mcp-Session-Id", session));
+    fn send(&mut self, message: Value) {
+        writeln!(self.writer, "{message}").unwrap();
     }
-    send(port, "POST", &headers, &body.to_string())
-}
 
-fn initialize(port: u16) -> Answer {
-    post(
-        port,
-        None,
-        json!({
+    /// The server's next line, or None once it has closed the connection.
+    fn read(&mut self) -> Option<Value> {
+        read_line(&mut self.reader).map(|line| serde_json::from_str(&line).unwrap())
+    }
+
+    fn ask(&mut self, message: Value) -> Value {
+        self.send(message);
+        self.read().expect("an answer")
+    }
+
+    fn initialize(&mut self) -> Value {
+        self.ask(json!({
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {},
                 "clientInfo": { "name": "claude-code", "version": "2.0.0" },
             },
-        }),
-    )
+        }))
+    }
+}
+
+fn next(handed: &mut UnboundedReceiver<Event>) -> Option<Event> {
+    futures::executor::block_on(handed.next())
+}
+
+/// The socket is the user's alone, a socket where the server said, and gone once the server is.
+#[test]
+fn the_socket_is_the_users_alone() {
+    let (server, _, _handed) = server();
+    let path = server.path().to_path_buf();
+    let metadata = std::fs::metadata(&path).unwrap();
+    assert!(metadata.file_type().is_socket());
+    assert_eq!(metadata.permissions().mode() & 0o777, 0o600);
+    assert!(!PathBuf::from(format!("{}.new", path.display())).exists());
+    drop(server);
+    assert!(!path.exists(), "the socket stayed once the server stopped");
+}
+
+/// A socket a browser that didn't stop left behind gives way to the new server's.
+#[test]
+fn a_socket_left_behind_gives_way() {
+    let path = socket();
+    std::fs::write(&path, "left").unwrap();
+    let (events, _handed) = futures::channel::mpsc::unbounded();
+    let server = Server::start(&path, Tokens::default(), events).unwrap();
+    assert!(
+        std::fs::metadata(server.path())
+            .unwrap()
+            .file_type()
+            .is_socket()
+    );
+}
+
+/// A connection without a token the browser gave, or one that starts with a message instead,
+/// is told why and closed, and the UI hears nothing of it.
+#[test]
+fn a_connection_without_a_valid_token_is_refused() {
+    let (server, _, mut handed) = server();
+    let (mut guess, answer) = Client::with(&server, "guess");
+    assert!(
+        answer["error"]
+            .as_str()
+            .unwrap()
+            .contains("Settings › Agents")
+    );
+    assert_eq!(guess.read(), None, "a refused connection stayed open");
+    let mut early = Client::open(&server);
+    let answer = early.ask(json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }));
+    assert!(answer.get("error").is_some());
+    assert_eq!(early.read(), None);
+    drop(server);
+    assert!(
+        next(&mut handed).is_none(),
+        "a refused connection reached the UI"
+    );
 }
 
 /// initialize begins a session, in the version the client asked for, says what the server is and
 /// how to use it, and tells the UI which agent said hello.
 #[test]
 fn initialize_begins_a_session() {
-    let (server, mut handed) = server();
-    let answer = initialize(server.port());
-    assert_eq!(answer.status, 200);
-    let result = &answer.json()["result"];
+    let (server, _, mut handed) = server();
+    let mut client = Client::connect(&server);
+    let answer = client.initialize();
+    assert_eq!(answer["id"], 1);
+    let result = &answer["result"];
     assert_eq!(result["protocolVersion"], "2025-03-26");
     assert_eq!(result["serverInfo"]["name"], env!("APP_NAME"));
     assert_eq!(result["capabilities"]["tools"]["listChanged"], false);
@@ -109,147 +165,64 @@ fn initialize_begins_a_session() {
             .unwrap()
             .contains("Space of your own")
     );
-    assert_eq!(answer.json()["id"], 1);
-    assert_eq!(
-        answer.header("content-type").as_deref(),
-        Some("application/json")
-    );
-    assert!(
-        answer
-            .header("mcp-session-id")
-            .is_some_and(|session| session.len() == 64)
-    );
-    match futures::executor::block_on(handed.next()) {
-        Some(Event::Hello { agent, client }) => assert_eq!(
-            (agent, client),
-            ("claude-code".into(), "claude-code".into())
-        ),
+    match next(&mut handed) {
+        Some(Event::Hello { agent, client }) => {
+            assert_eq!(
+                (agent.as_str(), client.as_str()),
+                ("claude-code", "claude-code")
+            )
+        }
         _ => panic!("the UI didn't hear the agent's hello"),
     }
+    let newest = client.ask(json!({
+        "jsonrpc": "2.0", "id": 2, "method": "initialize", "params": { "protocolVersion": "1999-01-01" },
+    }));
+    assert_eq!(newest["result"]["protocolVersion"], VERSIONS[0]);
 }
 
-/// A version the server doesn't speak gets its newest.
-#[test]
-fn an_unknown_version_gets_the_newest() {
-    let (server, _handed) = server();
-    let answer = post(
-        server.port(),
-        None,
-        json!({
-            "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "1999-01-01" },
-        }),
-    );
-    assert_eq!(answer.json()["result"]["protocolVersion"], VERSIONS[0]);
-}
-
-/// Without the agent's token, from a web page, or under another name, nothing gets in.
-#[test]
-fn only_a_client_with_a_token_gets_in() {
-    let (server, _handed) = server();
-    let port = server.port();
-    let host = format!("127.0.0.1:{port}");
-    let body = json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }).to_string();
-    let none = send(port, "POST", &[("Host", &host)], &body);
-    assert_eq!(none.status, 401);
-    assert_eq!(none.header("www-authenticate").as_deref(), Some("Bearer"));
-    let wrong = send(
-        port,
-        "POST",
-        &[("Host", &host), ("Authorization", "Bearer guess")],
-        &body,
-    );
-    assert_eq!(wrong.status, 401);
-    let token = ("Authorization", "Bearer s3cret");
-    let page = send(
-        port,
-        "POST",
-        &[("Host", &host), token, ("Origin", "https://evil.example")],
-        &body,
-    );
-    assert_eq!(page.status, 403);
-    let rebound = send(
-        port,
-        "POST",
-        &[("Host", &format!("evil.example:{port}")), token],
-        &body,
-    );
-    assert_eq!(rebound.status, 403);
-    let localhost = format!("localhost:{port}");
-    assert_eq!(
-        send(port, "POST", &[("Host", &localhost), token], &body).status,
-        200
-    );
-}
-
-/// The tools list says what each takes; a notification and a client's response are taken with
-/// 202; there's no event stream to GET; an unknown method is an error.
+/// The tools list says what each takes; a notification is answered with nothing; an unknown
+/// method, a line that isn't JSON and a batch are errors, and the connection goes on.
 #[test]
 fn the_server_answers_what_needs_no_browser() {
-    let (server, _handed) = server();
-    let port = server.port();
-    let list = post(
-        port,
-        None,
-        json!({ "jsonrpc": "2.0", "id": "a", "method": "tools/list" }),
-    );
-    let names: Vec<_> = (list.json()["result"]["tools"].as_array().unwrap().iter())
+    let (server, _, _handed) = server();
+    let mut client = Client::connect(&server);
+    let list = client.ask(json!({ "jsonrpc": "2.0", "id": "a", "method": "tools/list" }));
+    let names: Vec<_> = (list["result"]["tools"].as_array().unwrap().iter())
         .map(|tool| tool["name"].as_str().unwrap().to_string())
         .collect();
     assert_eq!(names, ["list_tabs", "read_page"]);
-    assert_eq!(list.json()["id"], "a");
-    let note = post(
-        port,
-        None,
-        json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
-    );
-    assert_eq!((note.status, note.body.as_str()), (202, ""));
-    let ping = post(
-        port,
-        None,
-        json!({ "jsonrpc": "2.0", "id": 2, "method": "ping" }),
-    );
-    assert_eq!(ping.json()["result"], json!({}));
-    let unknown = post(
-        port,
-        None,
-        json!({ "jsonrpc": "2.0", "id": 3, "method": "resources/list" }),
-    );
-    assert_eq!(unknown.json()["error"]["code"], -32601);
-    let host = format!("127.0.0.1:{port}");
-    let get = send(
-        port,
-        "GET",
-        &[("Host", &host), ("Authorization", "Bearer s3cret")],
-        "",
-    );
+    assert_eq!(list["id"], "a");
+    client.send(json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
+    // The next line is the ping's, so the notification had none.
+    let ping = client.ask(json!({ "jsonrpc": "2.0", "id": 2, "method": "ping" }));
     assert_eq!(
-        (get.status, get.header("allow").as_deref()),
-        (405, Some("POST, DELETE"))
+        (ping["id"].clone(), ping["result"].clone()),
+        (json!(2), json!({}))
     );
-    let bad = send(
-        port,
-        "POST",
-        &[("Host", &host), ("Authorization", "Bearer s3cret")],
-        "{",
+    let unknown = client.ask(json!({ "jsonrpc": "2.0", "id": 3, "method": "resources/list" }));
+    assert_eq!(unknown["error"]["code"], -32601);
+    writeln!(client.writer, "{{").unwrap();
+    assert_eq!(client.read().unwrap()["error"]["code"], -32700);
+    let batch = client.ask(json!([{ "jsonrpc": "2.0", "id": 4, "method": "ping" }]));
+    assert_eq!(batch["error"]["code"], -32600);
+    assert_eq!(
+        client.ask(json!({ "jsonrpc": "2.0", "id": 5, "method": "ping" }))["id"],
+        5
     );
-    assert_eq!(bad.status, 400);
 }
 
 /// A tool call waits for the UI thread's answer, and gives it as MCP's result.
 #[test]
 fn a_tool_call_is_the_ui_threads_to_answer() {
-    let (server, mut handed) = server();
-    let port = server.port();
-    let session = initialize(port).header("mcp-session-id").unwrap();
-    futures::executor::block_on(handed.next());
+    let (server, _, mut handed) = server();
+    let mut client = Client::connect(&server);
     let calling = thread::spawn(move || {
-        let call = json!({
+        client.ask(json!({
             "jsonrpc": "2.0", "id": 7, "method": "tools/call",
             "params": { "name": "read_page", "arguments": { "tab": 20 } },
-        });
-        post(port, Some(&session), call)
+        }))
     });
-    match futures::executor::block_on(handed.next()) {
+    match next(&mut handed) {
         Some(Event::Call(call)) => {
             assert_eq!(
                 (call.agent.as_str(), call.tool.as_str()),
@@ -260,7 +233,7 @@ fn a_tool_call_is_the_ui_threads_to_answer() {
         }
         _ => panic!("the call didn't reach the UI thread"),
     }
-    let answer = calling.join().unwrap().json();
+    let answer = calling.join().unwrap();
     assert_eq!(answer["id"], 7);
     assert_eq!(
         answer["result"]["content"][0],
@@ -272,65 +245,101 @@ fn a_tool_call_is_the_ui_threads_to_answer() {
 /// A call the UI drops, as when the user turns agents off, is answered with an error.
 #[test]
 fn a_dropped_call_is_an_error() {
-    let (server, mut handed) = server();
-    let port = server.port();
+    let (server, _, mut handed) = server();
+    let mut client = Client::connect(&server);
     let calling = thread::spawn(move || {
         let call = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "list_tabs" } });
-        post(port, None, call)
+        client.ask(call)
     });
-    drop(futures::executor::block_on(handed.next()));
-    let answer = calling.join().unwrap().json();
-    assert_eq!(answer["result"]["isError"], true);
+    drop(next(&mut handed));
+    assert_eq!(calling.join().unwrap()["result"]["isError"], true);
 }
 
-/// DELETE ends the session, and the agent's last one tells the UI it's gone. A session the server
-/// doesn't know gets 404, which asks the client to initialize again.
+/// The agent's last connection closing tells the UI it's gone, and not before.
 #[test]
-fn a_session_ends_with_delete() {
-    let (server, mut handed) = server();
-    let port = server.port();
-    let session = initialize(port).header("mcp-session-id").unwrap();
-    futures::executor::block_on(handed.next());
-    let host = format!("127.0.0.1:{port}");
-    let headers = [
-        ("Host", host.as_str()),
-        ("Authorization", "Bearer s3cret"),
-        ("Mcp-Session-Id", session.as_str()),
-    ];
-    assert_eq!(send(port, "DELETE", &headers, "").status, 200);
-    match futures::executor::block_on(handed.next()) {
+fn the_agents_last_session_ending_says_bye() {
+    let (server, _, mut handed) = server();
+    let mut first = Client::connect(&server);
+    first.initialize();
+    let mut second = Client::connect(&server);
+    second.initialize();
+    assert!(matches!(next(&mut handed), Some(Event::Hello { .. })));
+    assert!(matches!(next(&mut handed), Some(Event::Hello { .. })));
+    drop(first);
+    drop(second);
+    match next(&mut handed) {
         Some(Event::Bye { agent }) => assert_eq!(agent, "claude-code"),
         _ => panic!("the UI didn't hear the agent go"),
     }
-    let ping = post(
-        port,
-        Some(&session),
-        json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }),
-    );
-    assert_eq!(ping.status, 404);
+    drop(server);
+    assert!(next(&mut handed).is_none(), "the agent said bye twice");
 }
 
-/// A connection kept open takes one request after another, and a body is read by its length.
+/// Once the user disconnects the agent, its connection answers no more: the server closes it,
+/// and a token taken away stops the next message too.
 #[test]
-fn requests_are_read_one_after_another() {
-    let two =
-        "POST /mcp HTTP/1.1\r\nContent-Length: 2\r\nX-A: 1\r\n\r\n{}GET /mcp HTTP/1.1\r\n\r\n";
-    let mut reader = Cursor::new(two.as_bytes());
-    let first = read_request(&mut reader).unwrap().unwrap();
-    assert_eq!(
-        (
-            first.method.as_str(),
-            first.path.as_str(),
-            first.body.as_slice()
-        ),
-        ("POST", "/mcp", &b"{}"[..])
+fn a_disconnected_agents_connection_closes() {
+    let (server, tokens, _handed) = server();
+    let mut closed = Client::connect(&server);
+    server.disconnect("claude-code");
+    assert_eq!(closed.read(), None);
+
+    let mut later = Client::connect(&server);
+    tokens.lock().unwrap().clear();
+    later.send(json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" }));
+    assert_eq!(later.read(), None);
+}
+
+/// A line is read up to its end, and one too long ends the connection.
+#[test]
+fn lines_are_read_one_after_another() {
+    let mut reader = Cursor::new(&b"{\"a\":1}\r\n{\"b\":2}\nlast"[..]);
+    assert_eq!(read_line(&mut reader).as_deref(), Some("{\"a\":1}"));
+    assert_eq!(read_line(&mut reader).as_deref(), Some("{\"b\":2}"));
+    assert_eq!(read_line(&mut reader).as_deref(), Some("last"));
+    assert_eq!(read_line(&mut reader), None);
+    let endless = "a".repeat(MAX_LINE + 10);
+    assert_eq!(read_line(&mut Cursor::new(endless.as_bytes())), None);
+}
+
+/// What the bridge writes, for the test to read once it's done.
+#[derive(Clone, Default)]
+struct Output(Arc<Mutex<Vec<u8>>>);
+
+impl Write for Output {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The bridge carries a client's stdio to the server and back until the client closes its end,
+/// and with a token the browser didn't give it fails, saying why.
+#[test]
+fn the_bridge_carries_a_clients_stdio() {
+    use super::super::bridge;
+    let (server, _, _handed) = server();
+    let input = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n".to_vec();
+    let output = Output::default();
+    bridge::run(server.path(), TOKEN, Cursor::new(input), output.clone()).unwrap();
+    let written = String::from_utf8(output.0.lock().unwrap().clone()).unwrap();
+    assert!(written.ends_with('\n') && written.lines().count() == 1);
+    let answer: Value = serde_json::from_str(&written).unwrap();
+    assert_eq!(answer, json!({ "jsonrpc": "2.0", "id": 1, "result": {} }));
+
+    let refused = bridge::run(
+        server.path(),
+        "guess",
+        Cursor::new(Vec::new()),
+        Output::default(),
     );
-    assert_eq!(first.header("x-a"), Some("1"));
-    let second = read_request(&mut reader).unwrap().unwrap();
-    assert_eq!(second.method, "GET");
-    assert!(read_request(&mut reader).unwrap().is_none());
-    let chunked = "POST /mcp HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n";
-    assert!(read_request(&mut Cursor::new(chunked.as_bytes())).is_err());
-    let endless = format!("POST /mcp HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(MAX_HEAD));
-    assert!(read_request(&mut Cursor::new(endless.as_bytes())).is_err());
+    assert!(refused.unwrap_err().contains("Settings › Agents"));
+    let path = server.path().to_path_buf();
+    drop(server);
+    let off = bridge::run(&path, TOKEN, Cursor::new(Vec::new()), Output::default());
+    assert!(off.unwrap_err().contains("agents on"));
 }

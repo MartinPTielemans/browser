@@ -2106,6 +2106,10 @@ impl Browser for Engine {
         settings::show_shortcuts(cx);
     }
 
+    fn agent_activity(&self, cx: &mut App) {
+        settings::show_agents(cx);
+    }
+
     fn new_window(&self, cx: &mut App) {
         let id = self.window;
         // Outside the shell's update, as the new window's shell reads this one's.

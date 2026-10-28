@@ -737,6 +737,10 @@ impl Browser for Recorder {
 
     fn shortcuts(&self, _: &mut App) {}
 
+    fn agent_activity(&self, _: &mut App) {
+        self.record("agent activity".into());
+    }
+
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}
