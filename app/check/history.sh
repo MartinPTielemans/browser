@@ -1,8 +1,8 @@
-# Back and forward go through the tab's history from keys, with the page or the UI focused, and from
-# the header's buttons, which dim with nowhere to go. Reload loads the page again, and while a page
-# loads, reload is stop, which ⌘., escape and the button do. A tab's row shows its page's favicon,
-# and keeps it until the next page has loaded without one. A host typed in the command bar goes over
-# https first, then http, and a local one over http.
+# Back and forward go through the tab's history from keys, with the page or the UI focused, from
+# the header's buttons, which dim with nowhere to go, and from a swipe over the page. Reload loads
+# the page again, and while a page loads, reload is stop, which ⌘., escape and the button do. A
+# tab's row shows its page's favicon, and keeps it until the next page has loaded without one. A
+# host typed in the command bar goes over https first, then http, and a local one over http.
 
 # Back, forward, reload and stop. stuck.test leads to a server that takes connections and never
 # answers, so its page keeps loading until it's stopped, and $plain to the check's own, which has no
@@ -76,6 +76,16 @@ history_key left back ui
 expect_page example.com 1 1 "after ⌘← with the UI focused"
 history_key right forward ui
 expect_page example.org 1 0 "after ⌘→ with the UI focused"
+# A swipe between pages, as three fingers send one, goes back and forward over the page, and does
+# nothing over the sidebar.
+send pageswipe $page_point back
+expect "^browser: swiped back $tab\$" "a swipe over the page didn't reach the UI"
+expect_page example.com 1 1 "after a swipe back"
+send pageswipe $page_point forward
+expect "^browser: swiped forward $tab\$" "a swipe forward over the page didn't reach the UI"
+expect_page example.org 1 0 "after a swipe forward"
+send pageswipe $sidebar_point back
+none_since '^browser: swiped' || fail "a swipe over the sidebar went back"
 
 history_key r reload ui
 expect "^browser: loaded $tab https://example.org/\$" "⌘R didn't load the page again"
@@ -121,4 +131,4 @@ expect "^browser: page $tab back 1 forward 0 loading 0 http://127.0.0.1:$port/\$
 exec 3>&-
 quit
 kill "$stuck"
-echo "ok: ⌘← ⌘→ and the header's buttons go back and forward, with the page or the UI focused; reload and force reload load the page again; ⌘., escape and the stop button stop a load; the row keeps a page's favicon until the next page has loaded without one; a host typed in the command bar goes over https first and falls back to http, and a local one goes over http at once. Windows: $out/history.png, $out/loading.png"
+echo "ok: ⌘← ⌘→ and the header's buttons go back and forward, with the page or the UI focused, and so does a swipe over the page but not over the sidebar; reload and force reload load the page again; ⌘., escape and the stop button stop a load; the row keeps a page's favicon until the next page has loaded without one; a host typed in the command bar goes over https first and falls back to http, and a local one goes over http at once. Windows: $out/history.png, $out/loading.png"

@@ -3,7 +3,7 @@
 
 use gpui::{
     AnyElement, Bounds, Context, CursorStyle, DispatchPhase, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, Pixels, Size, canvas, div, point, prelude::*, px, size,
+    MouseMoveEvent, MouseUpEvent, Pixels, Point, Size, canvas, div, point, prelude::*, px, size,
 };
 
 use super::{CARD_INSET, EXPANDED_OTHER, MAX_PANES, PANE_LEAST, PANE_SNAP, SPLIT_GAP, Shell};
@@ -186,6 +186,32 @@ impl Shell {
         };
         let next = if forward { (at + 1) % count } else { (at + count - 1) % count };
         self.select(panes[next], cx);
+    }
+}
+
+impl Shell {
+    /// A swipe across the window at `at`, as three fingers or a mouse's swipe button send one
+    /// where System Settings has them swipe between pages, goes back, or forward, in the history
+    /// of the page under it, as the toolbar's buttons do (Chrome). Taken only over a page.
+    pub fn swiped(&mut self, at: Point<Pixels>, back: bool, cx: &mut Context<Self>) -> bool {
+        if self.selected == 0 {
+            return false;
+        }
+        let panes = self.panes(self.selected);
+        let (frame, _) = self.page_frame(self.viewport);
+        let frames =
+            pane_frames(frame, panes.len(), self.stacked(self.selected), &self.shares(self.selected));
+        let Some(tab) = panes.into_iter().zip(frames).find(|(_, frame)| frame.contains(&at))
+        else {
+            return false;
+        };
+        // check.sh reads this line.
+        log!("browser: swiped {} {}", if back { "back" } else { "forward" }, tab.0);
+        match back {
+            true => self.browser.go_back(tab.0, cx),
+            false => self.browser.go_forward(tab.0, cx),
+        }
+        true
     }
 }
 
@@ -457,6 +483,26 @@ mod tests {
         assert!((evened[0] - evened[1]).abs() <= 1., "{evened:?}");
         run(&shell, cx);
         assert_eq!(host.take(), ["split expanded 11 true"]);
+    }
+
+    /// A swipe goes back, or forward, in the page under the pointer, and only over a page.
+    #[gpui::test]
+    fn a_swipe_moves_the_history_of_the_page_under_it(cx: &mut TestAppContext) {
+        let (shell, host) = split_of(&[10, 11], 10, 0, 1200., cx);
+        host.take();
+        let frames = shell.read_with(cx, |shell, _| {
+            let (frame, _) = shell.page_frame(shell.viewport);
+            pane_frames(frame, 2, false, &[])
+        });
+        let swipe = |at, back, cx: &mut TestAppContext| {
+            shell.update(cx, |shell, cx| shell.swiped(at, back, cx))
+        };
+        assert!(swipe(frames[1].center(), true, cx));
+        assert!(swipe(frames[0].center(), false, cx));
+        assert_eq!(host.take(), ["back 11", "forward 10"]);
+        let beside = point(frames[0].left() - px(20.), frames[0].center().y);
+        assert!(!swipe(beside, true, cx), "the sidebar has no history");
+        assert!(host.take().is_empty());
     }
 
     #[gpui::test]

@@ -42,6 +42,8 @@
 //                                         two fingers at (x, y): <count> trackpad scroll events,
 //                                         each <dx> points right and <dy> down, from the touch's
 //                                         start, then its end after <rest> ms more, else at once
+//   pageswipe <x> <y> back|forward        a swipe between pages at (x, y), as three fingers or
+//                                         a mouse's swipe send one, handed to the host's monitor
 //   wheel <x> <y> <dx>                    a mouse wheel's tick across at (x, y), <dx> lines right
 //   dragover <x> <y> [url|file|text <s>]  a drag from another app at (x, y), carrying the URL,
 //                                         the file at the path or the text <s>, handed to the view
@@ -563,6 +565,8 @@ bool Key(NSWindow* window,
 // is a private CoreGraphics call. Fine for a test driver, never for the browser.
 constexpr CGEventField kWindowNumberField = (CGEventField)51;
 extern "C" void CGEventSetWindowLocation(CGEventRef event, CGPoint location);
+// host.mm's, as AppKit has no way to make a swipe event of one's own.
+bool SwipeBetweenPages(NSWindow* window, NSPoint in_window, bool back);
 
 // Trackpads report about every 8 ms while a finger moves. Each event carries pixel deltas, as a
 // trackpad's do, so Chromium scrolls by exactly that much instead of animating a wheel tick.
@@ -1188,6 +1192,17 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     words >> rest;
     Swipe(window, x, y, dx, dy, count, rest, done);
+    return true;
+  }
+  if (action == "pageswipe") {
+    double x, y;
+    std::string way;
+    if (!(words >> x >> y >> way) || (way != "back" && way != "forward")) {
+      return false;
+    }
+    SwipeBetweenPages(window, NSMakePoint(x, NSHeight(window.frame) - y),
+                      way == "back");
+    done();
     return true;
   }
   if (action == "dragover" || action == "dragdrop") {
