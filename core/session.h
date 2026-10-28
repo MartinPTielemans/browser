@@ -150,6 +150,9 @@ struct Settings {
   bool unload_idle_tabs = true;
   // Whether the browser blocks ads and trackers, in every profile.
   bool ad_blocking = true;
+  // Whether the user said yes to Google's Widevine module, which the component updater then keeps
+  // up to date (widevine.h), until they remove it.
+  bool widevine = false;
 };
 
 // The user's settings. Call SessionChanged after changing them.

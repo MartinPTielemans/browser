@@ -32,6 +32,7 @@
 #include "browser_core/sign_in_dialog.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "browser_core/widevine.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_browser_main.h"
@@ -107,7 +108,10 @@ base::FilePath FindNativeHost(const std::string& name) {
 class ExtraParts : public ChromeBrowserMainExtraParts {
  public:
   // Before Chrome stops taking factories, as the first profile is made.
-  void PreProfileInit() override { system_engine::RegisterProfilePrefs(); }
+  void PreProfileInit() override {
+    system_engine::RegisterProfilePrefs();
+    widevine::Start();
+  }
 
   void PreBrowserStart() override {
     // A tab's "Leave site?" asks with the app's dialog, in place of the NSAlert Chrome installed.
@@ -135,6 +139,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
 
   void PostMainMessageLoopRun() override {
     // Their Browsers are gone: quitting closed them, and the run loop waited for that.
+    widevine::Stop();
     FlushSession();
     Window::CloseAll();
     ReleaseProfiles();
@@ -231,6 +236,7 @@ void Install(const bc_host& host) {
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
   SetUpAdBlock();
+  g_browser_core_component_allowed = &widevine::MayUpdate;
 }
 
 int Run(int argc, const char** argv, const bc_host& host) {
@@ -248,6 +254,13 @@ void Quit() {
   // app's key event for ⌘Q, the tab closed and its Browser never did.
   base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(FROM_HERE,
                                                               base::BindOnce(&chrome::AttemptExit));
+}
+
+void Restart() {
+  // Posted as Quit is. Chrome starts its executable again with this one's switches once it has
+  // quit, and --no-startup-window keeps Chrome from bringing back its own windows over the app's.
+  base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+      FROM_HERE, base::BindOnce(&chrome::AttemptRestart));
 }
 
 MainDelegate::MainDelegate(const StartupTimestamps& timestamps)

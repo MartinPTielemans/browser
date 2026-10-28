@@ -11,6 +11,7 @@ use browser::default_browser::{self, DefaultBrowser};
 use browser::log;
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
+use browser::widevine::{self, Widevine, WidevineRow};
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
     KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
@@ -268,6 +269,7 @@ pub struct Settings {
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
     default_browser: Entity<DefaultBrowser>,
+    widevine: Entity<WidevineRow>,
 }
 
 /// The system's default browser, for General's row.
@@ -285,6 +287,23 @@ impl default_browser::System for System {
 
 extern "C" fn default_browser_answered() {
     crate::update_app(check_default_browser);
+}
+
+/// Google's Widevine module, for Advanced's row.
+struct Module;
+
+impl widevine::Module for Module {
+    fn state(&self) -> Widevine {
+        Widevine::from_core(unsafe { bc::bc_widevine() })
+    }
+
+    fn download(&self) {
+        unsafe { bc::bc_widevine_download() };
+    }
+
+    fn remove(&self) {
+        unsafe { bc::bc_widevine_remove() };
+    }
 }
 
 struct Renaming {
@@ -355,6 +374,17 @@ pub fn show(cx: &mut App) {
     unsafe { platform::host_show_settings() };
 }
 
+/// Reads again where Google's Widevine module is, as the core says it changed, once Settings has
+/// been opened.
+pub fn check_widevine(cx: &mut App) {
+    let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) else {
+        return;
+    };
+    if let Ok(row) = window.read_with(cx, |settings, _| settings.widevine.clone()) {
+        row.update(cx, |row, cx| row.check(cx));
+    }
+}
+
 /// Reads again whether the browser is the system's default, as Settings shows, the app becomes
 /// active, or the user has answered macOS, once Settings has been opened.
 pub fn check_default_browser(cx: &mut App) {
@@ -403,8 +433,11 @@ fn open(cx: &mut App) {
             });
             let default_browser = cx.new(|_| DefaultBrowser::new(Rc::new(System)));
             cx.observe(&default_browser, |_, _, cx| cx.notify()).detach();
+            let widevine = cx.new(|_| WidevineRow::new(Rc::new(Module)));
+            cx.observe(&widevine, |_, _, cx| cx.notify()).detach();
             Settings {
                 default_browser,
+                widevine,
                 tab: Tab::General,
                 focus: cx.focus_handle(),
                 switched: None,
@@ -844,14 +877,45 @@ impl Settings {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
         let more = button("more-settings", "More Settings…").on_click(|_, _, cx| more_settings(cx));
+        let widevine =
+            self.widevine.read(cx).shown().then(|| group([self.widevine_row(cx)]).mt(px(BOX_GAP)));
         div()
             .child(group([row(
                 Some(("icons/vibrate.svg", HAPTICS_TILE)),
                 "Haptic feedback when swiping between Spaces",
                 haptics,
             )]))
+            .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
+    }
+
+    /// Google's Widevine module, where the core offers it: where it is, and the way to get it or
+    /// remove it. The user's, as the note's yes is.
+    fn widevine_row(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let row = self.widevine.read(cx);
+        let action = row.action().map(|(action, title)| {
+            let act = cx.listener(move |settings: &mut Self, _, _, cx| {
+                log!("browser: settings widevine {action:?}");
+                settings.widevine.read(cx).act(action);
+            });
+            button("widevine", title).on_click(act)
+        });
+        div()
+            .px(px(PADDING))
+            .py(px(PADDING))
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().truncate().child(row.title()))
+                    .child(
+                        div().text_size(px(text::SMALL)).text_color(rgb(DETAIL)).child(row.detail()),
+                    ),
+            )
+            .children(action.map(|action| action.ml(px(PADDING))))
     }
 
     /// Gives the renaming field the keyboard once its profile is listed, which a new one is once

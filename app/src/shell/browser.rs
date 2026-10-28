@@ -294,6 +294,14 @@ pub trait Browser {
     /// Shows `tab`'s page in Safari's engine, in the tab, and has its profile keep the site for it.
     /// The user's: agents get none.
     fn use_system_engine(&self, _tab: u64, _cx: &mut App) {}
+    /// Where Google's Widevine module is, which the core offers on Linux alone.
+    fn widevine(&self) -> crate::widevine::Widevine {
+        crate::widevine::Widevine::None
+    }
+    /// Downloads Google's Widevine module from Google. The user's yes: agents get none.
+    fn download_widevine(&self, _cx: &mut App) {}
+    /// Quits and starts again, bringing back the windows and their Spaces.
+    fn restart(&self, _cx: &mut App) {}
     /// The names of the system's share services for the page at `url`, as its share menu lists
     /// them.
     fn share_services(&self, url: &str) -> Vec<SharedString>;

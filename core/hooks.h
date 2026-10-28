@@ -164,4 +164,10 @@ extern void (*g_browser_core_load_bundled_extensions)(Profile* profile);
 // The core keeps it for as long as the browser runs.
 extern policy::ConfigurationPolicyProvider* (*g_browser_core_policy_provider)();
 
+// components/component_updater/component_updater_service.cc: whether the component updater may
+// check for and download the component |id| as well as the three security components it always
+// does (engine/patches/ardia/chromium-component-updater-security-only.patch): Google's Widevine
+// module, once the user said yes. Every other component stays out of its requests.
+extern bool (*g_browser_core_component_allowed)(const std::string& id);
+
 #endif  // BROWSER_CORE_HOOKS_H_

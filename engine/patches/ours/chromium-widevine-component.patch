@@ -1,0 +1,101 @@
+Lets the core download Google's Widevine module, on Linux, once the user said yes to it in the
+protected-media note (#236), and remove it from Settings. The module is never bundled, as Google's
+licence forbids it.
+
+The component updater checks only the three security components
+(ardia/chromium-component-updater-security-only.patch). This lets it check Widevine's too, when
+g_browser_core_component_allowed says the user allowed it (//browser_core/hooks.h). Its update URL
+is already Google's own there, written in full after domain substitution, so nothing else is
+un-substituted, and every other component stays out. The core downloads it at the user's yes
+through the on-demand updater, which names the classes it lets call it, so the core's is added.
+Removing it unregisters the component, which deletes it, and a later yes registers it again:
+RegisterWidevineCdmComponent takes a callback for once it's registered. Chrome's other callers
+pass none and work as before.
+
+--- a/chrome/browser/component_updater/widevine_cdm_component_installer.cc
++++ b/chrome/browser/component_updater/widevine_cdm_component_installer.cc
+@@ -435,10 +435,11 @@
+ #endif
+ }
+ 
+-void RegisterWidevineCdmComponent(ComponentUpdateService* cus) {
++void RegisterWidevineCdmComponent(ComponentUpdateService* cus,
++                                  base::OnceClosure registered) {
+   auto installer = base::MakeRefCounted<ComponentInstaller>(
+       std::make_unique<WidevineCdmComponentInstallerPolicy>());
+-  installer->Register(cus, base::OnceClosure());
++  installer->Register(cus, std::move(registered));
+ }
+ 
+ }  // namespace component_updater
+--- a/chrome/browser/component_updater/widevine_cdm_component_installer.h
++++ b/chrome/browser/component_updater/widevine_cdm_component_installer.h
+@@ -5,6 +5,8 @@
+ #ifndef CHROME_BROWSER_COMPONENT_UPDATER_WIDEVINE_CDM_COMPONENT_INSTALLER_H_
+ #define CHROME_BROWSER_COMPONENT_UPDATER_WIDEVINE_CDM_COMPONENT_INSTALLER_H_
+ 
++#include "base/functional/callback.h"
++
+ namespace component_updater {
+ 
+ class ComponentUpdateService;
+@@ -16,7 +18,11 @@
+ // 3) Copy the Widevine CDM adapter bundled with chrome to the install path.
+ // 4) Register the Widevine CDM (via the adapter) with Chrome.
+ // The first part is IO intensive so we do it asynchronously in the file thread.
+-void RegisterWidevineCdmComponent(ComponentUpdateService* cus);
++// browser_core: |registered| runs once the component is registered, for the core to download it
++// at the user's yes after removing it (//browser_core/widevine.cc).
++void RegisterWidevineCdmComponent(
++    ComponentUpdateService* cus,
++    base::OnceClosure registered = base::OnceClosure());
+ 
+ }  // namespace component_updater
+ 
+--- a/components/component_updater/component_updater_service.cc
++++ b/components/component_updater/component_updater_service.cc
+@@ -65,6 +65,11 @@
+ 
+ }  // namespace
+ 
++// browser_core: whether the component updater may check for and download the component |id| as
++// well as the security ones above: Google's Widevine module, once the user said yes
++// (//browser_core/hooks.h).
++bool (*g_browser_core_component_allowed)(const std::string& id) = nullptr;
++
+ namespace component_updater {
+ 
+ ComponentInfo::ComponentInfo(const std::string& id,
+@@ -505,7 +510,9 @@
+   std::vector<std::optional<CrxComponent>> crxs;
+   for (std::optional<ComponentRegistration> item :
+        component_updater::GetCrxComponents(components_, ids)) {
+-    crxs.push_back(item && kNetworkUpdatableComponents.contains(item->app_id)
++    crxs.push_back(item && (kNetworkUpdatableComponents.contains(item->app_id) ||
++                            (g_browser_core_component_allowed &&
++                             g_browser_core_component_allowed(item->app_id)))
+                        ? std::optional<CrxComponent>{ToCrxComponent(*item)}
+                        : std::nullopt);
+   }
+--- a/components/component_updater/component_updater_service.h
++++ b/components/component_updater/component_updater_service.h
+@@ -28,6 +28,10 @@
+ class SmartDimComponentIntegrationTest;
+ }
+ 
++namespace browser_core::widevine {
++class Downloader;
++}
++
+ namespace policy {
+ class ComponentUpdaterPolicyTest;
+ }
+@@ -230,6 +234,8 @@
+   friend class OnDemandTester;
+   friend class policy::ComponentUpdaterPolicyTest;
+   friend class ::ComponentsHandler;
++  // browser_core: the user's yes to Google's Widevine module downloads it at once.
++  friend class ::browser_core::widevine::Downloader;
+   friend class OnDeviceModelUpdater;
+   friend class ::PluginObserver;
+   friend class SwReporterOnDemandFetcher;

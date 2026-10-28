@@ -108,6 +108,8 @@ pub(super) struct Recorder {
     /// The platform has Apple's engine for a tab's page.
     /// The platform has Safari's engine for a tab's page.
     pub(super) system_engine: Cell<bool>,
+    /// Where it says Google's Widevine module is.
+    pub(super) widevine: Cell<crate::widevine::Widevine>,
     /// The shell it answers each picture asked of it for with this picture, at once, inside the
     /// call that asked, as a core that answers inline would.
     pub(super) pictures: RefCell<Option<(WeakEntity<super::Shell>, super::PagePicture)>>,
@@ -413,6 +415,18 @@ impl Browser for Recorder {
 
     fn use_system_engine(&self, tab: u64, _: &mut App) {
         self.record(format!("system engine {tab}"))
+    }
+
+    fn widevine(&self) -> crate::widevine::Widevine {
+        self.widevine.get()
+    }
+
+    fn download_widevine(&self, _: &mut App) {
+        self.record("download widevine".into())
+    }
+
+    fn restart(&self, _: &mut App) {
+        self.record("restart".into())
     }
 
     fn show_page_dialog(&self, shown: Option<ShownPageDialog>, _: &mut App) {

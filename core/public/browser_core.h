@@ -603,6 +603,8 @@ typedef struct bc_host {
   // site whose note the user closed (bc_tab_close_media_note). Agents get none: the note hands the
   // user's page to another engine or app.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
+  // Google's Widevine module is now |state|, a BC_WIDEVINE_ value (bc_widevine).
+  void (*widevine_changed)(void* context, int state);
   // The tab's offer changed: Chrome's password manager offers |offer|, or with null, it no longer
   // does: it was answered, or another tab was shown or the tab closed. Show it while the tab is,
   // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
@@ -686,6 +688,10 @@ typedef const bc_host* (*bc_app_entry)(int* argc, const char*** argv);
 
 // Asks Chromium to quit. Pages get their unload handlers first, then bc_main returns.
 BC_EXPORT void bc_quit(void);
+
+// Quits as bc_quit does, then starts the browser again with the switches it was given, and the app
+// brings back its windows and Spaces as after any quit.
+BC_EXPORT void bc_restart(void);
 
 // Whether Chromium is quitting: after bc_quit, the Dock's Quit or logging out. The windows it
 // closes then still call window_closed.
@@ -1325,6 +1331,42 @@ BC_EXPORT bool bc_tab_set_system_engine(bc_id tab, bool on);
 // never again there. Site Controls offer the system's engine for the site instead
 // (bc_site_controls). Does nothing for a page that isn't http(s). The user's: agents get none.
 BC_EXPORT void bc_tab_close_media_note(bc_id tab);
+
+// Google's Widevine module, which Netflix, Spotify and Disney+ play their video with in Chromium
+// (#236). It's Google's proprietary file, and its licence forbids bundling it, so ilo never ships
+// it. On Linux the user can have the browser download it from Google's component service, from the
+// protected-media note, and remove it in Settings. Elsewhere it's never offered: the Mac plays these
+// sites in its system engine, and Windows with its own PlayReady. Until the user says yes, the
+// component updater leaves it out of its checks, and once they have, it keeps it up to date with
+// the security components (engine/README.md, What reaches Google).
+// - BC_WIDEVINE_NONE: not offered on this platform.
+// - BC_WIDEVINE_ABSENT: offered, not downloaded, or removed.
+// - BC_WIDEVINE_DOWNLOADING: downloading, after the user's yes.
+// - BC_WIDEVINE_FAILED: the download failed, for want of a network or of a module for this
+//   platform. bc_widevine_download tries again.
+// - BC_WIDEVINE_RESTART: downloaded. Pages play with it once the browser restarts (bc_restart), as
+//   Linux loads it at launch, before the sandbox closes.
+// - BC_WIDEVINE_READY: loaded. Pages that ask for Widevine play, and tab_media_unsupported never
+//   names it.
+#define BC_WIDEVINE_NONE 0
+#define BC_WIDEVINE_ABSENT 1
+#define BC_WIDEVINE_DOWNLOADING 2
+#define BC_WIDEVINE_FAILED 3
+#define BC_WIDEVINE_RESTART 4
+#define BC_WIDEVINE_READY 5
+
+// Where Google's Widevine module is: a BC_WIDEVINE_ value. Then widevine_changed with each change.
+BC_EXPORT int bc_widevine(void);
+
+// The user said yes to Google's Widevine module: the browser downloads it from Google's component
+// service, then keeps it up to date. Does nothing unless it's BC_WIDEVINE_ABSENT or
+// BC_WIDEVINE_FAILED. Then widevine_changed. The user's alone: agents get no way to it.
+BC_EXPORT void bc_widevine_download(void);
+
+// Removes Google's Widevine module: deletes it, and the component updater stops asking for it. A
+// module the browser loaded plays until it restarts. Then widevine_changed with
+// BC_WIDEVINE_ABSENT. The user's: agents get none.
+BC_EXPORT void bc_widevine_remove(void);
 
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as
