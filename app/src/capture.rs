@@ -9,10 +9,10 @@
 use std::{rc::Rc, sync::Arc, time::Duration};
 
 use gpui::{
-    App, Bounds, BoxShadow, Context, Corners, FocusHandle, FontWeight, Global, KeyBinding,
+    App, Bounds, BoxShadow, Context, Corners, FocusHandle, FontWeight, Global, Hsla, KeyBinding,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, RenderImage,
     SharedString, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle,
-    WindowKind, WindowOptions, actions, canvas, div, point, prelude::*, px, rgba, size, svg,
+    WindowKind, WindowOptions, actions, canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
 use image::{Frame, RgbaImage};
 
@@ -47,6 +47,7 @@ use crate::tokens::capture::ROW;
 use crate::tokens::capture::GLYPH;
 use crate::tokens::capture::GLYPH_LEFT;
 use crate::tokens::capture::GLYPH_COLOR;
+use crate::palette::PAPER;
 use crate::tokens::capture::TEXT_LEFT;
 use crate::tokens::capture::TEXT_SIZE;
 use crate::tokens::capture::SEPARATOR;
@@ -607,7 +608,7 @@ impl Capture {
                 .rounded(px(MENU_RADIUS - ROW_INSET))
                 .hover(|style| style.bg(rgba(ROW_HOVERED)))
                 .on_click(cx.listener(move |capture, _, _, cx| capture.run(action, cx)))
-                .child(svg().path(action.glyph()).size(px(GLYPH)).text_color(rgba(GLYPH_COLOR)))
+                .child(svg().path(action.glyph()).size(px(GLYPH)).text_color(Hsla::from(rgb(PAPER)).opacity(GLYPH_COLOR)))
                 .child(div().ml(px(TEXT_LEFT - GLYPH_LEFT - GLYPH)).child(action.label()))
                 .into_any_element()
         };

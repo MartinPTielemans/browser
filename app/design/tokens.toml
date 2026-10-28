@@ -43,7 +43,9 @@ rows-top = 7.5
 row = 40.0
 glyph = 14.0
 glyph-left = 18.0
-glyph-color = 0xffff_ff4d
+# Arc's glyphs are white 0.3, under 3:1 on the menu; ours are Paper at the least alpha, in
+# 25ths, at which they reach it there and on a hovered row (decision 6).
+glyph-color = 0.4
 text-left = 42.0
 text-size = 13.0
 separator = 9.0
@@ -290,7 +292,9 @@ plate-radius = 6.0
 chosen = 0xffff_ff40
 # Arc's hover wasn't captured: half the chosen plate.
 hovered = 0xffff_ff1f
-hint = 0xffff_ff87
+# The search's placeholder and the emoji groups' headers. Arc's are white 0.53, under 4.5:1 on its
+# card over the window over a white backdrop; ours are the least alpha, in 25ths, that reads there.
+hint = 0xffff_ff99
 # The search field's caret.
 caret = 0xffffff
 
@@ -430,21 +434,35 @@ sheet = 20.0
 # The chrome's text and glyphs, Ink on a light window and Paper on a dark one (#320).
 ink = 0x16140f
 paper = 0xf3f0e8
-# Under the theme: the window's material darkened, or lit nearly to white.
-dark-underlay = 0x0b0b0b
-light-underlay = 0xfafaf9
-# What floats over a dark window, the command bar, a menu and the theme picker's panel, and a
-# dialog. Over a light one they're Paper.
+# The window is its material under black at `tint`, then the Space's colours. Dia's tint is 0.4,
+# but material 29 draws darker in our window than Dia's measures, so the lighter tint brings the
+# window to Dia's composite; check/window.sh measures it. The train's window run reads that ground
+# as these over a black and over a white backdrop, the extremes the chrome is checked over.
+tint = 0.25
+ground-over-black = 0x0e0e0e
+ground-over-white = 0x3d3d3d
+# What stands in for the material where the window's look has to be opaque, under rows it covers
+# or in the reveal's panel over the page: Dia's composite over grey 20, before the gradient (ours).
+stand-in = 0x131313
+# How opaque a theme's colours lie over the window at the intensity a theme starts with, and a
+# neutral one's, under this HSL saturation (ours: Dia's line isn't measured).
+gradient-alpha = 0.18
+neutral-gradient-alpha = 0.06
+neutral = 0.1
+# What floats over the window: the command bar, a menu and the theme picker's panel, and a
+# dialog.
 overlay-dark = 0x1f1d17
 dialog-dark = 0x2a2720
-# The accent of a Space without a theme: ilo green (#0B8045), lighter, so Ink reads on it at
-# 4.6:1 where Paper on #0B8045 is 4.4:1.
+# The accent of a Space without a theme starts from ilo green (#0B8045), lighter, so Ink reads on
+# it at 4.6:1 where Paper on #0B8045 is 4.4:1. On the measured window over a white backdrop it's
+# 2.7:1, so the palette takes it lighter still at its hue, to #57B97A, as it does a theme's colour.
 no-theme-accent = 0x289054
 # Two colours go from the main one at the window's top left to the second this far along its
 # diagonal (Arc 1.170 rec at 2×, with Ardia's account of Arc's rule: OKLab, 45°, to 75 %).
 second-at = 0.75
-# How strongly the window takes a theme's colours at intensity `i`: `INTENSITY_FLOOR +
-# INTENSITY_SPAN * i` (Arc's, measured at 0.81 and 0.24), times k.
+# How strongly the window takes a theme's colours at intensity `i`: in proportion to
+# `INTENSITY_FLOOR + INTENSITY_SPAN * i`, so the slider's start is the colour as before themes
+# and its left end washes most of it out (ours, fitted to Arc's window at 0.81 and 0.24).
 intensity-floor = 0.2
 intensity-span = 0.55
 # A Space swatch's ring, a hairline.

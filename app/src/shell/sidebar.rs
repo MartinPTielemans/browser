@@ -272,7 +272,7 @@ impl Shell {
     /// is: the Space's colour, going to the same at HSL lightness + 0.25, or its theme's colours.
     /// While the sidebar pages between two Spaces, it cross-fades from one's to the other's as the
     /// pages move.
-    fn gradient_color(&self, y: f32) -> Hsla {
+    pub(super) fn gradient_color(&self, y: f32) -> Hsla {
         let x = self.sidebar_x();
         let (space, beside) = self.colored_pages();
         let from = self.space_color_at(space, x, y);

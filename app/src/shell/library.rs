@@ -1002,7 +1002,7 @@ impl Shell {
         // A Space without an icon shows its swatch in the icon's place.
         let icon = space_icon(&palette, &space.icon).or_else(|| {
             let behind = window_at(0.).to_rgb();
-            let swatch = palette.swatch.draw(SPACE_SWATCH_SHOWN, behind);
+            let swatch = palette.swatch.draw(SPACE_SWATCH_SHOWN, &[behind]);
             Some(icon_slot(swatch))
         });
         let brush = div()
