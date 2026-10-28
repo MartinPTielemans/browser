@@ -1,8 +1,9 @@
 //! Whether the browser is the system's default, for Settings › General: until it is, its row offers
 //! to make it the default, and then says it is. The system keeps the setting, and the way back is
-//! its own, in System Settings › Desktop & Dock, so the row offers none. It reads the setting again
-//! when Settings shows and when the app becomes active, as the user may have changed it there,
-//! never on a timer, which would wake an idle browser. Agents get no way to change it.
+//! its own, in its settings, so the row offers none. A Flatpak can't set it, so there the row says
+//! where the desktop does, with no button. It reads the setting again when Settings shows and when
+//! the app becomes active, as the user may have changed it there, never on a timer, which would
+//! wake an idle browser. Agents get no way to change it.
 
 use std::rc::Rc;
 
@@ -16,15 +17,40 @@ pub trait System {
     fn make_default(&self);
 }
 
+/// The system the browser runs on, which sets the default its own way.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Os {
+    Mac,
+    Windows,
+    Linux,
+    /// Linux in a Flatpak, which has neither xdg-settings nor a portal that sets the default.
+    Flatpak,
+}
+
+impl Os {
+    pub fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            Os::Mac
+        } else if cfg!(target_os = "windows") {
+            Os::Windows
+        } else if std::path::Path::new("/.flatpak-info").exists() {
+            Os::Flatpak
+        } else {
+            Os::Linux
+        }
+    }
+}
+
 pub struct DefaultBrowser {
     system: Rc<dyn System>,
+    os: Os,
     default: bool,
 }
 
 impl DefaultBrowser {
-    pub fn new(system: Rc<dyn System>) -> Self {
+    pub fn new(system: Rc<dyn System>, os: Os) -> Self {
         let default = system.is_default();
-        Self { system, default }
+        Self { system, os, default }
     }
 
     /// Reads the system's setting again.
@@ -48,20 +74,39 @@ impl DefaultBrowser {
         }
     }
 
-    /// The way back, under the title.
+    /// What the system does on Make Default, and the way back, under the title.
     pub fn detail(&self) -> SharedString {
-        let detail = match self.default {
-            false => {
+        let detail = match (self.os, self.default) {
+            (Os::Mac, false) => {
                 "macOS asks you first. You can change it back in System Settings › Desktop & Dock."
             }
-            true => "You can change it in System Settings › Desktop & Dock.",
+            (Os::Mac, true) => "You can change it in System Settings › Desktop & Dock.",
+            // Placeholder for the Windows host's (feat/windows-host-454), which confirms it.
+            (Os::Windows, false) => "Windows asks you in Settings › Default apps.",
+            (Os::Windows, true) => "You can change it in Settings › Default apps.",
+            // xdg-settings sets it without asking.
+            (Os::Linux, false) => {
+                "Your desktop's setting changes at once. You can change it back in its settings \
+                 for default apps."
+            }
+            (Os::Linux, true) => "You can change it in your desktop's settings for default apps.",
+            (Os::Flatpak, _) => {
+                "Your desktop sets it, in GNOME Settings › Default Apps or KDE System Settings › \
+                 Default Applications."
+            }
         };
         detail.into()
     }
 
-    /// Asks the system to make the browser the default, unless it is already.
+    /// Whether the row offers to make the browser the default: not once it is, nor in a Flatpak,
+    /// where the system can't.
+    pub fn offers(&self) -> bool {
+        !self.default && self.os != Os::Flatpak
+    }
+
+    /// Asks the system to make the browser the default, if the row offers to.
     pub fn make_default(&self) {
-        if !self.default {
+        if self.offers() {
             self.system.make_default();
         }
     }
@@ -74,7 +119,7 @@ mod tests {
 
     use gpui::{AppContext, Entity, TestAppContext};
 
-    use super::{DefaultBrowser, System};
+    use super::{DefaultBrowser, Os, System};
 
     /// The system's setting, which a test changes as the user would in System Settings.
     #[derive(Default)]
@@ -95,7 +140,7 @@ mod tests {
 
     fn row(setting: &Rc<Setting>, cx: &mut TestAppContext) -> Entity<DefaultBrowser> {
         let system = setting.clone();
-        cx.new(|_| DefaultBrowser::new(system))
+        cx.new(|_| DefaultBrowser::new(system, Os::Mac))
     }
 
     /// Not the default, the row offers to make it so and asks the system, which asks the user. It
@@ -141,5 +186,33 @@ mod tests {
         cx.run_until_parked();
         assert_eq!(redrawn.get(), 1);
         row.read_with(cx, |row, _| assert!(!row.is_default()));
+    }
+
+    /// Each system says what its own Make Default does and where its way back is, and a Flatpak,
+    /// which can't set it, says where the desktop does and offers no button.
+    #[gpui::test]
+    fn each_system_says_its_own_way(cx: &mut TestAppContext) {
+        let setting = Rc::new(Setting::default());
+        let details = [Os::Mac, Os::Windows, Os::Linux, Os::Flatpak].map(|os| {
+            let system = setting.clone();
+            let row = cx.new(|_| DefaultBrowser::new(system, os));
+            row.read_with(cx, |row, _| {
+                assert_eq!(row.offers(), os != Os::Flatpak, "{os:?}");
+                row.make_default();
+                (os, row.detail())
+            })
+        });
+        // The Flatpak's row asked nothing.
+        assert_eq!(setting.asked.get(), 3);
+        let detail = |os| details.iter().find(|(each, _)| *each == os).unwrap().1.clone();
+        assert!(detail(Os::Mac).starts_with("macOS asks you first."));
+        assert!(detail(Os::Windows).contains("Settings › Default apps"));
+        assert!(detail(Os::Linux).contains("changes at once"));
+        assert!(detail(Os::Flatpak).contains("GNOME Settings › Default Apps"));
+        assert!(detail(Os::Flatpak).contains("KDE System Settings › Default Applications"));
+        for (os, text) in &details {
+            let others = details.iter().filter(|(other, _)| other != os);
+            assert!(others.into_iter().all(|(_, other)| other != text), "{os:?} shares its text");
+        }
     }
 }

@@ -1,0 +1,69 @@
+//! What the Linux host does through GPUI's Linux platform rather than in host.cc, as GPUI already
+//! has it: the clipboard, the file chooser portal, the browser window's activation and the
+//! touchpad's swipes over the page.
+
+use std::{
+    ffi::{CStr, c_char, c_void},
+    path::PathBuf,
+};
+
+use browser::log;
+use gpui::{ClipboardItem, Context, Image, ImageFormat, Window};
+
+use crate::platform;
+
+/// Puts the capture on the clipboard, as host_copy_png does on the Mac.
+pub fn copy_png(png: &[u8]) {
+    let image = Image::from_bytes(ImageFormat::Png, png.to_vec());
+    // After the update under way, which the capture's menu or toast is in.
+    crate::update_app_later(move |cx| {
+        cx.write_to_clipboard(ClipboardItem::new_image(&image));
+        // check.sh reads this line, as the Mac's pasteboard one.
+        log!("browser: clipboard png {} bytes", image.bytes.len());
+    });
+}
+
+/// Asks where to save the capture, through the desktop's file chooser portal, and saves it there.
+pub fn save_png(png: &[u8]) {
+    let mut name = [0 as c_char; 64];
+    unsafe { platform::host_capture_name(name.as_mut_ptr(), name.len()) };
+    let name = unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned();
+    let png = png.to_vec();
+    crate::update_app_later(move |cx| {
+        // The portal opens in the folder given, and GPUI asks for one; the home folder is always
+        // there.
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let chosen = cx.prompt_for_new_path(&home, Some(&name));
+        let background = cx.background_executor().clone();
+        cx.foreground_executor()
+            .spawn(async move {
+                if let Ok(Ok(Some(path))) = chosen.await {
+                    _ = background.spawn(async move { std::fs::write(path, png) }).await;
+                }
+            })
+            .detach();
+        // check.sh reads this line, as the Mac's.
+        log!("browser: capture save panel shown");
+    });
+}
+
+/// Tells the host each time the browser window of `ui_view`, whose UI `window` is, becomes active
+/// or stops being, for its key window and active app watches. Under Wayland, `whole_window`, GPUI
+/// has the keyboard the compositor gives the browser window.
+pub fn watch_activation<T: 'static>(
+    window: &mut Window,
+    ui_view: *mut c_void,
+    whole_window: bool,
+    cx: &mut Context<T>,
+) {
+    cx.observe_window_activation(window, move |_, window, _| unsafe {
+        platform::host_window_active(ui_view, window.is_window_active(), whole_window)
+    })
+    .detach();
+}
+
+/// A touchpad swipe over the page in the browser window whose Wayland surface is `surface`
+/// (gpui_linux::watch_embedder_swipes).
+pub fn swiped(surface: *mut c_void, x: f32, y: f32, back: bool) {
+    crate::swiped(surface, x.into(), y.into(), back);
+}
