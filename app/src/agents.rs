@@ -154,6 +154,8 @@ pub trait Browser {
     fn take_back(&self, tab: u64, cx: &mut App);
     /// The user hands the tab back to agents. Whether they held it.
     fn hand_back(&self, tab: u64) -> bool;
+    /// Closes `tab` as the user would (bc_tab_close): a Today tab goes to the archive.
+    fn close_tab(&self, tab: u64, cx: &mut App);
 }
 
 /// What the server's threads hand the UI thread.
@@ -834,6 +836,26 @@ impl Agents {
                 self.held.insert(tab, held);
                 self.asked(cx);
             }
+            "close_tab" => {
+                let Some(tab) = self.tab_for(client, &arguments, &reply, cx) else {
+                    return;
+                };
+                if !self.act(&agent, tab, "close_tab", &reply, cx) {
+                    return;
+                }
+                self.browser.close_tab(tab, cx);
+                let space = self.browser.agent_space(&agent);
+                let open = (self.browser.space_tabs(space, cx).iter()).any(|each| each.id == tab);
+                _ = reply.send(ToolResult::text(match open {
+                    true => format!(
+                        "Tab {tab} stays open: the user pinned it, or its page asks them before \
+                         it's left."
+                    ),
+                    false => {
+                        format!("Closed tab {tab}. The user can still find it in the archive.")
+                    }
+                }));
+            }
             "ask_for_tab" => {
                 let Some(tab) = self.tab_for(client, &arguments, &reply, cx) else {
                     return;
@@ -968,6 +990,23 @@ impl Agents {
         // The core ends the agent's session there, which logs it.
         self.browser.take_back(tab, cx);
         cx.notify();
+    }
+
+    /// The tabs of the agent's Space the user doesn't hold.
+    pub fn tabs_to_take(&self, agent: &str, cx: &App) -> Vec<u64> {
+        let space = self.browser.agent_space(agent);
+        if space == 0 {
+            return Vec::new();
+        }
+        let tabs = self.browser.space_tabs(space, cx).into_iter().map(|tab| tab.id);
+        tabs.filter(|tab| !self.held.contains_key(tab)).collect()
+    }
+
+    /// The user takes each tab of the agent's Space they don't hold over, from its Space's menu.
+    pub fn take_back_all(&mut self, agent: &str, cx: &mut Context<Self>) {
+        for tab in self.tabs_to_take(agent, cx) {
+            self.take_over(agent, tab, cx);
+        }
     }
 
     /// The user hands the tab back to its agent, whose handoff, if it waits, carries on.
