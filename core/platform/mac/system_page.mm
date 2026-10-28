@@ -118,6 +118,11 @@ WKContentWorld* BrowserWorld() {
   return [WebKitClass(@"WKContentWorld") worldWithName:@"ilo"];
 }
 
+// The page's own world, for what only it sees.
+WKContentWorld* PageWorld() {
+  return [WebKitClass(@"WKContentWorld") pageWorld];
+}
+
 // Whether |action| is a server's redirect of a navigation already under way. WebKit's own, not
 // public; without it, a redirect is taken for the navigation it continues.
 bool IsRedirect(WKNavigationAction* action) {
@@ -230,6 +235,36 @@ NSString* const kReadStorage =
      "  return [location.origin, items];\n"
      "})()";
 
+// What the page's world posts to once its protected video is kept off the screen.
+NSString* const kOutputRestricted = @"outputRestricted";
+
+// Watches the protected-media sessions a document makes, in the page's world, as no other sees
+// them, and posts once a key's status is "output-restricted": WebKit's word for a display
+// connection whose protection (HDCP) falls short, which its player shows as black. It takes the
+// handler at the document's start, before the page's scripts, which can post to it all the same.
+// A Proxy, so the page's createSession still reads as WebKit's own.
+NSString* const kWatchOutput =
+    @"(() => {\n"
+     "  const handler = window.webkit?.messageHandlers?.outputRestricted;\n"
+     "  const keys = window.MediaKeys?.prototype;\n"
+     "  if (!handler || !keys) return;\n"
+     "  let told = false;\n"
+     "  keys.createSession = new Proxy(keys.createSession, {\n"
+     "    apply(create, mediaKeys, args) {\n"
+     "      const session = Reflect.apply(create, mediaKeys, args);\n"
+     "      session.addEventListener('keystatuseschange', () => {\n"
+     "        session.keyStatuses.forEach((status) => {\n"
+     "          if (status === 'output-restricted' && !told) {\n"
+     "            told = true;\n"
+     "            handler.postMessage(null);\n"
+     "          }\n"
+     "        });\n"
+     "      });\n"
+     "      return session;\n"
+     "    },\n"
+     "  });\n"
+     "})();";
+
 // How long a page has to answer for its localStorage, before its tab goes back to Chromium
 // without it.
 constexpr int64_t kStorageWaitSeconds = 2;
@@ -277,7 +312,8 @@ std::optional<std::vector<uint8_t>> SrgbPng(NSImage* image) {
 @end
 
 // WebKit's delegates, which tell the page's C++ side.
-@interface BrowserCoreWebKitDelegate : NSObject <WKNavigationDelegate, WKUIDelegate> {
+@interface BrowserCoreWebKitDelegate
+    : NSObject <WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler> {
  @public
   browser_core::platform::SystemPageMac* _owner;
 }
@@ -309,6 +345,10 @@ class SystemPageMac : public SystemPage {
     delegates_->_owner = this;
     web_.navigationDelegate = delegates_;
     web_.UIDelegate = delegates_;
+    [web_.configuration.userContentController addScriptMessageHandler:delegates_
+                                                          contentWorld:PageWorld()
+                                                                  name:kOutputRestricted];
+    WatchOutput();
     view_ = [[BrowserCoreSystemPageView alloc] initWithFrame:NSZeroRect];
     view_->_owner = this;
     web_.frame = view_.bounds;
@@ -324,6 +364,9 @@ class SystemPageMac : public SystemPage {
     }
     web_.navigationDelegate = nil;
     web_.UIDelegate = nil;
+    [web_.configuration.userContentController
+        removeScriptMessageHandlerForName:kOutputRestricted
+                             contentWorld:PageWorld()];
     delegates_->_owner = nullptr;
     view_->_owner = nullptr;
     // Out of full screen and Picture in Picture, whose windows would keep the page.
@@ -474,8 +517,10 @@ class SystemPageMac : public SystemPage {
     if (seeding_) {
       seeding_ = false;
       [web_.configuration.userContentController removeAllUserScripts];
+      WatchOutput();
     }
   }
+  void OutputRestricted() { Soon(base::BindOnce(&Delegate::SystemPageOutputRestricted)); }
   void Open(const GURL& url) {
     Soon(base::BindOnce([](const GURL& url, Delegate* delegate) { delegate->SystemPageOpen(url); },
                         url));
@@ -532,6 +577,16 @@ class SystemPageMac : public SystemPage {
   static bool SameSite(const GURL& a, const GURL& b) {
     return net::registry_controlled_domains::SameDomainOrHost(
         a, b, net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES);
+  }
+
+  // Has every document watch its protected video, from its start.
+  void WatchOutput() {
+    WKUserScript* script = [[WebKitClass(@"WKUserScript") alloc]
+          initWithSource:kWatchOutput
+           injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+        forMainFrameOnly:NO
+          inContentWorld:PageWorld()];
+    [web_.configuration.userContentController addUserScript:script];
   }
 
   void Leave(const GURL& url) {
@@ -722,6 +777,13 @@ class SystemPageMac : public SystemPage {
     _owner->Open(url);
   }
   return nil;
+}
+
+- (void)userContentController:(WKUserContentController*)controller
+      didReceiveScriptMessage:(WKScriptMessage*)message {
+  if (_owner && [message.name isEqualToString:kOutputRestricted]) {
+    _owner->OutputRestricted();
+  }
 }
 
 // The camera and the microphone are refused: this engine has no question to ask the user.

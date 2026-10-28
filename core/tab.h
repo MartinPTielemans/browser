@@ -232,6 +232,7 @@ class Tab : public content::WebContentsObserver,
                      bool before_page,
                      bool editing) override;
   void SystemPageClicked() override;
+  void SystemPageOutputRestricted() override;
 
   // favicon::FaviconDriverObserver:
   void OnFaviconUpdated(favicon::FaviconDriver* driver,
@@ -261,6 +262,9 @@ class Tab : public content::WebContentsObserver,
   void ShowOnPageColor();
   // Drops the system page, and has the window show Chromium's view in its place.
   void DropSystemPage();
+  // Takes back what the app was told of the system page's protected video, once it's gone or at
+  // another site than |url|, an empty one for any.
+  void ForgetOutputRestricted(const GURL& url = GURL());
   // Drops the system page for Chromium's, which |load| has load |url|.
   void HandBack(const GURL& url, base::FunctionRef<void()> load);
   // Tells the window, Site Controls and the app that the tab's page is now the other engine's.
@@ -306,6 +310,9 @@ class Tab : public content::WebContentsObserver,
   // document committed, so each document's title is told even when it's the one before's.
   std::vector<uint8_t> system_page_favicon_;
   std::optional<std::string> system_page_title_;
+  // The system page the app was told its protected video is kept off the screen at, until the tab
+  // goes to another site or back to Chromium.
+  GURL output_restricted_at_;
   base::CancelableTaskTracker favicon_tracker_;
   base::WeakPtrFactory<Tab> weak_factory_{this};
 };
