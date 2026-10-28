@@ -53,7 +53,10 @@ fn main() {
         // Chromium's framework on Windows is chrome.dll, which the browser loads from beside it.
         let engine = root.join(".deps/engine");
         println!("cargo:rustc-link-arg-bin=Browser={}", engine.join("chrome.dll.lib").display());
-        for lib in ["user32", "gdi32", "dwmapi", "shell32", "ole32", "comctl32", "comdlg32"] {
+        // windowscodecs is WIC, for host_file_preview's thumbnails; uuid carries the COM GUIDs it
+        // and host_drag_file name.
+        for lib in ["user32", "gdi32", "dwmapi", "shell32", "ole32", "comctl32", "comdlg32",
+                    "windowscodecs", "uuid"] {
             println!("cargo:rustc-link-lib={lib}");
         }
     } else if os == "macos" {
