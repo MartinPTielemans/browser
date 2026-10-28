@@ -57,7 +57,7 @@
 // a page takes the keyboard. On Wayland every key reaches both, and the app gives the UI the
 // keyboard (bc_window_ui_takes_keyboard) and asks whose it is.
 // The app's overlays, such as the command bar, show over the pages: on Wayland as subsurfaces over
-// the window's, on X11 as more children of the UI's X window, whose shape the core opens for them.
+// the window's, on X11 as X windows of their own over it, which GPUI places.
 // One that has the keyboard has it lent (bc_window_overlay_takes_keyboard): the page or UI that had
 // it keeps its focus, and has it back as the overlay closes.
 
@@ -175,7 +175,6 @@ class WindowViews : public views::WidgetObserver,
       // The app makes it unmapped, so no window manager has taken it as a window of its own.
       connection->ReparentWindow({ui_, window(), 0, 0});
       connection->MapWindow({ui_});
-      overlay_events_ = connection->ScopedSelectEvent(ui_, x11::EventMask::SubstructureNotify);
       SizeUI();
     }
   }
@@ -303,18 +302,6 @@ class WindowViews : public views::WidgetObserver,
           .rectangles = std::move(hole),
       });
     }
-    // The overlays shown, in the shapes that round them, so that the pages show at their corners.
-    for (const auto& [overlay, frame] : overlays_) {
-      shape.Combine(x11::Shape::CombineRequest{
-          .operation = x11::Shape::So::Union,
-          .destination_kind = x11::Shape::Sk::Bounding,
-          .source_kind = x11::Shape::Sk::Bounding,
-          .destination_window = ui_,
-          .x_offset = static_cast<int16_t>(frame.x()),
-          .y_offset = static_cast<int16_t>(frame.y()),
-          .source_window = overlay,
-      });
-    }
   }
 
   // Lends the keyboard to an overlay of the app's, or takes it back, for the page or UI that had it.
@@ -370,7 +357,6 @@ class WindowViews : public views::WidgetObserver,
   void OnWidgetDestroying(views::Widget*) override {
     x11_observation_.Reset();
     children_events_ = x11::ScopedEventSelector();
-    overlay_events_ = x11::ScopedEventSelector();
     focus_observation_.Reset();
     content()->RemovePreTargetHandler(this);
     for (Slot& slot : panes_) {
@@ -450,9 +436,6 @@ class WindowViews : public views::WidgetObserver,
       x11::Connection::Get()->ConfigureWindow(
           {.window = map->window, .stack_mode = x11::StackMode::Below});
     }
-    if (ui_ != x11::Window::None) {
-      OverlayChanged(event);
-    }
   }
 
  private:
@@ -487,7 +470,7 @@ class WindowViews : public views::WidgetObserver,
     }
   }
 
-  // GPUI's window for the UI, the first it opened in |ui_|, under the overlays it puts there.
+  // GPUI's window for the UI, the one it opened in |ui_|.
   x11::Window UIMain() {
     if (ui_main_ == x11::Window::None) {
       auto tree = x11::Connection::Get()->QueryTree({ui_}).Sync();
@@ -498,45 +481,6 @@ class WindowViews : public views::WidgetObserver,
     return ui_main_;
   }
 
-  // Keeps |overlays_| to the overlays mapped in |ui_|, in pixels, and the UI's shape open for them,
-  // as each reshapes itself too.
-  void OverlayChanged(const x11::Event& event) {
-    std::optional<x11::Window> changed;
-    if (auto* map = event.As<x11::MapNotifyEvent>(); map && map->event == ui_) {
-      if (map->window == UIMain()) {
-        return;
-      }
-      x11::Connection* connection = x11::Connection::Get();
-      auto geometry = connection->GetGeometry(map->window).Sync();
-      if (!geometry) {
-        return;
-      }
-      connection->shape().SelectInput(
-          x11::Shape::SelectInputRequest{.destination_window = map->window, .enable = true});
-      overlays_[map->window] =
-          gfx::Rect(geometry->x, geometry->y, geometry->width, geometry->height);
-      changed = map->window;
-    } else if (auto* reshape = event.As<x11::Shape::NotifyEvent>();
-               reshape && reshape->shape_kind == x11::Shape::Sk::Bounding &&
-               overlays_.contains(reshape->affected_window)) {
-      changed = reshape->affected_window;
-    } else if (auto* configure = event.As<x11::ConfigureNotifyEvent>();
-               configure && configure->event == ui_ && overlays_.contains(configure->window)) {
-      overlays_[configure->window] =
-          gfx::Rect(configure->x, configure->y, configure->width, configure->height);
-      changed = configure->window;
-    } else if (auto* unmap = event.As<x11::UnmapNotifyEvent>();
-               unmap && unmap->event == ui_ && overlays_.erase(unmap->window)) {
-      changed = unmap->window;
-    } else if (auto* destroy = event.As<x11::DestroyNotifyEvent>();
-               destroy && destroy->event == ui_ && overlays_.erase(destroy->window)) {
-      changed = destroy->window;
-    }
-    if (changed) {
-      ShowThrough();
-    }
-  }
-
   raw_ptr<views::Widget> widget_;
   x11::Window ui_;
   std::vector<Slot> panes_;
@@ -545,12 +489,10 @@ class WindowViews : public views::WidgetObserver,
   bool ui_has_keyboard_ = false;
   bool overlay_has_keyboard_ = false;
   x11::Window ui_main_ = x11::Window::None;
-  std::map<x11::Window, gfx::Rect> overlays_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
   base::ScopedObservation<aura::client::FocusClient, aura::client::FocusChangeObserver>
       focus_observation_{this};
   x11::ScopedEventSelector children_events_;
-  x11::ScopedEventSelector overlay_events_;
   base::ScopedObservation<x11::Connection, x11::EventObserver> x11_observation_{this};
   base::WeakPtrFactory<WindowViews> weak_factory_{this};
 };
