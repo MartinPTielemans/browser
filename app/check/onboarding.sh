@@ -1,36 +1,56 @@
 # A new profile's first launch plays the onboarding over the window, captured at each step in a
 # light and a dark appearance: the intro draws ilo's wordmark and its line and goes on by itself,
-# or at any key; Esc or Skip goes on from a step, and the last step leaves the flow for the first
-# Space's welcome. Help › Welcome to ilo plays it again, in the window while it shows no page and
-# in a new window while it shows one. A launch that brings Spaces back never starts it. Every
-# other run sets BROWSER_ONBOARDING=skip (check.sh); this one sets the appearance instead.
+# or at any key; the import step lists the made-up Arc in src/import/fixture, never the Mac's own
+# browsers; Esc or Skip goes on from a step, the colour step's Return gives the first Space the
+# swatch picked, and the last step leaves the flow for the first Space's welcome. The default
+# browser's step shows only while ilo isn't the default, and is only ever skipped, so the run never
+# changes the Mac's. Help › Welcome to ilo plays it again, in the window while it shows no page and
+# in a new window while it shows one. A launch that brings Spaces back never starts it. Every other
+# run sets BROWSER_ONBOARDING=skip (check.sh); this one sets the appearance instead.
 
 serve
+# The import step reads the fixture's home, set for each launch so the runs after keep their own.
+fixture="$PWD/src/import/fixture"
 # Captures the window as onboarding-$1.png.
 capture_step() {
   ../tools/window-screenshot.sh "$pid" "$out/onboarding-$1.png" || fail "no window to capture"
 }
-# Launches a new profile, whose saved Spaces are gone, in appearance $1.
+# Launches a new profile, whose saved Spaces are gone, in appearance $1, and reads the steps it
+# shows into $steps.
 launch_new() {
   log="$out/onboarding-$1.log"
   step=0
   rm -f "$saved"
-  BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+  BROWSER_IMPORT_HOME="$fixture" BROWSER_DRIVE=1 BROWSER_ONBOARDING=$1 \
+    "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
   pid=$!
   exec 3> "$out/drive"
   await '^browser: onboarding step intro settled$' || fail "$1: the intro didn't draw"
+  steps=$(grep -m1 '^browser: onboarding steps ' "$log" | cut -d' ' -f4-)
+  case "$steps" in
+    "intro import "*color) ;;
+    *) fail "$1: the steps were '$steps', not the intro, the import, then the rest to the colour" ;;
+  esac
 }
 
-# Light: the intro holds once drawn and goes on by itself, and Esc leaves the last step.
+# Light: the intro holds once drawn and goes on by itself, and Esc goes on from every step.
 launch_new light
 grep -q '^browser: onboarding started$' "$log" || fail "a new profile didn't start the onboarding"
 capture_step light-intro
 await '^browser: onboarding left intro via time$' || fail "light: the intro didn't go on by itself"
 await '^browser: onboarding step import settled$' || fail "light: the import step didn't come"
-capture_step light-import
-send key escape
-expect '^browser: onboarding left import via escape$' "light: Esc didn't leave the import step"
+grep -q '^browser: import found Arc$' "$log" || fail "light: the import step didn't find the fixture's Arc"
+for each in $steps; do
+  [ "$each" = intro ] && continue
+  # The import came before any key, so it's been waited for already.
+  [ "$each" = import ] ||
+    expect "^browser: onboarding step $each settled\$" "light: the $each step didn't come"
+  capture_step "light-$each"
+  send key escape
+  expect "^browser: onboarding left $each via escape\$" "light: Esc didn't leave the $each step"
+done
 expect '^browser: onboarding done$' "light: the flow didn't end after its last step"
+grep -q '^browser: onboarding picked color ' "$log" && fail "light: Esc at the colour step gave the Space one"
 capture_step light-welcome
 exec 3>&-
 quit
@@ -50,7 +70,8 @@ grep -q '^browser: onboarding' "$log" &&
 exec 3>&-
 quit
 
-# Dark: a key skips the intro, and Skip, at the window's bottom right, leaves the last step.
+# Dark: a key skips the intro, Skip at the window's bottom right leaves the import, and the colour
+# step's → and Return give the first Space the first swatch.
 launch_new dark
 capture_step dark-intro
 send key a
@@ -65,16 +86,35 @@ height=${frame#* }
 send click $((width - 24 - 15)) $((height - 24 - 10))
 expect '^browser: onboarding left import via skip$' \
   "dark: a click on Skip didn't leave the import step"
-expect '^browser: onboarding done$' "dark: Skip on the last step didn't end the flow"
+case " $steps " in
+  *" default-browser "*)
+    expect '^browser: onboarding step default-browser settled$' "dark: the default browser's step didn't come"
+    capture_step dark-default-browser
+    send key escape
+    expect '^browser: onboarding left default-browser via escape$' \
+      "dark: Esc didn't leave the default browser's step"
+    ;;
+esac
+expect '^browser: onboarding step color settled$' "dark: the colour step didn't come"
+send key right
+capture_step dark-color
+send key return
+expect '^browser: onboarding picked color f0eae5$' "dark: → and Return didn't pick the first swatch"
+expect '^browser: onboarding left color via return$' "dark: Return didn't leave the colour step"
+expect '^browser: onboarding done$' "dark: the flow didn't end after its last step"
 capture_step dark-welcome
 
 # Help › Welcome to ilo plays it again here, as the window shows no page.
 send menu "Welcome to $app_name"
 expect '^browser: command welcome via ui$' "Welcome to $app_name didn't run"
 expect '^browser: onboarding step intro settled$' "Welcome to $app_name didn't play the intro again"
-send key escape
-expect '^browser: onboarding left intro via key$' "Esc didn't skip the replayed intro"
-send key escape
+for each in $steps; do
+  send key escape
+  case "$each" in
+    intro) expect '^browser: onboarding left intro via key$' "Esc didn't skip the replayed intro" ;;
+    *) expect "^browser: onboarding left $each via escape\$" "Esc didn't leave the replayed $each step" ;;
+  esac
+done
 expect '^browser: onboarding done$' "the replay didn't end after its last step"
 
 # With a page shown it plays in a new window, which shows none, and the page stays where it was.
@@ -89,10 +129,11 @@ expect '^browser: onboarding step intro settled$' "Welcome to $app_name over a p
 [ "$(grep -c '^browser: window [0-9]* frame ' "$log")" -gt "$windows" ] ||
   fail "Welcome to $app_name over a page didn't open a window for it"
 capture_step replay
-send key a
-send key escape
+for each in $steps; do
+  send key escape
+done
 expect '^browser: onboarding done$' "the replay in its own window didn't end"
 exec 3>&-
 quit
 
-echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then a step that Esc and Skip leave for the welcome, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"
+echo "ok: a new profile's first launch plays the intro, which goes on by itself or at a key, then the import of the fixture's Arc, the default browser's step while ilo isn't the default, and the colour, each left by Esc or Skip and the colour kept by Return, for the welcome, in light and dark; Help › Welcome to $app_name plays it again, in a new window over a page; a launch that brings Spaces back doesn't. Captures: $out/onboarding-*.png"

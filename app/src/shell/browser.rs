@@ -438,6 +438,13 @@ pub trait Browser {
     /// new_window, with a new profile's first launch playing in the new window, which shows no
     /// page.
     fn welcome_window(&self, _cx: &mut App) {}
+    /// Whether the system opens http and https links with the browser, which the onboarding asks
+    /// only as it starts, to leave out its step for it.
+    fn is_default_browser(&self) -> bool {
+        true
+    }
+    /// Asks the system to make the browser the default, which asks the user first.
+    fn make_default_browser(&self, _cx: &mut App) {}
     /// Opens a private window in the shown Space's profile's off-the-record session, after this
     /// one's draw.
     fn new_private_window(&self, cx: &mut App);
