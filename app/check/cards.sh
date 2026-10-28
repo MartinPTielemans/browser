@@ -50,9 +50,10 @@ echo "$asked $placed" | awk '
   END { exit !(NR == 1 && NF == 15 && across > -1 && across < 1 && down > -1 && down < 1 && $5 > 200) }' \
   || fail "the card isn't beside the rows where the UI put it: asked \"$asked\", placed \"$placed\""
 ../tools/window-screenshot.sh "$pid" "$out/card-dark.png" || fail "no window to capture"
-# The next row, the tab shown, swaps its card in at once, with no picture.
+# The next row, the tab shown, swaps its card in at once, with no picture. Its Split pairs it with
+# the tab shown before it, as the sidebar's split does.
 send move $(row 0)
-expect "^browser: hover card shown $b pin favorite none\$" "the tab shown's card has a picture"
+expect "^browser: hover card shown $b pin favorite\( split\)\{0,1\} none\$" "the tab shown's card has a picture"
 none_since '^browser: hover card hidden$' || fail "the card went between rows instead of swapping"
 ../tools/window-screenshot.sh "$pid" "$out/card-shown-tab.png" || fail "no window to capture"
 # Leaving the rows lets it go, and so does a scroll over them.
