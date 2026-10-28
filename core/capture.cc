@@ -9,6 +9,7 @@
 #include "base/base64.h"
 #include "base/containers/span.h"
 #include "base/functional/bind.h"
+#include "base/functional/callback_helpers.h"
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/strings/string_number_conversions.h"
@@ -149,10 +150,19 @@ void PicturePage(content::WebContents* contents, uint64_t request, gfx::Size at_
   const gfx::Size whole =
       gfx::ScaleToCeiledSize(view->GetViewBounds().size(), view->GetDeviceScaleFactor());
   const gfx::Size fitted = Fitted(whole, at_most);
+  // A hidden page's view gives up its compositor on the Mac, so nothing draws it and a copy waits
+  // for a frame that never comes. Held as captured, still hidden to the page, as Chrome holds a
+  // background tab for its preview, it draws once unseen, until the copy answers.
+  base::ScopedClosureRunner drawing;
+  if (!view->IsShowing()) {
+    drawing = contents->IncrementCapturerCount(gfx::Size(), /*stay_hidden=*/true,
+                                               /*stay_awake=*/false, /*is_activity=*/false);
+  }
   view->CopyFromSurface(
       gfx::Rect(), fitted == whole ? gfx::Size() : fitted, base::TimeDelta(),
       base::BindOnce(
-          [](bc_id tab, uint64_t request, const content::CopyFromSurfaceResult& result) {
+          [](bc_id tab, uint64_t request, base::ScopedClosureRunner drawing,
+             const content::CopyFromSurfaceResult& result) {
             LogHandover("picture copied", "tab " + base::NumberToString(tab));
             if (!result.has_value() || result->bitmap.drawsNothing()) {
               NoPicture(tab, request);
@@ -160,7 +170,7 @@ void PicturePage(content::WebContents* contents, uint64_t request, gfx::Size at_
             }
             PictureOnWorker(tab, request, base::BindOnce(&ToPixels, result->bitmap));
           },
-          tab, request));
+          tab, request, std::move(drawing)));
 }
 
 PageCapture::PageCapture(content::WebContents* contents)
