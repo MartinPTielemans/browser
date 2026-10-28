@@ -166,7 +166,11 @@ send key backspace
 expect "^browser: title $tab cleared\$" "clearing the password didn't undo the fill"
 send click 600 60
 send key down
+expect "^browser: title $tab filled\$" "down didn't preview the saved login"
 ../tools/window-screenshot.sh "$pid" "$out/password-fill.png" || fail "no window to capture"
+# Chrome ignores a suggestion accepted in the first 500 ms its dropdown is drawn
+# (kIgnoreEarlyClicksOnSuggestionsDuration), and nothing marks when that ends.
+sleep 0.6
 send key return
 expect "^browser: title $tab chosen\$" "Chrome's dropdown didn't fill the saved login in"
 send click 600 60
