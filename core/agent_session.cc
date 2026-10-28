@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "base/no_destructor.h"
+#include "browser_core/agent_autofill.h"
 #include "browser_core/agent_page.h"
 #include "browser_core/host.h"
 #include "browser_core/space.h"
@@ -87,6 +88,8 @@ bool EndTabSession(bc_id tab, int why) {
 
 void Hold(bc_id tab) {
   Held().insert(tab);
+  // Chrome kept its saved logins from the agent's page, which is the user's now.
+  FillForUser(tab);
 }
 
 bool HandBack(bc_id tab) {

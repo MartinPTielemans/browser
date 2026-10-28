@@ -170,4 +170,17 @@ extern void (*g_browser_core_load_bundled_extensions)(Profile* profile);
 // The core keeps it for as long as the browser runs.
 extern policy::ConfigurationPolicyProvider* (*g_browser_core_policy_provider)();
 
+// chrome/browser/password_manager/chrome_password_manager_client.cc: whether |contents|'s page is
+// to have none of the user's saved passwords, filled or in a dropdown, nor offer to save one.
+extern bool (*g_browser_core_no_passwords)(content::WebContents* contents);
+
+// chrome/browser/ui/autofill/chrome_autofill_client.cc: whether |contents|'s page is to show none
+// of autofill's suggestions: addresses, cards, passwords and passkeys.
+extern bool (*g_browser_core_no_autofill)(content::WebContents* contents);
+
+// chrome/browser/webauthn/chrome_authenticator_request_delegate.cc: whether Chrome is to cancel
+// the passkey request of |contents|'s page, which |asks| the user in Chrome's dialog, once it
+// knows how it would show. Not asked of one that shows only in autofill's suggestions.
+extern bool (*g_browser_core_refuse_passkey)(content::WebContents* contents, bool asks);
+
 #endif  // BROWSER_CORE_HOOKS_H_
