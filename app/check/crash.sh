@@ -2,7 +2,8 @@
 # browser once it has started and Crashpad's handler is up, the handler writes the report, and no
 # Chromium process outlives the crash, the handler included. Nor does one outlive a quit.
 # Nothing goes to the crash collector, check/collector.py, while Send Crash Reports is off, as it is
-# at first. On, the next launch sends the report, the minidump alone, without cookies, and deletes
+# at first: the next launch offers to send that crash's report in a toast, and keeps it. On, the
+# next launch sends the report, the minidump alone, without cookies, and deletes
 # it once the collector has it. One the collector refuses waits for the next launch, and turning
 # the switch off in Settings › Privacy deletes it.
 
@@ -72,9 +73,13 @@ launch() {
 crash "$reports"
 bytes=$(wc -c < "$dump" | tr -d ' ')
 
-# Off, as it starts, the launch after the crash sends nothing and keeps the report.
+# Off, as it starts, the launch after the crash offers to send its report, and sends nothing.
 log="$out/crash-off.log"
 launch "$reports"
+await '^browser: crash report offered$' || fail "the launch after the crash didn't offer its report"
+await "^browser: toast shown $app_name quit unexpectedly\. \[send, don't send\]\$" ||
+  fail "the offer's toast didn't show"
+../tools/window-screenshot.sh "$pid" "$out/crash-offer.png" || fail "no window to capture"
 exec 3>&-
 quit
 [ -s "$out/collector.log" ] && fail "a report was sent while Send Crash Reports was off"
@@ -117,13 +122,15 @@ if [ "$active" = 1 ]; then
   expect '^browser: send crash reports off$' "a click on the switch didn't turn crash reports off"
   expect '^browser: crash reports deleted 1$' "turning crash reports off didn't delete the report"
   [ "$(pending)" = 0 ] || fail "the report not sent outlived turning crash reports off"
-  turned_off=" Turned off in Settings › Privacy, it deleted that one. Window: $out/privacy.png"
+  turned_off=" Turned off in Settings › Privacy, it deleted that one."
+  windows="$out/crash-offer.png, $out/privacy.png"
 else
   turned_off=" skip: turning it off in Settings. Browser wasn't the active app."
+  windows="$out/crash-offer.png"
 fi
 exec 3>&-
 quit
 kill "$collector" 2>/dev/null || true
-echo "ok: the crash left a minidump of $bytes bytes, which the next launch kept with Send Crash" \
-  "Reports off, and sent with it on, and deleted once the collector had it. One the collector" \
-  "refused waited.$turned_off"
+echo "ok: the crash left a minidump of $bytes bytes, which the next launch offered to send and" \
+  "kept with Send Crash Reports off, and sent with it on, and deleted once the collector had it." \
+  "One the collector refused waited.$turned_off Windows: $windows"

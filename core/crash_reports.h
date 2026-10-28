@@ -11,7 +11,8 @@ namespace browser_core::crash_reports {
 // collector the app names with --crash-upload-url: each report not yet sent, one at a time, once
 // the browser has started and when the user turns it on, deleting each once the collector has it.
 // One that doesn't go waits for the next launch: no timer retries it. Turning it off deletes every
-// report not yet sent.
+// report not yet sent. While it's off, the launch after the browser crashed offers once to send
+// that crash's report (bc_host's crash_report_offered).
 
 // In the browser process, before Chromium starts Crashpad: its reports go in the profile folder the
 // app gave, not Chromium's default one, which another Chromium on the machine shares.
@@ -32,10 +33,13 @@ bool Sending();
 void SetSending(bool send);
 
 // Once the app has started: sends the reports not yet sent, if the user has said to, once the
-// browser has finished starting. With --crash-after-start, crashes the browser instead, once
-// Crashpad's handler is up, so the checks see it write its minidump (app/check/crash.sh). The prod
-// app doesn't pass that switch on.
+// browser has finished starting, or else offers to send the report of a crash the time before.
+// With --crash-after-start, crashes the browser instead, once Crashpad's handler is up, so the
+// checks see it write its minidump (app/check/crash.sh). The prod app doesn't pass that switch on.
 void Started();
+
+// The user's answer to the offer: send that report, though Send Crash Reports is off, or delete it.
+void Answer(bool send);
 
 }  // namespace browser_core::crash_reports
 
