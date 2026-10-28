@@ -18,7 +18,7 @@ use super::{
     display_face::{cap_top, display_text},
     cubic_bezier, fade_at,
 };
-use crate::import::{ImportEvent, ImportView};
+use crate::import::{ImportEvent, ImportView, Look};
 use crate::theme::Theme;
 use crate::theme_picker::SWATCHES;
 use crate::tokens::palette::{INK, PAPER};
@@ -27,8 +27,7 @@ use crate::tokens::shell::onboarding::BUTTON_HEIGHT;
 use crate::tokens::shell::onboarding::BUTTON_INSET;
 use crate::tokens::shell::onboarding::BUTTON_RADIUS;
 use crate::tokens::shell::onboarding::BUTTON_SIZE;
-use crate::tokens::shell::onboarding::IMPORT_INSET;
-use crate::tokens::shell::onboarding::IMPORT_RADIUS;
+use crate::tokens::shell::onboarding::IMPORT_SURFACE;
 use crate::tokens::shell::onboarding::IMPORT_WIDTH;
 use crate::tokens::shell::onboarding::CHIP;
 use crate::tokens::shell::onboarding::CHIP_GAP;
@@ -61,7 +60,7 @@ use crate::tokens::shell::onboarding::WORDMARK_SCALE;
 pub(super) enum Step {
     Intro,
     /// What comes along from another browser: the import view (crate::import), which Settings ›
-    /// Import shows too.
+    /// Import shows too; left out when it finds no browser to import from.
     Import,
     /// Asks the system to open links with ilo; left out when it already does.
     DefaultBrowser,
@@ -184,6 +183,8 @@ fn ease_out(x: f32) -> f32 {
 /// The import view the first launch shows, and what it tells the flow.
 pub(super) struct Importing {
     pub(super) view: Entity<ImportView>,
+    /// What the last import that finished said, for the flow's quiet line.
+    pub(super) said: Option<gpui::SharedString>,
     _events: Subscription,
 }
 
@@ -214,32 +215,34 @@ impl Shell {
     /// Starts the flow at the intro in this window, which shows no page. `appearance` is check.sh's
     /// "light" or "dark", else the window's own.
     pub fn start_onboarding(&mut self, appearance: Option<&str>, cx: &mut Context<Self>) {
-        // check.sh waits for these lines.
+        // Once a window, as an import under way in it goes on; played again, it lists the browsers
+        // anew.
+        match &mut self.importing {
+            Some(importing) => {
+                importing.said = None;
+                importing.view.update(cx, |view, cx| view.refresh(cx));
+            }
+            None => {
+                let view = cx.new(|_| ImportView::new(self.browser.import_host(), false));
+                let events = cx.subscribe(&view, |shell, _, event, cx| shell.import_event(event, cx));
+                self.importing = Some(Importing { view, said: None, _events: events });
+            }
+        }
+        let import = self.importing.as_ref().is_some_and(|importing| {
+            let view = importing.view.read(cx);
+            !view.is_empty() || view.running().is_some()
+        });
         let default_browser = self.browser.is_default_browser();
         let steps: Vec<Step> = STEPS
             .into_iter()
-            .filter(|&step| step != Step::DefaultBrowser || !default_browser)
+            .filter(|&step| match step {
+                Step::Import => import,
+                Step::DefaultBrowser => !default_browser,
+                _ => true,
+            })
             .collect();
         let names: Vec<&str> = steps.iter().map(|step| step.name()).collect();
-        // Once a window, as an import under way in it goes on; played again, it lists the browsers
-        // anew.
-        match &self.importing {
-            Some(importing) => importing.view.update(cx, |view, cx| view.refresh(cx)),
-            None => {
-                let view = cx.new(|_| ImportView::new(self.browser.import_host(), false));
-                let events = cx.subscribe(&view, |shell, _, event, cx| {
-                    let on_it = shell.onboarding.as_ref().is_some_and(|o| o.step == Step::Import);
-                    if on_it {
-                        let how = match event {
-                            ImportEvent::Done => "import",
-                            ImportEvent::Skipped => "skip",
-                        };
-                        shell.onboarding_next(how, cx);
-                    }
-                });
-                self.importing = Some(Importing { view, _events: events });
-            }
-        }
+        // check.sh waits for these lines.
         log!("browser: onboarding started");
         log!("browser: onboarding steps {}", names.join(" "));
         log!("browser: onboarding step intro");
@@ -310,6 +313,29 @@ impl Shell {
             _ => {}
         }
         self.onboarding_next(how, cx);
+    }
+
+    /// What the import view says: an import began, so the flow goes on while it runs, or ended,
+    /// which the flow's quiet line then says; or the user is done with it, which goes on too.
+    fn import_event(&mut self, event: &ImportEvent, cx: &mut Context<Self>) {
+        if let Some(importing) = self.importing.as_mut() {
+            importing.said = match event {
+                ImportEvent::Finished(said) => Some(said.clone()),
+                _ => importing.said.take(),
+            };
+        }
+        let on_it = self.onboarding.as_ref().is_some_and(|o| o.step == Step::Import);
+        match event {
+            ImportEvent::Started | ImportEvent::Done if on_it => self.onboarding_next("import", cx),
+            ImportEvent::Skipped if on_it => self.onboarding_next("skip", cx),
+            _ => cx.notify(),
+        }
+    }
+
+    /// The flow's quiet line about the import: what it's doing, or what it brought in.
+    pub(super) fn import_line(&self, cx: &gpui::App) -> Option<gpui::SharedString> {
+        let importing = self.importing.as_ref()?;
+        importing.view.read(cx).running().or_else(|| importing.said.clone())
     }
 
     /// Picks swatch `index` at the colour step.
@@ -420,6 +446,22 @@ impl Shell {
                 .opacity(1. - eased)
         });
         let skip = (step != Step::Intro).then(|| self.skip_button(colors, cx));
+        // The import under way, or what it brought, quiet at the bottom left once its step is left.
+        let import_line = (step != Step::Import && step != Step::Intro)
+            .then(|| self.import_line(cx))
+            .flatten()
+            .map(|said| {
+                div()
+                    .absolute()
+                    .left(px(SKIP_MARGIN))
+                    .bottom(px(SKIP_MARGIN))
+                    .h(px(CHIP_HEIGHT))
+                    .flex()
+                    .items_center()
+                    .text_size(px(SKIP_SIZE))
+                    .text_color(colors.ink(QUIET))
+                    .child(said)
+            });
         let opacity = ending.map_or(1., |at| fade_at(1., 0., at, END_FADE));
         Some(
             div()
@@ -442,6 +484,7 @@ impl Shell {
                 .children(gone)
                 .child(coming)
                 .children(skip)
+                .children(import_line)
                 .into_any_element(),
         )
     }
@@ -488,15 +531,15 @@ impl Shell {
                 .child(keys)
         };
         let import = (step == Step::Import).then(|| {
-            // Settings' own ground and words, which the view is drawn for.
+            // Its boxes a little into the ink from the ground, in the ink, as Settings' are.
             let view = self.importing.as_ref().map(|importing| importing.view.clone());
+            let surface = colors.ground.blend(colors.ink(IMPORT_SURFACE));
+            if let Some(view) = &view {
+                view.update(cx, |view, cx| view.set_look(Look::on(surface, colors.ink(1.)), cx));
+            }
             div()
                 .mt(px(BUTTON_GAP))
                 .w(px(IMPORT_WIDTH))
-                .p(px(IMPORT_INSET))
-                .rounded(px(IMPORT_RADIUS))
-                .bg(rgb(crate::tokens::settings::BACKGROUND))
-                .text_color(rgb(crate::tokens::settings::TEXT))
                 .text_size(px(crate::tokens::text::BODY))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .children(view)
