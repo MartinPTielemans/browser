@@ -22,6 +22,9 @@
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/geometry/size_conversions.h"
 #include "ui/gfx/x/connection.h"
+#include "ui/gfx/x/event.h"
+#include "ui/gfx/x/event_observer.h"
+#include "ui/gfx/x/window_event_manager.h"
 #include "ui/gfx/x/xproto.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget.h"
@@ -31,8 +34,10 @@
 // a native view in it the way an NSView goes over the app's on the Mac. Here the app's UI is a
 // child X window that fills the window, and each page shown sits in a child widget of its own, a
 // child X window above the UI's. Chromium makes every widget's X window on the root, so the core
-// puts these inside the browser window itself. On Wayland, each function here hands over to
-// wayland.cc.
+// puts these inside the browser window itself. Chromium's GPU process maps a child X window of its
+// own over the browser window's, for the window's compositor output, and the core sends it under
+// the UI's: the UI draws everything that window would. On Wayland, each function here hands over
+// to wayland.cc.
 
 namespace browser_core::platform {
 
@@ -98,10 +103,16 @@ std::unique_ptr<views::Widget::ShapeRects> RoundShape(const gfx::Size& size,
   return rects;
 }
 
-class WindowViews : public views::WidgetObserver {
+class WindowViews : public views::WidgetObserver, public x11::EventObserver {
  public:
   WindowViews(views::Widget* widget, x11::Window ui) : widget_(widget), ui_(ui) {
     observation_.Observe(widget);
+    if (ui_ != x11::Window::None) {
+      x11::Connection* connection = x11::Connection::Get();
+      children_events_ =
+          connection->ScopedSelectEvent(window(), x11::EventMask::SubstructureNotify);
+      x11_observation_.Observe(connection);
+    }
   }
 
   x11::Window window() const { return XWindowOf(widget_); }
@@ -166,7 +177,6 @@ class WindowViews : public views::WidgetObserver {
           .y = 0,
           .width = pixels.width(),
           .height = pixels.height(),
-          .stack_mode = x11::StackMode::Below,
       });
       // GPUI's window, which it opened inside |ui_| on its own connection, follows on its
       // ConfigureNotify.
@@ -224,7 +234,20 @@ class WindowViews : public views::WidgetObserver {
   // views::WidgetObserver:
   void OnWidgetBoundsChanged(views::Widget*, const gfx::Rect&) override { LayOut(); }
 
+  // x11::EventObserver: a child X window the core didn't put in the browser window, mapped there,
+  // is Chromium's output for the window itself, opaque and over the UI until it's sent under it.
+  void OnEvent(const x11::Event& event) override {
+    auto* map = event.As<x11::MapNotifyEvent>();
+    if (!map || map->event != window() || map->window == ui_ || IsSlotWindow(map->window)) {
+      return;
+    }
+    x11::Connection::Get()->ConfigureWindow(
+        {.window = map->window, .stack_mode = x11::StackMode::Below});
+  }
+
   void OnWidgetDestroying(views::Widget*) override {
+    x11_observation_.Reset();
+    children_events_ = x11::ScopedEventSelector();
     for (Slot& slot : panes_) {
       Empty(slot);
     }
@@ -235,12 +258,21 @@ class WindowViews : public views::WidgetObserver {
   }
 
  private:
+  bool IsSlotWindow(x11::Window window) {
+    auto holds = [window](const Slot& slot) {
+      return slot.widget && XWindowOf(slot.widget.get()) == window;
+    };
+    return std::ranges::any_of(panes_, holds) || holds(side_panel_);
+  }
+
   raw_ptr<views::Widget> widget_;
   x11::Window ui_;
   std::vector<Slot> panes_;
   Slot side_panel_;
   double corner_radius_ = 0;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
+  x11::ScopedEventSelector children_events_;
+  base::ScopedObservation<x11::Connection, x11::EventObserver> x11_observation_{this};
 };
 
 std::map<views::Widget*, std::unique_ptr<WindowViews>>& AllWindowViews() {
