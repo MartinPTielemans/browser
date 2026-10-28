@@ -409,6 +409,10 @@ pub trait Browser {
     }
     /// Asks the system to make the browser the default, which asks the user first.
     fn make_default_browser(&self, _cx: &mut App) {}
+    /// The system it runs on, which sets the default browser its own way.
+    fn os(&self) -> crate::default_browser::Os {
+        crate::default_browser::Os::current()
+    }
     /// Opens a private window in the shown Space's profile's off-the-record session, after this
     /// one's draw.
     fn new_private_window(&self, cx: &mut App);

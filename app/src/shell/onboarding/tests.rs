@@ -196,6 +196,27 @@ fn the_default_browser_step_asks_the_system(cx: &mut TestAppContext) {
     }
 }
 
+/// The step says what each system does and where its way back is, as Settings' row does; in a
+/// Flatpak, which can't set it, it says where the desktop does, and Return goes on without asking.
+#[gpui::test]
+fn the_default_browser_step_says_each_systems_way(cx: &mut TestAppContext) {
+    use crate::default_browser::Os;
+    let line = |os| Step::DefaultBrowser.message(os).1.to_string();
+    assert!(line(Os::Mac).contains("macOS asks you first"));
+    assert!(line(Os::Windows).contains("Settings › Default apps"));
+    assert!(line(Os::Linux).contains("changes at once"));
+    assert!(line(Os::Flatpak).contains("GNOME Settings › Default Apps"));
+    assert_eq!(Step::DefaultBrowser.message(Os::Flatpak).2, "Continue");
+    let (shell, cx, host) = first_window(cx);
+    host.os.set(Some(Os::Flatpak));
+    started(&shell, cx);
+    skip_to(&shell, cx, Step::DefaultBrowser);
+    host.take();
+    cx.simulate_keystrokes("enter");
+    assert_eq!(step(&shell, cx), Some(Step::Color));
+    assert!(!host.take().contains(&"make default browser".to_string()));
+}
+
 /// A browser that's already the default has no step asking to make it one.
 #[gpui::test]
 fn a_default_browser_leaves_its_step_out(cx: &mut TestAppContext) {

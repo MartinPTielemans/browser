@@ -76,32 +76,13 @@ impl DefaultBrowser {
 
     /// What the system does on Make Default, and the way back, under the title.
     pub fn detail(&self) -> SharedString {
-        let detail = match (self.os, self.default) {
-            (Os::Mac, false) => {
-                "macOS asks you first. You can change it back in System Settings › Desktop & Dock."
-            }
-            (Os::Mac, true) => "You can change it in System Settings › Desktop & Dock.",
-            // Placeholder for the Windows host's (feat/windows-host-454), which confirms it.
-            (Os::Windows, false) => "Windows asks you in Settings › Default apps.",
-            (Os::Windows, true) => "You can change it in Settings › Default apps.",
-            // xdg-settings sets it without asking.
-            (Os::Linux, false) => {
-                "Your desktop's setting changes at once. You can change it back in its settings \
-                 for default apps."
-            }
-            (Os::Linux, true) => "You can change it in your desktop's settings for default apps.",
-            (Os::Flatpak, _) => {
-                "Your desktop sets it, in GNOME Settings › Default Apps or KDE System Settings › \
-                 Default Applications."
-            }
-        };
-        detail.into()
+        detail(self.os, self.default).into()
     }
 
     /// Whether the row offers to make the browser the default: not once it is, nor in a Flatpak,
     /// where the system can't.
     pub fn offers(&self) -> bool {
-        !self.default && self.os != Os::Flatpak
+        offers(self.os, self.default)
     }
 
     /// Asks the system to make the browser the default, if the row offers to.
@@ -110,6 +91,35 @@ impl DefaultBrowser {
             self.system.make_default();
         }
     }
+}
+
+/// What `os` does on Make Default, and its way back, whether or not the browser is the `default`
+/// yet, for Settings' row and the first launch's step.
+pub fn detail(os: Os, default: bool) -> &'static str {
+    match (os, default) {
+        (Os::Mac, false) => {
+            "macOS asks you first. You can change it back in System Settings › Desktop & Dock."
+        }
+        (Os::Mac, true) => "You can change it in System Settings › Desktop & Dock.",
+        // Placeholder for the Windows host's (feat/windows-host-454), which confirms it.
+        (Os::Windows, false) => "Windows asks you in Settings › Default apps.",
+        (Os::Windows, true) => "You can change it in Settings › Default apps.",
+        // xdg-settings sets it without asking.
+        (Os::Linux, false) => {
+            "Your desktop's setting changes at once. You can change it back in its settings \
+             for default apps."
+        }
+        (Os::Linux, true) => "You can change it in your desktop's settings for default apps.",
+        (Os::Flatpak, _) => {
+            "Your desktop sets it, in GNOME Settings › Default Apps or KDE System Settings › \
+             Default Applications."
+        }
+    }
+}
+
+/// Whether `os` can be asked to make the browser the default: not once it is, nor in a Flatpak.
+pub fn offers(os: Os, default: bool) -> bool {
+    !default && os != Os::Flatpak
 }
 
 #[cfg(test)]
