@@ -21,6 +21,7 @@ use gpui::{
 
 use crate::{
     icon_picker,
+    palette::{self, Palette},
     shell::{Command, MenuEntry, cubic_bezier, scaled::scaled},
     tooltip,
 };
@@ -38,7 +39,6 @@ use crate::tokens::site_controls::BEAK_TIP_RADIUS;
 use crate::tokens::site_controls::BEAK_FOOT_RADIUS;
 use crate::tokens::site_controls::BELOW_FIELD;
 use crate::tokens::site_controls::WINDOW_MARGIN;
-use crate::tokens::site_controls::FILL;
 use crate::tokens::site_controls::OUTLINE;
 use crate::tokens::site_controls::RIM;
 use crate::tokens::site_controls::TEXT;
@@ -64,9 +64,7 @@ use crate::tokens::site_controls::ROW_PITCH;
 /// The text's left edge, past the circle.
 const ROW_TEXT: f32 = PADDING + CIRCLE + 8.;
 use crate::tokens::site_controls::OFF;
-use crate::tokens::site_controls::ON;
 use crate::tokens::site_controls::OFF_GLYPH;
-use crate::tokens::site_controls::ON_GLYPH;
 use crate::tokens::site_controls::ROW_GLYPH;
 /// Ours: the reset row's glyph, as Chrome's page info's button has none.
 const RESET: &str = "icons/rotate-ccw-clock.svg";
@@ -860,6 +858,7 @@ impl SiteControls {
 
     fn tile(&self, index: usize, tile: Tile, y: f32, cx: &mut Context<Self>) -> gpui::AnyElement {
         let frame = Self::tile_frame(PADDING + index as f32 * (TILE_WIDTH + GAP), y);
+        let palette = palette::current(cx);
         div()
             .id(tile.name)
             .absolute()
@@ -869,11 +868,11 @@ impl SiteControls {
             .rounded(px(TILE_RADIUS))
             .bg(linear_gradient(
                 180.,
-                linear_color_stop(rgba(TILE_TOP), 0.),
-                linear_color_stop(rgba(TILE_BOTTOM), 1.),
+                linear_color_stop(palette.plate(TILE_TOP), 0.),
+                linear_color_stop(palette.plate(TILE_BOTTOM), 1.),
             ))
             .border_t_1()
-            .border_color(rgba(TILE_HIGHLIGHT))
+            .border_color(palette.plate(TILE_HIGHLIGHT))
             .flex()
             .items_center()
             .justify_center()
@@ -886,14 +885,17 @@ impl SiteControls {
                     .absolute()
                     .size_full()
                     .rounded(px(TILE_RADIUS))
-                    .hover(|style| style.bg(rgba(HOVERED))),
+                    .hover(move |style| style.bg(palette.plate(HOVERED))),
             )
-            .child(svg().path(tile.glyph).size(px(tile.glyph_size)).text_color(rgba(TEXT)))
+            .child(
+                svg().path(tile.glyph).size(px(tile.glyph_size)).text_color(palette.on_overlay_glyph(TEXT)),
+            )
             .into_any_element()
     }
 
     /// The extensions' tiles, then the + tile, four to a row.
     fn extensions(&self, open: &Open, y: f32, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        let palette = palette::current(cx);
         let plate = |id: SharedString, index: usize| {
             let (column, line) = (index % EXTENSIONS_PER_ROW, index / EXTENSIONS_PER_ROW);
             let x = PADDING + column as f32 * (TILE_WIDTH + GAP);
@@ -905,8 +907,8 @@ impl SiteControls {
                 .top(frame.origin.y)
                 .w(frame.size.width).h(frame.size.height)
                 .rounded(px(TILE_RADIUS))
-                .bg(rgba(PLATE))
-                .hover(|style| style.bg(rgba(PLATE_HOVERED)))
+                .bg(palette.plate(PLATE))
+                .hover(move |style| style.bg(palette.plate(PLATE_HOVERED)))
                 .flex()
                 .items_center()
                 .justify_center();
@@ -937,7 +939,9 @@ impl SiteControls {
             .on_click(cx.listener(|panel, _, _, cx| {
                 panel.run("add-extension", Run::Command(Command::ManageExtensions), cx)
             }))
-            .child(svg().path("icons/plus.svg").size(px(PLUS_GLYPH)).text_color(rgba(TEXT)))
+            .child(
+                svg().path("icons/plus.svg").size(px(PLUS_GLYPH)).text_color(palette.on_overlay_glyph(TEXT)),
+            )
             .into_any_element(),
         );
         tiles
@@ -969,6 +973,7 @@ impl SiteControls {
         };
         let link_cap = cap + (HEADING_SIZE - LINK_SIZE) * CAP / 2.;
         let name = link.to_lowercase();
+        let palette = palette::current(cx);
         div()
             .id(SharedString::from(format!("heading-{}", title.to_lowercase())))
             .absolute()
@@ -983,7 +988,7 @@ impl SiteControls {
                 text(cap, HEADING_SIZE)
                     .left(px(PADDING))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(rgba(TEXT))
+                    .text_color(palette.on_overlay(TEXT))
                     .child(title),
             )
             .when(hovered, |row| {
@@ -992,7 +997,7 @@ impl SiteControls {
                         .id(SharedString::from(format!("link-{name}")))
                         .right(px(PADDING))
                         .font_weight(gpui::FontWeight::MEDIUM)
-                        .text_color(rgba(LINK))
+                        .text_color(palette.on_overlay(LINK))
                         .on_click(cx.listener(move |panel, _, _, cx| {
                             panel.run(&name, run.clone(), cx)
                         }))
@@ -1004,6 +1009,7 @@ impl SiteControls {
 
     /// A row at `y` with a circle holding `glyph`, filled if `on`, `name` and `state` under it.
     fn row(
+        palette: &Palette,
         id: SharedString,
         y: f32,
         glyph: &'static str,
@@ -1041,7 +1047,7 @@ impl SiteControls {
                     .absolute()
                     .size(px(CIRCLE))
                     .rounded_full()
-                    .bg(rgba(if on { ON } else { OFF }))
+                    .bg(if on { palette.accent.into() } else { palette.plate(OFF) })
                     .flex()
                     .items_center()
                     .justify_center()
@@ -1049,18 +1055,21 @@ impl SiteControls {
                         svg()
                             .path(glyph)
                             .size(px(ROW_GLYPH))
-                            .text_color(rgba(if on { ON_GLYPH } else { OFF_GLYPH })),
+                            .text_color(match on {
+                                true => palette.accent_label.into(),
+                                false => palette.on_overlay_glyph(OFF_GLYPH),
+                            }),
                     ),
             )
             .child(
                 text(name_cap, NAME_SIZE)
                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .text_color(rgba(TEXT))
+                    .text_color(palette.on_overlay(TEXT))
                     .child(name),
             )
             .children(state.map(|state| {
                 text(middle + 8. - STATE_SIZE * CAP / 2., STATE_SIZE)
-                    .text_color(rgba(SECONDARY))
+                    .text_color(palette.on_overlay(SECONDARY))
                     .child(state)
             }))
     }
@@ -1073,6 +1082,7 @@ impl SiteControls {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let row = Self::row(
+            &palette::current(cx),
             format!("site-permission-{index}").into(),
             y,
             glyph_for(&permission.key),
@@ -1097,6 +1107,7 @@ impl SiteControls {
             Connection::Secure => "icons/lock.svg",
             _ => "icons/lock-open.svg",
         };
+        let palette = palette::current(cx);
         let button = div()
             .id("site-lock")
             .absolute()
@@ -1105,7 +1116,7 @@ impl SiteControls {
             .h(px(FOOTER))
             .max_w(px(WIDTH - 2. * PADDING - FOOTER - GAP))
             .rounded(px(LOCK_RADIUS))
-            .bg(rgba(PLATE))
+            .bg(palette.plate(PLATE))
             .flex()
             .items_start()
             .pl(px(LOCK_LEFT))
@@ -1118,7 +1129,7 @@ impl SiteControls {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(svg().path(lock).size(px(LOCK_GLYPH)).text_color(rgba(TEXT))),
+                    .child(svg().path(lock).size(px(LOCK_GLYPH)).text_color(palette.on_overlay_glyph(TEXT))),
             )
             .child(
                 div()
@@ -1129,13 +1140,13 @@ impl SiteControls {
                     .line_height(px(LINE))
                     .text_size(px(NAME_SIZE))
                     .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(rgba(TEXT))
+                    .text_color(palette.on_overlay(TEXT))
                     .truncate()
                     .child(lock_label(site)),
             )
             .map(|button| match site.certificate {
                 true => button
-                    .hover(|style| style.bg(rgba(PLATE_HOVERED)))
+                    .hover(move |style| style.bg(palette.plate(PLATE_HOVERED)))
                     .on_click(cx.listener(|panel, _, _, cx| {
                         panel.run("certificate", Run::Certificate, cx)
                     })),
@@ -1148,15 +1159,17 @@ impl SiteControls {
             .top(px(y))
             .size(px(FOOTER))
             .rounded_full()
-            .bg(rgba(MORE_FILL))
-            .hover(|style| style.bg(rgba(HOVERED)))
+            .bg(palette.plate(MORE_FILL))
+            .hover(move |style| style.bg(palette.plate(HOVERED)))
             .flex()
             .items_center()
             .justify_center()
             .on_click(cx.listener(|panel, event: &ClickEvent, _, cx| {
                 panel.more(event.position(), cx)
             }))
-            .child(svg().path("icons/ellipsis.svg").size(px(MORE_GLYPH)).text_color(rgba(TEXT)));
+            .child(
+                svg().path("icons/ellipsis.svg").size(px(MORE_GLYPH)).text_color(palette.on_overlay_glyph(TEXT)),
+            );
         [button.into_any_element(), more.into_any_element()]
     }
 }
@@ -1203,21 +1216,23 @@ impl Render for SiteControls {
         let shape = corners(open.beak, at.height);
         // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
         let hairline = 1. / window.scale_factor();
+        let palette = palette::current(cx);
+        let (overlay, rim) = (palette.overlay, palette.plate(RIM));
         let card = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
                 let mut fill = PathBuilder::fill();
                 icon_picker::outline(&mut fill, bounds.origin, &shape, 0.);
                 if let Ok(path) = fill.build() {
-                    window.paint_path(path, rgba(FILL));
+                    window.paint_path(path, overlay);
                 }
                 for (inset, width, color) in
-                    [(hairline / 2., hairline, OUTLINE), (hairline + 0.5, 1., RIM)]
+                    [(hairline / 2., hairline, rgba(OUTLINE).into()), (hairline + 0.5, 1., rim)]
                 {
                     let mut edge = PathBuilder::stroke(px(width));
                     icon_picker::outline(&mut edge, bounds.origin, &shape, inset);
                     if let Ok(path) = edge.build() {
-                        window.paint_path(path, rgba(color));
+                        window.paint_path(path, color);
                     }
                 }
             },
@@ -1243,6 +1258,7 @@ impl Render for SiteControls {
             if let Some(on) = site.system_engine {
                 let state = if on { "On" } else { "Off" };
                 let row = Self::row(
+                    &palette,
                     "site-engine".into(),
                     at.rows,
                     ENGINE,
@@ -1261,7 +1277,8 @@ impl Render for SiteControls {
             }
             if let Some(label) = site.reset.clone() {
                 let y = at.rows + (engine + site.permissions.len()) as f32 * ROW_PITCH;
-                let row = Self::row("site-permissions-reset".into(), y, RESET, false, label, None);
+                let row =
+                    Self::row(&palette, "site-permissions-reset".into(), y, RESET, false, label, None);
                 let row = row.on_click(cx.listener(|panel, _, _, cx| panel.reset(cx)));
                 rows.push(row.into_any_element());
             }
@@ -1273,7 +1290,7 @@ impl Render for SiteControls {
             .top(px(at.divider))
             .w(px(WIDTH - 2. * PADDING))
             .h(px(1.))
-            .bg(rgba(DIVIDER));
+            .bg(palette.plate(DIVIDER));
         let card = div()
             .id("site-controls")
             .relative()

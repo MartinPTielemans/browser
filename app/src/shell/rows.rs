@@ -29,6 +29,7 @@ use super::{
 };
 use crate::{
     icon_picker::{self, Subject},
+    palette::Palette,
     space_icon::has_icon,
     tooltip::{Anchor, Tip},
 };
@@ -345,9 +346,14 @@ impl Shell {
 
     /// What stands for `tab`: the emoji the user gave it, else its page's favicon.
     pub(super) fn tab_icon(&self, tab: u64) -> AnyElement {
+        self.tab_icon_in(&self.palette, tab)
+    }
+
+    /// `tab`'s icon drawn in `palette`, such as a Library card's, which is its own Space's.
+    pub(super) fn tab_icon_in(&self, palette: &Palette, tab: u64) -> AnyElement {
         match self.tabs.get(&tab) {
             Some(each) if has_icon(&each.page.icon) => emoji(each.page.icon.clone()),
-            each => favicon(&self.palette, each.and_then(|each| each.favicon.clone())),
+            each => favicon(palette, each.and_then(|each| each.favicon.clone())),
         }
     }
 
@@ -412,9 +418,16 @@ impl Shell {
         (plate - (FAVICON_X - PLATE_INSET - SEGMENT_FAVICON_X)) / count as f32
     }
 
-    /// A tab's segment of its split view's row, `width` wide: its favicon and its title, bright if
-    /// `focused`, after a line unless it's the `first`.
-    pub(super) fn segment(&self, tab: u64, width: f32, first: bool, focused: bool) -> gpui::Div {
+    /// A tab's segment of its split view's row, `width` wide, drawn in `palette`: its favicon and
+    /// its title, bright if `focused`, after a line unless it's the `first`.
+    pub(super) fn segment(
+        &self,
+        palette: &Palette,
+        tab: u64,
+        width: f32,
+        first: bool,
+        focused: bool,
+    ) -> gpui::Div {
         let page = self.page(tab);
         let icon = div()
             .flex_none()
@@ -424,14 +437,14 @@ impl Shell {
             .items_center()
             .justify_center()
             .when(page.unloaded, |icon| icon.opacity(SLEEPING_FAVICON))
-            .child(self.tab_icon(tab));
+            .child(self.tab_icon_in(palette, tab));
         let line = div()
             .absolute()
             .left_0()
             .top(px((PLATE_HEIGHT - SEGMENT_LINE) / 2.))
             .w(px(1.))
             .h(px(SEGMENT_LINE))
-            .bg(self.palette.faint(DIVIDER));
+            .bg(palette.faint(DIVIDER));
         div()
             .relative()
             .flex_1()
@@ -443,7 +456,7 @@ impl Shell {
             .pr(px(SEGMENT_END))
             .when(!first, |segment| segment.child(line))
             .child(icon)
-            .child(title(&self.palette, self.title(tab), focused))
+            .child(title(palette, self.title(tab), focused))
             .when(page.loading && width >= LOADING_ROW_MIN, |segment| {
                 segment.child(self.loading_ring())
             })
@@ -459,7 +472,7 @@ impl Shell {
         focused: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        self.segment(tab, width, first, focused)
+        self.segment(&self.palette, tab, width, first, focused)
             .id(("segment", tab))
             .when(self.a11y, |segment| {
                 segment

@@ -87,8 +87,10 @@ pub struct Palette {
     pub overlay: Rgba,
     /// A dialog's fill.
     pub dialog: Rgba,
-    /// The least alpha at which `ink` reads as text on the overlay and the dialog.
+    /// The least alpha at which `ink` reads as text, and as a glyph, on the overlay and the
+    /// dialog.
     pub overlay_floor: f32,
+    pub overlay_glyph_floor: f32,
     /// The icon and theme pickers' card, over what's behind it: Arc's grey where the card's text
     /// reads on it over the window, and otherwise the least step toward the dark overlay, opaque,
     /// at which it does.
@@ -161,10 +163,13 @@ impl Palette {
             overlay: rgb(OVERLAY_DARK),
             dialog: rgb(DIALOG_DARK),
             overlay_floor: 0.,
+            overlay_glyph_floor: 0.,
             card: rgba(CARD),
             swatch: Swatch::of(None, window),
         };
-        palette.overlay_floor = least_alpha(ink, &[palette.overlay, palette.dialog], TEXT + BETWEEN);
+        let overlays = [palette.overlay, palette.dialog];
+        palette.overlay_floor = least_alpha(ink, &overlays, TEXT + BETWEEN);
+        palette.overlay_glyph_floor = least_alpha(ink, &overlays, GLYPH + BETWEEN);
         palette.card = palette.solve_card(window);
         let grounds = palette.grounds(window);
         palette.text_floor = least_alpha(ink, &grounds, TEXT + BETWEEN);
@@ -213,6 +218,7 @@ impl Palette {
             overlay: near.overlay,
             dialog: near.dialog,
             overlay_floor: self.overlay_floor.max(other.overlay_floor),
+            overlay_glyph_floor: self.overlay_glyph_floor.max(other.overlay_glyph_floor),
             card: near.card,
             swatch: near.swatch,
         }
@@ -252,6 +258,11 @@ impl Palette {
     /// Ink or Paper at `alpha` over the overlay or the dialog, or as much more as text needs.
     pub fn on_overlay(&self, alpha: f32) -> Hsla {
         Hsla::from(self.ink).opacity(alpha.max(self.overlay_floor))
+    }
+
+    /// Ink or Paper at `alpha` over the overlay or the dialog, or as much more as a glyph needs.
+    pub fn on_overlay_glyph(&self, alpha: f32) -> Hsla {
+        Hsla::from(self.ink).opacity(alpha.max(self.overlay_glyph_floor))
     }
 
     /// Ink or Paper at `alpha`, as it is: for what needn't read, such as a disabled glyph or a

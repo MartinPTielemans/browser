@@ -18,7 +18,7 @@ use image::{Frame, RgbaImage};
 
 use crate::{
     icon_picker,
-    palette::{self, OVERLAY_DARK, Swatch},
+    palette::{self, Palette, Swatch},
     shell::{KEY_CONTEXT, cubic_bezier},
     theme::{self, Appearance, DEFAULT_INTENSITY, MAX_COLORS, Theme},
 };
@@ -43,7 +43,7 @@ use crate::tokens::theme_picker::FIELD_FILL;
 use crate::tokens::theme_picker::FIELD_RIM;
 /// Its grid of 1 pt dots.
 use crate::tokens::theme_picker::DOT_PITCH;
-const DOT_ALPHA: u8 = 0x40;
+use crate::tokens::theme_picker::DOT_ALPHA;
 const HINT: &str = "Tap to pick a color for this space";
 /// The appearance buttons, across the field's top: automatic, light and dark.
 use crate::tokens::theme_picker::APPEARANCE_Y;
@@ -98,9 +98,6 @@ use crate::tokens::theme_picker::MAIN_HANDLE;
 use crate::tokens::theme_picker::MAIN_RING;
 use crate::tokens::theme_picker::HANDLE;
 use crate::tokens::theme_picker::HANDLE_RING;
-use crate::tokens::theme_picker::HINT_COLOR;
-use crate::tokens::theme_picker::SWATCH_RING_COLOR;
-use crate::tokens::theme_picker::KNOB_COLOR;
 /// Pressed, a handle grows by this in 60 ms, and shrinks back as long on release.
 const PRESSED: f32 = 48. / 44.;
 const PRESS: f32 = 0.06;
@@ -162,6 +159,9 @@ struct Editing {
     pressed: Option<Target>,
     /// Whether a frame of it has been drawn on screen since it opened.
     drawn: bool,
+    /// What it draws with: the Space's palette as it opened, which holds while the user drags
+    /// through themes that would change it.
+    palette: Palette,
 }
 
 pub struct ThemePicker {
@@ -273,6 +273,7 @@ pub fn show(
                 glide: None,
                 pressed: None,
                 drawn: false,
+                palette: Palette::of(theme.as_ref()),
             });
             window.focus(&picker.focus, cx);
             picker.host.show(left, top, &corners(arrow_y));
@@ -572,7 +573,7 @@ fn dots_image() -> Arc<RenderImage> {
                     let y = ((middle + row as f32 * DOT_PITCH) * 2.).round() as usize - 1;
                     for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                         let at = ((y + dy) * side + x + dx) * 4;
-                        data[at..at + 4].copy_from_slice(&[255, 255, 255, DOT_ALPHA]);
+                        data[at..at + 4].copy_from_slice(&[255, 255, 255, (DOT_ALPHA * 255.).round() as u8]);
                     }
                 }
             }
@@ -686,6 +687,7 @@ impl Render for ThemePicker {
         }
         let editing = &*editing;
         let theme = editing.theme;
+        let palette = editing.palette;
         let card_x = |x: f32| px(ARROW + x);
         let arrow_y = editing.arrow_y;
         let card_fill = palette::current(cx).card;
@@ -703,10 +705,9 @@ impl Render for ThemePicker {
         // The field, its dots, and the handles over it.
         let dots = canvas(
             |_, _, _| {},
-            |bounds, _, window, _| {
-                window
-                    .paint_image(bounds, bounds, px(FIELD_RADIUS).into(), dots_image(), 0, false)
-                    .ok();
+            move |bounds, _, window, _| {
+                let dots = dots_image();
+                window.paint_image(bounds, bounds, px(FIELD_RADIUS).into(), dots, 0, false).ok();
             },
         )
         .absolute()
@@ -717,7 +718,7 @@ impl Render for ThemePicker {
             .top(px(FIELD_INSET))
             .size(px(FIELD))
             .rounded(px(FIELD_RADIUS))
-            .bg(rgba(FIELD_FILL))
+            .bg(palette.plate(FIELD_FILL))
             .child(dots)
             .child(
                 div()
@@ -725,7 +726,7 @@ impl Render for ThemePicker {
                     .size_full()
                     .rounded(px(FIELD_RADIUS))
                     .border_1()
-                    .border_color(rgba(FIELD_RIM)),
+                    .border_color(palette.plate(FIELD_RIM)),
             );
         match theme {
             None => {
@@ -738,7 +739,7 @@ impl Render for ThemePicker {
                         .justify_center()
                         .text_size(px(13.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(HINT_COLOR))
+                        .text_color(palette.on_overlay(1.))
                         .child(HINT),
                 );
             }
@@ -762,7 +763,7 @@ impl Render for ThemePicker {
                             .rounded_full()
                             .bg(rgb(color))
                             .border(px(ring))
-                            .border_color(rgb(SWATCH_RING_COLOR)),
+                            .border_color(palette.ink),
                     );
                 }
             }
@@ -784,21 +785,21 @@ impl Render for ThemePicker {
                 .items_center()
                 .justify_center()
                 .rounded(px(APPEARANCE_RADIUS))
-                .when(appearance == chosen, |plate| plate.bg(rgba(APPEARANCE_CHOSEN)))
+                .when(appearance == chosen, |plate| plate.bg(palette.plate(APPEARANCE_CHOSEN)))
                 .child(
                     svg()
                         .path(glyph)
                         .size(px(APPEARANCE_GLYPH))
-                        .text_color(rgba(APPEARANCE_COLOR)),
+                        .text_color(palette.on_overlay_glyph(APPEARANCE_COLOR)),
                 )
         });
 
         let count = theme.map_or(0, |theme| theme.count);
         let count_button = |target: Target, x: f32, glyph: &'static str, enabled: bool| {
             let color = match (enabled, editing.pressed == Some(target)) {
-                (false, _) => COUNT_DISABLED,
-                (true, true) => COUNT_PRESSED,
-                (true, false) => COUNT_COLOR,
+                (false, _) => palette.faint(COUNT_DISABLED),
+                (true, true) => palette.faint(COUNT_PRESSED),
+                (true, false) => palette.faint(COUNT_COLOR),
             };
             div()
                 .absolute()
@@ -808,7 +809,7 @@ impl Render for ThemePicker {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(svg().path(glyph).size(px(COUNT_GLYPH)).text_color(rgba(color)))
+                .child(svg().path(glyph).size(px(COUNT_GLYPH)).text_color(color))
         };
         let remove = count_button(Target::Remove, REMOVE_X, "icons/minus.svg", count > 1);
         let add = count_button(
@@ -818,8 +819,7 @@ impl Render for ThemePicker {
             (1..MAX_COLORS).contains(&count),
         );
 
-        // The panel's dark material, behind them, is near the dark overlay.
-        let behind = rgb(OVERLAY_DARK);
+        let behind = palette.overlay;
         let swatches = self.swatches.iter().enumerate().map(|(index, swatch)| {
             div()
                 .absolute()
@@ -837,7 +837,7 @@ impl Render for ThemePicker {
                     at(TRACK_LEFT, SLIDER_Y - TRACK_HEIGHT / 2.),
                     size(px(TRACK_RIGHT - TRACK_LEFT), px(TRACK_HEIGHT)),
                 );
-                let track = fill(track, rgba(TRACK_FILL)).corner_radii(px(TRACK_HEIGHT / 2.));
+                let track = fill(track, palette.plate(TRACK_FILL)).corner_radii(px(TRACK_HEIGHT / 2.));
                 window.paint_quad(track);
                 let intensity = theme.map_or(DEFAULT_INTENSITY, |theme| theme.intensity);
                 let split = if theme.is_some() { knob_x(intensity) } else { WAVE_LEFT };
@@ -846,9 +846,10 @@ impl Render for ThemePicker {
                     let phase = (x - WAVE_LEFT) / (WAVE_RIGHT - WAVE_LEFT) * WAVE_PERIODS * TAU;
                     SLIDER_Y - amplitude * phase.sin()
                 };
-                for (from, to, color) in
-                    [(WAVE_LEFT, split, WAVE_ON), (split, WAVE_RIGHT, WAVE_OFF)]
-                {
+                for (from, to, color) in [
+                    (WAVE_LEFT, split, palette.plate(WAVE_ON)),
+                    (split, WAVE_RIGHT, palette.plate(WAVE_OFF)),
+                ] {
                     if to - from < 0.5 {
                         continue;
                     }
@@ -863,7 +864,7 @@ impl Render for ThemePicker {
                         }
                     }
                     if let Ok(path) = wave.build() {
-                        window.paint_path(path, rgba(color));
+                        window.paint_path(path, color);
                     }
                 }
                 let grain = theme.map(|theme| theme.grain);
@@ -876,7 +877,7 @@ impl Render for ThemePicker {
                     px(DIAL_DISC),
                     rgba(if grain.is_some() { DIAL_DISC_FILL } else { 0 }),
                     px(1.),
-                    rgba(DIAL_DISC_RIM),
+                    palette.plate(DIAL_DISC_RIM),
                     Default::default(),
                 ));
                 for dot in 0..DIAL_DOTS {
@@ -888,22 +889,22 @@ impl Render for ThemePicker {
                         at(x - DIAL_DOT / 2., y - DIAL_DOT / 2.),
                         size(px(DIAL_DOT), px(DIAL_DOT)),
                     );
-                    let color = if swept { DIAL_SWEPT } else { DIAL_DIM };
-                    window.paint_quad(fill(bounds, rgba(color)).corner_radii(px(DIAL_DOT / 2.)));
+                    let color = palette.plate(if swept { DIAL_SWEPT } else { DIAL_DIM });
+                    window.paint_quad(fill(bounds, color).corner_radii(px(DIAL_DOT / 2.)));
                 }
                 if let Some(grain) = grain {
                     let (sin, cos) = (grain * TAU).sin_cos();
                     let middle = at(DIAL.0 + DIAL_RING * sin, DIAL.1 - DIAL_RING * cos);
                     let knob = capsule(middle, DIAL_KNOB.0, DIAL_KNOB.1, grain * TAU);
                     if let Ok(path) = knob.build() {
-                        window.paint_path(path, rgb(KNOB_COLOR));
+                        window.paint_path(path, palette.ink);
                     }
                     let knob = Bounds::new(
                         at(knob_x(intensity) - KNOB_WIDTH / 2., SLIDER_Y - KNOB_HEIGHT / 2.),
                         size(px(KNOB_WIDTH), px(KNOB_HEIGHT)),
                     );
                     window.paint_quad(
-                        fill(knob, rgb(KNOB_COLOR)).corner_radii(px(KNOB_WIDTH / 2.)),
+                        fill(knob, palette.ink).corner_radii(px(KNOB_WIDTH / 2.)),
                     );
                 }
             },

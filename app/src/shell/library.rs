@@ -978,13 +978,13 @@ impl Shell {
                 let panes = space.panes(tab);
                 if panes.len() == 1 {
                     let label = title(&palette, self.title(tab), false).pr(px(PLATE_INSET));
-                    return card_row(depth, plate(self.tab_icon(tab), label));
+                    return card_row(depth, plate(self.tab_icon_in(&palette, tab), label));
                 }
                 let plate = CARD_WIDTH - 2. * PLATE_INSET - depth as f32 * FOLDER_INDENT;
                 let plate = plate - (FAVICON_X - PLATE_INSET - SEGMENT_FAVICON_X);
                 let width = plate / panes.len() as f32;
                 let segments = panes.iter().enumerate().map(|(index, &pane)| {
-                    self.segment(pane, width, index == 0, false)
+                    self.segment(&palette, pane, width, index == 0, false)
                 });
                 card_row(depth, split_plate(segments))
             }
