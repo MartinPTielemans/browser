@@ -28,6 +28,7 @@ use crate::tokens::palette::{
 };
 pub use crate::tokens::palette::SECOND_AT;
 pub use crate::tokens::palette::{STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STATE_SELECTED_HOVERED};
+use crate::tokens::shell::library::{COLUMN, LIBRARY_PLATE};
 use crate::tokens::palette::{ACCENT_HOVERED, ACCENT_PRESSED, INTENSITY_FLOOR, INTENSITY_SPAN, RING, SELECTION};
 /// The ends of the scale each family's text runs toward, which the accent's search needs, and the
 /// ground a swatch's colours are judged on.
@@ -83,6 +84,10 @@ pub struct Palette {
     pub accent: Rgba,
     /// Ink or Paper, whichever reads more on the accent.
     pub accent_label: Rgba,
+    /// The selected Library section's glyph: the accent where it reads on the column under the
+    /// section's plate, and otherwise the colour nearest it at its hue that does, so the accent
+    /// itself doesn't move for one glyph.
+    pub section_glyph: Rgba,
     /// The opaque fill of what floats over the page: the command bar, menus, the theme picker's
     /// panel, toasts, the zoom HUD.
     pub overlay: Rgba,
@@ -135,8 +140,9 @@ impl Palette {
         let (shade, layer_alpha) = window.fit();
         let palette = Palette::with(shade, layer_alpha, &window);
         let accent = palette.solve_accent(rgb(theme.main_color()), &window);
+        let section_glyph = palette.solve_section_glyph(accent, &window);
         let swatch = Swatch::of(Some(theme), &window);
-        Palette { accent, accent_label: label_on(accent), swatch, ..palette }
+        Palette { accent, accent_label: label_on(accent), section_glyph, swatch, ..palette }
     }
 
     /// No theme: the tinted material alone, never shaded, and ilo green, as light as it has to
@@ -145,8 +151,9 @@ impl Palette {
         let window = Window::of_none();
         let palette = Palette::with(0., 0., &window);
         let accent = palette.solve_accent(rgb(NO_THEME_ACCENT), &window);
+        let section_glyph = palette.solve_section_glyph(accent, &window);
         let swatch = Swatch::of(None, &window);
-        Palette { accent, accent_label: label_on(accent), swatch, ..palette }
+        Palette { accent, accent_label: label_on(accent), section_glyph, swatch, ..palette }
     }
 
     fn with(shade: f32, layer_alpha: f32, window: &Window) -> Palette {
@@ -161,6 +168,7 @@ impl Palette {
             glyph_floor: 0.,
             accent: ink,
             accent_label: ink,
+            section_glyph: ink,
             overlay: rgb(OVERLAY_DARK),
             dialog: rgb(DIALOG_DARK),
             overlay_floor: 0.,
@@ -221,6 +229,7 @@ impl Palette {
             glyph_floor: self.glyph_floor.max(other.glyph_floor),
             accent: mix(self.accent, other.accent),
             accent_label: near.accent_label,
+            section_glyph: mix(self.section_glyph, other.section_glyph),
             overlay: near.overlay,
             dialog: near.dialog,
             overlay_floor: self.overlay_floor.max(other.overlay_floor),
@@ -367,25 +376,41 @@ impl Palette {
                 && plain.iter().chain(&section).all(|&at| contrast(c, at) >= GLYPH + BETWEEN)
                 && target.iter().all(|&at| contrast(c, over(at, c, TARGET_ACCENT)) >= GLYPH + BETWEEN)
         };
-        let [l, a, b] = theme::oklab(main);
-        // A hundredth at a time, either way from its own lightness, the nearest first: with all
-        // its chroma the gamut allows, then half, then none.
-        for chroma in [1., 0.5, 0.] {
-            for step in 0..=100 {
-                for sign in [1., -1.] {
-                    let at = l + sign * step as f32 * 0.01;
-                    if !(0. ..=1.).contains(&at) || (step == 0 && sign < 0.) {
-                        continue;
-                    }
-                    let color = in_gamut(at, a * chroma, b * chroma);
-                    if passes(color) {
-                        return color;
-                    }
+        nearest(main, passes).unwrap_or(self.ink)
+    }
+
+    /// The accent, or the colour nearest it at its hue, that reads at 3:1 on the Library's column
+    /// under the selected section's plate, everywhere on the window.
+    fn solve_section_glyph(&self, accent: Rgba, window: &Window) -> Rgba {
+        let selected: Vec<Rgba> = (window.samples(self.shade, self.layer_alpha).iter())
+            .map(|&at| over(over(at, self.ink, COLUMN), self.ink, LIBRARY_PLATE))
+            .collect();
+        let passes = |c: Rgba| selected.iter().all(|&at| contrast(c, at) >= GLYPH + BETWEEN);
+        nearest(accent, passes).unwrap_or(self.ink)
+    }
+}
+
+/// The colour at `main`'s hue that `passes`, at the OKLab lightness nearest its own, with as much
+/// of its chroma as the gamut there allows.
+fn nearest(main: Rgba, passes: impl Fn(Rgba) -> bool) -> Option<Rgba> {
+    let [l, a, b] = theme::oklab(main);
+    // A hundredth at a time, either way from its own lightness, the nearest first: with all its
+    // chroma the gamut allows, then half, then none.
+    for chroma in [1., 0.5, 0.] {
+        for step in 0..=100 {
+            for sign in [1., -1.] {
+                let at = l + sign * step as f32 * 0.01;
+                if !(0. ..=1.).contains(&at) || (step == 0 && sign < 0.) {
+                    continue;
+                }
+                let color = in_gamut(at, a * chroma, b * chroma);
+                if passes(color) {
+                    return Some(color);
                 }
             }
         }
-        self.ink
     }
+    None
 }
 
 impl Swatch {

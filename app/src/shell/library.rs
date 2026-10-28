@@ -772,8 +772,8 @@ impl Shell {
         let Some(library) = &self.library else {
             return div();
         };
-        // The selected section's glyph has the Space's accent, as in Arc.
-        let color = Hsla::from(self.palette.accent);
+        // The selected section's glyph has the Space's accent, as in Arc, where it reads there.
+        let color = Hsla::from(self.palette.section_glyph);
         let sections = div()
             .flex()
             .flex_col()

@@ -63,6 +63,11 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
     check("selected row vs command bar", contrast(accent, palette.overlay), GLYPH);
     check("dialog action vs dialog", contrast(accent, palette.dialog), GLYPH);
     check("Library section glyph", against(&plated(SECTION_PLATE)), GLYPH);
+    // The selected section's glyph, on the Library's column under Arc's selected plate (#371).
+    use crate::tokens::shell::library::{COLUMN, LIBRARY_PLATE};
+    let selected: Vec<Rgba> = window.iter().map(|&at| over(over(at, ink, COLUMN), ink, LIBRARY_PLATE)).collect();
+    let glyph = palette.section_glyph;
+    check("selected Library section glyph", selected.iter().map(|&at| contrast(glyph, at)).fold(f32::MAX, f32::min), GLYPH);
     let targets: Vec<Rgba> = plated(TARGET_PLATE).iter().map(|&at| over(at, accent, TARGET_ACCENT)).collect();
     check("split target dashes", against(&targets), GLYPH);
     // What floats over the page.
@@ -268,6 +273,26 @@ fn the_pickers_card_and_captures_glyphs_read() {
     for ground in [0., STATE_HOVERED, STATE_PRESSED].map(|state| over(rgba(MENU_FILL), WHITE, state)) {
         assert!(contrast(over(ground, rgb(PAPER), GLYPH_COLOR), ground) >= GLYPH);
     }
+}
+
+/// With no theme over a white backdrop, ilo green reads under 3:1 on the Library's column under
+/// the selected section's plate, so that glyph alone takes the nearest colour at its hue that
+/// reads, and the accent stays. An accent that reads there is the glyph's colour as it is.
+#[test]
+fn the_selected_library_section_glyph_reads_without_moving_the_accent() {
+    use crate::tokens::shell::library::{COLUMN, LIBRARY_PLATE};
+    let none = Palette::of(None);
+    let selected: Vec<Rgba> = (none.window_samples(None).iter())
+        .map(|&at| over(over(at, none.ink, COLUMN), none.ink, LIBRARY_PLATE))
+        .collect();
+    let worst = |c: Rgba| selected.iter().map(|&at| contrast(c, at)).fold(f32::MAX, f32::min);
+    assert_eq!(hex(none.accent), 0x57b97a);
+    assert!(worst(none.accent) < GLYPH, "ilo green reads there: {:.2}", worst(none.accent));
+    assert!(worst(none.section_glyph) >= GLYPH + BETWEEN);
+    let (hue, glyph_hue) = (Hsla::from(none.accent).h, Hsla::from(none.section_glyph).h);
+    assert!((hue - glyph_hue).abs() < 0.02, "the glyph keeps ilo green's hue");
+    let violet = Palette::of(Some(&Theme::of_color(0x5a2a9a)));
+    assert_eq!(violet.section_glyph, violet.accent);
 }
 
 /// The themes that came out worst for each component in the design sweep, today's and v3's.
