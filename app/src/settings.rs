@@ -9,6 +9,7 @@ use std::ffi::CString;
 use std::rc::Rc;
 use std::time::Instant;
 
+use browser::agents::{self, Agents, Client};
 use browser::default_browser::{self, DefaultBrowser, Os};
 #[cfg(target_os = "linux")]
 use browser::dialog;
@@ -18,8 +19,8 @@ use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
-    KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
+    AnyElement, App, Bounds, ClipboardItem, Context, Entity, FocusHandle, Focusable, FontWeight,
+    Global, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
     TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
     canvas, div, point, prelude::*, px, rgb, rgba, size, svg,
 };
@@ -81,6 +82,8 @@ use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::LINK_PREVIEWS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
+use browser::tokens::settings::AGENTS_TILE;
+use browser::tokens::settings::CLIENT_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
 /// The chip's plate, as Paper's alpha, for the ladder to go over.
@@ -105,17 +108,19 @@ enum Tab {
     Import,
     Shortcuts,
     Privacy,
+    Agents,
     Advanced,
 }
 
 impl Tab {
-    const ALL: [Tab; 7] = [
+    const ALL: [Tab; 8] = [
         Tab::General,
         Tab::Profiles,
         Tab::Passwords,
         Tab::Import,
         Tab::Shortcuts,
         Tab::Privacy,
+        Tab::Agents,
         Tab::Advanced,
     ];
 
@@ -134,6 +139,7 @@ impl Tab {
             Tab::Import => "Import",
             Tab::Shortcuts => "Shortcuts",
             Tab::Privacy => "Privacy",
+            Tab::Agents => "Agents",
             Tab::Advanced => "Advanced",
         }
     }
@@ -146,6 +152,7 @@ impl Tab {
             Tab::Import => "icons/arrow-down-to-line.svg",
             Tab::Shortcuts => "icons/keyboard.svg",
             Tab::Privacy => "icons/lock.svg",
+            Tab::Agents => "icons/sparkles.svg",
             Tab::Advanced => "icons/sliders-horizontal.svg",
         }
     }
@@ -305,6 +312,8 @@ pub struct Settings {
     /// can't go over it on Linux.
     #[cfg(target_os = "linux")]
     dialog: Entity<dialog::Dialog>,
+    /// Draws the Agents tab again as the agents change.
+    _agents: Option<Subscription>,
 }
 
 /// Settings' dialog, which it draws in its own content, so there's nothing to show.
@@ -317,6 +326,9 @@ impl dialog::Host for InWindow {
 
     fn hide(&self) {}
 }
+
+/// The activity the Agents tab lists, newest first: the log keeps more, for the run.
+const ACTIVITY_SHOWN: usize = 50;
 
 /// The system's default browser, for General's row.
 struct System;
@@ -531,10 +543,13 @@ fn open(cx: &mut App) {
                 .detach();
                 dialog
             };
+            let agents = agents::global(cx);
+            let agents = agents.map(|agents| cx.observe(&agents, |_, _, cx| cx.notify()));
             Settings {
                 #[cfg(target_os = "linux")]
                 dialog,
                 default_browser,
+                _agents: agents,
                 tab: Tab::General,
                 focus: cx.focus_handle(),
                 switched: None,
@@ -854,7 +869,7 @@ impl Settings {
         &self,
         name: &'static str,
         on: bool,
-        set: fn(bool),
+        set: impl Fn(bool, &mut App) + 'static,
         accent: Rgba,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -869,7 +884,7 @@ impl Settings {
             .on_click(cx.listener(move |settings, _, _, cx| {
                 // check.sh waits for this line.
                 log!("browser: {name} {}", if on { "off" } else { "on" });
-                set(!on);
+                set(!on, cx);
                 settings.switched = Some((name, Instant::now()));
                 cx.notify();
             }))
@@ -1280,6 +1295,119 @@ impl Settings {
         }
     }
 
+    /// The switch that lets agents in, the clients to connect, and what the agents did in this
+    /// run, newest first.
+    fn agents(&self, agents: &Entity<Agents>, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
+        let on = agents.read(cx).is_on();
+        let switch = {
+            let agents = agents.clone();
+            let set = move |on, cx: &mut App| agents.update(cx, |agents, cx| agents.set_on(on, cx));
+            self.toggle("agents", on, set, accent, cx)
+        };
+        let model = agents.read(cx);
+        let about: SharedString = match model.trouble() {
+            Some(trouble) => trouble,
+            None if on => format!("Agents reach {} at {}", env!("APP_NAME"), model.url()).into(),
+            None => "They work in a Space of their own, which you can watch, and never see your \
+                     passwords, cookies or autofill."
+                .into(),
+        };
+        let clients = Client::ALL.map(|client| self.client(agents, client, cx));
+        let model = agents.read(cx);
+        let entries: Vec<gpui::Div> = (model.recent().take(ACTIVITY_SHOWN))
+            .map(|entry| {
+                let name = Client::from_id(&entry.agent);
+                let name = name.map_or(entry.agent.clone(), |client| client.name().into());
+                let what = format!("{name} · {}", agents::tools::describe(&entry.action));
+                let detail: SharedString = match entry.refused.is_empty() {
+                    true => entry.site.clone(),
+                    false => format!("Refused: {}", entry.refused).into(),
+                };
+                let ago = agents::ago(entry.at, std::time::SystemTime::now());
+                described(None, what.into(), Some(detail).filter(|detail| !detail.is_empty()))
+                    .child(div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(ago))
+            })
+            .collect();
+        let activity = match entries.is_empty() {
+            true => group(&RowLook::settings(), [described(None, "Nothing yet".into(), Some(
+                "What agents do while the browser runs shows here.".into(),
+            ))]),
+            false => group(&RowLook::settings(), entries),
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(BOX_GAP))
+            .child(group(&RowLook::settings(), [described(
+                Some(("icons/sparkles.svg", AGENTS_TILE)),
+                "Let agents use the browser".into(),
+                Some(about),
+            )
+            .child(div().flex_none().ml(px(PADDING)).child(switch))]))
+            .child(group(&RowLook::settings(), clients))
+            .child(
+                div()
+                    .mt(px(SECTION_GAP - BOX_GAP))
+                    .mb(px(HEADER_GAP - BOX_GAP))
+                    .pl(px(PADDING))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("Activity"),
+            )
+            .child(activity)
+            .into_any_element()
+    }
+
+    /// A client's row: whether it's connected, and Connect, or Disconnect, with Copy Setup for a
+    /// client the browser can't set up itself.
+    fn client(&self, agents: &Entity<Agents>, client: Client, cx: &mut Context<Self>) -> gpui::Div {
+        let model = agents.read(cx);
+        let connected = model.is_connected(client);
+        let detail: SharedString = if let Some(why) = model.failure(client) {
+            why
+        } else if model.is_connecting(client) {
+            "Connecting…".into()
+        } else if connected && model.is_live(client) {
+            "Connected, and at work".into()
+        } else if connected && client == Client::Other {
+            "Connected: paste its setup into the client".into()
+        } else if connected {
+            format!("Connected in {}", client.config()).into()
+        } else if client == Client::Other {
+            "Any client that speaks MCP over HTTP".into()
+        } else {
+            "Not connected".into()
+        };
+        let index = client as usize;
+        let setup = (connected && client == Client::Other).then(|| model.setup(client)).flatten();
+        let copy = setup.map(|setup| {
+            button(&RowLook::settings(), ("copy-agent-setup", index), "Copy Setup").on_click(move |_, _, cx| {
+                // check.sh reads this line.
+                log!("browser: agent setup copied");
+                cx.write_to_clipboard(ClipboardItem::new_string(setup.clone()));
+            })
+        });
+        let agents = agents.clone();
+        let action = match connected {
+            true => button(&RowLook::settings(), ("disconnect-agent", index), "Disconnect").on_click(move |_, _, cx| {
+                agents.update(cx, |agents, cx| agents.disconnect(client, cx))
+            }),
+            false => button(&RowLook::settings(), ("connect-agent", index), "Connect").on_click(move |_, _, cx| {
+                // check.sh reads this line.
+                log!("browser: connect agent {}", client.id());
+                agents.update(cx, |agents, cx| agents.connect(client, cx))
+            }),
+        };
+        let icon = match client {
+            Client::ClaudeCode => "icons/terminal.svg",
+            Client::Codex => "icons/square-terminal.svg",
+            Client::Other => "icons/cable.svg",
+        };
+        described(Some((icon, CLIENT_TILE)), client.name().into(), Some(detail))
+            .min_h(px(PROFILE_ROW))
+            .children(copy.map(|copy| copy.ml(px(PADDING))))
+            .child(action.ml(px(PADDING)))
+    }
+
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
@@ -1506,24 +1634,24 @@ const _: () = {
     assert!(bc::BC_FAVORITES_SPACE == 2);
 };
 
-fn set_warn_before_quitting(warn: bool) {
+fn set_warn_before_quitting(warn: bool, _: &mut App) {
     unsafe { bc::bc_set_warn_before_quitting(warn) };
 }
 
-fn set_unload_idle_tabs(unload: bool) {
+fn set_unload_idle_tabs(unload: bool, _: &mut App) {
     unsafe { bc::bc_set_unload_idle_tabs(unload) };
 }
 
 /// In every profile; a site's own stays as the user set it in the Site Controls.
-fn set_ad_blocking(on: bool) {
+fn set_ad_blocking(on: bool, _: &mut App) {
     unsafe { bc::bc_set_ad_blocking(on) };
 }
 
-fn set_haptics(haptics: bool) {
+fn set_haptics(haptics: bool, _: &mut App) {
     unsafe { bc::bc_set_haptics(haptics) };
 }
 
-fn set_send_crash_reports(send: bool) {
+fn set_send_crash_reports(send: bool, _: &mut App) {
     unsafe { bc::bc_set_send_crash_reports(send) };
 }
 
@@ -1536,7 +1664,7 @@ fn crash_reports_collector() -> String {
     String::from_utf8_lossy(&host).into_owned()
 }
 
-fn set_link_previews(previews: bool) {
+fn set_link_previews(previews: bool, _: &mut App) {
     unsafe { bc::bc_set_link_previews(previews) };
 }
 
@@ -1569,6 +1697,24 @@ fn detailed_row(
                 ),
         )
         .children(control.map(|control| div().flex_none().ml(px(PADDING)).child(control)))
+}
+
+/// A row with a line under its name that says more, and room after for its controls.
+fn described(
+    icon: Option<(&'static str, u32)>,
+    name: SharedString,
+    detail: Option<SharedString>,
+) -> gpui::Div {
+    let detail = detail.map(|detail| {
+        div().text_size(px(text::SMALL)).text_color(rgb(DETAIL)).child(detail)
+    });
+    div()
+        .px(px(PADDING))
+        .py(px(PADDING))
+        .flex()
+        .items_center()
+        .children(icon.map(|(glyph, color)| tile(glyph, color)))
+        .child(div().flex_1().min_w_0().child(div().truncate().child(name)).children(detail))
 }
 
 /// Keys as a chip, as the command bar shows a command's, in `color`.
@@ -1659,6 +1805,10 @@ impl Render for Settings {
             Tab::Privacy => self.privacy(accent, cx),
             Tab::Import => match &self.import {
                 Some(import) => import.clone().into_any_element(),
+                None => div().into_any_element(),
+            },
+            Tab::Agents => match agents::global(cx) {
+                Some(agents) => self.agents(&agents, accent, cx),
                 None => div().into_any_element(),
             },
             Tab::Advanced => self.advanced(accent, cx),
