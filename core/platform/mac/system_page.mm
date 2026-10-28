@@ -816,6 +816,16 @@ bool SystemPage::Available() {
 }
 
 // static
+bool SystemPage::OpensListedSites() {
+  return Available();
+}
+
+// static
+bool SystemPage::Offered(std::string_view, bool) {
+  return Available();
+}
+
+// static
 std::unique_ptr<SystemPage> SystemPage::Create(const SystemStore& store,
                                                const GURL& url,
                                                Delegate* delegate) {

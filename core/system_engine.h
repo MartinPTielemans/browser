@@ -17,9 +17,10 @@ class NavigationThrottleRegistry;
 
 namespace browser_core::system_engine {
 
-// The system's engine, WebKit on the Mac, shows a tab's page in place of Chromium's for a site
-// whose protected video only it plays (decision 1). A short built-in list of streaming services
-// opens there from the first visit. For any other site the user switches a tab to it once, from
+// The system's engine, WebKit on the Mac and WebView2 on Windows, shows a tab's page in place of
+// Chromium's for a site whose protected video only it plays (decision 1). Where Chromium plays
+// none of them, a short built-in list of streaming services opens there from the first visit. For
+// any other site, and for every site on Windows 11, the user switches a tab to it once, from
 // the protected-media note, and the profile keeps the site: its pages open in the system's engine
 // from then on. Site Controls turns either off, per profile. A tab goes back to Chromium at another
 // site. Agents never act in it, as the browser can't keep their rules in an engine whose pages it
