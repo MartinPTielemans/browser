@@ -535,6 +535,7 @@ fn ns_view(window: &Window) -> *mut c_void {
     match HasWindowHandle::window_handle(window).map(|handle| handle.as_raw()) {
         Ok(RawWindowHandle::AppKit(handle)) => handle.ns_view.as_ptr(),
         Ok(RawWindowHandle::Win32(handle)) => handle.hwnd.get() as *mut c_void,
+        Ok(RawWindowHandle::Xcb(handle)) => handle.window.get() as usize as *mut c_void,
         _ => panic!("the window has no native view"),
     }
 }
