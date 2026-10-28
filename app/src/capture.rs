@@ -95,13 +95,13 @@ impl Action {
         }
     }
 
-    /// Phosphor's nearest to Arc's SF Symbols.
+    /// Lucide's nearest to Arc's SF Symbols.
     fn glyph(self) -> &'static str {
         match self {
-            Action::SendTo | Action::Copy => "icons/space/copy-fill.svg",
-            Action::Save => "icons/capture/tray-arrow-down-fill.svg",
-            Action::Messages => "icons/capture/chat-circle-fill.svg",
-            Action::Retake => "icons/capture/arrow-counter-clockwise-bold.svg",
+            Action::SendTo | Action::Copy => "icons/copy.svg",
+            Action::Save => "icons/download.svg",
+            Action::Messages => "icons/message-circle.svg",
+            Action::Retake => "icons/rotate-ccw.svg",
         }
     }
 
