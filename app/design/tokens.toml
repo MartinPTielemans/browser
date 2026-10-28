@@ -307,6 +307,60 @@ text-size = 12.0
 secondary = 0xffffff99
 primary = 0xffffff
 
+[menu]
+# ilo's own context menu (ours, #331): 24 pt rows of 13 pt text in an opaque panel, Ink-2 in a dark
+# window and Paper-0 in a light one.
+row = 24.0
+# A row's corner is the control radius, and the panel's is concentric with it, PADDING out: 6 + 4.
+row-radius = 6.0
+padding = 4.0
+radius = 10.0
+# A row's text starts this far inside it, so 12 from the panel's edge.
+row-x = 8.0
+# A line between groups: 1 pt in the middle of this, 8 in from the rows' text.
+line = 9.0
+text = 13.0
+# Between the check, the title and what trails it.
+gap = 6.0
+check = 12.0
+chevron = 12.0
+min-width = 200.0
+max-width = 320.0
+# How far a submenu lies over its parent, so their rows line up.
+overlap = 4.0
+# How far inside the screen's work area a menu stays.
+edge = 8.0
+# The popover elevation's shadow: down this far, blurred this much.
+shadow-y = 8.0
+shadow-blur = 24.0
+dark-fill = 0x2a27_20ff
+dark-rim = 0xffff_ff1f
+dark-shadow = 0x0000_0059
+dark-label = 0xf3f0_e8eb
+# Shortcuts and chevrons.
+dark-secondary = 0xf3f0_e88c
+dark-line = 0xf3f0_e81a
+dark-disabled = 0xf3f0_e861
+# A destructive item's label: Delete Space, a folder or a profile, Delete from Archive.
+dark-destructive = 0xf07a_63ff
+light-fill = 0xf3f0_e8ff
+light-rim = 0x1614_0f24
+light-shadow = 0x1614_0f33
+light-label = 0x1614_0fe6
+light-secondary = 0x1614_0f9e
+light-line = 0x1614_0f1a
+light-disabled = 0x1614_0f61
+light-destructive = 0xb326_1eff
+# A destructive item's highlight, with a Paper label on it.
+destructive-fill = 0xb326_1eff
+destructive-label = 0xf3f0_e8ff
+# Ink over the highlight while the button is down on it.
+pressed = 0x1614_0f2e
+# The highlight and its label until the palette (#335) gives each Space's accent by the contrast
+# rule: the no-theme accent with an Ink label.
+highlight = 0x2890_54ff
+highlight-label = 0x1614_0fff
+
 [offer]
 width = 320.0
 inset = 16.0

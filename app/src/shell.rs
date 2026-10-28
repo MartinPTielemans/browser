@@ -864,6 +864,8 @@ pub struct Shell {
     retip: bool,
     /// The tab whose menu is up, whose row keeps its hover fill until the menu closes.
     menu_row: Option<u64>,
+    /// ilo's own menu is up, which keeps the reveal's panel out while the pointer is on it.
+    menu_open: bool,
     /// Rows the pointer left, whose hover fill is fading, and since when.
     unhovered: Vec<(Row, Instant)>,
     /// The row the pointer pressed, for its plate's shrinking and growing back.
@@ -1139,6 +1141,7 @@ impl Shell {
             page_keyed: false,
             retip: false,
             menu_row: None,
+            menu_open: false,
             unhovered: Vec::new(),
             held_row: None,
             slides: HashMap::new(),

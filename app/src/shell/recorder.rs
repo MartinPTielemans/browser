@@ -62,6 +62,8 @@ pub(super) struct Recorder {
     pub(super) menus: RefCell<Vec<Vec<(SharedString, bool)>>>,
     /// The last menus it was asked to show, item by item.
     pub(super) entries: RefCell<Vec<MenuEntry>>,
+    /// The look of each of ilo's own menus it was asked to show, as `menus` has them.
+    pub(super) menu_looks: RefCell<Vec<crate::menu::Look>>,
     /// What the menu bar was last asked to show, and the window's title.
     pub(super) menu_bar: RefCell<MenuBar>,
     pub(super) window_title: RefCell<String>,
@@ -502,6 +504,19 @@ impl Browser for Recorder {
         self.menus.borrow_mut().push(items);
         *self.entries.borrow_mut() = entries;
         *self.answer.borrow_mut() = Some(answer);
+    }
+
+    fn context_menu(
+        &self,
+        entries: Vec<MenuEntry>,
+        position: Point<Pixels>,
+        in_reveal: bool,
+        look: crate::menu::Look,
+        answer: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        cx: &mut App,
+    ) {
+        self.menu_looks.borrow_mut().push(look);
+        self.menu(entries, position, None, in_reveal, answer, cx);
     }
 
     fn confirm(

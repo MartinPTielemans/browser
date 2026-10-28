@@ -29,6 +29,7 @@ pub mod dialog;
 pub mod dock_dot;
 pub mod icon_picker;
 pub mod link_target;
+pub mod menu;
 pub mod offer;
 pub mod shell;
 pub mod site_controls;

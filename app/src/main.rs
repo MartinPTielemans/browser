@@ -12,7 +12,7 @@ use std::{
 
 use browser::window_frames::{self, Frame};
 use browser::{
-    capture, command_bar, dialog, dock_dot, icon_picker, link_target, log, offer, site_controls,
+    capture, command_bar, dialog, dock_dot, icon_picker, link_target, log, menu, offer, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -225,6 +225,22 @@ mod platform {
         pub fn host_show_dialog(ui_view: *mut c_void);
         pub fn host_hide_dialog();
         pub fn host_add_site_controls(view: *mut c_void, dismissed: extern "C" fn());
+        pub fn host_add_menu_window(
+            view: *mut c_void,
+            pointer: extern "C" fn(kind: i32, x: f64, y: f64) -> bool,
+            dismissed: extern "C" fn(),
+            choose: extern "C" fn(title: *const c_char) -> bool,
+        );
+        pub fn host_show_menu_window(
+            ui_view: *mut c_void,
+            in_reveal: bool,
+            left: f64,
+            top: f64,
+            width: f64,
+            height: f64,
+        );
+        pub fn host_hide_menu_window();
+        pub fn host_menu_area(ui_view: *mut c_void, in_reveal: bool, area: *mut f64);
         pub fn host_show_site_controls(
             ui_view: *mut c_void,
             left: f64,
@@ -834,6 +850,55 @@ impl site_controls::Host for SiteControlsHost {
             None => tooltip::dismiss(cx),
         }
     }
+}
+
+thread_local! {
+    /// The UI's view of the browser window ilo's menu shows over, and whether in its reveal's panel.
+    static MENU_OVER: Cell<(*mut c_void, bool)> = const { Cell::new((std::ptr::null_mut(), false)) };
+}
+
+/// ilo's menu's requests, to the host's window for it.
+struct MenuHost;
+
+impl menu::Host for MenuHost {
+    fn show(&self, frame: Bounds<Pixels>) {
+        let (ui_view, in_reveal) = MENU_OVER.get();
+        let (left, top) = (f64::from(frame.origin.x), f64::from(frame.origin.y));
+        let (width, height) = (f64::from(frame.size.width), f64::from(frame.size.height));
+        unsafe { platform::host_show_menu_window(ui_view, in_reveal, left, top, width, height) };
+    }
+
+    fn hide(&self) {
+        unsafe { platform::host_hide_menu_window() };
+    }
+}
+
+/// A pointer event anywhere in the app while ilo's menu shows, at `x`, `y` from its window's top
+/// left. Returns whether the menu takes it.
+extern "C" fn menu_pointer(kind: i32, x: f64, y: f64) -> bool {
+    let event = match kind {
+        0 => menu::Pointer::Moved,
+        1 => menu::Pointer::Pressed,
+        2 => menu::Pointer::RightPressed,
+        3 => menu::Pointer::Released,
+        _ => menu::Pointer::Scrolled,
+    };
+    let mut taken = false;
+    update_app(|cx| taken = menu::pointer(event, point(px(x as f32), px(y as f32)), cx));
+    taken
+}
+
+/// The user left ilo's menu: another window or app, or its browser window changing.
+extern "C" fn menu_dismissed() {
+    update_app(menu::dismissed);
+}
+
+/// The driver chooses `title` in ilo's menu.
+extern "C" fn menu_choose(title: *const c_char) -> bool {
+    let title = unsafe { CStr::from_ptr(title) }.to_string_lossy().into_owned();
+    let mut chosen = false;
+    update_app(|cx| chosen = menu::choose(&title, cx));
+    chosen
 }
 
 /// The user left the Site Controls: a click outside them, another window or another app.
@@ -1750,6 +1815,29 @@ impl Browser for Engine {
             cx.update(|cx| chosen(index, cx));
         })
         .detach();
+    }
+
+    fn context_menu(
+        &self,
+        items: Vec<MenuEntry>,
+        at: Point<Pixels>,
+        in_reveal: bool,
+        look: menu::Look,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        cx: &mut App,
+    ) {
+        let ui_view = self.ui_view;
+        with_overlays(
+            move |cx| {
+                MENU_OVER.set((ui_view, in_reveal));
+                let mut area = [0f64; 4];
+                unsafe { platform::host_menu_area(ui_view, in_reveal, area.as_mut_ptr()) };
+                let [left, top, right, bottom] = area.map(|edge| px(edge as f32));
+                let area = Bounds::from_corners(point(left, top), point(right, bottom));
+                menu::show(menu::Request { items, at, area, look, chosen }, cx);
+            },
+            cx,
+        );
     }
 
     fn confirm(
@@ -2804,6 +2892,11 @@ fn finish_opening(
     {
         host.view.set(view);
         unsafe { platform::host_add_site_controls(view, site_controls_dismissed) };
+    }
+    if let Some(menu) = menu::open(Rc::new(MenuHost), cx)
+        && let Ok(view) = menu.update(cx, |_, window, _| ns_view(window))
+    {
+        unsafe { platform::host_add_menu_window(view, menu_pointer, menu_dismissed, menu_choose) };
     }
     if let Some(tip) = tooltip::open(Rc::new(TooltipHost), cx)
         && let Ok(view) = tip.update(cx, |_, window, _| ns_view(window))

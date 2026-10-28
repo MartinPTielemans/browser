@@ -220,6 +220,18 @@ pub trait Browser {
         chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
     );
+    /// Shows ilo's own menu of `items` (`menu`'s are the system's) at `position` in the window, or
+    /// in the reveal's panel if `in_reveal`, in `look`, as a right-click there does. Then calls
+    /// `chosen` once it closes, with the index of the item chosen, if any.
+    fn context_menu(
+        &self,
+        items: Vec<MenuEntry>,
+        position: Point<Pixels>,
+        in_reveal: bool,
+        look: crate::menu::Look,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        cx: &mut App,
+    );
     /// Asks whether to do what `message` asks, with `detail` under it, and calls `confirmed` if the
     /// user chooses `action` over Cancel.
     fn confirm(

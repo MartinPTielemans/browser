@@ -7,6 +7,7 @@ fn main() {
         .cpp(true)
         .file("platform/mac/host.mm")
         .file("platform/mac/drive.mm")
+        .file("platform/mac/menu_window.mm")
         .file("platform/mac/emoji.mm")
         .file("platform/mac/dock.mm")
         // The driver calls the core for what only agent code will, once there is some.

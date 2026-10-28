@@ -20,7 +20,7 @@ use super::{
     name_box, plate, row_box, space_icon, spring_to, split_plate, still_clear, title,
     header::TipSide,
 };
-use crate::text_input::TextInput;
+use crate::{menu::Look, text_input::TextInput};
 
 use crate::tokens::shell::library::LIBRARY_WIDTH;
 /// The push, on Arc's measured spring (1 run, rms 1.0 pt). The Library comes with it from its own
@@ -710,14 +710,14 @@ impl Shell {
             MenuEntry::new("Restore Tab", true),
             MenuEntry::new("Copy URL", true),
             MenuEntry::line(),
-            MenuEntry::new("Delete from Archive", true),
+            MenuEntry::new("Delete from Archive", true).destructive(),
         ];
         let shell = cx.weak_entity();
-        self.browser.menu(
+        self.browser.context_menu(
             entries,
             position,
-            None,
             false,
+            Look::Dark,
             Box::new(move |chosen, cx| {
                 shell
                     .update(cx, |shell, cx| match chosen {
