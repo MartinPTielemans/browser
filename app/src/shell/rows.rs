@@ -103,8 +103,12 @@ impl Shell {
                 plate.bg(self.palette.plate(HOVERED).opacity(hover))
             })
             // Pressed, a tab's row has the selected fill before the core answers its press, and a
-            // folder's keeps its hover fill, as Arc's do.
-            .when(!selected && dragging != Some(slot) && !folder, |plate| {
+            // folder's keeps its hover fill, as Arc's do. The held row says so, not GPUI's pressed
+            // state, which outlives the release of a press that selected its row.
+            .when(self.pressed(row) && !selected && dragging != Some(slot) && !folder, |plate| {
+                plate.bg(self.palette.plate(SELECTED))
+            })
+            .when(row == Row::NewTab && !selected, |plate| {
                 // GPUI keeps an element's pressed state only once a listener gives it a hitbox.
                 plate
                     .on_mouse_down(MouseButton::Left, |_, _, _| {})
@@ -168,6 +172,12 @@ impl Shell {
                 .aria_selected(selected)
                 .pressed_by_mouse_down(true, true),
         }
+    }
+
+    /// Whether `row` is a tab's that's pressed and not yet let go.
+    pub(super) fn pressed(&self, row: Row) -> bool {
+        let held = self.held_row.as_ref().filter(|held| held.let_go.is_none());
+        held.is_some_and(|held| row == Row::Tab(held.tab))
     }
 
     /// How full `row`'s hover fill is: full under the pointer or with its menu up, and for the
@@ -1613,6 +1623,35 @@ mod tests {
             rows.filter(|&tab| shell.hover_fill(Row::Tab(tab)).is_some_and(|fill| fill > 0.))
                 .collect()
         })
+    }
+
+    /// A row whose press showed its tab before it was let go reads as pressed only while it's
+    /// held: once another tab is shown, by a key or the core, it reads as neither pressed nor
+    /// selected (#427).
+    #[gpui::test]
+    fn a_row_let_go_is_not_drawn_pressed_once_another_is_shown(cx: &mut TestAppContext) {
+        let (shell, cx, host) = window(cx, vec![2], vec![3, 4], 3);
+        let (x, y) = close_button(&shell, cx, 4);
+        let middle = point(px(x - 100.), px(y));
+        let pressed = |shell: &Entity<Shell>, cx: &mut VisualTestContext| {
+            shell.read_with(cx, |shell, _| shell.pressed(Row::Tab(4)))
+        };
+        host.take();
+        cx.simulate_mouse_down(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(pressed(&shell, cx), "held");
+        // The core answers the press before the row is let go.
+        shell.update(cx, |shell, cx| shell.set_selected(4, cx));
+        cx.run_until_parked();
+        cx.simulate_mouse_up(middle, MouseButton::Left, Modifiers::none());
+        cx.run_until_parked();
+        assert!(!pressed(&shell, cx), "let go");
+        // Then the pointer leaves for the page, and a key shows the tab before.
+        cx.simulate_mouse_move(point(px(900.), px(y)), None, Modifiers::none());
+        shell.update(cx, |shell, cx| shell.set_selected(3, cx));
+        cx.run_until_parked();
+        assert!(!pressed(&shell, cx), "another tab shown");
+        assert_eq!(filled(&shell, cx), Vec::<u64>::new());
     }
 
     /// After a click on a tab and back to the one before, by a click or a key in the UI or in the
