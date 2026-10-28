@@ -163,6 +163,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Whether its Browsers stay with no tabs left: a private window's does while the window is
   // open, as it holds the private session, which ends once the profile's last Browser has gone.
   bool KeepsBrowsers() const;
+  // Whether the window is full screen because a page took it there, not the user, so it leaves
+  // with the page.
+  bool FullScreenForPage() const;
 
   // Shows |space| and the tab the window last showed there, else its top Today tab, else its top
   // pinned tab, else no page, passing over tabs another window shows. With |page| false, no page,
@@ -327,9 +330,6 @@ class Window : public web_modal::WebContentsModalDialogHost,
   BrowserWindowInterface* BrowserFor(Profile* profile);
   // From the platform's window, as it starts to leave full screen: a page full screen leaves now.
   void LeavingFullScreen();
-  // Whether the window is full screen because a page took it there, not the user, so it leaves
-  // with the page.
-  bool FullScreenForPage() const;
 
   // Opens |saved|, a closed tab, without its page, at |index| in |space|'s Today tabs, else at the
   // top of the Space the window shows. Returns its id, or 0.
