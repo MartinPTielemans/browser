@@ -113,13 +113,16 @@ echo "target_os = ['win']" >"$work/.gclient"
 
 # ungoogled-chromium's GN args and ungoogled-chromium-windows's, less its LLVM's version, and with
 # portablelinux's sysroot and V8 metagen settings for the Linux host, which builds the build's
-# tools.
+# tools. V8's snapshot goes into chrome.dll: a cross build has no context snapshot, as making one
+# would build Blink for Linux too, and the plain snapshot_blob.bin it would load instead is in
+# neither FILES.cfg nor mini_installer's dependencies, which stops gn gen.
 write_args() {
   mkdir -p "$1"
   {
     awk 1 "$_main_repo/flags.gn"
     grep -vE '^(clang_version|use_sysroot)=' "$ucw/flags.windows.gn"
-    printf '%s\n' 'target_os="win"' 'use_sysroot=true' 'v8_use_metagen_instance_types=false'
+    printf '%s\n' 'target_os="win"' 'use_sysroot=true' 'v8_use_metagen_instance_types=false' \
+      'v8_use_external_startup_data=false'
   } >"$1/args.gn"
 }
 
