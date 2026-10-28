@@ -1,0 +1,278 @@
+//! Arc's sidebar, read from its `StorableSidebar.json`: the Spaces with their names, icons,
+//! themes and profiles, each Space's pinned tabs and folders, and each profile's favorites.
+//!
+//! The file is Swift's Codable encoding, as the public readers of it describe it (radian,
+//! notarc): a dictionary is a flat array of key, value, key, value; an enum is an object with one
+//! key, its value under `_0`; a colour is `red`, `green` and `blue` in extended sRGB, which can
+//! leave 0 to 1. Every node of the sidebar is an item, found by its id, and a node's children are
+//! its `childrenIds`, in order, some of which may name items that are gone.
+
+use std::collections::{HashMap, HashSet};
+
+use serde_json::Value;
+
+use super::found::{Found, FromProfile, Node, Space, Tab, opens_here};
+use crate::theme::{Appearance, MAX_COLORS, Theme};
+
+/// The sidebar `json` holds, or why it can't be read.
+pub fn parse(json: &str) -> Result<Found, String> {
+    let root: Value = serde_json::from_str(json).map_err(|error| error.to_string())?;
+    let containers = root
+        .pointer("/sidebar/containers")
+        .and_then(Value::as_array);
+    // The first is `{"global": {}}`; Little Arc can add others, so the one with Spaces is it.
+    let container = containers
+        .and_then(|all| all.iter().find(|each| each.get("spaces").is_some()))
+        .ok_or("no Spaces in Arc's sidebar")?;
+    let items: HashMap<&str, &Value> = objects(container.get("items"))
+        .filter_map(|item| Some((item.get("id")?.as_str()?, item)))
+        .collect();
+    let reader = Reader { items };
+    let spaces = objects(container.get("spaces"))
+        .map(|space| reader.space(space))
+        .collect();
+    let tops = container
+        .get("topAppsContainerIDs")
+        .and_then(Value::as_array);
+    let favorites = tops
+        .into_iter()
+        .flat_map(|tops| tops.chunks(2))
+        .filter_map(|pair| {
+            let profile = profile(pair.first()?)?;
+            let tabs = reader.tabs(pair.get(1)?.as_str()?);
+            Some((profile, tabs))
+        })
+        .collect();
+    Ok(Found {
+        spaces,
+        favorites,
+        history: Vec::new(),
+    })
+}
+
+/// The objects of a flat array of ids and objects, skipping the ids.
+fn objects(array: Option<&Value>) -> impl Iterator<Item = &Value> {
+    array
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|each| each.is_object())
+}
+
+/// `{"default": true}` or `{"custom": {"_0": {"directoryBasename": …}}}`.
+fn profile(value: &Value) -> Option<FromProfile> {
+    if value.get("default").is_some() {
+        return Some(FromProfile::Default);
+    }
+    let dir = value.pointer("/custom/_0/directoryBasename")?.as_str()?;
+    Some(FromProfile::of(dir))
+}
+
+struct Reader<'a> {
+    items: HashMap<&'a str, &'a Value>,
+}
+
+impl Reader<'_> {
+    fn space(&self, space: &Value) -> Space {
+        let name = space
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let info = space.get("customInfo");
+        Space {
+            name: if name.trim().is_empty() {
+                "Space".into()
+            } else {
+                name.into()
+            },
+            profile: space
+                .get("profile")
+                .and_then(profile)
+                .unwrap_or(FromProfile::Default),
+            icon: info
+                .and_then(|info| info.get("iconType"))
+                .map(icon)
+                .unwrap_or_default(),
+            theme: info
+                .and_then(|info| info.get("windowTheme"))
+                .and_then(theme),
+            pinned: pinned_container(space)
+                .map(|id| self.nodes(id, &mut HashSet::new()))
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The children of `id`, tabs and folders, with each split view's tabs in its place.
+    fn nodes(&self, id: &str, seen: &mut HashSet<String>) -> Vec<Node> {
+        // A file that names a folder inside itself would otherwise never end.
+        if !seen.insert(id.into()) {
+            return Vec::new();
+        }
+        let children = self.items.get(id).and_then(|item| item.get("childrenIds"));
+        let children = children.and_then(Value::as_array).into_iter().flatten();
+        let mut nodes = Vec::new();
+        for child in children.filter_map(Value::as_str) {
+            let Some(item) = self.items.get(child) else {
+                continue;
+            };
+            let Some(data) = item.get("data") else {
+                continue;
+            };
+            if let Some(tab) = data.get("tab") {
+                nodes.extend(self.tab(item, tab).map(Node::Tab));
+            } else if seen.contains(child) {
+                continue;
+            } else if data.get("list").is_some() {
+                let name = item
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let name = if name.trim().is_empty() {
+                    "Folder"
+                } else {
+                    name
+                };
+                nodes.push(Node::Folder {
+                    name: name.into(),
+                    children: self.nodes(child, seen),
+                });
+            } else if data.get("splitView").is_some() {
+                nodes.extend(self.nodes(child, seen));
+            }
+        }
+        nodes
+    }
+
+    /// The tabs under `id`, folders and split views flattened, as favorites have no folders.
+    fn tabs(&self, id: &str) -> Vec<Tab> {
+        fn flatten(nodes: Vec<Node>, tabs: &mut Vec<Tab>) {
+            for node in nodes {
+                match node {
+                    Node::Tab(tab) => tabs.push(tab),
+                    Node::Folder { children, .. } => flatten(children, tabs),
+                }
+            }
+        }
+        let mut tabs = Vec::new();
+        flatten(self.nodes(id, &mut HashSet::new()), &mut tabs);
+        tabs
+    }
+
+    /// A tab whose page can open here: Arc's own pages and other browsers' can't.
+    fn tab(&self, item: &Value, tab: &Value) -> Option<Tab> {
+        let url = ["savedURL", "currentURL"]
+            .iter()
+            .filter_map(|key| tab.get(*key)?.as_str())
+            .find(|url| !url.is_empty())?;
+        if !opens_here(url) {
+            return None;
+        }
+        let name = item
+            .get("title")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        Some(Tab {
+            url: url.into(),
+            name: name.trim().into(),
+        })
+    }
+}
+
+/// The id of the item holding the Space's pinned tabs: after "pinned" in `containerIDs`, else
+/// after the object keyed "pinned" in `newContainerIDs`.
+fn pinned_container(space: &Value) -> Option<&str> {
+    let after = |key: &str, is: &dyn Fn(&Value) -> bool| {
+        let ids = space.get(key)?.as_array()?;
+        let at = ids.iter().position(is)?;
+        ids.get(at + 1)?.as_str()
+    };
+    after("containerIDs", &|each| each.as_str() == Some("pinned"))
+        .or_else(|| after("newContainerIDs", &|each| each.get("pinned").is_some()))
+}
+
+/// An emoji as it is; one of Arc's icons as the glyph of ours that draws the same thing, else none.
+fn icon(icon: &Value) -> String {
+    if let Some(emoji) = icon.get("emoji_v2").and_then(Value::as_str) {
+        return emoji.into();
+    }
+    if let Some(code) = icon.get("emoji").and_then(Value::as_u64) {
+        return char::from_u32(code as u32)
+            .map(String::from)
+            .unwrap_or_default();
+    }
+    let Some(name) = icon.get("icon").and_then(Value::as_str) else {
+        return String::new();
+    };
+    // Arc's names that differ from ours; the rest are tried as they are.
+    let ours = match name {
+        "flash" | "bolt" => "bolt",
+        "musicalNote" | "music" => "music",
+        "restaurant" | "forkKnife" => "fork-knife",
+        "airplane" | "plane" => "airplane",
+        "envelope" | "mail" => "envelope",
+        "book" | "books" => "book",
+        "pawprint" | "paw" => "paw",
+        "flame" | "campfire" => "campfire",
+        "person2" | "people" => "people",
+        "message" | "bubble" => "chat",
+        "doc" | "page" => "page",
+        "terminal" => "terminal",
+        "wrench" | "hammer" => "tools",
+        other => other,
+    };
+    let known = crate::space_icon::GLYPHS
+        .iter()
+        .position(|(each, _)| *each == ours);
+    known.map(crate::space_icon::glyph).unwrap_or_default()
+}
+
+/// The theme of Arc's `windowTheme`: its first colour as our main one, as many colours as it has
+/// up to ours, its intensity, its grain and its appearance. Arc places its colours freely, where
+/// ours keep set angles from the main one, so only the first keeps its exact colour.
+fn theme(window_theme: &Value) -> Option<Theme> {
+    let background = window_theme.pointer("/background/single/_0")?;
+    let style = background.pointer("/style/color/_0")?;
+    let (colors, modifiers) = if let Some(gradient) = style.pointer("/blendedGradient/_0") {
+        let colors: Vec<u32> = gradient
+            .get("baseColors")?
+            .as_array()?
+            .iter()
+            .filter_map(color)
+            .collect();
+        (colors, gradient.get("modifiers"))
+    } else {
+        let single = style.pointer("/blendedSingleColor/_0")?;
+        (vec![color(single.get("color")?)?], single.get("modifiers"))
+    };
+    let main = *colors.first()?;
+    let factor = |key: &str| {
+        modifiers?
+            .get(key)?
+            .as_f64()
+            .map(|value| value.clamp(0., 1.) as f32)
+    };
+    let appearance = match background
+        .get("contentOverBackgroundAppearance")
+        .and_then(Value::as_str)
+    {
+        Some("dark") => Appearance::Dark,
+        Some("light") => Appearance::Light,
+        _ => Appearance::Automatic,
+    };
+    let theme = Theme::of_color(main).with_count(colors.len().min(MAX_COLORS));
+    Some(Theme {
+        intensity: factor("intensityFactor").unwrap_or(theme.intensity),
+        grain: factor("noiseFactor").unwrap_or(0.),
+        appearance,
+        ..theme
+    })
+}
+
+/// 0xRRGGBB of an Arc colour, its extended sRGB brought into sRGB.
+fn color(color: &Value) -> Option<u32> {
+    let channel = |key: &str| {
+        let value = color.get(key)?.as_f64()?;
+        Some((value.clamp(0., 1.) * 255.).round() as u32)
+    };
+    Some(channel("red")? << 16 | channel("green")? << 8 | channel("blue")?)
+}

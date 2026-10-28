@@ -334,6 +334,8 @@ void host_copy(const char* text) {}
 
 void host_open_in_safari(const char* url) {}
 
+void host_open_full_disk_access(void) {}
+
 void host_share(void* ui_view, double x, double y, double width, double height, const char* url, const char* title) {}
 
 void host_share_services(const char* url, void (*each)(void* context, const char* name), void* context) {}

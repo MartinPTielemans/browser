@@ -9,6 +9,7 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use browser::default_browser::{self, DefaultBrowser};
+use browser::import::ImportView;
 use browser::log;
 use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
@@ -23,6 +24,7 @@ use gpui::{
 use crate::{bc, ns_view, platform, show_menu};
 use browser::menu::Look;
 use browser::palette::{Palette, STATE_HOVERED, STATE_PRESSED, state_alpha};
+use browser::settings_rows::{Look as RowLook, SLIDE, button, group, row, switch, tile};
 
 actions!(settings, [CloseSettings]);
 
@@ -41,19 +43,8 @@ use browser::tokens::settings::SIDE;
 use browser::tokens::settings::FIRST;
 use browser::tokens::settings::BOX_GAP;
 use browser::tokens::settings::PADDING;
-use browser::tokens::settings::LINE_INSET;
 use browser::tokens::settings::RADIUS;
-use browser::tokens::settings::TILE;
-use browser::tokens::settings::TILE_GLYPH;
-use browser::tokens::settings::TILE_RADIUS;
-use browser::tokens::settings::TILE_GAP;
-/// A switch is 36 by 16, with a knob 21 by 13, 1.5 in, that slides across over 150 ms (ours).
-use browser::tokens::settings::SWITCH_WIDTH;
 use browser::tokens::settings::SWITCH_HEIGHT;
-use browser::tokens::settings::KNOB_WIDTH;
-use browser::tokens::settings::KNOB_HEIGHT;
-use browser::tokens::settings::KNOB_INSET;
-const SLIDE: f32 = 0.15;
 use browser::tokens::settings::CONTROL_HEIGHT;
 use browser::tokens::settings::CONTROL_PADDING;
 use browser::tokens::settings::CONTROL_RADIUS;
@@ -74,8 +65,6 @@ use browser::tokens::settings::USERNAME_SIZE;
 use browser::tokens::settings::BAR;
 use browser::tokens::settings::BAR_LINE;
 use browser::tokens::settings::BACKGROUND;
-use browser::tokens::settings::BOX;
-use browser::tokens::settings::BOX_LINE;
 use browser::tokens::settings::PLATE_FILL;
 use browser::tokens::settings::PLATE_EDGE;
 use browser::tokens::settings::TITLE;
@@ -83,9 +72,6 @@ use browser::tokens::settings::TAB_TEXT;
 use browser::tokens::settings::TEXT;
 use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
-use browser::tokens::settings::SWITCH_OFF;
-use browser::tokens::settings::KNOB;
-use browser::tokens::settings::KNOB_ON;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::PASSWORD_TILE;
@@ -95,7 +81,6 @@ use browser::tokens::settings::CHIP;
 const CHIP_ALPHA: f32 = (CHIP & 0xff) as f32 / 255.;
 use browser::tokens::settings::CHIP_RADIUS;
 use browser::tokens::settings::RESTORE_RADIUS;
-use browser::tokens::settings::TILE_GLYPH_COLOR;
 use browser::tokens::text;
 
 /// What Arc offers for how long a Today tab waits unseen before it's archived, in seconds.
@@ -111,19 +96,27 @@ enum Tab {
     General,
     Profiles,
     Passwords,
+    Import,
     Shortcuts,
     Advanced,
 }
 
 impl Tab {
-    const ALL: [Tab; 5] =
-        [Tab::General, Tab::Profiles, Tab::Passwords, Tab::Shortcuts, Tab::Advanced];
+    const ALL: [Tab; 6] = [
+        Tab::General,
+        Tab::Profiles,
+        Tab::Passwords,
+        Tab::Import,
+        Tab::Shortcuts,
+        Tab::Advanced,
+    ];
 
     fn name(self) -> &'static str {
         match self {
             Tab::General => "General",
             Tab::Profiles => "Profiles",
             Tab::Passwords => "Passwords",
+            Tab::Import => "Import",
             Tab::Shortcuts => "Shortcuts",
             Tab::Advanced => "Advanced",
         }
@@ -134,6 +127,7 @@ impl Tab {
             Tab::General => "icons/settings.svg",
             Tab::Profiles => "icons/user.svg",
             Tab::Passwords => "icons/key-round.svg",
+            Tab::Import => "icons/arrow-down-to-line.svg",
             Tab::Shortcuts => "icons/keyboard.svg",
             Tab::Advanced => "icons/sliders-horizontal.svg",
         }
@@ -283,6 +277,9 @@ pub struct Settings {
     logins: HashMap<u64, Vec<Login>>,
     /// The profiles whose logins were asked for since the Passwords tab showed.
     asked: HashSet<u64>,
+    /// Made when the tab first shows, so the other browsers' files are read only once the user
+    /// asks.
+    import: Option<Entity<ImportView>>,
 }
 
 /// The system's default browser, for General's row.
@@ -454,6 +451,7 @@ fn open(cx: &mut App) {
                 passwords_profile: None,
                 logins: HashMap::new(),
                 asked: HashSet::new(),
+                import: None,
             }
         })
     });
@@ -494,8 +492,23 @@ impl Settings {
         // check.sh waits for this line.
         log!("browser: settings tab {}", tab.name());
         self.tab = tab;
+        if tab == Tab::Import {
+            self.show_import(cx);
+        }
         window.set_window_title(tab.name());
         cx.notify();
+    }
+
+    /// The import's view, made the first time, else with the browsers found again, as they may
+    /// have changed since.
+    fn show_import(&mut self, cx: &mut Context<Self>) {
+        match &self.import {
+            Some(import) => import.update(cx, |import, cx| import.refresh(cx)),
+            None => {
+                let host = Rc::new(crate::import_host::CoreImport);
+                self.import = Some(cx.new(|_| ImportView::new(host, false)));
+            }
+        }
     }
 
     /// The title, and the toolbar's tabs. Dragging either moves the window, as a toolbar does.
@@ -585,7 +598,7 @@ impl Settings {
             .flex_col()
             .gap(px(BOX_GAP))
             // Unload under the archive's time, as both are about tabs left unseen.
-            .child(group([
+            .child(group(&RowLook::settings(), [
                 row(None, "Warn before quitting", warn),
                 row(None, "Archive tabs after", archive.into_any_element()),
                 row(None, "Unload tabs you haven't used in a while", unload),
@@ -593,7 +606,7 @@ impl Settings {
                 // Last, so popup_text finds the pop-ups where they were.
                 row(None, "Block ads and trackers", ad_blocking),
             ]))
-            .child(group([self.default_browser_row(cx)]))
+            .child(group(&RowLook::settings(), [self.default_browser_row(cx)]))
             .into_any_element()
     }
 
@@ -607,7 +620,7 @@ impl Settings {
                 log!("browser: make default browser");
                 settings.default_browser.read(cx).make_default();
             });
-            button("make-default-browser", "Make Default").on_click(make)
+            button(&RowLook::settings(), "make-default-browser", "Make Default").on_click(make)
         });
         div()
             .px(px(PADDING))
@@ -678,7 +691,7 @@ impl Settings {
                 settings.switched = Some((name, Instant::now()));
                 cx.notify();
             }))
-            .child(switch(on, slid, accent))
+            .child(switch(&RowLook::settings(), on, slid, accent))
             .into_any_element()
     }
 
@@ -794,7 +807,7 @@ impl Settings {
             };
             let name = profile.name.clone();
             let delete = profile.deletable.then(|| {
-                button(("delete-profile", id), "Delete").on_click(
+                button(&RowLook::settings(), ("delete-profile", id), "Delete").on_click(
                     cx.listener(move |settings, _, _, cx| settings.delete(id, name.clone(), cx)),
                 )
             });
@@ -808,10 +821,10 @@ impl Settings {
                 .child(div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(spaces))
                 .children(delete.map(|delete| delete.ml(px(PADDING))))
         });
-        let new = button("new-profile", "New Profile")
+        let new = button(&RowLook::settings(), "new-profile", "New Profile")
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
         div()
-            .child(group(rows))
+            .child(group(&RowLook::settings(), rows))
             .child(div().mt(px(BUTTONS_TOP)).flex().child(new))
             .into_any_element()
     }
@@ -913,9 +926,10 @@ impl Settings {
         let login_row = |index: usize, login: &Login, cx: &mut Context<Self>| {
             let (site, username) = passwords::lines(login);
             let login = login.clone();
-            let remove = button(("remove-login", index), "Remove").on_click(cx.listener(
-                move |settings, _, _, cx| settings.remove(profile, login.clone(), cx),
-            ));
+            let remove = button(&RowLook::settings(), ("remove-login", index), "Remove");
+            let remove = remove.on_click(cx.listener(move |settings, _, _, cx| {
+                settings.remove(profile, login.clone(), cx)
+            }));
             div()
                 .h(px(PROFILE_ROW))
                 .px(px(PADDING))
@@ -971,15 +985,15 @@ impl Settings {
                 view.update(cx, choose).ok();
             });
             let icon = Some(("icons/user.svg", PROFILE_TILE));
-            group([row(icon, "Profile", popup.into_any_element())])
+            group(&RowLook::settings(), [row(icon, "Profile", popup.into_any_element())])
         });
         let first = chooser.is_none();
         div()
             .children(chooser)
             .child(header("Saved", first))
-            .child(group(saved))
+            .child(group(&RowLook::settings(), saved))
             .when(!never.is_empty(), |tab| {
-                tab.child(header("Never Saved", false)).child(group(never))
+                tab.child(header("Never Saved", false)).child(group(&RowLook::settings(), never))
             })
             .into_any_element()
     }
@@ -1036,9 +1050,10 @@ impl Settings {
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
-        let more = button("more-settings", "More Settings…").on_click(|_, _, cx| more_settings(cx));
+        let more = button(&RowLook::settings(), "more-settings", "More Settings…")
+            .on_click(|_, _, cx| more_settings(cx));
         div()
-            .child(group([row(
+            .child(group(&RowLook::settings(), [row(
                 Some(("icons/vibrate.svg", HAPTICS_TILE)),
                 "Haptic feedback when swiping between Spaces",
                 haptics,
@@ -1078,7 +1093,7 @@ impl Settings {
                     Keys::Of(command) => self.shortcut(*command, accent, cx),
                     Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
                 };
-                row(None, name, control)
+                row(None, *name, control)
             });
             div()
                 .when(index > 0, |section| section.mt(px(SECTION_GAP)))
@@ -1089,20 +1104,19 @@ impl Settings {
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(*section),
                 )
-                .child(group(rows))
+                .child(group(&RowLook::settings(), rows))
         });
         let sections: Vec<gpui::Div> = sections.collect();
-        let restore = button("restore-shortcuts", "Restore Defaults").on_click(cx.listener(
-            |settings, _, _, cx| {
-                shell::change_keys(cx, UserKeys::reset_all);
-                // check.sh waits for this line.
-                log!("browser: shortcuts restored");
-                settings.recording = None;
-                settings.refused = None;
-                save_shortcuts(cx);
-                cx.notify();
-            },
-        ));
+        let restore = button(&RowLook::settings(), "restore-shortcuts", "Restore Defaults");
+        let restore = restore.on_click(cx.listener(|settings, _, _, cx| {
+            shell::change_keys(cx, UserKeys::reset_all);
+            // check.sh waits for this line.
+            log!("browser: shortcuts restored");
+            settings.recording = None;
+            settings.refused = None;
+            save_shortcuts(cx);
+            cx.notify();
+        }));
         div()
             .children(sections)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(restore))
@@ -1275,87 +1289,6 @@ fn more_settings(cx: &mut App) {
     hide(cx);
 }
 
-/// A box of `rows`, with lines between them.
-fn group(rows: impl IntoIterator<Item = gpui::Div>) -> gpui::Div {
-    let rows = rows.into_iter().enumerate().map(|(index, row)| {
-        div().when(index > 0, |below| {
-            below.child(div().mx(px(LINE_INSET)).h(px(1.)).bg(rgb(BOX_LINE)))
-        })
-        .child(row)
-    });
-    div()
-        .flex()
-        .flex_col()
-        .rounded(px(RADIUS))
-        .border_1()
-        .border_color(rgb(BOX_LINE))
-        .bg(rgb(BOX))
-        .children(rows)
-}
-
-/// A row: its icon if any, its name, and its control at the right.
-fn row(icon: Option<(&'static str, u32)>, name: &'static str, control: AnyElement) -> gpui::Div {
-    div()
-        .px(px(PADDING))
-        .py(px(PADDING))
-        .flex()
-        .items_center()
-        .children(icon.map(|(glyph, color)| tile(glyph, color)))
-        .child(div().flex_1().min_w_0().truncate().child(name))
-        .child(div().flex_none().ml(px(PADDING)).child(control))
-}
-
-/// A row's icon: a white glyph on a tile of colour.
-fn tile(glyph: &'static str, color: u32) -> gpui::Div {
-    div()
-        .flex_none()
-        .size(px(TILE))
-        .mr(px(TILE_GAP))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(TILE_RADIUS))
-        .bg(rgb(color))
-        .child(svg().path(glyph).size(px(TILE_GLYPH)).text_color(rgb(TILE_GLYPH_COLOR)))
-}
-
-/// A push button, darker while pressed.
-fn button(id: impl Into<gpui::ElementId>, title: &'static str) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex_none()
-        .h(px(CONTROL_HEIGHT))
-        .px(px(CONTROL_PADDING))
-        .flex()
-        .items_center()
-        .rounded(px(CONTROL_RADIUS))
-        .bg(rgb(CONTROL))
-        .active(|button| button.bg(rgb(CONTROL_PRESSED)))
-        .child(title)
-}
-
-/// A switch, on or off, with its knob `slid` of the way to that side.
-fn switch(on: bool, slid: f32, accent: Rgba) -> impl IntoElement {
-    let travel = SWITCH_WIDTH - KNOB_WIDTH - 2. * KNOB_INSET;
-    let way = if on { slid } else { 1. - slid };
-    div()
-        .relative()
-        .w(px(SWITCH_WIDTH))
-        .h(px(SWITCH_HEIGHT))
-        .rounded_full()
-        .bg(if on { accent } else { rgb(SWITCH_OFF) })
-        .child(
-            div()
-                .absolute()
-                .top(px((SWITCH_HEIGHT - KNOB_HEIGHT) / 2.))
-                .left(px(KNOB_INSET + travel * way))
-                .w(px(KNOB_WIDTH))
-                .h(px(KNOB_HEIGHT))
-                .rounded_full()
-                .bg(rgb(if on { KNOB_ON } else { KNOB })),
-        )
-}
-
 /// Keys as a chip, as the command bar shows a command's, in `color`.
 fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
     div()
@@ -1435,6 +1368,10 @@ impl Render for Settings {
             }
             Tab::Passwords => self.passwords(&profiles(), cx),
             Tab::Shortcuts => self.shortcuts(accent, cx),
+            Tab::Import => match &self.import {
+                Some(import) => import.clone().into_any_element(),
+                None => div().into_any_element(),
+            },
             Tab::Advanced => self.advanced(accent, cx),
         };
         div()

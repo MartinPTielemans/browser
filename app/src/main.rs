@@ -36,6 +36,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 mod drop_targets;
 mod find_bar;
+mod import_host;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/overlays.rs"]
 mod overlays;
@@ -194,6 +195,7 @@ mod platform {
         );
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
+        pub fn host_open_full_disk_access();
         pub fn host_share(
             ui_view: *mut c_void,
             x: f64,
@@ -1872,6 +1874,10 @@ impl Browser for Engine {
         unsafe { bc::bc_profile_create(name.as_ptr()) }
     }
 
+    fn import_host(&self) -> Rc<dyn browser::import::Host> {
+        Rc::new(import_host::CoreImport)
+    }
+
     fn delete_profile(&self, profile: u64, _: &mut App) {
         unsafe { bc::bc_profile_delete(profile) };
     }
@@ -3460,9 +3466,12 @@ unsafe extern "C" fn launching(_: *mut c_void) {
 }
 
 /// Back from another app, such as System Settings, where the user may have changed the default
-/// browser.
+/// browser or given the app Full Disk Access.
 extern "C" fn became_active() {
-    update_app(settings::check_default_browser);
+    update_app(|cx| {
+        settings::check_default_browser(cx);
+        import_host::became_active(cx);
+    });
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
@@ -3549,6 +3558,13 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_spaces(spaces.clone(), cx);
     });
     update_app(settings::refresh);
+    // After the update under way, as an import waiting here makes Spaces of its own.
+    update_app_later(import_host::spaces_changed);
+}
+
+unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
+    log!("browser: history added {added} to profile {profile}");
+    update_app_later(move |cx| import_host::history_added(added, cx));
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
@@ -4496,6 +4512,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         window_resized: Some(window_resized),
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
+        history_added: Some(history_added),
         ..Default::default()
     };
     (args, host)

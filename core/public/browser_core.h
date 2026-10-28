@@ -691,6 +691,9 @@ typedef struct bc_host {
   // the agent can't answer: a sign-in is the user's to give. A page in an agent's Space never opens
   // another app, so it asks none.
   void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
+  // bc_profile_add_history added |added| pages to |profile|'s history, once for each call that
+  // returned true, in order.
+  void (*history_added)(void* context, bc_id profile, size_t added);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -877,6 +880,23 @@ BC_EXPORT bc_id bc_profile_create(const char* name);
 // Deletes the profile, with everything Chrome keeps in it, and returns whether it will. Not one a
 // Space or a favorite is in, the one the core started with or the last. Then spaces_changed.
 BC_EXPORT bool bc_profile_delete(bc_id profile);
+
+// A page of another browser's history, for bc_profile_add_history. Strings are UTF-8.
+typedef struct bc_history_page {
+  const char* url;
+  const char* title;
+  // When it was last visited, in microseconds since 1970.
+  int64_t last_visit;
+  int32_t visits;
+  // How many of the visits were typed into the address bar, which ranks it among suggestions.
+  int32_t typed;
+} bc_history_page;
+
+// Adds |count| pages from another browser's history to the loaded profile's, as Chrome's importer
+// does, and returns whether it will: not to a private profile or one that hasn't loaded. A page
+// already there with a visit as late is skipped, so importing the same history again adds
+// nothing. Then history_added, with how many it added. The core copies what it needs.
+BC_EXPORT bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count);
 
 // Copies up to |capacity| of the Spaces into |spaces|, in order, and returns how many there are.
 BC_EXPORT size_t bc_spaces(bc_id* spaces, size_t capacity);
