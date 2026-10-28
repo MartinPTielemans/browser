@@ -61,6 +61,7 @@ mod menu_bar;
 mod menus;
 mod naming;
 mod new_space;
+mod page_menu;
 mod page_motion;
 mod panes;
 mod permission;
@@ -98,6 +99,7 @@ pub use keys::{Holder, Refused, UserKeys, change_keys, rebindable, recorded, res
 pub use library::{Archived, Download, DownloadAction, DownloadState};
 pub use menu_bar::{MenuBar, ProfileChoice};
 pub use menus::{MenuEntry, new_profile_name};
+pub use page_menu::PageMenuItem;
 pub use side_panel::SidePanel;
 pub use panes::page_frame;
 pub use permission::{Answer, Question};

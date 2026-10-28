@@ -353,6 +353,19 @@ typedef struct bc_offer {
   const char* never;
 } bc_offer;
 
+// A row of a page's context menu, as Chrome builds it.
+typedef struct bc_page_menu_item {
+  // What bc_tab_close_page_menu runs for it, or 0 for a line.
+  int command;
+  // What it says, UTF-8, or "" for a line between rows.
+  const char* title;
+  // The index of the row whose submenu it's in, which comes before it, or -1 for none.
+  int parent;
+  bool enabled;
+  // It shows a check, as a spelling option that's on does.
+  bool checked;
+} bc_page_menu_item;
+
 // What the app gives the core when it starts Chromium. Any callback may be null, and a string it's
 // passed lasts only for the call.
 typedef struct bc_host {
@@ -548,6 +561,21 @@ typedef struct bc_host {
                           const char* url,
                           size_t domain_begin,
                           size_t domain_end);
+  // The user right-clicked the page of |tab|, which |window| shows, or pressed its menu key: show
+  // its context menu, its top left at (|x|, |y|) in the window's content, in place of Chrome's.
+  // |items| is Chrome's menu for what's there, as it builds it with its extensions' items and its
+  // spelling suggestions, |count| rows in order, each submenu's after the row that opens it. Answer
+  // with bc_tab_close_page_menu once it closes, chosen from or not: until then the page has its
+  // menu open and opens no other. It comes again with |window| 0 and |count| 0 if the menu went
+  // first, as its tab closed; close it then, without answering. The user's alone: agents have no
+  // page menu.
+  void (*tab_page_menu)(void* context,
+                        bc_id window,
+                        bc_id tab,
+                        double x,
+                        double y,
+                        const bc_page_menu_item* items,
+                        size_t count);
   // An entry for the activity log: the core checked an agent's call with bc_agent_may_act, and
   // let it act or refused it.
   void (*agent_activity)(void* context, const bc_agent_activity* entry);
@@ -1220,6 +1248,11 @@ BC_EXPORT void bc_tab_show_certificate(bc_id tab);
 // or null to keep the offer's, if the offer is still open. Then tab_offer_changed. The user's:
 // agents get none, as saving a password is the user's to decide.
 BC_EXPORT void bc_tab_answer_offer(bc_id tab, int answer, const char* username);
+
+// Closes the page menu tab_page_menu showed for |tab|, after running its row with |command|, as
+// Chrome's menu runs the row the user chose, or none with 0. Does nothing if the tab's menu isn't
+// open. The user's: agents get none, as they have no page menu.
+BC_EXPORT void bc_tab_close_page_menu(bc_id tab, int command);
 
 // Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.

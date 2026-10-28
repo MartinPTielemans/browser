@@ -1,0 +1,75 @@
+Lets the core take a page's context menu, once Chrome has built it, for the app to show in its own
+(//browser_core/hooks.h), in place of Chrome's.
+
+--- a/chrome/browser/ui/views/tab_contents/chrome_web_contents_view_delegate_views_mac.mm
++++ b/chrome/browser/ui/views/tab_contents/chrome_web_contents_view_delegate_views_mac.mm
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #import "chrome/browser/ui/views/tab_contents/chrome_web_contents_view_delegate_views_mac.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <memory>
+ #include <optional>
+@@ -31,6 +32,11 @@
+ #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
+ #include "ui/views/widget/widget.h"
+ 
++// browser_core: the app shows a page's menu in its own (//browser_core/hooks.h).
++std::unique_ptr<RenderViewContextMenuBase> (*g_browser_core_show_page_menu)(
++    content::WebContents* contents,
++    std::unique_ptr<RenderViewContextMenuBase> menu) = nullptr;
++
+ ChromeWebContentsViewDelegateViewsMac::ChromeWebContentsViewDelegateViewsMac(
+     content::WebContents* web_contents)
+     : ContextMenuDelegate(web_contents),
+@@ -194,6 +200,13 @@
+ 
+ void ChromeWebContentsViewDelegateViewsMac::ShowMenu(
+     std::unique_ptr<RenderViewContextMenuBase> menu) {
++  if (g_browser_core_show_page_menu && menu) {
++    // browser_core: takes the menu to show in the app's own.
++    menu = g_browser_core_show_page_menu(web_contents_, std::move(menu));
++    if (!menu) {
++      return;
++    }
++  }
+   context_menu_ = std::move(menu);
+   if (!context_menu_.get()) {
+     return;
+--- a/chrome/browser/ui/views/tab_contents/chrome_web_contents_view_delegate_views.cc
++++ b/chrome/browser/ui/views/tab_contents/chrome_web_contents_view_delegate_views.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "chrome/browser/ui/views/tab_contents/chrome_web_contents_view_delegate_views.h"
++#include "browser_core/hooks.h"  // nogncheck
+ 
+ #include <memory>
+ #include <utility>
+@@ -28,6 +29,11 @@
+ #include "ui/base/data_transfer_policy/data_transfer_endpoint.h"
+ #include "ui/views/widget/widget.h"
+ 
++// browser_core: the app shows a page's menu in its own (//browser_core/hooks.h).
++std::unique_ptr<RenderViewContextMenuBase> (*g_browser_core_show_page_menu)(
++    content::WebContents* contents,
++    std::unique_ptr<RenderViewContextMenuBase> menu) = nullptr;
++
+ ChromeWebContentsViewDelegateViews::ChromeWebContentsViewDelegateViews(
+     content::WebContents* web_contents)
+     : ContextMenuDelegate(web_contents), web_contents_(web_contents) {
+@@ -93,6 +99,13 @@
+ 
+ void ChromeWebContentsViewDelegateViews::ShowMenu(
+     std::unique_ptr<RenderViewContextMenuBase> menu) {
++  if (g_browser_core_show_page_menu && menu) {
++    // browser_core: takes the menu to show in the app's own.
++    menu = g_browser_core_show_page_menu(web_contents_, std::move(menu));
++    if (!menu) {
++      return;
++    }
++  }
+   context_menu_ = std::move(menu);
+   if (!context_menu_) {
+     return;
