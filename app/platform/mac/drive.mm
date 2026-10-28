@@ -9,6 +9,7 @@
 //                                         corner, with those modifiers held
 //   doubleclick <x> <y>                   two left clicks, the second with a click count of 2
 //   rightclick <x> <y>                    a right click
+//   middleclick <x> <y>                   a click of the middle button, a mouse's wheel
 //   clickkey <x> <y>                      a left click in the key window, such as the command bar
 //   doubleclickkey <x> <y>                two left clicks in the key window, as doubleclick
 //   rightclickkey <x> <y>                 a right click in the key window
@@ -438,11 +439,13 @@ void PostMouse(NSWindow* window,
                                     clickCount:count
                                       pressure:1];
   // AppKit gives every event it makes button 0, and GPUI takes the button from the number.
-  if (type == NSEventTypeRightMouseDown || type == NSEventTypeRightMouseUp) {
-    CGEventRef right = CGEventCreateCopy(event.CGEvent);
-    CGEventSetIntegerValueField(right, kCGMouseEventButtonNumber, kCGMouseButtonRight);
-    event = [NSEvent eventWithCGEvent:right];
-    CFRelease(right);
+  const bool right = type == NSEventTypeRightMouseDown || type == NSEventTypeRightMouseUp;
+  if (right || type == NSEventTypeOtherMouseDown || type == NSEventTypeOtherMouseUp) {
+    CGEventRef numbered = CGEventCreateCopy(event.CGEvent);
+    CGEventSetIntegerValueField(numbered, kCGMouseEventButtonNumber,
+                                right ? kCGMouseButtonRight : kCGMouseButtonCenter);
+    event = [NSEvent eventWithCGEvent:numbered];
+    CFRelease(numbered);
   }
   [NSApp postEvent:event atStart:NO];
 }
@@ -1086,6 +1089,18 @@ bool Run(const std::string& line, void (^done)(void)) {
     Convert(window, target, &x, &y);
     PostMouse(target, NSEventTypeRightMouseDown, x, y, 1);
     PostMouse(target, NSEventTypeRightMouseUp, x, y, 1);
+    done();
+    return true;
+  }
+  if (action == "middleclick") {
+    double x, y;
+    if (!(words >> x >> y)) {
+      return false;
+    }
+    NSWindow* target = WindowAt(window, x, y);
+    Convert(window, target, &x, &y);
+    PostMouse(target, NSEventTypeOtherMouseDown, x, y, 1);
+    PostMouse(target, NSEventTypeOtherMouseUp, x, y, 1);
     done();
     return true;
   }
