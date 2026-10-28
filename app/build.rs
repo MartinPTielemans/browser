@@ -27,6 +27,7 @@ fn main() {
         "windows" => {
             host.file("platform/windows/host.cc")
                 .file("platform/windows/drive.cc")
+                .file("platform/windows/updates.cc")
                 .flag("/std:c++20")
                 .flag("/utf-8")
                 // C++/WinRT (the share sheet) throws, and its projection headers overflow the
@@ -35,6 +36,20 @@ fn main() {
                 .flag("/bigobj")
                 .define("UNICODE", None)
                 .define("_UNICODE", None);
+            // A release build updates itself with WinSparkle, given the key its updates are signed
+            // with, as build.sh gives the Mac's: what Info.plist holds there is defined here.
+            println!("cargo:rerun-if-env-changed=UPDATE_PUBLIC_KEY");
+            let key = std::env::var("UPDATE_PUBLIC_KEY").unwrap_or_default();
+            if std::env::var_os("CARGO_FEATURE_PROD").is_some() && !key.is_empty() {
+                let feed = std::fs::read_to_string(root.join("branding/update-feed"))
+                    .expect("no branding/update-feed");
+                let quoted = |value: &str| format!("\"{value}\"");
+                host.define("UPDATE_FEED", quoted(feed.trim()).as_str())
+                    .define("UPDATE_PUBLIC_KEY", quoted(&key).as_str())
+                    .define("APP_VERSION", quoted(env!("CARGO_PKG_VERSION")).as_str())
+                    .define("APP_BUILD", quoted(&build_number(&root)).as_str());
+                println!("cargo:rerun-if-changed={}", root.join("branding/update-feed").display());
+            }
         }
         // Only what the preview asks of the host so far; the browser doesn't build here yet.
         "linux" => {
@@ -68,9 +83,10 @@ fn main() {
         let engine = root.join(".deps/engine");
         println!("cargo:rustc-link-arg-bin=Browser={}", engine.join("chrome.dll.lib").display());
         // windowscodecs is WIC, for host_file_preview's thumbnails; uuid carries the COM GUIDs it
-        // and host_drag_file name; windowsapp is WinRT, for the share sheet.
+        // and host_drag_file name; windowsapp is WinRT, for the share sheet; advapi32 reads the
+        // registry, for WinSparkle's settings.
         for lib in ["user32", "gdi32", "dwmapi", "shell32", "ole32", "comctl32", "comdlg32",
-                    "windowscodecs", "uuid", "windowsapp"] {
+                    "windowscodecs", "uuid", "windowsapp", "advapi32"] {
             println!("cargo:rustc-link-lib={lib}");
         }
     } else if os == "macos" {
@@ -140,6 +156,26 @@ fn engine_mismatch(link: &Path, header: &Path) -> Option<String> {
              from. Run engine/build.sh [dev] to record it."
         )),
     }
+}
+
+/// The build number updates are ordered by: the count of commits, as build.sh stamps the Mac's,
+/// which only grows on main. A shallow clone's would be wrong, so a release build stops there.
+fn build_number(root: &std::path::Path) -> String {
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git").args(args).current_dir(root).output();
+        let out = out.expect("a release build needs git");
+        assert!(out.status.success(), "git {args:?} failed");
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    };
+    assert!(
+        git(&["rev-parse", "--is-shallow-repository"]) == "false",
+        "a release build needs the whole history: git fetch --unshallow"
+    );
+    // A new commit is a new build number.
+    for path in [git(&["rev-parse", "--git-path", "HEAD"]), git(&["rev-parse", "--git-path", "refs"])] {
+        println!("cargo:rerun-if-changed={}", root.join(path).display());
+    }
+    git(&["rev-list", "--count", "HEAD"])
 }
 
 /// Turns tokens.toml into Rust: a module for each table, a `pub const` for each key, and the

@@ -1078,6 +1078,11 @@ void ShowShareSheet(HWND root, std::function<void(const wdt::DataPackage&)> fill
 
 }  // namespace
 
+// For updates.cc, whose WinSparkle calls back on threads of its own.
+void HostLater(void (*task)(void)) {
+  Later(task);
+}
+
 extern "C" {
 
 // Centered in the primary display's work area, in GPUI's logical pixels from its top-left.
