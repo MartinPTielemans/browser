@@ -40,6 +40,9 @@ mod find_bar;
 #[path = "../platform/linux/drive.rs"]
 mod drive;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/menu_window.rs"]
+mod menu_window;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/overlays.rs"]
 mod overlays;
 mod reveal;

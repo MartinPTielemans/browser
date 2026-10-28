@@ -265,20 +265,6 @@ void host_hide_link_target(double fade) {}
 
 void host_focus(void* view) {}
 
-// shortcut: menus, ilo's own windows on the Mac (mac/menu_window.h), don't show on Linux yet.
-void host_add_menu_window(void* view,
-                          bool (*pointer)(int kind, double x, double y),
-                          void (*dismissed)(void),
-                          bool (*choose)(const char* title)) {}
-
-void host_show_menu_window(void* ui_view, bool in_reveal, double left, double top, double width, double height) {}
-
-void host_hide_menu_window(void) {}
-
-void host_menu_area(void* ui_view, bool in_reveal, double* area) {
-  area[0] = area[1] = area[2] = area[3] = 0;
-}
-
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
   return -1;
 }
