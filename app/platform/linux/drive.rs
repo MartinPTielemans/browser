@@ -586,9 +586,13 @@ fn key_events(key: &str, mut state: u16, kinds: &[u8]) -> Option<()> {
             state: KeyButMask::from(state),
             same_screen: true,
         };
-        connection
-            .send_event(false, window, EventMask::NO_EVENT, event)
-            .ok()?;
+        // A release goes to every client listening for one in the window, as the X server sends
+        // it, and so to the app's watch on a held Escape (held_escape.rs) too.
+        let mask = match kind {
+            xproto::KEY_RELEASE_EVENT => EventMask::KEY_RELEASE,
+            _ => EventMask::NO_EVENT,
+        };
+        connection.send_event(false, window, mask, event).ok()?;
     }
     connection.flush().ok()
 }
