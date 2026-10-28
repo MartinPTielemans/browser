@@ -51,6 +51,9 @@ mod drive;
 #[path = "../platform/linux/floats.rs"]
 mod floats;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/held_escape.rs"]
+mod held_escape;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/menu_window.rs"]
 mod menu_window;
 #[cfg(target_os = "linux")]
@@ -2591,6 +2594,10 @@ unsafe extern "C" fn tab_key_before_page(
     tab: bc::bc_id,
     key: *const bc::bc_key,
 ) -> bool {
+    #[cfg(target_os = "linux")]
+    if held_escape::keeps_from_page(unsafe { &*key }) {
+        return true;
+    }
     if let Some(lost) = link_preview_key(tab, key, true) {
         return lost;
     }
@@ -3408,12 +3415,16 @@ unsafe extern "C" fn started(_: *mut c_void) {
             },
         )),
     };
-    let app = application.run_embedded(|cx| {
+    let app = application.run_embedded(move |cx| {
         browser::face::register(cx);
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
+        #[cfg(target_os = "linux")]
+        if !wayland {
+            held_escape::watch(cx);
+        }
         cx.set_global(menu::field_menu(Rc::new(|window, request, cx| {
             if let Ok(view) = cx.update_window(window, |_, window, _| ns_view(window)) {
                 let menu::Request { items, at, look, chosen, .. } = request;

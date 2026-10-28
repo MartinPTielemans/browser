@@ -1,0 +1,153 @@
+//! A held Escape's repeats reach only the window its press went to, as on the Mac (host.mm's
+//! WatchHeldEscape). The command bar and the find bar close on Escape going down, which gives the
+//! browser window back the keyboard, and the X server's repeats of the held key would go on to the
+//! page there, taking it out of its own full screen or closing its dialog.
+//!
+//! An Escape press GPUI gets marks the key held, until this connection of the host's own hears it
+//! let go in the browser windows or the window the press went to. Until then the page's Escape
+//! presses are the held key's repeats, and the app keeps them. X11 only: a Wayland compositor
+//! sends no repeats, and each client makes its own from the keys it got.
+
+use std::cell::RefCell;
+
+use gpui::App;
+use x11rb::{
+    connection::{Connection as _, RequestConnection as _},
+    protocol::{
+        Event, xkb,
+        xkb::ConnectionExt as _,
+        xproto::{self, ChangeWindowAttributesAux, ConnectionExt as _, EventMask},
+    },
+    rust_connection::RustConnection,
+};
+
+use crate::{WINDOWS, bc};
+
+/// Escape's keysym, which the X server's keyboard map gives a keycode.
+const ESCAPE: xproto::Keysym = 0xff1b;
+
+thread_local! {
+    static X: RefCell<Option<(RustConnection, xproto::Keycode)>> = const { RefCell::new(None) };
+    /// The windows that tell this connection their key releases while Escape is held.
+    static HELD: RefCell<Option<Vec<xproto::Window>>> = const { RefCell::new(None) };
+}
+
+/// Watches the UI's keys for Escape going down.
+pub(crate) fn watch(cx: &mut App) {
+    cx.intercept_keystrokes(|event, _, _| {
+        let keystroke = &event.keystroke;
+        let_go();
+        if keystroke.key == "escape" && !keystroke.modifiers.modified() {
+            pressed();
+        }
+    })
+    .detach();
+}
+
+/// Whether `key`, going to a page, is the repeat of an Escape held since the UI got its press.
+pub(crate) fn keeps_from_page(key: &bc::bc_key) -> bool {
+    let escape = unsafe { std::ffi::CStr::from_ptr(key.key) }.to_bytes() == b"Escape";
+    if !escape || key.modifiers != 0 || HELD.with_borrow(Option::is_none) || released() {
+        let_go();
+        return false;
+    }
+    true
+}
+
+fn pressed() {
+    let held = X.with_borrow_mut(|x| {
+        if x.is_none() {
+            *x = connect();
+        }
+        let (connection, _) = x.as_ref()?;
+        let focus = connection.get_input_focus().ok()?.reply().ok()?.focus;
+        let mut windows = vec![focus];
+        // The browser windows, which the core's UI views are in, and the windows in them, which
+        // the release goes to when the page or the UI has the keyboard.
+        let views: Vec<u32> =
+            WINDOWS.with_borrow(|all| all.iter().map(|w| w.ui_view as usize as u32).collect());
+        for view in views {
+            let tree = connection.query_tree(view).ok().and_then(|c| c.reply().ok());
+            if let Some(tree) = tree {
+                windows.push(tree.parent);
+                within(connection, tree.parent, &mut windows);
+            }
+        }
+        select(connection, &windows, EventMask::KEY_RELEASE);
+        Some(windows)
+    });
+    HELD.set(held);
+}
+
+fn within(connection: &RustConnection, window: xproto::Window, windows: &mut Vec<xproto::Window>) {
+    let Some(tree) = connection.query_tree(window).ok().and_then(|c| c.reply().ok()) else {
+        return;
+    };
+    for child in tree.children {
+        windows.push(child);
+        within(connection, child, windows);
+    }
+}
+
+/// Whether the held Escape has been let go since it went down.
+fn released() -> bool {
+    X.with_borrow(|x| {
+        let Some((connection, escape)) = x else {
+            return true;
+        };
+        let mut released = false;
+        while let Ok(Some(event)) = connection.poll_for_event() {
+            released |= matches!(event, Event::KeyRelease(release) if release.detail == *escape);
+        }
+        released
+    })
+}
+
+/// Escape's let go or another key's pressed: the windows stop telling this connection their
+/// releases, and those it told are dropped.
+fn let_go() {
+    let Some(windows) = HELD.take() else { return };
+    X.with_borrow(|x| {
+        if let Some((connection, _)) = x {
+            select(connection, &windows, EventMask::NO_EVENT);
+            while let Ok(Some(_)) = connection.poll_for_event() {}
+        }
+    });
+}
+
+fn select(connection: &RustConnection, windows: &[xproto::Window], mask: EventMask) {
+    let aux = ChangeWindowAttributesAux::new().event_mask(mask);
+    for &window in windows {
+        // A window that has closed since answers with an error, which is dropped.
+        if let Ok(cookie) = connection.change_window_attributes(window, &aux) {
+            cookie.ignore_error();
+        }
+    }
+    connection.flush().ok();
+}
+
+/// The host's own connection to the X server, and Escape's keycode on it.
+fn connect() -> Option<(RustConnection, xproto::Keycode)> {
+    let (connection, _) = x11rb::connect(None).ok()?;
+    // The X server sends a release before each repeat unless the client asks it not to, as
+    // Chromium and GPUI do.
+    connection.extension_information(xkb::X11_EXTENSION_NAME).ok()??;
+    connection.xkb_use_extension(1, 0).ok()?.reply().ok()?;
+    let detectable = xkb::PerClientFlag::DETECTABLE_AUTO_REPEAT;
+    let flags = connection.xkb_per_client_flags(
+        xkb::ID::USE_CORE_KBD.into(),
+        detectable,
+        detectable,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+    );
+    flags.ok()?.reply().ok()?;
+    let setup = connection.setup();
+    let (first, count) = (setup.min_keycode, setup.max_keycode - setup.min_keycode + 1);
+    let map = connection.get_keyboard_mapping(first, count).ok()?.reply().ok()?;
+    let per = usize::from(map.keysyms_per_keycode);
+    let index = map.keysyms.iter().position(|&keysym| keysym == ESCAPE)?;
+    let escape = first + u8::try_from(index / per).ok()?;
+    Some((connection, escape))
+}
