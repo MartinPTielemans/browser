@@ -241,6 +241,8 @@ void host_add_toast(void* toast_view) {}
 
 void host_toast_takes_clicks(bool takes) {}
 
+void host_set_toast_plate(double x, double y, double width, double height) {}
+
 void host_show_toast(void* ui_view) {}
 
 void host_hide_toast(void) {}
