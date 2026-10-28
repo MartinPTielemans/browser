@@ -1,0 +1,122 @@
+//! ilo's own context menu's window (src/menu.rs) on Linux, as mac/menu_window.mm is on the Mac:
+//! GPUI's Linux platform shows it over the window it opened for as one of its overlays
+//! (overlays.rs), with the keyboard, and the menu's own window takes its pointer events. A press
+//! outside, the keyboard going elsewhere or the window resizing is the user leaving it.
+//!
+//! shortcut: the pointer isn't the menu's first, so a press outside closes it and lands where it
+//! was pressed too, and a right-click elsewhere doesn't open that menu in its place. It stays
+//! inside its window, which it can't go past under Wayland, and shows only over a browser window.
+//!
+//! From the Linux driver's branch (feat/linux-drive, a566b45), which shows it the same way.
+
+use std::{
+    cell::Cell,
+    ffi::{c_char, c_void},
+};
+
+use gpui::{Bounds, Pixels, Size, point, px, size};
+
+use crate::{bc, overlays};
+
+struct Menu {
+    view: *mut c_void,
+    dismissed: extern "C" fn(),
+}
+
+thread_local! {
+    static MENU: Cell<Option<&'static Menu>> = const { Cell::new(None) };
+    /// The browser window it shows over, by its UI's view and the core's id, and that window's
+    /// size as it showed; None while hidden.
+    static SHOWN: Cell<Option<(*mut c_void, bc::bc_id, Size<Pixels>)>> = const { Cell::new(None) };
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_add_menu_window(
+    view: *mut c_void,
+    _pointer: extern "C" fn(kind: i32, x: f64, y: f64) -> bool,
+    dismissed: extern "C" fn(),
+    _choose: extern "C" fn(*const c_char) -> bool,
+) {
+    MENU.set(Some(Box::leak(Box::new(Menu { view, dismissed }))));
+}
+
+/// Shows the menu's window at `left`, `top`, `width`, `height` in the content of `ui_view`'s
+/// browser window, with its keyboard, or moves it there as a submenu opens.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_show_menu_window(
+    ui_view: *mut c_void,
+    _in_reveal: bool,
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+) {
+    let Some(menu) = MENU.get() else { return };
+    let window = crate::window_with_view(ui_view);
+    if window == 0 {
+        return;
+    }
+    if SHOWN.get().is_none() {
+        let content = gpui_linux::embedder_size(ui_view).unwrap_or_default();
+        SHOWN.set(Some((ui_view, window, content)));
+        overlays::lend_keyboard(window, menu.view, true);
+    }
+    let bounds = Bounds::new(
+        point(px(left as f32), px(top as f32)),
+        size(px(width as f32), px(height as f32)),
+    );
+    // The menu draws its panels' corners and shadows inside its window.
+    gpui_linux::show_overlay(menu.view, ui_view, bounds, px(0.), true, left_menu);
+    // check.sh reads it.
+    eprintln!("browser: menu window at {left:.0},{top:.0} {width:.0}x{height:.0}");
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_hide_menu_window() {
+    let (Some(menu), Some((_, window, _))) = (MENU.get(), SHOWN.take()) else {
+        return;
+    };
+    let view = menu.view;
+    gpui_linux::hide_overlay(view, move || overlays::lend_keyboard(window, view, false));
+    eprintln!("browser: menu window hidden");
+}
+
+/// The window's content, in its own points: the menu stays inside it.
+#[unsafe(no_mangle)]
+pub extern "C" fn host_menu_area(ui_view: *mut c_void, _in_reveal: bool, area: *mut f64) {
+    let content = gpui_linux::embedder_size(ui_view).unwrap_or_default();
+    let edges = [0., 0., f64::from(content.width), f64::from(content.height)];
+    // SAFETY: the caller passes four.
+    unsafe { std::slice::from_raw_parts_mut(area, 4) }.copy_from_slice(&edges);
+}
+
+/// The browser window of `ui_view` is closing: the menu over it closes, once GPUI is outside its
+/// updates.
+pub(crate) fn forget_window(ui_view: *mut c_void) {
+    if SHOWN.get().is_some_and(|(over, _, _)| over == ui_view)
+        && let Some(menu) = MENU.get()
+    {
+        gpui_linux::leave_overlay(menu.view);
+    }
+}
+
+/// GPUI says `ui_view`'s window bounds changed, as it also does when the window takes the
+/// keyboard, which the press that opens a menu gives it: the menu closes if the size did, as the
+/// Mac's does.
+pub(crate) fn resized(ui_view: *mut c_void) {
+    if let Some((over, _, content)) = SHOWN.get()
+        && over == ui_view
+        && gpui_linux::embedder_size(ui_view).unwrap_or_default() != content
+    {
+        forget_window(ui_view);
+    }
+}
+
+/// The user left the menu. GPUI says so once its events are dispatched, outside any update.
+fn left_menu(_: *mut c_void) {
+    if SHOWN.get().is_some()
+        && let Some(menu) = MENU.get()
+    {
+        (menu.dismissed)();
+    }
+}
