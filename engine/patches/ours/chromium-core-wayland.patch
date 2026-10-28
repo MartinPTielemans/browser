@@ -19,16 +19,30 @@ Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
    aligned_alloc;
 --- a/third_party/wayland/BUILD.gn
 +++ b/third_party/wayland/BUILD.gn
-@@ -64,7 +64,7 @@ if (!use_system_libwayland) {
+@@ -64,8 +64,10 @@ if (!use_system_libwayland) {
  
      configs -= [ "//build/config/compiler:chromium_code" ]
      configs += [
 -      ":wayland_build_workaround_hide_symbols",
 +      # browser_core: kept visible, so chrome can export libwayland's client API (chrome.map).
        "//build/config/compiler:no_chromium_code",
++      # browser_core: its log calls the handler the app's UI sets (wayland_client below).
++      "//build/config/sanitizers:cfi_icall_disable",
      ]
  
-@@ -161,13 +161,17 @@ if (!use_system_libwayland) {
+     public_configs = [ ":wayland_config" ]
+@@ -86,6 +88,10 @@ if (!use_system_libwayland) {
+       ":wayland_build_workaround_private_config",
+       "//build/config/compiler:no_chromium_code",
+       "//build/config/linux/libffi",
++      # browser_core: the app's UI, in a library chrome loads, shares this copy, whose dispatch
++      # calls the UI's handlers there, which Clang's indirect-call check traps on. A config, as
++      # the check's own flag comes after a target's cflags.
++      "//build/config/sanitizers:cfi_icall_disable",
+     ]
+ 
+     public_configs = [ ":wayland_config" ]
+@@ -161,10 +167,14 @@ if (!use_system_libwayland) {
  
      configs -= [ "//build/config/compiler:chromium_code" ]
      configs += [
@@ -37,16 +51,13 @@ Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
        ":wayland_build_workaround_private_config",
        "//build/config/compiler:no_chromium_code",
        "//build/config/linux/libffi",
++      # browser_core: the app's UI, in a library chrome loads, shares this copy, whose dispatch
++      # calls the UI's handlers there, which Clang's indirect-call check traps on. A config, as
++      # the check's own flag comes after a target's cflags.
++      "//build/config/sanitizers:cfi_icall_disable",
      ]
  
      public_configs = [ ":wayland_config" ]
-+
-+    # browser_core: the app's UI, in a library chrome loads, shares this copy, whose dispatch calls
-+    # the UI's handlers there, which Clang's indirect-call check traps on.
-+    cflags = [ "-fno-sanitize=cfi-icall" ]
-   }
- 
-   # TODO(crbug.com/362674381) Convert to testonly.
 --- a/ui/events/platform/wayland/wayland_event_watcher.cc
 +++ b/ui/events/platform/wayland/wayland_event_watcher.cc
 @@ -20,6 +20,12 @@
