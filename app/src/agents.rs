@@ -10,7 +10,8 @@
 //! reaches the UI thread as an event, and the tools answer through the core, which checks each
 //! call on a tab with bc_agent_may_act. That check's answer is the call's activity-log entry.
 //! A payment, an order, a message sent or a bank's site asks the user first, in a card in each
-//! window: once, always or never on that site, for that agent.
+//! window: once, always or never on that site, for that agent. Settings › Agents and the agent's
+//! Space's menu list what the user answered for good, to revoke.
 
 pub mod bridge;
 pub mod clients;
@@ -897,6 +898,43 @@ impl Agents {
             Answer::Never | Answer::Dismiss => self.refuse(act, &site, SAID_NO, cx),
         }
         self.asked(cx);
+    }
+
+    /// The sites where the user answered the agent for good, by name: Always Allow (true) or
+    /// Never (false).
+    pub fn grants(&self, agent: &str) -> Vec<(SharedString, bool)> {
+        let mut grants: Vec<(SharedString, bool)> = (self.grants.get(agent).into_iter())
+            .flatten()
+            .map(|(site, &may)| (site.clone().into(), may))
+            .collect();
+        grants.sort();
+        grants
+    }
+
+    /// Forgets the user's answer for good to the agent on `site`, or on every site with None, so
+    /// what asks first there asks again.
+    pub fn revoke(&mut self, agent: &str, site: Option<&str>, cx: &mut Context<Self>) {
+        let Some(sites) = self.grants.get_mut(agent) else {
+            return;
+        };
+        let revoked = match site {
+            Some(site) => sites.remove(site).is_some(),
+            None => !std::mem::take(sites).is_empty(),
+        };
+        if sites.is_empty() {
+            self.grants.remove(agent);
+        }
+        if !revoked {
+            return;
+        }
+        // check.sh reads this line.
+        log!("browser: agent {agent} revoked {}", site.unwrap_or("all"));
+        self.save();
+        match site {
+            Some(site) => self.note(agent, "revoked", site, ""),
+            None => self.note(agent, "revoked all", "", ""),
+        }
+        cx.notify();
     }
 
     /// The question asked now, if any.
