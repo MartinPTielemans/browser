@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: @ID@
+PackageVersion: @VERSION@
+PackageLocale: en-US
+Publisher: @PUBLISHER@
+PublisherUrl: @REPOSITORY@
+PublisherSupportUrl: @REPOSITORY@/issues
+PackageName: @NAME@
+PackageUrl: @REPOSITORY@
+License: GPL-3.0-or-later
+LicenseUrl: @REPOSITORY@/blob/main/LICENSE
+ShortDescription: An open-source browser built on Chromium, fast to use and made for AI agents to work in.
+Moniker: @NAME@
+Tags:
+- browser
+- chromium
+- web-browser
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0
