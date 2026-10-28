@@ -13,6 +13,7 @@
 #include "browser_core/host.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "browser_core/widevine.h"
 #include "chrome/browser/profiles/profile.h"
 #include "content/public/browser/document_service.h"
 #include "content/public/browser/page.h"
@@ -47,11 +48,11 @@ std::string_view SystemOf(std::string_view key_system) {
   return {};
 }
 
-// Whether ilo can play what |system| protects. None can: ungoogled-chromium ships no Widevine
-// module, and Chromium has no other on a Mac. Once the user can have Widevine's (#236), this is
-// where it answers true, or the app is told what to offer instead; the app hears the same signal.
-bool CanPlay(std::string_view) {
-  return false;
+// Whether ilo can play what |system| protects: Widevine once Chromium loaded Google's module,
+// which on Linux the user can have it download from the note (widevine.h). ungoogled-chromium ships
+// none, and PlayReady has no CDM here.
+bool CanPlay(std::string_view system) {
+  return system == "com.widevine.alpha" && widevine::Loaded();
 }
 
 // What the app has been told about one tab: the system a page of it asked for that ilo can't play,

@@ -87,6 +87,7 @@ ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patch
   - **What a check sends.** In the body: the protocol version, Chromium's version and channel, the updater's version, macOS's version, the CPU architecture, and a random session id and request id. For each component it sends the id and the installed version. The headers repeat the ids and say whether the check runs in the foreground.
   - **What it doesn't send.** No cookies and no pings. None of the fields Chrome uses to link one check to the next (install id, install date, cohorts, ping day counts). No language, hardware or enterprise state. Google still sees the IP address, and the versions can help it link checks.
   - **How responses are checked.** CUP signatures and the CRX3 publisher key, as in Chrome.
+  - **Google's Widevine module, on Linux.** Once the user says yes in the protected-media note or Settings, the checks also ask for the Widevine component (`oimompecagnajdejgnnjijobebaeigek`), the first at once, and it downloads from the same hosts. Removing it in Settings takes it out of the checks again. `patches/ours/chromium-widevine-component.patch` lets the core add it to Ardia's list, whose update URL is already Google's own.
 - **Extension kill switch.** The extension update check's `_malware`, `_policy_violation` and `_potentially_uws` answers blocklist or disable the extension, as in Chrome. That check covers only Web Store extensions, which install and update again through `patches/ours/chromium-extensions-web-store.patch`.
 
 ## Rules

@@ -14,6 +14,7 @@ use std::{
 };
 
 use browser::window_frames::{self, Frame};
+use browser::widevine::Widevine;
 use browser::{
     capture, command_bar, dialog, dock_dot, elevation::Level, icon_picker, link_target, log, menu, offer, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
@@ -1928,6 +1929,20 @@ impl Browser for Engine {
 
     fn close_media_note(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_close_media_note(tab) };
+    }
+
+    fn widevine(&self) -> Widevine {
+        Widevine::from_core(unsafe { bc::bc_widevine() })
+    }
+
+    fn download_widevine(&self, _: &mut App) {
+        unsafe { bc::bc_widevine_download() };
+    }
+
+    fn restart(&self, cx: &mut App) {
+        // As Quit does: once the shell that asked is done, and before Chromium's posted quit.
+        cx.defer(save_launch_picture);
+        unsafe { bc::bc_restart() };
     }
 
     fn share_services(&self, url: &str) -> Vec<SharedString> {
@@ -4176,6 +4191,21 @@ unsafe extern "C" fn tab_media_unsupported(
     update_shells(|shell, cx| shell.set_media_unsupported(tab, &key_system, cx));
 }
 
+/// Google's Widevine module moved along: the notes that offer it and Settings' row say where to.
+/// Later, as the user's yes in a note or Settings calls back from inside their update.
+unsafe extern "C" fn widevine_changed(_: *mut c_void, state: c_int) {
+    // check-widevine.sh reads this line.
+    log!("browser: widevine state {}", Widevine::from_core(state).name());
+    update_app_later(|cx| {
+        let shells: Vec<_> = WINDOWS
+            .with_borrow(|windows| windows.iter().map(|window| window.shell.clone()).collect());
+        for shell in shells {
+            shell.update(cx, |_, cx| cx.notify()).ok();
+        }
+        settings::check_widevine(cx);
+    });
+}
+
 unsafe extern "C" fn window_suggestions(
     _: *mut c_void,
     window: bc::bc_id,
@@ -4367,6 +4397,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         tab_key_before_page: Some(tab_key_before_page),
         tab_key_unhandled: Some(tab_key_unhandled),
         tab_media_unsupported: Some(tab_media_unsupported),
+        widevine_changed: Some(widevine_changed),
         tab_page_menu: Some(tab_page_menu),
         tab_offer_changed: Some(tab_offer_changed),
         open_links: Some(open_links),

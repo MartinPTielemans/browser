@@ -151,4 +151,10 @@ extern void (*g_browser_core_external_protocol_dialog)(
     content::WeakDocumentPtr initiator_document,
     const std::u16string& program_name);
 
+// components/component_updater/component_updater_service.cc: whether the component updater may
+// check for and download the component |id| as well as the three security components it always
+// does (engine/patches/ardia/chromium-component-updater-security-only.patch): Google's Widevine
+// module, once the user said yes. Every other component stays out of its requests.
+extern bool (*g_browser_core_component_allowed)(const std::string& id);
+
 #endif  // BROWSER_CORE_HOOKS_H_

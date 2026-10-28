@@ -16,6 +16,9 @@ int Run(int argc, const char** argv, const bc_host& host);
 // stays up with no windows until then.
 void Quit();
 
+// Quits as Quit does, then starts the browser again (bc_restart).
+void Restart();
+
 // Chrome's main delegate in every process of ours. chrome_main.cc makes this one instead
 // (engine/patches/ours/chromium-core-main.patch).
 class MainDelegate : public ChromeMainDelegate {
