@@ -731,6 +731,9 @@ typedef struct bc_host {
   // bc_profile_add_history added |added| pages to |profile|'s history, once for each call that
   // returned true, in order.
   void (*history_added)(void* context, bc_id profile, size_t added);
+  // The text bc_tab_read_text asked for as |request|, UTF-8, or null if the tab had no page loaded
+  // or closed first.
+  void (*tab_text)(void* context, bc_id tab, uint64_t request, const char* text);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1570,6 +1573,14 @@ BC_EXPORT void bc_tab_capture(bc_id tab, uint64_t request, bool full_page, bc_re
 // hidden to the page, as Chrome's tab previews do. The user's: agents get none, as with
 // bc_tab_capture.
 BC_EXPORT void bc_tab_picture(bc_id tab, uint64_t request, int width, int height);
+
+// Reads the text of the tab's page as its accessibility tree has it, across its frames, a line for
+// each block: what a screen reader reads, never a password field's value. Chromium builds the tree
+// for this one read, without running the page's JavaScript or turning accessibility on for the tab.
+// A page that's loading is read once it stops, or after 15 s. A tab without its page loaded has
+// nothing to read. Then tab_text with |request|, from a task of its own. Agents read pages through
+// it, each read checked with bc_agent_may_act first.
+BC_EXPORT void bc_tab_read_text(bc_id tab, uint64_t request);
 
 // Ends what bc_tab_element_at and bc_tab_capture began: drops their questions and lets go of the
 // page's DevTools, so a page that isn't being captured pays nothing.
