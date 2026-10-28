@@ -1,0 +1,563 @@
+//! A new profile's first launch (docs/ux-spec.md › Onboarding): ilo's intro, then one message a
+//! screen, over the whole window on the brand's ground. Only a launch with nothing to bring back
+//! starts it, and Help › Welcome to ilo plays it again, so a normal launch never draws or loads any
+//! of it. Any key or click skips the intro; Esc or Skip goes on from a step, and the last step's
+//! leaves the flow for the first Space's welcome. A page shown ends it, as the page would cover it.
+
+use std::time::{Duration, Instant};
+
+use gpui::{
+    AnyElement, Bounds, Context, Keystroke, MouseButton, PathBuilder, Rgba, Window, canvas, div,
+    fill, point, prelude::*, px, rgb, size,
+};
+
+use super::{
+    Shell,
+    display_face::{cap_top, display_text},
+    cubic_bezier, fade_at,
+};
+use crate::tokens::palette::{INK, PAPER};
+use crate::tokens::shell::onboarding::BUTTON_GAP;
+use crate::tokens::shell::onboarding::BUTTON_HEIGHT;
+use crate::tokens::shell::onboarding::BUTTON_INSET;
+use crate::tokens::shell::onboarding::BUTTON_RADIUS;
+use crate::tokens::shell::onboarding::BUTTON_SIZE;
+use crate::tokens::shell::onboarding::CHIP;
+use crate::tokens::shell::onboarding::CHIP_GAP;
+use crate::tokens::shell::onboarding::CHIP_HEIGHT;
+use crate::tokens::shell::onboarding::CHIP_INSET;
+use crate::tokens::shell::onboarding::CHIP_RADIUS;
+use crate::tokens::shell::onboarding::LINE_GAP;
+use crate::tokens::shell::onboarding::LINE_LINE;
+use crate::tokens::shell::onboarding::LINE_SIZE;
+use crate::tokens::shell::onboarding::QUIET;
+use crate::tokens::shell::onboarding::SHIFT;
+use crate::tokens::shell::onboarding::SIGNAL;
+use crate::tokens::shell::onboarding::SKIP_CHIP;
+use crate::tokens::shell::onboarding::SKIP_MARGIN;
+use crate::tokens::shell::onboarding::SKIP_SIZE;
+use crate::tokens::shell::onboarding::TAGLINE_GAP;
+use crate::tokens::shell::onboarding::TAGLINE_LINE;
+use crate::tokens::shell::onboarding::TAGLINE_SIZE;
+use crate::tokens::shell::onboarding::TITLE_LINE;
+use crate::tokens::shell::onboarding::TITLE_SIZE;
+use crate::tokens::shell::onboarding::WORDMARK_SCALE;
+
+/// The flow's steps, in the order they come.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Step {
+    Intro,
+    /// What comes along from another browser. A placeholder until the import view (#453) lands.
+    Import,
+}
+
+const STEPS: [Step; 2] = [Step::Intro, Step::Import];
+
+impl Step {
+    /// What check.sh calls it.
+    fn name(self) -> &'static str {
+        match self {
+            Step::Intro => "intro",
+            Step::Import => "import",
+        }
+    }
+
+    fn next(self) -> Option<Step> {
+        let at = STEPS.iter().position(|&step| step == self)?;
+        STEPS.get(at + 1).copied()
+    }
+
+    /// The step's one message: its title, its line and its button's words.
+    fn message(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Step::Intro => ("", "", ""),
+            Step::Import => (
+                "Bring your stuff.",
+                "Spaces, tabs, bookmarks, history and passwords from the browser you used come here soon.",
+                "Continue",
+            ),
+        }
+    }
+}
+
+/// The intro's timeline (*Ours*, docs/ux-spec.md › Motion › Intro), in seconds from its first
+/// frame, each part's start and length. The strokes draw on the check's ease-in-out, as a pen's
+/// would, the stems from their feet and the ring from its top, the way a hand writes "ilo"; the dot
+/// lands last, in the ink, and takes the green, and then the line comes.
+const STEM_I: (f32, f32) = (0.2, 0.4);
+const STEM_L: (f32, f32) = (0.32, 0.48);
+const RING: (f32, f32) = (0.48, 0.62);
+const DOT: (f32, f32) = (1.1, 0.24);
+const SIGNAL_IN: (f32, f32) = (1.34, 0.3);
+const TAGLINE_IN: (f32, f32) = (1.64, 0.4);
+/// The intro holds this long from its first frame, then the first step comes.
+const INTRO_END: f32 = 3.4;
+/// With Reduce Motion, the wordmark and its line fade in whole together, and hold.
+const STILL_FADE: f32 = 0.4;
+const STILL_END: f32 = 2.;
+/// A step comes in as the one before leaves, the icon picker's tabs' 200 ms ease-out.
+const STEP_MOTION: f32 = 0.2;
+/// The flow fades from over the first Space at the end, on the scroll edge's curve.
+const END_FADE: f32 = 0.2;
+
+/// How much of each part of the wordmark and its line is drawn, from 0 to 1.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) struct Drawn {
+    pub stem_i: f32,
+    pub stem_l: f32,
+    pub ring: f32,
+    pub dot: f32,
+    pub signal: f32,
+    pub tagline: f32,
+}
+
+impl Drawn {
+    /// The intro `t` seconds in, or `still`, under Reduce Motion, all of it fading in at once.
+    pub(super) fn at(t: f32, still: bool) -> Drawn {
+        // Each part's curve, exactly at its ends, so a part not yet started isn't drawn at all.
+        let along = |(start, length): (f32, f32), curve: fn(f32) -> f32| match (t - start) / length {
+            x if x <= 0. => 0.,
+            x if x >= 1. => 1.,
+            x => curve(x),
+        };
+        if still {
+            let fade = along((0., STILL_FADE), fade);
+            return Drawn { stem_i: 1., stem_l: 1., ring: 1., dot: 1., signal: 1., tagline: fade };
+        }
+        Drawn {
+            stem_i: along(STEM_I, ease_in_out),
+            stem_l: along(STEM_L, ease_in_out),
+            ring: along(RING, ease_in_out),
+            dot: along(DOT, ease_out),
+            signal: along(SIGNAL_IN, ease_in_out),
+            tagline: along(TAGLINE_IN, fade),
+        }
+    }
+
+    /// Whether it's all there.
+    fn done(&self) -> bool {
+        self.tagline >= 1.
+    }
+}
+
+/// The check draw's curve, CSS's ease-in-out.
+fn ease_in_out(x: f32) -> f32 {
+    cubic_bezier(0.42, 0., 0.58, 1., x)
+}
+
+/// The scroll edge's fade, as the empty card's line comes.
+fn fade(x: f32) -> f32 {
+    fade_at(0., 1., x, 1.)
+}
+
+/// The row motion's ease-out, as a dot settling into place.
+fn ease_out(x: f32) -> f32 {
+    cubic_bezier(0., 0., 0.58, 1., x)
+}
+
+/// The flow while it shows.
+pub(super) struct Onboarding {
+    pub(super) step: Step,
+    /// When the step came, which its motion runs from.
+    pub(super) since: Instant,
+    /// The step before, leaving as this one comes, and how far into it it was when it left.
+    leaving: Option<(Step, f32)>,
+    /// When the last step was left, for the flow's fade.
+    pub(super) ending: Option<Instant>,
+    /// Light or dark where check.sh says, else the window's.
+    light: Option<bool>,
+    /// The step has come all the way and said so.
+    settled: bool,
+    /// Keys in this window go on from a step, while the flow shows.
+    keys: Option<gpui::Subscription>,
+    /// Wakes the window at the intro's end, which holds still until then.
+    hold: Option<gpui::Task<()>>,
+}
+
+impl Shell {
+    /// Starts the flow at the intro in this window, which shows no page. `appearance` is check.sh's
+    /// "light" or "dark", else the window's own.
+    pub fn start_onboarding(&mut self, appearance: Option<&str>, cx: &mut Context<Self>) {
+        // check.sh waits for these lines.
+        log!("browser: onboarding started");
+        log!("browser: onboarding step intro");
+        self.onboarding = Some(Onboarding {
+            step: Step::Intro,
+            since: Instant::now(),
+            leaving: None,
+            ending: None,
+            light: appearance.and_then(|name| match name {
+                "light" => Some(true),
+                "dark" => Some(false),
+                _ => None,
+            }),
+            settled: false,
+            keys: None,
+            hold: None,
+        });
+        cx.notify();
+    }
+
+    /// Help › Welcome to ilo: the flow again, here if the window shows no page, which GPUI can't
+    /// draw over, else in a new window as ⌘N's, which shows none.
+    pub(super) fn welcome_again(&mut self, cx: &mut Context<Self>) {
+        match self.selected {
+            0 => self.start_onboarding(None, cx),
+            _ => self.browser.welcome_window(cx),
+        }
+    }
+
+    /// Goes on from the step shown, to the next or out of the flow after the last, `how` saying
+    /// what did it for check.sh.
+    pub(super) fn onboarding_next(&mut self, how: &str, cx: &mut Context<Self>) {
+        let Some(onboarding) = self.onboarding.as_mut().filter(|o| o.ending.is_none()) else {
+            return;
+        };
+        let step = onboarding.step;
+        log!("browser: onboarding left {} via {how}", step.name());
+        match step.next() {
+            Some(next) => {
+                let elapsed = onboarding.since.elapsed().as_secs_f32();
+                onboarding.leaving = Some((step, elapsed));
+                onboarding.step = next;
+                onboarding.since = Instant::now();
+                onboarding.settled = false;
+                log!("browser: onboarding step {}", next.name());
+            }
+            None => onboarding.ending = Some(Instant::now()),
+        }
+        cx.notify();
+    }
+
+    /// The step's button: what it offers, then on, as Skip goes.
+    fn onboarding_continue(&mut self, how: &str, cx: &mut Context<Self>) {
+        self.onboarding_next(how, cx);
+    }
+
+    /// A key in the window: any skips the intro, and in a step Esc skips it and return is its
+    /// button. A shortcut still does its own thing first.
+    fn onboarding_key(&mut self, key: &Keystroke, cx: &mut Context<Self>) {
+        let Some(step) = self.onboarding.as_ref().map(|onboarding| onboarding.step) else {
+            return;
+        };
+        if ["shift", "control", "alt", "platform", "function"].contains(&key.key.as_str()) {
+            return;
+        }
+        match (step, key.key.as_str()) {
+            (Step::Intro, _) => self.onboarding_next("key", cx),
+            (_, "escape") => self.onboarding_next("escape", cx),
+            (_, "enter") if !key.modifiers.modified() => self.onboarding_continue("return", cx),
+            _ => {}
+        }
+    }
+
+    /// The flow over the whole window while it shows, stepping its motion; none otherwise, at no
+    /// cost but the check.
+    pub(super) fn onboarding_layer(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let onboarding = self.onboarding.as_mut()?;
+        // A page shown covers it, so it has ended.
+        let ended = onboarding.ending.is_some_and(|at| at.elapsed().as_secs_f32() >= END_FADE);
+        if ended || self.selected != 0 {
+            self.onboarding = None;
+            // check.sh waits for this line.
+            log!("browser: onboarding done");
+            return None;
+        }
+        if onboarding.keys.is_none() {
+            let id = window.window_handle().window_id();
+            onboarding.keys = Some(cx.observe_keystrokes(move |shell, event, window, cx| {
+                if window.window_handle().window_id() == id {
+                    shell.onboarding_key(&event.keystroke, cx);
+                }
+            }));
+        }
+        let still = cx.reduce_motion();
+        let elapsed = onboarding.since.elapsed().as_secs_f32();
+        let step = onboarding.step;
+        let came = match step {
+            Step::Intro => Drawn::at(elapsed, still).done(),
+            _ => elapsed >= STEP_MOTION,
+        };
+        if came && !std::mem::replace(&mut onboarding.settled, true) {
+            // check.sh waits for this line before it captures the step.
+            log!("browser: onboarding step {} settled", step.name());
+        }
+        if step == Step::Intro && elapsed >= if still { STILL_END } else { INTRO_END } {
+            self.onboarding_next("time", cx);
+            return self.onboarding_layer(window, cx);
+        }
+        let onboarding = self.onboarding.as_mut()?;
+        let motion = (elapsed / STEP_MOTION).min(1.);
+        if motion >= 1. {
+            onboarding.leaving = None;
+        }
+        // Frames while something moves; the intro's hold waits on a timer instead.
+        let ending = onboarding.ending.map(|at| at.elapsed().as_secs_f32());
+        if !came || onboarding.leaving.is_some() || ending.is_some() {
+            window.request_animation_frame();
+        } else if step == Step::Intro && onboarding.hold.is_none() {
+            let end = if still { STILL_END } else { INTRO_END };
+            let left = Duration::from_secs_f32((end - elapsed).max(0.));
+            onboarding.hold = Some(cx.spawn(async move |shell, cx| {
+                cx.background_executor().timer(left).await;
+                shell.update(cx, |_, cx| cx.notify()).ok();
+            }));
+        }
+        let light = onboarding.light.unwrap_or_else(|| {
+            matches!(window.appearance(), gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight)
+        });
+        let leaving = onboarding.leaving;
+        let colors = Colors::of(light);
+        // The step comes from the right as the one before leaves to the left, but for a fade with
+        // Reduce Motion. The intro, first, is simply there.
+        let eased = ease_out(motion);
+        let shift = if still || leaving.is_none() { 0. } else { SHIFT };
+        let coming = self
+            .step_content(step, elapsed, still, colors, cx)
+            .left(px(shift * (1. - eased)))
+            .opacity(if leaving.is_some() { eased } else { 1. });
+        let gone = leaving.map(|(step, at)| {
+            self.step_content(step, at, still, colors, cx)
+                .left(px(-shift * eased))
+                .opacity(1. - eased)
+        });
+        let skip = (step != Step::Intro).then(|| self.skip_button(colors, cx));
+        let opacity = ending.map_or(1., |at| fade_at(1., 0., at, END_FADE));
+        Some(
+            div()
+                .id("onboarding")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .bg(colors.ground)
+                .occlude()
+                .opacity(opacity)
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|shell, _, _, cx| {
+                        if shell.onboarding.as_ref().is_some_and(|o| o.step == Step::Intro) {
+                            shell.onboarding_next("click", cx);
+                        }
+                    }),
+                )
+                .children(gone)
+                .child(coming)
+                .children(skip)
+                .into_any_element(),
+        )
+    }
+
+    /// A step's message, centred in the window, `t` seconds into it.
+    fn step_content(
+        &self,
+        step: Step,
+        t: f32,
+        still: bool,
+        colors: Colors,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let layer = div().absolute().top_0().size_full().flex().items_center().justify_center();
+        if step == Step::Intro {
+            let drawn = Drawn::at(t, still);
+            return layer.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .child(wordmark(drawn, colors))
+                    .child(
+                        display_text("a good tool.", TAGLINE_SIZE, TAGLINE_LINE, cx)
+                            .mt(px(TAGLINE_GAP - cap_top(TAGLINE_SIZE, TAGLINE_LINE)))
+                            .text_color(colors.ink(QUIET))
+                            .opacity(drawn.tagline),
+                    ),
+            );
+        }
+        let (title, line, button) = step.message();
+        let chip = |keys: &'static str, fill: Rgba| {
+            div()
+                .h(px(CHIP_HEIGHT))
+                .px(px(CHIP_INSET))
+                .flex()
+                .items_center()
+                .rounded(px(CHIP_RADIUS))
+                .bg(fill)
+                .child(keys)
+        };
+        let button = div()
+            .id("onboarding-continue")
+            .mt(px(BUTTON_GAP))
+            .h(px(BUTTON_HEIGHT))
+            .px(px(BUTTON_INSET))
+            .flex()
+            .items_center()
+            .gap(px(CHIP_GAP))
+            .rounded(px(BUTTON_RADIUS))
+            .bg(rgb(SIGNAL))
+            .text_color(rgb(PAPER))
+            .text_size(px(BUTTON_SIZE))
+            .font_weight(gpui::FontWeight::MEDIUM)
+            // The dialog's Delete darkens as much under the pointer.
+            .hover(|style| style.opacity(0.9))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|shell, _, _, cx| shell.onboarding_continue("button", cx)))
+            .child(button)
+            .child(chip("↩", with_alpha(PAPER, CHIP)));
+        layer.child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .max_w(px(480.))
+                .child(display_text(title, TITLE_SIZE, TITLE_LINE, cx).text_color(colors.ink(1.)))
+                .child(
+                    div()
+                        .mt(px(LINE_GAP))
+                        .text_center()
+                        .text_size(px(LINE_SIZE))
+                        .line_height(px(LINE_LINE))
+                        .text_color(colors.ink(QUIET))
+                        .child(line),
+                )
+                .child(button),
+        )
+    }
+
+    /// Skip, quiet at the window's bottom right, with Esc's chip.
+    fn skip_button(&self, colors: Colors, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let chip = div()
+            .h(px(CHIP_HEIGHT))
+            .px(px(CHIP_INSET))
+            .flex()
+            .items_center()
+            .rounded(px(CHIP_RADIUS))
+            .bg(colors.ink(SKIP_CHIP))
+            .child("esc");
+        div()
+            .id("onboarding-skip")
+            .absolute()
+            .right(px(SKIP_MARGIN))
+            .bottom(px(SKIP_MARGIN))
+            .flex()
+            .items_center()
+            .gap(px(CHIP_GAP))
+            .text_size(px(SKIP_SIZE))
+            .text_color(colors.ink(QUIET))
+            // A step brighter under the pointer, as a quiet control does.
+            .hover(move |style| style.text_color(colors.ink(1.)))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(cx.listener(|shell, _, _, cx| shell.onboarding_next("skip", cx)))
+            .child("Skip")
+            .child(chip)
+    }
+}
+
+/// The flow's two colours: the ground, and the ink drawn on it.
+#[derive(Clone, Copy)]
+struct Colors {
+    ground: Rgba,
+    ink: u32,
+}
+
+impl Colors {
+    /// Paper with Ink on it in a light appearance, the other way round in a dark one, as the
+    /// app icon's tile and stem.
+    fn of(light: bool) -> Colors {
+        match light {
+            true => Colors { ground: rgb(PAPER), ink: INK },
+            false => Colors { ground: rgb(INK), ink: PAPER },
+        }
+    }
+
+    fn ink(&self, alpha: f32) -> Rgba {
+        with_alpha(self.ink, alpha)
+    }
+}
+
+fn with_alpha(color: u32, alpha: f32) -> Rgba {
+    Rgba { a: alpha, ..rgb(color) }
+}
+
+/// The brand's wordmark (ilo-studio's brand/logo/wordmark.svg), in its own units: a box from
+/// (7, 16), 214 × 154, holding the i's dot and stem, the l's stem, and the o's ring.
+const BOX: (f32, f32, f32, f32) = (7., 16., 214., 154.);
+const DOT_AT: (f32, f32, f32) = (19., 31., 15.);
+/// Each stem's left, top and bottom; both are 24 wide with round ends.
+const STEMS: [(f32, f32, f32); 2] = [(7., 70., 170.), (67., 20., 170.)];
+const STEM_WIDTH: f32 = 24.;
+/// The ring's middle, radius and stroke.
+const RING_AT: (f32, f32, f32, f32) = (171., 120., 38., 24.);
+/// Straight stretches a whole ring is drawn in.
+const RING_STRETCHES: usize = 96;
+
+/// The wordmark, `drawn` as far as it is, at the flow's size.
+fn wordmark(drawn: Drawn, colors: Colors) -> impl IntoElement {
+    let scale = WORDMARK_SCALE;
+    let ink = colors.ink(1.);
+    let dot_color = mix(ink, rgb(SIGNAL), drawn.signal);
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let at = |x: f32, y: f32| {
+                bounds.origin + point(px((x - BOX.0) * scale), px((y - BOX.1) * scale))
+            };
+            // The stems grow up from their feet, round at both ends.
+            for ((left, top, foot), way) in STEMS.into_iter().zip([drawn.stem_i, drawn.stem_l]) {
+                let height = (foot - top) * way;
+                if height <= 0. {
+                    continue;
+                }
+                let stem = Bounds::new(at(left, foot - height), size(px(STEM_WIDTH * scale), px(height * scale)));
+                let radius = px(STEM_WIDTH.min(height) / 2. * scale);
+                window.paint_quad(fill(stem, ink).corner_radii(radius));
+            }
+            // The ring from its top, anticlockwise as a hand writes an o, with round ends, which
+            // GPUI's stroke doesn't draw, as the check's.
+            let (cx_, cy, radius, stroke) = RING_AT;
+            let stretches = (RING_STRETCHES as f32 * drawn.ring).ceil() as usize;
+            if stretches > 0 {
+                let point_at = |i: usize| {
+                    let angle = -std::f32::consts::FRAC_PI_2
+                        - std::f32::consts::TAU * drawn.ring * i as f32 / stretches as f32;
+                    at(cx_ + radius * angle.cos(), cy + radius * angle.sin())
+                };
+                let mut path = PathBuilder::stroke(px(stroke * scale));
+                path.move_to(point_at(0));
+                for i in 1..=stretches {
+                    path.line_to(point_at(i));
+                }
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, ink);
+                }
+                let width = px(stroke * scale);
+                for end in [point_at(0), point_at(stretches)] {
+                    let cap = Bounds::centered_at(end, size(width, width));
+                    window.paint_quad(fill(cap, ink).corner_radii(width / 2.));
+                }
+            }
+            // The dot lands, growing about its middle, and takes the green.
+            if drawn.dot > 0. {
+                let (x, y, radius) = DOT_AT;
+                let side = px(2. * radius * scale * drawn.dot);
+                let dot = Bounds::centered_at(at(x, y), size(side, side));
+                window.paint_quad(fill(dot, dot_color).corner_radii(side / 2.));
+            }
+        },
+    )
+    .w(px(BOX.2 * scale))
+    .h(px(BOX.3 * scale))
+}
+
+/// `from` taking on `to`, `t` of the way.
+fn mix(from: Rgba, to: Rgba, t: f32) -> Rgba {
+    let at = |a: f32, b: f32| a + (b - a) * t;
+    Rgba { r: at(from.r, to.r), g: at(from.g, to.g), b: at(from.b, to.b), a: at(from.a, to.a) }
+}
+
+#[cfg(test)]
+mod tests;

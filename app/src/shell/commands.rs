@@ -157,6 +157,8 @@ pub enum Command {
     Settings,
     /// Opens the Settings window on its Shortcuts tab.
     KeyboardShortcuts,
+    /// Plays a new profile's first launch again.
+    Welcome,
     Quit,
 }
 
@@ -325,6 +327,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("View History", Command::ViewHistory, &[]),
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
+    (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
 ];
 
@@ -603,6 +606,7 @@ impl Command {
             Command::ViewHistory => "view-history",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
+            Command::Welcome => "welcome",
             Command::Quit => "quit",
         }
     }
@@ -793,6 +797,7 @@ impl Shell {
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
+            Command::Welcome => return self.welcome_again(cx),
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
                 if !self.url(self.selected).starts_with("chrome://history") {
@@ -1106,6 +1111,7 @@ impl Shell {
             | Command::AddExtension
             | Command::ViewHistory
             | Command::KeyboardShortcuts
+            | Command::Welcome
             | Command::Settings => true,
             _ => self.selected != 0,
         }
