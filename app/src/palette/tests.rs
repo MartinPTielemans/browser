@@ -102,13 +102,14 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
         for (name, alpha) in [("text", TEXT), ("state", SECONDARY), ("link", LINK)] {
             check(&format!("site controls {name}"), on(palette.on_overlay(alpha), &[overlay]), super::TEXT);
         }
-        let tiles = on_overlay(&[TILE_TOP, TILE_TOP + HOVERED, PLATE, PLATE_HOVERED, MORE_FILL + HOVERED]);
-        check("site controls tile glyph", on(palette.on_overlay_glyph(TEXT), &tiles), GLYPH);
-        let lock = on_overlay(&[PLATE, PLATE_HOVERED]);
-        check("site controls lock label", on(palette.on_overlay(TEXT), &lock), super::TEXT);
         check("site controls off glyph", on(palette.on_overlay_glyph(OFF_GLYPH), &on_overlay(&[OFF])), GLYPH);
         check("site controls on circle", against(&[overlay]), GLYPH);
         check("site controls on glyph", contrast(palette.accent_label, accent), GLYPH);
+    }
+    // Every surface's controls in each of the ladder's states over their resting fills (#318):
+    // the text on them at 4.5:1 and the glyphs at 3:1.
+    for (name, content, minimum, on_states) in states(&palette, theme) {
+        check(&format!("{name}, every state"), on(content, &on_states), minimum);
     }
     // The Space's swatch, ringed where its edge doesn't reach 3:1 on the window.
     let swatch = match theme {
@@ -124,6 +125,68 @@ fn failures(theme: Option<&Theme>) -> Vec<String> {
     };
     check("Space swatch edge", edge, GLYPH);
     failed
+}
+
+/// Each control drawn on a state of the ladder, off the sidebar, whose measured states the ladder
+/// is: its name, what's drawn on it, the contrast that needs, and the grounds it's drawn on, its
+/// resting fill under each state it takes.
+fn states(palette: &Palette, theme: Option<&Theme>) -> Vec<(String, Hsla, f32, Vec<Rgba>)> {
+    use crate::tokens::{command_bar, dialog, offer, shell, site_controls, toast};
+    const PRESSABLE: [f32; 2] = [STATE_PRESSED, STATE_HOVERED];
+    let window = fine_window(palette, theme);
+    let ink = palette.ink;
+    // A control resting at `rest`, a plate of the ink, on `grounds`, in each of `states`.
+    let lay = |grounds: &[Rgba], rest: f32, states: &[f32]| -> Vec<Rgba> {
+        let alphas: Vec<f32> = states.iter().map(|&state| state_alpha(rest, state)).collect();
+        grounds.iter().flat_map(|&at| alphas.iter().map(move |&alpha| over(at, ink, alpha))).collect()
+    };
+    // The same on a surface that's dark on any theme, in Paper.
+    let paper = rgb(PAPER);
+    let lay_dark = |fill: Rgba, rest: f32, states: &[f32]| -> Vec<Rgba> {
+        states.iter().map(|&state| over(fill, paper, state_alpha(rest, state))).collect()
+    };
+    let white = |alpha: f32| Hsla::from(WHITE).opacity(alpha);
+    let column: Vec<Rgba> = window.iter().map(|&at| over(at, ink, shell::library::COLUMN)).collect();
+    let (overlay, dialog) = (vec![palette.overlay], vec![palette.dialog]);
+    let sections = [shell::library::SECTION_HOVERED, shell::library::LIBRARY_PLATE];
+    let mut states = vec![
+        // On the window.
+        // A section's plates are Arc's selected one and ours under it.
+        ("Library section label", palette.text(shell::library::SECTION_LABEL), TEXT, lay(&column, 0., &sections)),
+        ("Library section glyph", palette.glyph(shell::library::SECTION_GLYPH_UNSELECTED), GLYPH, lay(&column, 0., &sections)),
+        ("Library row title", palette.text(shell::UNSELECTED_TITLE), TEXT, lay(&window, 0., &PRESSABLE)),
+        ("Library row detail", palette.text(shell::SECONDARY), TEXT, lay(&window, 0., &PRESSABLE)),
+        ("Library card name", palette.text(shell::UNSELECTED_TITLE), TEXT, lay(&window, 0., &[STATE_HOVERED])),
+        ("Library and side panel buttons", palette.glyph(shell::NAV), GLYPH, lay(&window, 0., &PRESSABLE)),
+        ("URL field host", palette.text(shell::SECONDARY), TEXT, lay(&window, shell::URL_FIELD, &[STATE_HOVERED])),
+        ("question card button", palette.text(shell::TITLE), TEXT, lay(&window, shell::URL_FIELD, &PRESSABLE)),
+        ("offer button", palette.text(offer::TITLE), TEXT, lay(&window, offer::PLATE, &PRESSABLE)),
+        ("offer chevron", palette.glyph(offer::DETAIL), GLYPH, lay(&window, 0., &PRESSABLE)),
+        ("toast chip key", palette.text(toast::KEY_COLOR), TEXT, lay(&window, toast::CHIP_FILL, &PRESSABLE)),
+        // On the overlays.
+        ("command bar row", palette.on_overlay(command_bar::DIM), TEXT, lay(&overlay, 0., &[command_bar::HOVERED])),
+        ("command bar row glyph", palette.on_overlay_glyph(command_bar::ROW_GLYPH), GLYPH, lay(&overlay, 0., &[command_bar::HOVERED])),
+        ("dialog Cancel", palette.on_overlay(dialog::CANCEL_TEXT), TEXT, lay(&dialog, 0., &[dialog::CANCEL_HOVERED, state_alpha(dialog::CANCEL_FILL, STATE_PRESSED)])),
+        ("site controls tile", palette.on_overlay_glyph(site_controls::TEXT), GLYPH, lay(&overlay, site_controls::TILE_TOP, &PRESSABLE)),
+        ("site controls lock", palette.on_overlay(site_controls::TEXT), TEXT, lay(&overlay, site_controls::PLATE, &PRESSABLE)),
+        ("site controls …", palette.on_overlay_glyph(site_controls::TEXT), GLYPH, lay(&overlay, site_controls::MORE_FILL, &PRESSABLE)),
+        ("theme picker appearance", palette.on_overlay_glyph(crate::tokens::theme_picker::APPEARANCE_COLOR), GLYPH, lay(&overlay, 0., &[crate::tokens::theme_picker::APPEARANCE_CHOSEN])),
+    ];
+    // Dark on any theme: the find bar, the capture menu, and the icon picker, on the pickers' card
+    // over the window, its segments on their track.
+    use crate::tokens::{capture, find_bar, icon_picker};
+    let cards: Vec<Rgba> = window.iter().map(|&at| over(at, palette.card, palette.card.a)).collect();
+    let track: Vec<Rgba> = cards.iter().map(|&at| over(at, WHITE, rgba(CARD_SEGMENTS).a)).collect();
+    let label = Hsla::from(rgb(icon_picker::LABEL));
+    let chosen = Rgba::from(gpui::rgba(icon_picker::CHOSEN)).a;
+    states.extend([
+        ("find bar button", white(Rgba::from(gpui::rgba(find_bar::GLYPH_COLOR)).a), GLYPH, lay_dark(rgb(find_bar::FILL), 0., &PRESSABLE)),
+        ("capture menu row", white(1.), TEXT, lay_dark(rgb(capture::MENU_FILL >> 8), 0., &PRESSABLE)),
+        ("capture menu glyph", white(capture::GLYPH_COLOR), GLYPH, lay_dark(rgb(capture::MENU_FILL >> 8), 0., &PRESSABLE)),
+        ("icon picker segment", label, TEXT, track.iter().flat_map(|&at| PRESSABLE.map(|state| over(at, rgb(INK), state))).collect()),
+        ("icon picker glyph", label, GLYPH, cards.iter().flat_map(|&at| lay_dark(at, 0., &[STATE_PRESSED, STATE_HOVERED, chosen])).collect()),
+    ]);
+    states.into_iter().map(|(name, content, minimum, grounds)| (name.to_string(), content, minimum, grounds)).collect()
 }
 
 /// The themes of a grid over the picker's output: colours, field, intensity, grain, appearance.
@@ -201,8 +264,8 @@ fn the_pickers_card_and_captures_glyphs_read() {
     let black = Palette::of(Some(&Theme::at(0., 0.)));
     assert_eq!(hex(black.card), hex(rgba(CARD)), "the measured grey over the black Space");
     assert_eq!(Palette::of(None).card, rgba(CARD), "the measured grey with no theme");
-    use crate::tokens::capture::{GLYPH_COLOR, MENU_FILL, ROW_HOVERED};
-    for ground in [rgba(MENU_FILL), over(rgba(MENU_FILL), WHITE, rgba(ROW_HOVERED).a)] {
+    use crate::tokens::capture::{GLYPH_COLOR, MENU_FILL};
+    for ground in [0., STATE_HOVERED, STATE_PRESSED].map(|state| over(rgba(MENU_FILL), WHITE, state)) {
         assert!(contrast(over(ground, rgb(PAPER), GLYPH_COLOR), ground) >= GLYPH);
     }
 }

@@ -51,8 +51,6 @@ text-size = 13.0
 separator = 9.0
 separator-color = 0xffff_ff0f
 menu-bottom = 6.0
-# A row under the pointer, which Arc's wasn't recorded with (ours, as the app's menus' plates).
-row-hovered = 0xffff_ff14
 row-inset = 4.0
 # The menu keeps this far inside the page, where what's chosen reaches its edge (ours).
 margin = 8.0
@@ -241,7 +239,6 @@ count-gap = 2.5
 glyph = 14.0
 glyph-color = 0xffffff99
 glyph-disabled = 0xffffff42
-hovered = 0xffffff14
 divider = 0xffffff26
 divider-height = 16.0
 text = 0xffffff
@@ -284,7 +281,7 @@ glyph-size = 16.0
 plate = 30.0
 plate-radius = 6.0
 chosen = 0xffff_ff40
-# Arc's hover wasn't captured: half the chosen plate.
+# The search field's selection.
 hovered = 0xffff_ff1f
 # The search's placeholder and the emoji groups' headers. Arc's are white 0.53, under 4.5:1 on its
 # card over the window over a white backdrop; ours are the least alpha, in 25ths, that reads there.
@@ -402,9 +399,6 @@ plate-radius = 6.0
 title = 1.0
 detail = 0.78
 plate = 0.1
-hovered = 0.12
-# Ours: Save or Update stands out from the others.
-default-plate = 0.2
 # The find bar's.
 placeholder = 0.53
 
@@ -464,6 +458,15 @@ ring = 1.0
 accent-hovered = 0.04
 accent-pressed = 0.08
 selection = 0.28
+# One ladder of states for every control whose states Arc wasn't recorded with, but the accent's
+# (#318): pressed, under the pointer, selected, and selected under the pointer. They're the
+# sidebar's rows', measured from Arc (`[shell]`: pressed, hovered, selected and selected-hovered),
+# as plates of the ink in Paper's terms, laid over a control's own resting plate. Arc's measured
+# states elsewhere, such as the command bar's row, stay theirs.
+state-pressed = 0.065
+state-hovered = 0.12
+state-selected = 0.2
+state-selected-hovered = 0.36
 
 [settings]
 # Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
@@ -544,7 +547,6 @@ profile-tile = 0x8e8e93
 # A row's detail, such as a profile's Spaces, in the toolbar's grey.
 detail = 0x9e9f9f
 chip = 0xffff_ff14
-chip-hovered = 0xffff_ff24
 # A shortcut's keys as a chip, and the button beside it that restores its default.
 chip-radius = 6.0
 restore-radius = 6.0
@@ -733,11 +735,11 @@ clear = 0.62
 clear-hovered = 0.81
 # A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 sleeping-favicon = 0.5
-# A favorite's tile: 0.10 at rest (Dia), with the resting level's rim, and under the pointer 0.15
-# (ours: Dia's isn't measured). The one shown is themed by its icon (tile_theme.rs), and black
-# with Dia's default selection ring, white 0.45, where the icon gives no theme.
+# A favorite's tile: 0.10 at rest (Dia), with the resting level's rim, and under the pointer the
+# ladder's hover over that (palette's `state-hovered`; Dia's isn't measured). The one shown is
+# themed by its icon (tile_theme.rs), and black with Dia's default selection ring, white 0.45,
+# where the icon gives no theme.
 tile = 0.1
-tile-hovered = 0.15
 tile-ring = 0.45
 tile-unthemed = 0x0000_00ff
 # The header's glyphs (docs/ux-spec.md › Header and URL field): 0.60, and 0.26 for back or forward
@@ -873,7 +875,8 @@ section-glyph-y = 31.0
 section-label-y = 56.0
 section-label-height = 15.0
 section-label = 0.85
-# Ours: the glyph of a section not shown, and the plate under one hovered.
+# Ours: the glyph of a section not shown, and the plate under one hovered, under Arc's selected
+# plate rather than the ladder's hovered, which would outshine it.
 section-glyph-unselected = 0.6
 section-hovered = 0.05
 # Between two sections' buttons, 100 apart.
@@ -1114,9 +1117,6 @@ tile-bottom = 0.04
 tile-highlight = 0.2
 # The + tile's, an extension's and the lock button's plate.
 plate = 0.05
-# Ours: a tile or the "…" button under the pointer, and a plate.
-hovered = 0.05
-plate-hovered = 0.1
 # Ours: an extension's icon, as the toolbar's is.
 extension-icon = 16.0
 plus-glyph = 16.5
@@ -1281,8 +1281,6 @@ chip-radius = 6.0
 chip-x = 9.0
 chip-gap = 8.0
 chip-fill = 0.1
-# A button's chip under the pointer, which Arc's wasn't recorded with (ours).
-chip-hovered = 0.16
 # A button's glyph, as Arc's Share is (Capture's toast at 3×).
 chip-glyph = 13.0
 key-gap = 5.0

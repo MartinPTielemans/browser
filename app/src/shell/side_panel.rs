@@ -10,10 +10,11 @@ use gpui::{
 };
 
 use super::{
-    CARD_INSET, MenuAction, MenuEntry, NAV, NAV_HOVERED, NAV_RADIUS, PRESSED, Shell, TITLE,
+    CARD_INSET, MenuAction, MenuEntry, NAV, NAV_RADIUS, Shell, TITLE,
     URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, card, panes::page_frame,
 };
 
+use crate::palette::{STATE_HOVERED, STATE_PRESSED};
 use crate::tokens::shell::side_panel::PANEL_WIDTH;
 use crate::tokens::shell::side_panel::PANEL_MIN;
 use crate::tokens::shell::side_panel::PANEL_MAX;
@@ -115,8 +116,8 @@ impl Shell {
                 .items_center()
                 .justify_center()
                 .rounded(px(NAV_RADIUS))
-                .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
-                .active(|style| style.bg(self.palette.plate(PRESSED)))
+                .hover(|style| style.bg(self.palette.plate(STATE_HOVERED)))
+                .active(|style| style.bg(self.palette.plate(STATE_PRESSED)))
                 .child(svg().path(icon).size(px(URL_BUTTON_GLYPH)).text_color(self.palette.glyph(NAV)))
         };
         let header = div()

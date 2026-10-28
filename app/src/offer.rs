@@ -17,7 +17,7 @@ use gpui::{
 };
 
 use crate::{
-    palette::Palette,
+    palette::{Palette, STATE_HOVERED, STATE_PRESSED},
     shell,
     text_input::{FieldMenu, TextInput},
 };
@@ -57,8 +57,6 @@ use crate::tokens::offer::TITLE;
 use crate::tokens::offer::DETAIL;
 use crate::elevation::Level;
 use crate::tokens::offer::PLATE;
-use crate::tokens::offer::HOVERED;
-use crate::tokens::offer::DEFAULT_PLATE;
 use crate::tokens::offer::PLACEHOLDER;
 use crate::tokens::text;
 
@@ -359,7 +357,13 @@ impl Render for OfferPrompt {
         self.input.update(cx, |input, _| {
             input.set_colors(palette.text(PLACEHOLDER), palette.accent.into(), palette.selection())
         });
-        let button = |id: &'static str, label: SharedString, answer: Answer, plate: f32| {
+        // Save or Update stands out in the Space's accent, as a dialog's action does.
+        let button = |id: &'static str, label: SharedString, answer: Answer, default: bool| {
+            let (rest, hovered, pressed) = if default {
+                (palette.accent.into(), palette.accent_hovered(), palette.accent_pressed())
+            } else {
+                (palette.plate(PLATE), palette.state(PLATE, STATE_HOVERED), palette.state(PLATE, STATE_PRESSED))
+            };
             div()
                 .id(id)
                 .flex_none()
@@ -368,8 +372,10 @@ impl Render for OfferPrompt {
                 .flex()
                 .items_center()
                 .rounded(px(PLATE_RADIUS))
-                .bg(palette.plate(plate))
-                .hover(move |style| style.bg(palette.plate(HOVERED)))
+                .bg(rest)
+                .when(default, |button| button.text_color(palette.accent_label))
+                .hover(move |style| style.bg(hovered))
+                .active(move |style| style.bg(pressed))
                 .font_weight(FontWeight::MEDIUM)
                 .child(label)
                 .on_click(cx.listener(move |prompt, _, _, cx| prompt.answer(answer, cx)))
@@ -393,7 +399,8 @@ impl Render for OfferPrompt {
             .items_center()
             .justify_center()
             .rounded(px(PLATE_RADIUS))
-            .hover(move |style| style.bg(palette.plate(HOVERED)))
+            .hover(move |style| style.bg(palette.plate(STATE_HOVERED)))
+            .active(move |style| style.bg(palette.plate(STATE_PRESSED)))
             .on_click(cx.listener(|prompt, _, window, cx| prompt.pick(window, cx)))
             .child(
                 svg().path("icons/chevron-down.svg").size(px(GLYPH)).text_color(palette.glyph(DETAIL)),
@@ -410,10 +417,10 @@ impl Render for OfferPrompt {
             .mt(px(BUTTONS_TOP))
             .flex()
             .gap(px(BUTTON_GAP))
-            .children(offer.never.map(|never| button("never", never, Answer::Never, PLATE)))
+            .children(offer.never.map(|never| button("never", never, Answer::Never, false)))
             .child(div().flex_1())
-            .child(button("decline", offer.decline, Answer::NotNow, PLATE))
-            .child(button("accept", offer.accept, Answer::Accept, DEFAULT_PLATE));
+            .child(button("decline", offer.decline, Answer::NotNow, false))
+            .child(button("accept", offer.accept, Answer::Accept, true));
         root.child(
             div()
                 .key_context("Offer")
