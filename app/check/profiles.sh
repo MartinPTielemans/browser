@@ -154,6 +154,7 @@ expect "^browser: spaces $first $second\$" "Cancel didn't delete the third Space
 send key 1 ctrl
 expect "^browser: space $first in " "⌃1 didn't show the first Space"
 expect "^browser: favorites $a\$" "the first Space didn't show its profile's favorite"
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 send click $page_point
 send key r cmd
 expect "^browser: title $a cookie p\$" "the first profile's cookie went"
@@ -236,6 +237,7 @@ expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 [ "$twin" != "$a" ] || fail "the other profile's Space shows the first profile's favorite itself"
 send key 1 ctrl
 expect "^browser: space $first in " "⌃1 didn't show the first Space"
+expect "^browser: settled space $first\$" "the first Space's page didn't settle"
 send click $tile
 expect "^browser: selected $a\( in .*\)\{0,1\}\$" "a click on the tile didn't show the favorite"
 go_from_bar "$away_page"
@@ -259,6 +261,7 @@ expect "^browser: space $second in " "⌃2 didn't show the second Space"
 expect '^browser: favorites [0-9][0-9]*$' "⌘Z didn't bring back the favorite's twin"
 twin=$(grep '^browser: favorites' "$log" | tail -1 | cut -d' ' -f3)
 [ "$twin" != "$a" ] || fail "the other profile's Space shows the first profile's favorite itself"
+expect "^browser: settled space $second\$" "the second Space's page didn't settle"
 send click $tile
 expect "^browser: selected $twin\( in .*\)\{0,1\}\$" "a click on the twin's tile didn't show it"
 # The twin opens where the favorite is, so it goes to a page of its own.
