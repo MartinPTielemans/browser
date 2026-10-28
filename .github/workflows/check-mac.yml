@@ -100,13 +100,15 @@ jobs:
             echo "| Run | Result |"
             echo "|---|---|"
           } >> "$GITHUB_STEP_SUMMARY"
+          # GNU's timeout, which macOS doesn't have under that name, if the runner has it.
+          limit=$(command -v timeout || command -v gtimeout || true)
           failed=0
           for run in $all; do
             case " $runs " in
             *" $run "*)
               start=$SECONDS
               status=0
-              timeout 20m ./check.sh "$run" > "$out/$run.log" 2>&1 || status=$?
+              ${limit:+$limit 20m} ./check.sh "$run" > "$out/$run.log" 2>&1 || status=$?
               [ ! -d build/check ] || mv build/check "$out/$run"
               pkill -9 -f "$PWD/build/Browser.app/" || true
               if [ "$status" = 0 ]; then
@@ -130,6 +132,54 @@ jobs:
         with:
           name: check-mac
           path: ${{ runner.temp }}/check
+          if-no-files-found: ignore
+
+  # The one pair of GPUI and the core the prebuilt Mac engine fits, from before the app: the
+  # gpui-core spike at the commit after the engine's, with its own driven check. Its load, focus and
+  # keys, scrolling with frame times, full screen and popup runs stand in for the app's.
+  spike:
+    if: ${{ github.event_name == 'push' || inputs.probe }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: spikes/gpui-core
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 55225564da39411b096fb571d967221afd315420
+          fetch-depth: 0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            spikes/gpui-core/target
+          key: spike-mac-${{ hashFiles('spikes/gpui-core/Cargo.lock', 'spikes/gpui-core/patches/**') }}
+
+      - run: rustup update stable --no-self-update && ./setup.sh prebuilt && ./build.sh
+
+      - run: |
+          status=0
+          # GNU's timeout, which macOS doesn't have under that name, if the runner has it.
+          limit=$(command -v timeout || command -v gtimeout || true)
+          ${limit:+$limit 20m} ./check.sh 2>&1 | tee check.log || status=$?
+          mkdir -p build/check
+          mv check.log build/check/
+          pkill -9 -f "$PWD/build/Spike.app/" || true
+          {
+            echo '```'
+            grep -E '^(ok|skip|FAIL)|^  ' build/check/check.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: spike-mac
+          path: spikes/gpui-core/build/check
           if-no-files-found: ignore
 
   probe:
