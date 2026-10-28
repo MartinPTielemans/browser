@@ -29,6 +29,7 @@ pub(super) use crate::tokens::shell::permission::BUTTONS_TOP;
 use crate::tokens::shell::permission::CLOSE;
 use crate::tokens::shell::permission::CLOSE_INSET;
 use crate::tokens::shell::permission::CLOSE_GLYPH;
+use crate::tokens::shell::permission::SHADOW;
 /// The room a card's first line leaves for its ×.
 pub(super) const BESIDE_CLOSE: f32 = CLOSE + CLOSE_INSET - PADDING;
 
@@ -173,7 +174,7 @@ impl Shell {
             .border_1()
             .border_color(rgba(EDGE))
             .shadow(vec![BoxShadow {
-                color: hsla(0., 0., 0., 0.35),
+                color: hsla(0., 0., 0., SHADOW),
                 offset: point(px(0.), px(6.)),
                 blur_radius: px(18.),
                 spread_radius: px(0.),

@@ -61,6 +61,8 @@ use crate::tokens::icon_picker::PLATE_RADIUS;
 use crate::tokens::icon_picker::CHOSEN;
 use crate::tokens::icon_picker::HOVERED;
 use crate::tokens::icon_picker::HINT;
+use crate::tokens::icon_picker::CARET;
+use crate::tokens::icon_picker::CHOSEN_TEXT;
 /// Arc's switch between Emoji and Icon slides the content a card's width over 0.2 s, easing out
 /// (Arc 1.170 rec at 2×).
 const SLIDE: f32 = 0.2;
@@ -198,7 +200,7 @@ pub fn open_at(
         let search = cx.new(|cx| {
             TextInput::new("Search", cx)
                 .placeholder_color(rgba(HINT))
-                .caret_color(rgb(0xffffff))
+                .caret_color(rgb(CARET))
                 .selection_color(rgba(HOVERED))
         });
         cx.new(|cx| IconPicker {
@@ -500,7 +502,7 @@ impl IconPicker {
                 .justify_center()
                 .rounded(px(SEGMENTS_RADIUS))
                 .when(chosen, |segment| {
-                    segment.bg(rgb(picking.accent)).text_color(rgb(0xffffff))
+                    segment.bg(rgb(picking.accent)).text_color(rgb(CHOSEN_TEXT))
                 })
                 // The other takes the trash's plate under the pointer (ours: Arc's isn't recorded).
                 .when(!chosen, |segment| segment.hover(|style| style.bg(rgba(HOVERED))))

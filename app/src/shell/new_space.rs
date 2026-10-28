@@ -44,6 +44,7 @@ const EXIT: f32 = 0.1;
 use crate::tokens::shell::new_space::GLOW;
 use crate::tokens::shell::new_space::GLOW_WIDTH;
 use crate::tokens::shell::new_space::GLOW_STRIP;
+use crate::tokens::shell::new_space::SHADOW;
 
 /// The circle going back under the page's edge after a pull made `space`, and where the fingers
 /// left the page they pulled.
@@ -173,7 +174,7 @@ impl Shell {
                 ((CIRCLE_SPEED * pulled).min(TRAVEL), self.circle_accent(space), look)
             }
         };
-        let white = hsla(0., 0., 1., 1.).blend(accent.opacity(WHITE_TINT));
+        let white = gpui::white().blend(accent.opacity(WHITE_TINT));
         let popped = match look {
             Look::Readying(t) => (PI * ((t - POP_AT) / POP).clamp(0., 1.)).sin(),
             _ => 0.,
@@ -185,7 +186,7 @@ impl Shell {
             .size(px(across))
             .rounded_full()
             .shadow(vec![BoxShadow {
-                color: hsla(0., 0., 0., 0.3),
+                color: hsla(0., 0., 0., SHADOW),
                 offset: point(px(0.), px(1.)),
                 blur_radius: px(4.),
                 spread_radius: px(0.),

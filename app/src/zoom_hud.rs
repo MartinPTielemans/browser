@@ -26,6 +26,9 @@ use crate::tokens::zoom_hud::SHADE;
 pub use crate::tokens::zoom_hud::MARGIN;
 pub use crate::tokens::zoom_hud::WINDOW_WIDTH;
 pub use crate::tokens::zoom_hud::WINDOW_HEIGHT;
+use crate::tokens::zoom_hud::FILL;
+use crate::tokens::zoom_hud::SHADOW;
+use crate::tokens::zoom_hud::TEXT;
 /// Where the window goes, from the top right corner of the focused page's pane in the window.
 pub const WINDOW_RIGHT: f32 = CARD_INSET + 8. - MARGIN;
 pub const WINDOW_TOP: f32 = CARD_INSET + 8. - MARGIN;
@@ -281,7 +284,7 @@ impl Render for ZoomHud {
         }
         let pose = shown.pose();
         let fill = shown.shell.upgrade().map(|shell| shell.read(cx).window_fill());
-        let fill = fill.unwrap_or(hsla(0., 0., 0.2, 1.));
+        let fill = fill.unwrap_or(rgb(FILL).into());
         let bottom = Hsla { l: fill.l * SHADE, ..fill };
         let pill = div()
             .h(px(HEIGHT))
@@ -292,11 +295,11 @@ impl Render for ZoomHud {
             .border(px(0.5))
             .border_color(rgba(EDGE))
             .bg(linear_gradient(180., linear_color_stop(fill, 0.), linear_color_stop(bottom, 1.)))
-            .shadow(vec![crate::toast::shadow(hsla(0., 0., 0., 0.25), 4., 12.)])
+            .shadow(vec![crate::toast::shadow(hsla(0., 0., 0., SHADOW), 4., 12.)])
             .opacity(pose.opacity)
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::MEDIUM)
-            .text_color(rgb(0xffffff))
+            .text_color(rgb(TEXT))
             .child(div().opacity(pose.text_opacity()).child(format!("{}%", shown.percent())));
         root.child(scaled_from_top(pill, pose.scale))
     }

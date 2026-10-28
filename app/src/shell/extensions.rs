@@ -22,6 +22,8 @@ use crate::tokens::shell::extensions::ACTION_DIMMED;
 use crate::tokens::shell::extensions::BADGE_COLOR;
 use crate::tokens::shell::extensions::BADGE_HEIGHT;
 use crate::tokens::shell::extensions::BADGE_TEXT;
+use crate::tokens::shell::extensions::BADGE_RADIUS;
+use crate::tokens::shell::extensions::BADGE_TEXT_COLOR;
 
 /// An extension of a profile's, one Chrome's extensions page lists.
 #[derive(Clone, PartialEq, Debug)]
@@ -274,14 +276,14 @@ impl Shell {
                         .h(px(BADGE_HEIGHT))
                         .min_w(px(BADGE_HEIGHT))
                         .px(px(2.))
-                        .rounded(px(3.))
+                        .rounded(px(BADGE_RADIUS))
                         .bg(color)
                         .flex()
                         .items_center()
                         .justify_center()
                         .text_size(px(BADGE_TEXT))
                         .font_weight(FontWeight::BOLD)
-                        .text_color(rgb(0xffffff))
+                        .text_color(rgb(BADGE_TEXT_COLOR))
                         .child(action.badge.clone())
                 });
                 div()

@@ -57,6 +57,9 @@ use crate::tokens::capture::ROW_INSET;
 /// How far the pointer moves with the button down before a click is a drag (ours).
 const DRAG: f32 = 4.;
 use crate::tokens::capture::MARGIN;
+use crate::tokens::capture::MENU_SHADOW;
+use crate::tokens::capture::MENU_TEXT;
+use crate::tokens::capture::PILL_FILL;
 /// How long the toast after a capture stays, and longer while the pointer is over it (ours).
 const TOAST_TIME: Duration = Duration::from_secs(5);
 /// How long "Capture in Progress" can stay, which the capture's toast replaces when it comes.
@@ -645,7 +648,7 @@ impl Capture {
             .rounded(px(MENU_RADIUS))
             .bg(rgba(MENU_FILL))
             .shadow(vec![BoxShadow {
-                color: gpui::hsla(0., 0., 0., 0.3),
+                color: gpui::hsla(0., 0., 0., MENU_SHADOW),
                 offset: point(px(0.), px(1.)),
                 blur_radius: px(1.),
                 spread_radius: px(0.),
@@ -653,7 +656,7 @@ impl Capture {
             }])
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::MEDIUM)
-            .text_color(rgba(0xffff_ffff))
+            .text_color(rgba(MENU_TEXT))
             .occlude()
             .child(field)
             .child(div().h(px(ROWS_TOP)))
@@ -718,7 +721,7 @@ impl Render for Capture {
                 .items_center()
                 .justify_center()
                 .rounded(px(PILL_RADIUS))
-                .bg(rgba(0xffff_ffff))
+                .bg(rgba(PILL_FILL))
                 .shadow(vec![BoxShadow {
                     color: rgba(GLOW).into(),
                     offset: point(px(0.), px(0.)),

@@ -399,10 +399,14 @@ use crate::tokens::shell::REVEAL_BORDER;
 // it: their centres from the panel's corner, as the docked sidebar's are from the window's, their
 // size, and their colours, sampled from AppKit's in a capture of the browser window. The glyphs
 // show while the pointer is over any of them, as AppKit's do.
-const WINDOW_BUTTONS: [(f32, u32); 3] = [(20., 0xe0604f), (43., 0xf3bf12), (66., 0x58bb18)];
+const WINDOW_BUTTONS: [(f32, u32); 3] =
+    [(20., WINDOW_BUTTON_CLOSE), (43., WINDOW_BUTTON_MINIMIZE), (66., WINDOW_BUTTON_ZOOM)];
 use crate::tokens::shell::WINDOW_BUTTON_Y;
 use crate::tokens::shell::WINDOW_BUTTON_SIZE;
 use crate::tokens::shell::WINDOW_BUTTON_GLYPH;
+use crate::tokens::shell::WINDOW_BUTTON_CLOSE;
+use crate::tokens::shell::WINDOW_BUTTON_MINIMIZE;
+use crate::tokens::shell::WINDOW_BUTTON_ZOOM;
 
 #[derive(Clone, Default)]
 struct Tab {
@@ -3041,7 +3045,7 @@ impl Shell {
                         svg()
                             .path(glyph)
                             .size(px(WINDOW_BUTTON_SIZE))
-                            .text_color(rgba(0))
+                            .text_color(gpui::transparent_black())
                             .group_hover("window-buttons", |style| {
                                 style.text_color(rgba(WINDOW_BUTTON_GLYPH))
                             }),

@@ -3,3 +3,6 @@
 //! module re-exports them, so `shell::PLATE_RADIUS` names `tokens::shell::PLATE_RADIUS`.
 
 include!(concat!(env!("OUT_DIR"), "/tokens.rs"));
+
+#[cfg(test)]
+mod tests;

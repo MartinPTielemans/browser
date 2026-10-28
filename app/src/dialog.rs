@@ -69,6 +69,9 @@ use crate::tokens::dialog::RETURN_WIDTH;
 use crate::tokens::dialog::RETURN_FILL;
 use crate::tokens::dialog::RETURN_BORDER;
 use crate::tokens::dialog::RETURN_GLYPH;
+use crate::tokens::dialog::TEXT;
+use crate::tokens::dialog::SHADOW;
+use crate::tokens::dialog::OUTLINE;
 /// Arc's motion: over 0.275 s the window dims and the card comes down 32 pt into place,
 /// ease-in-out, opaque after the first 0.135 s. It leaves the way it came, fading all the way.
 const MOVE: f32 = 0.275;
@@ -561,13 +564,13 @@ impl Render for Dialog {
                         svg()
                             .path("icons/corner-down-left.svg")
                             .size(px(RETURN_GLYPH))
-                            .text_color(rgb(0xffffff)),
+                            .text_color(rgb(TEXT)),
                     ),
             )
             .bg(fill)
             .hover(move |style| style.bg(hovered))
             .shadow(vec![shadow(ledge, 2., 0., 0.)])
-            .text_color(rgb(0xffffff))
+            .text_color(rgb(TEXT))
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)))
         });
         let list = question.list.iter().map(|(line, sublines)| {
@@ -624,8 +627,8 @@ impl Render for Dialog {
             .border_color(rgba(EDGE))
             .bg(rgb(FILL))
             .shadow(vec![
-                shadow(hsla(0., 0., 0., 0.56), 16., 16., 0.),
-                shadow(hsla(0., 0., 0., 0.9), 0., 0., 0.5),
+                shadow(hsla(0., 0., 0., SHADOW), 16., 16., 0.),
+                shadow(hsla(0., 0., 0., OUTLINE), 0., 0., 0.5),
             ])
             .opacity(pose.opacity)
             .children(
@@ -637,7 +640,7 @@ impl Render for Dialog {
                     .line_height(px(TITLE_LINE))
                     .text_size(px(18.))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(rgb(0xffffff))
+                    .text_color(rgb(TEXT))
                     .child(question.message.clone()),
             )
             .children(detail)
