@@ -331,7 +331,8 @@ impl default_browser::System for System {
     }
 }
 
-extern "C" fn default_browser_answered() {
+/// Reads the system's answer into General's row, whoever asked.
+pub extern "C" fn default_browser_answered() {
     crate::update_app(check_default_browser);
 }
 
