@@ -650,6 +650,11 @@ BC_EXPORT void bc_window_ui_takes_keyboard(bc_id window);
 // On Linux, whether the keys in |window| are the app's UI's rather than a page's.
 BC_EXPORT bool bc_window_keyboard_is_ui(bc_id window);
 
+// On Linux, while an overlay of the app's over |window|, such as the command bar, has the keyboard:
+// neither the window's pages nor its UI get keys, and the page or UI that had them keeps its focus,
+// to have them back once the overlay gives them up (|takes| false).
+BC_EXPORT void bc_window_overlay_takes_keyboard(bc_id window, bool takes);
+
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its
 // sidebar's width, and goes full screen if it was. The core saves them as they

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -55,6 +56,10 @@
 // the input focus, which GPUI takes on a click, and the core gives it back to the browser window as
 // a page takes the keyboard. On Wayland every key reaches both, and the app gives the UI the
 // keyboard (bc_window_ui_takes_keyboard) and asks whose it is.
+// The app's overlays, such as the command bar, show over the pages: on Wayland as subsurfaces over
+// the window's, on X11 as more children of the UI's X window, whose shape the core opens for them.
+// One that has the keyboard has it lent (bc_window_overlay_takes_keyboard): the page or UI that had
+// it keeps its focus, and has it back as the overlay closes.
 
 namespace browser_core::platform {
 
@@ -170,6 +175,7 @@ class WindowViews : public views::WidgetObserver,
       // The app makes it unmapped, so no window manager has taken it as a window of its own.
       connection->ReparentWindow({ui_, window(), 0, 0});
       connection->MapWindow({ui_});
+      overlay_events_ = connection->ScopedSelectEvent(ui_, x11::EventMask::SubstructureNotify);
       SizeUI();
     }
   }
@@ -177,6 +183,7 @@ class WindowViews : public views::WidgetObserver,
   aura::Window* content() const { return widget_->GetNativeView(); }
   x11::Window window() const { return XWindowOf(widget_); }
   bool ui_has_keyboard() const { return ui_has_keyboard_; }
+  bool overlay_has_keyboard() const { return overlay_has_keyboard_; }
   std::vector<Slot>& panes() { return panes_; }
   Slot& side_panel() { return side_panel_; }
   void set_corner_radius(double radius) { corner_radius_ = radius; }
@@ -296,6 +303,30 @@ class WindowViews : public views::WidgetObserver,
           .rectangles = std::move(hole),
       });
     }
+    // The overlays shown, which their own shapes round.
+    std::vector<x11::Rectangle> overlays;
+    for (const auto& [overlay, frame] : overlays_) {
+      overlays.push_back(XRectangle(frame));
+    }
+    if (!overlays.empty()) {
+      shape.Rectangles(x11::Shape::RectanglesRequest{
+          .operation = x11::Shape::So::Union,
+          .destination_kind = x11::Shape::Sk::Bounding,
+          .ordering = x11::ClipOrdering::Unsorted,
+          .destination_window = ui_,
+          .rectangles = std::move(overlays),
+      });
+    }
+  }
+
+  // Lends the keyboard to an overlay of the app's, or takes it back, for the page or UI that had it.
+  // On X11 the input focus says which that is once the overlay lets it go, as a click while it
+  // showed may have moved it.
+  void OverlayTakesKeyboard(bool takes) {
+    overlay_has_keyboard_ = takes;
+    if (!takes && ui_ != x11::Window::None && !ui_has_keyboard_ && IsWithin(InputFocus(), ui_)) {
+      UITakesKeyboard();
+    }
   }
 
   // The page that had the keyboard lets it go, and on X11 GPUI's window has the input focus.
@@ -307,9 +338,8 @@ class WindowViews : public views::WidgetObserver,
     if (ui_ == x11::Window::None || IsWithin(InputFocus(), ui_)) {
       return;
     }
-    auto tree = x11::Connection::Get()->QueryTree({ui_}).Sync();
-    if (tree && !tree->children.empty()) {
-      SetInputFocus(tree->children.front());
+    if (x11::Window main = UIMain(); main != x11::Window::None) {
+      SetInputFocus(main);
     }
   }
 
@@ -342,6 +372,7 @@ class WindowViews : public views::WidgetObserver,
   void OnWidgetDestroying(views::Widget*) override {
     x11_observation_.Reset();
     children_events_ = x11::ScopedEventSelector();
+    overlay_events_ = x11::ScopedEventSelector();
     focus_observation_.Reset();
     content()->RemovePreTargetHandler(this);
     for (Slot& slot : panes_) {
@@ -362,8 +393,8 @@ class WindowViews : public views::WidgetObserver,
 
   // ui::EventHandler, before the window's views and pages get the event:
   void OnKeyEvent(ui::KeyEvent* event) override {
-    // The UI's, which on Wayland reach the window too.
-    if (ui_has_keyboard_) {
+    // The UI's or an overlay's, which on Wayland reach the window too.
+    if (ui_has_keyboard_ || overlay_has_keyboard_) {
       event->StopPropagation();
     }
   }
@@ -379,8 +410,9 @@ class WindowViews : public views::WidgetObserver,
   // x11::EventObserver:
   void OnEvent(const x11::Event& event) override {
     if (auto* focus = event.As<x11::FocusEvent>()) {
+      // An overlay with the keyboard lent has the input focus, which leaves the page's untouched.
       if (focus->event != window() || focus->mode == x11::NotifyMode::Grab ||
-          focus->mode == x11::NotifyMode::Ungrab) {
+          focus->mode == x11::NotifyMode::Ungrab || overlay_has_keyboard_) {
         return;
       }
       const bool in = focus->opcode == x11::FocusEvent::In;
@@ -413,6 +445,9 @@ class WindowViews : public views::WidgetObserver,
       x11::Connection::Get()->ConfigureWindow(
           {.window = map->window, .stack_mode = x11::StackMode::Below});
     }
+    if (ui_ != x11::Window::None) {
+      OverlayChanged(event);
+    }
   }
 
  private:
@@ -441,11 +476,51 @@ class WindowViews : public views::WidgetObserver,
         {.window = ui_, .x = 0, .y = 0, .width = pixels.width(), .height = pixels.height()});
     // GPUI's window, which it opened inside |ui_| on its own connection, follows on its
     // ConfigureNotify.
-    if (auto tree = connection->QueryTree({ui_}).Sync()) {
-      for (x11::Window child : tree->children) {
-        connection->ConfigureWindow(
-            {.window = child, .x = 0, .y = 0, .width = pixels.width(), .height = pixels.height()});
+    if (x11::Window main = UIMain(); main != x11::Window::None) {
+      connection->ConfigureWindow(
+          {.window = main, .x = 0, .y = 0, .width = pixels.width(), .height = pixels.height()});
+    }
+  }
+
+  // GPUI's window for the UI, the first it opened in |ui_|, under the overlays it puts there.
+  x11::Window UIMain() {
+    if (ui_main_ == x11::Window::None) {
+      auto tree = x11::Connection::Get()->QueryTree({ui_}).Sync();
+      if (tree && !tree->children.empty()) {
+        ui_main_ = tree->children.front();
       }
+    }
+    return ui_main_;
+  }
+
+  // Keeps |overlays_| to the overlays mapped in |ui_|, in pixels, and the UI's shape open for them.
+  void OverlayChanged(const x11::Event& event) {
+    std::optional<x11::Window> changed;
+    if (auto* map = event.As<x11::MapNotifyEvent>(); map && map->event == ui_) {
+      if (map->window == UIMain()) {
+        return;
+      }
+      auto geometry = x11::Connection::Get()->GetGeometry(map->window).Sync();
+      if (!geometry) {
+        return;
+      }
+      overlays_[map->window] =
+          gfx::Rect(geometry->x, geometry->y, geometry->width, geometry->height);
+      changed = map->window;
+    } else if (auto* configure = event.As<x11::ConfigureNotifyEvent>();
+               configure && configure->event == ui_ && overlays_.contains(configure->window)) {
+      overlays_[configure->window] =
+          gfx::Rect(configure->x, configure->y, configure->width, configure->height);
+      changed = configure->window;
+    } else if (auto* unmap = event.As<x11::UnmapNotifyEvent>();
+               unmap && unmap->event == ui_ && overlays_.erase(unmap->window)) {
+      changed = unmap->window;
+    } else if (auto* destroy = event.As<x11::DestroyNotifyEvent>();
+               destroy && destroy->event == ui_ && overlays_.erase(destroy->window)) {
+      changed = destroy->window;
+    }
+    if (changed) {
+      ShowThrough();
     }
   }
 
@@ -455,10 +530,14 @@ class WindowViews : public views::WidgetObserver,
   Slot side_panel_;
   double corner_radius_ = 0;
   bool ui_has_keyboard_ = false;
+  bool overlay_has_keyboard_ = false;
+  x11::Window ui_main_ = x11::Window::None;
+  std::map<x11::Window, gfx::Rect> overlays_;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
   base::ScopedObservation<aura::client::FocusClient, aura::client::FocusChangeObserver>
       focus_observation_{this};
   x11::ScopedEventSelector children_events_;
+  x11::ScopedEventSelector overlay_events_;
   base::ScopedObservation<x11::Connection, x11::EventObserver> x11_observation_{this};
   base::WeakPtrFactory<WindowViews> weak_factory_{this};
 };
@@ -661,6 +740,12 @@ void UITakesKeyboard(views::Widget* widget) {
 bool KeyboardIsUI(views::Widget* widget) {
   WindowViews* views = ViewsOf(widget);
   return views && views->ui_has_keyboard();
+}
+
+void OverlayTakesKeyboard(views::Widget* widget, bool takes) {
+  if (WindowViews* views = ViewsOf(widget)) {
+    views->OverlayTakesKeyboard(takes);
+  }
 }
 
 void StretchOnResize(content::RenderWidgetHostView*, bool) {
