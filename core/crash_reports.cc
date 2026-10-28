@@ -267,7 +267,7 @@ void LeaveOutPages() {
 }
 
 std::string CollectorHost() {
-  return Collector().host();
+  return std::string(Collector().host());
 }
 
 bool Sending() {
