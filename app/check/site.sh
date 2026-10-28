@@ -53,7 +53,9 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
 </script>' > "$out/site/autofocus.html"
 # Its title says "login" once it's drawn, "filled" each time Chrome fills a saved password in, and
-# "cleared" when the password filled in is edited.
+# "cleared" when the password filled in is edited. Chrome's preview of a login its dropdown has
+# highlighted fills it too, but only a fill the user chose gives the page its value, with a change
+# event, and then the title says "chosen".
 printf '%s' '<title>loading</title>
 <form method="post" action="login">
 <input id=user name=username autocomplete=username
@@ -65,6 +67,7 @@ printf '%s' '<title>loading</title>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "login"));
 let filled = false;
+pass.onchange = () => { if (pass.matches(":autofill") && pass.value) document.title = "chosen"; };
 setInterval(() => {
   if (pass.matches(":autofill") != filled) {
     filled = !filled;
