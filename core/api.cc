@@ -43,6 +43,7 @@
 #include "browser_core/space.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "browser_core/widevine.h"
 #include "browser_core/window.h"
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_toggle_action.h"
@@ -168,6 +169,10 @@ int bc_main(int argc, const char** argv, const bc_host* host) {
 
 void bc_quit(void) {
   browser_core::Quit();
+}
+
+void bc_restart(void) {
+  browser_core::Restart();
 }
 
 bool bc_quitting(void) {
@@ -1103,6 +1108,18 @@ void bc_tab_close_media_note(bc_id id) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::CloseMediaNote(contents);
   }
+}
+
+int bc_widevine(void) {
+  return browser_core::widevine::State();
+}
+
+void bc_widevine_download(void) {
+  browser_core::widevine::Download();
+}
+
+void bc_widevine_remove(void) {
+  browser_core::widevine::Remove();
 }
 
 void bc_tab_stop(bc_id id) {
