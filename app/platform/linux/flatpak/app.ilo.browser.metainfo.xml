@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>app.ilo.browser</id>
+  <launchable type="desktop-id">app.ilo.browser.desktop</launchable>
+  <name>ilo</name>
+  <summary>a good tool.</summary>
+  <developer id="app.ilo">
+    <name>ilo</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <url type="homepage">https://ilo.app</url>
+  <url type="vcs-browser">https://github.com/MartinPTielemans/browser</url>
+  <url type="bugtracker">https://github.com/MartinPTielemans/browser/issues</url>
+  <description>
+    <p>An open-source browser with Spaces, pinned and Today tabs, and a command bar, on
+      ungoogled-chromium. It's built to be fast, and to be the browser AI agents work in: an agent
+      acts in your logged-in sessions, in a Space of its own, and never reads your passwords or
+      cookies.</p>
+  </description>
+  <categories>
+    <category>Network</category>
+    <category>WebBrowser</category>
+  </categories>
+  <branding>
+    <color type="primary" scheme_preference="light">#F3F0E8</color>
+    <color type="primary" scheme_preference="dark">#16140F</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-10-28"/>
+  </releases>
+</component>

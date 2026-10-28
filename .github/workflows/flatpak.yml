@@ -1,0 +1,75 @@
+# ilo's Flatpak (tools/flatpak.sh) from the prod build on the prebuilt Linux engine, as an artifact,
+# then installed and started on X11 in Xvfb to see that its first window draws.
+# Run it by hand to build from a branch whose packaging didn't change. release.yml calls it for a
+# release's Flatpak, the `ilo-flatpak` artifact.
+name: Flatpak
+
+on:
+  push:
+    paths: [app/platform/linux/flatpak/**, tools/flatpak.sh, .github/workflows/flatpak.yml]
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      # engine/fetch.sh finds the engine from the history's tags.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The UI's build as in app-linux.yml; Xvfb and ImageMagick to start the bundle and see it.
+      - name: Install tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq libclang-dev libfontconfig-dev libwayland-dev \
+            libx11-xcb-dev libxkbcommon-x11-dev flatpak flatpak-builder xvfb imagemagick
+          rustup update stable --no-self-update
+          # Ubuntu's AppArmor keeps bubblewrap, which flatpak builds and runs in, from making
+          # user namespaces.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/target
+          key: flatpak-${{ hashFiles('app/Cargo.lock', 'app/linux/Cargo.lock', 'app/setup.sh', 'app/patches/**') }}
+          restore-keys: flatpak-
+
+      - run: tools/flatpak.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ilo-flatpak
+          path: app/build/ilo.flatpak
+          retention-days: 14
+
+      - name: Install and start
+        run: |
+          flatpak install --user -y --noninteractive app/build/ilo.flatpak
+          mkdir -p app/build/flatpak-start
+          cd app/build/flatpak-start
+          dbus-run-session -- xvfb-run -a -s '-screen 0 1280x800x24' bash -c '
+            flatpak run app.ilo.browser > ilo.log 2>&1 &
+            pid=$!
+            for _ in $(seq 120); do
+              grep -q "browser: UI shown" ilo.log && break
+              kill -0 $pid 2>/dev/null || break
+              sleep 1
+            done
+            import -window root started.png || true
+            flatpak kill app.ilo.browser || true
+            wait $pid || true'
+          cat ilo.log
+          grep -q "browser: UI shown" ilo.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ilo-flatpak-start
+          path: app/build/flatpak-start
+          if-no-files-found: ignore

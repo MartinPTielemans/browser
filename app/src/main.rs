@@ -4308,8 +4308,13 @@ fn profile_dir() -> String {
                 format!(r"{local}\browser-app")
             }
         } else if cfg!(target_os = "linux") {
+            // A Flatpak points XDG_CONFIG_HOME at its own folder, the only one it may write.
             if cfg!(feature = "prod") {
-                format!("{home}/.config/{name}")
+                let config = std::env::var("XDG_CONFIG_HOME")
+                    .ok()
+                    .filter(|dir| !dir.is_empty())
+                    .unwrap_or_else(|| format!("{home}/.config"));
+                format!("{config}/{name}")
             } else {
                 format!("{home}/.cache/browser-app")
             }
