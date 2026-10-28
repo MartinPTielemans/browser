@@ -161,7 +161,7 @@ expect '^browser: import done: Everything from Firefox is here already\.$' \
 # The Passwords box is under the browsers' box, its Choose File… at its row's end. Done's line
 # offers to delete the file, with Delete File before Done.
 send clickkey 590 145
-send clickkey 590 296
+send clickkey 590 328
 expect '^browser: import passwords$' "Choose File… didn't import the passwords file"
 await '^browser: import done: 2 passwords came in to Default from passwords\.csv\.$' ||
   fail "the import didn't say the file's 2 passwords came in: $(grep '^browser: import done' "$log" | tail -1)"
@@ -175,7 +175,7 @@ printf '%s\n' 'url,username,password' \
   'https://login.example.test/,check@example.test,made-up-changed' \
   'https://new.example.test/,new@example.test,made-up-three' > "$passwords"
 send clickkey 590 145
-send clickkey 590 296
+send clickkey 590 328
 expect '^browser: import passwords$' "Choose File… didn't import the second passwords file"
 await '^browser: import done: 1 password came in to Default from passwords\.csv\. 1 conflicted with a saved password, which was kept\.$' ||
   fail "the import didn't say 1 came in and 1 conflicted: $(grep '^browser: import done' "$log" | tail -1)"
