@@ -356,6 +356,10 @@ typedef struct bc_agent_activity {
 #define BC_AGENT_SESSION_RELEASED 1
 // The user took the tab back (bc_tab_take_back).
 #define BC_AGENT_SESSION_TAKEN_BACK 2
+// Its page asked for one of the user's passkeys, in Chrome's dialog, which is the user's: the
+// tab is held as bc_tab_take_back holds it. This comes for a tab in an agent's Space even when
+// the agent had no session there, as the app must know the tab is the user's.
+#define BC_AGENT_SESSION_PASSKEY 3
 
 // An extension's side panel as a window shows it, beside the page of the tab it shows.
 typedef struct bc_side_panel {
@@ -982,7 +986,9 @@ BC_EXPORT void bc_agent_page(const char* agent,
 
 // The user takes |tab| over from the agent at work in it. Ends that agent's session there, returns
 // whether one had it, and holds the tab: no agent may act in it (bc_agent_may_act refuses) until
-// bc_tab_hand_back. The user's: agents get none.
+// bc_tab_hand_back. The user's: agents get none. Chrome fills, suggests and offers to save the
+// user's passwords, addresses, cards and passkeys in a held tab as in any of theirs, and none of
+// them in an agent's tab it doesn't hold; its sign-in form fills at once, without a reload.
 BC_EXPORT bool bc_tab_take_back(bc_id tab);
 
 // The agent with the id |agent| hands |tab|, in its Space, to the user, for a step only they may

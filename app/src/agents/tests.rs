@@ -995,6 +995,25 @@ fn a_tab_the_user_took_back_stays_theirs_until_they_hand_it_back(cx: &mut TestAp
     assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
 }
 
+/// A page asking for the user's passkey hands its tab to them, as a handoff with no call waiting:
+/// no card over Chrome's dialog, the bar says why, the log has it and Hand Back ends it.
+#[gpui::test]
+fn a_pages_passkey_hands_its_tab_to_the_user(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    agents.update(cx, |agents, cx| agents.session_ended("claude-code", 20, "passkey", cx));
+    let status = agents.read_with(cx, |agents, _| agents.status());
+    assert_eq!(status[0].held, vec![(20, SharedString::from(PASSKEY))]);
+    assert_eq!(*browser.asked.borrow(), None);
+    let entry = log(&agents, "claude-code", cx).remove(0);
+    assert_eq!(entry.0, "passkey");
+    assert_eq!(tools::describe(&entry.0), "Handed you a tab for your passkey");
+
+    agents.update(cx, |agents, cx| agents.hand_back(20, cx));
+    let status = agents.read_with(cx, |agents, _| agents.status());
+    assert!(status.iter().all(|status| status.held.is_empty()));
+    assert_eq!(log(&agents, "claude-code", cx)[0].0, "handed back");
+}
+
 /// run_steps takes its steps one at a time, each checked and logged as alone, under the run's one
 /// entry, and answers with what each did and the last one's page. It stops at a step that asks
 /// the user first, leaving no question.
