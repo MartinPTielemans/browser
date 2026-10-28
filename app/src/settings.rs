@@ -24,7 +24,7 @@ use gpui::{
 use crate::{bc, ns_view, platform, show_menu};
 use browser::menu::Look;
 use browser::palette::{Palette, STATE_HOVERED, STATE_PRESSED, state_alpha};
-use browser::settings_rows::{SLIDE, button, group, row, switch, tile};
+use browser::settings_rows::{Look as RowLook, SLIDE, button, group, row, switch, tile};
 
 actions!(settings, [CloseSettings]);
 
@@ -600,7 +600,7 @@ impl Settings {
             .flex_col()
             .gap(px(BOX_GAP))
             // Unload under the archive's time, as both are about tabs left unseen.
-            .child(group([
+            .child(group(&RowLook::settings(), [
                 row(None, "Warn before quitting", warn),
                 row(None, "Archive tabs after", archive.into_any_element()),
                 row(None, "Unload tabs you haven't used in a while", unload),
@@ -608,7 +608,7 @@ impl Settings {
                 // Last, so popup_text finds the pop-ups where they were.
                 row(None, "Block ads and trackers", ad_blocking),
             ]))
-            .child(group([self.default_browser_row(cx)]))
+            .child(group(&RowLook::settings(), [self.default_browser_row(cx)]))
             .into_any_element()
     }
 
@@ -622,7 +622,7 @@ impl Settings {
                 log!("browser: make default browser");
                 settings.default_browser.read(cx).make_default();
             });
-            button("make-default-browser", "Make Default").on_click(make)
+            button(&RowLook::settings(), "make-default-browser", "Make Default").on_click(make)
         });
         div()
             .px(px(PADDING))
@@ -693,7 +693,7 @@ impl Settings {
                 settings.switched = Some((name, Instant::now()));
                 cx.notify();
             }))
-            .child(switch(on, slid, accent))
+            .child(switch(&RowLook::settings(), on, slid, accent))
             .into_any_element()
     }
 
@@ -809,7 +809,7 @@ impl Settings {
             };
             let name = profile.name.clone();
             let delete = profile.deletable.then(|| {
-                button(("delete-profile", id), "Delete").on_click(
+                button(&RowLook::settings(), ("delete-profile", id), "Delete").on_click(
                     cx.listener(move |settings, _, _, cx| settings.delete(id, name.clone(), cx)),
                 )
             });
@@ -823,10 +823,10 @@ impl Settings {
                 .child(div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(spaces))
                 .children(delete.map(|delete| delete.ml(px(PADDING))))
         });
-        let new = button("new-profile", "New Profile")
+        let new = button(&RowLook::settings(), "new-profile", "New Profile")
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
         div()
-            .child(group(rows))
+            .child(group(&RowLook::settings(), rows))
             .child(div().mt(px(BUTTONS_TOP)).flex().child(new))
             .into_any_element()
     }
@@ -928,9 +928,10 @@ impl Settings {
         let login_row = |index: usize, login: &Login, cx: &mut Context<Self>| {
             let (site, username) = passwords::lines(login);
             let login = login.clone();
-            let remove = button(("remove-login", index), "Remove").on_click(cx.listener(
-                move |settings, _, _, cx| settings.remove(profile, login.clone(), cx),
-            ));
+            let remove = button(&RowLook::settings(), ("remove-login", index), "Remove");
+            let remove = remove.on_click(cx.listener(move |settings, _, _, cx| {
+                settings.remove(profile, login.clone(), cx)
+            }));
             div()
                 .h(px(PROFILE_ROW))
                 .px(px(PADDING))
@@ -986,15 +987,15 @@ impl Settings {
                 view.update(cx, choose).ok();
             });
             let icon = Some(("icons/user.svg", PROFILE_TILE));
-            group([row(icon, "Profile", popup.into_any_element())])
+            group(&RowLook::settings(), [row(icon, "Profile", popup.into_any_element())])
         });
         let first = chooser.is_none();
         div()
             .children(chooser)
             .child(header("Saved", first))
-            .child(group(saved))
+            .child(group(&RowLook::settings(), saved))
             .when(!never.is_empty(), |tab| {
-                tab.child(header("Never Saved", false)).child(group(never))
+                tab.child(header("Never Saved", false)).child(group(&RowLook::settings(), never))
             })
             .into_any_element()
     }
@@ -1051,9 +1052,10 @@ impl Settings {
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
-        let more = button("more-settings", "More Settings…").on_click(|_, _, cx| more_settings(cx));
+        let more = button(&RowLook::settings(), "more-settings", "More Settings…")
+            .on_click(|_, _, cx| more_settings(cx));
         div()
-            .child(group([row(
+            .child(group(&RowLook::settings(), [row(
                 Some(("icons/vibrate.svg", HAPTICS_TILE)),
                 "Haptic feedback when swiping between Spaces",
                 haptics,
@@ -1104,20 +1106,19 @@ impl Settings {
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(*section),
                 )
-                .child(group(rows))
+                .child(group(&RowLook::settings(), rows))
         });
         let sections: Vec<gpui::Div> = sections.collect();
-        let restore = button("restore-shortcuts", "Restore Defaults").on_click(cx.listener(
-            |settings, _, _, cx| {
-                shell::change_keys(cx, UserKeys::reset_all);
-                // check.sh waits for this line.
-                log!("browser: shortcuts restored");
-                settings.recording = None;
-                settings.refused = None;
-                save_shortcuts(cx);
-                cx.notify();
-            },
-        ));
+        let restore = button(&RowLook::settings(), "restore-shortcuts", "Restore Defaults");
+        let restore = restore.on_click(cx.listener(|settings, _, _, cx| {
+            shell::change_keys(cx, UserKeys::reset_all);
+            // check.sh waits for this line.
+            log!("browser: shortcuts restored");
+            settings.recording = None;
+            settings.refused = None;
+            save_shortcuts(cx);
+            cx.notify();
+        }));
         div()
             .children(sections)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(restore))
