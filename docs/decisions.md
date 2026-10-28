@@ -51,7 +51,7 @@ Following Ardia's design: Chrome's `chrome_framework` with our layer linked in. 
 - Pages render in Chromium's own native views, not off-screen, so we keep Chrome's compositing, latency, video overlays and battery life.
 - GPUI can't draw over a native view. Anything that floats over the page (command bar, menus, Peek) is a borderless child window, which is also how Chrome does its bubbles.
 
-Settled by the Phase 1 spikes (`spikes/gpui-cef/`, `spikes/gpui-ardia/`). On CEF and on Ardia's engine, GPUI runs inside Chromium's run loop, and focus, the browser's shortcuts with the page focused, IME composition, the command bar over the page, resize and full screen all work across the boundary. A long page scrolls at 120 fps with GPUI in the window.
+Settled by the Phase 1 spikes, `spikes/gpui-cef/` and `spikes/gpui-ardia/` at 91ddfe6, since removed. On CEF and on Ardia's engine, GPUI runs inside Chromium's run loop, and focus, the browser's shortcuts with the page focused, IME composition, the command bar over the page, resize and full screen all work across the boundary. A long page scrolls at 120 fps with GPUI in the window.
 
 Revisit if a later engine or GPUI change breaks run-loop sharing or input across the boundary in a way we can't patch. The fallback is Views (C++): equally cross-platform, with none of these integration risks.
 
