@@ -15,10 +15,12 @@
 // pressed as the app reads them off the Mac (keys.rs): cmd with Ctrl, ctrl with Alt, but Ctrl for
 // ⌃Tab, and alt with both. A trackpad's scrolls and swipes are wheel messages with the pixels in
 // their deltas, as a precision touchpad sends them. choose and dismiss work on ilo's menu and the
-// alerts host_ask shows. The others, pageswipe, drags from other apps, full screen, displays, hide,
-// backdrop, openmenu and ime, Windows has nothing the driver can stand in for yet: each logs
-// "browser: drive: unsupported <command>" before drive.mm's "can't do that", so a run fails at
-// once.
+// alerts host_ask shows. dragover, dragdrop and dragleave hand a drag from another app, a shell
+// data object carrying what Explorer or a browser would, straight to the drop target Windows would
+// pick, the UI's; one over a page or an overlay, whose targets are Chromium's and GPUI's, logs as
+// unsupported. The others, pageswipe, full screen, displays, hide, backdrop, openmenu and ime,
+// Windows has nothing the driver can stand in for yet: each logs "browser: drive: unsupported
+// <command>" before drive.mm's "can't do that", so a run fails at once.
 //
 // It logs as drive.mm does: "browser: drive <n>: <command>" as command n arrives, and "browser:
 // drive <n> done, key <window>, focus <view>, active <0|1>, marked none" once Chromium and GPUI
@@ -29,9 +31,12 @@
 
 #include <windows.h>
 
+#include <shlobj.h>
+
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <functional>
 #include <sstream>
@@ -48,6 +53,7 @@ bool host_menu_window_choose(const char* title);
 bool host_menu_window_dismiss(void);
 bool host_drive_pointer(unsigned message, long x, long y);
 bool host_drive_key(unsigned vk, long lparam);
+void* host_drop_target(void* hwnd);
 }
 
 namespace {
@@ -672,6 +678,114 @@ bool Unsupported(const std::string& action) {
   return false;
 }
 
+// The drag dragover holds: what it carries, the window whose target has it and that target.
+IDataObject* g_drag = nullptr;
+HWND g_drag_view = nullptr;
+IDropTarget* g_drag_target = nullptr;
+
+// A drag's data as another app's would carry |kind| |value|: a file at the path as Explorer drags
+// one, a link as browsers do, with its text, or text. Null for another kind.
+IDataObject* DragData(const std::string& kind, const std::string& value) {
+  if (kind != "file" && kind != "url" && kind != "text") {
+    return nullptr;
+  }
+  IDataObject* data = nullptr;
+  if (FAILED(SHCreateDataObject(nullptr, 0, nullptr, nullptr, IID_PPV_ARGS(&data)))) {
+    return nullptr;
+  }
+  const auto put = [data](UINT format, const void* bytes, size_t size) {
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size);
+    memcpy(GlobalLock(memory), bytes, size);
+    GlobalUnlock(memory);
+    FORMATETC wanted{static_cast<CLIPFORMAT>(format), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium{};
+    medium.tymed = TYMED_HGLOBAL;
+    medium.hGlobal = memory;
+    if (FAILED(data->SetData(&wanted, &medium, TRUE))) {
+      GlobalFree(memory);
+    }
+  };
+  const std::wstring wide = Wide(value);
+  const size_t size = (wide.size() + 1) * sizeof(wchar_t);
+  if (kind == "file") {
+    // DROPFILES, then the paths, each ending in a null, and one more null.
+    std::vector<BYTE> files(sizeof(DROPFILES) + size + sizeof(wchar_t), 0);
+    auto* header = reinterpret_cast<DROPFILES*>(files.data());
+    header->pFiles = sizeof(DROPFILES);
+    header->fWide = TRUE;
+    memcpy(files.data() + sizeof(DROPFILES), wide.c_str(), size);
+    put(CF_HDROP, files.data(), files.size());
+  } else {
+    if (kind == "url") {
+      put(RegisterClipboardFormatW(CFSTR_INETURLW), wide.c_str(), size);
+    }
+    put(CF_UNICODETEXT, wide.c_str(), size);
+  }
+  return data;
+}
+
+// Ends the drag, letting go of what it carries.
+void EndDrag() {
+  if (g_drag) {
+    g_drag->Release();
+  }
+  g_drag = nullptr;
+  g_drag_view = nullptr;
+  g_drag_target = nullptr;
+}
+
+// Moves the drag to |x|, |y| of the driven window, starting it with what |words| say it carries if
+// there's none, and hands it to the target there as Windows would: the one registered on the
+// nearest window up from the pointer's. Logs the window as the Mac names the UI's view, and
+// whether its target takes the drag. False if it can't: no drag, or another's target there.
+bool DragOver(double x, double y, std::istringstream& words, bool* taken) {
+  if (!g_drag) {
+    std::string kind, value;
+    words >> kind;
+    std::getline(words >> std::ws, value);
+    g_drag = DragData(kind, value);
+    if (!g_drag) {
+      return false;
+    }
+  }
+  Target target;
+  if (!TargetAt(x, y, &target)) {
+    return false;
+  }
+  HWND view = nullptr;
+  IDropTarget* drop = nullptr;
+  for (HWND hwnd = target.hwnd; hwnd && !view;
+       hwnd = (GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_CHILD) ? GetParent(hwnd) : nullptr) {
+    drop = static_cast<IDropTarget*>(host_drop_target(hwnd));
+    // OLE keeps a window's registered target in this property.
+    if (drop || GetPropW(hwnd, L"OleDropTargetInterface")) {
+      view = hwnd;
+    }
+  }
+  if (view && !drop) {
+    fprintf(stderr, "browser: drive: unsupported drag over %s\n", Utf8(ClassOf(view)).c_str());
+    return false;
+  }
+  const POINTL at{target.screen.x, target.screen.y};
+  DWORD effect = DROPEFFECT_COPY | DROPEFFECT_LINK | DROPEFFECT_MOVE;
+  if (view != g_drag_view) {
+    if (g_drag_target) {
+      g_drag_target->DragLeave();
+    }
+    g_drag_view = view;
+    g_drag_target = drop;
+    if (drop) {
+      drop->DragEnter(g_drag, MK_LBUTTON, at, &effect);
+    }
+  } else if (drop) {
+    drop->DragOver(MK_LBUTTON, at, &effect);
+  }
+  *taken = drop && effect != DROPEFFECT_NONE;
+  fprintf(stderr, "browser: drag over %s %s\n", view ? "HostUIView" : "nothing",
+          *taken ? "taken" : "refused");
+  return true;
+}
+
 // Adds the steps of |line|'s command. Returns false for one it can't do.
 bool Run(const std::string& line) {
   std::istringstream words(line);
@@ -680,10 +794,40 @@ bool Run(const std::string& line) {
   // What follows the command's name, for those that take text.
   const std::string rest =
       line.size() > action.size() ? line.substr(action.size() + 1) : std::string();
-  if (action == "pageswipe" || action == "dragover" || action == "dragdrop" ||
-      action == "dragleave" || action == "fullscreen" || action == "display" || action == "hide" ||
+  if (action == "pageswipe" || action == "fullscreen" || action == "display" || action == "hide" ||
       action == "backdrop" || action == "openmenu" || action == "ime") {
     return Unsupported(action);
+  }
+  // At once, as the Mac's driver hands its drags to AppKit's views, since nothing is posted.
+  if (action == "dragover" || action == "dragdrop") {
+    double x, y;
+    bool taken = false;
+    if (!(words >> x >> y) || !DragOver(x, y, words, &taken)) {
+      return false;
+    }
+    if (action == "dragdrop") {
+      // The pointer let go where the target refused the drag cancels it, as OLE does.
+      bool dropped = false;
+      if (taken) {
+        Target target;
+        TargetAt(x, y, &target);
+        DWORD effect = DROPEFFECT_COPY | DROPEFFECT_LINK | DROPEFFECT_MOVE;
+        g_drag_target->Drop(g_drag, MK_LBUTTON, {target.screen.x, target.screen.y}, &effect);
+        dropped = effect != DROPEFFECT_NONE;
+      } else if (g_drag_target) {
+        g_drag_target->DragLeave();
+      }
+      fprintf(stderr, "browser: drag %s\n", dropped ? "dropped" : "refused");
+      EndDrag();
+    }
+    return true;
+  }
+  if (action == "dragleave") {
+    if (g_drag_target) {
+      g_drag_target->DragLeave();
+    }
+    EndDrag();
+    return true;
   }
   if (action == "window") {
     size_t number;

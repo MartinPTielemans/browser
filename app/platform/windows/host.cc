@@ -10,10 +10,12 @@
 #include <dwmapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <shlwapi.h>
 #include <shobjidl.h>
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <ctime>
 #include <functional>
@@ -23,6 +25,9 @@
 #include <vector>
 
 #include "../host.h"
+
+// UrlCreateFromPathW, for the files dragged onto the UI.
+#pragma comment(lib, "shlwapi.lib")
 
 namespace {
 
@@ -36,6 +41,16 @@ std::wstring Wide(const char* utf8) {
     MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide.data(), length);
   }
   return wide;
+}
+
+std::string Utf8(const std::wstring& wide) {
+  const int length =
+      WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
+  std::string utf8(length > 0 ? length - 1 : 0, '\0');
+  if (length > 1) {
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, utf8.data(), length, nullptr, nullptr);
+  }
+  return utf8;
 }
 
 HWND Hwnd(void* view) {
@@ -264,6 +279,176 @@ void* UiViewOf(HWND root) {
   return nullptr;
 }
 
+// The UI's, which hears the drags over its views (host_take_drops).
+bool (*g_dragged)(void*, int, double, double, const host_dragged*, size_t) = nullptr;
+
+// What |data| holds in |format| as text, or nothing.
+std::wstring DraggedText(IDataObject* data, CLIPFORMAT format) {
+  FORMATETC wanted{format, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+  STGMEDIUM medium{};
+  if (FAILED(data->GetData(&wanted, &medium))) {
+    return {};
+  }
+  std::wstring text;
+  if (const auto* chars = static_cast<const wchar_t*>(GlobalLock(medium.hGlobal))) {
+    // Up to its end or its memory's, as a source may leave the null off.
+    const size_t most = GlobalSize(medium.hGlobal) / sizeof(wchar_t);
+    text.assign(chars, std::find(chars, chars + most, L'\0'));
+    GlobalUnlock(medium.hGlobal);
+  }
+  ReleaseStgMedium(&medium);
+  return text;
+}
+
+// The files |data| carries, as file URLs, as Explorer drags them.
+std::vector<std::string> DraggedFiles(IDataObject* data) {
+  FORMATETC wanted{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+  STGMEDIUM medium{};
+  std::vector<std::string> urls;
+  if (FAILED(data->GetData(&wanted, &medium))) {
+    return urls;
+  }
+  auto drop = static_cast<HDROP>(medium.hGlobal);
+  const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+  for (UINT i = 0; i < count; i++) {
+    std::wstring path(DragQueryFileW(drop, i, nullptr, 0), L'\0');
+    DragQueryFileW(drop, i, path.data(), static_cast<UINT>(path.size() + 1));
+    wchar_t url[4096];
+    DWORD length = ARRAYSIZE(url);
+    if (SUCCEEDED(UrlCreateFromPathW(path.c_str(), url, &length, 0))) {
+      urls.push_back(Utf8(url));
+    }
+  }
+  ReleaseStgMedium(&medium);
+  return urls;
+}
+
+// The target the UI's holder registers for drags over it, from a page or another app, which hands
+// them to the UI with what they carry, as the Mac's HostUIView does: files, else a link, else text.
+// It has the shell draw the drag's image over the window, as Explorer's own windows do.
+class DropTarget final : public IDropTarget {
+ public:
+  explicit DropTarget(HWND holder) : holder_(holder) {
+    CoCreateInstance(__uuidof(DragDropHelper), nullptr, CLSCTX_INPROC_SERVER,
+                     IID_PPV_ARGS(&helper_));
+  }
+
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
+    if (id != __uuidof(IUnknown) && id != __uuidof(IDropTarget)) {
+      *out = nullptr;
+      return E_NOINTERFACE;
+    }
+    *out = static_cast<IDropTarget*>(this);
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++references_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG left = --references_;
+    if (!left) {
+      delete this;
+    }
+    return left;
+  }
+
+  HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* data, DWORD, POINTL at, DWORD* effect) override {
+    urls_ = DraggedFiles(data);
+    files_ = !urls_.empty();
+    if (urls_.empty()) {
+      std::wstring url =
+          DraggedText(data, static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_INETURLW)));
+      // Text, which the UI opens only if it's a web link.
+      if (url.empty()) {
+        url = DraggedText(data, CF_UNICODETEXT);
+        const size_t start = url.find_first_not_of(L" \t\r\n");
+        url = start == std::wstring::npos
+                  ? std::wstring()
+                  : url.substr(start, url.find_last_not_of(L" \t\r\n") - start + 1);
+      }
+      if (!url.empty()) {
+        urls_.push_back(Utf8(url));
+      }
+    }
+    Tell(HOST_DRAG_OVER, at, effect);
+    if (helper_) {
+      POINT point{at.x, at.y};
+      helper_->DragEnter(holder_, data, &point, *effect);
+    }
+    return S_OK;
+  }
+
+  HRESULT STDMETHODCALLTYPE DragOver(DWORD, POINTL at, DWORD* effect) override {
+    Tell(HOST_DRAG_OVER, at, effect);
+    if (helper_) {
+      POINT point{at.x, at.y};
+      helper_->DragOver(&point, *effect);
+    }
+    return S_OK;
+  }
+
+  HRESULT STDMETHODCALLTYPE DragLeave() override {
+    if (helper_) {
+      helper_->DragLeave();
+    }
+    Tell(HOST_DRAG_LEFT, at_, nullptr);
+    urls_.clear();
+    return S_OK;
+  }
+
+  HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD, POINTL at, DWORD* effect) override {
+    Tell(HOST_DRAG_DROP, at, effect);
+    if (helper_) {
+      POINT point{at.x, at.y};
+      helper_->Drop(data, &point, *effect);
+    }
+    // After a drop too, as the Mac's draggingEnded, which the UI keeps.
+    Tell(HOST_DRAG_LEFT, at, nullptr);
+    urls_.clear();
+    return S_OK;
+  }
+
+ private:
+  ~DropTarget() {
+    if (helper_) {
+      helper_->Release();
+    }
+  }
+
+  // Tells the UI, with where the pointer is in points from the holder's top-left corner, and
+  // answers the drag's source with a copy if the UI takes it.
+  void Tell(int phase, POINTL at, DWORD* effect) {
+    at_ = at;
+    POINT point{at.x, at.y};
+    ScreenToClient(holder_, &point);
+    const double scale = Scale(holder_);
+    std::vector<host_dragged> items;
+    for (const std::string& url : urls_) {
+      items.push_back({url.c_str(), files_});
+    }
+    const bool taken = g_dragged && g_dragged(holder_, phase, point.x / scale, point.y / scale,
+                                              items.data(), items.size());
+    if (effect) {
+      *effect = !taken                      ? DROPEFFECT_NONE
+                : *effect & DROPEFFECT_COPY ? DROPEFFECT_COPY
+                : *effect & DROPEFFECT_LINK ? DROPEFFECT_LINK
+                                            : DROPEFFECT_NONE;
+    }
+  }
+
+  HWND holder_;
+  ULONG references_ = 1;
+  IDropTargetHelper* helper_ = nullptr;
+  std::vector<std::string> urls_;
+  bool files_ = false;
+  POINTL at_{};
+};
+
+// Each holder's target, for the driver's drags.
+std::map<HWND, DropTarget*>& DropTargets() {
+  static std::map<HWND, DropTarget*> targets;
+  return targets;
+}
+
 // The holder keeps GPUI's window, its only child, filling it.
 LRESULT CALLBACK HolderProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
@@ -284,6 +469,13 @@ LRESULT CALLBACK HolderProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
       return 0;
     case WM_ERASEBKGND:
       return 1;
+    case WM_DESTROY:
+      if (auto found = DropTargets().find(hwnd); found != DropTargets().end()) {
+        RevokeDragDrop(hwnd);
+        found->second->Release();
+        DropTargets().erase(found);
+      }
+      return 0;
   }
   return DefWindowProcW(hwnd, message, wparam, lparam);
 }
@@ -849,6 +1041,8 @@ void* host_ui_view(void) {
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     window_class.lpszClassName = L"BrowserUI";
     RegisterClassW(&window_class);
+    // Drop targets need OLE on the thread, which Chromium has started already; this only counts.
+    OleInitialize(nullptr);
     return window_class.lpszClassName;
   }();
   WatchForeground();
@@ -857,6 +1051,14 @@ void* host_ui_view(void) {
                                 nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
   UiViews().push_back(holder);
   MadeUiViews().push_back(holder);
+  // GPUI's window in it registers no target of its own (patches/gpui-windows-embedded.patch), so
+  // Windows hands the drags over it to the holder's.
+  auto* target = new DropTarget(holder);
+  if (SUCCEEDED(RegisterDragDrop(holder, target))) {
+    DropTargets()[holder] = target;
+  } else {
+    target->Release();
+  }
   return holder;
 }
 
@@ -1402,16 +1604,6 @@ namespace {
 HWND g_alert = nullptr;
 std::vector<std::pair<std::wstring, int>> g_alert_buttons;
 
-std::string Utf8(const std::wstring& wide) {
-  const int length =
-      WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
-  std::string utf8(length > 0 ? length - 1 : 0, '\0');
-  if (length > 1) {
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, utf8.data(), length, nullptr, nullptr);
-  }
-  return utf8;
-}
-
 HRESULT CALLBACK AlertEvent(HWND hwnd, UINT event, WPARAM, LPARAM, LONG_PTR texts) {
   if (event == TDN_CREATED) {
     g_alert = hwnd;
@@ -1564,11 +1756,16 @@ void host_watch_control(void (*released)(void)) {
   }
 }
 
-// shortcut: GPUI registers the only IDropTarget a window may have (gpui_windows' register_drag_drop,
-// RegisterDragDrop), so the host can't take drops over it; and GPUI hands up dropped files alone,
-// not the links a page drag carries. Taking drops needs GPUI to forward its FileDrop events, or a
-// patch letting the host read the drag, which a later change adds; left to it.
-void host_take_drops(bool (*)(void*, int, double, double, const host_dragged*, size_t)) {}
+void host_take_drops(bool (*dragged)(void* ui_view, int phase, double x, double y,
+                                     const host_dragged* items, size_t count)) {
+  g_dragged = dragged;
+}
+
+// The driver's (drive.cc): the drop target of |hwnd|, if it's a UI view, for its drags.
+void* host_drop_target(void* hwnd) {
+  auto found = DropTargets().find(Hwnd(hwnd));
+  return found == DropTargets().end() ? nullptr : static_cast<IDropTarget*>(found->second);
+}
 
 bool host_trash(const char* path) {
   // Double-null-terminated, as the shell asks.
