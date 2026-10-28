@@ -4,7 +4,9 @@
 # to its new size, and its leaving reported once, timed from the page's request to the window's and
 # the UI's steps, going in and out. The window leaving full screen by its green button takes the page
 # out with it and brings back the sidebar and the card, and the page's full screen takes the window
-# again after. The footer's menu flips up at the screen's bottom in full screen.
+# again after. A full-screen window's display going away keeps the window and the page together,
+# both full screen or both out, and escape and the page's full screen work after. The footer's menu
+# flips up at the screen's bottom in full screen.
 # The command bar opens in full screen and keeps the keyboard when a page commits under it, then
 # gives the keyboard to the new page, and scrolling a long page doesn't stutter. Dragging the
 # window's background moves the window, and the buttons, URL field and rows keep their presses. A
@@ -301,6 +303,82 @@ check_buttons "after the page's full screen after the green button"
 sidebar_back "$out/green-button-again.png" ||
   fail "after the page's next full screen the sidebar is $sidebar_now, not $sidebar: the page still covers it"
 
+# The page's window full screen on a second display, the main one, as for a video on an external
+# monitor, and the display going away, then and again as the window leaves full screen: the window
+# and the page stay together. AppKit keeps the window full screen on the other display, with the
+# page, or takes it out, and the page with it, and the sidebar and the card come back. From there
+# escape and the page's full screen work. The check VM's AppKit keeps the window full screen, and
+# finishes a way out it started, but on the owner's Mac it took the window out without finishing,
+# and the page stayed laid out full screen, for good (#415).
+second_display() {
+  send display add 1280 800 main
+  added=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: display ')
+  [ "$added" = "browser: display added at 0 0 1280 800" ] ||
+    fail "no second display for the page's full screen: $added"
+  send place 40 40 1000 700
+  send key f
+  expect '^browser: page entered full screen$' "the page didn't go full screen on the second display"
+  expect '^browser: window entered full screen$' "the page didn't take the window full screen on the second display"
+  check_layout "with the page full screen on the second display" fills
+  [ "$content" = 1280x800 ] || fail "the page took the window full screen at $content, not on the second display"
+}
+# Waits for a line matching $1 logged since command $from, else fails with $2.
+expect_from() {
+  for _ in $(seq 100); do
+    sed -n "/^browser: drive $from: /,\$p" "$log" | grep -q "$1" && return 0
+    sleep 0.1
+  done
+  fail "$2"
+}
+# The display went away $1, and the window and the page are together, and leave and take full
+# screen together. $2 names the captures. AppKit's lines count from command $from.
+together() {
+  expect '^browser: display removed$' "the second display didn't go away $1"
+  send layout
+  if sed -n "/^browser: drive $step: /,\$p" "$log" | grep -q '^browser: layout full screen 1$'; then
+    check_layout "full screen on the other display, after the second went away $1" fills
+    ! sed -n "/^browser: drive $from: /,\$p" "$log" | grep -q '^browser: title [0-9]* fullscreen 0$' ||
+      fail "the window stayed full screen after the second display went away $1, and the page left"
+    send key escape
+    expect '^browser: page left full screen$' "escape didn't take the page out of full screen after its display went away $1"
+    expect '^browser: window left full screen$' "the window didn't leave full screen with the page after its display went away $1"
+  else
+    expect_from '^browser: window left full screen$' "AppKit took the window out of full screen as its display went away $1, and the app never heard it was done"
+    expect_from '^browser: page left full screen$' "the page stayed full screen as its window left it, its display gone $1"
+    expect_from '^browser: title [0-9]* fullscreen 0$' "the page's document stayed full screen as its window left it, its display gone $1"
+  fi
+  check_layout "after the page's display went away $1"
+  check_buttons "after the page's display went away $1"
+  ../tools/window-screenshot.sh "$pid" "$out/$2.png" || fail "no window to capture"
+  sidebar_back "$out/$2.png" ||
+    fail "after the page's display went away $1 the sidebar is $sidebar_now, not $sidebar: the page still covers it"
+  send key f
+  expect '^browser: page entered full screen$' "the page didn't go full screen after its display went away $1"
+  expect '^browser: window entered full screen$' "the page didn't take the window full screen after its display went away $1"
+  check_layout "with the page full screen after its display went away $1" fills
+  send key escape
+  expect '^browser: page left full screen$' "escape didn't take the page out of full screen after its display went away $1"
+  expect '^browser: window left full screen$' "the window didn't leave full screen with the page after its display went away $1"
+  check_layout "after the page's full screen after its display went away $1"
+  check_buttons "after the page's full screen after its display went away $1"
+  ../tools/window-screenshot.sh "$pid" "$out/$2-again.png" || fail "no window to capture"
+  sidebar_back "$out/$2-again.png" ||
+    fail "after the page's next full screen the sidebar is $sidebar_now, not $sidebar: the page still covers it"
+}
+send order
+frame=$(grep '^browser: frame window 1 ' "$log" | tail -1 | cut -d' ' -f5-)
+second_display
+send display remove
+from=$step
+together "in full screen" display-gone
+second_display
+post key escape
+from=$step
+expect '^browser: full screen exit will ' "escape didn't start taking the window out of full screen on the second display"
+send display remove
+together "as the window left full screen" display-gone-leaving
+send place $frame
+
 # A page's full screen timed three times each way, entered by a key as a video's button is and left
 # by the page, as its button leaves, and then by escape. The steps run from the core's line to the
 # window's and the UI's, and the checks wait for the last of them.
@@ -575,4 +653,4 @@ if [ "$(sysctl -n kern.hv_vmm_present)" = 1 ]; then
 fi
 exec 3>&-
 quit
-echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"
+echo "ok: the page view keeps its margins and the window's buttons stay at Arc's through a resize and full screen, full screen says how to leave and a page's doesn't, a full-screen page takes the window with it and escape or the page leaving brings both back, the page resized once each way, the green button takes a full-screen page out with the window and brings back the sidebar and the card, from where the page's full screen takes the window again, a full-screen window's display going away, in full screen and as it leaves, keeps the window and the page together, the command bar opens in full screen and keeps the keyboard when a page commits under it, then gives it to the new page. Drags on the window's background move it and drags on its controls don't. A double-click on the header $zoom, and one on the empty sidebar opens a new tab. ⌘S from the page and the UI, and the sidebar button, hide the sidebar and the window's buttons, the card takes its place through a resize, and ⌘S brings them back. The pointer kept at the window's edge brings the hidden sidebar out over the page, one passing it doesn't, and the pointer past it sends it away, and the sidebar button and ⌘S dock it from there. The sidebar's edge drags its width between 164 and 500, hides it dragged on past the narrowest, and a double-click puts it back. A page that hasn't drawn shows the card's colour ($color). Page full screen, ms from the page's request, median of 6 going in, 3 leaving by the page, 3 by escape: going in ${enter_ms}leaving ${exit_ms}by escape ${escape_ms%, }. Scrolling: $timing. Material: $material. Windows: $out/fullscreen-note.png, $out/fullscreen.png, $out/page-fullscreen.png, $out/green-button.png, $out/green-button-again.png, $out/display-gone.png, $out/display-gone-again.png, $out/display-gone-leaving.png, $out/display-gone-leaving-again.png, $out/sidebar-hidden.png, $out/sidebar-reveal.png, $out/sidebar-wide.png, $out/sidebar-narrow.png, $out/before-paint.png"

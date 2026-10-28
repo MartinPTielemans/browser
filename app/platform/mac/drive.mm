@@ -48,6 +48,13 @@
 //   dragleave                             takes the drag away, as cancelled
 //   resize <width> <height>               resizes the window, keeping its top-left corner
 //   fullscreen                            enters or leaves full screen, like the green button
+//   display add <width> <height> [main]   plugs in a second display of that size in points, a
+//                                         virtual one, the main one with the menu bar if main
+//                                         says so, as an external monitor often is, logging "browser: display added at <x>
+//                                         <y> <width> <height>" in place's terms, or "browser:
+//                                         display not added: <why>"
+//   display remove                        pulls it out again, logging "browser: display removed"
+//                                         once AppKit's screens no longer have it
 //   minimize                              minimizes the window to the Dock, or brings it back
 //   hide                                  hides the app, as ⌘H does, or brings it back
 //   place <x> <y> <width> <height>        moves and resizes the window to that frame, in points
@@ -59,8 +66,9 @@
 //                                         "browser: frame window <n> <x> <y> <width> <height>"
 //                                         in place's terms
 //   layout                                logs the frames of the window's views and child
-//                                         windows, and the centres of its close, minimize and
-//                                         zoom buttons
+//                                         windows, the centres of its close, minimize and
+//                                         zoom buttons, and whether it's full screen, as
+//                                         "browser: layout full screen <0|1>"
 //   state                                 nothing, for the done line's report
 //   title                                 logs the key window's title, as "browser: key window
 //                                         titled <title>", such as a window of Chrome's
@@ -180,6 +188,38 @@
 }
 @end
 
+// CoreGraphics' virtual display, a private class display tools such as DeskPad use: the only way
+// to plug a second display in and pull it out again without a cable, as when a window's display
+// goes away (#415). No SDK header has it, so it's declared here, and the display command looks
+// the classes up at run time, so a macOS without them fails the command, not the launch.
+@interface CGVirtualDisplayDescriptor : NSObject
+@property(retain, nonatomic) dispatch_queue_t queue;
+@property(retain, nonatomic) NSString* name;
+@property(nonatomic) unsigned int maxPixelsWide;
+@property(nonatomic) unsigned int maxPixelsHigh;
+@property(nonatomic) CGSize sizeInMillimeters;
+@property(nonatomic) unsigned int vendorID;
+@property(nonatomic) unsigned int productID;
+@property(nonatomic) unsigned int serialNum;
+@end
+
+@interface CGVirtualDisplayMode : NSObject
+- (instancetype)initWithWidth:(unsigned int)width
+                       height:(unsigned int)height
+                  refreshRate:(double)refreshRate;
+@end
+
+@interface CGVirtualDisplaySettings : NSObject
+@property(retain, nonatomic) NSArray* modes;
+@property(nonatomic) unsigned int hiDPI;
+@end
+
+@interface CGVirtualDisplay : NSObject
+@property(readonly, nonatomic) unsigned int displayID;
+- (instancetype)initWithDescriptor:(CGVirtualDisplayDescriptor*)descriptor;
+- (BOOL)applySettings:(CGVirtualDisplaySettings*)settings;
+@end
+
 namespace {
 
 // A character typed with ⇧, such as + or ?, has its key's code on a US keyboard.
@@ -242,6 +282,124 @@ void LogFullScreenStep(bool entering, const char* step, NSWindow* window) {
     fprintf(stderr, "browser: full screen %s %s at %.1f ms\n", entering ? "enter" : "exit", step,
             ms);
   }
+}
+
+// The display the display command added, until it takes it away. Letting go of it removes it.
+CGVirtualDisplay* g_display;
+
+// The screen AppKit has for display |display|, or nil.
+NSScreen* ScreenOf(unsigned display) {
+  for (NSScreen* screen in NSScreen.screens) {
+    if ([screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] == display) {
+      return screen;
+    }
+  }
+  return nil;
+}
+
+// Calls |then| once AppKit's screens are as |ready| wants, with true, or with false after 10 s.
+void AwaitScreens(bool (^ready)(void), void (^then)(bool)) {
+  __block bool finished = false;
+  __block id observer;
+  void (^check)(bool) = ^(bool last) {
+    const bool there = ready();
+    if (finished || (!there && !last)) {
+      return;
+    }
+    finished = true;
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+    observer = nil;
+    then(there);
+  };
+  observer = [NSNotificationCenter.defaultCenter
+      addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification*) {
+                check(false);
+              }];
+  check(false);
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    check(true);
+  });
+}
+
+// Makes display |display| the main one, with the menu bar, and the main one before it its right
+// neighbour, until the app quits, as an external monitor set as the main display is.
+void MakeMain(unsigned display, void (^then)(bool)) {
+  const CGDirectDisplayID before = CGMainDisplayID();
+  CGDisplayConfigRef config;
+  if (CGBeginDisplayConfiguration(&config) != kCGErrorSuccess) {
+    then(false);
+    return;
+  }
+  CGConfigureDisplayOrigin(config, display, 0, 0);
+  CGConfigureDisplayOrigin(config, before, (int32_t)CGDisplayPixelsWide(display), 0);
+  if (CGCompleteDisplayConfiguration(config, kCGConfigureForAppOnly) != kCGErrorSuccess) {
+    then(false);
+    return;
+  }
+  AwaitScreens(
+      ^{
+        return [NSScreen.screens.firstObject.deviceDescription[@"NSScreenNumber"]
+                   unsignedIntValue] == display;
+      },
+      then);
+}
+
+// Adds a display of |width| × |height| points, beside the others, the main one if |main|, and logs
+// where, as "browser: display added at <x> <y> <width> <height>" in place's terms, or why it
+// couldn't.
+void AddDisplay(unsigned width, unsigned height, bool main, void (^done)(void)) {
+  Class descriptor_class = NSClassFromString(@"CGVirtualDisplayDescriptor");
+  Class settings_class = NSClassFromString(@"CGVirtualDisplaySettings");
+  Class mode_class = NSClassFromString(@"CGVirtualDisplayMode");
+  Class display_class = NSClassFromString(@"CGVirtualDisplay");
+  if (!descriptor_class || !settings_class || !mode_class || !display_class) {
+    fprintf(stderr, "browser: display not added: this macOS has no CGVirtualDisplay\n");
+    done();
+    return;
+  }
+  CGVirtualDisplayDescriptor* descriptor = [[descriptor_class alloc] init];
+  descriptor.queue = dispatch_get_main_queue();
+  descriptor.name = @"Drive";
+  descriptor.maxPixelsWide = width;
+  descriptor.maxPixelsHigh = height;
+  // About 100 points an inch, as an external monitor's.
+  descriptor.sizeInMillimeters = CGSizeMake(width * 0.254, height * 0.254);
+  descriptor.vendorID = 0xb0c;
+  descriptor.productID = 0x415;
+  descriptor.serialNum = 1;
+  CGVirtualDisplay* display = [[display_class alloc] initWithDescriptor:descriptor];
+  CGVirtualDisplaySettings* settings = [[settings_class alloc] init];
+  settings.hiDPI = 0;
+  settings.modes = @[ [[mode_class alloc] initWithWidth:width height:height refreshRate:60] ];
+  if (!display || !display.displayID || ![display applySettings:settings]) {
+    fprintf(stderr, "browser: display not added: CoreGraphics refused the virtual display\n");
+    done();
+    return;
+  }
+  g_display = display;
+  const unsigned id = display.displayID;
+  void (^log)(bool) = ^(bool added) {
+    if (!added) {
+      fprintf(stderr, "browser: display not added: AppKit has no screen for display %u%s\n", id,
+              main ? " as the main one" : "");
+    } else {
+      const CGFloat top = NSHeight(NSScreen.screens.firstObject.frame);
+      const NSRect frame = ScreenOf(id).frame;
+      fprintf(stderr, "browser: display added at %.0f %.0f %.0f %.0f\n", NSMinX(frame),
+              top - NSMaxY(frame), NSWidth(frame), NSHeight(frame));
+    }
+    done();
+  };
+  AwaitScreens(
+      ^{
+        return ScreenOf(id) != nil;
+      },
+      ^(bool added) {
+        added && main ? MakeMain(id, log) : log(added);
+      });
 }
 
 // The browser window the window command picked, from 0.
@@ -717,6 +875,8 @@ void Layout(NSWindow* window) {
                        NSMinX(frame) - NSMinX(bounds), NSMaxY(bounds) - NSMaxY(frame),
                        NSWidth(frame), NSHeight(frame)];
   }
+  [line appendFormat:@"\nbrowser: layout full screen %d",
+                     (window.styleMask & NSWindowStyleMaskFullScreen) != 0];
   fprintf(stderr, "%s\n", line.UTF8String);
 }
 
@@ -823,6 +983,33 @@ bool Run(const std::string& line, void (^done)(void)) {
     }
     done();
     return true;
+  }
+  if (action == "display") {
+    std::string what;
+    unsigned width, height;
+    if (!(words >> what)) {
+      return false;
+    }
+    if (what == "add" && !g_display && words >> width >> height) {
+      std::string main;
+      words >> main;
+      AddDisplay(width, height, main == "main", done);
+      return true;
+    }
+    if (what == "remove" && g_display) {
+      const unsigned id = g_display.displayID;
+      g_display = nil;
+      AwaitScreens(
+          ^{
+            return ScreenOf(id) == nil;
+          },
+          ^(bool removed) {
+            fprintf(stderr, "browser: display %s\n", removed ? "removed" : "not removed");
+            done();
+          });
+      return true;
+    }
+    return false;
   }
   if (!window) {
     return false;
@@ -1404,6 +1591,20 @@ void drive_start(void) {
                                                   g_full_screen_window = nil;
                                                 }];
   }
+  // A display going away moves its windows to another, and says nothing else of it.
+  [NSNotificationCenter.defaultCenter
+      addObserverForName:NSWindowDidChangeScreenNotification
+                  object:nil
+                   queue:nil
+              usingBlock:^(NSNotification* notification) {
+                NSWindow* window = notification.object;
+                if (window != (__bridge NSWindow*)host_browser_window(g_driven)) {
+                  return;
+                }
+                const NSSize size = window.screen.frame.size;
+                fprintf(stderr, "browser: window on screen %.0fx%.0f, full screen %d\n", size.width,
+                        size.height, (window.styleMask & NSWindowStyleMaskFullScreen) != 0);
+              }];
   // The same transitions timed, on the uptime clock the core's and the app's lines read: when
   // AppKit starts one, when the window gets its size, and when it ends (above). check.sh reads them.
   for (NSNotificationName name :
