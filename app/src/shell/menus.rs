@@ -387,7 +387,7 @@ impl Shell {
         } else if self.pinned().contains(&tab) {
             self.pinned_tab_menu(keys, tab)
         } else {
-            self.today_tab_menu(keys, tab)
+            self.today_tab_menu(keys, tab, position)
         };
         let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
         self.context_menu(
@@ -536,6 +536,46 @@ impl Shell {
         items
     }
 
+    /// Share as the system can: a submenu of its services where it lists them, as the Mac does;
+    /// else one Share… that opens its share sheet, as on Windows, which lists none; else nothing,
+    /// as on Linux, which has neither, so the menu never holds a Share that leads nowhere. Dimmed
+    /// for a page with no link.
+    fn push_share(
+        &self,
+        items: &mut Vec<(MenuEntry, &'static str, MenuAction)>,
+        tab: u64,
+        link: &str,
+        at: Point<Pixels>,
+    ) {
+        let services = match link.is_empty() {
+            true => Vec::new(),
+            false => self.browser.share_services(link),
+        };
+        if services.is_empty() {
+            if self.browser.has_share_sheet() {
+                let (link, title) = (link.to_string(), self.title(tab));
+                items.push((
+                    MenuEntry::new("Share…", !link.is_empty()),
+                    "share",
+                    Box::new(move |shell, cx| {
+                        shell.browser.show_share_sheet(tab, &link, &title, at, cx)
+                    }),
+                ));
+            }
+            return;
+        }
+        let share = items.len();
+        items.push((MenuEntry::new("Share", true), "", Box::new(|_, _| {})));
+        for (at, service) in services.into_iter().enumerate() {
+            let (link, title) = (link.to_string(), self.title(tab));
+            items.push((
+                MenuEntry::new(service, true).under(share),
+                "share",
+                Box::new(move |shell, cx| shell.browser.share(&link, &title, at, cx)),
+            ));
+        }
+    }
+
     /// A Today tab's menu, as Arc's (docs/ux-spec.md › Tab list), with Remove Icon once it has
     /// one and Separate from Split View in a split, ours. Arc's Customize Page… is Boosts, which
     /// the browser hasn't. Each item's agent path is the core call it makes, but Copy Link's and
@@ -545,6 +585,7 @@ impl Shell {
         &self,
         keys: &UserKeys,
         tab: u64,
+        position: Point<Pixels>,
     ) -> Vec<(MenuEntry, &'static str, MenuAction)> {
         let page = self.page(tab);
         let panes = self.panes(tab);
@@ -556,20 +597,7 @@ impl Shell {
             "copy-link",
             Box::new(move |shell, cx| shell.copy_link(tab, cx)),
         )];
-        let services = match link.is_empty() {
-            true => Vec::new(),
-            false => self.browser.share_services(&link),
-        };
-        let share = items.len();
-        items.push((MenuEntry::new("Share", !services.is_empty()), "", Box::new(|_, _| {})));
-        for (at, service) in services.into_iter().enumerate() {
-            let (link, title) = (link.clone(), self.title(tab));
-            items.push((
-                MenuEntry::new(service, true).under(share),
-                "share",
-                Box::new(move |shell, cx| shell.browser.share(&link, &title, at, cx)),
-            ));
-        }
+        self.push_share(&mut items, tab, &link, position);
         items.push((MenuEntry::line(), "", Box::new(|_, _| {})));
         items.push((
             MenuEntry::new("Change Icon…", true),
@@ -892,9 +920,53 @@ mod tests {
     #[gpui::test]
     fn the_last_tabs_menu_dims_what_it_cant_do(cx: &mut TestAppContext) {
         let (shell, host) = shell_with(cx, &[], &[10, 11], Folders::default());
+        host.share_sheet.set(true);
         let menu = tab_menu(&shell, &host, cx, 11);
-        assert_eq!(menu[..2], ["Copy Link (disabled)", "Share (disabled)"]);
+        assert_eq!(menu[..2], ["Copy Link (disabled)", "Share… (disabled)"]);
         assert_eq!(menu.last().unwrap(), "Archive Tabs Below (disabled)");
+    }
+
+    /// Where the system lists its share services, as the Mac's does, Share is a submenu of them,
+    /// and each shares the page with its service.
+    #[gpui::test]
+    fn share_lists_the_systems_services(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11], Folders::default());
+        *host.share_services.borrow_mut() = vec!["Mail".into(), "Messages".into()];
+        host.share_sheet.set(true);
+        let link = page("https://example.com/", false, false);
+        shell.update(cx, |shell, cx| shell.set_page(10, link, cx));
+        let menu = tab_menu(&shell, &host, cx, 10);
+        assert_eq!(menu[1..3], ["Share › Mail", "Share › Messages"]);
+        host.take();
+        cx.update(|cx| host.choose("Messages", cx));
+        assert_eq!(host.take(), ["share https://example.com/ with 1"]);
+    }
+
+    /// Where the system lists none but has a share sheet, as Windows does, Share… is one item that
+    /// opens the sheet for the page, rather than an empty submenu.
+    #[gpui::test]
+    fn share_opens_the_systems_sheet_when_it_lists_no_services(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11], Folders::default());
+        host.share_sheet.set(true);
+        let link = page("https://example.com/", false, false);
+        shell.update(cx, |shell, cx| shell.set_page(10, link, cx));
+        let menu = tab_menu(&shell, &host, cx, 10);
+        assert_eq!(menu[..3], ["Copy Link", "Share…", "Change Icon…"]);
+        let title = shell.read_with(cx, |shell, _| shell.title(10));
+        host.take();
+        cx.update(|cx| host.choose("Share…", cx));
+        assert_eq!(host.take(), [format!("share sheet 10 https://example.com/ {title}")]);
+    }
+
+    /// Where the system has neither, as Linux, the menu has no Share at all.
+    #[gpui::test]
+    fn share_is_left_out_where_the_system_cant_share(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11], Folders::default());
+        let link = page("https://example.com/", false, false);
+        shell.update(cx, |shell, cx| shell.set_page(10, link, cx));
+        let menu = tab_menu(&shell, &host, cx, 10);
+        assert_eq!(menu[..2], ["Copy Link", "Change Icon…"]);
+        assert!(!menu.iter().any(|item| item.starts_with("Share")));
     }
 
     /// Mute is dimmed while the tab is silent, and a muted tab's menu unmutes it.
