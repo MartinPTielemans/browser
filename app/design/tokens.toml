@@ -1041,11 +1041,10 @@ swatch-pitch = 40.0
 swatch-gap = 28.0
 swatch-ring = 2.0
 swatch-edge = 0.12
-# The import step holds the import view on Settings' ground, as it's drawn for, a panel's corners
-# and inset round it, its inside as wide as Settings' boxes.
-import-width = 588.0
-import-inset = 16.0
-import-radius = 16.0
+# The import step holds the import view as wide as Settings' boxes, on the flow's ground, its
+# boxes this much of the ink over it.
+import-width = 556.0
+import-surface = 0.05
 
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners
