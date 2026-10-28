@@ -213,6 +213,9 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Runs extension |id|'s action on the tab the window shows, its popup hanging from |anchor|. See
   // bc_window_run_extension.
   bool RunExtension(const std::string& id, const gfx::Rect& anchor);
+  // Tells the app of every turned-on extension's action, or the pinned alone, while its Site
+  // Controls show. See bc_tab_site_controls.
+  void ShowEveryExtensionAction(bool every);
   // Runs extension |id|'s keyboard command |name| on the tab the window shows. See
   // bc_window_run_extension_command.
   bool RunExtensionCommand(const std::string& id, const std::string& name);

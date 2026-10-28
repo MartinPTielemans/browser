@@ -368,6 +368,13 @@ void WindowActions::Show(content::WebContents* contents) {
   Changed();
 }
 
+void WindowActions::ShowEvery(bool every) {
+  if (every != every_) {
+    every_ = every;
+    Changed();
+  }
+}
+
 void WindowActions::OnToolbarActionAdded(const ToolbarActionsModel::ActionId& id) {
   Changed();
 }
@@ -412,33 +419,50 @@ void WindowActions::Report() {
   if (contents_ && model && profile_) {
     const int tab = sessions::SessionTabHelper::IdForTab(contents_.get()).id();
     extensions::ExtensionRegistry* registry = extensions::ExtensionRegistry::Get(profile_);
-    for (const ToolbarActionsModel::ActionId& id : model->pinned_action_ids()) {
-      const extensions::Extension* extension = registry->enabled_extensions().GetByID(id);
+    auto tell = [&](const extensions::Extension* extension, bool pinned) {
       extensions::ExtensionAction* action =
           extension ? extensions::ExtensionActionManager::Get(profile_)->GetExtensionAction(
                           *extension)
                     : nullptr;
       if (!action) {
-        continue;
+        return;
       }
-      std::unique_ptr<Icon>& icon = icons_[id];
+      std::unique_ptr<Icon>& icon = icons_[extension->id()];
       if (!icon) {
         icon = std::make_unique<Icon>(extension, action, this);
       }
       const std::string title = action->GetTitle(tab);
-      shown.push_back({.id = id,
+      shown.push_back({.id = extension->id(),
                        .title = title.empty() ? extension->name() : title,
                        .icon = icon->Get(tab),
                        .badge = action->GetDisplayBadgeText(tab),
                        .badge_color = action->HasBadgeBackgroundColor(tab)
                                           ? action->GetBadgeBackgroundColor(tab)
                                           : 0,
-                       .enabled = action->GetIsVisible(tab)});
+                       .enabled = action->GetIsVisible(tab),
+                       .pinned = pinned});
+    };
+    for (const ToolbarActionsModel::ActionId& id : model->pinned_action_ids()) {
+      tell(registry->enabled_extensions().GetByID(id), true);
+    }
+    if (every_) {
+      // The model has an action for each turned-on extension that Chrome's extensions menu lists.
+      std::vector<const extensions::Extension*> others;
+      for (const ToolbarActionsModel::ActionId& id : model->action_ids()) {
+        const extensions::Extension* extension = registry->enabled_extensions().GetByID(id);
+        if (extension && !model->IsActionPinned(id)) {
+          others.push_back(extension);
+        }
+      }
+      std::ranges::sort(others, {}, &extensions::Extension::name);
+      for (const extensions::Extension* extension : others) {
+        tell(extension, false);
+      }
     }
   }
   auto same = [](const Told& a, const Told& b) {
     return a.id == b.id && a.title == b.title && a.badge == b.badge &&
-           a.badge_color == b.badge_color && a.enabled == b.enabled &&
+           a.badge_color == b.badge_color && a.enabled == b.enabled && a.pinned == b.pinned &&
            a.icon.IsEmpty() == b.icon.IsEmpty() &&
            (a.icon.IsEmpty() || a.icon.AsImageSkia().BackedBySameObjectAs(b.icon.AsImageSkia()));
   };
@@ -462,7 +486,8 @@ void WindowActions::Report() {
                        .icon_size = pngs.back().size(),
                        .badge = told.badge.c_str(),
                        .badge_color = told.badge_color,
-                       .enabled = told.enabled});
+                       .enabled = told.enabled,
+                       .pinned = told.pinned});
   }
   Host().window_extension_actions(Host().context, window_, actions.data(), actions.size());
 }

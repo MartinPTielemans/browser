@@ -14,6 +14,7 @@
 #include "browser_core/host.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/tab.h"
+#include "browser_core/window.h"
 #include "chrome/browser/certificate_viewer.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/page_info/chrome_page_info_delegate.h"
@@ -142,6 +143,8 @@ void SiteControls::Open(bc_id tab) {
   if (!contents) {
     return;
   }
+  // The last first, as its window may be this one's, whose actions it puts back to the pinned.
+  Shown().reset();
   Shown() = base::WrapUnique(new SiteControls(contents));
 }
 
@@ -224,10 +227,19 @@ void SiteControls::ShowCertificate(bc_id tab) {
 
 SiteControls::SiteControls(content::WebContents* contents)
     : content::WebContentsObserver(contents), tab_(Tab::IdOf(contents)) {
+  // Before the site, so the panel has its extensions as it first shows.
+  if (Window* window = Window::Showing(tab_)) {
+    window_ = window->id();
+    window->ShowEveryExtensionAction(true);
+  }
   Read();
 }
 
-SiteControls::~SiteControls() = default;
+SiteControls::~SiteControls() {
+  if (Window* window = Window::FromId(window_)) {
+    window->ShowEveryExtensionAction(false);
+  }
+}
 
 void SiteControls::Read() {
   platform::SystemPage* page = SystemPageOf(web_contents());
