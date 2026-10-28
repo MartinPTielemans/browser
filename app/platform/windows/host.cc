@@ -9,11 +9,16 @@
 #include <commdlg.h>
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
+#include <wincodec.h>
+#include <wrl/client.h>
 
 #include <ctime>
 #include <functional>
 #include <map>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "../host.h"
@@ -554,6 +559,119 @@ BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM data) {
     }
   }
   return TRUE;
+}
+
+using Microsoft::WRL::ComPtr;
+
+// The drag source for host_drag_file: it keeps dragging while the left button is held, copies where
+// it's let go, and cancels on Escape or the right button, as Explorer's own drag does.
+class FileDropSource : public IDropSource {
+ public:
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** out) override {
+    if (iid == __uuidof(IUnknown) || iid == __uuidof(IDropSource)) {
+      *out = static_cast<IDropSource*>(this);
+      AddRef();
+      return S_OK;
+    }
+    *out = nullptr;
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const ULONG refs = --refs_;
+    if (refs == 0) {
+      delete this;
+    }
+    return refs;
+  }
+  HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override {
+    if (escape || (keys & MK_RBUTTON)) {
+      return DRAGDROP_S_CANCEL;
+    }
+    if (!(keys & MK_LBUTTON)) {
+      return DRAGDROP_S_DROP;
+    }
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD) override {
+    return DRAGDROP_S_USEDEFAULTCURSORS;
+  }
+
+ private:
+  ULONG refs_ = 1;
+};
+
+// The shell's own data object for the file at |path|, so a drag carries it as Explorer does, with
+// its drag image; null if there's no such file.
+ComPtr<IDataObject> FileDataObject(const std::wstring& path) {
+  PIDLIST_ABSOLUTE pidl = nullptr;
+  if (FAILED(SHParseDisplayName(path.c_str(), nullptr, &pidl, 0, nullptr)) || !pidl) {
+    return nullptr;
+  }
+  ComPtr<IShellFolder> parent;
+  PCUITEMID_CHILD child = nullptr;
+  ComPtr<IDataObject> data;
+  if (SUCCEEDED(SHBindToParent(pidl, IID_PPV_ARGS(&parent), &child))) {
+    parent->GetUIObjectOf(nullptr, 1, &child, __uuidof(IDataObject), nullptr,
+                          reinterpret_cast<void**>(data.GetAddressOf()));
+  }
+  CoTaskMemFree(pidl);
+  return data;
+}
+
+// Encodes the shell's thumbnail or icon for |path| as a PNG, off the main thread. An image (or any
+// file Windows makes a thumbnail for) gets its thumbnail scaled to fit 96 px, its aspect kept; the
+// rest the file's 52 px icon. Fills |png|, |width|, |height| and |image|, returning whether it got
+// one. The caller has CoInitialized this thread.
+bool PreviewPng(const std::wstring& path, std::vector<uint8_t>* png, double* width, double* height,
+                bool* image) {
+  ComPtr<IShellItemImageFactory> factory;
+  if (FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(&factory)))) {
+    return false;
+  }
+  HBITMAP bitmap = nullptr;
+  *image = SUCCEEDED(factory->GetImage({96, 96}, SIIGBF_THUMBNAILONLY, &bitmap)) && bitmap;
+  if (!*image && (FAILED(factory->GetImage({52, 52}, SIIGBF_ICONONLY, &bitmap)) || !bitmap)) {
+    return false;
+  }
+  BITMAP info{};
+  GetObjectW(bitmap, sizeof info, &info);
+  *width = info.bmWidth;
+  *height = info.bmHeight;
+
+  ComPtr<IWICImagingFactory> wic;
+  ComPtr<IWICBitmap> source;
+  ComPtr<IStream> stream;
+  ComPtr<IWICBitmapEncoder> encoder;
+  ComPtr<IWICBitmapFrameEncode> frame;
+  ComPtr<IPropertyBag2> options;
+  WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+  STATSTG stat{};
+  bool ok = false;
+  HGLOBAL global = nullptr;
+  if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                 IID_PPV_ARGS(&wic))) &&
+      SUCCEEDED(wic->CreateBitmapFromHBITMAP(bitmap, nullptr, WICBitmapUsePremultipliedAlpha,
+                                             &source)) &&
+      SUCCEEDED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) &&
+      SUCCEEDED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
+      SUCCEEDED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) &&
+      SUCCEEDED(encoder->CreateNewFrame(&frame, &options)) &&
+      SUCCEEDED(frame->Initialize(options.Get())) &&
+      SUCCEEDED(frame->SetSize(info.bmWidth, info.bmHeight)) &&
+      SUCCEEDED(frame->SetPixelFormat(&format)) &&
+      SUCCEEDED(frame->WriteSource(source.Get(), nullptr)) && SUCCEEDED(frame->Commit()) &&
+      SUCCEEDED(encoder->Commit()) && SUCCEEDED(stream->Stat(&stat, STATFLAG_NONAME)) &&
+      SUCCEEDED(GetHGlobalFromStream(stream.Get(), &global)) && global) {
+    if (void* data = GlobalLock(global)) {
+      const auto* bytes = static_cast<const uint8_t*>(data);
+      png->assign(bytes, bytes + static_cast<size_t>(stat.cbSize.QuadPart));
+      GlobalUnlock(global);
+      ok = !png->empty();
+    }
+  }
+  DeleteObject(bitmap);
+  return ok;
 }
 
 }  // namespace
@@ -1295,8 +1413,10 @@ void host_watch_control(void (*released)(void)) {
   }
 }
 
-// shortcut: drags onto the UI from pages and other apps aren't taken yet; GPUI's own drop target
-// has the window.
+// shortcut: GPUI registers the only IDropTarget a window may have (gpui_windows' register_drag_drop,
+// RegisterDragDrop), so the host can't take drops over it; and GPUI hands up dropped files alone,
+// not the links a page drag carries. Taking drops needs GPUI to forward its FileDrop events, or a
+// patch letting the host read the drag, which a later change adds; left to it.
 void host_take_drops(bool (*)(void*, int, double, double, const host_dragged*, size_t)) {}
 
 bool host_trash(const char* path) {
@@ -1310,16 +1430,52 @@ bool host_trash(const char* path) {
          GetFileAttributesW(Wide(path).c_str()) == INVALID_FILE_ATTRIBUTES;
 }
 
-// shortcut: a download can't be dragged out yet.
-bool host_drag_file(const char*, void (*)(bool)) {
-  return false;
+bool host_drag_file(const char* path, void (*ended)(bool)) {
+  std::wstring wide = Wide(path);
+  if (GetFileAttributesW(wide.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    return false;
+  }
+  ComPtr<IDataObject> data = FileDataObject(wide);
+  if (!data) {
+    return false;
+  }
+  ComPtr<IDropSource> source;
+  source.Attach(new FileDropSource());
+  // Modal while the drag runs, on the UI thread GPUI has made an OLE apartment, as Explorer's drag
+  // is; it returns once the file is let go.
+  DWORD effect = DROPEFFECT_NONE;
+  const HRESULT dropped = DoDragDrop(data.Get(), source.Get(), DROPEFFECT_COPY, &effect);
+  if (FAILED(dropped)) {
+    return false;
+  }
+  if (ended) {
+    const bool taken = dropped == DRAGDROP_S_DROP && effect != DROPEFFECT_NONE;
+    Later([ended, taken] { ended(taken); });
+  }
+  return true;
 }
 
-// shortcut: no file previews yet; the downloads list shows its generic icon.
-void host_file_preview(const char*,
+void host_file_preview(const char* path,
                        uint64_t id,
                        void (*done)(uint64_t, const uint8_t*, size_t, double, double, bool)) {
-  Later([done, id] { done(id, nullptr, 0, 0, 0, false); });
+  std::thread([wide = Wide(path), id, done] {
+    const bool com = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+    std::vector<uint8_t> png;
+    double width = 0, height = 0;
+    bool image = false;
+    const bool ok = PreviewPng(wide, &png, &width, &height, &image);
+    if (com) {
+      CoUninitialize();
+    }
+    // Back on the main thread, where the UI reads the preview; the PNG bytes are ours, not COM's.
+    Later([done, id, png = std::move(png), width, height, image, ok] {
+      if (ok) {
+        done(id, png.data(), png.size(), width, height, image);
+      } else {
+        done(id, nullptr, 0, 0, 0, false);
+      }
+    });
+  }).detach();
 }
 
 void host_copy(const char* text) {
