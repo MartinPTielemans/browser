@@ -751,7 +751,8 @@ nav = 0.6
 nav-disabled = 0.26
 nav-hovered = 0.077
 # The Space's name and the switcher's icons, on #320's ladder: 0.62, then 0.6 for the Space shown
-# and 0.35 for the others, 0.5 under the pointer (ours: Arc's isn't measured).
+# and 0.35 for the others, 0.5 under the pointer (ours: Arc's isn't measured). The Space shown's
+# glyph is its accent instead, or the ink without a colour (#469); an emoji dims by these ratios.
 space-name = 0.62
 space-shown = 0.6
 space-other = 0.35
