@@ -343,12 +343,13 @@ exited
 echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/side-panel.png, $out/side-panel-resized.png"
 
 # A desktop app's native messaging host that only another Chromium browser's folder has, as
-# 1Password writes its own only for the browsers it knows. The launch has a home of its own, with
-# the host in its Chrome Beta folder and a profile without one, so no folder of the owner's is read.
-# A click on the extension's action asks the host, whose answer opens a page.
+# 1Password writes its own only for the browsers it knows. The launch has a profile without one and
+# a folder of other browsers of its own, in place of Application Support, with the host in its
+# Chrome Beta folder, so no folder of the owner's is read. ($HOME wouldn't do: macOS gives Chromium
+# the real home.) A click on the extension's action asks the host, whose answer opens a page.
 home="$PWD/$out/native-home"
 rm -rf "$home"
-host_dir="$home/Library/Application Support/Google/Chrome Beta/NativeMessagingHosts"
+host_dir="$home/browsers/Google/Chrome Beta/NativeMessagingHosts"
 mkdir -p "$host_dir" "$home/extension" "$home/profile"
 cat > "$home/host.sh" << 'EOF'
 #!/bin/sh
@@ -364,14 +365,16 @@ EOF
 cat > "$home/extension/background.js" << 'EOF'
 chrome.action.onClicked.addListener(() =>
   chrome.runtime.sendNativeMessage("dev.browser.check", {}, answer =>
-    chrome.tabs.create({url: answer && answer.ok ? "answered.html" : "unanswered.html"})));
+    chrome.tabs.create({url: answer && answer.ok ? "answered.html" :
+      "unanswered.html#" + encodeURIComponent(chrome.runtime.lastError?.message ?? "no error")})));
 EOF
 echo '<title>answered</title>' > "$home/extension/answered.html"
 echo '<title>unanswered</title>' > "$home/extension/unanswered.html"
 log="$out/native-host.log"
 step=0
-HOME="$home" BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$home/profile" \
+BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$home/profile" \
   "$app/Contents/MacOS/Browser" --load-extension="$home/extension" \
+  --other-browsers-dir="$home/browsers" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -392,6 +395,9 @@ for _ in $(seq 10); do
     sleep 0.1
   done
 done
+grep -q '^browser: native host lookup dev.browser.check$' "$log" ||
+  fail "the browser never looked past its own folders for the host: $(grep -o \
+    'chrome-extension://[^ ]*unanswered[^ ]*' "$log" | sort -u | tr '\n' ' ')"
 none_since "$heard" && fail "the browser didn't find the host in Chrome Beta's folder"
 grep -qxF "browser: native host dev.browser.check from $host_dir" "$log" ||
   fail "the host came from another folder: $(grep "$heard" "$log")"

@@ -71,6 +71,7 @@ void OpenLinks(const std::vector<GURL>& urls) {
 // A host's manifest from another browser's folders, said in the log, as the user can't see where
 // a host came from.
 base::FilePath FindNativeHost(const std::string& name) {
+  fprintf(stderr, "browser: native host lookup %s\n", name.c_str());
   base::FilePath manifest = platform::FindOtherBrowsersNativeHost(name);
   if (!manifest.empty()) {
     fprintf(stderr, "browser: native host %s from %s\n", name.c_str(),
