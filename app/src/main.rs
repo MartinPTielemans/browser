@@ -98,6 +98,7 @@ mod platform {
         pub fn host_watch_key_window(changed: extern "C" fn(*mut c_void));
         pub fn host_watch_full_screen(changed: extern "C" fn(*mut c_void, bool));
         pub fn host_watch_swipes(swiped: extern "C" fn(*mut c_void, f64, f64, bool) -> bool);
+        pub fn host_after_menus(apply: extern "C" fn()) -> bool;
         pub fn host_watch_resigning_active(resigning: extern "C" fn());
         pub fn host_watch_active(became_active: extern "C" fn());
         pub fn host_is_default_browser() -> bool;
@@ -335,6 +336,8 @@ thread_local! {
     static LAUNCH_LINKS: RefCell<Option<Vec<String>>> = const { RefCell::new(Some(Vec::new())) };
     // What the menu bar was last built from, so a change to one part rebuilds it with the others.
     static MENUS: RefCell<Menus> = RefCell::default();
+    // Whether a menu bar built from MENUS waits for the menu open to close.
+    static MENUS_HELD: Cell<bool> = const { Cell::new(false) };
 }
 
 /// What the menu bar lists besides what never changes: what the key window's shell says of it, and
@@ -350,6 +353,28 @@ impl Menus {
     fn build(&self) -> Vec<Menu> {
         menus(&self.bar, self.undo.as_deref(), self.redo.as_deref())
     }
+}
+
+/// Puts up the menu bar built from MENUS, or, while a menu is open, once none is, as AppKit can
+/// crash when the main menu is replaced under an open menu. What changes meanwhile goes in the one
+/// rebuild.
+fn show_menus(cx: &mut App) {
+    if MENUS_HELD.get() {
+        return;
+    }
+    if unsafe { platform::host_after_menus(menus_closed) } {
+        // check.sh reads these lines.
+        log!("browser: menu bar waits for the menu open");
+        MENUS_HELD.set(true);
+        return;
+    }
+    cx.set_menus(MENUS.with_borrow(Menus::build));
+}
+
+extern "C" fn menus_closed() {
+    log!("browser: menu bar put up once the menus closed");
+    MENUS_HELD.set(false);
+    update_app(show_menus);
 }
 
 /// "Undo" or "Redo", with what it would undo or redo after it.
@@ -1663,7 +1688,7 @@ impl Browser for Engine {
         MENUS.with_borrow_mut(|menus| menus.bar = bar.clone());
         // The menu bar is the key window's, which lists its own Space's extensions.
         if front().0 == self.window {
-            cx.set_menus(MENUS.with_borrow(Menus::build));
+            show_menus(cx);
         }
     }
 
@@ -1673,7 +1698,7 @@ impl Browser for Engine {
             menus.redo = redo.map(Into::into);
         });
         if front().0 == self.window {
-            cx.set_menus(MENUS.with_borrow(Menus::build));
+            show_menus(cx);
         }
     }
 

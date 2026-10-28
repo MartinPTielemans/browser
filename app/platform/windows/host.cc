@@ -478,6 +478,9 @@ void host_watch_full_screen(void (*)(void*, bool)) {}
 // shortcut: Windows sends a touchpad's swipes as scrolls, which the page takes.
 void host_watch_swipes(bool (*)(void*, double, double, bool)) {}
 
+// A window's menu bar isn't replaced while it's open on Windows: it's modal and runs no tasks.
+bool host_after_menus(void (*)(void)) { return false; }
+
 void host_watch_resigning_active(void (*resigning)(void)) {
   g_resigning_active = resigning;
   WatchForeground();

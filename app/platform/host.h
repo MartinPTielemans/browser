@@ -90,6 +90,11 @@ void host_watch_full_screen(void (*changed)(void* ui_view, bool entered));
 // from the top left, in points; one it takes, by returning true, goes no further.
 void host_watch_swipes(bool (*swiped)(void* ui_view, double x, double y, bool back));
 
+// Whether a menu is open, the menu bar's or a context menu, and if so calls |apply| once none is,
+// instead of any function an earlier call left waiting. AppKit can crash when the main menu is
+// replaced while it tracks one, and the core's callbacks still come in while it does.
+bool host_after_menus(void (*apply)(void));
+
 // Calls |resigning| as the app is about to stop being the active one, its windows still shown.
 void host_watch_resigning_active(void (*resigning)(void));
 
