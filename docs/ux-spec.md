@@ -473,7 +473,7 @@ What a favorite does (ours, *interim* until Arc's are captured):
 | Click | shows that Space |
 | More Spaces than fit | Arc's strip scrolls: measure. Ours narrows the pitch. Dia: 12 pt per item, at most 7 before it scrolls, edge items scaled 0.75–1 (Dia 1.50.1 bin, D›Profile paging) |
 
-Arc shows Space icons in place of dots when a Space has one: measure both looks. Ours (*interim*): a Space's icon (Icon) takes the dot's place in the same item, so the strip doesn't move. A glyph is drawn in a 16 pt box, 13 pt of ink, in the dots' colours: white 0.50 for the Space shown, 0.19 for the others and 0.30 under the pointer. An emoji is 13 pt text, as a tab's, the Space shown's at full strength and the others at the dots' ratio, 0.38, 0.60 under the pointer, as 0.19 and 0.30 are of 0.50. The right-click menu and a click work as on the dot. Spaces with no icon keep their dots, mixed in one strip.
+Arc shows Space icons in place of dots when a Space has one: measure both looks. Ours (*interim*): a Space's icon (Icon) takes the dot's place, so the strip doesn't move. A glyph is drawn in a 16 pt box, 13 pt of ink: the Space shown's in its accent, at 3:1 on the footer in light and dark, or the ink with no colour; the others white 0.19, 0.30 under the pointer. An emoji is 13 pt text, as a tab's, the Space shown's at full strength and the others at the dots' ratio, 0.38, 0.60 under the pointer. The right-click menu and a click work as on the dot. Spaces with no icon keep their dots, mixed in one strip.
 
 **Switching**
 

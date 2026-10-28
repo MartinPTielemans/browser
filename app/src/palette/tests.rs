@@ -270,6 +270,32 @@ fn the_pickers_card_and_captures_glyphs_read() {
     }
 }
 
+/// The switcher's icon for the Space shown is in its accent, which reads at 3:1 or more on the
+/// footer for every theme, light and dark, over a black and a white backdrop, its grain moving it
+/// toward the ink, wherever the window's height puts the footer on its gradient (#469): the
+/// accent's own lift at its hue covers it. Without a colour it's the ink.
+#[test]
+fn the_shown_spaces_icon_reads_on_the_footer_light_and_dark() {
+    let themes = grid(&[0., 45., 90., 135., 180., 225., 270., 315.], &[0., 0.4, 1.], &[0., 0.3, 0.6, 1.], &[0., 1.]);
+    let mut worst = (f32::MAX, String::new());
+    for theme in themes.iter().filter(|theme| theme.appearance != Appearance::Automatic) {
+        let palette = Palette::of(Some(theme));
+        let footer = (0..=16).flat_map(|along| {
+            (12..=16).flat_map(move |y| palette.window_at(Some(theme), along as f32 / 16., y as f32 / 16.))
+        });
+        for at in footer.map(|at| over(at, palette.ink, GRAIN_SHIFT * theme.grain)) {
+            let ratio = contrast(palette.accent, at);
+            if ratio < worst.0 {
+                worst = (ratio, theme.to_text());
+            }
+        }
+    }
+    assert!(worst.0 >= GLYPH, "{:.2} on {}", worst.0, worst.1);
+    // A Space with no colour draws it in the ink.
+    let none = Palette::of(None);
+    assert!(none.window_samples(None).iter().all(|&at| contrast(none.ink, at) >= GLYPH));
+}
+
 /// The themes that came out worst for each component in the design sweep, today's and v3's.
 #[test]
 fn the_design_sweeps_worst_themes_pass() {
