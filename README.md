@@ -57,6 +57,8 @@ The Mac's DMG is built only with these repository secrets:
 | `UPDATE_PRIVATE_KEY` | The updates' signing key: the contents of the file `generate_keys --account ilo -x <file>` writes (`tools/appcast.sh`) |
 | `UPDATE_PUBLIC_KEY` | Its public half, from `generate_keys --account ilo -p`, which the Mac and Windows builds carry |
 
+Crash reports' symbols go to the collector `app/branding/crash-reports` names only with the secret `SENTRY_AUTH_TOKEN`, an auth token that may upload debug files, and the variables `SENTRY_URL`, `SENTRY_ORG` and `SENTRY_PROJECT`, the collector's address, organization and project. With none of them the DMG is still built, and uploads no symbols.
+
 The Windows packages are unsigned: the Store signs the MSIX, and winget takes the installer.
 
 Linux installs from GitHub update from ilo's Flatpak repository, a static OSTree repository in a Cloudflare R2 bucket (`tools/flatpak-repo.sh`). The bundle and `ilo.flatpakref` name it and carry its public key. The run adds the build to the bucket, unseen; publishing the draft makes it live. Publish each draft before building the next, since a build doesn't follow a draft that isn't live yet. The Linux files are built only with these:

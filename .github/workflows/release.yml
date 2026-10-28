@@ -291,6 +291,41 @@ jobs:
             exit 1
           fi
 
+      # Crash reports' symbols, which tools/release.sh uploads with sentry-cli to the collector
+      # app/branding/crash-reports names. Optional: with none of these the release has no symbols
+      # uploaded, and with only some it stops here rather than after the build.
+      - name: Crash reports' symbols
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          version: 3.8.2
+          sha256: c80d92b6d34eb64fe7402f56cc7968fbb15aab1c763254ad428b55cc98ec7dcf
+        working-directory: .
+        run: |
+          missing=
+          for name in SENTRY_AUTH_TOKEN SENTRY_URL SENTRY_ORG SENTRY_PROJECT; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          case $missing in
+          '') ;;
+          ' SENTRY_AUTH_TOKEN SENTRY_URL SENTRY_ORG SENTRY_PROJECT')
+            echo "::notice::No crash collector is set up (README.md › Releases), so no symbols are uploaded."
+            exit 0
+            ;;
+          *)
+            echo "::error::Uploading crash reports' symbols needs$missing as well (README.md › Releases)."
+            exit 1
+            ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/bin/sentry-cli" \
+            "https://github.com/getsentry/sentry-cli/releases/download/$version/sentry-cli-Darwin-arm64"
+          echo "$sha256  $RUNNER_TEMP/bin/sentry-cli" | shasum -a 256 -c -
+          chmod +x "$RUNNER_TEMP/bin/sentry-cli"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -340,6 +375,11 @@ jobs:
         run: ./build.sh prod
 
       - name: Sign and notarize
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
         run: ../tools/release.sh
 
       - uses: actions/download-artifact@v4
