@@ -316,6 +316,10 @@ pub trait Browser {
     fn download_widevine(&self, _cx: &mut App) {}
     /// Quits and starts again, bringing back the windows and their Spaces.
     fn restart(&self, _cx: &mut App) {}
+    /// What PlayReady, which Windows plays protected video with, needs that the PC may lack.
+    fn playready_needs(&self) -> super::PlayReady {
+        super::PlayReady::None
+    }
     /// The names of the system's share services for the page at `url`, as its share menu lists
     /// them.
     fn share_services(&self, url: &str) -> Vec<SharedString>;
