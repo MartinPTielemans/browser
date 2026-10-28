@@ -491,10 +491,34 @@ void host_watch_active(void (*became_active)(void)) {
   WatchForeground();
 }
 
-// shortcut: reads as not the default; check the http UserChoice ProgId once the installer
-// registers the app.
+// The ProgId the installer registers for ilo (ilo.iss's [Registry], AppxManifest's protocol), which
+// the user's http/https choice names when ilo is the default. It must stay in step with those.
+constexpr wchar_t kProgId[] = L"IloHTML";
+
+// Whether the user's choice for |scheme| links is ilo's ProgId. Windows protects this key against
+// anything but the user's own pick in Settings, so the browser only reads it (host_make_default_
+// browser opens that page), never writes it.
+bool ChoiceIsOurs(const wchar_t* scheme) {
+  std::wstring path =
+      L"Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\";
+  path += scheme;
+  path += L"\\UserChoice";
+  HKEY key = nullptr;
+  if (RegOpenKeyExW(HKEY_CURRENT_USER, path.c_str(), 0, KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
+    return false;
+  }
+  wchar_t progid[128] = {};
+  // One short of the buffer, so the value stays terminated even if the stored one isn't.
+  DWORD size = sizeof progid - sizeof(wchar_t);
+  DWORD type = 0;
+  const LONG read =
+      RegQueryValueExW(key, L"ProgId", nullptr, &type, reinterpret_cast<BYTE*>(progid), &size);
+  RegCloseKey(key);
+  return read == ERROR_SUCCESS && type == REG_SZ && lstrcmpiW(progid, kProgId) == 0;
+}
+
 bool host_is_default_browser(void) {
-  return false;
+  return ChoiceIsOurs(L"http") && ChoiceIsOurs(L"https");
 }
 
 void host_make_default_browser(void (*answered)(void)) {

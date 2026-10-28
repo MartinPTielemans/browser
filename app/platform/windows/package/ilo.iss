@@ -41,5 +41,23 @@ Source: "{#Source}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs cre
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\chrome.exe"; IconFilename: "{app}\ilo.ico"
 
+[Registry]
+; So ilo can be the default browser. Per user (PrivilegesRequired=lowest), named IloHTML to match
+; the ProgId host.cc's host_is_default_browser reads from the user's http/https UserChoice. Windows
+; itself lets only the user set that choice, in Settings, which host_make_default_browser opens.
+Root: HKCU; Subkey: "Software\Classes\IloHTML"; ValueType: string; ValueData: "ilo HTML Document"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\IloHTML\DefaultIcon"; ValueType: string; ValueData: "{app}\ilo.ico,0"
+Root: HKCU; Subkey: "Software\Classes\IloHTML\shell\open\command"; ValueType: string; ValueData: """{app}\chrome.exe"" ""%1"""
+; The capabilities Windows lists in Settings' Default apps, so http, https and HTML files can be ilo's.
+Root: HKCU; Subkey: "Software\ilo"; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\ilo\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\ilo\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "{#AppName}, an Arc-style browser"
+Root: HKCU; Subkey: "Software\ilo\Capabilities\URLAssociations"; ValueType: string; ValueName: "http"; ValueData: "IloHTML"
+Root: HKCU; Subkey: "Software\ilo\Capabilities\URLAssociations"; ValueType: string; ValueName: "https"; ValueData: "IloHTML"
+Root: HKCU; Subkey: "Software\ilo\Capabilities\FileAssociations"; ValueType: string; ValueName: ".htm"; ValueData: "IloHTML"
+Root: HKCU; Subkey: "Software\ilo\Capabilities\FileAssociations"; ValueType: string; ValueName: ".html"; ValueData: "IloHTML"
+; Register those capabilities with Windows, so it shows ilo as a choice.
+Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#AppName}"; ValueData: "Software\ilo\Capabilities"; Flags: uninsdeletevalue
+
 [Run]
 Filename: "{app}\chrome.exe"; Description: "Open {#AppName}"; Flags: nowait postinstall skipifsilent
