@@ -29,6 +29,10 @@ fn main() {
                 .file("platform/windows/drive.cc")
                 .flag("/std:c++20")
                 .flag("/utf-8")
+                // C++/WinRT (the share sheet) throws, and its projection headers overflow the
+                // object file's default section count.
+                .flag("/EHsc")
+                .flag("/bigobj")
                 .define("UNICODE", None)
                 .define("_UNICODE", None);
         }
@@ -59,9 +63,9 @@ fn main() {
         let engine = root.join(".deps/engine");
         println!("cargo:rustc-link-arg-bin=Browser={}", engine.join("chrome.dll.lib").display());
         // windowscodecs is WIC, for host_file_preview's thumbnails; uuid carries the COM GUIDs it
-        // and host_drag_file name.
+        // and host_drag_file name; windowsapp is WinRT, for the share sheet.
         for lib in ["user32", "gdi32", "dwmapi", "shell32", "ole32", "comctl32", "comdlg32",
-                    "windowscodecs", "uuid"] {
+                    "windowscodecs", "uuid", "windowsapp"] {
             println!("cargo:rustc-link-lib={lib}");
         }
     } else if os == "macos" {
