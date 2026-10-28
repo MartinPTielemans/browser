@@ -1,9 +1,12 @@
 // Agents: Claude Code, Codex or any MCP client works in the user's real browser, each in its
 // own Agent Space, through a local MCP server. See decision 8 in docs/decisions.md.
 //
-// The server listens on a socket only this user can open; tools/mcp-bridge.js connects an
-// MCP client's stdio to it. Pages are read and driven through Chromium's DevTools protocol
-// from inside the browser, so there is no remote-debugging port.
+// The server listens on a socket only this user can open; a bridge connects an MCP client's
+// stdio to it. Pages are read and driven through Chromium's DevTools protocol from inside the
+// browser, so there is no remote-debugging port.
+//
+// Kept from the Electron prototype as the reference for agents' tools and rules; it no longer
+// runs. The rest of the prototype, its bridge included, is at 9cd9a06.
 const { app } = require('electron');
 const net = require('node:net');
 const fs = require('node:fs');
