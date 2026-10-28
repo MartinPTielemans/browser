@@ -432,6 +432,34 @@ Window* Window::Picturing(bc_id tab) {
   return nullptr;
 }
 
+// static
+void Window::UpdateMirrors() {
+  // Without the spike's mode, a tab switch pays nothing for it.
+  if (platform::Mirroring() == platform::MirrorMode::kNone) {
+    return;
+  }
+  for (Window* window : All()) {
+    window->UpdateMirror();
+  }
+}
+
+void Window::UpdateMirror() {
+  if (platform::Mirroring() == platform::MirrorMode::kNone) {
+    return;
+  }
+  content::WebContents* page = let_go_ && !closing_ && selected_ ? Tab::FromId(selected_) : nullptr;
+  Window* showing = page ? Showing(selected_) : nullptr;
+  // Only while the page draws: hidden, as its window is out of sight or covered, Chromium lets go
+  // of its compositor, and the app's picture stands in.
+  if (!showing || showing == this || !widget_->IsVisible() ||
+      page->GetVisibility() != content::Visibility::VISIBLE) {
+    platform::HideMirror(widget_.get());
+    return;
+  }
+  platform::ShowMirror(widget_.get(), Tab::PageViewOf(page), page->GetRenderWidgetHostView(),
+                       page_frame_, page_corner_radius_);
+}
+
 void Window::HoldPictured() {
   for (bc_id pane : panes_) {
     if (Picturing(pane)) {
@@ -1246,6 +1274,8 @@ void Window::LayOutPage() {
     panel = platform::SidePanelPage{panel_page->GetNativeView(), side_panel_frame_};
   }
   platform::ShowPages(widget_.get(), panes, page_corner_radius_, focused, focus_color_, panel);
+  // This window's page changed, or the page another window mirrors changed its size.
+  UpdateMirrors();
   if (panel_page != side_panel_laid_out_.get()) {
     side_panel_laid_out_ = panel_page ? panel_page->GetWeakPtr() : nullptr;
     ReportSidePanelSoon();
@@ -1343,6 +1373,8 @@ void Window::SetPageFrame(const gfx::Rect& frame, double corner_radius) {
   page_corner_radius_ = corner_radius;
   if (shown_) {
     Show(shown_.get(), frame);
+  } else {
+    UpdateMirror();
   }
 }
 
@@ -2203,6 +2235,8 @@ void Window::OnWidgetVisibilityChanged(views::Widget* widget, bool visible) {
   // A page view hidden with the keyboard gives it to another view.
   page_had_keyboard_ = page_had_keyboard_ || platform::KeyboardForPage(widget_.get());
   platform::HidePages(widget_.get());
+  // The page this window showed hides with it, and a mirror of it would show nothing.
+  UpdateMirrors();
 }
 
 void Window::LeavingFullScreen() {

@@ -71,6 +71,30 @@ void ShowPages(views::Widget* widget,
 // Chromium counts them hidden. ShowPages shows them again.
 void HidePages(views::Widget* widget);
 
+// Spike (#359): how a window draws a live mirror of a page another window shows, from
+// BROWSER_MIRROR. Kept out of every build but the spike's.
+enum class MirrorMode {
+  kNone,
+  // A second CALayerHost of the page's compositor's CAContext, which the window server draws.
+  kHost,
+  // A CAPortalLayer of the page view's layer, which the window server draws.
+  kPortal,
+};
+MirrorMode Mirroring();
+
+// Shows |page|, the view of a page another window shows, live and view-only in |widget|'s window,
+// at its own shape fitted to 0.8 of |card| and centred, with corners of |corner_radius|, under a
+// veil, as the app's picture of it is. |view| is the page's own, whose compositor kHost follows.
+// Clicks go through it to the app's picture.
+void ShowMirror(views::Widget* widget,
+                gfx::NativeView page,
+                content::RenderWidgetHostView* view,
+                const gfx::Rect& card,
+                double corner_radius);
+
+// Takes the mirror out of |widget|'s window, if it has one.
+void HideMirror(views::Widget* widget);
+
 // Whether the keyboard in |widget|'s window is the page's: in a page shown, or in nothing, as when
 // the window opens or the page view that had it left the window. Not in DevTools or the side
 // panel.

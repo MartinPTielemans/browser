@@ -102,6 +102,10 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Has each window showing |tab| show its page's view, which went from one engine's to the
   // other's (Tab::PageViewOf).
   static void PageViewChanged(bc_id tab);
+  // Spike (#359): has each window that let a page go mirror it live, as BROWSER_MIRROR says, while
+  // the window that took it shows it (platform::ShowMirror). Called when what it mirrors or where
+  // changes, never per frame.
+  static void UpdateMirrors();
   // From |tab|'s page, which the user clicked: a window showing it beside the tab it shows, in a
   // split view, shows it focused instead.
   static void OnPageClicked(bc_id tab);
@@ -353,6 +357,7 @@ class Window : public web_modal::WebContentsModalDialogHost,
   // Keeps each page this window shows that another window has a picture of drawn, as it leaves
   // here for that window (MovingPages in window.cc).
   void HoldPictured();
+  void UpdateMirror();
   // Sets let_go_, and tells the app when it changes.
   void SetLetGo(bool let_go);
   // Moves every tab of this window's Browsers into |to|'s, unshown, which empties them.

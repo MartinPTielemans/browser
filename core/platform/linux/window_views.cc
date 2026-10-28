@@ -715,4 +715,16 @@ void StretchOnResize(content::RenderWidgetHostView*, bool) {
   // shortcut: no stretch on Linux; the page shows its last frame unscaled until it redraws.
 }
 
+MirrorMode Mirroring() {
+  return MirrorMode::kNone;
+}
+
+void ShowMirror(views::Widget*,
+                gfx::NativeView,
+                content::RenderWidgetHostView*,
+                const gfx::Rect&,
+                double) {}
+
+void HideMirror(views::Widget*) {}
+
 }  // namespace browser_core::platform

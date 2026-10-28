@@ -3,10 +3,17 @@
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
 
+#include <algorithm>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
 #include "base/apple/foundation_util.h"
 #include "base/functional/callback.h"
 #import "components/remote_cocoa/app_shim/bridged_content_view.h"
+#include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/stretch_content_on_resize_mac.h"
+#include "ui/base/cocoa/remote_layer_api.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/views/widget/widget.h"
 
@@ -38,6 +45,119 @@
 }
 @end
 
+// Spike (#359): a live, view-only mirror of a page another window shows. The window server draws
+// it from what the page's compositor already drew, so no process of the browser's works per frame:
+// kHost hosts the compositor's CAContext a second time, kPortal portals the page view's layer.
+@interface BrowserCoreMirror : NSView
+// What the mirror shows: the page view's layer, or the CALayerHost's context, as a number.
+@property(strong, nonatomic) id source;
+// kHost: the layer holding the page's CALayerHost, which Chromium replaces when the page's
+// compositor is made again, as the page is shown after being hidden.
+@property(strong, nonatomic) CALayer* watched;
+@property(weak, nonatomic) NSView* pageView;
+// kHost: Chromium's view of the page, which a navigation to another site replaces.
+@property(weak, nonatomic) NSView* renderView;
+- (void)follow;
+@end
+
+namespace {
+
+CALayerHost* FindHost(CALayer* layer) {
+  if (CALayerHost* host = base::apple::ObjCCast<CALayerHost>(layer)) {
+    return host;
+  }
+  for (CALayer* sublayer in layer.sublayers) {
+    if (CALayerHost* host = FindHost(sublayer)) {
+      return host;
+    }
+  }
+  return nil;
+}
+
+}  // namespace
+
+@implementation BrowserCoreMirror
+@synthesize source = _source;
+@synthesize watched = _watched;
+@synthesize pageView = _pageView;
+@synthesize renderView = _renderView;
+
+- (NSView*)hitTest:(NSPoint)point {
+  return nil;
+}
+
+- (void)dealloc {
+  [_watched removeObserver:self forKeyPath:@"sublayers"];
+}
+
+- (void)watch:(CALayer*)layer {
+  if (layer == self.watched) {
+    return;
+  }
+  [self.watched removeObserver:self forKeyPath:@"sublayers"];
+  self.watched = layer;
+  [layer addObserver:self forKeyPath:@"sublayers" options:0 context:nullptr];
+}
+
+- (void)observeValueForKeyPath:(NSString*)keyPath
+                      ofObject:(id)object
+                        change:(NSDictionary*)change
+                       context:(void*)context {
+  fprintf(stderr, "browser: mirror saw the page's layers change\n");
+  [self follow];
+}
+
+// Points the mirror at what the page shows now. Only when that changed: never per frame.
+- (void)follow {
+  using browser_core::platform::MirrorMode;
+  const MirrorMode mode = browser_core::platform::Mirroring();
+  NSView* page = self.pageView;
+  CALayer* content = self.layer.sublayers.firstObject;
+  if (mode == MirrorMode::kPortal) {
+    CALayer* source = page.layer;
+    if (source == self.source) {
+      return;
+    }
+    self.source = source;
+    Class portal = NSClassFromString(@"CAPortalLayer");
+    if (!portal || !source) {
+      fprintf(stderr, "browser: mirror has no %s\n", portal ? "page layer" : "CAPortalLayer");
+      return;
+    }
+    CALayer* layer = [[portal alloc] init];
+    [layer setValue:source forKey:@"sourceLayer"];
+    for (NSString* key in @[ @"matchesPosition", @"matchesTransform", @"matchesOpacity" ]) {
+      [layer setValue:@NO forKey:key];
+    }
+    layer.anchorPoint = CGPointZero;
+    layer.bounds = content.bounds;
+    [[content.sublayers copy] makeObjectsPerformSelector:@selector(removeFromSuperlayer)];
+    [content addSublayer:layer];
+    fprintf(stderr, "browser: mirror portals the page's layer\n");
+    return;
+  }
+  NSView* render_view = self.renderView;
+  CALayerHost* host = FindHost(render_view.layer);
+  [self watch:host ? host.superlayer : render_view.layer.sublayers.firstObject];
+  NSNumber* context = host ? @(host.contextId) : nil;
+  if ([context isEqual:self.source] || (!context && !self.source)) {
+    return;
+  }
+  self.source = context;
+  [[content.sublayers copy] makeObjectsPerformSelector:@selector(removeFromSuperlayer)];
+  if (!host) {
+    fprintf(stderr, "browser: mirror has no compositor context yet\n");
+    return;
+  }
+  content.geometryFlipped = host.superlayer.geometryFlipped;
+  CALayerHost* mirror = [[CALayerHost alloc] init];
+  mirror.anchorPoint = CGPointZero;
+  mirror.contextId = host.contextId;
+  [content addSublayer:mirror];
+  fprintf(stderr, "browser: mirror hosts context %u\n", host.contextId);
+}
+@end
+
 // Chromium's occlusion checker, and the flag it keeps on each window, which content doesn't export
 // in a component build.
 @protocol BrowserCoreOcclusionChecker
@@ -58,6 +178,7 @@
 @property(nonatomic) NSUInteger focused;
 @property(strong, nonatomic) BrowserCoreFocusRing* ring;
 @property(strong, nonatomic) BrowserCorePane* sidePanel;
+@property(strong, nonatomic) BrowserCoreMirror* mirror;
 - (void)layOutPage;
 @end
 
@@ -67,6 +188,7 @@
 @synthesize focused = _focused;
 @synthesize ring = _ring;
 @synthesize sidePanel = _sidePanel;
+@synthesize mirror = _mirror;
 
 - (BOOL)isFlipped {
   return YES;
@@ -212,7 +334,8 @@ void ShowPages(views::Widget* widget,
     [staying addObject:panel_view];
   }
   for (NSView* subview in [view.subviews copy]) {
-    if (subview != view.uiView && subview != view.ring && ![staying containsObject:subview]) {
+    if (subview != view.uiView && subview != view.ring && subview != view.mirror &&
+        ![staying containsObject:subview]) {
       [subview removeFromSuperview];
     }
   }
@@ -310,6 +433,88 @@ void HidePages(views::Widget* widget) {
     pane.devtools.hidden = YES;
   }
   view.sidePanel.page.hidden = YES;
+}
+
+MirrorMode Mirroring() {
+  static const MirrorMode mode = [] {
+    const char* value = getenv("BROWSER_MIRROR");
+    if (!value || !*value) {
+      return MirrorMode::kNone;
+    }
+    return strcmp(value, "portal") == 0 ? MirrorMode::kPortal : MirrorMode::kHost;
+  }();
+  return mode;
+}
+
+void ShowMirror(views::Widget* widget,
+                gfx::NativeView page,
+                content::RenderWidgetHostView* view,
+                const gfx::Rect& card,
+                double corner_radius) {
+  BrowserCoreWindowView* window_view = WindowView(widget);
+  NSView* page_view = page.GetNativeNSView();
+  const NSSize size = page_view.bounds.size;
+  if (size.width <= 0 || size.height <= 0 || card.IsEmpty()) {
+    HideMirror(widget);
+    return;
+  }
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  BrowserCoreMirror* mirror = window_view.mirror;
+  if (!mirror) {
+    mirror = [[BrowserCoreMirror alloc] init];
+    // Layer-hosting, as Chromium's page view is, so AppKit leaves its layers alone.
+    CALayer* root = [CALayer layer];
+    root.masksToBounds = YES;
+    CALayer* content = [CALayer layer];
+    content.anchorPoint = CGPointZero;
+    [root addSublayer:content];
+    // The picture's veil (docs/ux-spec.md › Several windows): black 0.12.
+    CALayer* veil = [CALayer layer];
+    veil.backgroundColor = [NSColor colorWithWhite:0 alpha:0.12].CGColor;
+    veil.autoresizingMask = kCALayerWidthSizable | kCALayerHeightSizable;
+    [root addSublayer:veil];
+    mirror.layer = root;
+    mirror.wantsLayer = YES;
+    window_view.mirror = mirror;
+    fprintf(stderr, "browser: mirror shown\n");
+  }
+  if (mirror.superview != window_view) {
+    [window_view addSubview:mirror positioned:NSWindowAbove relativeTo:window_view.uiView];
+  }
+  // As the picture: the page's own shape, fitted to 0.8 of the card and centred.
+  const NSRect in = card.ToCGRect();
+  const double scale = 0.8 * std::min(NSWidth(in) / size.width, NSHeight(in) / size.height);
+  const NSSize fitted = NSMakeSize(size.width * scale, size.height * scale);
+  mirror.frame = NSMakeRect(NSMidX(in) - fitted.width / 2, NSMidY(in) - fitted.height / 2,
+                            fitted.width, fitted.height);
+  mirror.layer.cornerRadius = corner_radius;
+  CALayer* content = mirror.layer.sublayers.firstObject;
+  content.bounds = CGRectMake(0, 0, size.width, size.height);
+  content.position = CGPointZero;
+  content.transform = CATransform3DMakeScale(scale, scale, 1);
+  mirror.layer.sublayers.lastObject.frame = mirror.layer.bounds;
+  for (CALayer* each in content.sublayers) {
+    each.bounds = content.bounds;
+  }
+  NSView* render_view = view ? view->GetNativeView().GetNativeNSView() : nil;
+  if (mirror.pageView != page_view || mirror.renderView != render_view) {
+    mirror.source = nil;
+  }
+  mirror.pageView = page_view;
+  mirror.renderView = render_view;
+  [mirror follow];
+  [CATransaction commit];
+}
+
+void HideMirror(views::Widget* widget) {
+  BrowserCoreWindowView* window_view = WindowView(widget);
+  if (!window_view.mirror) {
+    return;
+  }
+  [window_view.mirror removeFromSuperview];
+  window_view.mirror = nil;
+  fprintf(stderr, "browser: mirror hidden\n");
 }
 
 bool KeyboardForPage(views::Widget* widget) {
