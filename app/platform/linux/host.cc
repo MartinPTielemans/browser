@@ -78,7 +78,7 @@ void host_centered(double width, double height, double* x, double* y) {
   *y = 0;
 }
 
-void host_show_launch_window(const char* profile_dir, double width, double height) {}
+void host_show_launch_window(const char* profile_dir, double x, double y, double width, double height) {}
 
 void host_close_launch_window(void) {}
 
@@ -106,6 +106,29 @@ void host_watch_fd(int fd, void (*ready)(void)) {
 }
 
 void host_show_window(void* ui_view) {}
+
+void host_show_window_behind(void* ui_view, void* above_ui_view) {
+  host_show_window(ui_view);
+}
+
+// No sight of the displays' layout (host_centered), so a window opens where the compositor puts it.
+size_t host_screens(double* frames, size_t count) {
+  return 0;
+}
+
+bool host_window_frame(void* ui_view, double* x, double* y, double* width, double* height) {
+  return false;
+}
+
+// shortcut: links a launch carries come in on the command line, so there's nothing to wait for.
+void host_watch_finished_launching(void (*finished)(void)) {
+  finished();
+}
+
+// No Dock.
+void host_dock_dot_launch(const char* profile_dir) {}
+
+void host_dock_dot(bool colored, uint32_t color) {}
 
 void host_cascaded(void* ui_view, double* x, double* y, double* width, double* height) {}
 
@@ -145,6 +168,15 @@ void host_set_overlay_shape(int overlay, const double* corners, size_t count) {}
 void host_set_overlay_radius(int overlay, double radius) {}
 
 void host_set_overlay_growth(int overlay, double x, double y) {}
+
+void host_set_overlay_shrink(int overlay) {}
+
+void host_set_overlay_elevation(int overlay,
+                                float outline_opacity,
+                                double outline_radius,
+                                float shadow_opacity,
+                                double shadow_radius,
+                                double shadow_drop) {}
 
 void host_show_overlay(int overlay, void* ui_view, bool centered, double left, double top, double width) {}
 
@@ -228,13 +260,13 @@ void host_show_toast(void* ui_view) {}
 
 void host_hide_toast(void) {}
 
-void host_add_tooltip(void* tooltip_view, void (*away)(void)) {}
+void host_add_tooltip(void* tooltip_view, double margin, void (*away)(void)) {}
 
 void host_show_tooltip(void* ui_view, double left, double top, double fade) {}
 
 void host_hide_tooltip(double fade) {}
 
-void host_add_link_target(void* link_view, void (*pointer)(double x, double y)) {}
+void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {}
 
 void host_show_link_target(void* ui_view, double left, double top, double fade) {}
 
@@ -242,12 +274,18 @@ void host_hide_link_target(double fade) {}
 
 void host_focus(void* view) {}
 
-int host_menu(void* ui_view, const host_menu_item* items, size_t count, double x, double y, int in, int over) {
-  return -1;
-}
+// shortcut: menus, ilo's own windows on the Mac (mac/menu_window.h), don't show on Linux yet.
+void host_add_menu_window(void* view,
+                          bool (*pointer)(int kind, double x, double y),
+                          void (*dismissed)(void),
+                          bool (*choose)(const char* title)) {}
 
-int host_menu_in(const host_menu_item* items, size_t count, double x, double y, void* view) {
-  return -1;
+void host_show_menu_window(void* ui_view, bool in_reveal, double left, double top, double width, double height) {}
+
+void host_hide_menu_window(void) {}
+
+void host_menu_area(void* ui_view, bool in_reveal, double* area) {
+  area[0] = area[1] = area[2] = area[3] = 0;
 }
 
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
@@ -275,13 +313,6 @@ bool host_close_other_window(void) {
 }
 
 void host_detent(void) {}
-
-// shortcut: the desktop's accent colour isn't read yet; macOS's default blue.
-uint32_t host_accent_color(void) {
-  return 0x0a84ff;
-}
-
-void host_watch_accent_color(void (*changed)(void)) {}
 
 void host_watch_control(void (*released)(void)) {}
 
@@ -333,10 +364,6 @@ void host_day_starts(double starts[4]) {
 }
 
 bool host_choose(const char* title) {
-  return false;
-}
-
-bool host_dismiss_menu(void) {
   return false;
 }
 
