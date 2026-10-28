@@ -764,6 +764,8 @@ impl site_controls::Host for SiteControlsHost {
 
     fn set_ad_blocking(&self, tab: u64, on: bool) {
         unsafe { bc::bc_tab_set_ad_blocking(tab, on) };
+        // Settings lists the sites it's off on.
+        update_app_later(settings::refresh);
     }
 
     fn run(&self, run: site_controls::Run, tab: u64, cx: &mut App) {

@@ -3,6 +3,9 @@
 
 #include <optional>
 #include <string>
+#include <vector>
+
+class Profile;
 
 namespace content {
 class WebContents;
@@ -33,6 +36,14 @@ std::optional<bool> AdBlockingOnSite(content::WebContents* contents);
 // Lets it block on the site of |contents|'s page or not, if AdBlockingOnSite has a say, and
 // reloads the page, so what it held back loads or what loaded goes. The profile keeps it.
 void SetAdBlockingOnSite(content::WebContents* contents, bool on);
+
+// The sites |profile| has it turned off on, in the order they were turned off: each a registrable
+// domain, which covers its subdomains, or a host alone, as an address or localhost.
+std::vector<std::string> AdBlockingOffSites(Profile* profile);
+
+// Lets it block on |site|, one of AdBlockingOffSites, in |profile| again. A page open there keeps
+// what it loaded until it reloads.
+void TurnOnAdBlockingOnSite(Profile* profile, const std::string& site);
 
 }  // namespace browser_core
 

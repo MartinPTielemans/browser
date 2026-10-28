@@ -1443,6 +1443,13 @@ BC_EXPORT void bc_tab_reset_site_permissions(bc_id tab);
 // profile keeps it, for the site and its subdomains. Then tab_site_controls. The user's, as
 // bc_set_ad_blocking is.
 BC_EXPORT void bc_tab_set_ad_blocking(bc_id tab, bool on);
+// Copies the sites the profile has ad blocking turned off on into |sites| as bc_space_name does,
+// one a line in the order they were turned off: each a registrable domain, which covers its
+// subdomains, or a host alone. Empty for a profile that isn't loaded.
+BC_EXPORT size_t bc_ad_blocking_off_sites(bc_id profile, char* sites, size_t capacity);
+// Lets the ad blocker run on |site|, one of bc_ad_blocking_off_sites, in the profile again. A page
+// open there keeps what it loaded until it reloads. The user's, as bc_set_ad_blocking is.
+BC_EXPORT void bc_ad_blocking_turn_on_site(bc_id profile, const char* site);
 
 // Takes the tab's playing video into Picture in Picture, or brings it back, as
 // bc_site_controls' picture_in_picture says it can. Then tab_site_controls.

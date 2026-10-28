@@ -1063,6 +1063,22 @@ void bc_tab_set_ad_blocking(bc_id id, bool on) {
   browser_core::SiteControls::SetAdBlocking(id, on);
 }
 
+size_t bc_ad_blocking_off_sites(bc_id profile_id, char* sites, size_t capacity) {
+  std::string lines;
+  if (Profile* profile = LoadedProfile(profile_id)) {
+    for (const std::string& site : browser_core::AdBlockingOffSites(profile)) {
+      lines += (lines.empty() ? "" : "\n") + site;
+    }
+  }
+  return CopyString(lines, sites, capacity);
+}
+
+void bc_ad_blocking_turn_on_site(bc_id profile_id, const char* site) {
+  if (Profile* profile = LoadedProfile(profile_id); profile && site) {
+    browser_core::TurnOnAdBlockingOnSite(profile, site);
+  }
+}
+
 void bc_tab_picture_in_picture(bc_id id) {
   browser_core::SiteControls::PictureInPicture(id);
 }
