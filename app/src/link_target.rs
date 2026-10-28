@@ -339,7 +339,7 @@ impl LinkTarget {
 impl Render for LinkTarget {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // The plate is inset by the margin, which its shadow draws in.
-        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(".SystemUIFont");
+        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(crate::face::UI);
         let Some(plate) = self.drawn.clone() else {
             return root;
         };

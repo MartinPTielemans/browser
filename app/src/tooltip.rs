@@ -222,7 +222,7 @@ pub(crate) fn text_width(
 ) -> f32 {
     let run = TextRun {
         len: text.len(),
-        font: gpui::Font { weight, ..font(".SystemUIFont") },
+        font: gpui::Font { weight, ..font(crate::face::UI) },
         color: rgb(PAPER).into(),
         background_color: None,
         underline: None,
@@ -387,7 +387,7 @@ fn label(tip: &Tip) -> String {
 impl Render for Tooltip {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         // The plate is inset by the margin, which its shadow draws in.
-        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(".SystemUIFont");
+        let root = div().size_full().p(px(WINDOW_MARGIN)).font_family(crate::face::UI);
         let Some((tip, layout, near)) = self.drawn.clone() else {
             return root;
         };

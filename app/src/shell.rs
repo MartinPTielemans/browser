@@ -2718,7 +2718,7 @@ impl Render for Shell {
             }))
             .size_full()
             .relative()
-            .font_family(".SystemUIFont")
+            .font_family(crate::face::UI)
             .bg(self.palette.tint)
             // The rows, buttons and fields keep their presses. Everywhere else is the window's
             // background, which moves the window as a title bar does.
@@ -3109,7 +3109,7 @@ impl Shell {
                 shell.redo(cx);
             }))
             .size_full()
-            .font_family(".SystemUIFont")
+            .font_family(crate::face::UI)
             // A double-click below the rows opens a new tab, as in the docked sidebar.
             .on_mouse_up(
                 MouseButton::Left,

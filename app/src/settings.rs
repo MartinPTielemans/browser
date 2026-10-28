@@ -1242,7 +1242,7 @@ impl Render for Settings {
             .flex()
             .flex_col()
             .bg(rgb(BACKGROUND))
-            .font_family(".SystemUIFont")
+            .font_family(crate::face::UI)
             .text_size(px(text::BODY))
             .text_color(rgb(TEXT))
             .child(self.bar(accent, cx))

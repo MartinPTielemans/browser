@@ -1166,9 +1166,9 @@ cap = 0.705
 line = 20.0
 
 [text]
-# The chrome's four type sizes, in the system face. A surface's own size token holds one of them,
-# and only the extension badge's 8.5, a pictogram inside its pill, stands outside. Rows share body,
-# so the Space name leads its tabs by weight, not size.
+# The chrome's four type sizes, in its face (src/face.rs). A surface's own size token holds one of
+# them, and only the extension badge's 8.5, a pictogram inside its pill, stands outside. Rows share
+# body, so the Space name leads its tabs by weight, not size.
 small = 11.0
 body = 13.0
 title = 15.0

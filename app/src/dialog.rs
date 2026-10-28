@@ -672,7 +672,7 @@ impl Render for Dialog {
             .key_context("Dialog")
             .track_focus(&self.focus)
             .size_full()
-            .font_family(".SystemUIFont");
+            .font_family(crate::face::UI);
         let Some(asked) = &mut self.asked else {
             return root;
         };
