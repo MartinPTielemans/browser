@@ -42,6 +42,9 @@ gpui_windows = { path = ".deps/zed/crates/gpui_windows" }
 gpui_platform = { path = ".deps/zed/crates/gpui_platform", features = ["wayland", "x11"] }
 # For running GPUI inside Chromium's loop and its window inside the browser's (patches/).
 gpui_linux = { path = ".deps/zed/crates/gpui_linux" }
+# Flatpak's portal, for updates (src/flatpak.rs): the D-Bus GPUI's portals already use.
+zbus = { version = "5.13", default-features = false, features = ["async-io"] }
+futures-lite = "2"
 
 [build-dependencies]
 # 0.73 accepts syn 3 but only builds with syn 2, which 0.72 asks for.
@@ -51,6 +54,10 @@ cc = "1"
 [dev-dependencies]
 # The tests draw the UI in GPUI's test windows, with no engine, and simulate the keys typed.
 gpui = { path = ".deps/zed/crates/gpui", features = ["test-support"] }
+
+# A fake of Flatpak's portal on a connection of its own, for the updater's tests.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+zbus = { version = "5.13", default-features = false, features = ["async-io", "p2p"] }
 
 # The macOS accessibility adapter GPUI uses, with VO-Shift-M's menu and a folder's open state,
 # which it lacks upstream (setup.sh, patches/accesskit-macos-actions.patch).

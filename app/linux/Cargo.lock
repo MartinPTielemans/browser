@@ -631,6 +631,7 @@ dependencies = [
  "bindgen",
  "cc",
  "emojis",
+ "futures-lite",
  "gpui",
  "gpui_linux",
  "gpui_macos",
@@ -639,6 +640,7 @@ dependencies = [
  "image",
  "raw-window-handle",
  "unicode-segmentation",
+ "zbus",
 ]
 
 [[package]]

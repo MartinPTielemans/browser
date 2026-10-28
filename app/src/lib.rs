@@ -91,6 +91,8 @@ pub mod default_browser;
 pub mod dialog;
 pub mod dock_dot;
 pub mod elevation;
+#[cfg(target_os = "linux")]
+pub mod flatpak;
 pub mod icon_picker;
 pub mod link_target;
 pub mod menu;
