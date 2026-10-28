@@ -14,6 +14,7 @@
 #include "browser_core/auto_archive.h"
 #include "browser_core/capture.h"
 #include "browser_core/clear_site.h"
+#include "browser_core/crash_reports.h"
 #include "browser_core/downloads.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/extensions.h"
@@ -796,6 +797,18 @@ void bc_set_unload_idle_tabs(bool unload) {
 
 void bc_age_tabs_for_testing(double seconds) {
   browser_core::AgeTabsForTesting(base::Seconds(seconds));
+}
+
+size_t bc_crash_reports_collector(char* host, size_t capacity) {
+  return CopyString(browser_core::crash_reports::CollectorHost(), host, capacity);
+}
+
+bool bc_send_crash_reports(void) {
+  return browser_core::crash_reports::Sending();
+}
+
+void bc_set_send_crash_reports(bool send) {
+  browser_core::crash_reports::SetSending(send);
 }
 
 void bc_page_favicon(const char* url) {

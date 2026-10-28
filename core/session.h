@@ -147,7 +147,8 @@ struct Settings {
   // Who shares the favorites: a BC_FAVORITES_ value.
   int favorites_scope = BC_FAVORITES_PROFILE;
   // Whether a tab no window has shown for a while lets go of its page (UnloadIdleTabsSoon).
-  bool unload_idle_tabs = true;
+  bool unload_idle_tabs = true;  // Whether the browser sends its crash reports (crash_reports.h).
+  bool send_crash_reports = false;
 };
 
 // The user's settings. Call SessionChanged after changing them.
