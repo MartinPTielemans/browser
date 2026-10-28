@@ -3290,8 +3290,19 @@ void host_add_settings(void* settings_view) {
   // Its controls are drawn dark, as the browser's are.
   g_settings.appearance = [NSAppearance appearanceNamed:NSAppearanceNameDarkAqua];
   g_settings.tabbingMode = NSWindowTabbingModeDisallowed;
-  g_settings.collectionBehavior |=
-      NSWindowCollectionBehaviorFullScreenAuxiliary | NSWindowCollectionBehaviorMoveToActiveSpace;
+  g_settings.collectionBehavior |= NSWindowCollectionBehaviorFullScreenAuxiliary;
+}
+
+// Puts Settings in front on the desktop shown, wherever it was. macOS moves a window to the active
+// desktop only while it has MoveToActiveSpace, but counts a window with it as on no desktop, so
+// one coming back with Settings in front had no window to make key and left ilo inactive: it has
+// it only on its way on screen.
+static void OrderSettingsFront() {
+  g_settings.collectionBehavior |= NSWindowCollectionBehaviorMoveToActiveSpace;
+  [g_settings makeKeyAndOrderFront:nil];
+  dispatch_async(dispatch_get_main_queue(), ^{
+    g_settings.collectionBehavior &= ~NSWindowCollectionBehaviorMoveToActiveSpace;
+  });
 }
 
 void host_show_settings(void) {
@@ -3299,7 +3310,7 @@ void host_show_settings(void) {
     return;
   }
   if (g_settings_shown) {
-    [g_settings makeKeyAndOrderFront:nil];
+    OrderSettingsFront();
     fprintf(stderr, "browser: settings shown %s\n", g_settings.title.UTF8String);
     return;
   }
@@ -3324,7 +3335,7 @@ void host_show_settings(void) {
     }
     [g_settings_view.layer setNeedsDisplay];
     [g_settings_view.layer displayIfNeeded];
-    [g_settings makeKeyAndOrderFront:nil];
+    OrderSettingsFront();
     // check.sh waits for this line. The window's title is its tab's name.
     fprintf(stderr, "browser: settings shown %s\n", g_settings.title.UTF8String);
   });
