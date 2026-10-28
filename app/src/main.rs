@@ -3605,8 +3605,7 @@ fn offer_restart(cx: &mut App) {
             return;
         };
         let lock = std::path::Path::new(&profile_dir()).join("SingletonLock");
-        let argv: Vec<String> = std::env::args().collect();
-        cx.spawn(async move |_| match portal.restart(&lock, &argv).await {
+        cx.spawn(async move |_| match portal.restart(&lock).await {
             Ok(()) => unsafe { bc::bc_quit() },
             Err(error) => log!("browser: no restart: {error}"),
         })

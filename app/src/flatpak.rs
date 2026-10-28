@@ -19,12 +19,17 @@ const RUNNING: u32 = 0;
 const EMPTY: u32 = 1;
 const DONE: u32 = 2;
 const ERROR: u32 = 3;
-/// What a restart runs in the newest build: `sh -c RESTART sh <lock> <argv…>` waits for the
+/// What a restart runs in the newest build: `sh -c RESTART sh <lock> <command…>` waits for the
 /// profile's lock to go, up to 30 s so one a crash left doesn't hold it back, as Chromium takes
-/// over one whose process has gone, then runs argv.
+/// over one whose process has gone, then runs the command.
 const RESTART: &str = r#"lock=$1; shift; i=0
 while [ -L "$lock" ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
 exec "$@""#;
+
+/// The Flatpak's command (`command:` in app/platform/linux/flatpak/app.ilo.browser.yml), which
+/// starts chrome through cobalt and zypak. The running process's own argv starts /app/ilo/chrome,
+/// which would come up without the sandbox zypak hands it.
+const COMMAND: &str = "ilo";
 
 /// Whether this is the Flatpak, which Flatpak marks with this file.
 pub fn in_flatpak() -> bool {
@@ -130,13 +135,14 @@ impl Portal {
         Ok(())
     }
 
-    /// Starts the newest build with `argv`, once this one has let go of its profile, whose
-    /// `lock` Chromium holds while it runs: a second copy would hand its launch to this one and
-    /// end. This one quits next.
-    pub async fn restart(&self, lock: &Path, argv: &[String]) -> zbus::Result<()> {
+    /// Starts the newest build through the Flatpak's command, once this one has let go of its
+    /// profile, whose `lock` Chromium holds while it runs: a second copy would hand its launch to
+    /// this one and end. This one quits next. Without this launch's arguments: cobalt adds its
+    /// flags again, and the session brings back the pages a launch's URLs opened.
+    pub async fn restart(&self, lock: &Path) -> zbus::Result<()> {
         let mut command = vec!["/bin/sh".to_string(), "-c".into(), RESTART.into(), "sh".into()];
         command.push(lock.to_string_lossy().into_owned());
-        command.extend(argv.iter().cloned());
+        command.push(COMMAND.into());
         // Byte strings, ended with a NUL, as the portal reads them.
         let bytes = |text: &str| [text.as_bytes(), b"\0"].concat();
         let argv: Vec<Vec<u8>> = command.iter().map(|arg| bytes(arg)).collect();

@@ -173,23 +173,19 @@ fn a_failed_install_says_why() {
 }
 
 #[test]
-fn a_restart_starts_the_newest_build_once_the_profile_is_free() {
+fn a_restart_spawns_the_flatpaks_command_in_the_newest_build_once_the_profile_is_free() {
     let calls = Calls::default();
     block_on(async {
         let (ours, _fake) = connect(false, calls.clone()).await;
         let (portal, _) = Portal::open(ours).await.unwrap();
-        let argv = ["/app/ilo/chrome".to_string(), "--enable-features=X".into()];
-        portal.restart(Path::new("/home/u/.var/app/ilo/SingletonLock"), &argv).await.unwrap();
+        portal.restart(Path::new("/home/u/.var/app/ilo/SingletonLock")).await.unwrap();
     });
     let calls = calls.lock().unwrap();
     let spawn = calls.iter().find(|call| call.starts_with("Spawn")).expect("no Spawn");
     assert!(spawn.starts_with(r#"Spawn cwd="" flags=2 fds=0 envs=0 ["/bin/sh", "-c", "#), "{spawn}");
-    assert!(
-        spawn.ends_with(
-            r#""sh", "/home/u/.var/app/ilo/SingletonLock", "/app/ilo/chrome", "--enable-features=X"]"#
-        ),
-        "{spawn}"
-    );
+    // "ilo", through cobalt and zypak, never /app/ilo/chrome, which would start without the
+    // sandbox zypak gives it.
+    assert!(spawn.ends_with(r#""sh", "/home/u/.var/app/ilo/SingletonLock", "ilo"]"#), "{spawn}");
 }
 
 #[test]
