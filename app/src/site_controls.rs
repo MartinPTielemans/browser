@@ -504,7 +504,7 @@ fn text_top(cap: f32, size: f32) -> f32 {
 }
 
 /// The panel's window's top left in the browser window and its beak's tip, from `place`.
-fn placed(place: Place, window: Size<Pixels>) -> (Point<Pixels>, Option<f32>) {
+pub fn placed(place: Place, window: Size<Pixels>) -> (Point<Pixels>, Option<f32>) {
     match place {
         Place::Button { field, button } => {
             let middle = f32::from(button.center().x);
@@ -533,19 +533,27 @@ impl Global for SiteControlsWindow {}
 /// Opens the panel's window, hidden, for `host` to show over the browser window, ahead of time as
 /// the command bar's is.
 pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<SiteControls>> {
+    let bounds = Bounds::new(point(px(0.), px(0.)), size(px(WIDTH), px(WIDTH)));
+    open_at(host, bounds, false, cx)
+}
+
+/// Opens the panel's window at `bounds`, shown if `show`, which the preview does.
+pub fn open_at(
+    host: Rc<dyn Host>,
+    bounds: Bounds<Pixels>,
+    show: bool,
+    cx: &mut App,
+) -> Option<WindowHandle<SiteControls>> {
     cx.bind_keys([KeyBinding::new("escape", Close, Some("SiteControls"))]);
     let options = WindowOptions {
-        window_bounds: Some(WindowBounds::Windowed(Bounds::new(
-            point(px(0.), px(0.)),
-            size(px(WIDTH), px(WIDTH)),
-        ))),
+        window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
             title: None,
             appears_transparent: true,
             traffic_light_position: None,
         }),
         kind: WindowKind::Floating,
-        show: false,
+        show,
         focus: false,
         is_movable: false,
         is_resizable: false,

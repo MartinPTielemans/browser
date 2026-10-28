@@ -1,0 +1,55 @@
+#!/bin/bash
+# Captures the same screens of the preview on Wayland and on X11, at 1280 by 800, each in a headless
+# sway session of its own (tools/headless.sh), and lays them side by side in sheet.png, so text
+# that fits on the Mac but not in Linux's faces or windows shows without anyone taking screenshots.
+# The screens: the sidebar with tabs, the command bar, a tab's context menu, Site Controls, the
+# icon picker and the delete-Space dialog. The preview's Linux host places no window, so sway puts
+# Site Controls and the icon picker in the middle rather than where the Mac's host would. It
+# reports: a screen that won't capture is a gap in the sheet and a line on stderr, never a failure.
+# Usage: tools/parity.sh <preview> <output directory>
+set -uo pipefail
+[ $# -eq 2 ] || { echo "usage: $0 <preview> <output directory>" >&2; exit 2; }
+preview=$(realpath "$1")
+out=$(realpath -m "$2")
+here=$(cd "$(dirname "$0")" && pwd)
+face=$here/../app/assets/fonts/Inter-Regular.ttf
+if command -v magick >/dev/null; then convert=(magick) montage=(magick montage); else convert=(convert) montage=(montage); fi
+
+# Each screen: its name, what it waits for in the preview's log, and the preview's settings.
+screens=(
+  "sidebar|drawn at|"
+  "command-bar|command bar drew|PREVIEW_BAR=tabs"
+  "context-menu|menu shown|PREVIEW_MENU=100,247"
+  "site-controls|site controls settled|PREVIEW_SITE_CONTROLS=1"
+  "icon-picker|icon picker for|PREVIEW_ICON_PICKER="
+  "dialog|dialog settled|PREVIEW_DIALOG=1 PREVIEW_MENU=40,205,up,enter"
+)
+systems=(wayland x11)
+missing=()
+tiles=()
+for screen in "${screens[@]}"; do
+  IFS='|' read -r name ready settings <<<"$screen"
+  for system in "${systems[@]}"; do
+    png=$out/$system/$name.png
+    flags=(--moving 400)
+    [ "$system" = x11 ] && flags+=(--x11)
+    # shellcheck disable=SC2086 # the settings are words, each NAME=value.
+    if ! env PREVIEW_SIZE=1280x800 $settings timeout 90 "$here/headless.sh" "${flags[@]}" "$png" "$ready" \
+      "$preview" >/dev/null; then
+      missing+=("$system/$name")
+      rm -f "$png"
+      "${convert[@]}" -size 1280x800 xc:'#301010' -font "$face" -pointsize 28 -fill white \
+        -gravity center -annotate +0+0 "no capture: see $system/$name.log" "$out/$system/$name.missing.png"
+      png=$out/$system/$name.missing.png
+    fi
+    tiles+=(-label "$name, $system" "$png")
+  done
+done
+"${montage[@]}" -font "$face" -pointsize 20 -fill white -background '#101010' -tile 2x \
+  -geometry +12+12 "${tiles[@]}" "$out/sheet.png"
+echo "$out/sheet.png"
+for gap in "${missing[@]}"; do
+  echo "No capture of $gap: its log is $out/$gap.log." >&2
+  [ -z "${GITHUB_ACTIONS:-}" ] || echo "::warning title=Parity captures::No capture of $gap"
+done
+exit 0
