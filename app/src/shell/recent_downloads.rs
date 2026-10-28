@@ -8,7 +8,7 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, Context, Image, SharedString, Task, Window, div, img, prelude::*, px, rgba, svg,
+    AnyElement, Context, Image, SharedString, Task, Window, div, img, prelude::*, px, svg,
 };
 
 use super::{
@@ -406,7 +406,7 @@ impl Shell {
             None => svg()
                 .path("icons/file.svg")
                 .size(px(ICON * 0.75))
-                .text_color(rgba(SECONDARY))
+                .text_color(self.palette.text(SECONDARY))
                 .into_any_element(),
         };
         // One still coming says how much has come, and a held one why, as its Library row does,
@@ -419,13 +419,13 @@ impl Shell {
             }
             _ => age.clone(),
         };
-        let line = |text: SharedString, size: f32, height: f32, color: u32| {
+        let line = |text: SharedString, size: f32, height: f32, color: f32| {
             div()
                 .h(px(height))
                 .flex()
                 .items_center()
                 .text_size(px(size))
-                .text_color(rgba(color))
+                .text_color(self.palette.text(color))
                 .child(div().truncate().child(text))
         };
         let plate = div()

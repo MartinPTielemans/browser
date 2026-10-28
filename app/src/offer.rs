@@ -17,6 +17,7 @@ use gpui::{
 };
 
 use crate::{
+    palette::Palette,
     shell,
     text_input::{FieldMenu, TextInput},
 };
@@ -121,8 +122,8 @@ thread_local! {
 
 pub struct OfferPrompt {
     host: Rc<dyn Host>,
-    /// The window's colour, which the card takes.
-    fill: Box<dyn Fn(&App) -> Hsla>,
+    /// The window's colour, which the card takes, and the palette its text is drawn in.
+    look: Box<dyn Fn(&App) -> (Hsla, Palette)>,
     input: Entity<TextInput>,
     /// The tab the window shows, whose offer this is.
     tab: u64,
@@ -141,7 +142,7 @@ impl Global for OfferWindows {}
 pub fn open(
     browser: u64,
     host: Rc<dyn Host>,
-    fill: impl Fn(&App) -> Hsla + 'static,
+    look: impl Fn(&App) -> (Hsla, Palette) + 'static,
     cx: &mut App,
 ) -> Option<WindowHandle<OfferPrompt>> {
     // The keys are bound once, for every window's offer.
@@ -175,13 +176,13 @@ pub fn open(
     let window = cx.open_window(options, |window, cx| {
         let input = cx.new(|cx| {
             TextInput::new("Username", cx)
-                .placeholder_color(rgba(PLACEHOLDER))
+                .placeholder_color(look(cx).1.text(PLACEHOLDER))
                 .caret_color(rgba(CARET))
                 .selection_color(rgba(SELECTION))
         });
         // The field has the keyboard whenever the window does.
         window.focus(&input.focus_handle(cx), cx);
-        cx.new(|_| OfferPrompt { host, fill: Box::new(fill), input, tab: 0, elsewhere: false })
+        cx.new(|_| OfferPrompt { host, look: Box::new(look), input, tab: 0, elsewhere: false })
     });
     match window {
         Ok(window) => {
@@ -354,7 +355,10 @@ impl Render for OfferPrompt {
         let Some(offer) = self.offer() else {
             return root;
         };
-        let button = |id: &'static str, label: SharedString, answer: Answer, plate: u32| {
+        let (fill, palette) = (self.look)(cx);
+        // The placeholder follows the Space shown, which may have changed since it opened.
+        self.input.update(cx, |input, _| input.set_placeholder_color(palette.text(PLACEHOLDER)));
+        let button = |id: &'static str, label: SharedString, answer: Answer, plate: f32| {
             div()
                 .id(id)
                 .flex_none()
@@ -363,8 +367,8 @@ impl Render for OfferPrompt {
                 .flex()
                 .items_center()
                 .rounded(px(PLATE_RADIUS))
-                .bg(rgba(plate))
-                .hover(|style| style.bg(rgba(HOVERED)))
+                .bg(palette.plate(plate))
+                .hover(move |style| style.bg(palette.plate(HOVERED)))
                 .font_weight(FontWeight::MEDIUM)
                 .child(label)
                 .on_click(cx.listener(move |prompt, _, _, cx| prompt.answer(answer, cx)))
@@ -377,7 +381,7 @@ impl Render for OfferPrompt {
                 .items_center()
                 .pl(px(FIELD_X))
                 .rounded(px(PLATE_RADIUS))
-                .bg(rgba(PLATE))
+                .bg(palette.plate(PLATE))
         };
         let chevron = div()
             .id("usernames")
@@ -388,16 +392,18 @@ impl Render for OfferPrompt {
             .items_center()
             .justify_center()
             .rounded(px(PLATE_RADIUS))
-            .hover(|style| style.bg(rgba(HOVERED)))
+            .hover(move |style| style.bg(palette.plate(HOVERED)))
             .on_click(cx.listener(|prompt, _, window, cx| prompt.pick(window, cx)))
-            .child(svg().path("icons/chevron-down.svg").size(px(GLYPH)).text_color(rgba(DETAIL)));
+            .child(
+                svg().path("icons/chevron-down.svg").size(px(GLYPH)).text_color(palette.glyph(DETAIL)),
+            );
         let username = row()
             .pr(px(FIELD_X))
             .child(div().flex_1().min_w_0().overflow_hidden().child(self.input.clone()))
             .when(offer.usernames.len() > 1, |row| row.pr_0().child(chevron));
         let password = row()
             .overflow_hidden()
-            .text_color(rgba(DETAIL))
+            .text_color(palette.text(DETAIL))
             .child("•".repeat(offer.password_length));
         let buttons = div()
             .mt(px(BUTTONS_TOP))
@@ -417,10 +423,10 @@ impl Render for OfferPrompt {
                 .flex()
                 .flex_col()
                 .rounded(px(RADIUS))
-                .bg((self.fill)(cx))
+                .bg(fill)
                 .border_1()
-                .border_color(Level::Popover.rim())
-                .text_color(rgba(TITLE))
+                .border_color(Level::Popover.rim_in(&palette))
+                .text_color(palette.text(TITLE))
                 .text_size(px(text::BODY))
                 .line_height(px(18.))
                 .child(
@@ -434,7 +440,7 @@ impl Render for OfferPrompt {
                     div()
                         .text_size(px(text::SMALL))
                         .line_height(px(SITE_LINE))
-                        .text_color(rgba(DETAIL))
+                        .text_color(palette.text(DETAIL))
                         .truncate()
                         .child(offer.site),
                 )

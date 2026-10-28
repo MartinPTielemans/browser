@@ -7,8 +7,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent, Role, SharedString,
-    canvas, div, prelude::*, px, rgb, rgba, svg,
+    AnyElement, ClickEvent, Context, MouseButton, MouseDownEvent, Role, SharedString, canvas, div,
+    prelude::*, px, rgb, svg,
 };
 
 use super::{
@@ -96,10 +96,10 @@ impl Shell {
             (Row::NewTab, _) => 0,
         };
         let plate = content
-            .when(selected, |plate| selected_plate(plate, plate_in, hover.unwrap_or(0.)))
+            .when(selected, |plate| selected_plate(&self.palette, plate, plate_in, hover.unwrap_or(0.)))
             .id("plate")
             .when_some(hover.filter(|_| !selected), |plate, hover| {
-                plate.bg(Hsla::from(rgba(HOVERED)).opacity(hover))
+                plate.bg(self.palette.plate(HOVERED).opacity(hover))
             })
             // Pressed, a tab's row has the selected fill before the core answers its press, and a
             // folder's keeps its hover fill, as Arc's do.
@@ -107,12 +107,12 @@ impl Shell {
                 // GPUI keeps an element's pressed state only once a listener gives it a hitbox.
                 plate
                     .on_mouse_down(MouseButton::Left, |_, _, _| {})
-                    .group_active("row", |style| style.bg(rgba(SELECTED)))
+                    .group_active("row", |style| style.bg(self.palette.plate(SELECTED)))
             })
             // A ghost covers the rows it passes, in the colours its row has in place.
             .when(ghost, |plate| {
                 let fill = if selected { SELECTED } else { HOVERED };
-                plate.bg(self.window_fill().blend(rgba(fill).into()))
+                plate.bg(self.window_fill().blend(self.palette.plate(fill)))
             });
         let scale = match row {
             Row::Tab(tab) => self.press_scale(tab),
@@ -199,9 +199,9 @@ impl Shell {
             .opacity((1. - done).clamp(0., 1.))
             .child(plate(
                 match row.folder {
-                    Some(open) => folder_icon(open),
+                    Some(open) => folder_icon(&self.palette, open),
                     None if !row.icon.is_empty() => emoji(row.icon.clone()),
-                    None => favicon(row.favicon.clone()),
+                    None => favicon(&self.palette, row.favicon.clone()),
                 },
                 div()
                     .flex_1()
@@ -210,7 +210,7 @@ impl Shell {
                     .flex()
                     .items_center()
                     .pr(px(TITLE_END_INSET))
-                    .child(title(row.title.clone(), false)),
+                    .child(title(&self.palette, row.title.clone(), false)),
             ))
     }
 
@@ -239,14 +239,14 @@ impl Shell {
             self.renaming.as_ref().filter(|renaming| renaming.naming == Naming::Folder(folder));
         let label = match renaming {
             Some(renaming) => self.naming_field(renaming, cx),
-            None => title(self.folder_name(folder), false).pr(px(TITLE_END_INSET)),
+            None => title(&self.palette, self.folder_name(folder), false).pr(px(TITLE_END_INSET)),
         };
         let renaming = renaming.is_some();
         let icon = self.swaps.glyph(
             Swapped::Folder(folder),
             folder_glyph(open),
             FAVICON_DRAWN,
-            rgba(SECONDARY).into(),
+            self.palette.text(SECONDARY).into(),
         );
         let plate = plate(icon, label).child(self.framed(folder, 0.));
         self.row(Row::Tab(folder), plate, ghost, cx).when(!renaming, |row| {
@@ -284,7 +284,7 @@ impl Shell {
             .mr(px(CLOSE_RIGHT))
             .size(px(CLOSE_SIZE))
             .rounded(px(NAV_RADIUS))
-            .hover(|style| style.bg(rgba(CLOSE_HOVERED)))
+            .hover(|style| style.bg(self.palette.plate(CLOSE_HOVERED)))
             .flex()
             .items_center()
             .justify_center()
@@ -292,7 +292,7 @@ impl Shell {
                 Swapped::Close(tabs[0]),
                 glyph,
                 CLOSE_GLYPH,
-                rgba(SECONDARY).into(),
+                self.palette.text(SECONDARY).into(),
             ))
             // Not the row's press, which would show the tab before closing it.
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -316,7 +316,7 @@ impl Shell {
                 .mr(px(SPEAKER_GAP))
                 .size(px(SPEAKER_SIZE))
                 .rounded(px(NAV_RADIUS))
-                .hover(|style| style.bg(rgba(CLOSE_HOVERED)))
+                .hover(|style| style.bg(self.palette.plate(CLOSE_HOVERED)))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -324,7 +324,7 @@ impl Shell {
                     Swapped::Speaker(tab),
                     icon,
                     SPEAKER_DRAWN,
-                    rgba(SECONDARY).into(),
+                    self.palette.text(SECONDARY).into(),
                 ))
                 // Not the row's press, which would show the tab, nor a double-click's rename.
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
@@ -348,7 +348,7 @@ impl Shell {
     pub(super) fn tab_icon(&self, tab: u64) -> AnyElement {
         match self.tabs.get(&tab) {
             Some(each) if has_icon(&each.page.icon) => emoji(each.page.icon.clone()),
-            each => favicon(each.and_then(|each| each.favicon.clone())),
+            each => favicon(&self.palette, each.and_then(|each| each.favicon.clone())),
         }
     }
 
@@ -432,7 +432,7 @@ impl Shell {
             .top(px((PLATE_HEIGHT - SEGMENT_LINE) / 2.))
             .w(px(1.))
             .h(px(SEGMENT_LINE))
-            .bg(rgba(DIVIDER));
+            .bg(self.palette.faint(DIVIDER));
         div()
             .relative()
             .flex_1()
@@ -444,7 +444,7 @@ impl Shell {
             .pr(px(SEGMENT_END))
             .when(!first, |segment| segment.child(line))
             .child(icon)
-            .child(title(self.title(tab), focused))
+            .child(title(&self.palette, self.title(tab), focused))
             .when(width >= LOADING_ROW_MIN, |segment| segment.children(self.status_dot(tab)))
     }
 
@@ -580,7 +580,7 @@ impl Shell {
         let away = page.away_from_pinned_url;
         let back = away && self.pointer_favicon() == Some(tab);
         let label = if back { "Back to Pinned URL".into() } else { self.title(tab) };
-        let title = title(label, Row::Tab(tab) == self.selected_row());
+        let title = title(&self.palette, label, Row::Tab(tab) == self.selected_row());
         // The close button shows under the pointer, and the title truncates before it.
         let close = self.close_button(vec![tab], cx);
         let renaming =
@@ -608,7 +608,7 @@ impl Shell {
             true => svg()
                 .path("icons/arrow-left.svg")
                 .size(px(FAVICON_DRAWN))
-                .text_color(rgba(NAV))
+                .text_color(self.palette.glyph(NAV))
                 .into_any_element(),
             false => self.tab_icon(tab),
         };
@@ -681,7 +681,7 @@ impl Shell {
 
     pub(super) fn name_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let space = self.space;
-        let icon = (self.shown_space()).and_then(|each| space_icon(&each.icon));
+        let icon = (self.shown_space()).and_then(|each| space_icon(&self.palette, &each.icon));
         let placeholder = self.holds_icon_place().then(icon_placeholder);
         // A click on the plate under its icon opens the icon picker, or closes it: the click
         // outside the picker has closed it by now, but the picker hears so only after this event.
@@ -693,7 +693,7 @@ impl Shell {
                 .top(px((NAME_HEIGHT - SPACE_ICON_PLATE) / 2.))
                 .size(px(SPACE_ICON_PLATE))
                 .rounded(px(NAV_RADIUS))
-                .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
                 .when(self.a11y, |plate| {
                     plate.button_named("Change Icon").pressed_by_mouse_down(true, false)
                 })
@@ -716,7 +716,7 @@ impl Shell {
             .size_full();
         let name = self.shown_space().map(|space| space.name.clone()).unwrap_or_default();
         // A heading VoiceOver can jump to, whose menu is the Space's.
-        let row = name_box(icon.is_some() || placeholder.is_some())
+        let row = name_box(&self.palette, icon.is_some() || placeholder.is_some())
             .id("space-name")
             .when(self.a11y, |row| {
                 row.role(Role::Heading)
@@ -741,7 +741,7 @@ impl Shell {
                 .on_action(
                     cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
                 )
-                .text_color(rgb(FORM_TEXT))
+                .text_color(self.palette.text(FORM_TEXT))
                 .child(renaming.name.clone());
         }
         row.on_mouse_down(
@@ -771,8 +771,8 @@ impl Shell {
             let room = room.unwrap_or(if arrow == NONE { 0. } else { 1. });
             // Fading out, it takes no click and doesn't light up.
             let color = if live && self.clear_hovered { CLEAR_HOVERED } else { CLEAR };
-            let glyph = self.swaps.glyph(what, arrow, CLEAR_ARROW, rgba(color).into());
-            let clear = clear_label(glyph, room, color).id("clear").opacity(self.tools_opacity());
+            let glyph = self.swaps.glyph(what, arrow, CLEAR_ARROW, self.palette.text(color));
+            let clear = clear_label(&self.palette, glyph, room, color).id("clear").opacity(self.tools_opacity());
             let clear = clear.when(self.a11y, |clear| {
                 clear.accessibility_id("clear").button_named("Clear Today")
             });
@@ -792,7 +792,7 @@ impl Shell {
                     )
             })
         });
-        divider_box(self.hairline(), clear).top(px(self.slide(Slot::Divider)))
+        divider_box(&self.palette, self.hairline(), clear).top(px(self.slide(Slot::Divider)))
     }
 
     /// The pointer has come onto Clear or left it: it lights up, and after a moment says what it
@@ -840,7 +840,7 @@ impl Shell {
     }
 
     pub(super) fn new_tab_row(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
-        let (plus, label) = new_tab_label();
+        let (plus, label) = new_tab_label(&self.palette);
         // ⌥-click opens the new tab beside the page, as Dia's does.
         self.row(Row::NewTab, plate(plus, label), false, cx)
             .on_mouse_down(
@@ -929,7 +929,9 @@ impl Shell {
         let (loading, agent) = (self.page(tab).loading, self.agent_at_work(tab));
         let dot = match (agent, loading) {
             (true, _) => ringed_dot(STATUS_AGENT, STATUS_DOT),
-            (false, true) => div().size(px(STATUS_DOT)).rounded_full().bg(rgba(STATUS_LOADING)),
+            (false, true) => {
+                div().size(px(STATUS_DOT)).rounded_full().bg(self.palette.text(STATUS_LOADING))
+            }
             (false, false) => return None,
         };
         let strength = if loading { self.breath.strength() } else { 1. };
@@ -1133,7 +1135,7 @@ mod tests {
         let show = |cx: &mut VisualTestContext| {
             shell.update(cx, |shell, cx| {
                 let picked: Picked = Rc::new(|_, _| {});
-                icon_picker::show(Subject::Space(1), "".into(), point(0., 0.), 0, picked, cx);
+                icon_picker::show(Subject::Space(1), "".into(), point(0., 0.), picked, cx);
                 shell.hold_icon_place(1, cx);
             });
             cx.run_until_parked();

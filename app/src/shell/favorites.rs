@@ -11,6 +11,7 @@ use gpui::{
 use crate::elevation::Level;
 use crate::tooltip::{self, Anchor, Tip};
 
+use crate::palette::Palette;
 use super::{
     access::Accessible,
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
@@ -109,17 +110,17 @@ impl Shell {
     pub(super) fn turning_drag(&self) -> Option<impl IntoElement + use<>> {
         let (tab, [left, top, width, height, radius], turned) = self.turning_shape()?;
         let selected = tab == self.selected && !self.new_tab;
-        let row_fill = rgba(if selected { SELECTED } else { HOVERED });
+        let row_fill = self.palette.plate(if selected { SELECTED } else { HOVERED });
         let row_fill = self.window_fill().blend(row_fill.into());
         let theme = selected.then(|| self.tile_theme(tab)).flatten();
-        let (shown, ring_width, ring) = shown_look(theme.as_deref());
+        let (shown, ring_width, ring) = shown_look(theme.as_deref(), &self.palette);
         let tile_fill = match selected {
             true => shown,
-            false => hsla(0., 0., 1., TILE_HOVERED),
+            false => self.palette.plate(TILE_HOVERED),
         };
         let (ring_width, ring) = match selected {
             true => (ring_width, ring),
-            false => (HAIRLINE, Level::Resting.rim().into()),
+            false => (HAIRLINE, Level::Resting.rim_in(&self.palette).into()),
         };
         let row_icon = FAVICON_X - PLATE_INSET;
         let icon_left = row_icon + ((width - FAVICON_SIZE) / 2. - row_icon) * turned;
@@ -164,7 +165,7 @@ impl Shell {
                         .flex()
                         .items_center()
                         .opacity((1. - turned / TURN_TITLE_FADE).max(0.))
-                        .child(title(self.title(tab), selected)),
+                        .child(title(&self.palette, self.title(tab), selected)),
                 )
                 .child(icon)
                 // The ring over the rest, as the tile's border would shift the favicon in by its
@@ -400,9 +401,9 @@ impl Shell {
             Some(dragged) => (dragged == Slot::Tab(tab)).then_some(1.),
             None => self.hover_fill(Row::Tab(tab)),
         };
-        let fill = hsla(0., 0., 1., TILE + (TILE_HOVERED - TILE) * hover.unwrap_or(0.));
+        let fill = self.palette.plate(TILE + (TILE_HOVERED - TILE) * hover.unwrap_or(0.));
         let theme = selected.then(|| self.tile_theme(tab)).flatten();
-        let (shown, ring_width, ring) = shown_look(theme.as_deref());
+        let (shown, ring_width, ring) = shown_look(theme.as_deref(), &self.palette);
         let fill = match dragging == Some(Slot::Tab(tab)) {
             true => self.window_fill().blend(if selected { shown } else { fill }),
             false if selected => shown,
@@ -435,7 +436,7 @@ impl Shell {
             .justify_center()
             .rounded(px(TILE_RADIUS))
             .border(px(if selected { ring_width } else { HAIRLINE }))
-            .border_color(if selected { ring } else { Level::Resting.rim().into() })
+            .border_color(if selected { ring } else { Level::Resting.rim_in(&self.palette).into() })
             .bg(fill)
             .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
@@ -478,13 +479,14 @@ impl Shell {
 
 /// The selected tile's fill, ring width and ring: a colourful icon's ring is drawn with the blurred
 /// icon, a one-colour icon's is a border, and without a theme it's Dia's default.
-fn shown_look(theme: Option<&TileTheme>) -> (Hsla, f32, Hsla) {
+fn shown_look(theme: Option<&TileTheme>, palette: &Palette) -> (Hsla, f32, Hsla) {
     match theme {
-        Some(TileTheme::Blur { .. }) => (rgba(SELECTED).into(), 0., gpui::transparent_black()),
+        Some(TileTheme::Blur { .. }) => (palette.plate(SELECTED), 0., gpui::transparent_black()),
         Some(&TileTheme::Flat { fill, ring, .. }) => {
             (rgba(fill).into(), RING_WIDTH, rgba(ring).into())
         }
-        None => (rgba(TILE_UNTHEMED).into(), HAIRLINE, rgba(TILE_RING).into()),
+        // The black tile is the ring's ground, whatever the theme.
+        None => (rgba(TILE_UNTHEMED).into(), HAIRLINE, hsla(0., 0., 1., TILE_RING)),
     }
 }
 

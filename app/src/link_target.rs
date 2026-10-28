@@ -14,10 +14,10 @@ use std::{
 use gpui::{
     App, Bounds, Context, FontWeight, Global, Hsla, Pixels, SharedString, Task, TitlebarOptions,
     Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions,
-    WindowTextSystem, div, point, prelude::*, px, rgb, rgba, size,
+    WindowTextSystem, div, point, prelude::*, px, size,
 };
 
-use crate::tooltip;
+use crate::{palette::Palette, tooltip};
 
 /// Ours (*interim*, Arc's isn't recorded): it waits this long with the pointer on a link, so a
 /// pointer crossing a page toward the sidebar shows nothing, and Chrome's 80 ms is a flash at each
@@ -200,8 +200,8 @@ struct Pending {
 
 pub struct LinkTarget {
     host: Rc<dyn Host>,
-    /// The window's colour, which the plate takes.
-    fill: Box<dyn Fn(&App) -> Hsla>,
+    /// The window's colour, which the plate takes, and the palette its text is drawn in.
+    look: Box<dyn Fn(&App) -> (Hsla, Palette)>,
     /// Whether the plate shows.
     shown: bool,
     /// What the window draws, which stays as it fades out after the plate went.
@@ -218,10 +218,10 @@ struct LinkTargetWindow(WindowHandle<LinkTarget>);
 impl Global for LinkTargetWindow {}
 
 /// Opens the plate's window, hidden, for `host` to show over the browser window, ahead of time as
-/// the tooltip's is. The plate takes `fill`'s colour.
+/// the tooltip's is. The plate takes `look`'s colour and palette.
 pub fn open(
     host: Rc<dyn Host>,
-    fill: impl Fn(&App) -> Hsla + 'static,
+    look: impl Fn(&App) -> (Hsla, Palette) + 'static,
     cx: &mut App,
 ) -> Option<WindowHandle<LinkTarget>> {
     let options = WindowOptions {
@@ -248,7 +248,7 @@ pub fn open(
     let window = cx.open_window(options, |_, cx| {
         cx.new(|_| LinkTarget {
             host,
-            fill: Box::new(fill),
+            look: Box::new(look),
             shown: false,
             drawn: None,
             pending: None,
@@ -343,6 +343,7 @@ impl Render for LinkTarget {
         let Some(plate) = self.drawn.clone() else {
             return root;
         };
+        let (fill, palette) = (self.look)(cx);
         let text = div()
             .absolute()
             .left(px(PAD_X))
@@ -351,9 +352,9 @@ impl Render for LinkTarget {
             .items_center()
             .whitespace_nowrap()
             .text_size(px(TEXT_SIZE))
-            .text_color(rgba(SECONDARY))
+            .text_color(palette.text(SECONDARY))
             .child(plate.before)
-            .child(div().text_color(rgb(PRIMARY)).child(plate.site))
+            .child(div().text_color(palette.text(PRIMARY)).child(plate.site))
             .child(plate.after);
         // The rim is its own layer, so the border doesn't shift what the fill's box holds.
         let rim = div()
@@ -361,7 +362,7 @@ impl Render for LinkTarget {
             .size_full()
             .rounded(px(RADIUS))
             .border(px(RIM))
-            .border_color(Level::Popover.rim());
+            .border_color(Level::Popover.rim_in(&palette));
         root.child(
             div()
                 .relative()
@@ -369,7 +370,7 @@ impl Render for LinkTarget {
                 .h(px(HEIGHT))
                 .rounded(px(RADIUS))
                 .shadow(Level::Popover.shadow())
-                .bg((self.fill)(cx))
+                .bg(fill)
                 .child(text)
                 .child(rim),
         )

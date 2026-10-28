@@ -297,8 +297,8 @@ impl Shell {
                     .justify_center()
                     .rounded(px(NAV_RADIUS))
                     .block_mouse_except_scroll()
-                    .hover(|style| style.bg(rgba(NAV_HOVERED)))
-                    .active(|style| style.bg(rgba(PRESSED)))
+                    .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
+                    .active(|style| style.bg(self.palette.plate(PRESSED)))
                     .on_click(cx.listener(move |shell, _, _, cx| shell.run_extension(&id, cx)))
                     .on_mouse_down(
                         MouseButton::Right,
@@ -327,14 +327,14 @@ impl Shell {
                     .justify_center()
                     .rounded(px(NAV_RADIUS))
                     .block_mouse_except_scroll()
-                    .hover(|style| style.bg(rgba(NAV_HOVERED)))
-                    .active(|style| style.bg(rgba(PRESSED)))
+                    .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
+                    .active(|style| style.bg(self.palette.plate(PRESSED)))
                     .on_click(cx.listener(|shell, _, _, cx| shell.overflow_menu(cx)))
                     .child(
                         svg()
                             .path("icons/ellipsis.svg")
                             .size(px(URL_BUTTON_GLYPH))
-                            .text_color(rgba(NAV)),
+                            .text_color(self.palette.glyph(NAV)),
                     )
                     .into_any_element(),
             );

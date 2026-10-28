@@ -53,7 +53,7 @@ fn open_over(
 ) -> (WindowHandle<OfferPrompt>, Rc<Recorder>) {
     let host = Rc::new(Recorder::default());
     let window = cx
-        .update(|cx| open(browser, host.clone(), |_| hsla(0., 0., 0.2, 1.), cx))
+        .update(|cx| open(browser, host.clone(), |_| (hsla(0., 0., 0.2, 1.), Default::default()), cx))
         .expect("no window for the offer");
     cx.update(|cx| tab_shown(browser, tab, cx));
     (window, host)

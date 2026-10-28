@@ -5,7 +5,7 @@ use std::{collections::VecDeque, time::Instant};
 
 use gpui::{
     Context, DispatchPhase, Point, ScrollDelta, ScrollEvent, TouchPhase, Window, canvas, div,
-    prelude::*, px, rgba,
+    prelude::*, px,
 };
 
 use super::{
@@ -368,7 +368,7 @@ impl Shell {
                 .left_0()
                 .w(px(self.width()))
                 .h(px(1.))
-                .bg(rgba(SCROLL_EDGE))
+                .bg(self.palette.faint(SCROLL_EDGE))
                 .opacity(shown)
         })
     }

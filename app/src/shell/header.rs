@@ -8,7 +8,7 @@ use crate::site_controls::{Extension, Place};
 
 use gpui::{
     Bounds, Context, Div, Hsla, MouseButton, Pixels, SharedString, Stateful, Window, canvas, div,
-    hsla, point, prelude::*, px, rgba, size, svg,
+    point, prelude::*, px, rgba, size, svg,
 };
 
 use super::{
@@ -47,7 +47,7 @@ impl Shell {
         enabled: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
-        let color = Hsla::from(rgba(if enabled { NAV } else { NAV_DISABLED }));
+        let color = Hsla::from(self.palette.glyph(if enabled { NAV } else { NAV_DISABLED }));
         // Reload and stop are one button, which changes with the tab shown's page.
         let glyph = match x == RELOAD_X {
             true => self.swaps.glyph(Swapped::Reload(self.selected), icon, NAV_GLYPH, color),
@@ -76,7 +76,7 @@ impl Shell {
         self.with_tooltip(button, command, TipSide::Under, cx)
             .when(enabled, |button| {
                 button
-                    .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                    .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
                     .on_click(cx.listener(move |shell, _, _, cx| {
                         shell.run(command, "sidebar", cx)
                     }))
@@ -258,7 +258,7 @@ impl Shell {
             return (PLACEHOLDER_TEXT.into(), color);
         }
         let words = self.extension_name(url).unwrap_or_else(|| host(url).to_string().into());
-        (words, rgba(SECONDARY).into())
+        (words, self.palette.text(SECONDARY).into())
     }
 
     pub(super) fn url_field(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
@@ -279,14 +279,14 @@ impl Shell {
                 .when(live, |button| {
                     button
                         .block_mouse_except_scroll()
-                        .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                        .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
                         .on_click(cx.listener(|shell, _, _, cx| shell.copy_url_from_button(cx)))
                 })
                 .child(self.swaps.glyph(
                     Swapped::CopyUrl,
                     if self.url_copied.is_some() { CHECK } else { LINK },
                     URL_BUTTON_GLYPH,
-                    rgba(NAV).into(),
+                    self.palette.glyph(NAV).into(),
                 ))
         });
         let site_controls = tools.then(|| {
@@ -297,7 +297,7 @@ impl Shell {
                 .when(live, |button| {
                     button
                         .block_mouse_except_scroll()
-                        .hover(|style| style.bg(rgba(NAV_HOVERED)))
+                        .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
                         // On the press, as a pop-up button opens: a click while the panel shows
                         // closes it first, and its press then toggles rather than opens it again.
                         .on_mouse_down(
@@ -312,13 +312,13 @@ impl Shell {
                     svg()
                         .path("icons/sliders-horizontal.svg")
                         .size(px(URL_BUTTON_GLYPH))
-                        .text_color(rgba(NAV)),
+                        .text_color(self.palette.glyph(NAV)),
                 )
         });
         // A tab showing its page in Safari's engine says so after the host, quietly (ours): the
         // Site Controls name it and turn it off.
         let engine = (self.selected != 0 && self.page(self.selected).system_engine).then(|| {
-            let mut quiet = Hsla::from(rgba(SECONDARY));
+            let mut quiet = self.palette.text(SECONDARY);
             quiet.a *= 0.6;
             svg().path("icons/compass.svg").flex_none().ml(px(5.)).size(px(12.)).text_color(quiet)
         });
@@ -353,9 +353,9 @@ impl Shell {
             .on_click(cx.listener(|shell, _, _, cx| {
                 shell.clicked_bar_target(Command::EditUrl, "sidebar", cx)
             }))
-            .bg(rgba(URL_FIELD))
+            .bg(self.palette.plate(URL_FIELD))
             // It brightens under the pointer as a tile does, from the same white 0.10 (ours).
-            .hover(|style| style.bg(hsla(0., 0., 1., TILE_HOVERED)))
+            .hover(|style| style.bg(self.palette.plate(TILE_HOVERED)))
             .text_size(px(text::BODY))
             .child(div().min_w(px(0.)).truncate().text_color(color).child(words))
             .children(engine)

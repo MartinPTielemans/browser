@@ -153,7 +153,7 @@ impl Shell {
             .flex()
             .items_center()
             .gap(px(KEYS_GAP))
-            .text_color(rgba(SECONDARY))
+            .text_color(self.palette.text(SECONDARY))
             .child(div().text_size(px(WORDS_SIZE)).child("New Tab"))
             .children(keys);
         let sign = div().flex().flex_col().items_center().child(mark(1.));

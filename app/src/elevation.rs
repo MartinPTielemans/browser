@@ -3,8 +3,9 @@
 //! `design/tokens.toml` under `[elevation]`. A surface GPUI draws takes `shadow()` and `rim()`;
 //! one the host draws a shadow window for takes `host_shadow()`.
 
-use gpui::{BoxShadow, Rgba, point, px, rgba};
+use gpui::{BoxShadow, Hsla, Rgba, point, px, rgba};
 
+use crate::palette::Palette;
 use crate::tokens::elevation as t;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +45,12 @@ impl Level {
             Level::Popover => t::POPOVER_RIM,
             Level::Modal => t::MODAL_RIM,
         })
+    }
+
+    /// The rim in the palette's ink, Paper or Ink as the Space's theme has it, at the level's
+    /// alpha, for a surface the theme colours.
+    pub fn rim_in(self, palette: &Palette) -> Hsla {
+        palette.faint(self.rim().a)
     }
 
     /// The drop shadow's colour, how far it falls and its blur.

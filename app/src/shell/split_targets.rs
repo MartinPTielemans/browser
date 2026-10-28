@@ -8,10 +8,11 @@ use std::time::Instant;
 
 use gpui::{
     AnyElement, Bounds, Context, FontWeight, Hsla, PathBuilder, Pixels, Point, Window,
-    canvas, div, hsla, point, prelude::*, px, rgb, size,
+    canvas, div, point, prelude::*, px, rgb, size,
 };
 
 use super::{FAVICON_DRAWN, Place, Shell, TITLE_GAP};
+use crate::palette::{Palette, TARGET_ACCENT, TARGET_PLATE};
 
 /// Each target's width and height as a fraction of the card's, and how far it is in from the
 /// card's side: as it slides in, grown, and under the tab, where it leans TARGET_LEAN of the way
@@ -30,9 +31,7 @@ use crate::tokens::shell::split_targets::TARGET_RADIUS;
 use crate::tokens::shell::split_targets::TARGET_DASH_INSET;
 const TARGET_DASH: (f32, f32) = (6., 1.75);
 const TARGET_DASH_UNDER: (f32, f32) = (7., 2.);
-use crate::tokens::shell::split_targets::TARGET_LIGHTER;
 use crate::tokens::shell::split_targets::TARGET_EDGE;
-use crate::tokens::shell::split_targets::TARGET_ACCENT;
 use crate::tokens::shell::split_targets::TARGET_DASHES;
 use crate::tokens::shell::split_targets::TARGET_TEXT;
 /// Dia's targets came once the pointer was 26 pt into the page from its top strip. Ours: the same
@@ -188,8 +187,8 @@ impl Shell {
             return div().into_any_element();
         };
         let card = self.page_frame(self.viewport).0;
-        let accent = Hsla::from(rgb(self.focus_color.unwrap_or(self.accent_color)));
-        let fill = self.window_fill().blend(hsla(0., 0., 1., TARGET_LIGHTER));
+        let palette = self.palette;
+        let fill = self.window_fill().blend(palette.plate(TARGET_PLATE));
         let t = over.since.elapsed().as_secs_f32();
         let growing =
             over.under.iter().any(|(_, since, _)| since.elapsed().as_secs_f32() < TARGET_GROW);
@@ -201,7 +200,7 @@ impl Shell {
             let way = grown(under, since, from);
             let under = under_bounds(card, left, over.pointer.x);
             let bounds = mix_bounds(arriving(card, left, t), under, way);
-            target(bounds, card, left, way, fill, accent)
+            target(bounds, card, left, way, fill, palette)
         });
         let page = div()
             .absolute()
@@ -219,7 +218,7 @@ impl Shell {
             .relative()
             .font_family(".SystemUIFont")
             .child(page)
-            .child(picture(over.pointer, self.window_fill(), icon, title))
+            .child(picture(over.pointer, self.window_fill(), self.palette, icon, title))
             .into_any_element()
     }
 }
@@ -289,13 +288,13 @@ fn target(
     left: bool,
     way: f32,
     fill: Hsla,
-    accent: Hsla,
+    palette: Palette,
 ) -> impl IntoElement {
+    let accent = Hsla::from(palette.accent);
     let fill = fill.blend(accent.opacity(TARGET_ACCENT * way));
-    let white = |alpha: f32| hsla(0., 0., 1., alpha);
     let mix = |from: Hsla, to: Hsla| from.opacity(1. - way).blend(to.opacity(way));
-    let text = mix(white(TARGET_TEXT), accent);
-    let dashes = mix(white(TARGET_DASHES), accent);
+    let text = mix(palette.text(TARGET_TEXT), palette.text(1.));
+    let dashes = mix(palette.faint(TARGET_DASHES), accent);
     let dash = TARGET_DASH.0 + (TARGET_DASH_UNDER.0 - TARGET_DASH.0) * way;
     let width = TARGET_DASH.1 + (TARGET_DASH_UNDER.1 - TARGET_DASH.1) * way;
     let line = canvas(
@@ -326,7 +325,7 @@ fn target(
         .rounded(px(TARGET_RADIUS))
         .bg(fill)
         .border(px(0.5))
-        .border_color(white(TARGET_EDGE))
+        .border_color(palette.faint(TARGET_EDGE))
         .flex()
         .flex_col()
         .items_center()
@@ -378,6 +377,7 @@ fn half_glyph(left: bool, color: Hsla) -> impl IntoElement {
 fn picture(
     pointer: Point<Pixels>,
     fill: Hsla,
+    palette: Palette,
     icon: AnyElement,
     title: gpui::SharedString,
 ) -> impl IntoElement {
@@ -392,7 +392,7 @@ fn picture(
         .top(px(PICTURE_TOP))
         .bottom(px(PICTURE_INSET))
         .rounded(px(PICTURE_RADIUS - PICTURE_INSET))
-        .bg(fill.blend(hsla(0., 0., 1., TARGET_LIGHTER)))
+        .bg(fill.blend(palette.plate(TARGET_PLATE)))
         .flex()
         .items_center()
         .justify_center()
@@ -404,7 +404,7 @@ fn picture(
                 .min_w_0()
                 .truncate()
                 .text_size(px(text::SMALL))
-                .text_color(hsla(0., 0., 1., TARGET_TEXT))
+                .text_color(palette.text(TARGET_TEXT))
                 .child(title),
         );
     div()
@@ -416,7 +416,7 @@ fn picture(
         .rounded(px(PICTURE_RADIUS))
         .bg(fill)
         .border(px(0.5))
-        .border_color(Level::Popover.rim())
+        .border_color(Level::Popover.rim_in(&palette))
         .shadow(Level::Popover.shadow())
         .child(div().absolute().left(px(8.)).top(px(6.)).flex().gap(px(4.)).children(lights))
         .child(page)

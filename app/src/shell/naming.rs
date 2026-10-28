@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use gpui::{Context, SharedString, Window, div, point, prelude::*, px, rgb, rgba};
+use gpui::{Context, SharedString, Window, div, point, prelude::*, px};
 
 use super::{
     undo::{Prop, Value},
@@ -46,7 +46,7 @@ impl Shell {
         log!("browser: rename space {space}");
         let name = cx.new(|cx| {
             TextInput::new("Space name", cx)
-                .placeholder_color(rgba(FORM_PLACEHOLDER))
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
                 .with_text(name)
         });
         self.renaming = Some(Renaming {
@@ -67,7 +67,7 @@ impl Shell {
         let title = self.title(tab);
         let name = cx.new(|cx| {
             TextInput::new("Tab name", cx)
-                .placeholder_color(rgba(FORM_PLACEHOLDER))
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
                 .with_text(title)
         });
         self.renaming = Some(Renaming {
@@ -206,7 +206,7 @@ impl Shell {
             }
         };
         let iconless = !has_icon(&icon);
-        icon_picker::show(subject, icon, anchor, self.accent_color, picked, cx);
+        icon_picker::show(subject, icon, anchor, picked, cx);
         if let Subject::Space(space) = subject
             && iconless
         {
@@ -248,7 +248,7 @@ impl Shell {
     fn name_folder(&mut self, folder: u64, name: SharedString, cx: &mut Context<Self>) {
         let name = cx.new(|cx| {
             TextInput::new("Folder name", cx)
-                .placeholder_color(rgba(FORM_PLACEHOLDER))
+                .placeholder_color(self.palette.text(FORM_PLACEHOLDER))
                 .with_text(name)
         });
         self.renaming = Some(Renaming {
@@ -328,7 +328,7 @@ impl Shell {
                 cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
             )
             .text_size(px(text::BODY))
-            .text_color(rgb(FORM_TEXT))
+            .text_color(self.palette.text(FORM_TEXT))
             .child(renaming.name.clone())
     }
 }

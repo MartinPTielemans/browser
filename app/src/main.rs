@@ -158,7 +158,6 @@ mod platform {
         pub fn host_hide_reveal(ui_view: *mut c_void);
         pub fn host_detent();
         pub fn host_accent_color() -> u32;
-        pub fn host_watch_accent_color(changed: extern "C" fn());
         pub fn host_dock_dot_launch(profile_dir: *const c_char);
         pub fn host_dock_dot(colored: bool, color: u32);
         pub fn host_watch_control(released: extern "C" fn());
@@ -1721,8 +1720,7 @@ impl Browser for Engine {
         set_page_frame(self.window, (frame, radius));
     }
 
-    fn set_focus_color(&self, color: u32, cx: &mut App) {
-        command_bar::set_accent(color, cx);
+    fn set_focus_color(&self, color: u32, _: &mut App) {
         unsafe { bc::bc_window_set_focus_color(self.window, color) };
     }
 
@@ -1772,10 +1770,6 @@ impl Browser for Engine {
         if unsafe { bc::bc_haptics() } {
             unsafe { platform::host_detent() };
         }
-    }
-
-    fn accent_color(&self) -> u32 {
-        unsafe { platform::host_accent_color() }
     }
 
     fn watch_control(&self, _: &mut App) {
@@ -2343,10 +2337,6 @@ fn open_links_in(window: bc::bc_id, urls: &[String]) {
     }
 }
 
-extern "C" fn accent_color_changed() {
-    update_shells(|shell, cx| shell.accent_color_changed(cx));
-}
-
 // The ⌃Tab walk and the file's drag were the user's in the window in front.
 extern "C" fn control_released() {
     update_window(front().0, |shell, cx| shell.control_released(cx));
@@ -2653,12 +2643,15 @@ fn finish_opening(
     let Ok(shell) = window.entity(cx) else {
         return;
     };
-    let fill = shell.downgrade();
-    let fill = move |cx: &App| fill.upgrade().map(|shell| shell.read(cx).window_fill());
+    let weak = shell.downgrade();
+    let look = move |cx: &App| {
+        let shell = weak.upgrade()?;
+        Some((shell.read(cx).window_fill(), shell.read(cx).palette()))
+    };
     let prompt = offer::open(
         id,
         Rc::new(OfferHost { ui_view }),
-        move |cx| fill(cx).unwrap_or_default(),
+        move |cx| look(cx).unwrap_or_default(),
         cx,
     );
     if let Some(view) = prompt.and_then(|prompt| prompt.update(cx, |_, w, _| ns_view(w)).ok()) {
@@ -2696,7 +2689,6 @@ fn finish_opening(
         return;
     }
     unsafe {
-        platform::host_watch_accent_color(accent_color_changed);
         platform::host_take_drops(dragged);
         platform::host_watch_key_window(key_window_changed);
         platform::host_watch_full_screen(full_screen_changed);
@@ -2739,14 +2731,15 @@ fn finish_opening(
     {
         unsafe { platform::host_add_dialog(view) };
     }
-    // The window the toast shows over gives its colour.
-    let fill = |cx: &App| {
+    // The window the toast shows over gives its colour and palette.
+    let look = |cx: &App| {
         let shell = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.shell.clone()));
-        shell.and_then(|shell| shell.upgrade()).map(|shell| shell.read(cx).window_fill())
+        let shell = shell?.upgrade()?;
+        Some((shell.read(cx).window_fill(), shell.read(cx).palette()))
     };
     let toast_host = Rc::new(ToastHost { view: Cell::new(std::ptr::null_mut()) });
     if let Some(toast) =
-        toast::open(toast_host.clone(), move |cx| fill(cx).unwrap_or_default(), cx)
+        toast::open(toast_host.clone(), move |cx| look(cx).unwrap_or_default(), cx)
         && let Ok(view) = toast.update(cx, |_, window, _| ns_view(window))
     {
         toast_host.view.set(view);
@@ -2778,7 +2771,7 @@ fn finish_opening(
         unsafe { platform::host_add_tooltip(view, margin, tooltip_away) };
     }
     if let Some(target) =
-        link_target::open(Rc::new(LinkTargetHost), move |cx| fill(cx).unwrap_or_default(), cx)
+        link_target::open(Rc::new(LinkTargetHost), move |cx| look(cx).unwrap_or_default(), cx)
         && let Ok(view) = target.update(cx, |_, window, _| ns_view(window))
     {
         unsafe { platform::host_add_link_target(view, margin, link_pointer) };

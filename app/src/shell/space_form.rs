@@ -6,11 +6,11 @@ use std::time::Instant;
 
 use gpui::{
     Context, FontWeight, MouseButton, MouseDownEvent, Pixels, Point, Window, div, point, prelude::*,
-    px, rgb, rgba, svg,
+    px, svg,
 };
 
 use super::{
-    CANCEL_BOTTOM, CANCEL_HEIGHT, CREATE, CREATE_BOTTOM, CREATE_UNNAMED, CreateSpace, FORM_CHEVRON,
+    CANCEL_BOTTOM, CANCEL_HEIGHT, CREATE_BOTTOM, CREATE_UNNAMED, CreateSpace, FORM_CHEVRON,
     FORM_CHEVRON_GAP, FORM_FIELD_TOP, FORM_GLYPH, FORM_GLYPH_COLOR, FORM_GLYPH_X, FORM_INSET,
     FORM_LABEL_X, FORM_LEAVE, FORM_LEAVE_FIELD, FORM_LEAVE_ROWS, FORM_LEAVE_TITLE, FORM_PILL,
     FORM_PILL_HEIGHT, FORM_PILL_LEFT, FORM_PILL_RIGHT, FORM_PILL_X, FORM_PLACEHOLDER, FORM_PLATE,
@@ -43,7 +43,7 @@ impl Shell {
                 let profile = self.shown_space().map_or(0, |space| space.profile);
                 let space = self.browser.create_space(&name, profile, cx);
                 let name = cx.new(|cx| {
-                    TextInput::new("Space name", cx).placeholder_color(rgba(FORM_PLACEHOLDER))
+                    TextInput::new("Space name", cx).placeholder_color(self.palette.text(FORM_PLACEHOLDER))
                 });
                 self.form = Some(SpaceForm {
                     space,
@@ -184,16 +184,16 @@ impl Shell {
             .justify_center()
             .text_size(px(text::HEADING))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgb(FORM_TEXT))
+            .text_color(self.palette.text(FORM_TEXT))
             .child("New Space");
         let field = plate("space-name-field")
             .top(px(FORM_FIELD_TOP + field_sink))
             .opacity(field_opacity)
             .px(px(FORM_TEXT_X - FORM_INSET))
-            .bg(rgba(FORM_PLATE))
+            .bg(self.palette.plate(FORM_PLATE))
             .text_size(px(text::BODY))
             .font_weight(FontWeight::MEDIUM)
-            .text_color(rgb(FORM_TEXT))
+            .text_color(self.palette.text(FORM_TEXT))
             .child(form.name.clone());
         // A row with a glyph and a label, whose menu a press shows while the form is up.
         let row = |id: &'static str, top: f32, glyph: &'static str, label: &'static str| {
@@ -201,11 +201,11 @@ impl Shell {
                 .top(px(top + rows_sink))
                 .opacity(rows_opacity)
                 .pl(px(FORM_GLYPH_X - FORM_GLYPH / 2. - FORM_INSET))
-                .bg(rgba(FORM_PLATE))
+                .bg(self.palette.plate(FORM_PLATE))
                 .text_size(px(text::BODY))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(FORM_TEXT))
-                .child(svg().path(glyph).size(px(FORM_GLYPH)).text_color(rgba(FORM_GLYPH_COLOR)))
+                .text_color(self.palette.text(FORM_TEXT))
+                .child(svg().path(glyph).size(px(FORM_GLYPH)).text_color(self.palette.glyph(FORM_GLYPH_COLOR)))
                 .child(div().ml(px(FORM_LABEL_X - FORM_GLYPH_X - FORM_GLYPH / 2.)).child(label))
         };
         let profile = (self.spaces.iter().find(|each| each.id == form.space))
@@ -221,7 +221,7 @@ impl Shell {
             .pl(px(FORM_PILL_LEFT))
             .pr(px(FORM_PILL_RIGHT))
             .rounded(px(FORM_PILL_HEIGHT / 2.))
-            .bg(rgba(FORM_PILL))
+            .bg(self.palette.plate(FORM_PILL))
             .text_size(px(text::SMALL))
             .font_weight(FontWeight::SEMIBOLD)
             .child(profile)
@@ -230,7 +230,7 @@ impl Shell {
                     .path("icons/chevron-down.svg")
                     .ml(px(FORM_CHEVRON_GAP))
                     .size(px(FORM_CHEVRON))
-                    .text_color(rgb(FORM_TEXT)),
+                    .text_color(self.palette.text(FORM_TEXT)),
             );
         let menu = |show: fn(&mut Self, Point<Pixels>, &mut Context<Self>)| {
             cx.listener(move |shell, event: &MouseDownEvent, _, cx| show(shell, event.position, cx))
@@ -239,22 +239,22 @@ impl Shell {
         let profile_row = row("space-profile", FORM_PROFILE_TOP, "icons/user.svg", "Profile")
             .child(pill)
             .when(left.is_none(), |row| {
-                row.hover(|style| style.bg(rgba(HOVERED)))
+                row.hover(|style| style.bg(self.palette.plate(HOVERED)))
                     .on_mouse_down(MouseButton::Left, menu(Self::form_profile_menu))
             });
         let theme_row = row("space-theme", FORM_THEME_TOP, "icons/paintbrush.svg", "Choose a Theme")
             .when(left.is_none(), |row| {
-                row.hover(|style| style.bg(rgba(HOVERED)))
+                row.hover(|style| style.bg(self.palette.plate(HOVERED)))
                     .on_mouse_down(MouseButton::Left, menu(Self::form_theme_picker))
             });
         let create = plate("create-space")
             .bottom(px(CREATE_BOTTOM))
             .justify_center()
             .opacity(buttons_opacity * if named { 1. } else { CREATE_UNNAMED })
-            .bg(rgb(CREATE))
+            .bg(self.palette.accent)
             .text_size(px(text::BODY))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(rgb(FORM_TEXT))
+            .text_color(self.palette.accent_label)
             .child("Create Space")
             .on_click(cx.listener(|shell, _, window, cx| shell.create_space(window, cx)));
         let cancel = div()
@@ -274,10 +274,10 @@ impl Shell {
                     .block_mouse_except_scroll()
                     .text_size(px(text::SMALL))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgba(SECONDARY))
+                    .text_color(self.palette.text(SECONDARY))
                     // It brightens to the form's text under the pointer (ours: Arc's isn't
                     // recorded). Create Space doesn't change, as Arc's doesn't.
-                    .hover(|style| style.text_color(rgb(FORM_TEXT)))
+                    .hover(|style| style.text_color(self.palette.text(FORM_TEXT)))
                     .child("Cancel")
                     .on_click(cx.listener(|shell, _, window, cx| shell.cancel_space(window, cx))),
             );
