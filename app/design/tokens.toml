@@ -987,6 +987,45 @@ glow-strip = 4.0
 # The circle's shadow, black at this much.
 shadow = 0.3
 
+[shell.onboarding]
+# A new profile's first launch (docs/ux-spec.md › Onboarding): the brand's ground over the whole
+# window, Paper in a light appearance and Ink in a dark one, with the other drawing on it, and the
+# Signal green only on the wordmark's dot and the one button.
+signal = 0x0e9f55
+# The wordmark, a dot, two stems and a ring, drawn from the brand's 214 × 154 units at a half, so
+# 107 × 77 pt in the window's middle.
+wordmark-scale = 0.5
+# "a good tool." under it in the display face, its caps this far under the wordmark's foot.
+tagline-size = 22.0
+tagline-line = 28.0
+tagline-gap = 28.0
+# Secondary words, the tagline's and a step's line, as an alpha of the ink.
+quiet = 0.6
+# A step's one message: a title in the display face, one line under it, and one button.
+title-size = 32.0
+title-line = 38.0
+line-size = 15.0
+line-line = 21.0
+line-gap = 10.0
+button-gap = 32.0
+button-height = 34.0
+button-inset = 16.0
+button-radius = 6.0
+button-size = 14.0
+# The button's key chip, Paper over the Signal green.
+chip = 0.2
+chip-height = 20.0
+chip-inset = 5.0
+chip-radius = 6.0
+chip-gap = 8.0
+# Skip, at the window's bottom right corner, quiet, with its key's chip.
+skip-margin = 24.0
+skip-size = 13.0
+skip-chip = 0.08
+# A step comes in from this far right as the one before leaves this far left, so the steps read as
+# a row.
+shift = 32.0
+
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners
 # and the header's plates. The text is the dialog's detail colour.

@@ -4,7 +4,7 @@
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites extensions windows private capture passwords links access trouble dialogs
-#   import
+#   import onboarding
 # The store run installs from Google's Web Store, so it needs the network and runs only when named:
 # ./check.sh store.
 # Every run but load needs Browser to be the active app, and window and find take it full screen
@@ -14,10 +14,12 @@
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
+# Each run starts a new profile, which would play the onboarding first. Only its own run plays it.
+export BROWSER_ONBOARDING=skip
 cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites extensions windows private capture passwords links access trouble"
-runs="$runs dialogs import"
+runs="$runs dialogs import onboarding"
 named="store"
 for run in "$@"; do
   case " $runs $named " in

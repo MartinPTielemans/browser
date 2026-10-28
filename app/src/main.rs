@@ -2122,6 +2122,25 @@ impl Browser for Engine {
         });
     }
 
+    fn welcome_window(&self, cx: &mut App) {
+        let id = self.window;
+        cx.defer(move |cx| {
+            let from = WINDOWS.with_borrow(|windows| {
+                let this = windows.iter().find(|w| w.id == id && !w.private);
+                this.or_else(|| windows.iter().find(|w| !w.private)).cloned()
+            });
+            let Some(window) = from.and_then(|from| open_window(Some(from), None, cx)) else {
+                return;
+            };
+            let shell = WINDOWS.with_borrow(|windows| {
+                windows.iter().find(|w| w.id == window).and_then(|w| w.shell.upgrade())
+            });
+            if let Some(shell) = shell {
+                shell.update(cx, |shell, cx| shell.start_onboarding(None, cx));
+            }
+        });
+    }
+
     fn new_private_window(&self, cx: &mut App) {
         let id = self.window;
         cx.defer(move |cx| {
@@ -2381,7 +2400,10 @@ fn open_saved_windows(cx: &mut App) {
 /// Shows the Spaces as the user left them in `window`, else a first Space, and says whether it
 /// brought them back. A page given in BROWSER_URL, and the links from other apps that launched the
 /// browser, open on top either way, in this window, the one in front. With nothing to bring back
-/// and nothing to open, it's the first run, and `shell` shows the welcome on the empty card.
+/// and nothing to open, it's a new profile's first run: `shell` plays the onboarding, then shows
+/// the welcome on the empty card. This is its only way in at launch, so a launch that brings Spaces
+/// back never reads more than `restored` for it. check.sh sets BROWSER_ONBOARDING to "skip" for
+/// every run but the onboarding run's, which sets "light" or "dark".
 fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -> bool {
     let start = Instant::now();
     let restored = unsafe { bc::bc_window_restore(window) };
@@ -2398,7 +2420,15 @@ fn restore_spaces(window: bc::bc_id, shell: WindowHandle<Shell>, cx: &mut App) -
     match std::env::var("BROWSER_URL") {
         Ok(url) => open_tab(window, &url),
         Err(_) if !restored && links.is_empty() => {
-            shell.update(cx, |shell, _, cx| shell.set_welcome(cx)).ok();
+            let onboarding = std::env::var("BROWSER_ONBOARDING").ok();
+            shell
+                .update(cx, |shell, _, cx| {
+                    shell.set_welcome(cx);
+                    if onboarding.as_deref() != Some("skip") {
+                        shell.start_onboarding(onboarding.as_deref(), cx);
+                    }
+                })
+                .ok();
         }
         Err(_) => {}
     }
@@ -3236,6 +3266,7 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
         menu(
             "Help",
             vec![
+                item(concat!("Welcome to ", env!("APP_NAME")), Command::Welcome),
                 item("Essential Keyboard Shortcuts", Command::KeyboardShortcuts),
                 MenuItem::separator(),
                 MenuItem::submenu(menu(

@@ -394,6 +394,9 @@ pub trait Browser {
     fn quit(&self, cx: &mut App);
     /// Opens another window on the same Spaces, after this one's draw.
     fn new_window(&self, cx: &mut App);
+    /// new_window, with a new profile's first launch playing in the new window, which shows no
+    /// page.
+    fn welcome_window(&self, _cx: &mut App) {}
     /// Opens a private window in the shown Space's profile's off-the-record session, after this
     /// one's draw.
     fn new_private_window(&self, cx: &mut App);
