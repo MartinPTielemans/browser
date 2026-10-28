@@ -1,0 +1,45 @@
+# The UI builds and its tests pass on Windows (AGENTS.md, Hit every surface: Platforms). The browser
+# needs the engine engine-windows.yml builds, so this is the UI's library and the preview, which
+# need none. GitHub's hosted runners only: the self-hosted one never runs a pull request's code.
+name: UI on Windows
+
+on:
+  push:
+    paths: [app/**, core/public/**, .github/workflows/app-windows.yml, '!**/*.md']
+  pull_request:
+    paths: [app/**, core/public/**, .github/workflows/app-windows.yml, '!**/*.md']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # A pull request from a branch here already ran on its push.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      # setup.sh and the patches it applies need the repository's line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+
+      - run: rustup update stable --no-self-update
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/target
+          key: app-windows-${{ hashFiles('app/Cargo.lock', 'app/setup.sh', 'app/patches/**') }}
+          restore-keys: app-windows-
+
+      - run: ./setup.sh
+      - run: cargo test --release --lib
+      - run: cargo build --release --bin preview
+
