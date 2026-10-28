@@ -1,0 +1,104 @@
+# The Windows packages for a release (#454), as the run's `windows-packages` artifact: the MSIX for
+# the Microsoft Store and the per-user installer for winget, both unsigned for 0.1.0
+# (app/platform/windows/package/package.sh), with winget's manifests for that installer. Built from
+# Browser.dll and the newest Windows engine release in the commit's history, which
+# engine-windows-cross.yml publishes. Without one there is Browser.dll alone, linked against the
+# core's API, to try the packaging: what it packs doesn't run, and the run's summary says so.
+# GitHub's hosted runners only, by hand or on a push that changes the packaging, never on a pull
+# request.
+name: Windows packages
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - app/platform/windows/package/**
+      - app/branding/windows-store.ini
+      - app/branding/winget.ini
+      - tools/winget.sh
+      - .github/workflows/package-windows.yml
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      # setup.sh and the patches it applies need the repository's line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      # With its history, where fetch.sh finds the engine release nearest the commit.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: rustup update stable --no-self-update
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            app/windows/target
+          key: package-windows-${{ hashFiles('app/Cargo.lock', 'app/windows/Cargo.lock', 'app/setup.sh', 'app/patches/**') }}
+          restore-keys: package-windows-
+
+      - run: ./setup.sh
+
+      # Browser.dll links chrome.dll's import library. Without an engine, one made from the core's
+      # API (core/public/browser_core.h) stands in for it.
+      - name: Engine
+        run: |
+          if [ -f .deps/engine/chrome.exe ]; then
+            echo "Engine: $(cat .deps/engine/.from)" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          mkdir -p .deps/engine
+          {
+            echo "LIBRARY chrome.dll"
+            echo "EXPORTS"
+            grep -o 'BC_EXPORT[^(]*\bbc_[a-z0-9_]*(' ../core/public/browser_core.h |
+              sed -E 's/.*\b(bc_[a-z0-9_]+)\($/\1/'
+          } >.deps/engine/chrome.def
+          vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          lib=$("$vswhere" -latest -products '*' -find 'VC/Tools/MSVC/*/bin/Hostx64/x64/lib.exe' | head -1 | tr -d '\r')
+          MSYS2_ARG_CONV_EXCL='*' "$(cygpath -u "$lib")" /nologo /machine:x64 \
+            "/def:$(cygpath -w .deps/engine/chrome.def)" "/out:$(cygpath -w .deps/engine/chrome.dll.lib)"
+          echo "No Windows engine release in this commit's history: Browser.dll is linked against the core's API and packed alone, and neither package runs." >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Browser.dll
+        working-directory: app/windows
+        run: cargo build --release --features prod
+
+      - name: Inno Setup
+        run: |
+          [ -x "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ] || choco install innosetup -y --no-progress
+
+      - name: Package
+        run: |
+          platform/windows/package/package.sh "$RUNNER_TEMP/windows-packages" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # For the installer a release at tag v<version> would publish. Not for Browser.dll alone.
+      - name: winget manifests
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          installer=$RUNNER_TEMP/windows-packages/$(cat branding/name)-$version-x64-setup.exe
+          if [ ! -f "$installer" ]; then
+            echo "No winget manifests: the installer packs Browser.dll alone." >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          ../tools/winget.sh "$installer" \
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/v$version/${installer##*/}" \
+            "$RUNNER_TEMP/windows-packages/winget"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-packages
+          path: ${{ runner.temp }}/windows-packages
+          if-no-files-found: error
