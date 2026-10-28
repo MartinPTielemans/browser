@@ -276,7 +276,7 @@ source_set("browser_core") {
     }
   } else {
     sources += [ "platform/system_page_none.cc" ]
-    if (!is_win) {
+    if (!is_win && !is_linux) {
       sources += [ "platform/keyboard_none.cc" ]
     }
   }
@@ -297,6 +297,7 @@ source_set("browser_core") {
   if (is_linux) {
     sources += [
       "platform/linux/app_library.cc",
+      "platform/linux/keyboard.cc",
       "platform/linux/wayland.cc",
       "platform/linux/wayland.h",
       "platform/linux/window_views.cc",
@@ -305,11 +306,16 @@ source_set("browser_core") {
       "//third_party/wayland:wayland_client",
       "//ui/aura",
       "//ui/compositor",
+      "//ui/events",
+      "//ui/events/keycodes:xkb",
+      "//ui/events/ozone/layout",
       "//ui/gfx/x",
       "//ui/ozone",
       "//ui/ozone/platform/wayland:wayland_proxy",
       "//ui/platform_window",
     ]
+    # libxkbcommon, for the keyboard's layouts in keyboard.cc.
+    configs += [ "//ui/events/ozone/layout:xkbcommon" ]
     all_dependent_configs = [ ":linux_exports" ]
   }
 }
