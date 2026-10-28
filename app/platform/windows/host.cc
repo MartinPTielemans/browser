@@ -34,15 +34,6 @@
 // UrlCreateFromPathW, for the files dragged onto the UI.
 #pragma comment(lib, "shlwapi.lib")
 
-// The share sheet's window-to-WinRT bridge. Its ABI header ships in the SDK's winrt\ include
-// directory, which cc-rs doesn't put on the compiler's path (the C++/WinRT projection under
-// cppwinrt\ is there), so the interface is declared here, as desktop share samples do.
-MIDL_INTERFACE("3A3DCD6C-3EAB-43DC-BCDE-45671CE800C8")
-IDataTransferManagerInterop : public IUnknown {
-  virtual HRESULT STDMETHODCALLTYPE GetForWindow(HWND window, REFIID riid, void** result) = 0;
-  virtual HRESULT STDMETHODCALLTYPE ShowShareUIForWindow(HWND window) = 0;
-};
-
 namespace {
 
 std::wstring Wide(const char* utf8) {
