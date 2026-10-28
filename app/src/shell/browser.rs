@@ -300,6 +300,22 @@ pub trait Browser {
     /// Shares the page at `url`, titled `title`, with the service at `service` in
     /// `share_services`.
     fn share(&self, url: &str, title: &str, service: usize, cx: &mut App);
+    /// Whether the system has a share sheet of its own, which Windows' and the Mac's are, for
+    /// when it lists no services the menu can show.
+    fn has_share_sheet(&self) -> bool {
+        false
+    }
+    /// Opens the system's share sheet for the page at `url`, titled `title`, in `tab`'s window,
+    /// hanging from `at` where the system places it.
+    fn show_share_sheet(
+        &self,
+        _tab: u64,
+        _url: &str,
+        _title: &str,
+        _at: Point<Pixels>,
+        _cx: &mut App,
+    ) {
+    }
     /// The user closed the tab's protected-media note: the profile keeps it from showing again at
     /// the site of its page, and Site Controls offer Safari's engine there instead.
     fn close_media_note(&self, _tab: u64, _cx: &mut App) {}
