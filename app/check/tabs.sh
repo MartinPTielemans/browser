@@ -391,6 +391,25 @@ expect '^browser: settings shown General$' "Settings… didn't bring Settings ba
 send clickkey 592 209
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
+# Closed and opened again, Settings takes a click on the switch it last changed at once, each time.
+# Which window has the keyboard, and the capture, say where a click that doesn't arrive went.
+post clickkey 16 16
+expect '^browser: settings hidden$' "the close button didn't hide Settings"
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show General again"
+send title
+reopened=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: key window titled' |
+  sed 's/^browser: key window titled //')
+../tools/window-screenshot.sh "$pid" "$out/settings-reopened.png" all || fail "no window to capture"
+send clickkey 592 209
+expect '^browser: unload idle tabs off$' \
+  "a click in Settings opened again didn't reach the switch; the key window was titled $reopened"
+post clickkey 16 16
+expect '^browser: settings hidden$' "the close button didn't hide Settings"
+send menu Settings…
+expect '^browser: settings shown General$' "Settings… didn't show General again"
+send clickkey 592 209
+expect '^browser: unload idle tabs on$' "a click in Settings opened again didn't turn the switch back on"
 post clickkey 16 16
 expect '^browser: settings hidden$' "the close button didn't hide Settings"
 # Back to the page's tab alone, as the run had them.
@@ -638,4 +657,4 @@ PY
 [ -n "$chrome_ms" ] || fail "the trace has no tab switches"
 echo "ok: new tabs open at the top and show, the command bar lists the Space's other tabs before anything is typed, suggests pages, their tabs and well-known sites and completes what's typed, ⌘L opens it centred and a click on the URL field over the field, keys and clicks switch, ⇧⌦ takes a page out of history, ⇧⌘↩ searches and ⌘↩ opens a tab behind that loads once shown, Tab on a hinted row and a space after an engine's keyword search with it alone until ⌫ leaves, ↩ on a sum's row copies its result, and a right-click in its field shows Paste and Go, ⌃Tab goes back through the tabs shown while ⌃ is held, a page's tab goes under it and closing it goes back, tabs opened behind close to their sibling then their opener, a switch to an unrelated tab and a link opened in front forget older openers, so a pinned tab's newest tab closes back to it, ⌘W shows the tab below or above, an empty Space still opens tabs, a tab mutes and its speaker unmutes it, a tab unseen 2 hours lets go of its page as another shows unless it plays sound, asks before it's left or shows in a split, and gets it back with its history once shown, and Settings' Unload switch turns that off and on."
 echo "  Switch to a loaded tab, tab strip to frame shown (Chrome's measure; gate 16 ms): $chrome_ms."
-echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png"
+echo "  Switch, key to the core's report: $app_ms. Windows: $out/muted.png, $out/tabs.png, $out/suggestions.png, $out/completion.png, $out/url-field-bar.png, $out/listed.png, $out/popular.png, $out/site-hint.png, $out/site-search.png, $out/field-menu.png, $out/empty.png, $out/idle-unloaded.png, $out/settings-reopened.png"
