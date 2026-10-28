@@ -7,15 +7,19 @@
 
 serve
 # The test page's top 40% is a link to the same server under another name, localhost, which is
-# another site to the browser. Its bottom 60% counts the presses that reach it in its title.
+# another site to the browser. Its bottom 60% counts the presses that reach it in its title. Each
+# has text, as Chromium ignores a click on a page until it has drawn, and an empty page draws
+# nothing. The title says "ready" once a frame is drawn, which the run waits for before a click.
 target="http://localhost:$port/preview-target.html"
 printf '%s' "<title>loading</title>
-<a href=\"$target\" style=\"position:fixed;left:0;top:0;width:100%;height:40%\"></a>
-<div id=press style=\"position:fixed;left:0;top:40%;width:100%;height:60%\"></div>
+<a href=\"$target\" style=\"position:fixed;left:0;top:0;width:100%;height:40%;font:24px system-ui\">
+A link to another site</a>
+<div id=press style=\"position:fixed;left:0;top:40%;width:100%;height:60%;font:24px system-ui\">
+Presses count here</div>
 <script>
 let presses = 0;
 press.onmousedown = () => document.title = \"pressed \" + ++presses;
-requestAnimationFrame(() => setTimeout(() => document.title = \"ready\"));
+requestAnimationFrame(() => requestAnimationFrame(() => document.title = \"ready\"));
 </script>" > "$out/site/preview.html"
 printf '%s' '<title>target</title><p style="font:24px system-ui">Another site</p>' \
   > "$out/site/preview-target.html"
