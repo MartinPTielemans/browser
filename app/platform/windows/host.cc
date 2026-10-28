@@ -107,6 +107,39 @@ std::map<HWND, Floating*>& FloatingByHwnd() {
   return all;
 }
 
+// ilo's own context menu (app/src/menu.rs): a GPUI window over a browser window, or over another
+// of the app's windows for its menus. While it shows it sees every pointer event in the app first,
+// through a thread mouse hook, so a press outside closes it before the click lands; it takes the
+// keyboard, as the command bar does, so its keys reach it (menu_window.mm does the same on the
+// Mac). The window lives in the one struct, made once. The Mac also closes it when its browser
+// window moves or resizes; here acting on that window's frame is itself a press outside, which the
+// pointer hook already closes it on, so there's no separate watch.
+struct Menu {
+  HWND hwnd = nullptr;
+  // Every pointer event while it shows, as |kind| (0 moved, 1 pressed, 2 right-pressed, 3 released,
+  // 4 scrolled) at |x|, |y| points from its top left; returns whether the menu takes it.
+  bool (*pointer)(int, double, double) = nullptr;
+  // The user left it, for another window or app, or its browser window changed under it.
+  void (*dismissed)(void) = nullptr;
+  // Chooses an item by title, for the driver.
+  bool (*choose)(const char*) = nullptr;
+  bool shown = false;
+  // Where it sits on screen, device pixels, which the pointer is measured from.
+  RECT frame{};
+  // The browser window it's over, and the window it's owned by: that one, or its reveal's panel.
+  HWND browser = nullptr;
+  HWND parent = nullptr;
+  // The window that had the keyboard, to give back unless the user went to another.
+  HWND had_keyboard = nullptr;
+  bool give_back = true;
+  // Bumped by each show and hide, so a show posted before a hide doesn't put the menu back.
+  unsigned showing = 0;
+};
+Menu g_menu;
+// The thread hooks that watch the pointer and the keys while the menu shows.
+HHOOK g_menu_mouse_hook = nullptr;
+HHOOK g_menu_key_hook = nullptr;
+
 LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam,
                               UINT_PTR, DWORD_PTR data) {
   auto* floating = reinterpret_cast<Floating*>(data);
@@ -125,6 +158,10 @@ LRESULT CALLBACK FloatingProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpa
     case WM_ACTIVATE:
       if (LOWORD(wparam) == WA_INACTIVE && floating->dismissed && !floating->hiding &&
           IsWindowVisible(hwnd)) {
+        // ilo's menu, opened over this overlay, isn't the user leaving it.
+        if (g_menu.shown && reinterpret_cast<HWND>(lparam) == g_menu.hwnd) {
+          break;
+        }
         void (*dismissed)(void) = floating->dismissed;
         Later([dismissed] { dismissed(); });
       }
@@ -239,6 +276,9 @@ LRESULT CALLBACK HolderProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
   return DefWindowProcW(hwnd, message, wparam, lparam);
 }
 
+// Closes ilo's menu, or takes its keyboard back, as the front window changes (defined below).
+void MenuForegroundChanged(HWND root, bool ours);
+
 // The watchers, which Windows tells of each window that comes to the front.
 void (*g_key_window_changed)(void*) = nullptr;
 void (*g_resigning_active)(void) = nullptr;
@@ -256,6 +296,7 @@ void CALLBACK ForegroundChanged(HWINEVENTHOOK, DWORD, HWND hwnd, LONG, LONG, DWO
     // what's shown over the window hides a moment late.
     g_resigning_active();
   }
+  MenuForegroundChanged(GetAncestor(hwnd, GA_ROOT), ours);
   g_active = ours;
   if (ours && g_key_window_changed) {
     if (void* ui_view = UiViewOf(GetAncestor(hwnd, GA_ROOT))) {
@@ -367,6 +408,138 @@ LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
     g_key_hook = nullptr;
   }
   return CallNextHookEx(nullptr, code, wparam, lparam);
+}
+
+// The window ilo's menu's coordinates are from, and which it's owned by: a browser window's
+// content, or its reveal's panel with |in_reveal|.
+HWND MenuBase(void* ui_view, bool in_reveal) {
+  if (in_reveal) {
+    if (auto it = g_reveals.find(ui_view);
+        it != g_reveals.end() && it->second.floating.hwnd &&
+        IsWindowVisible(it->second.floating.hwnd)) {
+      return it->second.floating.hwnd;
+    }
+  }
+  return Root(ui_view);
+}
+
+// The user left the menu. Posted, as the UI may be handling what made them leave; the menu's own
+// host_hide_menu_window follows once the UI closes it.
+void PostMenuDismiss(bool give_back) {
+  if (!g_menu.shown) {
+    return;
+  }
+  g_menu.give_back = g_menu.give_back && give_back;
+  if (void (*dismissed)(void) = g_menu.dismissed) {
+    Later([dismissed] { dismissed(); });
+  }
+}
+
+// Every pointer event in the app, before the window under the pointer hears it: the menu takes
+// what's on it, so a press outside closes it and goes no further (a right-press outside passes
+// through, to open that window's own menu), as the Mac's local monitor does.
+LRESULT CALLBACK MenuMouse(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HC_ACTION && g_menu.shown && g_menu.pointer) {
+    int kind = -1;
+    switch (wparam) {
+      case WM_MOUSEMOVE:
+      case WM_NCMOUSEMOVE:
+        kind = 0;
+        break;
+      case WM_LBUTTONDOWN:
+      case WM_NCLBUTTONDOWN:
+      case WM_MBUTTONDOWN:
+      case WM_NCMBUTTONDOWN:
+      case WM_XBUTTONDOWN:
+      case WM_NCXBUTTONDOWN:
+        kind = 1;
+        break;
+      case WM_RBUTTONDOWN:
+      case WM_NCRBUTTONDOWN:
+        kind = 2;
+        break;
+      case WM_LBUTTONUP:
+      case WM_NCLBUTTONUP:
+      case WM_RBUTTONUP:
+      case WM_NCRBUTTONUP:
+      case WM_MBUTTONUP:
+      case WM_NCMBUTTONUP:
+      case WM_XBUTTONUP:
+      case WM_NCXBUTTONUP:
+        kind = 3;
+        break;
+      case WM_MOUSEWHEEL:
+      case WM_MOUSEHWHEEL:
+        kind = 4;
+        break;
+    }
+    if (kind >= 0) {
+      const POINT pt = reinterpret_cast<MOUSEHOOKSTRUCT*>(lparam)->pt;
+      const double scale = Scale(g_menu.hwnd);
+      if (g_menu.pointer(kind, (pt.x - g_menu.frame.left) / scale,
+                         (pt.y - g_menu.frame.top) / scale)) {
+        return 1;
+      }
+    }
+  }
+  return CallNextHookEx(nullptr, code, wparam, lparam);
+}
+
+// While the menu shows, a shortcut (a key with Ctrl, Alt or the Windows key) closes it and goes no
+// further, as it was typed at the menu; its own keys, such as the arrows, Enter and Esc, reach its
+// window, which has the keyboard.
+LRESULT CALLBACK MenuKeys(int code, WPARAM wparam, LPARAM lparam) {
+  const bool down = (HIWORD(lparam) & KF_UP) == 0;
+  if (code == HC_ACTION && g_menu.shown && down) {
+    const bool chord = (GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000) ||
+                       (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000);
+    const bool modifier = wparam == VK_CONTROL || wparam == VK_MENU || wparam == VK_SHIFT ||
+                          wparam == VK_LWIN || wparam == VK_RWIN;
+    if (chord && !modifier) {
+      PostMenuDismiss(true);
+      return 1;
+    }
+  }
+  return CallNextHookEx(nullptr, code, wparam, lparam);
+}
+
+void InstallMenuHooks() {
+  const DWORD thread = GetCurrentThreadId();
+  if (!g_menu_mouse_hook) {
+    g_menu_mouse_hook = SetWindowsHookExW(WH_MOUSE, MenuMouse, nullptr, thread);
+  }
+  if (!g_menu_key_hook) {
+    g_menu_key_hook = SetWindowsHookExW(WH_KEYBOARD, MenuKeys, nullptr, thread);
+  }
+}
+
+// Taken off once the menu hides, so an idle browser isn't woken by the pointer or keys.
+void RemoveMenuHooks() {
+  if (g_menu_mouse_hook) {
+    UnhookWindowsHookEx(g_menu_mouse_hook);
+    g_menu_mouse_hook = nullptr;
+  }
+  if (g_menu_key_hook) {
+    UnhookWindowsHookEx(g_menu_key_hook);
+    g_menu_key_hook = nullptr;
+  }
+}
+
+void MenuForegroundChanged(HWND root, bool ours) {
+  if (!g_menu.shown) {
+    return;
+  }
+  if (!ours) {
+    PostMenuDismiss(false);
+  } else if (root == g_menu.hwnd) {
+    // The menu itself.
+  } else if (root == g_menu.browser || root == g_menu.parent) {
+    // Chromium made its own window key, such as when a page commits; that isn't the user leaving,
+    // so the menu takes the keyboard back.
+    SetForegroundWindow(g_menu.hwnd);
+  } else {
+    PostMenuDismiss(false);
+  }
 }
 
 }  // namespace
@@ -836,18 +1009,114 @@ void host_focus(void* view) {
   SetFocus(hwnd);
 }
 
-// shortcut: menus, ilo's own windows on the Mac (mac/menu_window.h), don't show on Windows yet.
-void host_add_menu_window(void*,
-                          bool (*)(int, double, double),
-                          void (*)(void),
-                          bool (*)(const char*)) {}
+void host_add_menu_window(void* view,
+                          bool (*pointer)(int kind, double x, double y),
+                          void (*dismissed)(void),
+                          bool (*choose)(const char* title)) {
+  g_menu.hwnd = Hwnd(view);
+  g_menu.pointer = pointer;
+  g_menu.dismissed = dismissed;
+  g_menu.choose = choose;
+  ShowWindow(g_menu.hwnd, SW_HIDE);
+  // Windows 11 rounds it, as the Mac's shape and radius do. The UI draws the panel's shadow,
+  // inside the window.
+  DWM_WINDOW_CORNER_PREFERENCE corners = DWMWCP_ROUND;
+  DwmSetWindowAttribute(g_menu.hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corners, sizeof corners);
+  WatchForeground();
+}
 
-void host_show_menu_window(void*, bool, double, double, double, double) {}
+void host_show_menu_window(void* ui_view,
+                           bool in_reveal,
+                           double left,
+                           double top,
+                           double width,
+                           double height) {
+  HWND base = MenuBase(ui_view, in_reveal);
+  HWND root = Root(ui_view);
+  if (!g_menu.hwnd || !base || !root) {
+    return;
+  }
+  if (!g_menu.shown) {
+    HWND key = GetForegroundWindow();
+    g_menu.had_keyboard = key == g_menu.hwnd ? nullptr : key;
+  }
+  g_menu.shown = true;
+  g_menu.give_back = true;
+  g_menu.parent = base;
+  g_menu.browser = root;
+  const double scale = Scale(base);
+  POINT origin{static_cast<LONG>(left * scale), static_cast<LONG>(top * scale)};
+  ClientToScreen(base, &origin);
+  const RECT frame{origin.x, origin.y, origin.x + static_cast<LONG>(width * scale),
+                   origin.y + static_cast<LONG>(height * scale)};
+  g_menu.frame = frame;
+  const unsigned showing = ++g_menu.showing;
+  // It goes on screen after the event, so the press that opened it is over. shortcut: the host
+  // can't force GPUI to draw this menu first as the Mac does, so its first frame may be the last
+  // menu's until GPUI's loop draws; refine when the engine runs the checks on Windows.
+  Later([=] {
+    if (showing != g_menu.showing) {
+      return;
+    }
+    SetWindowLongPtrW(g_menu.hwnd, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(base));
+    SetWindowPos(g_menu.hwnd, HWND_TOP, frame.left, frame.top, frame.right - frame.left,
+                 frame.bottom - frame.top, SWP_SHOWWINDOW);
+    SetForegroundWindow(g_menu.hwnd);
+    SetFocus(g_menu.hwnd);
+    InstallMenuHooks();
+    // check.sh reads this line.
+    fprintf(stderr, "browser: menu window at %.0f,%.0f %.0fx%.0f\n", left, top, width, height);
+  });
+}
 
-void host_hide_menu_window(void) {}
+void host_hide_menu_window(void) {
+  if (!g_menu.shown) {
+    return;
+  }
+  g_menu.shown = false;
+  ++g_menu.showing;
+  RemoveMenuHooks();
+  ShowWindow(g_menu.hwnd, SW_HIDE);
+  HWND back = g_menu.had_keyboard && IsWindowVisible(g_menu.had_keyboard) ? g_menu.had_keyboard
+                                                                         : g_menu.browser;
+  g_menu.had_keyboard = nullptr;
+  if (g_menu.give_back && g_active && back && IsWindowVisible(back)) {
+    SetForegroundWindow(back);
+  }
+  fprintf(stderr, "browser: menu window hidden\n");
+}
 
-void host_menu_area(void*, bool, double* area) {
-  area[0] = area[1] = area[2] = area[3] = 0;
+void host_menu_area(void* ui_view, bool in_reveal, double* area) {
+  HWND base = MenuBase(ui_view, in_reveal);
+  if (!base) {
+    area[0] = area[1] = area[2] = area[3] = 0;
+    return;
+  }
+  MONITORINFO info{sizeof info};
+  GetMonitorInfoW(MonitorFromWindow(base, MONITOR_DEFAULTTONEAREST), &info);
+  const double scale = Scale(base);
+  POINT top_left{info.rcWork.left, info.rcWork.top};
+  POINT bottom_right{info.rcWork.right, info.rcWork.bottom};
+  ScreenToClient(base, &top_left);
+  ScreenToClient(base, &bottom_right);
+  area[0] = top_left.x / scale;
+  area[1] = top_left.y / scale;
+  area[2] = bottom_right.x / scale;
+  area[3] = bottom_right.y / scale;
+}
+
+// For the driver: chooses |title|, or "Submenu › Item", in the menu that shows, or closes it. Each
+// returns whether a menu was showing.
+bool host_menu_window_choose(const char* title) {
+  return g_menu.shown && g_menu.choose && g_menu.choose(title);
+}
+
+bool host_menu_window_dismiss(void) {
+  if (!g_menu.shown || !g_menu.dismissed) {
+    return false;
+  }
+  g_menu.dismissed();
+  return true;
 }
 
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
