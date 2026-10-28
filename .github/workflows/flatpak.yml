@@ -1,12 +1,14 @@
 # ilo's Flatpak (tools/flatpak.sh) from the prod build on the prebuilt Linux engine, as an artifact,
 # then installed and started on X11 in Xvfb to see that its first window draws.
-# Run it by hand to build from a branch whose packaging didn't change.
+# Run it by hand to build from a branch whose packaging didn't change. release.yml calls it for a
+# release's Flatpak, the `ilo-flatpak` artifact.
 name: Flatpak
 
 on:
   push:
     paths: [app/platform/linux/flatpak/**, tools/flatpak.sh, .github/workflows/flatpak.yml]
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   bundle:
