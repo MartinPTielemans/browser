@@ -21,7 +21,7 @@ use gpui::{
 use crate::{
     icon_picker::Subject,
     space_icon::{GLYPHS, SpaceIcon},
-    text_input::TextInput,
+    text_input::{self, TextInput},
     palette::Palette,
     theme::Theme,
 };
@@ -2499,7 +2499,9 @@ impl Render for Shell {
                 log!("browser: rename folder {folder}");
             }
             renaming._blur =
-                Some(cx.on_blur(&field, window, |shell, window, cx| shell.keep_name(window, cx)));
+                Some(text_input::on_leave(&field, window, cx, |shell, window, cx| {
+                    shell.keep_name(window, cx)
+                }));
         }
         if self.picker_pending.is_some() {
             self.open_picker_when_settled(window, cx);

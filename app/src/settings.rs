@@ -10,7 +10,7 @@ use std::time::Instant;
 use browser::default_browser::{self, DefaultBrowser};
 use browser::log;
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
-use browser::text_input::TextInput;
+use browser::text_input::{self, TextInput};
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
     KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
@@ -863,7 +863,9 @@ impl Settings {
         // check.sh waits for this line, which says the field has the keyboard.
         log!("browser: rename profile {}", renaming.profile);
         renaming._blur =
-            Some(cx.on_blur(&field, window, |settings, window, cx| settings.keep_name(window, cx)));
+            Some(text_input::on_leave(&field, window, cx, |settings, window, cx| {
+                settings.keep_name(window, cx)
+            }));
     }
 
     /// The commands by section, each with its keys in a chip. A click on a command's chip
