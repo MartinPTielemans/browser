@@ -1,0 +1,133 @@
+{
+  "version": 1,
+  "sidebar": {
+    "containers": [
+      { "global": {} },
+      {
+        "spaces": [
+          "S-PERSONAL",
+          {
+            "id": "S-PERSONAL",
+            "title": "Personal",
+            "profile": { "default": true },
+            "containerIDs": ["pinned", "C-PERSONAL-PINNED", "unpinned", "C-PERSONAL-TODAY"],
+            "customInfo": {
+              "iconType": { "emoji_v2": "🏠" },
+              "windowTheme": {
+                "background": {
+                  "single": {
+                    "_0": {
+                      "contentOverBackgroundAppearance": "dark",
+                      "isVibrant": false,
+                      "style": {
+                        "color": {
+                          "_0": {
+                            "blendedGradient": {
+                              "_0": {
+                                "baseColors": [
+                                  { "red": 0.2, "green": 0.4, "blue": 0.8, "alpha": 1, "colorSpace": "extendedSRGB" },
+                                  { "red": 1.1, "green": 0.5, "blue": -0.05, "alpha": 1, "colorSpace": "extendedSRGB" }
+                                ],
+                                "overlayColors": [],
+                                "modifiers": { "intensityFactor": 0.6, "noiseFactor": 0.3, "overlay": "base" },
+                                "translucencyStyle": "bold",
+                                "wheel": { "analogous": {} }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "S-WORK",
+          {
+            "id": "S-WORK",
+            "title": "Work",
+            "profile": { "custom": { "_0": { "directoryBasename": "Profile 1", "machineID": "M-1" } } },
+            "newContainerIDs": [{ "pinned": {} }, "C-WORK-PINNED", { "unpinned": { "_0": { "shared": {} } } }, "C-WORK-TODAY"],
+            "customInfo": {
+              "iconType": { "icon": "flash" },
+              "windowTheme": {
+                "background": {
+                  "single": {
+                    "_0": {
+                      "contentOverBackgroundAppearance": "light",
+                      "isVibrant": true,
+                      "style": {
+                        "color": {
+                          "_0": {
+                            "blendedSingleColor": {
+                              "_0": {
+                                "color": { "red": 0.9, "green": 0.6, "blue": 0.7, "alpha": 1, "colorSpace": "extendedSRGB" },
+                                "modifiers": { "intensityFactor": 0.9, "noiseFactor": 0, "overlay": "base" },
+                                "translucencyStyle": "subtle"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "items": [
+          "C-PERSONAL-PINNED",
+          { "id": "C-PERSONAL-PINNED", "parentID": null, "title": null, "childrenIds": ["T-HN", "F-READING", "T-ARC", "GONE"], "data": { "itemContainer": { "containerType": { "spaceItems": { "_0": "S-PERSONAL" } } } } },
+          "T-HN",
+          { "id": "T-HN", "parentID": "C-PERSONAL-PINNED", "title": "HN", "childrenIds": [], "data": { "tab": { "savedURL": "https://news.ycombinator.com/", "savedTitle": "Hacker News" } } },
+          "F-READING",
+          { "id": "F-READING", "parentID": "C-PERSONAL-PINNED", "title": "Reading", "childrenIds": ["T-A", "V-SPLIT", "F-DEEP"], "data": { "list": {} } },
+          "T-A",
+          { "id": "T-A", "parentID": "F-READING", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "https://example.com/a", "savedTitle": "A" } } },
+          "V-SPLIT",
+          { "id": "V-SPLIT", "parentID": "F-READING", "title": null, "childrenIds": ["T-B", "T-C"], "data": { "splitView": { "layoutOrientation": "horizontal", "itemWidthFactors": [0.5, 0.5] } } },
+          "T-B",
+          { "id": "T-B", "parentID": "V-SPLIT", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "", "currentURL": "https://example.com/b", "savedTitle": "B" } } },
+          "T-C",
+          { "id": "T-C", "parentID": "V-SPLIT", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "https://example.com/c", "savedTitle": "C" } } },
+          "F-DEEP",
+          { "id": "F-DEEP", "parentID": "F-READING", "title": "Deep", "childrenIds": ["T-D", "F-READING"], "data": { "list": {} } },
+          "T-D",
+          { "id": "T-D", "parentID": "F-DEEP", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "https://example.com/d", "savedTitle": "D" } } },
+          "T-ARC",
+          { "id": "T-ARC", "parentID": "C-PERSONAL-PINNED", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "arc://settings", "savedTitle": "Settings" } } },
+          "C-PERSONAL-TODAY",
+          { "id": "C-PERSONAL-TODAY", "parentID": null, "title": null, "childrenIds": ["T-TODAY"], "data": { "itemContainer": { "containerType": { "spaceItems": { "_0": "S-PERSONAL" } } } } },
+          "T-TODAY",
+          { "id": "T-TODAY", "parentID": "C-PERSONAL-TODAY", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "https://example.com/today", "savedTitle": "Today" } } },
+          "C-WORK-PINNED",
+          { "id": "C-WORK-PINNED", "parentID": null, "title": null, "childrenIds": ["W-WELCOME", "T-GITHUB"], "data": { "itemContainer": { "containerType": { "spaceItems": { "_0": "S-WORK" } } } } },
+          "W-WELCOME",
+          { "id": "W-WELCOME", "parentID": "C-WORK-PINNED", "title": null, "childrenIds": [], "data": { "welcomeToArc": { "tabType": "welcome" } } },
+          "T-GITHUB",
+          { "id": "T-GITHUB", "parentID": "C-WORK-PINNED", "title": "Code", "childrenIds": [], "data": { "tab": { "savedURL": "https://github.com/", "savedTitle": "GitHub" } } },
+          "C-WORK-TODAY",
+          { "id": "C-WORK-TODAY", "parentID": null, "title": null, "childrenIds": [], "data": { "itemContainer": { "containerType": { "spaceItems": { "_0": "S-WORK" } } } } },
+          "C-TOP-DEFAULT",
+          { "id": "C-TOP-DEFAULT", "parentID": null, "title": null, "childrenIds": ["T-MAIL", "T-CAL"], "data": { "itemContainer": { "containerType": { "topApps": { "_0": { "default": true } } } } } },
+          "T-MAIL",
+          { "id": "T-MAIL", "parentID": "C-TOP-DEFAULT", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "https://mail.example.com/", "savedTitle": "Mail" } } },
+          "T-CAL",
+          { "id": "T-CAL", "parentID": "C-TOP-DEFAULT", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "https://calendar.example.com/", "savedTitle": "Calendar" } } },
+          "C-TOP-WORK",
+          { "id": "C-TOP-WORK", "parentID": null, "title": null, "childrenIds": ["T-LINEAR"], "data": { "itemContainer": { "containerType": { "topApps": { "_0": { "custom": { "_0": { "directoryBasename": "Profile 1", "machineID": "M-1" } } } } } } } },
+          "T-LINEAR",
+          { "id": "T-LINEAR", "parentID": "C-TOP-WORK", "title": null, "childrenIds": [], "data": { "tab": { "savedURL": "https://linear.app/", "savedTitle": "Linear" } } }
+        ],
+        "topAppsContainerIDs": [
+          { "default": true }, "C-TOP-DEFAULT",
+          { "custom": { "_0": { "directoryBasename": "Profile 1", "machineID": "M-1" } } }, "C-TOP-WORK"
+        ]
+      }
+    ]
+  },
+  "sidebarSyncState": {},
+  "firebaseSyncState": {}
+}
