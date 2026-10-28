@@ -755,6 +755,32 @@ mark-dot-fill = 0x0e9f_55ff
 mark-stem-fill = 0xffff_ff24
 # From the mark's foot to the line, so they read as a sign and its caption, not one block.
 mark-gap = 24.0
+# The Space's name between the mark and the line, in the display face: its caps start the mark's
+# gap below the mark, and the line follows this far under its line. White 0.85 on the dark card.
+name-size = 28.0
+name-line = 34.0
+name-gap = 12.0
+name = 0xffff_ffd9
+# The first run's welcome, in place of the name and the line: "Welcome to ilo" in the display
+# face, "a good tool." under it, dimmer, and one button that opens a new tab, under a mark this
+# much bigger.
+welcome-mark = 1.5
+welcome-size = 44.0
+welcome-line = 52.0
+tagline-size = 20.0
+tagline-line = 26.0
+tagline = 0xffff_ff99
+button-gap = 28.0
+button-height = 30.0
+button-inset = 12.0
+button-radius = 6.0
+# Signal, the mark's green, with white words and a key chip of white 0.2.
+button-fill = 0x0e9f_55ff
+button-text = 0xffff_ffff
+button-keys = 0xffff_ff33
+button-keys-height = 20.0
+button-keys-inset = 5.0
+button-keys-radius = 6.0
 
 [shell.extensions]
 # The room the URL field keeps for the host before it shows fewer actions (Ardia).
@@ -808,6 +834,13 @@ section-gap = 20.0
 library-plate = 0xffffff17
 # The back button, at the column's bottom.
 library-back-inset = 8.0
+# The "Library" heading at the column's top, in the display face, in the section labels' white:
+# its caps start 52 down, and its L's stem is under the close button's left edge, 13 in, with
+# Outfit's 1.5 bearing at 20 before it.
+title-size = 20.0
+title-line = 26.0
+title-x = 11.5
+title-cap = 52.0
 # The Spaces section (Arc 1.170 cap, one Space, and rec, three): a card per Space starts 28 after
 # the column, 240 wide, 24 apart and as tall as the window less 48 above and below, with Arc's
 # blue + 33 after the last, 30 across and halfway down, and the Library ends 37 after it, so it's

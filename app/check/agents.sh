@@ -7,7 +7,9 @@
 log="$out/agents.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+# The user's tab, as the first run opens none.
+BROWSER_DRIVE=1 BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' \
+  "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load

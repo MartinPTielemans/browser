@@ -1,9 +1,11 @@
-# The start page loads in the browser window, over the GPUI sidebar drawn in it, and quitting
-# through AppKit closes the page and ends every Chromium process.
+# A page loads in the browser window, over the GPUI sidebar drawn in it, and quitting through
+# AppKit closes the page and ends every Chromium process. The first run shows the welcome and no
+# page, so the page is given.
 
 log="$out/load.log"
 rm -f "$saved" "$launch_frame"
-"$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' "$app/Contents/MacOS/Browser" \
+  < /dev/null > "$log" 2>&1 &
 pid=$!
 await_load
 ../tools/window-screenshot.sh "$pid" "$out/load.png" || fail "no window to capture"
