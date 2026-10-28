@@ -413,7 +413,7 @@ impl Render for FindBar {
             .justify_center()
             .child(svg().path("icons/search.svg").size(px(GLYPH)).text_color(rgba(GLYPH_COLOR)));
         // The browser's shortcuts work here too, below the bar's own keys.
-        div().key_context(shell::KEY_CONTEXT).size_full().font_family(crate::face::UI).child(
+        div().key_context(shell::KEY_CONTEXT).size_full().font_family(browser::face::UI).child(
             div()
                 .key_context("FindBar")
                 .on_action(cx.listener(|bar, _: &FindNext, _, cx| bar.find_next(true, cx)))
