@@ -44,6 +44,10 @@ typedef struct bc_key {
   // The page's focused element takes text, as a text field does, so editing keys such as ⌘Z are
   // its own.
   bool editing;
+  // With ⌘ held on a layout that isn't Latin, such as Hebrew, Arabic or Armenian, the key as the
+  // user's Latin layout types it, with ⇧ if it's held, as the Mac's menus match ⌘ shortcuts: "t"
+  // for the key Hebrew types "א" with. Empty otherwise, and null for an extension's command.
+  const char* latin_key;
 } bc_key;
 
 // What's wrong with a tab's page, if anything.

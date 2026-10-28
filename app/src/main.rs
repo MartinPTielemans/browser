@@ -2250,30 +2250,13 @@ fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
     usize::try_from(chosen).unwrap_or(usize::MAX)
 }
 
-/// A key the page didn't keep, or one it never sees, as a keystroke in GPUI's terms, with the
-/// modifiers in the order shell::SHORTCUTS writes them, and Ctrl as ⌘ off the Mac.
+/// A key the page didn't keep, or one it never sees, as a keystroke in GPUI's terms.
 fn keystroke(key: &bc::bc_key) -> String {
-    let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
-    let mut keystroke = String::new();
-    for (flag, modifier) in [
-        (bc::BC_MODIFIER_CONTROL, "ctrl-"),
-        (bc::BC_MODIFIER_ALT, "alt-"),
-        (bc::BC_MODIFIER_SHIFT, "shift-"),
-        (bc::BC_MODIFIER_META, "cmd-"),
-    ] {
-        if key.modifiers & flag != 0 {
-            keystroke.push_str(modifier);
-        }
-    }
-    let key = match name.as_ref() {
-        "ArrowDown" => "down".to_string(),
-        "ArrowUp" => "up".to_string(),
-        "ArrowLeft" => "left".to_string(),
-        "ArrowRight" => "right".to_string(),
-        " " => "space".to_string(),
-        name => name.to_lowercase(),
+    let text = |text: *const c_char| match text.is_null() {
+        true => Default::default(),
+        false => unsafe { CStr::from_ptr(text) }.to_string_lossy(),
     };
-    shell::written_as(&(keystroke + &key))
+    shell::page_keystroke(&text(key.key), &text(key.latin_key), key.modifiers)
 }
 
 /// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't,
@@ -3808,6 +3791,7 @@ unsafe extern "C" fn extensions_changed(
                     key: command.key,
                     modifiers: command.modifiers,
                     editing: false,
+                    latin_key: std::ptr::null(),
                 })
                 .into(),
                 suggested: command.suggested,

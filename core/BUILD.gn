@@ -102,6 +102,7 @@ source_set("browser_core") {
     "page_dialog.h",
     "permission_question.cc",
     "permission_question.h",
+    "platform/keyboard.h",
     "platform/keychain.h",
     "platform/native_hosts.h",
     "platform/system_page.h",
@@ -250,11 +251,14 @@ source_set("browser_core") {
 
   if (is_mac) {
     sources += [
+      "platform/mac/keyboard.mm",
       "platform/mac/keychain.mm",
       "platform/mac/native_widget.mm",
       "platform/mac/system_page.mm",
       "platform/mac/window_views.mm",
     ]
+    # The keyboard's layouts, for keyboard.mm.
+    frameworks = [ "Carbon.framework" ]
     # WebKit isn't linked: system_page.mm starts it with the first system page, so a launch that
     # shows none starts no WebKit process.
     deps += [
@@ -270,7 +274,10 @@ source_set("browser_core") {
       all_dependent_configs = [ ":exports" ]
     }
   } else {
-    sources += [ "platform/system_page_none.cc" ]
+    sources += [
+      "platform/keyboard_none.cc",
+      "platform/system_page_none.cc",
+    ]
   }
   if (is_win || is_linux) {
     sources += [ "platform/app_library.h" ]
