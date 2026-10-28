@@ -511,6 +511,14 @@ void Window::PanesChanged() {
 }
 
 // static
+bool Window::SplitTogether(content::WebContents* contents, content::WebContents* other) {
+  const Tab* tab = Tab::FromWebContents(contents);
+  const Tab* with = Tab::FromWebContents(other);
+  const Space* space = tab && with ? Space::Holding(tab->id()) : nullptr;
+  return space && tab != with && std::ranges::contains(space->Panes(tab->id()), with->id());
+}
+
+// static
 void Window::LayOutShowing(bc_id tab) {
   for (auto& [id, window] : Windows()) {
     if (std::ranges::contains(window->panes_, tab)) {
