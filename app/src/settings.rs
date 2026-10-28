@@ -373,7 +373,9 @@ pub fn check_default_browser(cx: &mut App) {
 }
 
 fn open(cx: &mut App) {
-    cx.bind_keys([gpui::KeyBinding::new("cmd-w", CloseSettings, Some("Settings"))]);
+    // ⌘W, pressed as Ctrl+W off the Mac, as the browser's own shortcuts are.
+    let close = if crate::shell::OFF_THE_MAC { "ctrl-w" } else { "cmd-w" };
+    cx.bind_keys([gpui::KeyBinding::new(close, CloseSettings, Some("Settings"))]);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(
             point(px(0.), px(0.)),
