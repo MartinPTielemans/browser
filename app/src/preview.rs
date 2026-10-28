@@ -943,7 +943,7 @@ impl Browser for Fake {
     ) {
         // PREVIEW_MENU_LOOK=light shows it as a light theme's Space does.
         let light = std::env::var("PREVIEW_MENU_LOOK").is_ok_and(|look| look == "light");
-        let look = if light { menu::Look::Light } else { look };
+        let look = menu::Look { light: light || look.light, ..look };
         let area = Bounds::new(point(px(0.), px(0.)), PREVIEW_AREA.get());
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
     }

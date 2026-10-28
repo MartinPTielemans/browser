@@ -740,7 +740,7 @@ impl site_controls::Host for SiteControlsHost {
         cx: &mut App,
     ) {
         // The panel's menus are dark, as the panel is.
-        show_menu(self.view.get(), items, position, false, menu::Look::Dark, chosen, cx);
+        show_menu(self.view.get(), items, position, false, menu::Look::dark(), chosen, cx);
     }
 
     fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, cx: &mut App) {
