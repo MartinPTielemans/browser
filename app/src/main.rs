@@ -52,6 +52,12 @@ mod overlays;
 #[path = "../platform/linux/panels.rs"]
 mod panels;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/popovers.rs"]
+mod popovers;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/reveal_window.rs"]
+mod reveal_window;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/settings_window.rs"]
 mod settings_window;
 mod reveal;
@@ -2687,6 +2693,8 @@ fn open_window_as(
                     panels::place(ui_view);
                     overlays::place_dialog(ui_view);
                     menu_window::resized(ui_view);
+                    popovers::resized(ui_view);
+                    reveal_window::place(ui_view);
                 }
             })
             .detach();

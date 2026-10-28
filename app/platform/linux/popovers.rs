@@ -1,0 +1,254 @@
+//! The Site Controls and Capture of platform/host.h on Linux, which float over a browser window
+//! with its keyboard until the user leaves them, as their windows do on the Mac. GPUI shows each as
+//! an overlay of that window (overlays.rs); the core lends it the window's keyboard while it has it.
+//!
+//! shortcut: no blur or shadow under the Site Controls, which show and go without their motion's
+//! scale, and the pointer over Capture is the arrow, not a camera.
+
+use std::{cell::RefCell, ffi::c_void};
+
+use gpui::{Bounds, Pixels, point, px, size};
+
+use crate::{bc, overlays};
+
+#[derive(Clone, Copy, PartialEq)]
+enum Kind {
+    SiteControls,
+    Capture,
+}
+
+struct Popover {
+    kind: Kind,
+    view: *mut c_void,
+    dismissed: extern "C" fn(),
+    shown: Option<Shown>,
+}
+
+#[derive(Clone, Copy)]
+struct Shown {
+    /// The UI's view of the browser window they're over, the core's id of it, and its content's
+    /// size as they showed, which Capture's picture of the page fits.
+    ui_view: *mut c_void,
+    window: bc::bc_id,
+    content: gpui::Size<Pixels>,
+    bounds: Bounds<Pixels>,
+    /// They take no more clicks or keys as they leave (host_release_site_controls).
+    released: bool,
+}
+
+thread_local! {
+    static POPOVERS: RefCell<Vec<Popover>> = const { RefCell::new(Vec::new()) };
+}
+
+fn add(kind: Kind, view: *mut c_void, dismissed: extern "C" fn()) {
+    POPOVERS.with_borrow_mut(|all| {
+        all.retain(|each| each.kind != kind);
+        all.push(Popover { kind, view, dismissed, shown: None });
+    });
+}
+
+fn with<R>(kind: Kind, f: impl FnOnce(&mut Popover) -> R) -> Option<R> {
+    POPOVERS.with_borrow_mut(|all| all.iter_mut().find(|each| each.kind == kind).map(f))
+}
+
+fn name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::SiteControls => "site controls",
+        Kind::Capture => "capture",
+    }
+}
+
+/// Shows `kind` over `ui_view`'s window at `left`, `top`, `width` by `height` in its content, with
+/// the keyboard.
+fn show(kind: Kind, ui_view: *mut c_void, left: f64, top: f64, width: f64, height: f64) -> bool {
+    if with(kind, |p| p.shown.is_some_and(|shown| shown.ui_view != ui_view)) == Some(true) {
+        hide(kind);
+    }
+    let Some(content) = gpui_linux::embedder_size(ui_view) else {
+        return false;
+    };
+    let bounds = Bounds::new(
+        point(px(left as f32), px(top as f32)),
+        size(px(width as f32), px(height as f32)),
+    );
+    let window = crate::window_with_view(ui_view);
+    let Some((view, had)) = with(kind, |p| {
+        let had = p.shown.is_some_and(|shown| !shown.released);
+        p.shown = Some(Shown { ui_view, window, content, bounds, released: false });
+        (p.view, had)
+    }) else {
+        return false;
+    };
+    if !had {
+        overlays::lend_keyboard(window, view, true);
+    }
+    gpui_linux::set_overlay_pointer(view, None);
+    gpui_linux::show_overlay(view, ui_view, bounds, px(0.), true, left_popover);
+    true
+}
+
+/// They take no more clicks or keys: the pointer goes through them, and the window has its
+/// keyboard back.
+fn release(kind: Kind) -> bool {
+    let Some(Some((view, window))) = with(kind, |p| {
+        let shown = p.shown.as_mut().filter(|shown| !shown.released)?;
+        shown.released = true;
+        Some((p.view, shown.window))
+    }) else {
+        return false;
+    };
+    gpui_linux::set_overlay_pointer(view, Some(&[]));
+    gpui_linux::set_overlay_keyboard(view, false, left_popover);
+    overlays::lend_keyboard(window, view, false);
+    true
+}
+
+fn hide(kind: Kind) -> bool {
+    let Some(Some((view, shown))) = with(kind, |p| p.shown.take().map(|shown| (p.view, shown)))
+    else {
+        return false;
+    };
+    gpui_linux::hide_overlay(view, move || {
+        if !shown.released {
+            overlays::lend_keyboard(shown.window, view, false);
+        }
+    });
+    // check.sh reads this line.
+    eprintln!("browser: {} hidden", name(kind));
+    true
+}
+
+/// The user left `kind`: a press outside it or the keyboard going to another window. Site Controls
+/// let go and the UI moves them out; Capture goes at once. The UI hears after the event.
+fn dismiss(kind: Kind) {
+    let gone = match kind {
+        Kind::SiteControls => release(kind),
+        Kind::Capture => hide(kind),
+    };
+    if gone && let Some(dismissed) = with(kind, |p| p.dismissed) {
+        dismissed();
+    }
+}
+
+fn left_popover(view: *mut c_void) {
+    let kind = POPOVERS.with_borrow(|all| {
+        (all.iter())
+            .find(|each| each.view == view && each.shown.is_some())
+            .map(|each| each.kind)
+    });
+    if let Some(kind) = kind {
+        dismiss(kind);
+    }
+}
+
+/// `ui_view`'s window's content may have changed size: Capture's picture of the page no longer
+/// fits, so it goes, as the user leaving it. The UI hears once its update is over.
+pub(crate) fn resized(ui_view: *mut c_void) {
+    let shown = with(Kind::Capture, |p| p.shown).flatten();
+    if let Some(shown) = shown
+        && shown.ui_view == ui_view
+        && gpui_linux::embedder_size(ui_view).is_some_and(|now| now != shown.content)
+        && hide(Kind::Capture)
+        && let Some(dismissed) = with(Kind::Capture, |p| p.dismissed)
+    {
+        overlays::later(dismissed);
+    }
+}
+
+/// `ui_view`'s window is closing: what shows over it goes.
+pub(crate) fn forget_window(ui_view: *mut c_void) {
+    for kind in [Kind::SiteControls, Kind::Capture] {
+        if with(kind, |p| p.shown.is_some_and(|shown| shown.ui_view == ui_view)) == Some(true) {
+            hide(kind);
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_add_site_controls(view: *mut c_void, dismissed: extern "C" fn()) {
+    add(Kind::SiteControls, view, dismissed);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_set_site_controls_shape(corners: *const f64, count: usize) {
+    let Some(view) = with(Kind::SiteControls, |p| p.view) else { return };
+    if corners.is_null() {
+        return;
+    }
+    // SAFETY: the caller passes `count` corners of three numbers each.
+    let numbers = unsafe { std::slice::from_raw_parts(corners, count * 3) };
+    let corners: Vec<gpui_linux::Corner> = (numbers.chunks_exact(3))
+        .map(|corner| (corner[0] as f32, corner[1] as f32, corner[2] as f32))
+        .collect();
+    gpui_linux::set_overlay_outline(view, &corners);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_show_site_controls(
+    ui_view: *mut c_void,
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+) {
+    if show(Kind::SiteControls, ui_view, left, top, width, height) {
+        // check.sh reads these lines.
+        eprintln!("browser: site controls at {left} {top} {width} {height}");
+        eprintln!("browser: site controls shown");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_set_site_controls_height(height: f64) {
+    let moved = with(Kind::SiteControls, |p| {
+        let shown = p.shown.as_mut()?;
+        shown.bounds.size.height = px(height as f32);
+        Some((p.view, shown.bounds))
+    });
+    if let Some(Some((view, bounds))) = moved {
+        gpui_linux::move_overlay(view, bounds, px(0.));
+        eprintln!("browser: site controls height {height}");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_site_controls_drew(_scale: f64, _opacity: f64, _x: f64, _y: f64) {}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_release_site_controls() {
+    if release(Kind::SiteControls) {
+        eprintln!("browser: site controls released");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_hide_site_controls() {
+    hide(Kind::SiteControls);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_add_capture(view: *mut c_void, dismissed: extern "C" fn()) {
+    add(Kind::Capture, view, dismissed);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_show_capture(
+    ui_view: *mut c_void,
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+) {
+    if show(Kind::Capture, ui_view, left, top, width, height) {
+        // check.sh reads this line.
+        eprintln!("browser: capture shown at {left} {top} {width} {height}");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_capture_camera(_camera: bool) {}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn host_hide_capture() {
+    hide(Kind::Capture);
+}

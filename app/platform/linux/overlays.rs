@@ -218,7 +218,7 @@ fn left_overlay(view: *mut c_void) {
 }
 
 /// Runs `dismissed` once the update under way, if any, is over.
-fn later(dismissed: extern "C" fn()) {
+pub(crate) fn later(dismissed: extern "C" fn()) {
     if let Some(cx) = crate::CX.with_borrow(Clone::clone) {
         cx.foreground_executor()
             .spawn(async move { dismissed() })
