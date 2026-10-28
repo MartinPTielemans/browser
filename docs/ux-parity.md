@@ -80,7 +80,7 @@ One row per item in [ux-spec.md](ux-spec.md). The spec holds the full rule and w
 | [x] | Row titles | MVP | selected white 1, unselected 0.78 | Dia asset catalogs |
 | [x] | Row hover | MVP | the fill comes and goes in one frame; only the selected row eases back from its hover (white 0.36) to its fill over ≈ 170 ms | Arc 1.170 rec |
 | [x] | Close ✕ | MVP | on hover, the selected row's too; 26 × 26, 5 inside the plate's right edge; two bars 11.4 × 2, white 0.6; − on the selected pinned row, which unloads it, the bars turning level over 110 ms | Arc 1.170.0 cap, Arc 1.170 rec |
-| [x] | Loading spinner | MVP | 12 × 12, 1.5 pt, ring 72 %, track 0.18, clockwise 1.88 s linear; only in rows ≥ 48 wide | Dia 1.50.1 bin |
+| [x] | Status dot | MVP | ours (#321) in the spinner's 12 × 12 slot: 6 pt, white 0.6 while loading, Signal green #0E9F55 in a 1.5 pt #F3F0E8 ring while an agent is at work in the tab, breathing while it loads; only in rows ≥ 48 wide | ours, after Dia 1.50.1 bin's slot |
 | [x] | Speaker | MVP | after the favicon while the page plays and 2 s after, crossed out while muted; a click mutes or unmutes the tab, as Arc mutes tabs *interim*; Arc's look: measure | Arc 1.170.0 bin, Dia, Chrome |
 | [x] | Sleeping tab | MVP | favicon at half opacity while unloaded, in rows, tiles and splits *interim*; Arc's alpha: measure | Dia |
 | [x] | "+ New Tab" row | MVP | the first row under the divider, where new tabs open below it (Arc); label white 0.55, plus 0.25; hover as rows | Arc, Dia 1.50.1 bin |

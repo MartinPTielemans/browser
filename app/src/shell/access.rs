@@ -46,6 +46,7 @@ impl Shell {
         let states = [
             (page.audible && !page.muted, "playing audio"),
             (page.muted, "muted"),
+            (self.agent_at_work(tab), "agent working"),
             (page.loading, "loading"),
             (page.unloaded, "unloaded"),
         ];

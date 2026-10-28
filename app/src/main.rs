@@ -3207,7 +3207,8 @@ unsafe extern "C" fn private_session_ended(_: *mut c_void, profile: bc::bc_id) {
 }
 
 /// An agent's action as the core judged it. The Agent Space's activity log will list these; until
-/// it ships with the MCP server (decision 8), the log has them, and check.sh reads it.
+/// it ships with the MCP server (decision 8), the log has them, and check.sh reads it. One it let
+/// the agent do puts the agent's dot on the tab's row, from the same entry.
 unsafe extern "C" fn agent_activity(_: *mut c_void, entry: *const bc::bc_agent_activity) {
     let entry = unsafe { &*entry };
     let text = |text| unsafe { CStr::from_ptr(text) }.to_string_lossy();
@@ -3215,6 +3216,10 @@ unsafe extern "C" fn agent_activity(_: *mut c_void, entry: *const bc::bc_agent_a
     match refused.is_empty() {
         true => log!("browser: agent activity {agent} {} {action}", entry.tab),
         false => log!("browser: agent activity {agent} {} {action} refused: {refused}", entry.tab),
+    }
+    if refused.is_empty() {
+        let (agent, tab): (SharedString, _) = (agent.into_owned().into(), entry.tab);
+        update_shells(|shell, cx| shell.agent_acted(agent.clone(), tab, cx));
     }
 }
 

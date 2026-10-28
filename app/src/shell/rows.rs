@@ -8,14 +8,15 @@ use std::{
 
 use gpui::{
     AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent, Role, SharedString,
-    Transformation, canvas, div, percentage, prelude::*, px, rgb, rgba, svg,
+    canvas, div, prelude::*, px, rgb, rgba, svg,
 };
 
 use super::{
     CLEAR, CLEAR_ARROW, CLEAR_HOVERED, CLOSE_GLYPH, CLOSE_HOVERED, CLOSE_RIGHT, CLOSE_SIZE, Pending,
     CancelName, Closing, Command, DIVIDER, EMOJI_SIZE, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X,
     FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, KeepName, LOADING_ROW_MIN, LOADING_SIZE,
-    LOADING_TURN, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
+    STATUS_AGENT, STATUS_DOT, STATUS_LOADING, STATUS_RING, STATUS_RING_COLOR,
+    BREATH, BREATH_LOW, NAME_HEIGHT, NAV, NAV_HOVERED, NAV_RADIUS, Naming, PLATE_HEIGHT, PLATE_INSET,
     ROW_HEIGHT, ROW_PITCH, Row, SECONDARY, SEGMENT_END, SEGMENT_FAVICON_X, SEGMENT_LINE, SEGMENT_TITLE_GAP, SELECTED,
     SELECTED_UNHOVER, SLEEPING_FAVICON, SPACE_ICON_PLATE, SPEAKER_DRAWN, SPEAKER_GAP, SPEAKER_SIZE,
     Shell, Slot, Swapped, TITLE_END_INSET, clear_label, cubic_bezier, divider_box, favicon,
@@ -444,9 +445,7 @@ impl Shell {
             .when(!first, |segment| segment.child(line))
             .child(icon)
             .child(title(self.title(tab), focused))
-            .when(page.loading && width >= LOADING_ROW_MIN, |segment| {
-                segment.child(self.loading_ring())
-            })
+            .when(width >= LOADING_ROW_MIN, |segment| segment.children(self.status_dot(tab)))
     }
 
     /// `segment`, which a press shows focused, a double-click renames and a right-click shows the
@@ -575,7 +574,6 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let page = self.page(tab);
-        let loading = page.loading;
         let closable = self.closable(tab);
         let hovered = self.pointer_row() == Some(Row::Tab(tab));
         // Away from its pinned URL, a pinned tab's favicon is a way back.
@@ -603,7 +601,7 @@ impl Shell {
                 })
                 .child(title)
                 .when(hovered && closable, |label| label.child(close))
-                .when(!hovered && loading, |label| label.child(self.loading_ring())),
+                .when(!hovered, |label| label.children(self.status_dot(tab))),
         };
         let renaming = renaming.is_some();
         let icon = match back {
@@ -862,42 +860,43 @@ pub(super) fn speaker_glyph(muted: bool) -> &'static str {
     if muted { "icons/volume-x.svg" } else { "icons/volume-2.svg" }
 }
 
-// How often the rings are drawn. GPUI can't redraw only a ring, so each frame is the whole shell
+// How often the dots are drawn. GPUI can't redraw only a dot, so each frame is the whole shell
 // again; 30 ms lands on every second display frame at 60 Hz and every fourth at 120.
 const LOADING_FRAME: Duration = Duration::from_millis(30);
-// Rings left undrawn this long start upright again.
+// Dots left undrawn this long start their breath again.
 const LOADING_GAP: Duration = Duration::from_millis(200);
 
-/// The loading rings' clock: every ring turns with it, and one timer redraws them all while one
-/// is drawn, where an animation for each would ask for the shell at every display frame.
+/// The loading dots' clock: every dot breathes with it, and one timer redraws them all while one
+/// is drawn, where an animation for each would ask for the shell at every display frame. With no
+/// page loading nothing asks for it, so an idle browser draws nothing.
 #[derive(Default)]
-pub(super) struct Rings {
-    /// When the turn began that the rings are on, and when a ring was last drawn.
+pub(super) struct Breath {
+    /// When the breath began that the dots are on, and when a dot was last drawn.
     since: Cell<Option<Instant>>,
     last: Cell<Option<Instant>>,
-    /// The frame being built draws a ring, and a timer is out to draw the next.
+    /// The frame being built draws a loading dot, and a timer is out to draw the next.
     drawn: Cell<bool>,
     pending: Cell<bool>,
-    /// Motion is reduced, so the rings stand still.
+    /// Motion is reduced, so the dots hold still at full strength.
     still: Cell<bool>,
 }
 
-impl Rings {
-    /// How far through its turn a ring drawn now is, 0 to 1.
-    fn turn(&self) -> f32 {
+impl Breath {
+    /// How strong a loading dot drawn now is.
+    fn strength(&self) -> f32 {
         self.drawn.set(true);
         if self.still.get() {
-            return 0.;
+            return 1.;
         }
         let now = Instant::now();
         if self.last.replace(Some(now)).is_none_or(|last| now.duration_since(last) > LOADING_GAP) {
             self.since.set(Some(now));
         }
         let since = self.since.get().unwrap_or(now);
-        (now.duration_since(since).as_secs_f32() / LOADING_TURN.as_secs_f32()).fract()
+        breath_strength((now.duration_since(since).as_secs_f32() / BREATH.as_secs_f32()).fract())
     }
 
-    /// Once a frame is built: if it drew a ring, draws the next in a moment.
+    /// Once a frame is built: if it drew a loading dot, draws the next in a moment.
     pub(super) fn arm(&self, cx: &mut Context<Shell>) {
         self.still.set(cx.reduce_motion());
         if !self.drawn.take() || self.still.get() || self.pending.replace(true) {
@@ -907,7 +906,7 @@ impl Rings {
             cx.background_executor().timer(LOADING_FRAME).await;
             shell
                 .update(cx, |shell, cx| {
-                    shell.rings.pending.set(false);
+                    shell.breath.pending.set(false);
                     cx.notify();
                 })
                 .ok();
@@ -916,17 +915,49 @@ impl Rings {
     }
 }
 
+/// A dot's strength `phase` of the way through its breath: from BREATH_LOW up to full half way
+/// and back, eased in and out.
+fn breath_strength(phase: f32) -> f32 {
+    BREATH_LOW + (1. - BREATH_LOW) * (1. - (std::f32::consts::TAU * phase).cos()) / 2.
+}
+
 impl Shell {
-    /// A loading tab's ring, at the row's trailing edge, turning.
-    fn loading_ring(&self) -> impl IntoElement + use<> {
-        svg()
-            .path("icons/loading.svg")
-            .flex_none()
-            .ml(px(4.))
-            .size(px(LOADING_SIZE))
-            .text_color(rgba(SECONDARY))
-            .with_transformation(Transformation::rotate(percentage(self.rings.turn())))
+    /// A tab's status dot, in the slot at its row's end, if it has one: Signal green while an
+    /// agent is at work in it, else the row's text while its page loads, breathing while it loads
+    /// either way.
+    fn status_dot(&self, tab: u64) -> Option<impl IntoElement + use<>> {
+        let (loading, agent) = (self.page(tab).loading, self.agent_at_work(tab));
+        let dot = match (agent, loading) {
+            (true, _) => ringed_dot(STATUS_AGENT, STATUS_DOT),
+            (false, true) => div().size(px(STATUS_DOT)).rounded_full().bg(rgba(STATUS_LOADING)),
+            (false, false) => return None,
+        };
+        let strength = if loading { self.breath.strength() } else { 1. };
+        Some(
+            div()
+                .flex_none()
+                .ml(px(4.))
+                .size(px(LOADING_SIZE))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(dot.opacity(strength)),
+        )
     }
+}
+
+/// A status dot `size` across of `color`, a colour that says who, such as an agent's Signal green
+/// or a Space's own, in a ring that keeps it readable on any theme. #335's palette takes this over
+/// to pick the ring by its contrast with the theme.
+pub(super) fn ringed_dot(color: u32, size: f32) -> gpui::Div {
+    div()
+        .size(px(size + 2. * STATUS_RING))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(rgb(STATUS_RING_COLOR))
+        .child(div().size(px(size)).rounded_full().bg(rgb(color)))
 }
 
 /// An emoji in a favicon's place.
@@ -956,27 +987,30 @@ mod tests {
             drag::detents::shell_with,
             recorder::Recorder,
         },
-        CLOSE, LOADING_GAP, LOADING_TURN, Pending, Rings, Subject, UNLOAD,
+        BREATH, BREATH_LOW, Breath, CLOSE, LOADING_GAP, Pending, Subject, UNLOAD, breath_strength,
     };
     use crate::icon_picker::{self, Picked, Recents};
 
-    /// Rings begin upright and are half way round half a turn later, together; left undrawn for a
-    /// while they start upright again, and with reduced motion they never turn.
+    /// A loading dot breathes from BREATH_LOW to full half a breath in, eased, and back, all
+    /// together; left undrawn for a while they start again, and with reduced motion they hold at
+    /// full strength.
     #[test]
-    fn the_rings_turn_together_and_start_upright() {
-        let rings = Rings::default();
-        assert!(rings.turn() < 0.01);
-        rings.since.set(Some(Instant::now() - LOADING_TURN / 2));
-        let (first, second) = (rings.turn(), rings.turn());
-        assert!((0.49..0.52).contains(&first), "half a turn in, {first}");
-        assert!((first..first + 0.01).contains(&second));
+    fn the_loading_dots_breathe_together() {
+        let breath = Breath::default();
+        assert!((breath.strength() - BREATH_LOW).abs() < 0.01);
+        assert!((breath_strength(0.25) - (1. + BREATH_LOW) / 2.).abs() < 0.001);
+        assert!((breath_strength(1.) - BREATH_LOW).abs() < 0.001);
+        breath.since.set(Some(Instant::now() - BREATH / 2));
+        let (first, second) = (breath.strength(), breath.strength());
+        assert!(first > 0.99, "half a breath in, {first}");
+        assert!((second - first).abs() < 0.01);
 
-        rings.last.set(Some(Instant::now() - LOADING_GAP - Duration::from_millis(1)));
-        assert!(rings.turn() < 0.01, "undrawn for a while, it starts over");
+        breath.last.set(Some(Instant::now() - LOADING_GAP - Duration::from_millis(1)));
+        assert!(breath.strength() < BREATH_LOW + 0.01, "undrawn for a while, it starts over");
 
-        rings.since.set(Some(Instant::now() - LOADING_TURN / 2));
-        rings.still.set(true);
-        assert_eq!(rings.turn(), 0.);
+        breath.since.set(Some(Instant::now() - BREATH / 4));
+        breath.still.set(true);
+        assert_eq!(breath.strength(), 1.);
     }
 
     /// A row's hover fill comes and goes at once, and only the selected row's eases back, from

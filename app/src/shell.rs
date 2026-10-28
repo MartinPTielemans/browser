@@ -109,7 +109,7 @@ use library::{RECEDE_X, Section};
 use menus::MenuAction;
 use panes::pane_frames;
 use recent_downloads::RecentDownloads;
-use rows::Rings;
+use rows::Breath;
 use scaled::scaled;
 use swap::{ARROW_DOWN, Swapped, Swaps, UNLOAD};
 use tile_theme::TileTheme;
@@ -270,8 +270,14 @@ use crate::tokens::shell::FAVICON_DRAWN;
 use crate::tokens::shell::EMOJI_SIZE;
 use crate::tokens::shell::LOADING_SIZE;
 use crate::tokens::shell::LOADING_ROW_MIN;
-// One clockwise turn (docs/ux-spec.md › Motion).
-const LOADING_TURN: Duration = Duration::from_millis(1880);
+use crate::tokens::shell::STATUS_DOT;
+use crate::tokens::shell::STATUS_LOADING;
+use crate::tokens::shell::STATUS_AGENT;
+use crate::tokens::shell::BREATH_LOW;
+use crate::tokens::shell::STATUS_RING;
+use crate::tokens::shell::STATUS_RING_COLOR;
+// A loading dot's breath, out and back, eased in and out (ours, #321).
+const BREATH: Duration = Duration::from_millis(1600);
 use crate::tokens::shell::TITLE_GAP;
 /// Where a row's title starts, in from its plate's left.
 const FOLDER_TITLE_X: f32 = FAVICON_X - PLATE_INSET + FAVICON_SIZE + TITLE_GAP;
@@ -846,8 +852,11 @@ pub struct Shell {
     profiles: Vec<(u64, SharedString)>,
     /// The tabs of every Space, and the favorites.
     tabs: HashMap<u64, Tab>,
-    /// The loading rings' clock.
-    rings: Rings,
+    /// The loading dots' clock.
+    breath: Breath,
+    /// The tab each agent last acted in, by the agent's id, as the activity log has it: an agent
+    /// is at work there, which its row's dot shows while the tab is in an agent's Space.
+    agents_at: HashMap<SharedString, u64>,
     selected: u64,
     /// Tabs of every Space, shown most recently first.
     recent: Vec<u64>,
@@ -1133,7 +1142,8 @@ impl Shell {
             favorite_holders: HashMap::new(),
             profiles: Vec::new(),
             tabs: HashMap::new(),
-            rings: Rings::default(),
+            breath: Breath::default(),
+            agents_at: HashMap::new(),
             recent: Vec::new(),
             walked: None,
             selected: 0,
@@ -1809,6 +1819,12 @@ impl Shell {
                     .any(|space| space.pinned.contains(tab) || space.today.contains(tab))
         };
         self.tabs.retain(|tab, _| open(tab));
+        // An agent is at work only in its own Space's tabs, so not in one the user took out.
+        self.agents_at.retain(|_, tab| {
+            spaces.iter().any(|space| {
+                !space.agent.is_empty() && (space.pinned.contains(tab) || space.today.contains(tab))
+            })
+        });
         self.crash_cards.retain(|tab, _| open(tab));
         self.recent.retain(open);
         if let Some(Naming::Tab(tab)) = self.renaming.as_ref().map(|renaming| renaming.naming)
@@ -2139,6 +2155,23 @@ impl Shell {
     /// user's tabs out of its reach.
     fn agents_space_shown(&self) -> bool {
         self.shown_space().is_some_and(|space| !space.agent.is_empty())
+    }
+
+    /// The core let the agent with the id `agent` act in `tab`, for the activity log: it's at work
+    /// there now, and no longer in the tab it acted in before.
+    pub fn agent_acted(&mut self, agent: SharedString, tab: u64, cx: &mut Context<Self>) {
+        let before = self.agents_at.insert(agent, tab);
+        if before != Some(tab) {
+            for tab in before.into_iter().chain([tab]) {
+                self.tab_changed(tab, true, cx);
+            }
+        }
+    }
+
+    /// Whether an agent is at work in `tab`. Only an agent's own Space's tabs are its to act in,
+    /// so one the user moved out of it, into a Space of theirs, no longer shows one.
+    pub(super) fn agent_at_work(&self, tab: u64) -> bool {
+        self.agents_space_shown() && self.agents_at.values().any(|&at| at == tab)
     }
 
     fn show_space_at(&mut self, index: Option<usize>, cx: &mut Context<Self>) {
@@ -2600,7 +2633,7 @@ impl Render for Shell {
             && self.sidebar_motion.is_none()
             && self.library.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
-        self.rings.arm(cx);
+        self.breath.arm(cx);
         div()
             .key_context(KEY_CONTEXT)
             .track_focus(&self.focus_handle)
@@ -3012,7 +3045,7 @@ impl Shell {
                     .child(self.scroll_listener(false, cx)),
             )
             .into_any_element();
-        self.rings.arm(cx);
+        self.breath.arm(cx);
         panel
     }
 
