@@ -58,6 +58,7 @@ const NOT_ONE_OF_FOUR: &[&str] = &[
     "shell.split-targets.half-glyph-radius",
     "shell.extensions.badge-radius",
     "shell.recent-downloads.preview-radius",
+    "menu.radius",
 ];
 
 #[test]
@@ -89,7 +90,7 @@ fn every_corner_is_one_of_the_four_radii() {
 #[test]
 fn a_corner_inside_another_is_concentric() {
     use super::{
-        capture, command_bar, radius, shell,
+        capture, command_bar, menu, radius, shell,
         shell::{extensions, recent_downloads},
         site_controls, toast,
     };
@@ -108,6 +109,9 @@ fn a_corner_inside_another_is_concentric() {
     // The toast's chips sit as far in from its top as its corner needs, to half a point.
     let inset = (toast::HEIGHT - toast::CHIP_HEIGHT) / 2.;
     assert!((toast::RADIUS - toast::CHIP_RADIUS - inset).abs() < 0.5, "{inset}");
+    // ilo's menu: its rows are controls, and its panel is theirs and its padding.
+    assert_eq!(menu::ROW_RADIUS, radius::CONTROL);
+    assert_eq!(menu::RADIUS, radius::CONTROL + menu::PADDING);
     // A pill's corners are half its height.
     assert_eq!(extensions::BADGE_RADIUS, extensions::BADGE_HEIGHT / 2.);
 }

@@ -3424,3 +3424,17 @@ bool host_choose(const char* title) {
   }
   return false;
 }
+
+// For menu_window.mm, whose window goes over a browser window as the overlays here do.
+void HostAddOver(NSWindow* parent, NSWindow* child) {
+  AddOver(parent, child);
+}
+
+void HostMakeOverlay(NSWindow* window) {
+  MakeOverlay(window);
+}
+
+NSView* HostRevealView(void* ui_view) {
+  Browser* browser = BrowserWithView(ui_view);
+  return browser ? browser->reveal_view : nil;
+}

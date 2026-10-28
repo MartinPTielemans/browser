@@ -16,10 +16,16 @@ use browser::shell::{
 };
 use browser::command_bar::{self, Suggestion};
 use browser::icon_picker::{self, Recents};
+use browser::menu;
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
     WeakEntity, WindowBounds, WindowOptions, point, px, size,
 };
+
+thread_local! {
+    /// The preview window's size, where its menus may go.
+    static PREVIEW_AREA: Cell<Size<Pixels>> = Cell::new(size(px(1280.), px(800.)));
+}
 
 unsafe extern "C" {
     // platform/mac/host.mm: where a window goes, centered on the main display or, with
@@ -916,6 +922,22 @@ impl Browser for Fake {
     ) {
     }
 
+    fn context_menu(
+        &self,
+        items: Vec<MenuEntry>,
+        at: Point<Pixels>,
+        _: bool,
+        look: menu::Look,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        cx: &mut App,
+    ) {
+        // PREVIEW_MENU_LOOK=light shows it as a light theme's Space does.
+        let light = std::env::var("PREVIEW_MENU_LOOK").is_ok_and(|look| look == "light");
+        let look = if light { menu::Look::Light } else { look };
+        let area = Bounds::new(point(px(0.), px(0.)), PREVIEW_AREA.get());
+        menu::show(menu::Request { items, at, area, look, chosen }, cx);
+    }
+
     fn confirm(
         &self,
         _: String,
@@ -1261,6 +1283,7 @@ fn main() {
             window.focus(&shell.focus_handle(cx), cx);
             shell
         });
+        let shell_window = window.as_ref().ok().copied();
         match window {
             // PREVIEW_LIBRARY=1 opens the Library, and PREVIEW_LIBRARY=downloads or =spaces opens
             // it there.
@@ -1303,8 +1326,62 @@ fn main() {
                 icon_picker::show(subject, icon.into(), point(0., 0.), 0x3d81f9, picked, cx);
             }
         }
+        // PREVIEW_MENU=<x>,<y>[,<key>…] right-clicks there in the window, as on a row or a Space's
+        // name, and then presses the keys in ilo's menu, such as `m,right` for a submenu.
+        if let Ok(what) = std::env::var("PREVIEW_MENU") {
+            PREVIEW_AREA.set(bounds.size);
+            if let Some(shell) = shell_window {
+                preview_menu(shell.into(), bounds, &what, cx);
+            }
+        }
         cx.activate(true);
     });
+}
+
+fn preview_menu(shell: gpui::AnyWindowHandle, bounds: Bounds<Pixels>, what: &str, cx: &mut App) {
+    let mut parts = what.split(',');
+    let mut number = || parts.next().and_then(|part| part.trim().parse::<f32>().ok());
+    let (Some(x), Some(y)) = (number(), number()) else { return };
+    let keys: Vec<String> = what.split(',').skip(2).map(|key| key.trim().to_string()).collect();
+    let Some(window) = menu::open_at(Rc::new(PreviewMenu), bounds, cx) else { return };
+    // Not the menu's own handle, whose update would hold the menu the keys go to.
+    let window: gpui::AnyWindowHandle = window.into();
+    cx.spawn(async move |cx| {
+        // Once the shell has drawn its rows, whose boxes the click finds.
+        cx.background_executor().timer(Duration::from_millis(500)).await;
+        let position = point(px(x), px(y));
+        let modifiers = gpui::Modifiers::default();
+        let down = gpui::MouseDownEvent {
+            button: gpui::MouseButton::Right,
+            position,
+            modifiers,
+            click_count: 1,
+            first_mouse: false,
+        };
+        let up = gpui::MouseUpEvent { button: gpui::MouseButton::Right, position, modifiers, click_count: 1 };
+        shell
+            .update(cx, |_, window, cx| {
+                window.dispatch_event(gpui::PlatformInput::MouseDown(down), cx);
+                window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
+            })
+            .ok();
+        for key in keys {
+            cx.background_executor().timer(Duration::from_millis(50)).await;
+            let os = gpui::OperatingSystem::Mac;
+            let Some(keystroke) = gpui::Keystroke::parse_with_os(&key, os).ok() else { continue };
+            window.update(cx, |_, window, cx| window.dispatch_keystroke(keystroke, cx)).ok();
+        }
+    })
+    .detach();
+}
+
+/// ilo's menu over the preview's window, whose host can't move it: its window covers the preview's.
+struct PreviewMenu;
+
+impl menu::Host for PreviewMenu {
+    fn show(&self, _: Bounds<Pixels>) {}
+
+    fn hide(&self) {}
 }
 
 /// The icon picker over the preview's window, whose host can't move it: it opened where it's to be.

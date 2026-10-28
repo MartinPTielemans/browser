@@ -8,6 +8,12 @@ engine/patches/ours/chromium-core-embedded-view.patch and the patches in engine/
   Ardia
   Copyright 2026 Mantra Patel
 
+Zed (https://github.com/zed-industries/zed), GNU General Public License, version 3 or later
+Used in app/src/menu.rs, adapted from crates/ui/src/components/context_menu.rs at commit
+b36b283021c48f1712714b8a0e2ad6ffb578920b.
+
+  Copyright 2022 - 2026 Zed Industries, Inc.
+
 Lucide (https://github.com/lucide-icons/lucide), ISC License, some icons MIT License
 Used in app/assets/icons/: activity, app-window, archive, arrow-down-to-line, arrow-down,
 arrow-left-right, arrow-left, arrow-right, arrow-up, asterisk, bandage, bed, bell, bluetooth,
