@@ -30,7 +30,7 @@ GPUI and prebuilt CEF in windowed mode, in one Mac process. CEF stands in for Ch
 - Prebuilt engine downloads, so UI work never waits on a Chromium build.
 - CI compiles the core on Linux.
 
-**Done when** a prebuilt framework downloads and links into the spike.
+**Done when** a prebuilt framework downloads and links into the spike (`spikes/gpui-core/` at abb8164, since removed).
 
 ## Phase 3: daily-driver MVP on Mac (about 2–3 months)
 
