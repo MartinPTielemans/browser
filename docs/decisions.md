@@ -108,6 +108,6 @@ Consequences now:
 
 ## 9. Crash reports: opt-in, to a self-hostable GlitchTip
 
-No crash report leaves the device unless the user turns on Send Crash Reports, which is off, since a crash's stacks can hold a URL or page text. They go to [GlitchTip](https://glitchtip.com) (MIT), which takes Chromium's minidumps and self-hosts. Sentry's FSL would keep a fork from running it on the browser's terms. The collector is a default service URL, so a fork names its own or sends none.
+No crash report leaves the device without the user's yes, in Send Crash Reports (off) or the offer after a crash. Its stacks can hold a URL or page text. They go to [GlitchTip](https://glitchtip.com) (MIT), which takes Chromium's minidumps and self-hosts. Sentry's FSL would bar a fork from running it on the browser's terms. The collector is a default service URL: a fork names its own or none.
 
 Revisit if GlitchTip stops taking minidumps or being open source.
