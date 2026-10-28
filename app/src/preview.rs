@@ -612,6 +612,7 @@ impl Browser for Fake {
     // The made-up pages have no source and no DevTools.
     fn view_source(&self, _: u64, _: &mut App) {}
     fn save_page(&self, _: u64, _: &mut App) {}
+    fn close_page_menu(&self, _: u64, _: Option<i32>, _: &mut App) {}
     fn print(&self, _: u64, _: &mut App) {}
 
     fn devtools(&self, _: u64, _: i32, _: &mut App) {}
@@ -1353,6 +1354,15 @@ fn main() {
                 preview_menu(shell.into(), bounds, &what, cx);
             }
         }
+        // PREVIEW_PAGE_MENU=<link|image|text|field>,<x>,<y>[,<key>…] shows a page's menu there, made
+        // up as Chrome builds it for a link, an image, selected text or a misspelt word in a text
+        // field, and then presses the keys in ilo's menu, such as `s,right` for a submenu.
+        if let Ok(what) = std::env::var("PREVIEW_PAGE_MENU") {
+            PREVIEW_AREA.set(bounds.size);
+            if let Some(shell) = shell_window {
+                preview_page_menu(shell, bounds, &what, cx);
+            }
+        }
         cx.activate(true);
     });
 }
@@ -1384,12 +1394,105 @@ fn preview_menu(shell: gpui::AnyWindowHandle, bounds: Bounds<Pixels>, what: &str
                 window.dispatch_event(gpui::PlatformInput::MouseUp(up), cx);
             })
             .ok();
-        for key in keys {
-            cx.background_executor().timer(Duration::from_millis(50)).await;
-            let os = gpui::OperatingSystem::Mac;
-            let Some(keystroke) = gpui::Keystroke::parse_with_os(&key, os).ok() else { continue };
-            window.update(cx, |_, window, cx| window.dispatch_keystroke(keystroke, cx)).ok();
-        }
+        press_keys(window, keys, cx).await;
+    })
+    .detach();
+}
+
+/// Presses `keys` in ilo's menu's `window`, as `PREVIEW_MENU` and `PREVIEW_PAGE_MENU` name them.
+async fn press_keys(window: gpui::AnyWindowHandle, keys: Vec<String>, cx: &mut gpui::AsyncApp) {
+    for key in keys {
+        cx.background_executor().timer(Duration::from_millis(50)).await;
+        let os = gpui::OperatingSystem::Mac;
+        let Some(keystroke) = gpui::Keystroke::parse_with_os(&key, os).ok() else { continue };
+        window.update(cx, |_, window, cx| window.dispatch_keystroke(keystroke, cx)).ok();
+    }
+}
+
+/// A made-up page menu of `kind`, as Chrome builds it on the Mac once the core has taken out what
+/// Arc's leaves out.
+fn page_menu(kind: &str) -> Vec<shell::PageMenuItem> {
+    let row = |command: i32, title: &str| shell::PageMenuItem {
+        command,
+        title: title.to_string().into(),
+        parent: None,
+        enabled: true,
+        checked: false,
+    };
+    let line = || row(0, "");
+    let under =
+        |parent: usize, item: shell::PageMenuItem| shell::PageMenuItem { parent: Some(parent), ..item };
+    let inspect = [line(), row(26500, "Inspect")];
+    let mut items = match kind {
+        "image" => vec![
+            row(50120, "Open Image in New Tab"),
+            row(50121, "Save Image As…"),
+            row(50122, "Copy Image"),
+            row(50123, "Copy Image Address"),
+        ],
+        "text" => vec![
+            row(50160, "Look Up “ilo”"),
+            line(),
+            row(50150, "Copy"),
+            row(50151, "Search DuckDuckGo for “ilo”"),
+            row(35003, "Print…"),
+            line(),
+            row(50170, "Speech"),
+            under(6, row(50171, "Start Speaking")),
+            under(6, shell::PageMenuItem { enabled: false, ..row(50172, "Stop Speaking") }),
+        ],
+        "field" => vec![
+            row(41000, "receive"),
+            row(41001, "relieve"),
+            row(41100, "Add to Dictionary"),
+            row(41101, "Language Settings"),
+            line(),
+            shell::PageMenuItem { enabled: false, ..row(50151, "Cut") },
+            shell::PageMenuItem { enabled: false, ..row(50150, "Copy") },
+            row(50152, "Paste"),
+            row(50153, "Paste and Match Style"),
+            row(50154, "Select All"),
+            row(50180, "Writing Direction"),
+            under(10, shell::PageMenuItem { checked: true, ..row(50181, "Default") }),
+            under(10, row(50182, "Left to Right")),
+            under(10, row(50183, "Right to Left")),
+            line(),
+            row(50170, "Speech"),
+            under(15, row(50171, "Start Speaking")),
+            under(15, shell::PageMenuItem { enabled: false, ..row(50172, "Stop Speaking") }),
+        ],
+        _ => vec![
+            row(50100, "Open Link in New Tab"),
+            row(50101, "Open Link in New Window"),
+            row(50105, "Open Link in Split View"),
+            row(50102, "Open Link in Incognito Window"),
+            line(),
+            row(50103, "Save Link As…"),
+            row(50104, "Copy Link Address"),
+        ],
+    };
+    items.extend(inspect);
+    items
+}
+
+fn preview_page_menu(
+    shell: gpui::WindowHandle<Shell>,
+    bounds: Bounds<Pixels>,
+    what: &str,
+    cx: &mut App,
+) {
+    let mut parts = what.split(',').map(str::trim);
+    let kind = parts.next().unwrap_or("link").to_string();
+    let mut number = || parts.next().and_then(|part| part.parse::<f32>().ok());
+    let (Some(x), Some(y)) = (number(), number()) else { return };
+    let keys: Vec<String> = what.split(',').skip(3).map(|key| key.trim().to_string()).collect();
+    let Some(window) = menu::open_at(Rc::new(PreviewMenu), bounds, cx) else { return };
+    let window: gpui::AnyWindowHandle = window.into();
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(Duration::from_millis(500)).await;
+        let at = point(px(x), px(y));
+        shell.update(cx, |shell, _, cx| shell.show_page_menu(1, page_menu(&kind), at, cx)).ok();
+        press_keys(window, keys, cx).await;
     })
     .detach();
 }

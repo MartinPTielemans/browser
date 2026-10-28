@@ -106,9 +106,9 @@ link_items='Open Link in New Tab, Open Link in New Window, Open Link in Split Vi
 link_items="${link_items}Open Link in Incognito Window, Save Link As…, Copy Link Address"
 link_menu() {
   post rightclick $((x + 20)) $((y + 20))
-  expect "^browser: menu tracked $link_items\(, .*\)\{0,1\}\$" \
+  expect "^browser: menu shown $link_items\(, .*\)\{0,1\}\$" \
     "a right-click on the page's link didn't show Arc's link items in order: \
-$(grep '^browser: menu tracked' "$log" | tail -1)"
+$(grep '^browser: menu shown' "$log" | tail -1)"
 }
 # The tab that loaded the link last.
 link_tab() {
