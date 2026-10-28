@@ -3053,6 +3053,17 @@ void host_copy(const char* text) {
   [pasteboard setString:@(text) forType:NSPasteboardTypeString];
 }
 
+void host_open_full_disk_access(void) {
+  // check.sh reads this line.
+  fprintf(stderr, "browser: open full disk access\n");
+  if (getenv("BROWSER_DRIVE")) {
+    return;
+  }
+  [NSWorkspace.sharedWorkspace
+      openURL:[NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?"
+                                   @"Privacy_AllFiles"]];
+}
+
 void host_open_in_safari(const char* url) {
   NSURL* page = [NSURL URLWithString:@(url)];
   // Only web pages go to another app.

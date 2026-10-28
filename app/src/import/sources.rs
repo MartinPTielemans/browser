@@ -259,6 +259,8 @@ pub struct Profile {
     /// The name the user knows it by.
     pub name: String,
     pub path: PathBuf,
+    /// The browser's own first profile, whose things come into the one this browser started with.
+    pub default: bool,
 }
 
 /// The browsers found under `roots`, the one used last first. Reads only the files that list the
@@ -308,6 +310,7 @@ fn source(browser: &'static Browser, dir: PathBuf) -> Option<Source> {
             dir: String::new(),
             name: browser.name.into(),
             path: dir.clone(),
+            default: true,
         }],
     };
     if profiles.is_empty() {
@@ -349,6 +352,7 @@ fn chromium_profiles(dir: &Path) -> Vec<Profile> {
         .into_iter()
         .map(|(folder, name)| Profile {
             path: dir.join(&folder),
+            default: folder == "Default",
             dir: folder,
             name,
         })
@@ -360,6 +364,7 @@ fn chromium_profiles(dir: &Path) -> Vec<Profile> {
             dir: String::new(),
             name,
             path: dir.to_path_buf(),
+            default: true,
         });
     }
     profiles
@@ -392,24 +397,36 @@ pub fn profile_names(local_state: &str) -> Vec<(String, String)> {
     profiles
 }
 
-/// A Firefox folder's profiles, as `profiles.ini` names them, that are there.
+/// A Firefox folder's profiles, as `profiles.ini` names them, that are there. The default is the
+/// one an install section names, as Firefox starts with it, else the one marked default, else the
+/// first.
 fn firefox_profiles(dir: &Path) -> Vec<Profile> {
     let ini = std::fs::read_to_string(dir.join("profiles.ini")).unwrap_or_default();
     let mut profiles = Vec::new();
-    let (mut name, mut path, mut relative) = (None::<String>, None::<String>, true);
-    let mut done = |name: &mut Option<String>, path: &mut Option<String>, relative: bool| {
+    let mut installed = None::<String>;
+    let mut marked = None::<String>;
+    // The section being read: whether it's an install's, and a profile's name, path, whether its
+    // path is relative and whether it's marked default.
+    let mut install = false;
+    let (mut name, mut path, mut relative, mut default) =
+        (None::<String>, None::<String>, true, false);
+    let mut done = |name: &mut Option<String>, path: &mut Option<String>, relative, default| {
         if let Some(folder) = path.take() {
             let full = if relative {
                 dir.join(&folder)
             } else {
                 PathBuf::from(&folder)
             };
+            if default {
+                marked.get_or_insert(folder.clone());
+            }
             let name = name.take().unwrap_or_else(|| folder.clone());
             if full.is_dir() {
                 profiles.push(Profile {
                     dir: folder,
                     name,
                     path: full,
+                    default: false,
                 });
             }
         }
@@ -417,17 +434,31 @@ fn firefox_profiles(dir: &Path) -> Vec<Profile> {
     };
     for line in ini.lines().map(str::trim) {
         if line.starts_with('[') {
-            done(&mut name, &mut path, relative);
-            relative = true;
+            done(&mut name, &mut path, relative, default);
+            install = line.starts_with("[Install");
+            (relative, default) = (true, false);
         } else if let Some((key, value)) = line.split_once('=') {
-            match key {
-                "Name" => name = Some(value.into()),
-                "Path" => path = Some(value.into()),
-                "IsRelative" => relative = value != "0",
+            match (install, key) {
+                (true, "Default") => {
+                    installed.get_or_insert(value.into());
+                }
+                (true, _) => {}
+                (false, "Name") => name = Some(value.into()),
+                (false, "Path") => path = Some(value.into()),
+                (false, "IsRelative") => relative = value != "0",
+                (false, "Default") => default = value == "1",
                 _ => {}
             }
         }
     }
-    done(&mut name, &mut path, relative);
+    done(&mut name, &mut path, relative, default);
+    let first = profiles.first().map(|profile| profile.dir.clone());
+    let default = [installed, marked, first]
+        .into_iter()
+        .flatten()
+        .find(|dir| profiles.iter().any(|profile| profile.dir == *dir));
+    for profile in &mut profiles {
+        profile.default = Some(&profile.dir) == default.as_ref();
+    }
     profiles
 }

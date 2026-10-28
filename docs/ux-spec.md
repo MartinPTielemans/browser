@@ -886,7 +886,7 @@ Arc's Capture (Arc 1.170 cap ×11, at 1 pt a pixel; no recording, so no motion i
 
 ### Import from other browsers
 
-The user runs it; there is no agent path, because it reads passwords and cookies.
+The user runs it; there is no agent path, because it reads the user's other browsers' data. It never decrypts another browser's saved passwords or cookies, from Chrome's family, Firefox (NSS) or Safari (the Keychain): passwords come from a CSV file the user exports from the other browser, behind that browser's own sign-in, through Chromium's password importer, and cookies don't come, so the user signs in again.
 
 - **From Arc.** Arc Spaces become our Spaces and Arc profiles become our profiles (decision 5; Ardia maps Spaces to profiles). Favorites come in as favorites and each Space's pinned tabs as its pinned tabs (Dia 1.52 imports Arc this way, P§20).
   - Custom tab names come along.
@@ -894,14 +894,14 @@ The user runs it; there is no agent path, because it reads passwords and cookies
   - Arc's Air Traffic Control rules come in as link rules (Link rules).
   - Ours, as Arc's importer isn't recorded: a Space of the same name in the same profile takes its pinned tabs, and a profile of the same name as Arc's (its Local State name) takes its Spaces, so a rerun adds nothing. Folders come as folders, nested, a split view as its tabs, and only http(s) and file tabs come. Today tabs stay in Arc. Arc's colours, placed freely on its picker, become our theme's colour with its count, intensity, noise and appearance. Tabs come in unloaded, loading when first shown.
 - **From Chrome** (P§20).
-  - It brings bookmarks, history, open tabs, passwords, addresses and cards.
-  - It brings cookies, so the user stays signed in. Imported cookies never replace one the profile already has and never go into a private profile.
+  - It brings bookmarks, history, open tabs, addresses and cards, and passwords from the user's exported file.
   - The source's Web Store extensions are listed with links to the store and never installed silently.
-  - On current macOS, Chrome and Brave need Full Disk Access. The importer explains why, links to System Settings and checks again when the user comes back.
+  - Full Disk Access, ours, where macOS asks for it: Safari's folder, which macOS keeps from other apps. The import says why, opens System Settings' Full Disk Access list, and tries again each time the user comes back to the app, saying that a quit and reopen may be needed. The other browsers import without waiting.
   - Running the import again adds nothing new.
 - **From the rest of Chrome's family** (Chrome, Dia, Edge, Brave, Vivaldi, Opera, Chromium, Helium), ours, as Arc's importer isn't measured: Arc has no bookmarks bar, so a browser's bookmarks land in a Space named after it, one for each of its profiles when it has more ("Chrome – Work"), in the profile matched as Arc's are. The bar's bookmarks are its first pinned tabs and folders, or a folder of the bar's name once it holds more than 12, as more would push Today off the sidebar; then the other bookmarks and the phone's, each in a folder of its name. Bookmarklets and the browser's own pages stay out, and so do folders left empty. Arc's own bookmarks don't come, as Arc doesn't show them.
-- **History**, from every browser of Chrome's family, Arc's too: the pages of the last 90 days, as far back as Chromium keeps it, with their titles, visit and typed counts, into the profile its Spaces go to, marked imported. A page already there with a visit as late is skipped, so a rerun adds nothing, and the summary counts only the pages that were new.
-- Cookies wait for passwords: both need the browser's Safe Storage key from the Keychain, which only the prod build asks for.
+- **From Firefox and its family** (Firefox, Zen, LibreWolf), ours: the same, from each profile's `places.sqlite`, its default the one Firefox starts with, which goes to the profile this browser started with. The toolbar is the bar; the menu, the other bookmarks and the phone's come in folders of Firefox's names for them, and tags stay out.
+- **From Safari**, ours: the same, its Favorites Bar as the bar, its menu with the bookmarks outside any folder in a Bookmarks Menu folder, the user's own top folders after it, and the Reading List, a switch of its own, in a Reading List folder.
+- **History**, from every browser, Arc's too: the pages of the last 90 days, as far back as Chromium keeps it, with their titles, visit and typed counts (Firefox keeps only whether a page was typed, Safari not even that), into the profile its Spaces go to, marked imported. A browser's database is read from a copy with its write-ahead log, as the browser keeps it locked while it runs. A page already there with a visit as late is skipped, so a rerun adds nothing, and the summary counts only the pages that were new.
 
 ### Updates
 
