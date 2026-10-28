@@ -603,6 +603,17 @@ fn set_frames(
     unsafe { bc::bc_window_set_side_panel_frame(window, rect(panel)) };
 }
 
+/// Opens the system's share sheet in `window` for the page at `url`, hanging from `frame`.
+fn share_page(window: &BrowserWindow, url: &str, title: &str, frame: Bounds<Pixels>) {
+    let (Ok(url), Ok(title)) = (CString::new(url), CString::new(title)) else {
+        return;
+    };
+    let frame = rect(frame);
+    let (x, y, width, height) = (frame.x, frame.y, frame.width, frame.height);
+    let (url, title) = (url.as_ptr(), title.as_ptr());
+    unsafe { platform::host_share(window.ui_view, x, y, width, height, url, title) };
+}
+
 fn rect(bounds: Bounds<Pixels>) -> bc::bc_rect {
     bc::bc_rect {
         x: f64::from(bounds.origin.x),
@@ -790,14 +801,7 @@ impl site_controls::Host for SiteControlsHost {
                 }) else {
                     return;
                 };
-                let (url, title) = (CString::new(url.as_ref()), CString::new(title.as_ref()));
-                let (Ok(url), Ok(title)) = (url, title) else {
-                    return;
-                };
-                let frame = rect(frame);
-                let (x, y, width, height) = (frame.x, frame.y, frame.width, frame.height);
-                let (url, title) = (url.as_ptr(), title.as_ptr());
-                unsafe { platform::host_share(window.ui_view, x, y, width, height, url, title) };
+                share_page(&window, &url, &title, frame);
             }
             site_controls::Run::SiteSettings => {
                 let url = window.shell.upgrade().map(|shell| shell.read(cx).page(tab).url);
@@ -2025,6 +2029,17 @@ impl Browser for Engine {
     fn share(&self, url: &str, title: &str, service: usize, _: &mut App) {
         if let (Ok(url), Ok(title)) = (CString::new(url), CString::new(title)) {
             unsafe { platform::host_share_with(url.as_ptr(), title.as_ptr(), service) };
+        }
+    }
+
+    // Linux's host has no share sheet yet.
+    fn has_share_sheet(&self) -> bool {
+        cfg!(any(target_os = "macos", target_os = "windows"))
+    }
+
+    fn show_share_sheet(&self, tab: u64, url: &str, title: &str, at: Point<Pixels>, cx: &mut App) {
+        if let Some(window) = tab_window(tab, cx) {
+            share_page(&window, url, title, Bounds::new(at, Size::default()));
         }
     }
 

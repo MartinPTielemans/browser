@@ -72,6 +72,8 @@ pub(super) struct Recorder {
     pub(super) window_title: RefCell<String>,
     /// The share services it lists for any page.
     pub(super) share_services: RefCell<Vec<SharedString>>,
+    /// The system has a share sheet of its own.
+    pub(super) share_sheet: Cell<bool>,
     /// What the last menu does with the item chosen, as `choose` picks it.
     answer: RefCell<Option<Box<dyn FnOnce(Option<usize>, &mut App)>>>,
     /// Each time the shell opened the Site Controls: the tab, and where they hang from.
@@ -631,7 +633,17 @@ impl Browser for Recorder {
         self.share_services.borrow().clone()
     }
 
-    fn share(&self, _: &str, _: &str, _: usize, _: &mut App) {}
+    fn share(&self, url: &str, _: &str, service: usize, _: &mut App) {
+        self.record(format!("share {url} with {service}"))
+    }
+
+    fn has_share_sheet(&self) -> bool {
+        self.share_sheet.get()
+    }
+
+    fn show_share_sheet(&self, tab: u64, url: &str, title: &str, _: Point<Pixels>, _: &mut App) {
+        self.record(format!("share sheet {tab} {url} {title}"))
+    }
 
     fn toast(&self, text: &str, _: Option<(&str, &str)>, _: Duration, _: &mut App) {
         self.toasts.borrow_mut().push(text.into());
