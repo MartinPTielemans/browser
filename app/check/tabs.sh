@@ -286,13 +286,15 @@ switch "1 cmd" "$c"
 expect "browser: tab $c has its page\$" "c's tab didn't get its page back once shown"
 expect "^browser: loaded $c ${c_page##* }\$" "c's page didn't load once shown at ${c_page##* }"
 expect "^$c_page\$" "c's tab came back without its history: $(grep "^browser: page $c back" "$log" | tail -1)"
-# With the switch off, a tab 2 hours unseen keeps its page, and turned on, it lets go.
+# With the switch off, a tab 2 hours unseen keeps its page, and turned on, it lets go. Settings
+# stays open behind the browser window between the two clicks and comes back to the front for the
+# second: a click in a Settings window closed and opened again, on the switch it last changed, never
+# reached it.
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show General"
 send clickkey 592 209
 expect '^browser: unload idle tabs off$' "a click on Unload tabs' switch didn't turn it off"
-post clickkey 16 16
-expect '^browser: settings hidden$' "the close button didn't hide Settings"
+send window 1
 switch "2 cmd" "$b"
 send age 7200
 aged=$step
@@ -301,7 +303,7 @@ expect "^browser: selected $n\$" "a click in the right pane didn't focus it"
 expect 'browser: idle tabs checked$' "showing a tab didn't check for tabs unseen 2 hours"
 since $aged | grep -q "browser: tab $c without its page\$" && fail "a tab let go of its page with the switch off"
 send menu Settings…
-expect '^browser: settings shown General$' "Settings… didn't show General"
+expect '^browser: settings shown General$' "Settings… didn't bring Settings back to the front"
 send clickkey 592 209
 expect '^browser: unload idle tabs on$' "a click on Unload tabs' switch didn't turn it on"
 expect "browser: tab $c without its page\$" "turning the switch on didn't unload the tab unseen 2 hours"
