@@ -42,6 +42,23 @@ Each OS builds the app on a prebuilt engine, which `app/setup.sh` downloads, so 
 
 [CONTRIBUTING.md](CONTRIBUTING.md) has the rules for changes.
 
+## Releases
+
+`.github/workflows/release.yml` makes a release from an annotated tag, `git tag -a v<version>` on a commit whose `app/Cargo.toml` has that version, with the release notes as the tag's message. Each OS builds on its prebuilt engine for that commit, and the run stops if there isn't one. It makes a draft release whose files keep their names, so `releases/latest/download/<name>` always links the newest: `ilo-mac-arm64.dmg`, `ilo-windows-x64.msix`, `ilo-windows-x64-setup.exe`, `ilo-linux-x86_64.flatpak`, `SHA256SUMS` and `appcast.xml`. Once the draft is published, its `appcast.xml` goes to the updates feed: `gh release download v<version> -p appcast.xml && gh release upload updates appcast.xml --clobber`.
+
+The Mac's DMG is built only with these repository secrets:
+
+| Secret | What |
+|---|---|
+| `MAC_CERTIFICATE_P12` | The Developer ID Application certificate and its key, as a base64 `.p12` |
+| `MAC_CERTIFICATE_PASSWORD` | The `.p12`'s password |
+| `MAC_NOTARY_KEY` | An App Store Connect API key for notarization, as a base64 `.p8` |
+| `MAC_NOTARY_KEY_ID`, `MAC_NOTARY_ISSUER_ID` | That key's ID and its issuer's |
+| `SPARKLE_PRIVATE_KEY` | The updates' signing key, from `generate_keys --account ilo -x` (`tools/appcast.sh`) |
+| `UPDATE_PUBLIC_KEY` | Its public half, from `generate_keys --account ilo -p`, which the Mac and Windows builds carry |
+
+The Windows packages are unsigned: the Store signs the MSIX, and winget takes the installer.
+
 ## Architecture
 
 ```

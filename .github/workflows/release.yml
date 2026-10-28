@@ -1,0 +1,306 @@
+# A release of ilo (#454): one draft GitHub release, v<version>, with each OS's package under a name
+# that stays the same from release to release, so the site can link releases/latest/download/<name>:
+#   ilo-mac-arm64.dmg            signed and notarized (tools/release.sh)
+#   ilo-windows-x64.msix         unsigned, as the Store signs it (app/platform/windows/package)
+#   ilo-windows-x64-setup.exe    unsigned, for winget and direct downloads
+#   ilo-linux-x86_64.flatpak     flatpak.yml's bundle
+#   SHA256SUMS, and appcast.xml  the updates feed's next state (tools/appcast.sh)
+# On a pushed v* tag, or by hand with the tag's name. The tag must be app/Cargo.toml's version, and
+# its message is the release's notes. Each job builds on its OS's prebuilt engine for the commit,
+# which engine/fetch.sh finds or fails on; a release never builds an engine. The owner publishes
+# the draft. README.md › Releases names the secrets it needs. GitHub's hosted runners only.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release's tag, v<version>
+        required: true
+
+permissions:
+  contents: read
+
+concurrency: release
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.check.outputs.tag }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      # With the tags, for the tag's message.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: check
+        env:
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' app/Cargo.toml | head -1)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::The tag is $TAG, but app/Cargo.toml's version is $version. Tag v$version, or change the version first."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/notes"
+          notes=$RUNNER_TEMP/notes/notes.md
+          if [ "$(git cat-file -t "refs/tags/$TAG" 2>/dev/null)" = tag ]; then
+            if [ "$(git rev-parse "$TAG^{commit}")" != "$GITHUB_SHA" ]; then
+              echo "::error::$TAG is on another commit. Run the workflow from the tag: gh workflow run release.yml --ref $TAG -f tag=$TAG"
+              exit 1
+            fi
+            git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$TAG" > "$notes"
+          elif git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            echo "::error::$TAG is a lightweight tag. A release's notes are its tag's message: git tag -a $TAG"
+            exit 1
+          else
+            # A run by hand before the tag exists, to try the release: its notes say so.
+            printf '%s\n' "ilo $version, built by hand from $GITHUB_REF_NAME (${GITHUB_SHA:0:12}) to try the release. Not for publishing." > "$notes"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: ${{ runner.temp }}/notes/notes.md
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      # setup.sh and the patches it applies need the repository's line endings.
+      - run: git config --global core.autocrlf false
+        working-directory: .
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Without one, package.sh would pack Browser.dll alone, which doesn't run; a release stops.
+      - name: Engine
+        run: |
+          ../engine/fetch.sh || {
+            echo "::error::No Windows engine release for this commit (engine-windows-cross.yml publishes them), so there are no Windows packages."
+            exit 1
+          }
+
+      - name: Setup
+        run: |
+          rustup update stable --no-self-update
+          ./setup.sh
+          [ -x "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ] || choco install innosetup -y --no-progress
+
+      # The installer's ilo updates itself with WinSparkle, from updates signed with the key whose
+      # public half this is.
+      - name: Browser.dll
+        working-directory: app/windows
+        env:
+          UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
+        run: |
+          if [ -z "$UPDATE_PUBLIC_KEY" ]; then
+            echo "::error::No UPDATE_PUBLIC_KEY secret, so ilo couldn't update itself (README.md › Releases)."
+            exit 1
+          fi
+          cargo build --release --features prod
+
+      # The packaging is app/platform/windows/package's, under the release's names. --release stops
+      # on a missing engine and on windows-store.ini's placeholder identity, and only its release
+      # names are taken, never an -app-only or -placeholder-identity package.
+      - name: Package
+        env:
+          version: ${{ needs.version.outputs.version }}
+        run: |
+          platform/windows/package/package.sh --release "$RUNNER_TEMP/packages"
+          mkdir "$RUNNER_TEMP/windows"
+          mv "$RUNNER_TEMP/packages/ilo-$version-x64.msix" "$RUNNER_TEMP/windows/ilo-windows-x64.msix"
+          mv "$RUNNER_TEMP/packages/ilo-$version-x64-setup.exe" "$RUNNER_TEMP/windows/ilo-windows-x64-setup.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: ${{ runner.temp }}/windows
+          if-no-files-found: error
+
+  linux:
+    needs: version
+    uses: ./.github/workflows/flatpak.yml
+
+  # After Windows, as the appcast that tools/appcast.sh makes here holds the Windows installer too.
+  mac:
+    needs: [version, windows]
+    if: ${{ !cancelled() && needs.version.result == 'success' }}
+    runs-on: macos-15
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      # Without them nothing is signed, so nothing is built.
+      - name: Secrets
+        env:
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
+          MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
+        working-directory: .
+        run: |
+          missing=
+          for name in MAC_CERTIFICATE_P12 MAC_CERTIFICATE_PASSWORD MAC_NOTARY_KEY MAC_NOTARY_KEY_ID \
+            MAC_NOTARY_ISSUER_ID SPARKLE_PRIVATE_KEY UPDATE_PUBLIC_KEY; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::The Mac's DMG needs the repository secrets$missing (README.md › Releases). Without them it isn't built, and no unsigned DMG is uploaded."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The engine, from engine/fetch.sh, and Sparkle.
+      - name: Setup
+        run: |
+          rustup update stable --no-self-update
+          ./setup.sh
+
+      # A keychain of the run's own, which the runner deletes, with the Developer ID, the
+      # notarization key as notarytool's profile "notary", and Sparkle's signing key.
+      - name: Keychain
+        env:
+          MAC_CERTIFICATE_P12: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_NOTARY_KEY: ${{ secrets.MAC_NOTARY_KEY }}
+          MAC_NOTARY_KEY_ID: ${{ secrets.MAC_NOTARY_KEY_ID }}
+          MAC_NOTARY_ISSUER_ID: ${{ secrets.MAC_NOTARY_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          keychain=$RUNNER_TEMP/release.keychain-db
+          password=$(uuidgen)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          security default-keychain -d user -s "$keychain"
+          printf %s "$MAC_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$keychain" -P "$MAC_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          identity=$(security find-identity -v -p codesigning "$keychain" |
+            sed -n 's/.*"\(Developer ID Application: .*\)"$/\1/p' | head -1)
+          if [ -z "$identity" ]; then
+            echo "::error::MAC_CERTIFICATE_P12 holds no Developer ID Application identity."
+            exit 1
+          fi
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+          printf %s "$MAC_NOTARY_KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool store-credentials notary --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$MAC_NOTARY_KEY_ID" --issuer "$MAC_NOTARY_ISSUER_ID"
+          rm "$RUNNER_TEMP/notary.p8"
+          printf %s "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/update.key"
+          .deps/Sparkle/bin/generate_keys --account "$(cat branding/name)" -f "$RUNNER_TEMP/update.key"
+          rm "$RUNNER_TEMP/update.key"
+
+      - name: Build
+        env:
+          UPDATE_PUBLIC_KEY: ${{ secrets.UPDATE_PUBLIC_KEY }}
+        run: ./build.sh prod
+
+      - name: Sign and notarize
+        run: ../tools/release.sh
+
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.windows.result == 'success' }}
+        with:
+          name: windows
+          path: ${{ runner.temp }}/windows
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+          path: ${{ runner.temp }}/notes
+
+      # appcast.sh names the DMG ilo.dmg in the appcast; the release's is ilo-mac-arm64.dmg.
+      - name: Appcast
+        env:
+          version: ${{ needs.version.outputs.version }}
+        run: |
+          installer=$RUNNER_TEMP/windows/ilo-windows-x64-setup.exe
+          if [ -f "$installer" ]; then
+            ../tools/appcast.sh "$RUNNER_TEMP/notes/notes.md" --windows "$installer"
+          else
+            ../tools/appcast.sh "$RUNNER_TEMP/notes/notes.md"
+          fi
+          appcast=build/release/appcast/appcast.xml
+          url=/releases/download/v$version
+          if [ "$(grep -cF "$url/ilo.dmg\"" "$appcast")" != 1 ]; then
+            echo "::error::The appcast doesn't name $url/ilo.dmg once, which the release renames."
+            exit 1
+          fi
+          mkdir "$RUNNER_TEMP/mac"
+          sed "s#$url/ilo\.dmg\"#$url/ilo-mac-arm64.dmg\"#" "$appcast" > "$RUNNER_TEMP/mac/appcast.xml"
+          mv build/release/ilo.dmg "$RUNNER_TEMP/mac/ilo-mac-arm64.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: ${{ runner.temp }}/mac
+          if-no-files-found: error
+
+  # The draft, once the Mac's and Linux's packages are built. Windows's join it when they built;
+  # 0.1.0's Windows packages wait on a Windows engine and the Store's identity.
+  release:
+    needs: [version, windows, linux, mac]
+    if: ${{ !cancelled() && needs.mac.result == 'success' && needs.linux.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ needs.version.outputs.tag }}
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac
+          path: assets
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.windows.result == 'success' }}
+        with:
+          name: windows
+          path: assets
+      - uses: actions/download-artifact@v4
+        with:
+          name: ilo-flatpak
+          path: flatpak
+      - uses: actions/download-artifact@v4
+        with:
+          name: notes
+          path: notes
+
+      - run: |
+          mv flatpak/ilo.flatpak assets/ilo-linux-x86_64.flatpak
+          (cd assets && sha256sum -- ilo-* > SHA256SUMS)
+          if [ ! -f assets/ilo-windows-x64-setup.exe ]; then
+            printf '\nThe Windows packages are not in this release yet.\n' >> notes/notes.md
+            echo "No Windows packages: the Windows job failed. The draft has the Mac's and Linux's." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::error::There's a release $TAG already. Delete it, if it's a draft, to make it again."
+            exit 1
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
+            --title "ilo $VERSION" --notes-file notes/notes.md assets/*
+          echo "Draft $TAG: $(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url -q .url)" >> "$GITHUB_STEP_SUMMARY"
