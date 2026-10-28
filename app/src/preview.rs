@@ -1116,6 +1116,7 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
 
 fn main() {
     gpui_platform::application().with_assets(shell::Assets).run(|cx| {
+        browser::face::register(cx);
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
         // PREVIEW_SIZE=<width>x<height> opens the window at that size.

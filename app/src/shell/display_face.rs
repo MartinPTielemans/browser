@@ -1,7 +1,7 @@
 //! ilo's display face, Outfit (OFL, its license in `assets/fonts`), which only the rare screens set:
-//! an empty Space's name, the first run's welcome and the Library's heading. Everything else stays
-//! in the system face. It's registered the first time one of them draws, never at launch, since
-//! registering a font makes GPUI shape every line again once.
+//! an empty Space's name, the first run's welcome and the Library's heading. Everything else is in
+//! the chrome's face (`crate::face`). It's registered the first time one of them draws, never at
+//! launch, since registering a font makes GPUI shape every line again once.
 
 use std::{borrow::Cow, time::Instant};
 

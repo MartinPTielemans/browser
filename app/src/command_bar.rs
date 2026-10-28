@@ -1526,7 +1526,7 @@ impl Render for CommandBar {
             input.set_colors(palette.on_overlay(PLACEHOLDER), palette.accent.into(), palette.selection())
         });
         // The browser's shortcuts work here too, below the bar's own keys.
-        div().key_context(shell::KEY_CONTEXT).size_full().child(
+        div().key_context(shell::KEY_CONTEXT).size_full().font_family(crate::face::UI).child(
             div()
                 .key_context("CommandBar")
                 .on_action(cx.listener(Self::go))
