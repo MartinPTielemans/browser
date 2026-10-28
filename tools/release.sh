@@ -20,6 +20,11 @@ if [ "$(plutil -extract CFBundleIdentifier raw "$built/Contents/Info.plist")" !=
   echo "$built isn't a prod build. Make one with app/build.sh prod." >&2
   exit 1
 fi
+# A copy without Sparkle's key could never be updated, so only a try at the signing may lack it.
+if [ "$identity" != - ] && ! plutil -extract SUPublicEDKey raw "$built/Contents/Info.plist" > /dev/null 2>&1; then
+  echo "$built has no updater. Build it with UPDATE_PUBLIC_KEY (tools/appcast.sh says how)." >&2
+  exit 1
+fi
 rm -rf "$out"
 mkdir -p "$out"
 ditto --norsrc --noextattr "$built" "$app"
@@ -49,6 +54,13 @@ for helper in "$version"/Helpers/*.app; do
   esac
 done
 sign "$framework"
+# Sparkle's installer and its window, then Sparkle, as Sparkle's documentation signs them.
+sparkle=$app/Contents/Frameworks/Sparkle.framework
+if [ -d "$sparkle" ]; then
+  sign "$sparkle/Versions/B/Autoupdate"
+  sign "$sparkle/Versions/B/Updater.app"
+  sign "$sparkle"
+fi
 sign --entitlements "$root/entitlements/app.plist" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 [ "$identity" = - ] && exit 0

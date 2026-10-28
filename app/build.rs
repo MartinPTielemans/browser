@@ -17,8 +17,12 @@ fn main() {
                 .file("platform/mac/menu_window.mm")
                 .file("platform/mac/emoji.mm")
                 .file("platform/mac/dock.mm")
+                .file("platform/mac/updates.mm")
                 .flag("-std=c++20")
-                .flag("-fobjc-arc");
+                .flag("-fobjc-arc")
+                // Sparkle's headers alone: updates.mm loads the framework at run time, from a
+                // release build that carries it (setup.sh fetches it).
+                .flag(format!("-F{}", root.join(".deps/Sparkle").display()));
         }
         "windows" => {
             host.file("platform/windows/host.cc")
@@ -68,6 +72,7 @@ fn main() {
             println!("cargo:rustc-link-arg-bin=Browser={arg}");
         }
         println!("cargo:rustc-link-lib=framework=Cocoa");
+        println!("cargo:rustc-link-lib=framework=Security");
         println!("cargo:rustc-link-lib=framework=CoreText");
         println!("cargo:rustc-link-lib=framework=ImageIO");
         println!("cargo:rustc-link-lib=framework=UniformTypeIdentifiers");

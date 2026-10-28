@@ -39,7 +39,24 @@ if [ "${1:-}" = prod ]; then
   fi
   id=$(cat branding/id)
   features="--features prod"
+  # A release build updates itself with Sparkle, which setup.sh fetches, when it's given the key
+  # the updates are signed with: the public half of the owner's (tools/appcast.sh).
+  if [ -n "${UPDATE_PUBLIC_KEY:-}" ]; then
+    [ -d .deps/Sparkle/Sparkle.framework ] || { echo "No .deps/Sparkle. Run ./setup.sh again." >&2; exit 1; }
+    python3 -I -c 'import base64, sys; sys.exit(len(base64.b64decode(sys.argv[1], validate=True)) != 32)' \
+      "$UPDATE_PUBLIC_KEY" 2>/dev/null || {
+      echo "UPDATE_PUBLIC_KEY isn't an EdDSA public key: generate_keys -p prints one." >&2
+      exit 1
+    }
+  fi
 fi
+# The version the user sees is the crate's. Sparkle orders updates by the build number, the count
+# of commits, which only grows on main; a shallow clone's count would be wrong.
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+  [ -z "$features" ] || { echo "A prod build needs the whole history: git fetch --unshallow" >&2; exit 1; }
+fi
+build=$(git rev-list --count HEAD)
 cargo build --release --bin Browser $features
 
 app=build/Browser.app
@@ -64,6 +81,8 @@ plutil -replace CFBundleIdentifier -string "$id" "$plist"
 name=$(cat branding/name)
 plutil -replace CFBundleName -string "$name" "$plist"
 plutil -replace CFBundleDisplayName -string "$name" "$plist"
+plutil -replace CFBundleShortVersionString -string "$version" "$plist"
+plutil -replace CFBundleVersion -string "$build" "$plist"
 rm "$app/Contents/Resources/app.icns"
 cp branding/Assets.car "branding/$name.icns" "$app/Contents/Resources/"
 plutil -replace CFBundleIconFile -string "$name" "$plist"
@@ -99,6 +118,18 @@ EOF
 if [ -z "$features" ]; then
   plutil -remove CFBundleURLTypes "$plist"
   plutil -remove CFBundleDocumentTypes "$plist"
+fi
+# Sparkle checks the feed every 8 hours and installs what it downloads when the app quits
+# (docs/ux-spec.md › Updates). Its helpers for sandboxed apps stay out, as this one isn't.
+if [ -n "$features" ] && [ -n "${UPDATE_PUBLIC_KEY:-}" ]; then
+  ditto .deps/Sparkle/Sparkle.framework "$app/Contents/Frameworks/Sparkle.framework"
+  rm -rf "$app/Contents/Frameworks/Sparkle.framework/XPCServices" \
+    "$app/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices"
+  plutil -replace SUFeedURL -string "$(cat branding/update-feed)" "$plist"
+  plutil -replace SUPublicEDKey -string "$UPDATE_PUBLIC_KEY" "$plist"
+  plutil -replace SUEnableAutomaticChecks -bool YES "$plist"
+  plutil -replace SUAutomaticallyUpdate -bool YES "$plist"
+  plutil -replace SUScheduledCheckInterval -integer 28800 "$plist"
 fi
 # Chromium touches Bluetooth, the camera, the microphone, location and the local network for
 # pages and for its own metrics. Without a usage description, macOS kills the app the first time

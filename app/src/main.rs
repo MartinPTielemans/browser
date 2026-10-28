@@ -287,6 +287,16 @@ mod platform {
         );
         pub fn host_show_link_target(ui_view: *mut c_void, left: f64, top: f64, fade: f64);
         pub fn host_hide_link_target(fade: f64);
+        #[cfg(target_os = "macos")]
+        pub fn host_keep_keychain_key() -> bool;
+        #[cfg(target_os = "macos")]
+        pub fn host_updates_available() -> bool;
+        #[cfg(target_os = "macos")]
+        pub fn host_start_updater();
+        #[cfg(target_os = "macos")]
+        pub fn host_check_for_updates();
+        #[cfg(target_os = "macos")]
+        pub fn host_take_update_notes(notes: extern "C" fn(url: *const c_char));
     }
 
     /// What host_take_drops hears of a drag.
@@ -306,6 +316,8 @@ const WINDOW_SIZE: (f64, f64) = (1280., 800.);
 const WEB_STORE: &str = "https://chromewebstore.google.com/";
 
 actions!(browser, [Hide, HideOthers, ShowAll, Minimize]);
+#[cfg(target_os = "macos")]
+actions!(browser, [CheckForUpdates]);
 
 /// A browser window: the core's, with the view the UI draws in and the shell drawn there.
 #[derive(Clone)]
@@ -2704,6 +2716,11 @@ fn open_window_as(
         if restored {
             open_saved_windows(cx);
         }
+        // Last, as nothing the user sees at launch waits for it.
+        #[cfg(target_os = "macos")]
+        unsafe {
+            platform::host_start_updater()
+        };
     };
     OVERLAYS.set(Some(Box::new(open)));
     let pending = Rc::new(Cell::new(true));
@@ -3027,6 +3044,8 @@ unsafe extern "C" fn started(_: *mut c_void) {
         cx.on_action(|_: &Minimize, _| unsafe {
             platform::host_press_window_button(front().1, 1)
         });
+        #[cfg(target_os = "macos")]
+        cx.on_action(|_: &CheckForUpdates, _| unsafe { platform::host_check_for_updates() });
         cx.bind_keys([
             KeyBinding::new("cmd-h", Hide, Some(shell::KEY_CONTEXT)),
             KeyBinding::new("alt-cmd-h", HideOthers, Some(shell::KEY_CONTEXT)),
@@ -3057,6 +3076,13 @@ extern "C" fn finished_launching() {
     }
 }
 
+/// Whether this build updates itself, asked once, as the menu bar is rebuilt often.
+#[cfg(target_os = "macos")]
+fn updates_available() -> bool {
+    static AVAILABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVAILABLE.get_or_init(|| unsafe { platform::host_updates_available() })
+}
+
 /// The menu bar: Arc's menus, with the commands the browser has, what `bar` says of the key
 /// window, its Spaces, its Space's profile's extensions and the titles that follow its state, and
 /// the titles Undo and Redo have for what it would undo and redo (docs/ux-spec.md › Menus). The
@@ -3066,21 +3092,25 @@ fn menus(bar: &shell::MenuBar, undo: Option<&str>, redo: Option<&str>) -> Vec<Me
     let menu = |name: &str, items| Menu { name: name.to_string().into(), items, disabled: false };
     let item = shell::menu_item;
     let (spaces, extensions) = (&bar.spaces, &bar.extensions);
+    // Only a release build that carries Sparkle has updates to check for.
+    let mut app = Vec::new();
+    #[cfg(target_os = "macos")]
+    if updates_available() {
+        app.extend([MenuItem::action("Check for Updates…", CheckForUpdates), MenuItem::separator()]);
+    }
+    app.extend([
+        item("Settings…", Command::Settings),
+        MenuItem::separator(),
+        MenuItem::os_submenu("Services", SystemMenuType::Services),
+        MenuItem::separator(),
+        MenuItem::action(concat!("Hide ", env!("APP_NAME")), Hide),
+        MenuItem::action("Hide Others", HideOthers),
+        MenuItem::action("Show All", ShowAll),
+        MenuItem::separator(),
+        item(concat!("Quit ", env!("APP_NAME")), Command::Quit),
+    ]);
     vec![
-        menu(
-            env!("APP_NAME"),
-            vec![
-                item("Settings…", Command::Settings),
-                MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
-                MenuItem::separator(),
-                MenuItem::action(concat!("Hide ", env!("APP_NAME")), Hide),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
-                MenuItem::separator(),
-                item(concat!("Quit ", env!("APP_NAME")), Command::Quit),
-            ],
-        ),
+        menu(env!("APP_NAME"), app),
         menu(
             "File",
             vec![
@@ -4382,6 +4412,23 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 fn main() {
+    // Run by the version it's updating to, so macOS checks this copy before its first launch does
+    // (platform/mac/updates.mm).
+    if std::env::var_os("BROWSER_PREWARM").is_some() {
+        return;
+    }
+    if cfg!(feature = "prod") {
+        // Chromium can't read the cookie key a new signature hasn't been granted, so it asks first.
+        if !unsafe { platform::host_keep_keychain_key() } {
+            return;
+        }
+        // The first launch of an update opens its release notes, over the Spaces it brings back.
+        extern "C" fn update_notes(url: *const c_char) {
+            let url = unsafe { CStr::from_ptr(url) }.to_string_lossy().into_owned();
+            LAUNCH_LINKS.with_borrow_mut(|links| links.as_mut().map(|links| links.push(url)));
+        }
+        unsafe { platform::host_take_update_notes(update_notes) };
+    }
     let (args, host) = switches_and_host();
     let mut argv: Vec<*const c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
     let code = unsafe { bc::bc_main(argv.len() as c_int, argv.as_mut_ptr(), &host) };

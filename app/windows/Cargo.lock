@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "browser"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "bindgen",
  "cc",
@@ -549,7 +549,7 @@ dependencies = [
 
 [[package]]
 name = "browser-windows"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "browser",
  "gpui",
