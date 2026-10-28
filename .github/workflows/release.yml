@@ -3,17 +3,21 @@
 #   ilo-mac-arm64.dmg            signed and notarized (tools/release.sh)
 #   ilo-windows-x64.msix         unsigned, as the Store signs it (app/platform/windows/package)
 #   ilo-windows-x64-setup.exe    unsigned, for winget and direct downloads
-#   ilo-linux-x86_64.flatpak     flatpak.yml's bundle
+#   ilo-linux-x86_64.flatpak     flatpak.yml's bundle, naming ilo's Flatpak repository, which it
+#   ilo.flatpakref               updates from, and the repository's entry (tools/flatpak-repo.sh)
 #   SHA256SUMS, and appcast.xml  the updates feed's next state (tools/appcast.sh)
 # On a pushed v* tag, or by hand with the tag's name. The tag must be app/Cargo.toml's version, and
 # its message is the release's notes. Each job builds on its OS's prebuilt engine for the commit,
 # which engine/fetch.sh finds or fails on; a release never builds an engine. The owner publishes
-# the draft. README.md › Releases names the secrets it needs. GitHub's hosted runners only.
+# the draft, which puts its Linux build in the Flatpak repository (the publish job). README.md ›
+# Releases names the secrets it needs. GitHub's hosted runners only.
 name: Release
 
 on:
   push:
     tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag:
@@ -27,10 +31,12 @@ concurrency: release
 
 jobs:
   version:
+    if: ${{ github.event_name != 'release' }}
     runs-on: ubuntu-24.04
     outputs:
       tag: ${{ steps.check.outputs.tag }}
       version: ${{ steps.check.outputs.version }}
+      trial: ${{ steps.check.outputs.trial }}
     steps:
       # With the tags, for the tag's message.
       - uses: actions/checkout@v4
@@ -54,12 +60,14 @@ jobs:
               exit 1
             fi
             git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$TAG" > "$notes"
+            echo "trial=false" >> "$GITHUB_OUTPUT"
           elif git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
             echo "::error::$TAG is a lightweight tag. A release's notes are its tag's message: git tag -a $TAG"
             exit 1
           else
             # A run by hand before the tag exists, to try the release: its notes say so.
             printf '%s\n' "ilo $version, built by hand from $GITHUB_REF_NAME (${GITHUB_SHA:0:12}) to try the release. Not for publishing." > "$notes"
+            echo "trial=true" >> "$GITHUB_OUTPUT"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -133,6 +141,123 @@ jobs:
   linux:
     needs: version
     uses: ./.github/workflows/flatpak.yml
+
+  # The Linux build in ilo's Flatpak repository, which installs from GitHub update from, and the
+  # release's Linux files from it (tools/flatpak-repo.sh). Its objects and deltas go to the R2 bucket
+  # now, unseen, as the live summary doesn't name them; the new summary and refs wait in
+  # pending/<tag>/ until the owner publishes the draft (publish, below). Without the secrets a
+  # release stops here; a run by hand before the tag exists signs with a key of its own instead and
+  # keeps the repository in the run, to try it.
+  flatpak-repo:
+    needs: [version, linux]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      AWS_DEFAULT_REGION: auto
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      TAG: ${{ needs.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: secrets
+        env:
+          FLATPAK_GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY }}
+          FLATPAK_REPO_URL: ${{ vars.FLATPAK_REPO_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          TRIAL: ${{ needs.version.outputs.trial }}
+        run: |
+          missing=
+          for name in FLATPAK_GPG_KEY FLATPAK_REPO_URL R2_BUCKET R2_ENDPOINT R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          if [ -z "$missing" ]; then
+            echo "sync=true" >> "$GITHUB_OUTPUT"
+          elif [ "$TRIAL" = true ]; then
+            echo "::notice::No$missing: this try signs the Flatpak repository with a key of its own and keeps it in the run."
+            echo "sync=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::The Linux release needs$missing (README.md › Releases). Without them nothing goes to the Flatpak repository and the draft isn't made."
+            exit 1
+          fi
+
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -yq flatpak ostree
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ilo-flatpak
+          path: ${{ runner.temp }}/bundle
+
+      - name: Repository
+        env:
+          SYNC: ${{ steps.secrets.outputs.sync }}
+          SECRET_GPG_KEY: ${{ secrets.FLATPAK_GPG_KEY }}
+          FLATPAK_REPO_URL: ${{ vars.FLATPAK_REPO_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          repo=$RUNNER_TEMP/repo
+          mkdir "$repo"
+          if [ "$SYNC" = true ]; then
+            aws s3 sync "s3://$R2_BUCKET" "$repo" --endpoint-url "$R2_ENDPOINT" --exclude 'pending/*' --only-show-errors
+            url=$FLATPAK_REPO_URL
+            key=$SECRET_GPG_KEY
+          else
+            GNUPGHOME=$(mktemp -d)
+            export GNUPGHOME
+            gpg --batch --quiet --passphrase '' --quick-gen-key "ilo's trial Flatpak repository" rsa3072 sign never
+            key=$(gpg --batch --armor --export-secret-keys)
+            url=http://localhost:8123/
+          fi
+          FLATPAK_GPG_KEY=$key tools/flatpak-repo.sh "$RUNNER_TEMP/bundle/ilo.flatpak" "$repo" "$url" "$RUNNER_TEMP/linux"
+
+      # What a user gets, from a copy of the repository served here: the flatpakref installs from
+      # it, and the bundle's install then checks it for updates, both with the key they carry.
+      - name: Install and update
+        run: |
+          (cd "$RUNNER_TEMP/repo" && exec python3 -m http.server 8123 --bind 127.0.0.1 > /dev/null 2>&1) &
+          ref=$RUNNER_TEMP/local.flatpakref
+          sed 's#^Url=.*#Url=http://localhost:8123/#' "$RUNNER_TEMP/linux/ilo.flatpakref" > "$ref"
+          flatpak install --user -y --noninteractive --from "$ref"
+          flatpak uninstall --user -y --noninteractive app.ilo.browser
+          flatpak install --user -y --noninteractive "$RUNNER_TEMP/linux/ilo-linux-x86_64.flatpak"
+          origin=$(flatpak info --user --show-origin app.ilo.browser)
+          flatpak remotes --user --show-details | grep "^$origin\b"
+          flatpak remote-modify --user --url=http://localhost:8123/ "$origin"
+          flatpak remote-ls --user "$origin" | grep -q app.ilo.browser
+          flatpak update --user -y --noninteractive app.ilo.browser
+
+      # Objects, deltas and summaries are named by their content, so adding them changes nothing a
+      # client sees; the files that do wait for the publish job.
+      - name: Stage
+        if: ${{ steps.secrets.outputs.sync == 'true' }}
+        env:
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          cd "$RUNNER_TEMP/repo"
+          aws s3 sync . "s3://$R2_BUCKET" --endpoint-url "$R2_ENDPOINT" --only-show-errors \
+            --exclude 'summary' --exclude 'summary.*' --exclude config --exclude 'refs/*'
+          pending=$RUNNER_TEMP/pending
+          mkdir "$pending"
+          cp -r --parents summary summary.* config refs "$pending/"
+          find . -type f | sed 's#^\./##' | sort > "$pending/keys.txt"
+          aws s3 sync "$pending" "s3://$R2_BUCKET/pending/$TAG" --endpoint-url "$R2_ENDPOINT" --only-show-errors --delete
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: ${{ runner.temp }}/linux
+          if-no-files-found: error
 
   # After Windows, as the appcast that tools/appcast.sh makes here holds the Windows installer too.
   mac:
@@ -261,8 +386,8 @@ jobs:
   # The draft, once the Mac's and Linux's packages are built. Windows's join it when they built;
   # 0.1.0's Windows packages wait on a Windows engine and the Store's identity.
   release:
-    needs: [version, windows, linux, mac]
-    if: ${{ !cancelled() && needs.mac.result == 'success' && needs.linux.result == 'success' }}
+    needs: [version, windows, flatpak-repo, mac]
+    if: ${{ !cancelled() && needs.mac.result == 'success' && needs.flatpak-repo.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -282,15 +407,14 @@ jobs:
           path: assets
       - uses: actions/download-artifact@v4
         with:
-          name: ilo-flatpak
-          path: flatpak
+          name: linux
+          path: assets
       - uses: actions/download-artifact@v4
         with:
           name: notes
           path: notes
 
       - run: |
-          mv flatpak/ilo.flatpak assets/ilo-linux-x86_64.flatpak
           (cd assets && sha256sum -- ilo-* > SHA256SUMS)
           if [ ! -f assets/ilo-windows-x64-setup.exe ]; then
             printf '\nThe Windows packages are not in this release yet.\n' >> notes/notes.md
@@ -303,3 +427,40 @@ jobs:
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --target "$GITHUB_SHA" \
             --title "ilo $VERSION" --notes-file notes/notes.md assets/*
           echo "Draft $TAG: $(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url -q .url)" >> "$GITHUB_STEP_SUMMARY"
+
+  # The owner published a draft: its Linux build goes live in the Flatpak repository. The summary
+  # and refs staged in pending/<tag>/ replace the live ones, then what no staged build's repository
+  # holds goes: the builds they pruned, and the objects of drafts deleted unpublished. A draft
+  # built before the previous one went live doesn't build on it, so publish each before the next.
+  publish:
+    if: ${{ github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v') }}
+    runs-on: ubuntu-24.04
+    env:
+      AWS_DEFAULT_REGION: auto
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+    steps:
+      - env:
+          TAG: ${{ github.event.release.tag_name }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          if [ -z "$R2_BUCKET" ] || [ -z "$R2_ENDPOINT" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::error::No R2 secrets (README.md › Releases), so $TAG's Linux build isn't in the Flatpak repository."
+            exit 1
+          fi
+          bucket=s3://$R2_BUCKET
+          pending=$RUNNER_TEMP/pending
+          aws s3 sync "$bucket/pending" "$pending" --endpoint-url "$R2_ENDPOINT" --only-show-errors
+          [ -f "$pending/$TAG/keys.txt" ] || { echo "::error::The bucket has no Linux build staged for $TAG."; exit 1; }
+          aws s3 cp "$pending/$TAG" "$bucket" --recursive --exclude keys.txt --endpoint-url "$R2_ENDPOINT" --only-show-errors
+          # Another draft's objects stay, for when it's published.
+          cat "$pending"/*/keys.txt | sort -u > "$RUNNER_TEMP/keep.txt"
+          aws s3 ls "$bucket" --recursive --endpoint-url "$R2_ENDPOINT" | awk '{ print $4 }' |
+            grep -v '^pending/' | sort > "$RUNNER_TEMP/have.txt"
+          comm -23 "$RUNNER_TEMP/have.txt" "$RUNNER_TEMP/keep.txt" |
+            xargs -r -P 8 -I {} aws s3 rm "$bucket/{}" --endpoint-url "$R2_ENDPOINT" --only-show-errors
+          aws s3 rm "$bucket/pending/$TAG" --recursive --endpoint-url "$R2_ENDPOINT" --only-show-errors
+          echo "$TAG is live in the Flatpak repository." >> "$GITHUB_STEP_SUMMARY"
