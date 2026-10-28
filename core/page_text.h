@@ -21,8 +21,8 @@ namespace browser_core {
 
 // The text of a tab's page as its accessibility tree has it, across its frames: what a screen
 // reader reads. Chromium builds the tree in the renderer for this one snapshot, without turning
-// accessibility on for the tab and without running the page's JavaScript, and a password field's
-// value is never in it. See bc_tab_read_text.
+// accessibility on for the tab and without running the page's JavaScript. It leaves out every
+// field's value, typed or autofilled, a password's above all. See bc_tab_read_text.
 class PageText : public content::WebContentsObserver,
                  public content::WebContentsUserData<PageText> {
  public:
