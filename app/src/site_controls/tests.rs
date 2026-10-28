@@ -203,33 +203,33 @@ impl Panel {
     }
 }
 
-// The panel's places in its window, which is 238 pt wide under a beak 12.5 pt tall: the Share tile
-// 11 pt in at y 23.5 and the capture tiles 56 pt apart after it, the extensions' tiles from y
-// 92.5, the Settings heading's cap at y 142.5, the rows 43 pt apart from y 167.5, and the footer at
-// y 354.5.
-const SHARE: (f32, f32) = (35., 39.5);
-const CAPTURE: (f32, f32) = (91., 39.5);
-const CAPTURE_FULL_PAGE: (f32, f32) = (147., 39.5);
-const EXTENSION: (f32, f32) = (35., 108.5);
-const ADD: (f32, f32) = (91., 108.5);
-const EXTENSIONS_HEADING: (f32, f32) = (40., 74.);
-const MANAGE: (f32, f32) = (215., 74.);
-const SETTINGS_HEADING: (f32, f32) = (40., 147.);
-const MORE_LINK: (f32, f32) = (220., 147.);
+// The panel's places in its window, which is 236 pt wide under a beak 12.5 pt tall: the Share tile
+// 10 pt in at y 22.5 and the capture tiles 56 pt apart after it, the extensions' tiles from y
+// 91.5, the Settings heading's cap at y 141.5, the rows 43 pt apart from y 166.5, and the footer at
+// y 352.5.
+const SHARE: (f32, f32) = (34., 38.5);
+const CAPTURE: (f32, f32) = (90., 38.5);
+const CAPTURE_FULL_PAGE: (f32, f32) = (146., 38.5);
+const EXTENSION: (f32, f32) = (34., 107.5);
+const ADD: (f32, f32) = (90., 107.5);
+const EXTENSIONS_HEADING: (f32, f32) = (39., 73.);
+const MANAGE: (f32, f32) = (213., 73.);
+const SETTINGS_HEADING: (f32, f32) = (39., 146.);
+const MORE_LINK: (f32, f32) = (218., 146.);
 fn row(index: usize) -> (f32, f32) {
-    (100., 167.5 + index as f32 * ROW_PITCH + 16.)
+    (99., 166.5 + index as f32 * ROW_PITCH + 16.)
 }
-const LOCK: (f32, f32) = (30., 370.5);
-const MORE: (f32, f32) = (211., 370.5);
+const LOCK: (f32, f32) = (29., 368.5);
+const MORE: (f32, f32) = (209., 368.5);
 
 /// Centred under its button at x 206, its top 9 pt under the URL field's bottom, which its beak
 /// reaches over.
 #[gpui::test]
 fn it_hangs_from_its_button_once_the_site_is_read(cx: &mut TestAppContext) {
     let mut panel = Panel::new(cx, site());
-    assert_eq!(panel.calls(), ["show 87 78.5 238 397.5"]);
+    assert_eq!(panel.calls(), ["show 88 78.5 236 395.5"]);
     let corners = panel.host.corners.take();
-    assert_eq!(corners.first(), Some(&(119., 0., BEAK_TIP_RADIUS)));
+    assert_eq!(corners.first(), Some(&(118., 0., BEAK_TIP_RADIUS)));
     assert_eq!(corners.len(), 7);
 }
 
@@ -239,7 +239,7 @@ fn it_keeps_inside_the_window(cx: &mut TestAppContext) {
     let field = bounds(8., 46., 284., 36.);
     let place = Place::Button { field, button: bounds(265., 49., 30., 30.) };
     let mut panel = Panel::at(cx, place, size(px(300.), px(800.)), site());
-    assert_eq!(panel.calls(), ["show 54 78.5 238 397.5"]);
+    assert_eq!(panel.calls(), ["show 56 78.5 236 395.5"]);
     assert_eq!(panel.host.corners.take()[0].0, WIDTH - (RADIUS + BEAK + BEAK_FOOT_RADIUS));
 }
 
@@ -248,18 +248,19 @@ fn it_keeps_inside_the_window(cx: &mut TestAppContext) {
 fn in_the_corner_it_has_no_beak(cx: &mut TestAppContext) {
     let place = Place::Corner(point(px(18.), px(8.)));
     let mut panel = Panel::at(cx, place, window(), site());
-    assert_eq!(panel.calls(), ["show 18 8 238 385"]);
+    assert_eq!(panel.calls(), ["show 18 8 236 383"]);
     assert_eq!(panel.host.corners.take().len(), 4);
 }
 
-/// Measured on Arc's: with two rows it's 299 pt tall, under its beak.
+/// Arc's, measured, is 299 pt tall with two rows, under its beak; ours is 2 less, with its tiles'
+/// padding 10 for corners concentric with the body's.
 #[gpui::test]
 fn two_rows_make_arcs_height(_: &mut TestAppContext) {
     let two = Site { permissions: site().permissions[..2].to_vec(), reset: None, ..site() };
     let at = layout(&two, 0, false);
     let found = (at.tiles, at.extensions_cap, at.extensions, at.settings_cap, at.rows);
-    assert_eq!(found, (11., 57., 80., Some(130.), 155.));
-    assert_eq!((at.divider, at.footer, at.height), (245., 256., 299.));
+    assert_eq!(found, (10., 56., 79., Some(129.), 154.));
+    assert_eq!((at.divider, at.footer, at.height), (244., 255., 297.));
 }
 
 #[gpui::test]
@@ -289,7 +290,7 @@ fn its_button_toggles_it(cx: &mut TestAppContext) {
     assert_eq!(panel.calls(), ["release", "stop", "hide"]);
     panel.show(under_button(), window());
     panel.changed(site());
-    assert_eq!(panel.calls(), [format!("read {TAB}"), "show 87 78.5 238 397.5".into()]);
+    assert_eq!(panel.calls(), [format!("read {TAB}"), "show 88 78.5 236 395.5".into()]);
 }
 
 /// Share closes the panel first, then the share menu hangs from it, in the browser window.
@@ -298,7 +299,7 @@ fn share_hangs_its_menu_from_its_tile(cx: &mut TestAppContext) {
     let mut panel = Panel::new(cx, site());
     panel.calls();
     panel.click(SHARE);
-    panel.ran("share 98 102 48 32");
+    panel.ran("share 98 101 48 32");
 }
 
 /// The capture tiles close the panel first, so the picture has none of it, then ask for what
@@ -329,7 +330,7 @@ fn a_tile_names_itself_in_a_tooltip(cx: &mut TestAppContext) {
     // Under each tile's middle in the browser window, and Share's leave, after Notes came, leaves
     // Notes'.
     let tips = panel.host.tips.take();
-    assert_eq!(tips, ["Share at 122 134", "Notes at 122 203", "none"]);
+    assert_eq!(tips, ["Share at 122 133", "Notes at 122 202", "none"]);
 }
 
 #[gpui::test]
@@ -529,8 +530,8 @@ fn a_change_resizes_it(cx: &mut TestAppContext) {
     let mut panel = Panel::new(cx, site());
     panel.calls();
     panel.changed(Site { reset: None, ..site() });
-    assert_eq!(panel.calls(), ["height 354.5"]);
-    assert_eq!(panel.host.corners.take()[3], (WIDTH, 354.5, RADIUS));
+    assert_eq!(panel.calls(), ["height 352.5"]);
+    assert_eq!(panel.host.corners.take()[3], (WIDTH, 352.5, RADIUS));
     // A report for another tab isn't this panel's.
     panel.cx.cx.update(|cx| changed(TAB + 1, site(), cx));
     assert!(panel.calls().is_empty());
@@ -541,7 +542,7 @@ fn a_change_resizes_it(cx: &mut TestAppContext) {
 fn without_permissions_there_is_no_settings_heading(cx: &mut TestAppContext) {
     let bare = Site { permissions: Vec::new(), reset: None, ..site() };
     let mut panel = Panel::new(cx, bare);
-    assert_eq!(panel.calls(), ["show 87 78.5 238 193.5"]);
+    assert_eq!(panel.calls(), ["show 88 78.5 236 191.5"]);
 }
 
 #[gpui::test]

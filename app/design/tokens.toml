@@ -12,7 +12,8 @@
 
 [capture]
 # Arc's, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen, the pill that
-# says how, and the menu.
+# says how, and the menu. Their corners are ilo's own radii, the menu's concentric with its rows
+# (inset ROW_INSET, so 12 + 4) and its field (inset FIELD_INSET, so 6 + 10).
 ring = 4.0
 ring-radius = 6.0
 ring-color = 0x151c_2fff
@@ -21,7 +22,7 @@ ring-color = 0x151c_2fff
 dim = 0.749
 pill-width = 356.0
 pill-height = 67.0
-pill-radius = 18.0
+pill-radius = 16.0
 pill-bottom = 35.5
 pill-text-size = 14.0
 pill-text = 0x471c_9dff
@@ -30,7 +31,7 @@ glow = 0x825a_9666
 glow-blur = 90.0
 menu-left = 10.0
 menu-width = 273.0
-menu-radius = 7.0
+menu-radius = 16.0
 menu-fill = 0x120f_2cff
 field-inset = 10.0
 field-top = 13.0
@@ -70,16 +71,20 @@ line-inset = 12.0
 # Between the line and the first row, and under the last.
 list-top = 4.0
 list-end = 10.0
-list-x = 8.0
+list-x = 6.0
 row-height = 50.0
-# The selected row's plate is this far inside its row, on every side.
+# The selected row's plate is this far inside its row, on every side, so it sits LIST_X plus this
+# from the panel's edge, and its corner is the panel's less that: 12 + 8 = 20.
 plate-inset = 2.0
-plate-radius = 6.5
-# The row's icon is a 24 pt box, centred 24 in, and its title starts 43 in.
+plate-radius = 12.0
+# The row's icon is a 24 pt box, and its title starts after it. Arc's list is 8 in from the panel
+# and measures them 12 and 43 from it; ours is 6 in, so they're 2 more and stay where Arc's are.
 icon-box = 24.0
-icon-box-x = 12.0
+icon-box-x = 14.0
 icon-size = 16.0
-title-x = 43.0
+title-x = 45.0
+# A row's content ends this far inside its plate: Arc's 10, and the 2 the plate is wider than Arc's.
+row-end = 12.0
 # The input's icon is 18 pt and 23 in; its text, 18 pt too, starts 53 in.
 input-icon = 18.0
 input-text = 18.0
@@ -88,16 +93,16 @@ input-text-x = 53.0
 # The hint after the input ends this far from the panel's side, 11 after the field.
 hint-end = 22.0
 hint-gap = 11.0
-# The panel's corners, which the host's blur and shadow take too.
-radius = 18.0
+# The panel's corners, which the host's blur and shadow take too: the plates' 12 and their 8 in.
+radius = 20.0
 # How far above the browser window's middle the panel's top is: Arc's is at y 396 of 1130 and at
 # 305.5 of 949, which no fraction of the height fits.
 above-middle = 169.0
 # A click on the URL field opens the panel over it (Arc 1.170 rec): 350 wide, its left at the
-# field's and its top 2 above, rounded as the panels anchored to the field are.
+# field's and its top 2 above, with the panel's corners, as its rows sit as far in.
 field-width = 350.0
 field-above = 2.0
-field-radius = 12.0
+field-radius = 20.0
 field-input-text = 14.0
 # Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
 beside-end = 70.0
@@ -161,7 +166,7 @@ detail = 0xffff_ffc7
 dim = 0x151515
 dim-opacity = 0.62
 button-height = 36.0
-button-radius = 8.0
+button-radius = 6.0
 # A button's label starts 12 in from its left edge, and its key's chip ends 12 in from its
 # right, 8 after the label.
 label-x = 12.0
@@ -185,7 +190,7 @@ safe-action-ledge = 0x393f92
 # instead, darker by this under the pointer.
 accent-hovered = 0.05
 chip-height = 20.0
-chip-radius = 5.0
+chip-radius = 6.0
 # White 0.14 over the button, so it lightens with it.
 esc-fill = 0xffff_ff24
 esc-text = 0xbbb9e3
@@ -263,7 +268,7 @@ grid-x = 12.25
 grid-top = 47.75
 glyph-size = 16.0
 plate = 30.0
-plate-radius = 4.0
+plate-radius = 6.0
 chosen = 0xffff_ff40
 # Arc's hover wasn't captured: half the chosen plate.
 hovered = 0xffff_ff1f
@@ -294,7 +299,7 @@ margin = 8.0
 near = 16.0
 window-width = 480.0
 pad-x = 10.0
-radius = 8.0
+radius = 6.0
 # The 0.5 pt rim, white at 0.10, as the popovers' and the picture of a page elsewhere have.
 rim = 0.5
 rim-color = 0xffffff1a
@@ -305,7 +310,7 @@ primary = 0xffffff
 [offer]
 width = 320.0
 inset = 16.0
-radius = 12.0
+radius = 16.0
 title-line = 16.0
 site-line = 14.0
 header-gap = 8.0
@@ -331,6 +336,20 @@ default-plate = 0xffff_ff33
 placeholder = 0xffff_ff87
 caret = 0x4a77_d4ff
 selection = 0x787d_86b3
+
+[radius]
+# ilo's four corner radii (ours, #315), and the rule that joins them: a corner nested inside
+# another is concentric, so the inner radius is the outer one less the inset between them. Every
+# other `radius` key in this file holds one of these, or is derived by that rule, or is the shape
+# of a beak, a glyph or a pill (half its height). tokens/tests.rs holds the file to it.
+# Buttons, chips, the find bar, the header's plates.
+control = 6.0
+# The sidebar's plates (Arc's 12, measured), the favorites' tiles, and rows and fields like them.
+row = 12.0
+# A card that floats: the dialog, the toast, the site controls.
+panel = 16.0
+# A sheet the user types into, or sorts things in: the command bar, the pickers.
+sheet = 20.0
 
 [settings]
 # Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
@@ -360,7 +379,7 @@ radius = 6.0
 # A row's icon is a tile of colour 20 across with a white glyph, 8 before the text.
 tile = 20.0
 tile-glyph = 14.0
-tile-radius = 4.5
+tile-radius = 6.0
 tile-gap = 8.0
 switch-width = 36.0
 switch-height = 16.0
@@ -371,7 +390,7 @@ knob-inset = 1.5
 # with its chevrons 10 from its right edge, and ends 22.5 short of the switches and buttons.
 control-height = 24.0
 control-padding = 12.0
-control-radius = 5.0
+control-radius = 6.0
 popup-width = 155.0
 # Ours: the favorites' longest choice, "In Each Profile's Spaces", needs more than 155.
 favorites-popup-width = 195.0
@@ -413,8 +432,8 @@ detail = 0x9e9f9f
 chip = 0xffff_ff14
 chip-hovered = 0xffff_ff24
 # A shortcut's keys as a chip, and the button beside it that restores its default.
-chip-radius = 4.0
-restore-radius = 4.0
+chip-radius = 6.0
+restore-radius = 6.0
 tile-glyph-color = 0xffffff
 
 [shell]
@@ -461,7 +480,7 @@ url-button-glyph = 14.0
 tile-height = 41.0
 tile-gap = 6.0
 tile-min = 48.0
-tile-radius = 10.0
+tile-radius = 12.0
 # Favorites taller than this much of the window scroll with the list instead of staying put
 # (Ardia), so they never leave the rows too little room.
 tall-favorites = 0.4
@@ -538,7 +557,7 @@ form-title-top = 140.0
 form-title-height = 20.0
 form-inset = 14.0
 form-plate-height = 36.0
-form-radius = 8.0
+form-radius = 6.0
 form-glyph-x = 30.0
 form-glyph = 15.0
 form-label-x = 46.5
@@ -622,9 +641,10 @@ form-glyph-color = 0xffffff80
 form-pill = 0xffffff1a
 create = 0x2129fb
 create-unnamed = 0.4
-# The reveal panel's radius and its 0.5 pt light border, as in a capture of Arc at 1×: a circle of
-# 12, and one pixel of white 0.27 over the panel, which half a pixel of white 0.54 makes.
-reveal-radius = 12.0
+# The reveal panel's radius, the plates' 12 and their 8 in (ours), and its 0.5 pt light border, as
+# in a capture of Arc at 1×: one pixel of white 0.27 over the panel, which half a pixel of white
+# 0.54 makes.
+reveal-radius = 20.0
 reveal-border = 0xffffff8a
 window-button-y = 24.0
 window-button-size = 14.0
@@ -647,7 +667,7 @@ words-size = 14.0
 keys-size = 13.0
 keys-height = 24.0
 keys-inset = 7.0
-keys-radius = 6.5
+keys-radius = 6.0
 keys-fill = 0xffff_ff14
 # From the words to their keys, as the toast sets its chip.
 keys-gap = 8.0
@@ -669,8 +689,8 @@ action-dimmed = 0.4
 badge-color = 0x5f6368
 badge-height = 11.0
 badge-text = 8.5
-# A badge's corners and its words.
-badge-radius = 3.0
+# A badge is a pill, so its corners are half its height, and then its words.
+badge-radius = 5.5
 badge-text-color = 0xffffff
 
 [shell.header]
@@ -713,13 +733,13 @@ library-back-inset = 8.0
 # The Spaces section (Arc 1.170 cap, one Space, and rec, three): a card per Space starts 28 after
 # the column, 240 wide, 24 apart and as tall as the window less 48 above and below, with Arc's
 # blue + 33 after the last, 30 across and halfway down, and the Library ends 37 after it, so it's
-# 216 + 264 a Space wide. The card is the Space's gradient at radius 14, with its list drawn as
+# 216 + 264 a Space wide. The card is the Space's gradient at radius 16, with its list drawn as
 # the sidebar draws it, and its name's row has a brush at its end, 28 square, 13 from the card's
 # right. Arc's card has no search field over it.
 spaces-left = 28.0
 spaces-inset = 48.0
 card-width = 240.0
-card-radius = 14.0
+card-radius = 16.0
 card-gap = 24.0
 # Ours (*interim*, as Arc's recording never ran out of room): the section grows until the page
 # beside it would be narrower than this, and its cards scroll across past that.
@@ -749,7 +769,7 @@ search-x = 120.0
 search-top = 10.0
 search-width = 289.0
 search-height = 36.0
-search-radius = 10.0
+search-radius = 12.0
 search-glyph = 15.0
 search-glyph-x = 14.5
 search-text-x = 44.0
@@ -807,11 +827,11 @@ glow-strip = 4.0
 shadow = 0.3
 
 [shell.permission]
-# Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the URL field's
-# radius and plates. The text is the dialog's detail colour.
+# Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the dialog's corners
+# and the header's plates. The text is the dialog's detail colour.
 gap = 6.0
 padding = 12.0
-radius = 12.0
+radius = 16.0
 line = 18.0
 detail = 0xffff_ffc7
 # A line of white 0.1 inside its edge, as the dialog's card has.
@@ -849,12 +869,13 @@ name-size = 15.0
 name-line = 19.0
 age-size = 12.0
 age-line = 15.0
-# Ours: a tall image's preview keeps 4 pt inside its row, with small rounded corners.
+# Ours: a tall image's preview keeps 4 pt inside its row's plate, with corners concentric with it:
+# the plate's 12 less 4.
 preview-height = 48.0
-preview-radius = 4.0
+preview-radius = 8.0
 # Ours: a row's plate under the pointer, as the Library's rows have one.
 plate-inset = 4.0
-plate-radius = 10.0
+plate-radius = 12.0
 
 [shell.side-panel]
 # The panel's width until the user gives it one, Chrome's, and the range they can give it,
@@ -875,7 +896,7 @@ target-edge = 0.14
 target-accent = 0.15
 target-dashes = 0.25
 target-text = 0.6
-picture-radius = 10.0
+picture-radius = 12.0
 picture-rim = 0.25
 picture-lights = [0xff5f57, 0xfebc2e, 0x28c840]
 picture-light = 6.0
@@ -933,8 +954,9 @@ button-inset = 14.0
 line = 18.0
 
 [site-controls]
-padding = 11.0
-radius = 17.0
+# The body's inside edge to its tiles: with the tiles' 6, the body's 16.
+padding = 10.0
+radius = 16.0
 gap = 8.0
 # The beak's sharp tip is this far over the body, its sides at 45°, rounded at the tip and where
 # they meet the top edge: 10.5 pt shows.
@@ -956,7 +978,7 @@ secondary = 0xffffff73
 link = 0xffffff7a
 tile-width = 48.0
 tile-height = 32.0
-tile-radius = 8.0
+tile-radius = 6.0
 # An action tile is opaque, lighter at its top, with a light line along its top inside.
 tile-top = 0x282828ff
 tile-bottom = 0x161616ff
@@ -1107,7 +1129,8 @@ knob-color = 0xffffff
 height = 46.5
 text-left = 12.5
 text-right = 13.5
-radius = 10.0
+# The chips sit about 10 in from its top and bottom, so with their 6 it's 16.
+radius = 16.0
 # Medium, and the key semibold. 13.5 makes Arc's toast 256.5 wide, as measured, where 14 makes it
 # 263.5.
 text-size = 13.5
@@ -1151,7 +1174,7 @@ beside = 3.5
 # 12 pt semibold text 11 in and its last chip 10 from its end.
 height = 27.0
 window-width = 320.0
-near-radius = 2.0
+near-radius = 6.0
 # The 0.5 pt rim, white at about 0.12.
 rim = 0.5
 rim-color = 0xffffff1f
@@ -1163,7 +1186,7 @@ text-size = 12.0
 chip = 18.5
 chip-body = 16.25
 chip-lip = 2.0
-chip-radius = 3.5
+chip-radius = 6.0
 chip-padding = 3.0
 chip-after-text = 8.0
 chip-gap = 3.5
@@ -1181,7 +1204,7 @@ chip-text = 0x1f2aff
 # percent 14 pt and 16 in from the pill's right, in the toast's fill, rim and shadow.
 height = 41.5
 padding = 16.0
-radius = 10.0
+radius = 12.0
 text-size = 14.0
 edge = 0x0000_004d
 shade = 0.78

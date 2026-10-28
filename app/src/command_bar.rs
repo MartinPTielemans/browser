@@ -38,12 +38,13 @@ use crate::tokens::command_bar::LINE;
 use crate::tokens::command_bar::LINE_INSET;
 use crate::tokens::command_bar::LIST_TOP;
 use crate::tokens::command_bar::LIST_END;
-/// The rows are 8 in from the panel's sides, 50 tall, and the bar shows five before it scrolls.
+/// The rows are 6 in from the panel's sides, 50 tall, and the bar shows five before it scrolls.
 use crate::tokens::command_bar::LIST_X;
 use crate::tokens::command_bar::ROW_HEIGHT;
 const ROWS_SHOWN: usize = 5;
 use crate::tokens::command_bar::PLATE_INSET;
 use crate::tokens::command_bar::PLATE_RADIUS;
+use crate::tokens::command_bar::ROW_END;
 use crate::tokens::command_bar::ICON_BOX;
 use crate::tokens::command_bar::ICON_BOX_X;
 use crate::tokens::command_bar::ICON_SIZE;
@@ -1316,7 +1317,7 @@ impl CommandBar {
             .px(px(4.))
             .flex()
             .items_center()
-            .rounded(px(PLATE_RADIUS))
+            .rounded(px(CHIP_RADIUS))
             .bg(rgba(CHIP))
             .text_color(rgba(TITLE))
             .child("Tab");
@@ -1385,7 +1386,7 @@ impl CommandBar {
             .flex()
             .items_center()
             .justify_center()
-            .rounded(px(PLATE_RADIUS))
+            .rounded(px(CHIP_RADIUS))
             .when_some(tile, |icon, tile| icon.bg(tile))
             .children(self.glyph(row, ICON_SIZE, glyph));
         // A key's chip: white with the accent's lighter shade on the selected row.
@@ -1400,7 +1401,7 @@ impl CommandBar {
                 .px(px(7.))
                 .flex()
                 .items_center()
-                .rounded(px(PLATE_RADIUS))
+                .rounded(px(CHIP_RADIUS))
                 .bg(fill)
                 .text_color(text_color)
                 .text_size(px(13.))
@@ -1422,7 +1423,7 @@ impl CommandBar {
             .flex()
             .items_center()
             .pl(px(ICON_BOX_X - PLATE_INSET))
-            .pr(px(10.))
+            .pr(px(ROW_END))
             .rounded(px(PLATE_RADIUS))
             .text_color(title)
             .when(selected, |line| line.bg(accent))
@@ -1456,7 +1457,7 @@ impl CommandBar {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .rounded(px(PLATE_RADIUS))
+                    .rounded(px(CHIP_RADIUS))
                     .bg(if selected { white } else { Hsla::from(rgba(ARROW_TILE)) })
                     .child(
                         svg()
