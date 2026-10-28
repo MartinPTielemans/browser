@@ -30,6 +30,9 @@ ours/chromium-core-hung-page.patch
 ours/chromium-core-error-page.patch
 ours/chromium-core-offline-game.patch
 ours/chromium-core-native-host-fallback.patch
+ours/chromium-crashpad-start.patch
+ours/chromium-crashpad-mac-handler.patch
+ours/chromium-crashpad-mac-async-start.patch
 ours/chromium-xcode-build-define.patch
 ours/chromium-core-login-dialog.patch
 ours/chromium-core-external-protocol-dialog.patch

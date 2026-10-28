@@ -3636,6 +3636,22 @@ unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: us
     update_app_later(move |cx| import_host::history_added(added, cx));
 }
 
+/// After a crash, with Send Crash Reports off: a toast asks whether to send its report, until the
+/// user answers, rather than an alert in the way of the windows coming back.
+unsafe extern "C" fn crash_report_offered(_: *mut c_void) {
+    let button = |label: &str, name, send| toast::Button {
+        label: toast::Label::Text(label.to_owned().into()),
+        name,
+        run: Rc::new(move |_, _| unsafe { bc::bc_answer_crash_report(send) }),
+    };
+    let buttons =
+        vec![button("Send Report", "send", true), button("Don't Send", "don't send", false)];
+    let text = concat!(env!("APP_NAME"), " quit unexpectedly.");
+    update_app(move |cx| {
+        with_overlays(move |cx| toast::show_until_answered(text, buttons, cx), cx)
+    });
+}
+
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
     // Each with its holder: the Space it belongs to under Each Space, else its profile.
     let holder = |tab| unsafe {
@@ -4540,13 +4556,20 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
     {
         args.push(format!("{TEST_HOST}={host}"));
     }
+    // The checks' crash, which has Crashpad write a minidump (core/crash_reports.h).
+    const CRASH_TEST: &str = "--crash-after-start";
+    // Where the user's crash reports go if they send them, a default service URL that a fork or a
+    // self-hosted collector names in branding/crash-reports. Without one the build sends none, and
+    // Settings doesn't offer to. A check's own, given to the app, comes after and wins.
+    let collector = include_str!("../branding/crash-reports").trim();
+    if !collector.is_empty() {
+        args.push(format!("--crash-upload-url={collector}"));
+    }
     // Switches given to the app come after, so they override these: Chromium keeps a repeated
     // switch's last value.
-    args.extend(
-        std::env::args()
-            .skip(1)
-            .filter(|arg| !cfg!(feature = "prod") || !arg.starts_with(TEST_HOST)),
-    );
+    args.extend(std::env::args().skip(1).filter(|arg| {
+        !cfg!(feature = "prod") || !(arg.starts_with(TEST_HOST) || arg.starts_with(CRASH_TEST))
+    }));
     let args: Vec<CString> = args
         .into_iter()
         .filter_map(|arg| CString::new(arg).ok())
@@ -4607,6 +4630,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
         history_added: Some(history_added),
+        crash_report_offered: Some(crash_report_offered),
         ..Default::default()
     };
     (args, host)

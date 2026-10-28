@@ -1,0 +1,136 @@
+# A crash leaves a minidump in the profile's Crashpad folder: --crash-after-start crashes the
+# browser once it has started and Crashpad's handler is up, the handler writes the report, and no
+# Chromium process outlives the crash, the handler included. Nor does one outlive a quit.
+# Nothing goes to the crash collector, check/collector.py, while Send Crash Reports is off, as it is
+# at first: the next launch offers to send that crash's report in a toast, and keeps it. On, the
+# next launch sends the report, the minidump alone, without cookies, and deletes
+# it once the collector has it. One the collector refuses waits for the next launch, and turning
+# the switch off in Settings › Privacy deletes it.
+
+log="$out/crash.log"
+crashpad="$(dirname "$saved")/Crashpad"
+rm -rf "$crashpad"
+rm -f "$saved" "$launch_frame"
+python3 -I check/collector.py "$out/collector-port" > "$out/collector.log" 2>&1 &
+collector=$!
+for _ in $(seq 50); do
+  [ -s "$out/collector-port" ] && break
+  sleep 0.1
+done
+[ -s "$out/collector-port" ] || fail "the crash collector didn't start"
+collector_url="http://127.0.0.1:$(cat "$out/collector-port")"
+reports="$collector_url/api/1/minidump/?sentry_key=check"
+page='data:text/html,<title>crash</title>'
+# The reports waiting to be sent.
+pending() {
+  find "$crashpad/pending" -name '*.dmp' 2>/dev/null | wc -l | tr -d ' '
+}
+# Waits up to 10 s for $1 reports to be waiting.
+await_pending() {
+  for _ in $(seq 20); do
+    [ "$(pending)" = "$1" ] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+# Crashes the browser with the crash test, with $1 as the collector, and waits for the report.
+crash() {
+  "$app/Contents/MacOS/Browser" --crash-after-start "--crash-upload-url=$1" < /dev/null \
+    > "$log" 2>&1 &
+  pid=$!
+  await '^browser: crash test$' || fail "the app didn't start its crash test"
+  for _ in $(seq 20); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.5
+  done
+  kill -0 "$pid" 2>/dev/null && fail "the app didn't crash"
+  status=0
+  wait "$pid" || status=$?
+  [ "$status" -ne 0 ] || fail "the app exited cleanly from its crash test"
+  # The handler writes the report as the browser dies, and may still be at it.
+  await_pending 1 || fail "Crashpad wrote no minidump in $crashpad/pending"
+  dump=$(find "$crashpad/pending" -name '*.dmp' | head -1)
+  head -c 4 "$dump" | grep -q '^MDMP$' || fail "$dump isn't a minidump"
+  for _ in $(seq 20); do
+    pgrep -f "$app/Contents" > /dev/null || break
+    sleep 0.5
+  done
+  pgrep -f "$app/Contents/.*/chrome_crashpad_handler" > /dev/null &&
+    fail "Crashpad's handler outlived the crash"
+  pgrep -f "$app/Contents" > /dev/null && fail "Chromium processes outlived the crash"
+  return 0
+}
+# Launches the browser driven, with $1 as the collector, and waits for its page.
+launch() {
+  step=0
+  BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" "--crash-upload-url=$1" \
+    < "$out/drive" > "$log" 2>&1 &
+  pid=$!
+  exec 3> "$out/drive"
+  await_load
+}
+
+crash "$reports"
+bytes=$(wc -c < "$dump" | tr -d ' ')
+
+# Off, as it starts, the launch after the crash offers to send its report, and sends nothing.
+log="$out/crash-off.log"
+launch "$reports"
+await '^browser: crash report offered$' || fail "the launch after the crash didn't offer its report"
+await "^browser: toast shown $app_name quit unexpectedly\. \[send, don't send\]\$" ||
+  fail "the offer's toast didn't show"
+../tools/window-screenshot.sh "$pid" "$out/crash-offer.png" || fail "no window to capture"
+exec 3>&-
+quit
+[ -s "$out/collector.log" ] && fail "a report was sent while Send Crash Reports was off"
+[ "$(pending)" = 1 ] || fail "the report didn't wait while Send Crash Reports was off"
+
+# On, the next launch sends it and deletes it.
+python3 -I -c '
+import json, sys
+with open(sys.argv[1]) as f:
+    session = json.load(f)
+session.setdefault("settings", {})["send_crash_reports"] = True
+with open(sys.argv[1], "w") as f:
+    json.dump(session, f)
+' "$saved" || fail "Send Crash Reports couldn't be turned on in $saved"
+log="$out/crash-on.log"
+launch "$reports"
+await '^browser: crash report sent$' || fail "the report wasn't sent with Send Crash Reports on"
+grep -q '^refused' "$out/collector.log" &&
+  fail "the collector refused the report: $(cat "$out/collector.log")"
+grep -q "^report [0-9]* /api/1/minidump/?sentry_key=check\$" "$out/collector.log" ||
+  fail "the collector didn't get the report"
+await_pending 0 || fail "the report sent wasn't deleted"
+exec 3>&-
+quit
+
+# A report the collector refuses waits, and Send Crash Reports turned off in Settings deletes it.
+crash "$reports"
+log="$out/crash-refused.log"
+launch "$collector_url/refuse/"
+await '^browser: crash report not sent$' || fail "the refused report wasn't tried"
+[ "$(pending)" = 1 ] || fail "the refused report didn't wait"
+send click $page_point
+if [ "$active" = 1 ]; then
+  send key , cmd
+  expect '^browser: settings shown General$' "⌘, didn't show Settings"
+  send clickkey 397 60
+  expect '^browser: settings tab Privacy$' "a click on Privacy didn't show its tab"
+  ../tools/window-screenshot.sh "$pid" "$out/privacy.png" || fail "no window to capture"
+  send clickkey 592 133
+  expect '^browser: send crash reports off$' "a click on the switch didn't turn crash reports off"
+  expect '^browser: crash reports deleted 1$' "turning crash reports off didn't delete the report"
+  [ "$(pending)" = 0 ] || fail "the report not sent outlived turning crash reports off"
+  turned_off=" Turned off in Settings › Privacy, it deleted that one."
+  windows="$out/crash-offer.png, $out/privacy.png"
+else
+  turned_off=" skip: turning it off in Settings. Browser wasn't the active app."
+  windows="$out/crash-offer.png"
+fi
+exec 3>&-
+quit
+kill "$collector" 2>/dev/null || true
+echo "ok: the crash left a minidump of $bytes bytes, which the next launch offered to send and" \
+  "kept with Send Crash Reports off, and sent with it on, and deleted once the collector had it." \
+  "One the collector refused waited.$turned_off Windows: $windows"

@@ -26,12 +26,7 @@ Not raw Chromium and not all of Helium.
 - De-Googling Chromium is continuous work across hundreds of call sites and every release. ungoogled-chromium has done it for a decade.
 - Helium is a product on top of ungoogled-chromium. Ardia built on Helium and needs about 15 skipped patches, about 10 patches that undo Helium, and a guard stage to keep that working (`docs/engine-build.md` in mantrakp04/ardia). We cherry-pick from Helium instead.
 - One fewer upstream means Chromium security fixes reach us sooner.
-- The Chrome Web Store is the one Google service we bring back, since Chrome's extensions are a requirement (decision 1) and ungoogled-chromium breaks installing and updating them from the store. `engine/patches/ours/chromium-extensions-web-store.patch` restores them. The browser talks to Google's store directly, not through a proxy as Helium does. That happens on three occasions, and with no store extension installed only the first:
-  - The store's own page, chromewebstore.google.com, gets Chrome's install API and sees the installed extensions, as in Chrome.
-  - An install the user confirms fetches the extension's icon from the address the page gives, Google's image host. It then downloads the extension from clients2.google.com, which redirects to clients2.googleusercontent.com. The download carries the profile's cookies and the store page as referrer, as in Chrome.
-  - Installed store extensions are checked for updates at clients2.google.com, soon after launch and every 5 hours (±20%) after. The check sends each one's id and version, and the browser's OS, architecture, version and language, without cookies or usage pings. An update downloads from clients2.googleusercontent.com.
-
-  Besides the security updates in the next entry, nothing else of Google's comes back: no Safe Browsing, sync or metrics, and the component updater fetches nothing more.
+- The Chrome Web Store is the one Google service we bring back, since Chrome's extensions are a requirement (decision 1) and ungoogled-chromium breaks installing and updating them from the store. `engine/patches/ours/chromium-extensions-web-store.patch` restores them. The browser talks to Google's store directly, not through a proxy as Helium does, and with no store extension installed only on the store's own page. `engine/README.md` lists when and what it sends. Besides the security updates in the next entry, nothing else of Google's comes back: no Safe Browsing, sync or metrics, and the component updater fetches nothing more.
 - We take back one thing ungoogled-chromium removes: the updates that keep the browser from trusting what is known to be bad. These are certificate revocations, the root store, and Google's malware verdicts on extensions. Without them, a revoked certificate or a malicious extension stays trusted until the next release. Ardia's patches fetch them from Google with the identifying fields stripped. `engine/README.md` lists what is fetched and what is sent.
 
 Revisit if cherry-picking from Helium costs more per release than taking its whole series would.
@@ -110,3 +105,9 @@ Consequences now:
 - The core exposes one API that both the UI and agents use. Agents are not a bolt-on.
 - "Agent Space" is a kind of Space in the data model from the start.
 - The main risk is prompt injection from page content. Permissions and confirmations limit the damage but don't solve it, so confirmation UI and the activity log ship together with the MCP server, never after it.
+
+## 9. Crash reports: opt-in, to a self-hostable GlitchTip
+
+No crash report leaves the device unless the user turns on Send Crash Reports, which is off, or sends one when the launch after a crash asks, since a crash's stacks can hold a URL or page text. They go to [GlitchTip](https://glitchtip.com) (MIT), which takes Chromium's minidumps and self-hosts. Sentry's FSL would keep a fork from running it on the browser's terms. The collector is a default service URL, so a fork names its own or sends none.
+
+Revisit if GlitchTip stops taking minidumps or being open source.

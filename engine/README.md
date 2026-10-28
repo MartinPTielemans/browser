@@ -87,7 +87,46 @@ ungoogled-chromium cuts the browser's calls to Google. Ardia's patches in `patch
   - **What a check sends.** In the body: the protocol version, Chromium's version and channel, the updater's version, macOS's version, the CPU architecture, and a random session id and request id. For each component it sends the id and the installed version. The headers repeat the ids and say whether the check runs in the foreground.
   - **What it doesn't send.** No cookies and no pings. None of the fields Chrome uses to link one check to the next (install id, install date, cohorts, ping day counts). No language, hardware or enterprise state. Google still sees the IP address, and the versions can help it link checks.
   - **How responses are checked.** CUP signatures and the CRX3 publisher key, as in Chrome.
+- **Chrome Web Store.** The browser talks to it on three occasions, and with no store extension installed only the first:
+  - The store's own page, chromewebstore.google.com, gets Chrome's install API and sees the installed extensions, as in Chrome.
+  - An install the user confirms fetches the extension's icon from the address the page gives, Google's image host. It then downloads the extension from clients2.google.com, which redirects to clients2.googleusercontent.com. The download carries the profile's cookies and the store page as referrer, as in Chrome.
+  - Installed store extensions are checked for updates at clients2.google.com, soon after launch and every 5 hours (±20%) after. The check sends each one's id and version, and the browser's OS, architecture, version and language, without cookies or usage pings. An update downloads from clients2.googleusercontent.com.
 - **Extension kill switch.** The extension update check's `_malware`, `_policy_violation` and `_potentially_uws` answers blocklist or disable the extension, as in Chrome. That check covers only Web Store extensions, which install and update again through `patches/ours/chromium-extensions-web-store.patch`.
+
+## Crash reports
+
+Crashpad writes a minidump of every crash, on every platform, as Chrome's does
+(`patches/ours/chromium-crashpad-start.patch` and, on the Mac, `chromium-crashpad-mac-handler.patch`
+undo ungoogled-chromium's two switches that stopped it). On the Mac the browser doesn't wait for the
+handler to start, which held up launch by about 670 ms (`chromium-crashpad-mac-async-start.patch`),
+so a crash of the browser in its first moments isn't caught. Its handler never uploads one:
+ungoogled-chromium's hunk that takes out the handler's upload thread and its URL stays, and the core
+sends them instead, only if the user says to (`docs/decisions.md`, 9). The reports are in the
+profile folder's `Crashpad` on the Mac and Linux (`core/crash_reports.cc`). On Windows,
+`chrome_elf` starts Crashpad before the core runs, so they're in Chromium's default folder,
+`%LOCALAPPDATA%\Chromium\User Data\Crashpad`.
+
+- **What's sent.** With Send Crash Reports on, the core sends each report not yet sent to the build's
+  collector, the minidump alone, without cookies, and deletes it once the collector has it. One
+  that fails waits for the next launch: the handler's own upload thread would wake every 15
+  minutes, and no timer replaces it. Turning it off deletes the reports not yet sent. While it's
+  off, the launch after the browser crashed offers once to send that crash's report alone, and
+  Don't Send deletes it.
+- **Pages left out.** Chrome records the page's URL in crash keys; the core's content client
+  doesn't. Reports leave out the memory that pointers on the stack lead to, which can hold a
+  page's, and Chrome's dumps of processes that didn't crash. The stacks can still hold a URL or
+  page text, which is why sending is the user's to turn on.
+- **The collector.** `app/branding/crash-reports` holds GlitchTip's minidump endpoint,
+  `https://<host>/api/<project id>/minidump/?sentry_key=<key>`, read off the project's DSN,
+  `https://<key>@<host>/<project id>`. Empty, as a fork's starts, the build sends nothing and
+  Settings has no Privacy tab. To run one: GlitchTip's Docker Compose file
+  (glitchtip.com/documentation/install), an organization and a project, and an auth token with
+  `project:write` for the symbols.
+- **Symbols.** When the build names a collector, `tools/release.sh` uploads the Release engine's
+  dSYMs and the app's executable with `sentry-cli debug-files upload`, which GlitchTip takes as
+  Sentry does. The engine builds with ungoogled-chromium-macos's `symbol_level=1` and
+  `blink_symbol_level=0`, so frames have functions and lines outside Blink, and Blink's only
+  their library.
 
 ## Rules
 

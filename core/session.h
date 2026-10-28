@@ -150,6 +150,11 @@ struct Settings {
   bool unload_idle_tabs = true;
   // Whether the browser blocks ads and trackers, in every profile.
   bool ad_blocking = true;
+  // Whether the browser sends its crash reports (crash_reports.h).
+  bool send_crash_reports = false;
+  // When the newest crash report the user was offered was written, in seconds since 1970, so no
+  // report is offered twice, nor one older.
+  double crash_report_offered = 0;
 };
 
 // The user's settings. Call SessionChanged after changing them.
