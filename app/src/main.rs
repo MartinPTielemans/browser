@@ -944,15 +944,20 @@ unsafe extern "C" fn tab_link_to_site(
     true
 }
 
-/// A key from the link preview's page acts on the preview alone, if `tab` is its: done, and
-/// whether the page loses it. A page in no window may be the preview's.
+/// A key from the link preview's page acts on the preview alone: done, and whether the page loses
+/// it. None for another page's.
 fn link_preview_key(tab: bc::bc_id, key: *const bc::bc_key, reserved: bool) -> Option<bool> {
-    if unsafe { bc::bc_tab_window(tab) } != 0 {
+    let window = unsafe { bc::bc_tab_window(tab) };
+    let cx = CX.with_borrow(Clone::clone)?;
+    // Read without an update, as every key a page gets comes here.
+    let holds = cx.try_read_global(|preview: &link_preview::LinkPreviewWindow, cx| {
+        preview.holds(window, tab, cx)
+    });
+    if holds != Some(true) {
         return None;
     }
     let keystroke = keystroke(unsafe { &*key });
-    let cx = CX.with_borrow(Clone::clone)?;
-    cx.update(|cx| link_preview::key(tab, &keystroke, reserved, cx))
+    cx.update(|cx| link_preview::key(window, tab, &keystroke, reserved, cx))
 }
 
 /// The toast's requests, to the host's toast window.
