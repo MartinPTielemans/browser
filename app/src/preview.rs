@@ -745,6 +745,7 @@ impl Browser for Fake {
     fn settings(&self, _: &mut App) {}
 
     fn passwords(&self, _: u64, _: &mut App) {}
+    fn agent_activity(&self, _: &mut App) {}
 
     fn shortcuts(&self, _: &mut App) {}
 

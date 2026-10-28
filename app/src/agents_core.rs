@@ -129,11 +129,16 @@ pub fn start(cx: &mut App) {
     if agents::global(cx).is_some() {
         return;
     }
+    let socket = format!("{}/Agents.sock", crate::profile_dir()).into();
+    // Beside the browser's executable: in the app bundle, or beside Chromium's on Linux.
+    let exe = std::env::current_exe().unwrap_or_default();
+    let bridge = exe.with_file_name(agents::bridge::NAME);
     let made = Agents::new(
         Rc::new(Core),
         Arc::new(agents::System),
         Some(path()),
-        agents::PORT,
+        socket,
+        bridge,
     );
     let made = cx.new(|_| made);
     cx.set_global(GlobalAgents(made.clone()));

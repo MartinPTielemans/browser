@@ -447,6 +447,11 @@ pub fn show_shortcuts(cx: &mut App) {
     show_on(Tab::Shortcuts, cx);
 }
 
+/// Shows the Settings window on its Agents tab, with each agent's activity.
+pub fn show_agents(cx: &mut App) {
+    show_on(Tab::Agents, cx);
+}
+
 /// Shows the Settings window on its About tab.
 pub fn show_about(cx: &mut App) {
     show_on(Tab::About, cx);
@@ -1381,32 +1386,43 @@ impl Settings {
         let model = agents.read(cx);
         let about: SharedString = match model.trouble() {
             Some(trouble) => trouble,
-            None if on => format!("Agents reach {} at {}", env!("APP_NAME"), model.url()).into(),
+            None if on => {
+                "On: a connected client reaches the browser through the bridge beside it.".into()
+            }
             None => "They work in a Space of their own, which you can watch, and never see your \
                      passwords, cookies or autofill."
                 .into(),
         };
         let clients = Client::ALL.map(|client| self.client(agents, client, cx));
+        // A list for each agent, as each has its own Space (decision 8).
         let model = agents.read(cx);
-        let entries: Vec<gpui::Div> = (model.recent().take(ACTIVITY_SHOWN))
-            .map(|entry| {
-                let name = Client::from_id(&entry.agent);
-                let name = name.map_or(entry.agent.clone(), |client| client.name().into());
-                let what = format!("{name} · {}", agents::tools::describe(&entry.action));
-                let detail: SharedString = match entry.refused.is_empty() {
-                    true => entry.site.clone(),
-                    false => format!("Refused: {}", entry.refused).into(),
-                };
-                let ago = agents::ago(entry.at, std::time::SystemTime::now());
-                described(None, what.into(), Some(detail).filter(|detail| !detail.is_empty()))
-                    .child(div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(ago))
+        let now = std::time::SystemTime::now();
+        let lists: Vec<gpui::Div> = (Client::ALL.into_iter())
+            .filter_map(|client| {
+                let entries: Vec<gpui::Div> = (model.activity(client.id()).take(ACTIVITY_SHOWN))
+                    .map(|entry| {
+                        let what = agents::tools::describe(&entry.action);
+                        let detail: SharedString = match entry.refused.is_empty() {
+                            true => entry.site.clone(),
+                            false => format!("Refused: {}", entry.refused).into(),
+                        };
+                        let detail = Some(detail).filter(|detail| !detail.is_empty());
+                        let ago = div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL));
+                        described(None, what.into(), detail).child(ago.child(agents::ago(entry.at, now)))
+                    })
+                    .collect();
+                (!entries.is_empty()).then(|| {
+                    div().flex().flex_col().child(header(client.name())).child(group(&RowLook::settings(), entries))
+                })
             })
             .collect();
-        let activity = match entries.is_empty() {
-            true => group(&RowLook::settings(), [described(None, "Nothing yet".into(), Some(
-                "What agents do while the browser runs shows here.".into(),
-            ))]),
-            false => group(&RowLook::settings(), entries),
+        let activity = match lists.is_empty() {
+            true => div().flex().flex_col().child(header("Activity")).child(group(&RowLook::settings(), [described(
+                None,
+                "Nothing yet".into(),
+                Some("What agents do while the browser runs shows here.".into()),
+            )])),
+            false => div().flex().flex_col().gap(px(SECTION_GAP)).children(lists),
         };
         div()
             .flex()
@@ -1419,15 +1435,7 @@ impl Settings {
             )
             .child(div().flex_none().ml(px(PADDING)).child(switch))]))
             .child(group(&RowLook::settings(), clients))
-            .child(
-                div()
-                    .mt(px(SECTION_GAP - BOX_GAP))
-                    .mb(px(HEADER_GAP - BOX_GAP))
-                    .pl(px(PADDING))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Activity"),
-            )
-            .child(activity)
+            .child(activity.mt(px(SECTION_GAP - BOX_GAP)))
             .into_any_element()
     }
 
@@ -1443,11 +1451,15 @@ impl Settings {
         } else if connected && model.is_live(client) {
             "Connected, and at work".into()
         } else if connected && client == Client::Other {
-            "Connected: paste its setup into the client".into()
+            format!(
+                "Runs {}. Copy Setup copies it with its token.",
+                model.command()
+            )
+            .into()
         } else if connected {
             format!("Connected in {}", client.config()).into()
         } else if client == Client::Other {
-            "Any client that speaks MCP over HTTP".into()
+            "Any MCP client".into()
         } else {
             "Not connected".into()
         };
@@ -1874,6 +1886,15 @@ fn detailed_row(
         .children(control.map(|control| div().flex_none().ml(px(PADDING)).child(control)))
 }
 
+/// A section's header, over its box.
+fn header(title: &'static str) -> gpui::Div {
+    div()
+        .mb(px(HEADER_GAP))
+        .pl(px(PADDING))
+        .font_weight(FontWeight::SEMIBOLD)
+        .child(title)
+}
+
 /// A row with a line under its name that says more, and room after for its controls.
 fn described(
     icon: Option<(&'static str, u32)>,
@@ -1881,7 +1902,7 @@ fn described(
     detail: Option<SharedString>,
 ) -> gpui::Div {
     let detail = detail.map(|detail| {
-        div().text_size(px(text::SMALL)).text_color(rgb(DETAIL)).child(detail)
+        div().truncate().text_size(px(text::SMALL)).text_color(rgb(DETAIL)).child(detail)
     });
     div()
         .px(px(PADDING))
