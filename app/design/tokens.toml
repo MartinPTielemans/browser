@@ -614,6 +614,14 @@ chip = 0xffff_ff14
 chip-radius = 6.0
 restore-radius = 6.0
 tile-glyph-color = 0xffffff
+# Ours: rows drawn on another view's ground, the first launch's, take its fill and text colour,
+# and their lines, controls and grey text are that text over the fill by as much as Settings' are
+# over its boxes.
+on-line = 0.11
+on-control = 0.09
+on-pressed = 0.18
+on-switch-off = 0.13
+on-detail = 0.77
 
 [shell]
 # The docked sidebar's width at first, where the card starts.
