@@ -48,6 +48,25 @@ enum Base {
     Config,
     /// The home folder.
     Home,
+    /// `%LOCALAPPDATA%\Packages` on Windows, where a Microsoft Store app keeps what it writes.
+    Store,
+    /// `~/.var/app` on Linux, a Flatpak's own home, by app id.
+    Flatpak,
+    /// `~/snap` on Linux, a Snap's own home, by its name.
+    Snap,
+}
+
+impl Base {
+    /// How a browser here was installed, when it's in a package's own folder, to tell it apart from
+    /// another install of the same browser.
+    fn install(self) -> Option<&'static str> {
+        match self {
+            Store => Some("Microsoft Store"),
+            Flatpak => Some("Flatpak"),
+            Snap => Some("Snap"),
+            Support | Local | Roaming | Config | Home => None,
+        }
+    }
 }
 
 pub struct Browser {
@@ -71,8 +90,8 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "Arc/User Data"),
             (
                 Windows,
-                Local,
-                "Packages/TheBrowserCompany.Arc*/LocalCache/Local/Arc/User Data",
+                Store,
+                "TheBrowserCompany.Arc*/LocalCache/Local/Arc/User Data",
             ),
         ],
     },
@@ -83,6 +102,7 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "Google/Chrome"),
             (Windows, Local, "Google/Chrome/User Data"),
             (Linux, Config, "google-chrome"),
+            (Linux, Flatpak, "com.google.Chrome/config/google-chrome"),
         ],
     },
     Browser {
@@ -97,6 +117,7 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "Microsoft Edge"),
             (Windows, Local, "Microsoft/Edge/User Data"),
             (Linux, Config, "microsoft-edge"),
+            (Linux, Flatpak, "com.microsoft.Edge/config/microsoft-edge"),
         ],
     },
     Browser {
@@ -106,6 +127,12 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "BraveSoftware/Brave-Browser"),
             (Windows, Local, "BraveSoftware/Brave-Browser/User Data"),
             (Linux, Config, "BraveSoftware/Brave-Browser"),
+            (
+                Linux,
+                Flatpak,
+                "com.brave.Browser/config/BraveSoftware/Brave-Browser",
+            ),
+            (Linux, Snap, "brave/current/.config/BraveSoftware/Brave-Browser"),
         ],
     },
     Browser {
@@ -115,6 +142,8 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "Vivaldi"),
             (Windows, Local, "Vivaldi/User Data"),
             (Linux, Config, "vivaldi"),
+            (Linux, Flatpak, "com.vivaldi.Vivaldi/config/vivaldi"),
+            (Linux, Snap, "vivaldi/current/.config/vivaldi"),
         ],
     },
     Browser {
@@ -124,6 +153,8 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "com.operasoftware.Opera"),
             (Windows, Roaming, "Opera Software/Opera Stable"),
             (Linux, Config, "opera"),
+            (Linux, Flatpak, "com.opera.Opera/config/opera"),
+            (Linux, Snap, "opera/current/.config/opera"),
         ],
     },
     Browser {
@@ -133,6 +164,13 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "Chromium"),
             (Windows, Local, "Chromium/User Data"),
             (Linux, Config, "chromium"),
+            (Linux, Flatpak, "org.chromium.Chromium/config/chromium"),
+            (
+                Linux,
+                Flatpak,
+                "io.github.ungoogled_software.ungoogled_chromium/config/chromium",
+            ),
+            (Linux, Snap, "chromium/common/chromium"),
         ],
     },
     Browser {
@@ -150,7 +188,18 @@ pub const BROWSERS: &[Browser] = &[
         paths: &[
             (Mac, Support, "Firefox"),
             (Windows, Roaming, "Mozilla/Firefox"),
+            (
+                Windows,
+                Store,
+                "Mozilla.Firefox*/LocalCache/Roaming/Mozilla/Firefox",
+            ),
+            // Firefox 147 and later make a new profile in `~/.config/mozilla`, and keep using
+            // `~/.mozilla` where it was already.
             (Linux, Home, ".mozilla/firefox"),
+            (Linux, Config, "mozilla/firefox"),
+            (Linux, Flatpak, "org.mozilla.firefox/.mozilla/firefox"),
+            (Linux, Flatpak, "org.mozilla.firefox/config/mozilla/firefox"),
+            (Linux, Snap, "firefox/common/.mozilla/firefox"),
         ],
     },
     Browser {
@@ -160,6 +209,9 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "zen"),
             (Windows, Roaming, "zen"),
             (Linux, Home, ".zen"),
+            (Linux, Config, "zen"),
+            (Linux, Flatpak, "app.zen_browser.zen/.zen"),
+            (Linux, Flatpak, "app.zen_browser.zen/config/zen"),
         ],
     },
     Browser {
@@ -169,6 +221,8 @@ pub const BROWSERS: &[Browser] = &[
             (Mac, Support, "librewolf"),
             (Windows, Roaming, "librewolf"),
             (Linux, Home, ".librewolf"),
+            (Linux, Config, "librewolf/librewolf"),
+            (Linux, Flatpak, "io.gitlab.librewolf-community/.librewolf"),
         ],
     },
     Browser {
@@ -192,7 +246,7 @@ pub struct Roots {
 impl Roots {
     /// The user's folders on this system.
     pub fn system() -> Roots {
-        let var = |name| std::env::var_os(name).map(PathBuf::from);
+        let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
         let home = var("HOME")
             .or_else(|| var("USERPROFILE"))
             .unwrap_or_default();
@@ -200,7 +254,7 @@ impl Roots {
             os: Os::current(),
             local: var("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData/Local")),
             roaming: var("APPDATA").unwrap_or_else(|| home.join("AppData/Roaming")),
-            config: var("XDG_CONFIG_HOME").unwrap_or_else(|| home.join(".config")),
+            config: config_home(var, &home),
             home,
         }
     }
@@ -223,8 +277,21 @@ impl Roots {
             Roaming => self.roaming.clone(),
             Config => self.config.clone(),
             Home => self.home.clone(),
+            Store => self.local.join("Packages"),
+            Flatpak => self.home.join(".var/app"),
+            Snap => self.home.join("snap"),
         }
     }
+}
+
+/// The user's `~/.config`. Inside a Flatpak, `XDG_CONFIG_HOME` is the app's own, under
+/// `~/.var/app`, and the user's is in `HOST_XDG_CONFIG_HOME` if they moved it.
+pub fn config_home(var: impl Fn(&str) -> Option<PathBuf>, home: &Path) -> PathBuf {
+    let name = match var("FLATPAK_ID") {
+        Some(_) => "HOST_XDG_CONFIG_HOME",
+        None => "XDG_CONFIG_HOME",
+    };
+    var(name).unwrap_or_else(|| home.join(".config"))
 }
 
 /// A browser found on the machine, with its profiles.
@@ -233,6 +300,9 @@ pub struct Source {
     pub browser: &'static Browser,
     /// The folder its profiles are in.
     pub dir: PathBuf,
+    /// How it was installed, such as "Flatpak", when the same browser was found installed
+    /// another way too.
+    pub install: Option<&'static str>,
     pub profiles: Vec<Profile>,
     /// When it was last used, as far as its files tell, for the list's order.
     pub used: Option<SystemTime>,
@@ -245,6 +315,14 @@ impl std::fmt::Debug for Browser {
 }
 
 impl Source {
+    /// The name its row shows, such as "Chrome", or "Chrome (Flatpak)" beside another Chrome.
+    pub fn name(&self) -> String {
+        match self.install {
+            Some(install) => format!("{} ({install})", self.browser.name),
+            None => self.browser.name.into(),
+        }
+    }
+
     /// Arc's sidebar, beside its user data folder, where its Spaces, pinned tabs and favorites are.
     pub fn arc_sidebar(&self) -> Option<PathBuf> {
         let path = self.dir.parent()?.join("StorableSidebar.json");
@@ -266,15 +344,28 @@ pub struct Profile {
 /// The browsers found under `roots`, the one used last first. Reads only the files that list the
 /// profiles; what's in a profile waits until the user picks it.
 pub fn find(roots: &Roots) -> Vec<Source> {
-    let mut found: Vec<Source> = BROWSERS
-        .iter()
-        .flat_map(|browser| {
-            let paths = browser.paths.iter().filter(|(os, ..)| *os == roots.os);
-            paths
-                .flat_map(move |&(_, base, path)| expand(&roots.base(base), path))
-                .filter_map(move |dir| source(browser, dir))
-        })
-        .collect();
+    let mut seen = Vec::new();
+    let mut found: Vec<Source> = Vec::new();
+    for browser in BROWSERS {
+        for &(_, base, path) in browser.paths.iter().filter(|(os, ..)| *os == roots.os) {
+            for dir in expand(&roots.base(base), path) {
+                // A folder linked from another place the table names, as `~/.mozilla` can be.
+                let real = std::fs::canonicalize(&dir).unwrap_or_else(|_| dir.clone());
+                if seen.contains(&real) {
+                    continue;
+                }
+                seen.push(real);
+                found.extend(source(browser, dir, base.install()));
+            }
+        }
+    }
+    // An install is named only beside another of the same browser.
+    for index in 0..found.len() {
+        let name = found[index].browser.name;
+        if found.iter().filter(|other| other.browser.name == name).count() == 1 {
+            found[index].install = None;
+        }
+    }
     // Stable, so browsers with no time keep the table's order after the others.
     found.sort_by(|a, b| b.used.cmp(&a.used));
     found
@@ -302,7 +393,11 @@ fn expand(base: &Path, path: &str) -> Vec<PathBuf> {
     dirs
 }
 
-fn source(browser: &'static Browser, dir: PathBuf) -> Option<Source> {
+fn source(
+    browser: &'static Browser,
+    dir: PathBuf,
+    install: Option<&'static str>,
+) -> Option<Source> {
     let profiles = match browser.family {
         Chromium => chromium_profiles(&dir),
         Firefox => firefox_profiles(&dir),
@@ -329,6 +424,7 @@ fn source(browser: &'static Browser, dir: PathBuf) -> Option<Source> {
     let mut source = Source {
         browser,
         dir,
+        install,
         profiles,
         used: None,
     };
