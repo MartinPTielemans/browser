@@ -8,7 +8,7 @@ Work that doesn't change the core needs no build: `./fetch.sh` downloads the pre
 
 | Path | What |
 |---|---|
-| `pins.ini` | Chromium version and the ungoogled-chromium, ungoogled-chromium-macos and ungoogled-chromium-portablelinux tags. Bumped together, every Chromium release |
+| `pins.ini` | Chromium version and the ungoogled-chromium, ungoogled-chromium-macos, ungoogled-chromium-portablelinux and ungoogled-chromium-windows tags. Bumped together, every Chromium release |
 | `series` | Ordered list of patches applied after ungoogled-chromium's own series |
 | `patches/helium/` | Patches taken from Helium, header naming the upstream path and commit |
 | `patches/ardia/` | Patches taken from Ardia, same convention |
@@ -19,6 +19,8 @@ Work that doesn't change the core needs no build: `./fetch.sh` downloads the pre
 | `check-linux.sh` | Compiles the core on Linux, as CI does |
 | `linux/` | Prepares, builds and packs the Linux engine |
 | `point-release.sh` | Finds a security point release and dry-runs the patches on it, for the daily Action (Point releases, below) |
+| `windows/cross/` | Prepares, builds and packs the Windows engine, cross-compiled on Linux |
+| `windows/` | ungoogled-chromium-windows's own build with our hooks, for GitHub's Windows runners |
 | `prebuilt.ini` | The prebuilt engine: the commit it was built from, its URL and its SHA-256. Written by `publish.sh` |
 
 ## Order
@@ -53,6 +55,25 @@ Chromium's security point releases (same major, such as 156.0.8078.47 → .60) u
 - **Detect.** `.github/workflows/engine-point-release.yml` runs `point-release.sh` daily on GitHub's runners. For each platform section in `pins.ini`, it finds the newest tag on the pinned major. The bump follows the Mac, which never waits on another platform: `[chromium]` moves to the Mac's newest point release, and each section on the same version that has a tag for it moves too. A section whose tag lags stays on the Chromium its tag names, which `check_ungoogled` in `tree.sh` checks alone, and follows in its own PR once its tag is out. It extracts only the files the patches touch from Chromium's source tarball and dry-runs ungoogled-chromium's patches, the platform's, domain substitution and `series`. It then opens one PR bumping `pins.ini`, with "applies cleanly" or the conflicting patches, and the patch lag: the days since Chrome's stable release of that version. A new major gets an issue asking the owner, once.
 - **Update in place.** `setup.sh update` (and `setup.sh update dev`) prepares the new version in `.deps/next`, series and all, then copies it over `.deps/src` with `rsync --checksum --delete`, leaving `out/` alone. Unchanged files keep their dates, so ninja rebuilds only what changed. The scratch tree needs about 25 GB while it runs. Afterwards, `setup.sh` for the other build regenerates its build files.
 - **Merge.** The integrator builds Dev and Release incrementally, runs the full check, merges, and tags `good/…`. The PR comes from `GITHUB_TOKEN`, so no workflow runs on it. A conflict goes to a lane, as for a major.
+
+## Windows
+
+The Windows engine is cross-compiled on Linux, as Chromium's `docs/win_cross.md` describes, by `.github/workflows/engine-windows-cross.yml` on the runner that builds the Linux engine. It keeps its tree in `$ILO_ENGINE_ROOT/windows`, runs on the same pushes to main and by hand, and publishes a release `engine-windows-<commit>`, which `fetch.sh` downloads on Windows and `app/setup.sh` copies into `app/.deps/engine`.
+
+`windows/cross/prepare.sh <work>` takes ungoogled-chromium-windows's patches and Windows-only sources at the tag `pins.ini` names, on Chromium's source tarball, with ungoogled-chromium-portablelinux's Linux toolchain (the same ungoogled-chromium commit, which the script checks). Of ungoogled-chromium-windows's patches it leaves out the ones that fit its build to a Windows host or its own LLVM, and adds portablelinux's for the Linux host's Python and Node tools. A new tag comes in through `<work>/next` as on Linux. Three exceptions to ungoogled-chromium's pruning stay in the tree: the outputs of Microsoft's `midl` and `mc` that Chromium checks in under `win_build_output/` and `chrome/app/etw_events/`, and windows-rs's import libraries. Those tools don't run on Linux, so a cross build copies the checked-in outputs, as Google's own does. `windows/cross/build.sh` builds `chrome`, and `windows/cross/package.sh` packs what Chromium's `FILES.cfg` lists, with `chrome.dll.lib`, which the app links, into `Chromium-windows-x64.zip`.
+
+Microsoft's compiler, headers and libraries come from a zip of a Visual Studio and Windows SDK install, which Microsoft's licence lets no one redistribute. Never upload it, as a release, an artifact or anywhere else. It sits in `$ILO_ENGINE_ROOT/windows-toolchain`, the only `.zip` there, and unpacks into `vs_files` beside it, which must be a case-insensitive `ciopfs` mount, since the SDK's headers include each other in any case. The runner can't mount one itself, so a service of the owner's keeps it mounted. Its Visual Studio and SDK are the ones `build/vs_toolchain.py` names (Visual Studio 2026 and SDK 10.0.28000.0 for Chromium 156), and `prepare.sh` stops when a new Chromium version names others. To make the zip, on a Windows machine with that Visual Studio (its C++ workload with ATL and MFC) and that SDK, with its debugging tools:
+
+```
+git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+git -C depot_tools checkout <the depot_tools commit in Chromium's DEPS>
+cd depot_tools\win_toolchain
+python package_from_installed.py <VS version> -w <SDK version> --noarm
+```
+
+The zip is named after its contents' hash. The first build takes about as long as the Linux engine's, and the tree, the toolchain and a new version coming in need about 150 GB.
+
+`windows/prepare.sh` is ungoogled-chromium-windows's own build on Windows, which `.github/workflows/engine-windows.yml` runs by hand on GitHub's runners, for when the cross build can't.
 
 ## What reaches Google
 

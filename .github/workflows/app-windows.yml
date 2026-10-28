@@ -1,6 +1,7 @@
 # The UI builds and its tests pass on Windows (AGENTS.md, Hit every surface: Platforms). The browser
-# needs the engine engine-windows.yml builds, so this is the UI's library and the preview, which
-# need none. GitHub's hosted runners only: the self-hosted one never runs a pull request's code.
+# needs the engine engine-windows-cross.yml builds, so this is the UI's library and the preview,
+# which need none. GitHub's hosted runners only: the self-hosted one never runs a pull request's
+# code.
 name: UI on Windows
 
 on:
