@@ -5,6 +5,10 @@
 // The Windows build names its crate Browser, for Browser.dll (windows/Cargo.toml).
 #![cfg_attr(target_os = "windows", allow(non_snake_case))]
 
+// The engine linked was built from another core/public/browser_core.h than the bindings (build.rs).
+#[cfg(engine_header_mismatch)]
+compile_error!(env!("ENGINE_HEADER_MISMATCH"));
+
 use std::{
     cell::{Cell, RefCell},
     ffi::{CStr, CString, c_char, c_int, c_void},
