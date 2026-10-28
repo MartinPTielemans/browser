@@ -26,6 +26,8 @@ gpui = { path = "../.deps/zed/crates/gpui" }
 gpui_platform = { path = "../.deps/zed/crates/gpui_platform", features = ["wayland", "x11"] }
 gpui_linux = { path = "../.deps/zed/crates/gpui_linux" }
 raw-window-handle = "0.6"
+# The test driver's X connection (platform/linux/drive.rs).
+x11rb = "0.13"
 
 # Its own, apart from the browser crate's, which has no workspace: Zed's crates in ../.deps would join one.
 # Seeded from ../Cargo.lock, so the two build the same versions.
