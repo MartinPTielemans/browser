@@ -7,8 +7,9 @@
 // answers says "no" or "none". The overlays, the command bar, the icon picker and the dialog, are
 // overlays.rs's, the find bar and the offer are panels.rs's, ilo's menus are menu_window.rs's, the
 // HUD, the drop targets, the toast, the tooltip and the link target are floats.rs's, the Site
-// Controls and Capture are popovers.rs's, the sidebar reveal is reveal_window.rs's and Settings is
-// settings_window.rs's, as GPUI's Linux platform shows them.
+// Controls and Capture are popovers.rs's, the sidebar reveal is reveal_window.rs's, Settings is
+// settings_window.rs's, as GPUI's Linux platform shows them, and the window buttons, which the UI
+// draws, are window_buttons.rs's.
 
 #include "../host.h"
 
@@ -442,10 +443,6 @@ void host_focus(void* view) {}
 int host_ask(const char* message, const char* detail, const char* const* buttons, size_t count) {
   return -1;
 }
-
-void host_show_window_buttons(void* ui_view, bool shown) {}
-
-void host_press_window_button(void* ui_view, int button) {}
 
 bool host_close_other_window(void) {
   return false;

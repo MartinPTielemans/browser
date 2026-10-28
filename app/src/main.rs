@@ -70,6 +70,9 @@ mod settings_window;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/system.rs"]
 mod system;
+#[cfg(target_os = "linux")]
+#[path = "../platform/linux/window_buttons.rs"]
+mod window_buttons;
 mod reveal;
 mod settings;
 
