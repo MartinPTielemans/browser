@@ -109,7 +109,8 @@ spctl -a -t open --context context:primary-signature -vv "$dmg"
 
 # Without them the collector has addresses and no functions. The Release engine writes the
 # framework's and helpers' dSYMs beside Chromium.app; the app's executable keeps its symbol table.
-if [ -n "$(tr -d '[:space:]' < "$root/branding/crash-reports")" ]; then
+# A build with a collector but no token to upload with, such as a fork's, skips the upload.
+if [ -n "$(tr -d '[:space:]' < "$root/branding/crash-reports")" ] && [ -n "${SENTRY_AUTH_TOKEN:-}" ]; then
   engine_out=$(dirname "$(cd "$root/.deps/Chromium.app" && pwd -P)")
   sentry-cli debug-files upload --wait "$engine_out"/*.dSYM "$app/Contents/MacOS/Browser"
 fi
