@@ -1,26 +1,47 @@
+diff --git i/crates/gpui_linux/Cargo.toml w/crates/gpui_linux/Cargo.toml
+index a91818acd0..f13cdc6d3d 100644
+--- i/crates/gpui_linux/Cargo.toml
++++ w/crates/gpui_linux/Cargo.toml
+@@ -92,9 +92,10 @@ scap = { workspace = true, optional = true }
+ 
+ # Wayland
+ calloop-wayland-source = { version = "0.4.1", optional = true }
++# Linked rather than opened by name: embedded in chrome, libwayland's calls bind to the copy chrome
++# exports, the one its wl_display came from, where dlopen would load the system's beside it.
+ wayland-backend = { version = "0.3.15", features = [
+     "client_system",
+-    "dlopen",
+     "log",
+ ], optional = true }
+ wayland-client = { version = "0.31.11", optional = true }
 diff --git i/crates/gpui_linux/src/gpui_linux.rs w/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..af72c91a08 100644
+index a5390e77f8..e543248783 100644
 --- i/crates/gpui_linux/src/gpui_linux.rs
 +++ w/crates/gpui_linux/src/gpui_linux.rs
-@@ -1,4 +1,8 @@
+@@ -1,4 +1,11 @@
  #![cfg(any(target_os = "linux", target_os = "freebsd"))]
  mod linux;
  
 -pub use linux::{current_platform, linux_platform};
 +pub use linux::{
-+    current_platform, dispatch_embedded, embed, embedded_fd, linux_platform, new_host_window,
++    current_platform, dispatch_embedded, embed, embed_wayland, embedded_fd, linux_platform,
++    new_host_window,
 +};
++#[cfg(feature = "wayland")]
++pub use linux::{open_next_window_in_surface, resize_embedded};
 +#[cfg(feature = "x11")]
 +pub use linux::open_next_window_in;
 diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
-index e4da54b52b..2ccc49ae09 100644
+index e4da54b52b..99a58c6fec 100644
 --- i/crates/gpui_linux/src/linux.rs
 +++ w/crates/gpui_linux/src/linux.rs
-@@ -19,12 +19,15 @@ pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
+@@ -19,12 +19,17 @@ pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
  pub(crate) use headless::*;
  pub(crate) use keyboard::*;
  pub(crate) use platform::*;
-+pub use platform::{dispatch_embedded, embed, embedded_fd, new_host_window};
++pub use platform::{dispatch_embedded, embed, embed_wayland, embedded_fd, new_host_window};
++#[cfg(feature = "wayland")]
++pub use wayland::{open_next_window_in_surface, resize_embedded};
  #[cfg(any(feature = "wayland", feature = "x11"))]
  pub(crate) use text_system::*;
  #[cfg(feature = "wayland")]
@@ -33,15 +54,26 @@ index e4da54b52b..2ccc49ae09 100644
  use std::rc::Rc;
  
 diff --git i/crates/gpui_linux/src/linux/platform.rs w/crates/gpui_linux/src/linux/platform.rs
-index 0c5370db6c..75a520d7b6 100644
+index 0c5370db6c..cc7ca577fb 100644
 --- i/crates/gpui_linux/src/linux/platform.rs
 +++ w/crates/gpui_linux/src/linux/platform.rs
-@@ -269,6 +269,66 @@ async fn listen_for_system_power_events(
+@@ -11,7 +11,7 @@ use std::{
+     fs::File,
+     io::Read as _,
+     os::fd::{AsFd, AsRawFd},
+-    time::Duration,
++    time::{Duration, Instant},
+ };
+ 
+ #[cfg(any(feature = "wayland", feature = "x11"))]
+@@ -269,6 +269,141 @@ async fn listen_for_system_power_events(
      Ok(())
  }
  
 +thread_local! {
 +    static EMBEDDED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
++    static EMBEDDED_WAYLAND_DISPLAY: std::cell::Cell<*mut std::ffi::c_void> =
++        const { std::cell::Cell::new(std::ptr::null_mut()) };
 +    static EMBEDDED_PLATFORM: std::cell::Cell<*const LinuxPlatform> =
 +        const { std::cell::Cell::new(std::ptr::null()) };
 +    static EMBEDDED_LOOP: RefCell<Option<EventLoop<'static, ()>>> = const { RefCell::new(None) };
@@ -53,6 +85,77 @@ index 0c5370db6c..75a520d7b6 100644
 +/// before starting, on the thread GPUI runs on.
 +pub fn embed() {
 +    EMBEDDED.set(true);
++}
++
++/// As [`embed`], with GPUI on the embedder's Wayland display, a `wl_display*` from the same
++/// libwayland GPUI loads, rather than a connection of its own.
++pub fn embed_wayland(display: *mut std::ffi::c_void) {
++    EMBEDDED.set(true);
++    EMBEDDED_WAYLAND_DISPLAY.set(display);
++}
++
++pub(crate) fn embedded_wayland_display() -> Option<*mut std::ffi::c_void> {
++    let display = EMBEDDED_WAYLAND_DISPLAY.get();
++    (!display.is_null()).then_some(display)
++}
++
++/// A calloop timer, or when embedded, a timerfd that does the same: an embedder that dispatches
++/// GPUI's loop when [`embedded_fd`] is readable never sees calloop's own timers come due.
++pub(crate) fn insert_timer(
++    handle: &LoopHandle<'static, ()>,
++    after: Duration,
++    mut callback: impl FnMut(Instant) -> calloop::timer::TimeoutAction + 'static,
++) -> Result<calloop::RegistrationToken, calloop::Error> {
++    use calloop::timer::TimeoutAction;
++    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
++    if !is_embedded() {
++        return handle
++            .insert_source(calloop::timer::Timer::from_duration(after), move |deadline, _, _| {
++                callback(deadline)
++            })
++            .map_err(|error| error.error);
++    }
++    fn arm(fd: &OwnedFd, after: Duration) {
++        // A zero time disarms a timerfd, so one due now fires after a nanosecond.
++        let after = after.max(Duration::from_nanos(1));
++        let spec = libc::itimerspec {
++            it_interval: libc::timespec { tv_sec: 0, tv_nsec: 0 },
++            it_value: libc::timespec {
++                tv_sec: after.as_secs() as _,
++                tv_nsec: after.subsec_nanos() as _,
++            },
++        };
++        // SAFETY: a plain system call on a timerfd this owns.
++        unsafe { libc::timerfd_settime(fd.as_raw_fd(), 0, &spec, std::ptr::null_mut()) };
++    }
++    // SAFETY: as above.
++    let fd = unsafe {
++        let fd = libc::timerfd_create(libc::CLOCK_MONOTONIC, libc::TFD_NONBLOCK | libc::TFD_CLOEXEC);
++        if fd < 0 {
++            return Err(std::io::Error::last_os_error().into());
++        }
++        OwnedFd::from_raw_fd(fd)
++    };
++    arm(&fd, after);
++    let mut deadline = Instant::now() + after;
++    handle
++        .insert_source(
++            calloop::generic::Generic::new(fd, calloop::Interest::READ, calloop::Mode::Level),
++            move |_, fd, _| {
++                let mut expirations = 0u64;
++                // SAFETY: reads the expiration count into a u64, as a timerfd wants.
++                unsafe { libc::read(fd.as_raw_fd(), (&raw mut expirations).cast(), 8) };
++                let next = match callback(deadline) {
++                    TimeoutAction::Drop => return Ok(calloop::PostAction::Remove),
++                    TimeoutAction::ToDuration(after) => Instant::now() + after,
++                    TimeoutAction::ToInstant(instant) => instant,
++                };
++                deadline = next;
++                arm(fd, next.saturating_duration_since(Instant::now()));
++                Ok(calloop::PostAction::Continue)
++            },
++        )
++        .map_err(|error| error.error)
 +}
 +
 +pub(crate) fn is_embedded() -> bool {
@@ -82,6 +185,8 @@ index 0c5370db6c..75a520d7b6 100644
 +        // dispatches, and both are only used on this thread.
 +        unsafe { &*platform }.apply_pending_mode();
 +    }
++    #[cfg(feature = "wayland")]
++    crate::linux::wayland::flush_embedded();
 +}
 +
 +/// Makes an unmapped X11 window for the next window GPUI opens to fill (`open_next_window_in`),
@@ -103,7 +208,7 @@ index 0c5370db6c..75a520d7b6 100644
  /// GPUI's platform for Linux and FreeBSD.
  ///
  /// One event loop serves the whole process. The foreground executor and power listener are
-@@ -617,9 +677,19 @@ impl Platform for LinuxPlatform {
+@@ -617,9 +752,19 @@ impl Platform for LinuxPlatform {
      }
  
      fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
@@ -123,6 +228,377 @@ index 0c5370db6c..75a520d7b6 100644
          let mut event_loop = self
              .event_loop
              .borrow_mut()
+diff --git i/crates/gpui_linux/src/linux/wayland.rs w/crates/gpui_linux/src/linux/wayland.rs
+index cbc962bcff..d1063d2c4e 100644
+--- i/crates/gpui_linux/src/linux/wayland.rs
++++ w/crates/gpui_linux/src/linux/wayland.rs
+@@ -10,6 +10,9 @@ mod window;
+ pub mod layer_shell;
+ 
+ pub(crate) use client::*;
++pub use client::resize_embedded;
++pub(crate) use client::flush_embedded;
++pub use window::open_next_window_in_surface;
+ 
+ use wayland_protocols::wp::cursor_shape::v1::client::wp_cursor_shape_device_v1::Shape;
+ 
+diff --git i/crates/gpui_linux/src/linux/wayland/client.rs w/crates/gpui_linux/src/linux/wayland/client.rs
+index 2d40cf7fa9..8a6bc178d6 100644
+--- i/crates/gpui_linux/src/linux/wayland/client.rs
++++ w/crates/gpui_linux/src/linux/wayland/client.rs
+@@ -15,7 +15,7 @@ use ashpd::WindowIdentifier;
+ use calloop::{
+     LoopHandle, RegistrationToken,
+     ping::Ping,
+-    timer::{TimeoutAction, Timer},
++    timer::TimeoutAction,
+ };
+ use calloop_wayland_source::WaylandSource;
+ use collections::HashMap;
+@@ -38,7 +38,7 @@ use wayland_client::{
+     Connection, Dispatch, Proxy, QueueHandle, delegate_noop,
+     protocol::{
+         wl_buffer, wl_compositor, wl_keyboard, wl_pointer, wl_registry, wl_seat, wl_shm,
+-        wl_shm_pool, wl_surface,
++        wl_shm_pool, wl_subcompositor, wl_subsurface, wl_surface,
+     },
+ };
+ use wayland_protocols::wp::pointer_gestures::zv1::client::{
+@@ -241,6 +241,7 @@ pub struct Globals {
+     pub qh: QueueHandle<WaylandClientStatePtr>,
+     pub activation: Option<xdg_activation_v1::XdgActivationV1>,
+     pub compositor: wl_compositor::WlCompositor,
++    pub subcompositor: Option<wl_subcompositor::WlSubcompositor>,
+     pub cursor_shape_manager: Option<wp_cursor_shape_manager_v1::WpCursorShapeManagerV1>,
+     pub data_device_manager: Option<wl_data_device_manager::WlDataDeviceManager>,
+     pub primary_selection_manager:
+@@ -281,6 +282,7 @@ impl Globals {
+                     (),
+                 )
+                 .context("Wayland compositor does not provide a compatible wl_compositor")?,
++            subcompositor: globals.bind(&qh, 1..=1, ()).ok(),
+             cursor_shape_manager: globals.bind(&qh, 1..=1, ()).ok(),
+             data_device_manager: globals
+                 .bind(
+@@ -636,9 +638,10 @@ impl WaylandClientStatePtr {
+         let state = client.borrow();
+         let surface_id = surface_id.clone();
+         let this = self.clone();
+-        if let Err(err) = state.loop_handle.insert_source(
+-            Timer::from_duration(FRAME_RETRY_INTERVAL),
+-            move |deadline, _, _| {
++        if let Err(err) = crate::linux::platform::insert_timer(
++            &state.loop_handle,
++            FRAME_RETRY_INTERVAL,
++            move |deadline| {
+                 let Some(client) = this.0.upgrade() else {
+                     return TimeoutAction::Drop;
+                 };
+@@ -973,20 +976,26 @@ impl WaylandConnection {
+         inherited_socket: Option<UnixStream>,
+         activation_token: Option<String>,
+     ) -> anyhow::Result<Self> {
+-        let stream = match inherited_socket {
+-            Some(stream) => stream,
+-            None => {
+-                let socket_path = wayland_socket_path(environment)?;
+-                UnixStream::connect(&socket_path).with_context(|| {
+-                    format!(
+-                        "failed to connect to Wayland compositor at {}",
+-                        socket_path.display()
+-                    )
+-                })?
+-            }
++        let conn = if let Some(display) = crate::linux::platform::embedded_wayland_display() {
++            // SAFETY: the embedder's display outlives GPUI, which the embedder dispatches.
++            Connection::from_backend(unsafe {
++                wayland_backend::client::Backend::from_foreign_display(display.cast())
++            })
++        } else {
++            let stream = match inherited_socket {
++                Some(stream) => stream,
++                None => {
++                    let socket_path = wayland_socket_path(environment)?;
++                    UnixStream::connect(&socket_path).with_context(|| {
++                        format!(
++                            "failed to connect to Wayland compositor at {}",
++                            socket_path.display()
++                        )
++                    })?
++                }
++            };
++            Connection::from_socket(stream).context("failed to connect to Wayland compositor")?
+         };
+-        let conn =
+-            Connection::from_socket(stream).context("failed to connect to Wayland compositor")?;
+         let (globals, mut event_queue) = registry_queue_init::<WaylandClientStatePtr>(&conn)
+             .context("failed to initialize Wayland registry")?;
+         let qh = event_queue.handle();
+@@ -1009,7 +1018,10 @@ impl WaylandConnection {
+                             (),
+                         ));
+                     }
+-                    "wl_output" => {
++                    // Embedded, GPUI takes its scale from wp_fractional_scale_v1 and binds no
++                    // output: the compositor tells each surface of the display's client every
++                    // output it bound, and the embedder's would read GPUI's as its own.
++                    "wl_output" if !crate::linux::is_embedded() => {
+                         let output = globals.registry().bind::<wl_output::WlOutput, _, _>(
+                             global.name,
+                             wl_output_version(global.version)?,
+@@ -1341,6 +1353,17 @@ impl WaylandConnection {
+             state.consume_startup_activation_token(&window.0.surface());
+         }
+         state.windows.insert(surface_id, window.0.clone());
++        if window.0.is_embedded() {
++            EMBEDDED_CLIENT.set(Some(Rc::downgrade(&self.0)));
++            // Its first frame, once GPUI has its callbacks: no compositor configures a subsurface.
++            // At the size it has then, which the embedder may have changed (resize_embedded).
++            let embedded = window.0.clone();
++            state
++                .globals
++                .executor
++                .spawn(async move { embedded.configure_embedded(embedded.bounds_size()) })
++                .detach();
++        }
+ 
+         Ok(Box::new(window))
+     }
+@@ -1617,7 +1640,8 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
+                     state.wl_seat.release();
+                     state.wl_seat = registry.bind::<wl_seat::WlSeat, _, _>(name, version, qh, ());
+                 }
+-                "wl_output" => {
++                // As in WaylandConnection::new.
++                "wl_output" if !crate::linux::is_embedded() => {
+                     let Ok(version) = wl_output_version(version) else {
+                         log::error!("ignoring wl_output below the required version");
+                         return;
+@@ -1656,6 +1680,8 @@ impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for WaylandClientStat
+ delegate_noop!(WaylandClientStatePtr: ignore xdg_activation_v1::XdgActivationV1);
+ delegate_noop!(WaylandClientStatePtr: ignore xdg_system_bell_v1::XdgSystemBellV1);
+ delegate_noop!(WaylandClientStatePtr: ignore wl_compositor::WlCompositor);
++delegate_noop!(WaylandClientStatePtr: ignore wl_subcompositor::WlSubcompositor);
++delegate_noop!(WaylandClientStatePtr: ignore wl_subsurface::WlSubsurface);
+ delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_device_v1::WpCursorShapeDeviceV1);
+ delegate_noop!(WaylandClientStatePtr: ignore wp_cursor_shape_manager_v1::WpCursorShapeManagerV1);
+ delegate_noop!(WaylandClientStatePtr: ignore wl_data_device_manager::WlDataDeviceManager);
+@@ -1985,7 +2011,8 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
+             let client = state.get_client();
+             let mut state = client.borrow_mut();
+             if capabilities.contains(wl_seat::Capability::Keyboard) {
+-                let keyboard = seat.get_keyboard(qh, ());
++                // The embedder's toplevel has the keyboard, and the compositor sends its keys there.
++                let keyboard = (!crate::linux::is_embedded()).then(|| seat.get_keyboard(qh, ()));
+ 
+                 if let Some(text_input) = state.text_input.take() {
+                     text_input.destroy();
+@@ -2003,7 +2030,7 @@ impl Dispatch<wl_seat::WlSeat, ()> for WaylandClientStatePtr {
+                     wl_keyboard.release();
+                 }
+ 
+-                state.wl_keyboard = Some(keyboard);
++                state.wl_keyboard = keyboard;
+             }
+             if capabilities.contains(wl_seat::Capability::Pointer) {
+                 let pointer = seat.get_pointer(qh, ());
+@@ -2218,16 +2245,14 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
+                         let rate = state.repeat.characters_per_second;
+                         let repeat_interval = Duration::from_secs(1) / rate.max(1);
+                         let id = state.repeat.current_id;
+-                        state
+-                            .loop_handle
+-                            .insert_source(Timer::from_duration(state.repeat.delay), {
++                        crate::linux::platform::insert_timer(&state.loop_handle, state.repeat.delay, {
+                                 let input = PlatformInput::KeyDown(KeyDownEvent {
+                                     keystroke,
+                                     is_held: true,
+                                     prefer_character_input: false,
+                                 });
+                                 let this = this.clone();
+-                                move |event_timestamp, _metadata, _| {
++                                move |event_timestamp| {
+                                     let Some(client) = this.0.upgrade() else {
+                                         return TimeoutAction::Drop;
+                                     };
+@@ -3479,3 +3504,36 @@ mod tests {
+         );
+     }
+ }
++
++thread_local! {
++    static EMBEDDED_CLIENT: RefCell<Option<std::rc::Weak<RefCell<WaylandClientState>>>> =
++        const { RefCell::new(None) };
++}
++
++fn embedded_windows() -> Vec<WaylandWindowStatePtr> {
++    let Some(client) = EMBEDDED_CLIENT.with_borrow(|client| client.as_ref()?.upgrade()) else {
++        return Vec::new();
++    };
++    let client = client.borrow();
++    client.windows.values().filter(|window| window.is_embedded()).cloned().collect()
++}
++
++/// Sends what GPUI asked of the embedder's display: its own loop flushes before it sleeps, which an
++/// embedder's doesn't do for it, so a frame's commit would wait for the embedder's next request.
++pub(crate) fn flush_embedded() {
++    if let Some(window) = embedded_windows().first()
++        && let Some(backend) = window.surface().backend().upgrade()
++    {
++        backend.flush().ok();
++    }
++}
++
++/// Sizes the window GPUI opened in the embedder's `parent` surface, in logical pixels, as the
++/// embedder's layout changes: no compositor configures a subsurface.
++pub fn resize_embedded(parent: *mut std::ffi::c_void, width: f32, height: f32) {
++    for window in embedded_windows() {
++        if window.embedded_parent() == Some(parent) {
++            window.configure_embedded(size(px(width), px(height)));
++        }
++    }
++}
+diff --git i/crates/gpui_linux/src/linux/wayland/window.rs w/crates/gpui_linux/src/linux/wayland/window.rs
+index 8d92234ef1..63e78459b4 100644
+--- i/crates/gpui_linux/src/linux/wayland/window.rs
++++ w/crates/gpui_linux/src/linux/wayland/window.rs
+@@ -14,9 +14,10 @@ use futures::channel::oneshot::Receiver;
+ use raw_window_handle as rwh;
+ use wayland_backend::client::ObjectId;
+ use wayland_client::WEnum;
++use anyhow::Context as _;
+ use wayland_client::{
+-    Proxy,
+-    protocol::{wl_callback, wl_output, wl_seat, wl_surface},
++    Connection, Proxy,
++    protocol::{wl_callback, wl_output, wl_seat, wl_subsurface, wl_surface},
+ };
+ use wayland_protocols::wp::viewporter::client::wp_viewport;
+ use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1;
+@@ -146,6 +147,21 @@ pub enum WaylandSurfaceState {
+     Xdg(WaylandXdgSurfaceState),
+     LayerShell(WaylandLayerSurfaceState),
+     Popup(WaylandPopupSurfaceState),
++    /// Inside an embedder's surface (open_next_window_in_surface), which has the role.
++    Sub(wl_subsurface::WlSubsurface, wl_surface::WlSurface),
++    /// No role: an embedder's overlay opened with `show: false`, which it puts on screen itself, so a
++    /// toplevel would give the compositor a stray window to tile.
++    Unshown,
++}
++
++thread_local! {
++    static NEXT_PARENT_SURFACE: Cell<Option<(usize, i32, i32)>> = const { Cell::new(None) };
++}
++
++/// Makes the next window GPUI opens a subsurface under the embedder's `wl_surface`, at `x`, `y` in
++/// it, on the display GPUI was given (`embed_wayland`). The embedder sizes it (`resize_embedded`).
++pub fn open_next_window_in_surface(parent: *mut c_void, x: i32, y: i32) {
++    NEXT_PARENT_SURFACE.set(Some((parent as usize, x, y)));
+ }
+ 
+ impl WaylandSurfaceState {
+@@ -157,6 +173,29 @@ impl WaylandSurfaceState {
+         popup_grab: Option<(u32, wl_seat::WlSeat)>,
+         target_output: Option<wl_output::WlOutput>,
+     ) -> anyhow::Result<Self> {
++        if let Some((parent, x, y)) = NEXT_PARENT_SURFACE.take() {
++            let subcompositor = globals
++                .subcompositor
++                .as_ref()
++                .context("Wayland compositor has no wl_subcompositor")?;
++            let backend = surface.backend().upgrade().context("Wayland connection is gone")?;
++            // SAFETY: the embedder's surface, on the display GPUI shares with it.
++            let id = unsafe {
++                ObjectId::from_ptr(wl_surface::WlSurface::interface(), parent as *mut _)
++            }?;
++            let parent = wl_surface::WlSurface::from_id(&Connection::from_backend(backend), id)?;
++            let subsurface = subcompositor.get_subsurface(surface, &parent, &globals.qh, ());
++            subsurface.set_position(x, y);
++            // Under the embedder's own content, which shows it where it's transparent.
++            subsurface.place_below(&parent);
++            // Its frames show without waiting for the embedder's to commit.
++            subsurface.set_desync();
++            return Ok(WaylandSurfaceState::Sub(subsurface, parent));
++        }
++        if crate::linux::is_embedded() && !params.show && parent.is_none() {
++            return Ok(WaylandSurfaceState::Unshown);
++        }
++
+         // For layer_shell windows, create a layer surface instead of an xdg surface
+         if let WindowKind::LayerShell(options) = &params.kind {
+             let Some(layer_shell) = globals.layer_shell.as_ref() else {
+@@ -384,6 +423,7 @@ impl WaylandSurfaceState {
+             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
+                 xdg_surface.ack_configure(serial);
+             }
++            WaylandSurfaceState::Sub(..) | WaylandSurfaceState::Unshown => {}
+         }
+     }
+ 
+@@ -411,7 +451,9 @@ impl WaylandSurfaceState {
+             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
+                 Some(xdg_surface)
+             }
+-            WaylandSurfaceState::LayerShell(_) => None,
++            WaylandSurfaceState::LayerShell(_)
++            | WaylandSurfaceState::Sub(..)
++            | WaylandSurfaceState::Unshown => None,
+         }
+     }
+ 
+@@ -437,6 +479,7 @@ impl WaylandSurfaceState {
+             WaylandSurfaceState::Popup(WaylandPopupSurfaceState { xdg_surface, .. }) => {
+                 xdg_surface.set_window_geometry(x, y, width, height);
+             }
++            WaylandSurfaceState::Sub(..) | WaylandSurfaceState::Unshown => {}
+         }
+     }
+ 
+@@ -538,6 +581,8 @@ impl WaylandSurfaceState {
+                 xdg_popup.destroy();
+                 xdg_surface.destroy();
+             }
++            WaylandSurfaceState::Sub(subsurface, _) => subsurface.destroy(),
++            WaylandSurfaceState::Unshown => {}
+         }
+     }
+ }
+@@ -896,6 +941,35 @@ impl WaylandWindowStatePtr {
+         self.state.borrow().surface.clone()
+     }
+ 
++    pub fn is_embedded(&self) -> bool {
++        matches!(self.state.borrow().surface_state, WaylandSurfaceState::Sub(..))
++    }
++
++    /// The embedder's surface this window is a subsurface of.
++    pub fn embedded_parent(&self) -> Option<*mut c_void> {
++        match &self.state.borrow().surface_state {
++            WaylandSurfaceState::Sub(_, parent) => Some(parent.id().as_ptr().cast()),
++            _ => None,
++        }
++    }
++
++    pub fn bounds_size(&self) -> Size<Pixels> {
++        self.state.borrow().bounds.size
++    }
++
++    /// What a configure does for a toplevel: the embedder, not the compositor, sizes a subsurface.
++    pub fn configure_embedded(&self, size: Size<Pixels>) {
++        self.state.borrow_mut().in_progress_configure = Some(InProgressConfigure {
++            size: Some(size),
++            fullscreen: false,
++            maximized: false,
++            resizing: false,
++            visibility: WindowVisibility::Visible,
++            tiling: Tiling::default(),
++        });
++        self.handle_xdg_surface_event(xdg_surface::Event::Configure { serial: 0 });
++    }
++
+     pub fn toplevel(&self) -> Option<xdg_toplevel::XdgToplevel> {
+         self.state.borrow().surface_state.toplevel().cloned()
+     }
 diff --git i/crates/gpui_linux/src/linux/x11.rs w/crates/gpui_linux/src/linux/x11.rs
 index f9b9727330..5d46d6e422 100644
 --- i/crates/gpui_linux/src/linux/x11.rs
