@@ -36,6 +36,26 @@ impl Shell {
         pages
     }
 
+    /// The sidebar's last child while the Spaces' pages move, which notes how long the frame took
+    /// it from `started`, as it was built, to its paint: the hot path's number (principle 1).
+    pub(super) fn paging_frame(&self, started: Instant) -> Option<impl IntoElement + use<>> {
+        let frames = self.paging_frames.clone();
+        let paint = move |_, _, _: &mut Window, _: &mut gpui::App| {
+            frames.borrow_mut().push(started.elapsed().as_secs_f32() * 1000.)
+        };
+        (self.pages().len() > 1).then(|| canvas(|_, _, _| {}, paint).absolute().size_0())
+    }
+
+    /// Logs the frames drawn while the pages moved, as they settle. check.sh reads the line.
+    pub(super) fn log_paging_frames(&self) {
+        let mut frames = std::mem::take(&mut *self.paging_frames.borrow_mut());
+        frames.sort_by(f32::total_cmp);
+        let median = frames.get(frames.len().saturating_sub(1) / 2);
+        if let (Some(median), Some(max)) = (median, frames.last()) {
+            log!("browser: paged frames {}, median {median:.2} ms, max {max:.2} ms", frames.len());
+        }
+    }
+
     /// Where a swipe has taken the page of the Space it began at: with the fingers, but
     /// rubber-banding past the first and last Spaces, and past one Space either side. Past the
     /// first Space is the Library, its width away. A swipe in the Library goes back that far, to
