@@ -9,6 +9,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use browser::import::sources::{Os, Roots};
 use browser::log;
 use browser::shell::{
     self, Archived, BarTab, Browser, Command, Download, DownloadAction, DownloadState,
@@ -797,6 +798,13 @@ impl Browser for Fake {
     // The preview has the one profile.
     fn create_profile(&self, _: &str, _: &mut App) -> u64 {
         0
+    }
+
+    // The tests' made-up Arc, so the import's step shows a browser to pick.
+    fn import_host(&self) -> Rc<dyn browser::import::Host> {
+        let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/src/import/fixture");
+        let roots = Roots::under(std::path::Path::new(fixture), Os::Mac);
+        Rc::new(browser::import::Detached(roots))
     }
 
     fn delete_profile(&self, _: u64, _: &mut App) {}

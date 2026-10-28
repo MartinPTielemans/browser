@@ -551,6 +551,12 @@ impl Browser for Recorder {
         Default::default()
     }
 
+    fn import_host(&self) -> std::rc::Rc<dyn crate::import::Host> {
+        let nowhere = std::path::Path::new("/nonexistent");
+        let roots = crate::import::sources::Roots::under(nowhere, crate::import::sources::Os::Mac);
+        std::rc::Rc::new(crate::import::Detached(roots))
+    }
+
     fn delete_profile(&self, _: u64, _: &mut App) {}
 
     fn context_menu(
