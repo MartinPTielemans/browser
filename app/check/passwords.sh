@@ -12,7 +12,7 @@ log="$out/passwords.log"
 step=0
 passwords_profile="$PWD/$out/passwords-profile"
 BROWSER_DRIVE=1 BROWSER_URL="${site}login.html" BROWSER_PROFILE_DIR="$passwords_profile" \
-  "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+  "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load

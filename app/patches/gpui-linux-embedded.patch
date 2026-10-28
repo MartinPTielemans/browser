@@ -1622,7 +1622,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..4538607afb 100644
+index e21f019c64..b8a9fc0688 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1658,7 +1658,76 @@ index e21f019c64..4538607afb 100644
                  x_root_index,
                  resource_database,
                  atoms,
-@@ -890,10 +893,21 @@ impl X11Client {
+@@ -881,6 +884,68 @@ impl X11Client {
+ 
+     fn handle_event(&self, event: Event) -> Option<()> {
+         match event {
++            // A core pointer event another client sent, as an embedder's test driver does to the
++            // windows of the app it's in: GPUI selects XInput 2's, which no client can send, so the
++            // core one stands in for the device's.
++            Event::ButtonPress(event) | Event::ButtonRelease(event) => {
++                let press = event.response_type & 0x7f == xproto::BUTTON_PRESS_EVENT;
++                let mut sent = xinput::ButtonPressEvent {
++                    detail: event.detail.into(),
++                    root: event.root,
++                    event: event.event,
++                    root_x: i32::from(event.root_x) << 16,
++                    root_y: i32::from(event.root_y) << 16,
++                    event_x: i32::from(event.event_x) << 16,
++                    event_y: i32::from(event.event_y) << 16,
++                    mods: sent_modifiers(event.state),
++                    button_mask: vec![sent_buttons(event.state)],
++                    ..Default::default()
++                };
++                sent.event_type = match press {
++                    true => xinput::BUTTON_PRESS_EVENT,
++                    false => xinput::BUTTON_RELEASE_EVENT,
++                };
++                return self.handle_event(match press {
++                    true => Event::XinputButtonPress(sent),
++                    false => Event::XinputButtonRelease(sent),
++                });
++            }
++            Event::MotionNotify(event) => {
++                return self.handle_event(Event::XinputMotion(xinput::MotionEvent {
++                    event_type: xinput::MOTION_EVENT,
++                    root: event.root,
++                    event: event.event,
++                    root_x: i32::from(event.root_x) << 16,
++                    root_y: i32::from(event.root_y) << 16,
++                    event_x: i32::from(event.event_x) << 16,
++                    event_y: i32::from(event.event_y) << 16,
++                    mods: sent_modifiers(event.state),
++                    button_mask: vec![sent_buttons(event.state)],
++                    // x and y moved.
++                    valuator_mask: vec![3],
++                    ..Default::default()
++                }));
++            }
++            Event::EnterNotify(event) | Event::LeaveNotify(event) => {
++                let sent = xinput::EnterEvent {
++                    mode: xinput::NotifyMode::NORMAL,
++                    root: event.root,
++                    event: event.event,
++                    root_x: i32::from(event.root_x) << 16,
++                    root_y: i32::from(event.root_y) << 16,
++                    event_x: i32::from(event.event_x) << 16,
++                    event_y: i32::from(event.event_y) << 16,
++                    mods: sent_modifiers(event.state),
++                    buttons: vec![sent_buttons(event.state)],
++                    ..Default::default()
++                };
++                return self.handle_event(
++                    match event.response_type & 0x7f == xproto::ENTER_NOTIFY_EVENT {
++                        true => Event::XinputEnter(sent),
++                        false => Event::XinputLeave(sent),
++                    },
++                );
++            }
+             Event::UnmapNotify(event) => {
+                 let mut state = self.0.borrow_mut();
+                 if let Some(window_ref) = state.windows.get_mut(&event.window) {
+@@ -890,10 +955,21 @@ impl X11Client {
              }
              Event::MapNotify(event) => {
                  let mut state = self.0.borrow_mut();
@@ -1682,7 +1751,7 @@ index e21f019c64..4538607afb 100644
              }
              Event::VisibilityNotify(event) => {
                  let mut state = self.0.borrow_mut();
-@@ -1069,6 +1083,17 @@ impl X11Client {
+@@ -1069,6 +1145,17 @@ impl X11Client {
                  self.enable_ime();
              }
              Event::FocusOut(event) => {
@@ -1700,7 +1769,7 @@ index e21f019c64..4538607afb 100644
                  let window = self.get_window(event.event)?;
                  window.set_active(false);
                  let mut state = self.0.borrow_mut();
-@@ -1230,6 +1255,7 @@ impl X11Client {
+@@ -1230,6 +1317,7 @@ impl X11Client {
              }
              Event::XinputButtonPress(event) => {
                  let window = self.get_window(event.event)?;
@@ -1708,7 +1777,7 @@ index e21f019c64..4538607afb 100644
                  let mut state = self.0.borrow_mut();
  
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -1416,6 +1442,7 @@ impl X11Client {
+@@ -1416,6 +1504,7 @@ impl X11Client {
                  drop(state);
  
                  let window = self.get_window(event.event)?;
@@ -1716,7 +1785,7 @@ index e21f019c64..4538607afb 100644
                  window.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
                      pressed_button,
                      position,
-@@ -2052,6 +2079,9 @@ impl X11ClientState {
+@@ -2052,6 +2141,9 @@ impl X11ClientState {
          x_window: xproto::Window,
          refresh_rate: Duration,
      ) -> RegistrationToken {
@@ -1726,7 +1795,7 @@ index e21f019c64..4538607afb 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2117,177 @@ impl X11ClientState {
+@@ -2087,6 +2179,177 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -1904,7 +1973,28 @@ index e21f019c64..4538607afb 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2620,6 +2821,11 @@ fn get_scale_factor(
+@@ -2250,6 +2513,20 @@ fn fp3232_to_f32(value: xinput::Fp3232) -> f32 {
+     value.integral as f32 + value.frac as f32 / u32::MAX as f32
+ }
+ 
++/// The modifiers a sent core event's state holds, as XInput 2 gives them.
++fn sent_modifiers(state: xproto::KeyButMask) -> xinput::ModifierInfo {
++    xinput::ModifierInfo {
++        effective: u32::from(u16::from(state) & 0xff),
++        ..Default::default()
++    }
++}
++
++/// The buttons a sent core event's state holds down, as XInput 2's mask has them: bit n for
++/// button n, where the core state's Button1 is bit 8.
++fn sent_buttons(state: xproto::KeyButMask) -> u32 {
++    u32::from((u16::from(state) >> 8) & 0x1f) << 1
++}
++
+ fn detect_compositor_gpu(
+     xcb_connection: &XCBConnection,
+     screen: &xproto::Screen,
+@@ -2620,6 +2897,11 @@ fn get_scale_factor(
      resource_database: &Database,
      screen_index: usize,
  ) -> f32 {
@@ -1916,7 +2006,7 @@ index e21f019c64..4538607afb 100644
      let env_dpi = std::env::var(GPUI_X11_SCALE_FACTOR_ENV)
          .ok()
          .map(|var| {
-@@ -2898,6 +3104,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3180,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -1960,7 +2050,7 @@ index e21f019c64..4538607afb 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3456,101 @@ mod tests {
+@@ -3213,3 +3532,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }

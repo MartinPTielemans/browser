@@ -45,7 +45,7 @@ document.onvisibilitychange = () => {
 log="$out/spaces.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load

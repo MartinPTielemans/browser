@@ -18,7 +18,7 @@ serve
 log="$out/pinned.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -221,7 +221,7 @@ exited
 # URL. A click on its favicon goes back there and shows it.
 log="$out/pinned-restored.log"
 step=0
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"
@@ -352,7 +352,7 @@ exited
 # Folder in its menu leaves its tab where it was.
 log="$out/folder-restored.log"
 step=0
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Space"

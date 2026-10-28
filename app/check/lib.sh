@@ -11,6 +11,9 @@ profile="Profile › Default (checked), Profile › New Profile (disabled)"
 empty_profile="Profile › Default (checked), Profile › New Profile"
 # The product's name, which the app's menus and alerts use.
 app_name=$(cat branding/name)
+# The KeyboardEvent property a page reads ⌘ from, which off the Mac is pressed with Ctrl (keys.rs).
+cmd_key=metaKey
+[ "$(uname)" = Linux ] && cmd_key=ctrlKey
 # Points from the window's top-left corner. The sidebar is 228 wide.
 page_point="600 400"
 sidebar_point="100 400"
@@ -26,7 +29,7 @@ cleanup() {
     sleep 0.5
   done
   kill -9 "$pid" 2>/dev/null
-  pkill -9 -f "$app/Contents" || true
+  pkill -9 -f "$procs" || true
 }
 fail() {
   echo "FAIL: $1" >&2
@@ -54,25 +57,33 @@ exited() {
     sleep 0.5
   done
   if kill -0 "$pid" 2>/dev/null; then
-    sample "$pid" 2 -file "$out/hang.txt" > /dev/null 2>&1
+    [ "$(uname)" = Linux ] || sample "$pid" 2 -file "$out/hang.txt" > /dev/null 2>&1
     fail "the app didn't quit. Where it was: $out/hang.txt"
   fi
   wait "$pid" || fail "the app exited with status $?"
   for _ in $(seq 10); do
-    pgrep -f "$app/Contents" > /dev/null || break
+    pgrep -f "$procs" > /dev/null || break
     sleep 0.5
   done
-  pgrep -f "$app/Contents" > /dev/null && fail "Chromium helper processes were left running"
+  pgrep -f "$procs" > /dev/null && fail "Chromium helper processes were left running"
   return 0
 }
 # A quit Apple Event goes through -[NSApplication terminate:], the way macOS quits apps when the
-# user logs out.
+# user logs out. On Linux SIGTERM is that way, which Chromium takes for a quit.
+quit_app() {
+  if [ "$(uname)" = Linux ]; then
+    kill -TERM "$pid"
+  else
+    osascript -e 'tell application id "dev.browser.app" to quit'
+  fi
+}
 quit() {
-  osascript -e 'tell application id "dev.browser.app" to quit'
+  quit_app
   exited "$@"
 }
 
-# Sends a command to the app's driver (platform/mac/drive.mm) and waits until AppKit has handled it.
+# Sends a command to the app's driver (platform/mac/drive.mm, platform/linux/drive.rs) and waits
+# until the app has handled it.
 send() {
   step=$((step + 1))
   echo "$*" >&3
@@ -262,7 +273,7 @@ pinned_favicon() {
 # it turned off, which a run that turns them on leaves for the runs after. Only while the app isn't
 # running, as it writes its preferences as it quits.
 forget_engine_sites() {
-  prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
+  prefs="$profile_dir/Default/Preferences"
   [ -e "$prefs" ] || return 0
   python3 -I -c '
 import json, sys
@@ -290,7 +301,11 @@ served() {
 }
 # The colour at ($2, $3), as fractions of the width and height, in the capture $1: "r g b".
 pixel() {
-  sips -s format bmp "$1" --out "$out/pixel.bmp" > /dev/null || fail "sips couldn't read $1"
+  if [ "$(uname)" = Linux ]; then
+    magick "$1" BMP3:"$out/pixel.bmp" || fail "ImageMagick couldn't read $1"
+  else
+    sips -s format bmp "$1" --out "$out/pixel.bmp" > /dev/null || fail "sips couldn't read $1"
+  fi
   python3 -I - "$out/pixel.bmp" "$2" "$3" << 'PY'
 import struct, sys
 data = open(sys.argv[1], "rb").read()

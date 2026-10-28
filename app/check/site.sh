@@ -148,7 +148,7 @@ a.href = "/bounce?to=" + encodeURIComponent(to);
 document.title = "hop " + (/Chrome\//.test(navigator.userAgent) ? "chromium" : "safari");
 </script>' > "$out/site/hop.html"
 printf '%s' iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAGUlEQVR42mN44GDwnxLMMGrAqAGjBgwXAwCb4E8fp7RFqwAAAABJRU5ErkJggg== |
-  base64 -D > "$out/site/icon.png"
+  base64 -d > "$out/site/icon.png"
 # The server logs each GET as "GET <engine> <host><path> cookie <cookies sorted, or none>", the
 # engine named by the user agent as the engine page does.
 python3 -I -u -c '

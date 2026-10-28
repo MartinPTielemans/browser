@@ -86,7 +86,7 @@ step=0
 rm -f "$saved" "$launch_frame"
 serve
 url="data:text/html;base64,$page#${site}wait"
-BROWSER_DRIVE=1 BROWSER_URL="$url" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$url" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
