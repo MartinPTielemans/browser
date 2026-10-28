@@ -78,13 +78,13 @@ index e4da54b52b..8c99a4e16d 100644
  
 diff --git i/crates/gpui_linux/src/linux/overlay.rs w/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..bd2fd32f54
+index 0000000000..62ce7681df
 --- /dev/null
 +++ w/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,404 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
-+//! of the embedder's surface, on X11 a child of the X window GPUI's window is held in. One shown
++//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
 +//! with the keyboard gets the keys until it hides, and the embedder hears when the user leaves it:
 +//! a press outside it, or the keyboard going to another window.
 +//!
@@ -145,6 +145,8 @@ index 0000000000..bd2fd32f54
 +    static PING: RefCell<Option<Ping>> = const { RefCell::new(None) };
 +    /// On X11, the window that had the input focus before each overlay with the keyboard took it.
 +    static FOCUS_FROM: RefCell<Vec<(usize, u32)>> = const { RefCell::new(Vec::new()) };
++    /// On X11, the window each overlay shows over.
++    static PARENTS: RefCell<Vec<(usize, u32)>> = const { RefCell::new(Vec::new()) };
 +    /// The outlines overlays have that aren't rounded rectangles (`set_overlay_outline`).
 +    static OUTLINES: RefCell<Vec<(usize, Vec<Corner>)>> = const { RefCell::new(Vec::new()) };
 +}
@@ -448,6 +450,10 @@ index 0000000000..bd2fd32f54
 +                    keyboard,
 +                } => {
 +                    let outline = outline(view, bounds, radius);
++                    PARENTS.with_borrow_mut(|all| {
++                        all.retain(|&(each, _)| each != view);
++                        all.push((view, parent as u32));
++                    });
 +                    let from = x11.show_overlay(view as _, parent as _, bounds, &outline, keyboard);
 +                    if let Some(from) = from.log_err() {
 +                        FOCUS_FROM.with_borrow_mut(|all| all.push((view, from)));
@@ -459,7 +465,12 @@ index 0000000000..bd2fd32f54
 +                    radius,
 +                } => {
 +                    let outline = outline(view, bounds, radius);
-+                    x11.move_overlay(view as _, bounds, &outline).log_err();
++                    let parent = PARENTS.with_borrow(|all| {
++                        all.iter().find(|&&(each, _)| each == view).map(|&(_, parent)| parent)
++                    });
++                    if let Some(parent) = parent {
++                        x11.move_overlay(view as _, parent, bounds, &outline).log_err();
++                    }
 +                }
 +                Op::Hide { view, .. } => {
 +                    let from = FOCUS_FROM.with_borrow_mut(|all| {
@@ -1564,7 +1575,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..ad01fd5c0a 100644
+index e21f019c64..f25d747ffd 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1700,8 +1711,10 @@ index e21f019c64..ad01fd5c0a 100644
 +    }
 +
 +    /// Shows GPUI's unmapped window `view` over the embedder's `parent` (`crate::linux::overlay`):
-+    /// a child of it, in the shape of `outline`, above GPUI's window there. With `keyboard` it takes the
-+    /// input focus, and this returns the window that had it.
++    /// a window of its own, which no window manager takes, in the shape of `outline`. Not a child of
++    /// `parent`, as an X server doesn't blend a child window with what's under it, where a
++    /// compositor blends a window's edges with whatever is. With `keyboard` it takes the input
++    /// focus, and this returns the window that had it.
 +    pub(crate) fn show_overlay(
 +        &self,
 +        view: xproto::Window,
@@ -1711,13 +1724,11 @@ index e21f019c64..ad01fd5c0a 100644
 +        keyboard: bool,
 +    ) -> anyhow::Result<xproto::Window> {
 +        let xcb = &self.xcb_connection;
-+        let scale = self.scale_factor;
-+        let (x, y) = (
-+            f32::from(bounds.origin.x) * scale,
-+            f32::from(bounds.origin.y) * scale,
-+        );
-+        xcb.reparent_window(view, parent, x as i16, y as i16)?;
-+        self.move_overlay(view, bounds, outline)?;
++        xcb.change_window_attributes(
++            view,
++            &xproto::ChangeWindowAttributesAux::new().override_redirect(1),
++        )?;
++        self.move_overlay(view, parent, bounds, outline)?;
 +        xcb.map_window(view)?;
 +        let mut from = x11rb::NONE;
 +        if keyboard {
@@ -1728,19 +1739,20 @@ index e21f019c64..ad01fd5c0a 100644
 +        Ok(from)
 +    }
 +
-+    /// Places and sizes the overlay `view` that shows, as `show_overlay` does.
++    /// Places and sizes the overlay `view` that shows over `parent`, as `show_overlay` does.
 +    pub(crate) fn move_overlay(
 +        &self,
 +        view: xproto::Window,
++        parent: xproto::Window,
 +        bounds: Bounds<Pixels>,
 +        outline: &[crate::linux::overlay::Corner],
 +    ) -> anyhow::Result<()> {
 +        let xcb = &self.xcb_connection;
 +        let scale = self.scale_factor;
-+        let (x, y) = (
-+            f32::from(bounds.origin.x) * scale,
-+            f32::from(bounds.origin.y) * scale,
-+        );
++        let root = xcb.setup().roots[self.x_root_index].root;
++        let origin = (bounds.origin).map(|each| (f32::from(each) * scale) as i16);
++        let at = (xcb.translate_coordinates(parent, root, origin.x, origin.y)?).reply()?;
++        let (x, y) = (at.dst_x, at.dst_y);
 +        let width = (f32::from(bounds.size.width) * scale).round();
 +        let height = (f32::from(bounds.size.height) * scale).round();
 +        xcb.configure_window(
@@ -1752,8 +1764,7 @@ index e21f019c64..ad01fd5c0a 100644
 +                .height(height.max(1.) as u32)
 +                .stack_mode(xproto::StackMode::ABOVE),
 +        )?;
-+        // In its outline by its own shape, as an X server doesn't blend a child window with its
-+        // parent.
++        // In its outline by its own shape, as without a compositor nothing blends its edges.
 +        let outline: Vec<_> = (outline.iter())
 +            .map(|&(x, y, radius)| (x * scale, y * scale, radius * scale))
 +            .collect();
@@ -1831,33 +1842,51 @@ index e21f019c64..ad01fd5c0a 100644
 +            (40., 10., 0.),
 +        ];
 +        let rows = outline_rows(&popover, 50);
-+        assert_eq!(span(&rows, 4), [(46, 9)]);
++        assert_eq!(span(&rows, 4), [(45, 10)]);
 +        assert_eq!(span(&rows, 30), [(0, 100)]);
 +    }
 +
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3433,82 @@ mod tests {
+@@ -3213,3 +3433,100 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
 +
 +/// The rows of the polygon through `corners`, each x, y and the radius it's rounded by, in device
-+/// pixels, for a shape `height` rows tall: each row the spans its middle crosses inside it.
++/// pixels, for a shape `height` rows tall: each row's spans with every pixel the polygon touches,
++/// so that the edges GPUI smooths are inside it, for a compositor to blend.
 +fn outline_rows(corners: &[(f32, f32, f32)], height: i16) -> Vec<xproto::Rectangle> {
 +    let points = rounded_polygon(corners);
-+    let mut rows = Vec::new();
-+    for row in 0..height {
-+        let y = row as f32 + 0.5;
++    let spans = |y: f32| {
 +        let mut crossings: Vec<f32> = (points.iter())
 +            .zip(points.iter().cycle().skip(1))
 +            .filter(|(a, b)| (a.1 <= y) != (b.1 <= y))
 +            .map(|(a, b)| a.0 + (y - a.1) / (b.1 - a.1) * (b.0 - a.0))
 +            .collect();
 +        crossings.sort_by(f32::total_cmp);
++        crossings
++    };
++    let mut rows = Vec::new();
++    for row in 0..height {
++        // Across the row, top to bottom; its middle's alone where the spans come apart in it.
++        let samples = [0.01, 0.5, 0.99].map(|at| spans(row as f32 + at));
++        let middle = &samples[1];
++        let crossings: Vec<f32> = match samples.iter().all(|each| each.len() == middle.len()) {
++            true => (0..middle.len())
++                .map(|index| {
++                    let all = samples.iter().map(|each| each[index]);
++                    match index % 2 {
++                        0 => all.fold(f32::MAX, f32::min).floor(),
++                        _ => all.fold(f32::MIN, f32::max).ceil(),
++                    }
++                })
++                .collect(),
++            false => middle.iter().map(|x| x.round()).collect(),
++        };
 +        for span in crossings.chunks_exact(2) {
-+            let (left, right) = (span[0].round() as i16, span[1].round() as i16);
++            let (left, right) = (span[0] as i16, span[1] as i16);
 +            if right > left {
 +                rows.push(xproto::Rectangle {
 +                    x: left,
