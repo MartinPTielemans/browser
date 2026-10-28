@@ -641,6 +641,17 @@ typedef struct bc_host {
                                  bc_id profile,
                                  const bc_login* logins,
                                  size_t count);
+  // bc_profile_import_passwords is done with its file: |result| is a BC_PASSWORDS_IMPORT_ value,
+  // and with BC_PASSWORDS_IMPORTED, |imported| logins came in, or were here already, |conflicted|
+  // were kept as the profile had them, as it holds another password for that site and username,
+  // and |skipped| rows weren't logins it could take, such as one without a password. The user's
+  // alone: agents hear none, and no file, row or count reaches them.
+  void (*passwords_imported)(void* context,
+                             bc_id profile,
+                             int result,
+                             size_t imported,
+                             size_t conflicted,
+                             size_t skipped);
   // Another app asked the browser to open |urls|, |count| http, https or file URLs: a link clicked
   // in Mail or Slack, `open https://…`, an .html file from Finder. Open each in a new tab of the
   // user's, in front. Those that launched the browser come as AppKit finishes launching the app,
@@ -1589,6 +1600,23 @@ BC_EXPORT void bc_profile_remove_login(bc_id profile,
                                        const char* key,
                                        const char* username,
                                        bool never);
+// What bc_profile_import_passwords did with its file, for passwords_imported.
+#define BC_PASSWORDS_IMPORTED 0
+// The file couldn't be read.
+#define BC_PASSWORDS_IMPORT_UNREADABLE 1
+// Its first row isn't a password export's: url, username and password columns, by any of the
+// names Chrome, Firefox and Safari give them.
+#define BC_PASSWORDS_IMPORT_NOT_EXPORT 2
+// Over Chrome's limits for one file, in its size or its number of logins.
+#define BC_PASSWORDS_IMPORT_TOO_LARGE 3
+#define BC_PASSWORDS_IMPORT_FAILED 4
+// Imports the logins in the file at |path|, a CSV another browser or password manager exported,
+// into the profile, with Chrome's password importer, as its password manager's Import passwords
+// does, parsing the file away from the browser. A login the profile holds with another password
+// stays as it is. The core keeps no copy of the file and doesn't delete it. Returns whether it
+// will: not without a loaded profile, or while the profile's last import isn't done. Then
+// passwords_imported.
+BC_EXPORT bool bc_profile_import_passwords(bc_id profile, const char* path);
 
 // Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.
