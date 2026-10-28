@@ -82,6 +82,7 @@ mod themes;
 mod tile_theme;
 mod trouble;
 mod undo;
+mod wheel_gestures;
 
 pub use assets::Assets;
 pub use favorites::FavoritesScope;
@@ -206,9 +207,6 @@ const SPACE_COLOR_TAU: f32 = 0.03;
 const WHEEL_LINE: f32 = 10.;
 const WHEEL_BURST: Duration = Duration::from_millis(49);
 const WHEEL_REST: Duration = Duration::from_millis(250);
-/// A browser's wheel events say nothing of where fingers land and lift, so on the web fingers page
-/// as a wheel does, once they've moved this far across, and rest until they stop.
-const WEB_SWIPE: f32 = 30.;
 
 use crate::tokens::shell::NAV_TOP;
 use crate::tokens::shell::SIDEBAR_BUTTON_X;
@@ -945,6 +943,10 @@ pub struct Shell {
     /// paged.
     wheel: Option<(f32, Instant)>,
     wheel_paged: Option<Instant>,
+    /// On the web, the wheel's events cut into fingers landing, moving and lifting, and the timer
+    /// that lifts them once the events stop.
+    web_wheel: wheel_gestures::WheelGestures,
+    web_wheel_quiet: Option<Task<()>>,
     /// The tab whose favicon is under the pointer, which is Back to Pinned URL while it's away.
     hovered_favicon: Option<u64>,
     /// Whether an assistive app reads the window being drawn, so its elements say what they are
@@ -1197,6 +1199,8 @@ impl Shell {
             swiped: false,
             wheel: None,
             wheel_paged: None,
+            web_wheel: Default::default(),
+            web_wheel_quiet: None,
             hovered_favicon: None,
             a11y: false,
             drawn_hover: (None, None, "0"),
@@ -2705,6 +2709,14 @@ impl Render for Shell {
             .children(over)
             .children(edge)
             .child(self.scroll_listener(true, cx))
+            // The site's demo has no window of the Mac's, so it draws the window's buttons where
+            // the app has the Mac's, and the reveal's panel over the page.
+            .children((WEB && self.window_buttons).then(|| self.window_buttons(cx)))
+            .children(WEB.then(|| {
+                let width = REVEAL_INSET + self.width() + REVEAL_OVERSHOOT;
+                let panel = self.render_reveal(window, cx);
+                div().absolute().left_0().top_0().bottom_0().w(px(width)).child(panel)
+            }))
     }
 }
 
@@ -3067,8 +3079,8 @@ impl Shell {
         self.step_scroll_edge(window);
         self.step_tools(window);
         let left = REVEAL_INSET - (REVEAL_INSET + self.width()) * (1. - self.reveal_out());
-        // Unless a field in the panel has it.
-        if !self.reveal_focus.contains_focused(window, cx) {
+        // Unless a field in the panel has it. On the web the panel is in the shell's own window.
+        if !WEB && !self.reveal_focus.contains_focused(window, cx) {
             window.focus(&self.reveal_focus, cx);
         }
         let panel = div()
@@ -3114,7 +3126,8 @@ impl Shell {
         panel
     }
 
-    /// The window's close, minimize and zoom buttons, drawn in the reveal's panel.
+    /// The window's close, minimize and zoom buttons, drawn in the reveal's panel. The site's demo
+    /// draws the window's own too, as decoration that only keeps presses off what's under them.
     fn window_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let buttons = [
             (WindowButton::Close, "icons/window-close.svg"),
@@ -3131,26 +3144,29 @@ impl Shell {
             .gap(px(second - first - WINDOW_BUTTON_SIZE))
             .group("window-buttons")
             .children(buttons.into_iter().zip(WINDOW_BUTTONS).map(|((button, glyph), (_, colour))| {
-                div()
+                let disc = div()
                     .id(glyph)
                     .size(px(WINDOW_BUTTON_SIZE))
                     .rounded_full()
                     .bg(rgb(colour))
-                    .block_mouse_except_scroll()
-                    .on_click(cx.listener(move |shell, _, _, cx| {
-                        // check.sh waits for this line.
-                        log!("browser: window button {button:?}");
-                        shell.browser.press_window_button(button, cx);
-                    }))
-                    .child(
-                        svg()
-                            .path(glyph)
-                            .size(px(WINDOW_BUTTON_SIZE))
-                            .text_color(gpui::transparent_black())
-                            .group_hover("window-buttons", |style| {
-                                style.text_color(rgba(WINDOW_BUTTON_GLYPH))
-                            }),
-                    )
+                    .block_mouse_except_scroll();
+                if WEB {
+                    return disc;
+                }
+                disc.on_click(cx.listener(move |shell, _, _, cx| {
+                    // check.sh waits for this line.
+                    log!("browser: window button {button:?}");
+                    shell.browser.press_window_button(button, cx);
+                }))
+                .child(
+                    svg()
+                        .path(glyph)
+                        .size(px(WINDOW_BUTTON_SIZE))
+                        .text_color(gpui::transparent_black())
+                        .group_hover("window-buttons", |style| {
+                            style.text_color(rgba(WINDOW_BUTTON_GLYPH))
+                        }),
+                )
             }))
     }
 }

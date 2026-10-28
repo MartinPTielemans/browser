@@ -880,10 +880,17 @@ impl Browser for Fake {
 
     fn press_window_button(&self, _: WindowButton, _: &mut App) {}
 
-    // The reveal's window is the app's, over the page, which the preview has neither of.
-    fn show_reveal(&self, _: f32, _: &mut App) {}
+    // The reveal's window is the app's, over the page, which the preview has neither of. On the web
+    // the panel draws in the one canvas, over the site's frame, which the site hears.
+    fn show_reveal(&self, _: f32, _: &mut App) {
+        #[cfg(target_family = "wasm")]
+        web::cover(web::Over::Reveal, true);
+    }
 
-    fn hide_reveal(&self, _: &mut App) {}
+    fn hide_reveal(&self, _: &mut App) {
+        #[cfg(target_family = "wasm")]
+        web::cover(web::Over::Reveal, false);
+    }
 
     // PREVIEW_SIDEBAR=<width> starts the sidebar at that width, such as its narrowest, 164.
     fn saved_sidebar_width(&self) -> Option<f32> {
@@ -1619,6 +1626,29 @@ mod web {
         });
     }
 
+    /// What draws over the site's frame.
+    #[derive(Clone, Copy)]
+    pub enum Over {
+        Bar,
+        Reveal,
+    }
+
+    thread_local! {
+        static OVER: Cell<[bool; 2]> = const { Cell::new([false; 2]) };
+    }
+
+    /// `over` draws over the site's frame, or has gone: the site hears `cover` as the first comes
+    /// and the last goes.
+    pub fn cover(over: Over, covered: bool) {
+        let mut all = OVER.get();
+        let was = all.contains(&true);
+        all[over as usize] = covered;
+        OVER.set(all);
+        if all.contains(&true) != was {
+            call("cover", &[JsValue::from_bool(!was)]);
+        }
+    }
+
     pub fn lay_out(frame: Bounds<Pixels>, radius: f32) {
         let (origin, size) = (frame.origin, frame.size);
         // The shell lays out once before the canvas gives the window its size, which leaves the
@@ -1935,9 +1965,7 @@ mod web {
         }
 
         fn show(&mut self, place: Place, window: &mut Window, cx: &mut Context<Self>) {
-            if self.place.is_none() {
-                call("cover", &[JsValue::TRUE]);
-            }
+            cover(Over::Bar, true);
             self.place = Some(place);
             if let Some(input) = command_bar::input_focus(cx) {
                 window.focus(&input, cx);
@@ -1947,9 +1975,8 @@ mod web {
 
         /// The bar's gone, `dismissed` if the user left it without choosing.
         fn close(&mut self, dismissed: bool, window: &mut Window, cx: &mut Context<Self>) {
-            if self.place.take().is_some() {
-                call("cover", &[JsValue::FALSE]);
-            }
+            self.place = None;
+            cover(Over::Bar, false);
             if dismissed {
                 // The bar draws in this window, which is mid-update.
                 cx.defer(command_bar::dismissed);

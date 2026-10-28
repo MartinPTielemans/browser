@@ -11,8 +11,8 @@ use gpui::{
 
 use super::{
     SCROLL_EDGE, SCROLL_EDGE_FADE, SWIPE_FLICK, SWIPE_HISTORY, SWIPE_TRACKING,
-    Settle, Shell, Space, Swipe, WEB, WEB_SWIPE, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at,
-    rubber_band, library::library_band,
+    Settle, Shell, Space, Swipe, WEB, WHEEL_BURST, WHEEL_LINE, WHEEL_REST, fade_at,
+    rubber_band, library::library_band, wheel_gestures::GAP,
 };
 
 impl Shell {
@@ -122,10 +122,6 @@ impl Shell {
             return false;
         }
         let delta = match event.delta {
-            ScrollDelta::Pixels(delta) if WEB => {
-                let lines = delta.map(|d| f32::from(d) / (WEB_SWIPE * WHEEL_LINE));
-                return self.wheel(lines, window, cx);
-            }
             ScrollDelta::Pixels(delta) => delta.map(f32::from),
             ScrollDelta::Lines(lines) => return self.wheel(lines, window, cx),
         };
@@ -260,6 +256,50 @@ impl Shell {
         true
     }
 
+    /// A browser's wheel event at `at`, as the fingers landing, moving and lifting that AppKit's
+    /// phases tell (`wheel_gestures`): a page swipe commits its Space as they lift, and the rest of
+    /// its momentum is swallowed. The fingers lift too once the events stop.
+    pub(super) fn web_scroll(
+        &mut self,
+        event: &ScrollEvent,
+        at: Instant,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let ScrollDelta::Pixels(delta) = event.delta else {
+            return self.scroll(event, window, cx);
+        };
+        let cut = self.web_wheel.event(f32::from(delta.x.abs().max(delta.y.abs())), at);
+        let phase = |touch_phase, delta| ScrollEvent { touch_phase, delta, ..event.clone() };
+        let still = ScrollDelta::Pixels(Point::default());
+        if cut.lifted {
+            self.scroll(&phase(TouchPhase::Ended, still), window, cx);
+        }
+        if cut.landed {
+            self.scroll(&phase(TouchPhase::Started, still), window, cx);
+        }
+        let took = self.scroll(&phase(TouchPhase::Moved, event.delta), window, cx);
+        let lift = phase(TouchPhase::Ended, still);
+        self.web_wheel_quiet = Some(cx.spawn_in(window, async move |shell, cx| {
+            cx.background_executor().timer(GAP).await;
+            shell.update_in(cx, |shell, window, cx| shell.web_quiet(&lift, Instant::now(), window, cx)).ok();
+        }));
+        took
+    }
+
+    /// No wheel event since the last, at `now`: fingers still down lift, as `lift`.
+    pub(super) fn web_quiet(
+        &mut self,
+        lift: &ScrollEvent,
+        now: Instant,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.web_wheel.quiet(now) {
+            self.scroll(lift, window, cx);
+        }
+    }
+
     /// A wheel's ticks across the sidebar page once per burst, then rest. Past the first Space they
     /// open the Library, and back they close it. Back off the form they cancel it.
     fn wheel(&mut self, lines: Point<f32>, window: &mut Window, cx: &mut Context<Self>) -> bool {
@@ -327,7 +367,11 @@ impl Shell {
                             true => event.position.x < px(shell.card_left() + shell.card_push()),
                             false => bounds.contains(&event.position),
                         };
-                        (over || shell.swipe.is_some()) && shell.scroll(event, window, cx)
+                        (over || shell.swipe.is_some())
+                            && match WEB {
+                                true => shell.web_scroll(event, Instant::now(), window, cx),
+                                false => shell.scroll(event, window, cx),
+                            }
                     });
                     if took.unwrap_or(false) {
                         cx.stop_propagation();
@@ -697,5 +741,86 @@ mod tests {
         let (shell, host, window) = switched_back(cx, true);
         held_swipe(&shell, window, -10., 10);
         assert!(host.shown.borrow().is_empty());
+    }
+
+    /// A trackpad's swipe as a browser's wheel events give it, from the site's repro: 12 deltas of
+    /// 40, then momentum falling from 40 as round(40·e^(−i/12)), at least 1, for 60 events.
+    fn trackpad_swipe() -> Vec<f32> {
+        let tail = (0..60).map(|i| (40. * (-(i as f32) / 12.).exp()).round().max(1.));
+        [40.; 12].into_iter().chain(tail).collect()
+    }
+
+    /// `deltas` across the sidebar, a browser's wheel events 16 ms apart from `start`, with the
+    /// quiet timer's lift where a gap leaves one. Returns when the last came.
+    fn wheel_events(
+        shell: &Entity<Shell>,
+        cx: &mut VisualTestContext,
+        deltas: &[f32],
+        start: Instant,
+    ) -> Instant {
+        let event = |dx: f32| ScrollEvent {
+            position: point(px(110.), px(500.)),
+            // A browser's positive deltaX, the fingers going left, pages to the next Space.
+            delta: ScrollDelta::Pixels(point(px(-dx), px(0.))),
+            touch_phase: TouchPhase::Moved,
+            ..Default::default()
+        };
+        shell.update_in(cx, |shell, window, cx| {
+            let mut at = start;
+            for (step, &dx) in deltas.iter().enumerate() {
+                at = start + Duration::from_millis(16 * step as u64);
+                shell.web_scroll(&event(dx), at, window, cx);
+            }
+            at
+        })
+    }
+
+    /// The quiet timer, run at `at`, as the browser's wheel left off.
+    fn wheel_quiet(shell: &Entity<Shell>, cx: &mut VisualTestContext, at: Instant) {
+        shell.update_in(cx, |shell, window, cx| {
+            let lift = ScrollEvent {
+                delta: ScrollDelta::Pixels(point(px(0.), px(0.))),
+                touch_phase: TouchPhase::Ended,
+                ..Default::default()
+            };
+            shell.web_quiet(&lift, at, window, cx);
+        });
+    }
+
+    /// On the web, each trackpad swipe moves one Space, though the next comes in the last one's
+    /// momentum or soon after it, with no pointer move between: the swipe commits as its deltas
+    /// start falling, its momentum is swallowed, and a rise out of it, or a pause, is a new swipe.
+    #[gpui::test]
+    fn trackpad_swipes_on_the_web_each_move_a_space(cx: &mut TestAppContext) {
+        let swipe = trackpad_swipe();
+        // The second swipe 25 events into the first one's tail.
+        let (shell, host, window) = three_spaces(cx, 1);
+        let start = Instant::now();
+        let first = wheel_events(&shell, window, &swipe[..12 + 25], start);
+        let last = wheel_events(&shell, window, &swipe, first + Duration::from_millis(16));
+        wheel_quiet(&shell, window, last + Duration::from_millis(100));
+        assert_eq!(*host.shown.borrow(), [2, 3], "the swipe in the tail");
+        // Then 150, 500 and 1000 ms after the tail ends.
+        for pause in [150, 500, 1000] {
+            let (shell, host, window) = three_spaces(cx, 1);
+            let first = wheel_events(&shell, window, &swipe, start);
+            wheel_quiet(&shell, window, first + Duration::from_millis(60));
+            let next = first + Duration::from_millis(pause);
+            let last = wheel_events(&shell, window, &swipe, next);
+            wheel_quiet(&shell, window, last + Duration::from_millis(100));
+            assert_eq!(*host.shown.borrow(), [2, 3], "the swipe {pause} ms after the tail");
+        }
+    }
+
+    /// A slow swipe, its deltas unsteady and falling three times in a row, with no momentum, moves one
+    /// Space once the fingers lift.
+    #[gpui::test]
+    fn a_slow_swipe_on_the_web_moves_one_space(cx: &mut TestAppContext) {
+        let (shell, host, window) = three_spaces(cx, 1);
+        let slow: Vec<f32> = [8., 7., 6., 8., 9., 7., 8., 6., 8., 9.].repeat(6);
+        let last = wheel_events(&shell, window, &slow, Instant::now());
+        assert!(host.shown.borrow().is_empty(), "the Space moved before the fingers lifted");
+        wheel_quiet(&shell, window, last + Duration::from_millis(100));
+        assert_eq!(*host.shown.borrow(), [2]);
     }
 }
