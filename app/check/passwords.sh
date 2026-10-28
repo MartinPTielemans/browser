@@ -36,10 +36,12 @@ log_in() {
   send type "$1"
   send key return
 }
-# Waits for the page's login to bring an offer of kind $1, and for its card. Sets $ox and $oy to where the card is in the browser window.
+# Waits for the page's login to bring an offer of kind $1, and for its card to take input. Sets $ox
+# and $oy to where the card is in the browser window.
 offered() {
   expect "^browser: offer $tab $1 check@example.test " "the login brought no offer to $1"
   expect '^browser: offer shown$' "the offer to $1 wasn't shown"
+  expect "^browser: offer $tab takes input\$" "the offer to $1 never took input"
   send layout
   child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: layout child' |
     grep ' 320x180$' | head -1 | sed 's/^browser: layout child //')

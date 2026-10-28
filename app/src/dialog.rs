@@ -22,6 +22,7 @@ use gpui::{
 
 use crate::{
     palette::{self, STATE_PRESSED},
+    settling::Settling,
     shell::cubic_bezier,
     text_input::TextInput,
 };
@@ -232,6 +233,8 @@ struct Asked {
     /// When its window was first on screen, where the motion starts.
     shown: Option<Instant>,
     settled: bool,
+    /// Its moment on screen before the action of Chrome's question, which grants something, works.
+    settling: Settling,
     /// Once the user has answered, or Chrome took it back: when, and where the motion was.
     answered_at: Option<(Instant, Pose)>,
     _leave: Option<Task<()>>,
@@ -493,6 +496,7 @@ impl Dialog {
             answered: Some(answered),
             shown: None,
             settled: false,
+            settling: Settling::default(),
             answered_at: None,
             _leave: None,
         });
@@ -558,8 +562,9 @@ impl Dialog {
         let Some(asked) = &mut self.asked else {
             return;
         };
+        let unsettled = asked.source == Source::Chrome && !asked.settling.settled(cx);
         if asked.answered_at.is_some()
-            || (answer == Answer::Action && asked.question.action.is_empty())
+            || (answer == Answer::Action && (asked.question.action.is_empty() || unsettled))
         {
             return;
         }
@@ -680,6 +685,9 @@ impl Render for Dialog {
         // GPUI draw it, so the motion starts there rather than skip its start.
         if asked.shown.is_none() && window.is_visible() {
             asked.shown = Some(Instant::now());
+            if asked.source == Source::Chrome {
+                asked.settling.start("dialog".into(), cx);
+            }
         }
         let pose = asked.pose();
         let moving = asked.answered_at.is_some() || asked.arrived_for() < MOVE;

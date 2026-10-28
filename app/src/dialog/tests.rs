@@ -5,6 +5,7 @@ use std::{cell::RefCell, rc::Rc};
 use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px, size};
 
 use super::*;
+use crate::settling::SETTLING;
 
 #[derive(Default)]
 struct Recorder(RefCell<Vec<String>>);
@@ -194,14 +195,33 @@ impl Asking {
         cx.run_until_parked();
         Asking { cx, host }
     }
+
+    /// The dialog has been on screen long enough to take a yes.
+    fn settle(&mut self) {
+        self.cx.executor().advance_clock(SETTLING);
+        self.cx.run_until_parked();
+    }
 }
 
 #[gpui::test]
 fn return_adds_the_extension_once_the_dialog_has_gone(cx: &mut TestAppContext) {
     let mut dialog = Asking::chrome("Add extension", cx);
+    dialog.settle();
     dialog.keys("enter");
     assert_eq!(dialog.host.0.borrow().as_slice(), ["show"]);
     assert_eq!(dialog.calls(), ["show", "hide", "yes"]);
+}
+
+/// A page can bring Chrome's question up under a double-click the user started, so for its first
+/// moment on screen ↩ doesn't add the extension, while escape still cancels.
+#[gpui::test]
+fn chromes_question_takes_no_yes_for_its_first_moment(cx: &mut TestAppContext) {
+    let mut dialog = Asking::chrome("Add extension", cx);
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["show"]);
+    dialog.settle();
+    dialog.keys("enter");
+    assert_eq!(dialog.calls(), ["hide", "yes"]);
 }
 
 #[gpui::test]
@@ -248,6 +268,7 @@ fn chromes_next_question_takes_the_place_of_the_last(cx: &mut TestAppContext) {
     dialog.cx.cx.update(|cx| add_extension("Re-enable", &host, cx));
     // The first leaves untold, and the second comes up after it.
     assert_eq!(dialog.calls(), ["show", "hide", "show"]);
+    dialog.settle();
     dialog.keys("enter");
     assert_eq!(dialog.calls(), ["hide", "yes"]);
 }
