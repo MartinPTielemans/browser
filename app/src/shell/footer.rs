@@ -28,9 +28,10 @@ impl Shell {
         }
         let span = self.width() - 2. * SWITCHER_INSET;
         let pitch = SPACE_PITCH.min(span / self.spaces.len() as f32);
-        // What the swatches lie on: the window at the footer.
+        // What the swatches lie on: the window at the footer, over whatever is behind it.
         let window = f32::from(self.viewport.height).max(1.);
-        let behind = self.window_fill_at((window - FOOTER_HEIGHT / 2.) / window).to_rgb();
+        let at = self.gradient_color((window - FOOTER_HEIGHT / 2.) / window);
+        let behind = self.palette.over_backdrops(at);
         let dots = self.spaces.iter().map(|space| {
             let (id, shown) = (space.id, space.id == self.space);
             div()
@@ -62,7 +63,7 @@ impl Shell {
                 .child(match SpaceIcon::parse(&space.icon) {
                     SpaceIcon::Dot => {
                         let size = if shown { SPACE_SWATCH_SHOWN } else { SPACE_SWATCH };
-                        (self.palette_of(id).swatch.draw(size, behind))
+                        (self.palette_of(id).swatch.draw(size, &behind))
                             .when(!shown, |swatch| {
                                 swatch.group_hover("space", |style| {
                                     style.size(px(SPACE_SWATCH_HOVERED))

@@ -18,7 +18,7 @@ use image::{Frame, RgbaImage};
 
 use crate::{
     icon_picker,
-    palette::{OVERLAY_DARK, Swatch},
+    palette::{self, OVERLAY_DARK, Swatch},
     shell::{KEY_CONTEXT, cubic_bezier},
     theme::{self, Appearance, DEFAULT_INTENSITY, MAX_COLORS, Theme},
 };
@@ -688,10 +688,11 @@ impl Render for ThemePicker {
         let theme = editing.theme;
         let card_x = |x: f32| px(ARROW + x);
         let arrow_y = editing.arrow_y;
+        let card_fill = palette::current(cx).card;
         let card = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
-                icon_picker::paint_card(bounds.origin, &corners(arrow_y), window)
+                icon_picker::paint_card(bounds.origin, &corners(arrow_y), card_fill, window)
             },
         )
         .absolute()
@@ -824,7 +825,7 @@ impl Render for ThemePicker {
                 .absolute()
                 .left(card_x(SWATCH_X + SWATCH_PITCH * index as f32 - SWATCH / 2.))
                 .top(px(SWATCH_Y - SWATCH / 2.))
-                .child(swatch.draw(SWATCH, behind))
+                .child(swatch.draw(SWATCH, &[behind]))
         });
 
         // The wave slider and the dial, which show without knobs, dimmer, until there's a colour.

@@ -10,7 +10,7 @@ use std::{ops::Range, rc::Rc, time::Instant};
 
 use gpui::{
     AnyElement, App, Bounds, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Global,
-    KeyBinding, MouseButton, PathBuilder, Pixels, Point, ScrollStrategy, SharedString,
+    KeyBinding, MouseButton, PathBuilder, Pixels, Point, Rgba, ScrollStrategy, SharedString,
     Subscription, TitlebarOptions, UniformListScrollHandle, Window, WindowBackgroundAppearance,
     WindowBounds, WindowHandle, WindowKind, WindowOptions, actions, canvas, div, point,
     prelude::*, px, rgb, rgba, size, svg, uniform_list, Stateful,
@@ -41,7 +41,6 @@ use crate::tokens::icon_picker::ARROW_FOOT_RADIUS;
 use crate::tokens::icon_picker::RADIUS;
 pub const HEIGHT: f32 = ARROW + CARD;
 use crate::tokens::icon_picker::BELOW_ICON;
-use crate::tokens::icon_picker::FILL;
 use crate::tokens::icon_picker::SEGMENTS_TOP;
 use crate::tokens::icon_picker::SEGMENT_WIDTH;
 use crate::tokens::icon_picker::SEGMENTS_HEIGHT;
@@ -771,11 +770,16 @@ pub(crate) fn outline(
 }
 
 /// A popover's card through `corners` at `origin`: its fill, and the command bar's edge round it.
-pub(crate) fn paint_card(origin: Point<Pixels>, corners: &[(f32, f32, f32)], window: &mut Window) {
+pub(crate) fn paint_card(
+    origin: Point<Pixels>,
+    corners: &[(f32, f32, f32)],
+    color: Rgba,
+    window: &mut Window,
+) {
     let mut fill = PathBuilder::fill();
     outline(&mut fill, origin, corners, 0.);
     if let Ok(path) = fill.build() {
-        window.paint_path(path, rgba(FILL));
+        window.paint_path(path, color);
     }
     // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
     let hairline = 1. / window.scale_factor();
@@ -818,9 +822,10 @@ impl Render for IconPicker {
         let Some(picking) = &self.picking else {
             return root;
         };
+        let card_fill = crate::palette::current(cx).card;
         let card = canvas(
             |_, _, _| {},
-            move |bounds, _, window, _| paint_card(bounds.origin, &corners(), window),
+            move |bounds, _, window, _| paint_card(bounds.origin, &corners(), card_fill, window),
         )
         .absolute()
         .top_0()
