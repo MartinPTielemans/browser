@@ -4,7 +4,7 @@
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
 #   split favorites cards extensions adblock windows private capture passwords links preview access
-#   trouble dialogs crash import
+#   trouble dialogs crash import onboarding
 # The store run installs from Google's Web Store and adblock-live blocks Google's ad servers with
 # uBlock Origin's own lists, so they need the network and run only when named: ./check.sh store.
 # Every run but load and crash needs Browser to be the active app, and window and find take it
@@ -25,13 +25,15 @@
 # the driver says it can't do. Captures are the session's whole output.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
+# Each run starts a new profile, which would play the onboarding first. Only its own run plays it.
+export BROWSER_ONBOARDING=skip
 cd "$(dirname "$0")"
 if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
   exec ../tools/headless.sh --x11 --run ./check.sh "$@"
 fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock windows private capture passwords links preview"
-runs="$runs access trouble dialogs crash import"
+runs="$runs access trouble dialogs crash import onboarding"
 named="store adblock-live"
 for run in "$@"; do
   case " $runs $named " in
