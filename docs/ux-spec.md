@@ -1,6 +1,6 @@
 # UX spec
 
-What every surface looks like, how it moves and what it does, with the measured value and its source for each. Decision 6 sets the rule: Arc's structure plus Dia's polish. [ux-parity.md](ux-parity.md) is the checklist built from this file, and [ux-principles.md](ux-principles.md) says why Arc's values are what they are. The last section is the plan for measuring Arc before it shuts down on 2026-12-22.
+What every surface looks like, how it moves and what it does, with the measured value and its source for each. Decision 6 sets the rule: Arc's structure, behavior and timings, Dia's command bar and motion, and ilo's own look. [ux-parity.md](ux-parity.md) is the checklist built from this file, and [ux-principles.md](ux-principles.md) says why Arc's values are what they are. The last section is the plan for measuring Arc before it shuts down on 2026-12-22.
 
 ## Attribution
 
@@ -12,7 +12,7 @@ Parts of this file and of `ux-parity.md` are adapted from Ardia (https://github.
 
 1. Decision 5 overrides everything else. A Space holds tabs, pinned tabs and a colour. A profile holds cookies, history, logins and extensions. Dia and Ardia merge the two, so where a Dia value below says "profile", read it as "Space".
 2. Structure comes from Arc: what exists, where it sits, layout sizes and behavior. That covers the sidebar, Spaces, favorites, pinned and Today tabs, archive, split view, Peek, Little Arc and Boosts.
-3. Polish comes from Dia: materials, colours, the command bar and motion. Dia's surfaces built around its assistant, such as its New Tab page, aren't copied (decision 6). Interactions that only Arc has (sidebar reveal, Clear, Peek, Little Arc) keep Arc's motion.
+3. The command bar and motion come from Dia. Materials, colours, radii, type and icons are ilo's own (decision 6); a Dia or Arc look value below stands until its ilo-look issue replaces it. Dia's surfaces built around its assistant, such as its New Tab page, aren't copied (decision 6). Interactions that only Arc has (sidebar reveal, Clear, Peek, Little Arc) keep Arc's motion.
 4. Where an Arc value hasn't been measured yet, the Dia value is the target and is marked *interim*. The Arc capture plan at the end lists what will replace it.
 5. Values marked **Ardia** are Ardia's own choices, not measurements of Dia or Arc. Treat them as placeholders.
 
