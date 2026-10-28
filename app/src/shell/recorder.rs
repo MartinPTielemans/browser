@@ -75,6 +75,8 @@ pub(super) struct Recorder {
     answer: RefCell<Option<Box<dyn FnOnce(Option<usize>, &mut App)>>>,
     /// Each time the shell opened the Site Controls: the tab, and where they hang from.
     pub(super) site_controls: RefCell<Vec<(u64, crate::site_controls::Place)>>,
+    /// The ids of the extensions the Site Controls were given to list, each time.
+    pub(super) site_controls_extensions: RefCell<Vec<Vec<SharedString>>>,
     /// Each time the shell opened the command bar: the URL field's box it opened over, if any.
     pub(super) command_bars: RefCell<Vec<Option<Bounds<Pixels>>>>,
     /// The command bar shows, until a test plays the app's report that it was dismissed.
@@ -672,10 +674,21 @@ impl Browser for Recorder {
         tab: u64,
         place: crate::site_controls::Place,
         _: Size<Pixels>,
-        _: Vec<crate::site_controls::Extension>,
-        _: &mut App,
+        extensions: Vec<crate::site_controls::Extension>,
+        cx: &mut App,
     ) {
         self.site_controls.borrow_mut().push((tab, place));
+        self.site_controls_extensions(tab, extensions, cx);
+    }
+
+    fn site_controls_extensions(
+        &self,
+        _: u64,
+        extensions: Vec<crate::site_controls::Extension>,
+        _: &mut App,
+    ) {
+        let ids = extensions.into_iter().map(|extension| extension.id).collect();
+        self.site_controls_extensions.borrow_mut().push(ids);
     }
 
     fn capture(&self, tab: u64, frame: Bounds<Pixels>, _: f32, full_page: bool, _: &mut App) {

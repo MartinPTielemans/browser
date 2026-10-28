@@ -1057,6 +1057,9 @@ pub struct Shell {
     window_title: SharedString,
     /// The pinned actions the window shows, for its tab shown.
     extension_actions: Vec<ExtensionAction>,
+    /// The other turned-on extensions' actions, which the core reports while the Site Controls
+    /// show, for their grid.
+    unpinned_actions: Vec<ExtensionAction>,
     /// The extension's side panel shown right of the page, the width the user gave it, and where
     /// its page was last laid out.
     side_panel: Option<SidePanel>,
@@ -1246,6 +1249,7 @@ impl Shell {
             menus: MenuBar::default(),
             window_title: SharedString::default(),
             extension_actions: Vec::new(),
+            unpinned_actions: Vec::new(),
             side_panel: None,
             side_panel_width: 0.,
             side_panel_laid: None,

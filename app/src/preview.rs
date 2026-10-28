@@ -696,6 +696,14 @@ impl Browser for Fake {
     ) {
     }
 
+    fn site_controls_extensions(
+        &self,
+        _: u64,
+        _: Vec<browser::site_controls::Extension>,
+        _: &mut App,
+    ) {
+    }
+
     fn capture(&self, _: u64, _: Bounds<Pixels>, _: f32, _: bool, _: &mut App) {}
 
     fn page_picture(&self, _: u64, _: u64, _: &mut App) {}
