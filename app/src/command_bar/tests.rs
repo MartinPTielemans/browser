@@ -632,6 +632,34 @@ fn the_inputs_menu_pastes_and_goes_where_return_would(cx: &mut TestAppContext) {
     assert_eq!(bar.calls(), Vec::<String>::new());
 }
 
+/// A page can talk the user into pasting script into the bar, so a paste loses its leading
+/// `javascript:`, as Chrome's address bar's does, whatever its case and the space before it, and
+/// Paste and Go goes where the rest leads. Typed, it stays, as in Chrome.
+#[gpui::test]
+fn a_pasted_javascript_url_loses_its_scheme(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.copy_text(" \tJavaScript:javascript: alert(1)");
+    bar.keys("cmd-v");
+    assert_eq!(bar.input(), ("alert(1)".into(), 8..8));
+    bar.keys("cmd-a");
+    bar.type_text("javascript:alert(1)");
+    assert_eq!(bar.input(), ("javascript:alert(1)".into(), 19..19));
+
+    let mut bar = Bar::new(cx);
+    bar.copy_text("javascript:alert(1)\n");
+    let menu = bar.right_click();
+    bar.choose(menu, "Paste and Go");
+    assert_eq!(bar.calls(), [format!("open {}", search("alert(1)")), "hide".into()]);
+}
+
+#[test]
+fn only_a_leading_javascript_scheme_goes() {
+    assert_eq!(without_javascript("\u{1}javascript:\njavascript:x"), "x");
+    assert_eq!(without_javascript(" example.org/javascript:x"), " example.org/javascript:x");
+    assert_eq!(without_javascript("javascript"), "javascript");
+    assert_eq!(without_javascript("javascript:"), "");
+}
+
 #[gpui::test]
 fn a_right_click_in_the_selection_keeps_it_for_copy(cx: &mut TestAppContext) {
     let mut bar = Bar::new(cx);
