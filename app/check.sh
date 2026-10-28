@@ -19,8 +19,10 @@
 # so far: load, tabs and dialogs.
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
 # Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
-# windows and input then never reach the owner's session. The runs need what Linux has yet:
-# load, and history, keys and tabs among the driven ones. Captures are the session's whole output.
+# windows and input then never reach the owner's session. Of the runs, load passes there so far;
+# the others stop where they need what Linux hasn't yet, such as a swipe between pages (history),
+# the held escape's rule (keys), ilo's menu over the command bar (tabs) and IME (spaces), which
+# the driver says it can't do. Captures are the session's whole output.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
