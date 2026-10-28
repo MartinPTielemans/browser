@@ -4,20 +4,19 @@ display came from; Chromium tags its surfaces, so pointer events on the UI's are
 own; the core can reach a window's surface through the WaylandProxy, made outside tests too; and
 a hook runs the core after each dispatch of Chromium's events, for the UI's that its reads queued.
 Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
-
 --- a/build/linux/chrome.map
 +++ b/build/linux/chrome.map
-@@ -115,6 +115,10 @@ global:
-   # The core's C API, for the app the core loads (browser_core/platform/linux/app_library.cc).
-   bc_*;
+@@ -20,6 +20,10 @@ global:
+   # Program entry point.
+   _start;
  
-+  # libwayland's client API, which the app's UI calls on the display it shares with Chromium:
-+  # one copy, as a wl_display works only with the library that made it.
++  # browser_core: libwayland's client API, which the app's UI calls on the display it shares
++  # with Chromium: one copy, as a wl_display works only with the library that made it.
 +  wl_*;
 +
- local:
-   *;
- };
+   # Memory allocation symbols.  We want chrome and any libraries to
+   # share the same heap, so it is correct to export these symbols.
+   aligned_alloc;
 --- a/third_party/wayland/BUILD.gn
 +++ b/third_party/wayland/BUILD.gn
 @@ -64,7 +64,7 @@ if (!use_system_libwayland) {
