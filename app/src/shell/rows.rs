@@ -368,8 +368,9 @@ impl Shell {
     /// A press on the page that slides in after a Space switch, where the page isn't yet: the
     /// pointer is over the outgoing page, which takes no input, or over nothing. It acts on the
     /// row that will be there, as the press that it is (docs/ux-principles.md: act on the press),
-    /// the Space having switched already. Returns whether it took the press; a press on the
-    /// sliding page's drawn part is the rows' own.
+    /// the Space having switched already, and a right-click where there's no row shows the menu
+    /// of that Space's name or of its empty space. Returns whether it took the press; a press on
+    /// the sliding page's drawn part is the rows' own.
     pub(super) fn press_at_rest(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
         let sliding = self.settle.is_some() && self.swipe.is_none() && self.drag.is_none();
         if !sliding || self.form().is_some() || self.renaming.is_some() {
@@ -386,10 +387,21 @@ impl Shell {
             return false;
         }
         let y = self.list_y(at.y);
-        let tab = self.layout().into_iter().find_map(|(slot, top)| match slot {
-            Slot::Tab(tab) if (top..top + ROW_PITCH).contains(&y) => Some(tab),
+        let row = self.layout().into_iter().find_map(|(slot, top)| match slot {
+            Slot::Tab(_) | Slot::NewTab if (top..top + ROW_PITCH).contains(&y) => Some(slot),
             _ => None,
         });
+        if event.button == MouseButton::Right && row.is_none() {
+            match y < NAME_HEIGHT {
+                true => self.space_menu(self.space, event.position, cx),
+                false => self.empty_space_menu(self.space, event.position, cx),
+            }
+            return true;
+        }
+        let tab = match row {
+            Some(Slot::Tab(tab)) => Some(tab),
+            _ => None,
+        };
         let Some(tab) = tab.filter(|&tab| self.panes(tab).len() == 1) else {
             return false;
         };
