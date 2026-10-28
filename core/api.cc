@@ -854,6 +854,10 @@ void bc_set_send_crash_reports(bool send) {
   browser_core::crash_reports::SetSending(send);
 }
 
+void bc_answer_crash_report(bool send) {
+  browser_core::crash_reports::Answer(send);
+}
+
 void bc_page_favicon(const char* url) {
   if (url) {
     browser_core::FindFavicon(url);

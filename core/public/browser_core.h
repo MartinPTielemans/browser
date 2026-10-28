@@ -679,6 +679,10 @@ typedef struct bc_host {
   // open it in a link preview with bc_tab_open_preview after this call returns. A site is a
   // registrable domain, such as example.co.uk.
   bool (*tab_link_to_site)(void* context, bc_id tab, const char* url, double x, double y);
+  // The browser crashed the time before, and the user has Send Crash Reports off: offer to send
+  // that crash's report, and answer with bc_answer_crash_report. Once the browser has started, at
+  // most once a launch, and never twice for a report.
+  void (*crash_report_offered)(void* context);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -1231,7 +1235,9 @@ BC_EXPORT void bc_set_ad_blocking(bool on);
 // one only while the user has Settings › Privacy › Send Crash Reports on, which is off by default:
 // then each report not yet sent goes to the collector, once the browser has started and as the user
 // turns it on, and is deleted once the collector has it. Turning it off deletes every report not
-// yet sent. The core keeps the choice with the Spaces. No agent tool reads or changes it.
+// yet sent. While it's off, the launch after a crash offers to send that crash's report
+// (crash_report_offered). The core keeps the choice with the Spaces. No agent tool reads, changes
+// or answers it.
 //
 // The host of the collector the app named with --crash-upload-url, or nothing without one, when
 // nothing is sent and Settings doesn't offer to. Copied as bc_profile_name copies a name.
@@ -1239,6 +1245,9 @@ BC_EXPORT size_t bc_crash_reports_collector(char* host, size_t capacity);
 // Whether the user has Send Crash Reports on and there's a collector.
 BC_EXPORT bool bc_send_crash_reports(void);
 BC_EXPORT void bc_set_send_crash_reports(bool send);
+// The user's answer to crash_report_offered: send that one report, though Send Crash Reports is
+// off, or delete it. Nothing once answered, or without an offer.
+BC_EXPORT void bc_answer_crash_report(bool send);
 
 // What bc_download_act does: opens the file, or for one still running, opens it once it's done or
 // no longer; shows it in the system's file manager; pauses, resumes or cancels it; takes it off
