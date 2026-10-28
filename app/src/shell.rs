@@ -29,6 +29,7 @@ use crate::{
 
 #[cfg(test)]
 mod agent_spaces;
+mod beside;
 #[cfg(test)]
 mod close_tab;
 #[cfg(test)]
@@ -911,6 +912,12 @@ pub struct Shell {
     /// The frames the favorites' tiles and the folders' plates were last drawn in, in the window,
     /// for their tooltips to hang from.
     tip_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
+    /// How long each frame drawn while the Spaces' pages moved took the sidebar, in ms, for the
+    /// settle's log.
+    paging_frames: Rc<RefCell<Vec<f32>>>,
+    /// Where the page of the Space beside drew its tiles, by tab, and its URL field, as 0.
+    #[cfg(test)]
+    beside_frames: Rc<RefCell<HashMap<u64, Bounds<Pixels>>>>,
     /// The plates the sidebar's buttons with a tooltip were last drawn in, by their command.
     button_frames: Rc<RefCell<HashMap<&'static str, Bounds<Pixels>>>>,
     /// Whether the list is past its top, and the edge under the favorites' fade since it last
@@ -1193,6 +1200,9 @@ impl Shell {
             list_scroll: ScrollHandle::new(),
             sidebar_origin: Rc::default(),
             tip_frames: Rc::default(),
+            paging_frames: Rc::default(),
+            #[cfg(test)]
+            beside_frames: Rc::default(),
             button_frames: Rc::default(),
             scrolled: false,
             scroll_edge_fade: None,
@@ -1849,13 +1859,10 @@ impl Shell {
     /// Space shows, and says whether that changed them. Another Space's swap in at once, as the
     /// Space they come with slides in.
     fn show_favorites(&mut self) -> bool {
-        let held_by = self.shown_space().map(|space| [space.id, space.profile]);
-        let holders = &self.favorite_holders;
-        let shown: Vec<u64> = (self.all_favorites.iter().copied())
-            .filter(|tab| {
-                held_by.is_none_or(|held_by| holders.get(tab).is_some_and(|h| held_by.contains(h)))
-            })
-            .collect();
+        let shown = match self.shown_space() {
+            Some(space) => self.favorites_of(space),
+            None => self.all_favorites.clone(),
+        };
         let changed = shown != self.favorites;
         self.favorites = shown;
         changed
@@ -2462,6 +2469,7 @@ impl Shell {
         if let Some(settle) = self.settle.take_if(|settle| settle.offset().is_none()) {
             // check.sh reads these lines.
             log!("browser: settled space {}", settle.space);
+            self.log_paging_frames();
         }
         let moving = !(self.slides.is_empty() && self.closing.is_empty() && self.unhovered.is_empty())
             || !self.tile_slides.is_empty()
@@ -2803,6 +2811,7 @@ impl Shell {
     /// The sidebar: the header's buttons, the URL field and the Space's tabs, or the Create a
     /// Space form, over the switcher. Docked, or in the reveal's panel.
     fn sidebar(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let started = Instant::now();
         let sidebar = div()
             .absolute()
             .top_0()
@@ -2825,12 +2834,14 @@ impl Shell {
                 let left = left.elapsed().as_secs_f32();
                 sidebar.child(self.space_form(form, Some(left), cx))
             }
+            // The URL field and the favorites are the Space's page's, and page with it.
             (None, None, None) => sidebar
-                .child(self.url_field(cx))
-                .children(self.scroll_edge_line())
+                .child(self.with_page(self.url_field(cx)))
+                .children(self.scroll_edge_line().map(|line| self.with_page(line)))
                 .child(self.space_pages(cx))
                 // Over the pages, which they scroll with when they're tall.
-                .children(self.tiles(cx))
+                .children(self.tiles(cx).map(|tiles| self.with_page(tiles)))
+                .children(self.beside_pages())
                 .children(self.dragged_tile(cx))
                 .children(self.turning_drag())
                 .children(self.question_card(cx))
@@ -2844,6 +2855,7 @@ impl Shell {
             .children(self.switcher(cx))
             .children(self.flying_icon())
             .child(self.press_listener())
+            .children(self.paging_frame(started))
     }
 
     /// The Spaces' pages under the URL field, side by side while they move. Each keeps its own
@@ -2856,7 +2868,13 @@ impl Shell {
             let page = match self.spaces.iter().find(|other| other.id == space) {
                 _ if Some(space) == form => continue,
                 _ if space == self.space => self.list(cx).into_any_element(),
-                Some(other) => self.still_page(other).into_any_element(),
+                // Beside the form, the page's URL field and favorites are the shown Space's, over
+                // it (beside_form). Elsewhere it's drawn whole, with its own (beside_pages), over
+                // its place here, which keeps its menu.
+                Some(other) if form.is_some() => {
+                    self.still_page(other, self.tiles_room()).into_any_element()
+                }
+                Some(_) => div().into_any_element(),
                 None => continue,
             };
             // A right-click under the rows, rows, buttons and fields taking their own, is for the
@@ -2919,8 +2937,8 @@ impl Shell {
     }
 
     /// Another Space's page as it shows once shown, while it slides in or out: its name, and its
-    /// rows with the tab it would show selected. It takes no input.
-    fn still_page(&self, space: &Space) -> impl IntoElement + use<> {
+    /// rows with the tab it would show selected, `room` under its top. It takes no input.
+    fn still_page(&self, space: &Space, room: f32) -> impl IntoElement + use<> {
         let selected = self.browser.space_tab(space.id);
         let row = |tab: u64| {
             let row = row_box().pl(px(PLATE_INSET + space.depth(tab) as f32 * FOLDER_INDENT));
@@ -2950,7 +2968,6 @@ impl Shell {
         let (plus, new_tab) = new_tab_label(&self.palette);
         let icon = space_icon(&self.palette, &space.icon);
         let (pinned, today) = space.rows();
-        let room = self.tiles_room();
         div()
             .size_full()
             .flex()
