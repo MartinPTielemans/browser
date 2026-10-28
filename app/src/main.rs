@@ -3058,6 +3058,7 @@ unsafe extern "C" fn started(_: *mut c_void) {
         )),
     };
     let app = application.run_embedded(|cx| {
+        browser::face::register(cx);
         // The user's keys, before the shortcuts are bound to them.
         settings::read_shortcuts(cx);
         shell::bind_keys(cx);
