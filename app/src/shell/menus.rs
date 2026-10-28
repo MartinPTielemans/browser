@@ -1,7 +1,7 @@
 //! The sidebar's menus, a Space's, a tab's, a favorite's, a folder's and the plus
 //! button's, and what their items do.
 
-use gpui::{Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
+use gpui::{App, Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
     Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
@@ -99,7 +99,7 @@ impl Shell {
         if self.private {
             return;
         }
-        let items = self.space_items(space);
+        let items = self.space_items(space, cx);
         self.show_menu(items, position, None, cx);
     }
 
@@ -125,7 +125,7 @@ impl Shell {
             items.push((MenuEntry::line(), Box::new(|_, _| {})));
             // Its Profile submenu's items name their parent by where it is, now further down.
             let after = items.len();
-            items.extend(self.space_items(space).into_iter().map(|(entry, action)| {
+            items.extend(self.space_items(space, cx).into_iter().map(|(entry, action)| {
                 let parent = entry.parent.map(|parent| parent + after);
                 (MenuEntry { parent, ..entry }, action)
             }));
@@ -134,21 +134,17 @@ impl Shell {
     }
 
     /// The Space's menu's items, for its name, its dot and the sidebar's empty space.
-    fn space_items(&self, space: u64) -> Vec<(MenuEntry, MenuAction)> {
+    fn space_items(&self, space: u64, cx: &App) -> Vec<(MenuEntry, MenuAction)> {
         let entry = self.spaces.iter().find(|each| each.id == space);
         let icon = entry.is_some_and(|each| has_icon(&each.icon));
         let theme = entry.is_some_and(|each| each.color.is_some() || each.theme.is_some());
         let mut items = space_menu_head(space, icon, theme);
-        // An agent's Space leads to what the agent did in it.
-        if entry.is_some_and(|each| !each.agent.is_empty()) {
-            items.insert(
-                0,
-                (
-                    MenuEntry::new("Agent Activity…", true),
-                    Box::new(|shell, cx| shell.browser.agent_activity(cx)),
-                ),
-            );
-            items.insert(1, (MenuEntry::line(), Box::new(|_, _| {})));
+        // An agent's Space leads to what the agent did in it, and lists what the user let it do
+        // for good, to take back.
+        if let Some(each) = entry.filter(|each| !each.agent.is_empty()) {
+            let mut agent = self.agent_items(space, &each.agent, cx);
+            agent.extend(items);
+            items = agent;
         }
         let at = items.len();
         items.push((MenuEntry::new("Profile", true), Box::new(|_, _| {})));
@@ -164,6 +160,40 @@ impl Shell {
             MenuEntry::new("Delete Space", self.spaces.len() > 1).destructive(),
             Box::new(move |shell, cx| shell.delete_space(space, cx)),
         ));
+        items
+    }
+
+    /// The head of an agent's Space's menu: its activity, Revoke Permission with what the user
+    /// answered for good on each site, and Disconnect.
+    fn agent_items(&self, space: u64, name: &str, cx: &App) -> Vec<(MenuEntry, MenuAction)> {
+        let (grants, connected) = self.browser.agent_permissions(space, cx);
+        let mut items: Vec<(MenuEntry, MenuAction)> = vec![
+            (
+                MenuEntry::new("Agent Activity…", true),
+                Box::new(|shell, cx| shell.browser.agent_activity(cx)),
+            ),
+            (MenuEntry::new("Revoke Permission", !grants.is_empty()), Box::new(|_, _| {})),
+        ];
+        let several = grants.len() > 1;
+        for (site, may) in grants {
+            let title = format!("{} on {site}", if may { "Always Allow" } else { "Never" });
+            items.push((
+                MenuEntry::new(title, true).under(1),
+                Box::new(move |shell, cx| shell.browser.revoke_agent(space, Some(site), cx)),
+            ));
+        }
+        if several {
+            items.push((MenuEntry::line().under(1), Box::new(|_, _| {})));
+            items.push((
+                MenuEntry::new("All Sites", true).under(1),
+                Box::new(move |shell, cx| shell.browser.revoke_agent(space, None, cx)),
+            ));
+        }
+        items.push((
+            MenuEntry::new(format!("Disconnect {name}"), connected),
+            Box::new(move |shell, cx| shell.browser.disconnect_agent(space, cx)),
+        ));
+        items.push((MenuEntry::line(), Box::new(|_, _| {})));
         items
     }
 

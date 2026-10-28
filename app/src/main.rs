@@ -1867,6 +1867,28 @@ impl Browser for Engine {
         agents_core::update(move |agents, cx| agents.answer(question, answer, cx));
     }
 
+    fn agent_permissions(&self, space: u64, cx: &App) -> (Vec<(SharedString, bool)>, bool) {
+        let agent = name(bc::bc_space_agent, space);
+        let Some(agents) = browser::agents::global(cx) else {
+            return (Vec::new(), false);
+        };
+        let agents = agents.read(cx);
+        let client = browser::agents::Client::from_id(&agent);
+        (agents.grants(&agent), client.is_some_and(|client| agents.is_connected(client)))
+    }
+
+    fn revoke_agent(&self, space: u64, site: Option<SharedString>, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        agents_core::update(move |agents, cx| agents.revoke(&agent, site.as_deref(), cx));
+    }
+
+    fn disconnect_agent(&self, space: u64, _: &mut App) {
+        let agent = name(bc::bc_space_agent, space);
+        if let Some(client) = browser::agents::Client::from_id(&agent) {
+            agents_core::update(move |agents, cx| agents.disconnect(client, cx));
+        }
+    }
+
     fn show_page_dialog(&self, shown: Option<shell::ShownPageDialog>, cx: &mut App) {
         // The dialog shows over the window last key, as the others do; another's waits for it.
         if self.window != front().0 {
