@@ -229,7 +229,7 @@ fn every_theme_of_a_coarse_sweep_reads() {
 
 
 /// The design sweep's grid, 1,197,504 themes: `cargo test --release --lib -- --ignored
-/// full_sweep`, a few minutes.
+/// full_sweep`, or a part of it at a time with SWEEP_PART=1/8 to 8/8.
 #[test]
 #[ignore]
 fn full_sweep() {
@@ -237,7 +237,14 @@ fn full_sweep() {
     let saturations = [0., 0.05, 0.1, 0.2, 0.35, 0.5, 0.75, 1.];
     let lightnesses: Vec<f32> = (0..=20).map(|i| i as f32 / 20.).collect();
     let intensities: Vec<f32> = (0..=10).map(|i| i as f32 / 10.).collect();
-    let themes = grid(&hues, &saturations, &lightnesses, &intensities);
+    let mut themes = grid(&hues, &saturations, &lightnesses, &intensities);
+    if let Some((part, parts)) = std::env::var("SWEEP_PART").ok().and_then(|part| {
+        let (part, parts) = part.split_once('/')?;
+        Some((part.parse::<usize>().ok()?, parts.parse::<usize>().ok()?))
+    }) {
+        let size = themes.len().div_ceil(parts);
+        themes = themes.into_iter().skip((part - 1) * size).take(size).collect();
+    }
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let failed: Vec<String> = std::thread::scope(|scope| {
         let chunks: Vec<_> = themes
@@ -250,8 +257,9 @@ fn full_sweep() {
     let shaded = palettes.iter().filter(|p| p.shade > 0.).count();
     let most = palettes.iter().map(|p| p.shade).fold(0., f32::max);
     let card = palettes.iter().filter(|p| p.card != rgba(CARD)).count();
+    let faded = themes.iter().zip(&palettes).filter(|(t, p)| p.layer_alpha < layer_alpha(t) - 1e-6).count();
     eprintln!(
-        "{} themes, {shaded} shaded (at most {most}), {card} with a darker card, {} failing",
+        "{} themes, {shaded} shaded (at most {most}), {faded} faded, {card} with a darker card, {} failing",
         themes.len(),
         failed.len()
     );
