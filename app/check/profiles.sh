@@ -216,7 +216,7 @@ elsewhere_page="$(echo "$site" | sed 's/127\.0\.0\.1/localhost/')elsewhere.html"
 tile="114 110"
 send menu Settings…
 expect '^browser: settings shown General$' "Settings… didn't show Settings on its General tab"
-post clickkey 500 213
+post clickkey 500 250
 expect "^browser: menu shown In Every Space, In Each Profile's Spaces (checked), In Each Space\$" \
   "a click on Favorites didn't show the choices"
 send choose In Every Space
@@ -265,7 +265,7 @@ expect "^browser: title $twin cookie none\$" \
 # closed, the second Space has only its tab again.
 send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
-post clickkey 500 213
+post clickkey 500 250
 expect "^browser: menu shown In Every Space (checked), In Each Profile's Spaces, In Each Space\$" \
   "a click on Favorites didn't show In Every Space chosen"
 send choose "In Each Profile's Spaces"
