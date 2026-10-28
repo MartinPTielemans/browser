@@ -319,6 +319,9 @@ pub struct ImportView {
     /// The passwords file the last import read, while Done offers to delete it, as it holds them
     /// in plain text. The view keeps its path, never its contents.
     passwords_file: Option<PathBuf>,
+    /// The step last drawn. A click before a step draws lands on the one before it, so check.sh
+    /// waits for the line each one logs.
+    drawn: Option<&'static str>,
 }
 
 impl EventEmitter<ImportEvent> for ImportView {}
@@ -348,6 +351,7 @@ impl ImportView {
             step: Step::List,
             switched: None,
             passwords_file: None,
+            drawn: None,
         }
     }
 
@@ -895,6 +899,17 @@ impl Render for ImportView {
             .is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE)
         {
             window.request_animation_frame();
+        }
+        let step = match &self.step {
+            Step::List => "list",
+            Step::Pick { .. } => "pick",
+            Step::Running { .. } | Step::Passwords => "running",
+            Step::NoAccess { .. } => "no access",
+            Step::Done(_) => "done",
+        };
+        if self.drawn != Some(step) {
+            self.drawn = Some(step);
+            log!("browser: import drawn {step}");
         }
         let look = self.look;
         let content = match &self.step {
