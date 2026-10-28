@@ -3,8 +3,10 @@
 # gets nowhere without the agent's token. Its first call makes its Space, and it may read only the
 # tabs there: a read of the user's tab is refused, with an activity-log entry, and a read of
 # example.com, opened in its Space, gives the page's text. A page with fields gives its prose and
-# none of their values: typed, filled in or a password. Closing the client's end ends its session
-# with the tab.
+# none of their values: typed, filled in or a password, in its text and in its outline, and the
+# agent can't type into the password field. It types into another, opens a page, clicks its link,
+# scrolls and takes a screenshot, and a bank's site asks first, in a card whose Allow Once opens
+# it. Closing the client's end ends its session with the tab.
 
 log="$out/mcp.log"
 step=0
@@ -44,14 +46,26 @@ mcp() {
   echo "$1" >&4
   case "$1" in *'"id":'*) read -r -t 30 answer <&5 || fail "the browser didn't answer $1"; echo "$answer" ;; esac
 }
-# Calls the tool $1 with the arguments $2, and prints its text, after "error: " if it's an error.
-call() {
-  id=$((id + 1))
-  mcp "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" |
-    python3 -I -c '
+# Prints a tool's answer on stdin: its text, after "error: " if it's an error, or a picture's type
+# and size.
+answered() {
+  python3 -I -c '
 import json, sys
 result = json.load(sys.stdin)["result"]
-print(("error: " if result["isError"] else "") + result["content"][0]["text"])'
+content = result["content"][0]
+if content["type"] == "image":
+    print(content["mimeType"], len(content["data"]))
+else:
+    print(("error: " if result["isError"] else "") + content["text"])'
+}
+# The tools/call request for the tool $1 with the arguments $2.
+request() {
+  id=$((id + 1))
+  echo "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}"
+}
+# Calls the tool $1 with the arguments $2, and prints its answer.
+call() {
+  mcp "$(request "$1" "$2")" | answered
 }
 
 mcp '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"check","version":"1"}}}' \
@@ -117,6 +131,7 @@ if [ "$driven" = 1 ]; then
 password.value = "hunter2-by-ada";
 email.value = "ada@example.com";
 typed.oninput = () => document.title = "typed";
+note.oninput = () => document.title = "noted";
 </script>' > "$out/site/fields.html"
   go_from_bar "localhost:$port/fields.html"
   await_log "^browser: title $agent_tab fields\$" "the fields page didn't load in the agent's tab"
@@ -129,10 +144,76 @@ typed.oninput = () => document.title = "typed";
     *"Fields for the agents check."*) ;;
     *) fail "reading the fields page didn't give its prose: $read" ;;
   esac
-  for secret in typed-by-ada hunter2-by-ada ada@example.com 4111111111111111 note-by-ada \
-    editable-by-ada chosen-by-ada; do
+  secrets="typed-by-ada hunter2-by-ada ada@example.com 4111111111111111 note-by-ada editable-by-ada
+    chosen-by-ada"
+  for secret in $secrets; do
     case "$read" in *"$secret"*) fail "reading the fields page gave a field's value, $secret" ;; esac
   done
+
+  # The outline names the fields by ref, the password field off limits, and gives no value.
+  outline=$(call snapshot "{\"tab\":$agent_tab}")
+  echo "$outline" > "$out/mcp-outline.txt"
+  case "$outline" in
+    "Tab $agent_tab: typed"*"Fields for the agents check."*"(password: off limits)"*) ;;
+    *) fail "the fields page's outline was: $outline" ;;
+  esac
+  for secret in $secrets; do
+    case "$outline" in *"$secret"*) fail "the fields page's outline gave a field's value, $secret" ;; esac
+  done
+  ref_of() { echo "$outline" | sed -n "s/.*- $1 \"$2\" \[\(e[0-9]*\)\].*/\1/p" | head -1; }
+  password=$(ref_of textbox Password)
+  refused=$(call type "{\"tab\":$agent_tab,\"ref\":\"$password\",\"text\":\"by-the-agent\"}")
+  case "$refused" in
+    "error: Password fields are off limits"*) ;;
+    *) fail "typing into the password field answered: $refused" ;;
+  esac
+  note=$(ref_of textbox Note)
+  [ -n "$note" ] || fail "the outline had no ref for the note"
+  typed=$(call type "{\"tab\":$agent_tab,\"ref\":\"$note\",\"text\":\"by-the-agent\"}")
+  case "$typed" in
+    "Typed into “Note”."*) ;;
+    *) fail "typing into the note answered: $typed" ;;
+  esac
+  case "$typed" in *by-the-agent*) fail "the outline gave what the agent typed" ;; esac
+  await_log "^browser: title $agent_tab noted\$" "the agent's typing didn't reach the field"
+
+  # It opens a page in its Space, clicks its link, scrolls and takes a screenshot.
+  opened=$(call open_tab '{"url":"example.com"}')
+  case "$opened" in
+    "Opened tab "*"URL: https://example.com/"*) ;;
+    *) fail "open_tab answered: $opened" ;;
+  esac
+  opened_tab=$(echo "$opened" | sed -n '1s/^Opened tab \([0-9]*\)\..*/\1/p')
+  await_log "^browser: agent page $opened_tab [0-9]* [1-9][0-9]*\$" "the core didn't outline the opened page"
+  link=$(echo "$opened" | sed -n 's/.*- link "[^"]*" \[\(e[0-9]*\)\].*/\1/p' | head -1)
+  clicked=$(call click "{\"tab\":$opened_tab,\"ref\":\"$link\"}")
+  case "$clicked" in
+    "Clicked link"*"iana.org"*) ;;
+    *) fail "clicking example.com's link answered: $clicked" ;;
+  esac
+  scrolled=$(call scroll "{\"tab\":$opened_tab}")
+  case "$scrolled" in "Scrolled down."*) ;; *) fail "scroll answered: $scrolled" ;; esac
+  picture=$(call screenshot "{\"tab\":$opened_tab}")
+  case "$picture" in "image/jpeg "[1-9]*) ;; *) fail "screenshot answered: $picture" ;; esac
+
+  # A bank's site asks first, in a card in the window, and Allow Once opens it.
+  request open_tab "{\"url\":\"bank.localhost:$port/fields.html\"}" >&4
+  await_log '^browser: agent mcp-client asks [0-9]*: open bank\.localhost$' "a bank's site didn't ask first"
+  q=$(grep '^browser: agent mcp-client asks' "$log" | tail -1 | cut -d' ' -f5 | tr -d :)
+  await_log "^browser: agent question $q at " "the agent's question wasn't drawn"
+  read -r qx qy qw qh <<CARD
+$(grep "^browser: agent question $q at " "$log" | tail -1 | cut -d' ' -f6-)
+CARD
+  ../tools/window-screenshot.sh "$pid" "$out/agent-question.png" || fail "no window to capture"
+  # Allow Once, the middle of the buttons' row, at the card's foot.
+  send click $((qx + qw / 2)) $((qy + qh - 26))
+  await_log "^browser: agent mcp-client answered $q Once\$" "Allow Once didn't answer the question"
+  read -r -t 30 allowed <&5 || fail "the browser didn't answer the bank's open_tab"
+  allowed=$(echo "$allowed" | answered)
+  case "$allowed" in
+    "Opened tab "*) ;;
+    *) fail "the allowed open_tab answered: $allowed" ;;
+  esac
 fi
 # The client closing its end ends its session, which ends its session with the tab.
 exec 4>&-
@@ -147,7 +228,7 @@ fi
 quit
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, and a bank's site asks first"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi
