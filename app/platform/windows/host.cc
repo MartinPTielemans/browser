@@ -410,6 +410,80 @@ LRESULT CALLBACK KeyPressed(int code, WPARAM wparam, LPARAM lparam) {
   return CallNextHookEx(nullptr, code, wparam, lparam);
 }
 
+// Keys typed right after a shortcut that opens the command bar or the find bar belong in its field
+// (Ardia P7), but the bar takes the keyboard only once it has drawn, and a shortcut the page gets
+// first, such as Ctrl+L, comes back only after the keys behind it reached the page. So from the
+// shortcut until the bar has the keyboard, keys are held and then given to it in the order typed. A
+// hold lasts kHoldKeys at most, which is the page keeping the shortcut. They're posted to our own
+// window only; SendInput would reach whatever app is in front (platform/host.h's warning).
+std::vector<MSG> g_held_keys;
+bool g_holding_keys = false;
+// The window the keys wait for, or null for whichever bar opens.
+HWND g_keys_for = nullptr;
+HHOOK g_held_hook = nullptr;
+UINT_PTR g_hold_timer = 0;
+constexpr UINT kHoldKeysMs = 400;
+
+// Gives the keys held to the window that now has the keyboard, unless they wait for another bar.
+void ReleaseKeys(HWND from) {
+  if ((from && g_keys_for && from != g_keys_for) || !g_holding_keys) {
+    return;
+  }
+  g_holding_keys = false;
+  if (g_hold_timer) {
+    KillTimer(nullptr, g_hold_timer);
+    g_hold_timer = 0;
+  }
+  HWND to = g_keys_for ? g_keys_for : (from ? from : GetFocus());
+  g_keys_for = nullptr;
+  if (!g_held_keys.empty()) {
+    // check.sh reads this line.
+    fprintf(stderr, "browser: held %zu key events\n", g_held_keys.size());
+  }
+  for (const MSG& held : g_held_keys) {
+    PostMessageW(to, held.message, held.wParam, held.lParam);
+  }
+  g_held_keys.clear();
+}
+
+void CALLBACK HoldTimedOut(HWND, UINT, UINT_PTR id, DWORD) {
+  if (id == g_hold_timer) {
+    ReleaseKeys(nullptr);
+  }
+}
+
+// Sets aside each keyboard message the thread's queue gives up while holding, swallowing it before
+// TranslateMessage so no WM_CHAR is made for it; the repost is translated once it reaches the bar.
+// The shortcut that opened the bar was pulled before the hold began, so it isn't held.
+LRESULT CALLBACK HeldKeys(int code, WPARAM wparam, LPARAM lparam) {
+  if (code == HC_ACTION && g_holding_keys && wparam == PM_REMOVE) {
+    MSG* msg = reinterpret_cast<MSG*>(lparam);
+    switch (msg->message) {
+      case WM_KEYDOWN:
+      case WM_SYSKEYDOWN:
+      case WM_KEYUP:
+      case WM_SYSKEYUP:
+        g_held_keys.push_back(*msg);
+        msg->message = WM_NULL;
+        break;
+    }
+  }
+  return CallNextHookEx(nullptr, code, wparam, lparam);
+}
+
+// Holds the keys typed from now until |window|, or if null whichever bar opens, has the keyboard.
+void HoldKeys(HWND window) {
+  if (!g_held_hook) {
+    g_held_hook = SetWindowsHookExW(WH_GETMESSAGE, HeldKeys, nullptr, GetCurrentThreadId());
+  }
+  if (g_hold_timer) {
+    KillTimer(nullptr, g_hold_timer);
+  }
+  g_holding_keys = true;
+  g_keys_for = window;
+  g_hold_timer = SetTimer(nullptr, 0, kHoldKeysMs, HoldTimedOut);
+}
+
 // The window ilo's menu's coordinates are from, and which it's owned by: a browser window's
 // content, or its reveal's panel with |in_reveal|.
 HWND MenuBase(void* ui_view, bool in_reveal) {
@@ -754,8 +828,10 @@ void host_add_overlay(int overlay, void* overlay_view, double, void (*dismissed)
   Adopt(g_overlays[overlay], overlay_view, false, dismissed);
 }
 
-// shortcut: an overlay's shape, radius, elevation and growth are Windows 11's rounded corners and
-// shadow, with no blur behind it and no motion as it shows or hides.
+// An overlay is a top-level window its browser window owns (host_add_overlay, through Adopt), so
+// Windows 11 rounds its corners (DWMWCP_ROUND) and draws its drop shadow on its own. It gives one
+// rounded-corner size and one shadow, not the Mac's free radius, per-corner shape or elevation
+// levels, and the overlay doesn't grow or shrink as it shows or hides; these carry no Windows work.
 void host_set_overlay_shape(int, const double*, size_t) {}
 void host_set_overlay_radius(int, double) {}
 void host_set_overlay_elevation(int, float, double, float, double, double) {}
@@ -787,6 +863,8 @@ void host_show_overlay(int overlay,
     left = content_width - 8 - width;
   }
   Show(g_overlays[overlay], ui_view, left, top, width, -1, true);
+  // The bar now has the keyboard, so the keys held since the shortcut go to it.
+  ReleaseKeys(g_overlays[overlay].hwnd);
 }
 
 void host_set_overlay_height(int overlay, double height) {
@@ -811,8 +889,9 @@ void host_dismiss_overlay(int overlay) {
   }
 }
 
-// shortcut: keys typed between a shortcut and its bar taking the keyboard aren't held yet.
-void host_hold_keys(void) {}
+void host_hold_keys(void) {
+  HoldKeys(nullptr);
+}
 
 void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double top) {
   Corner& corner = g_find_bars[ui_view];
@@ -824,6 +903,10 @@ void host_add_find_bar(void* ui_view, void* find_bar_view, double right, double 
 void host_show_find_bar(void* ui_view, bool keyboard) {
   if (auto it = g_find_bars.find(ui_view); it != g_find_bars.end()) {
     ShowCorner(it->second, ui_view, keyboard);
+    if (keyboard) {
+      // It has the keyboard, so the keys held since the shortcut go to it.
+      ReleaseKeys(it->second.floating.hwnd);
+    }
   }
 }
 
