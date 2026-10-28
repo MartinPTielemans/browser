@@ -1,16 +1,13 @@
 # The engine on Windows: ungoogled-chromium-windows's build with the core and our series
-# (engine/windows/prepare.sh). It builds chrome.dll and chrome.exe, the engine the Windows app runs
-# on, and leaves them as the run's `chromium` artifact: on a push to main that changes the engine's
-# pins, series, patches or Windows scripts, and when run by hand, where core_only compiles only the
-# core's own files instead. Free runners are the Windows engine until a desktop cross-compiles it.
-# A runner has 6 hours, and the build takes longer, so it runs in stages that each build for 3.5
-# hours and hand the tree to the next as an artifact, as ungoogled-chromium-windows's CI does.
+# (engine/windows/prepare.sh), on GitHub's Windows runners. It builds chrome.dll and chrome.exe, the
+# engine the Windows app runs on, and leaves them as the run's `chromium` artifact, or with
+# core_only compiles only the core's own files. By hand only: engine-windows-cross.yml builds and
+# publishes the Windows engine on the owner's machine. A runner has 6 hours, and the build takes
+# longer, so it runs in stages that each build for 3.5 hours and hand the tree to the next as an
+# artifact, as ungoogled-chromium-windows's CI does.
 name: Engine on Windows
 
 on:
-  push:
-    branches: [main]
-    paths: [engine/pins.ini, engine/series, engine/patches/**, engine/windows/**]
   workflow_dispatch:
     inputs:
       core_only:
