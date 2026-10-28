@@ -536,7 +536,8 @@ expect "^browser: loaded $waiting https\{0,1\}://example.org/\$" "⌘↩'s tab d
 # tab in front, and with ⌘ behind. Last, as it pins a tab, which moves Today's rows down.
 serve
 printf '%s' '<title>opener</title>
-<a target=_blank href="notes.txt" style="position:fixed;inset:0"></a>' > "$out/site/opener.html"
+<a target=_blank href="notes.txt" style="position:fixed;inset:0">opener</a>
+<script>requestAnimationFrame(() => setTimeout(() => document.title = "ready"));</script>' > "$out/site/opener.html"
 send key t cmd
 expect '^browser: command bar shown$' "⌘T didn't open the command bar"
 before=$(today)
@@ -545,7 +546,8 @@ send key return
 expect "^browser: today [0-9][0-9]* $before\$" \
   "the opener page's tab didn't open at the top of Today"
 o=$(today | cut -d' ' -f1)
-expect "^browser: title $o opener\$" "the opener page didn't load"
+# Chromium drops a click on a page that hasn't drawn yet.
+expect "^browser: title $o ready\$" "the opener page didn't draw"
 # The tab a page opened last.
 opened() {
   grep '^browser: tab [0-9]* opened by' "$log" | tail -1 | cut -d' ' -f3
