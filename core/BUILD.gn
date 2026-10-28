@@ -51,6 +51,8 @@ config("app_calls") {
 source_set("browser_core") {
   configs += [ ":app_calls" ]
   sources = [
+    "agent_session.cc",
+    "agent_session.h",
     "api.cc",
     "archive.cc",
     "archive.h",

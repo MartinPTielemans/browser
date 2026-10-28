@@ -1,0 +1,32 @@
+#ifndef BROWSER_CORE_AGENT_SESSION_H_
+#define BROWSER_CORE_AGENT_SESSION_H_
+
+#include <cstddef>
+#include <string>
+
+#include "browser_core/public/browser_core.h"
+
+namespace browser_core {
+
+// An agent's session with a tab, which the app shows as the agent at work there: from the first
+// call bc_agent_may_act lets the agent make in the tab until its client disconnects, it releases
+// the tab or the user takes the tab back. Each of those tells the app (agent_session_ended), as
+// the tab closing or leaving the agent's Space doesn't, since the app sees those itself. No timer
+// ends one: an idle browser schedules nothing.
+
+// The core let |agent| act in |tab|: opens its session there if none is.
+void AgentActed(const std::string& agent, bc_id tab);
+
+// Ends |agent|'s session with |tab| for |why|, a BC_AGENT_SESSION_ value, and returns whether it
+// had one.
+bool EndAgentSession(const std::string& agent, bc_id tab, int why);
+
+// Ends each of |agent|'s sessions for |why| and returns how many it had.
+size_t EndAgentSessions(const std::string& agent, int why);
+
+// Ends whichever agent's session holds |tab| for |why|, and returns whether one did.
+bool EndTabSession(bc_id tab, int why);
+
+}  // namespace browser_core
+
+#endif  // BROWSER_CORE_AGENT_SESSION_H_

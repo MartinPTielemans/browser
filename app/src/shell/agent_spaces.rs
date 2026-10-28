@@ -102,3 +102,66 @@ fn an_agents_row_says_its_at_work_where_it_last_acted(cx: &mut TestAppContext) {
     shell.update(cx, |shell, cx| shell.set_space(1, cx));
     assert!(!at_work(&shell, cx, 21), "in the user's Space, it's theirs");
 }
+
+/// The core ending an agent's session with a tab, as its client disconnects, it releases the tab
+/// or the user takes the tab back, takes that agent's mark off that tab and nowhere else: not
+/// another agent's, nor the agent's own in a tab it has since moved on to. A tab that closes
+/// still loses its mark without one, and an end that comes after changes nothing.
+#[gpui::test]
+fn an_agents_row_stops_saying_its_at_work_once_its_session_ends(cx: &mut TestAppContext) {
+    let (shell, _) = shell_with_agent(cx);
+    let at_work = |shell: &Entity<Shell>, cx: &mut TestAppContext, tab| {
+        shell.update(cx, |shell, _| shell.tab_label(tab).ends_with(", agent working"))
+    };
+    let acted = |shell: &Entity<Shell>, cx: &mut TestAppContext, agent: &'static str, tab| {
+        shell.update(cx, |shell, cx| shell.agent_acted(agent.into(), tab, cx))
+    };
+    let ended = |shell: &Entity<Shell>, cx: &mut TestAppContext, agent: &str, tab| {
+        shell.update(cx, |shell, cx| shell.agent_session_ended(agent, tab, cx))
+    };
+    shell.update(cx, |shell, cx| {
+        shell.set_spaces(
+            vec![
+                (1, "Space 1".into(), None, 0, "".into(), "".into(), "".into()),
+                (2, "Research".into(), None, 0, "".into(), "Claude Code".into(), "".into()),
+                (3, "Errands".into(), None, 0, "".into(), "Codex".into(), "".into()),
+            ],
+            cx,
+        );
+        shell.set_tabs(2, Vec::new(), vec![20, 21], Vec::new(), Folders::default(), cx);
+        shell.set_tabs(3, Vec::new(), vec![40], Vec::new(), Folders::default(), cx);
+        shell.set_space(2, cx);
+    });
+    acted(&shell, cx, "claude-code", 20);
+    acted(&shell, cx, "codex", 40);
+    ended(&shell, cx, "codex", 20);
+    assert!(at_work(&shell, cx, 20), "another agent's end isn't this one's");
+    ended(&shell, cx, "claude-code", 21);
+    assert!(at_work(&shell, cx, 20), "an end in another tab isn't this one's");
+    ended(&shell, cx, "claude-code", 20);
+    assert!(!at_work(&shell, cx, 20));
+    shell.update(cx, |shell, cx| shell.set_space(3, cx));
+    assert!(at_work(&shell, cx, 40), "the other agent is still at work");
+    ended(&shell, cx, "codex", 40);
+    assert!(!at_work(&shell, cx, 40));
+
+    // The agent moved on to 21 before its session with 20 ended.
+    shell.update(cx, |shell, cx| shell.set_space(2, cx));
+    acted(&shell, cx, "claude-code", 20);
+    acted(&shell, cx, "claude-code", 21);
+    ended(&shell, cx, "claude-code", 20);
+    assert!(at_work(&shell, cx, 21));
+    // Acting again after an end puts the mark back.
+    ended(&shell, cx, "claude-code", 21);
+    acted(&shell, cx, "claude-code", 21);
+    assert!(at_work(&shell, cx, 21));
+
+    // 21 closes: its mark goes, and the end that follows is no news.
+    shell.update(cx, |shell, cx| {
+        shell.set_tabs(2, Vec::new(), vec![20], Vec::new(), Folders::default(), cx)
+    });
+    assert!(!at_work(&shell, cx, 21));
+    ended(&shell, cx, "claude-code", 21);
+    acted(&shell, cx, "claude-code", 20);
+    assert!(at_work(&shell, cx, 20));
+}

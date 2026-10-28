@@ -316,6 +316,14 @@ typedef struct bc_agent_activity {
   const char* refused;
 } bc_agent_activity;
 
+// Why an agent's session with a tab ended (agent_session_ended).
+// Its client disconnected (bc_agent_disconnected).
+#define BC_AGENT_SESSION_DISCONNECTED 0
+// It released the tab (bc_agent_release_tab).
+#define BC_AGENT_SESSION_RELEASED 1
+// The user took the tab back (bc_tab_take_back).
+#define BC_AGENT_SESSION_TAKEN_BACK 2
+
 // An extension's side panel as a window shows it, beside the page of the tab it shows.
 typedef struct bc_side_panel {
   // The extension's id and name.
@@ -587,6 +595,10 @@ typedef struct bc_host {
   // On Linux under Wayland: |window|'s content is |width| by |height| points now. The app's UI is a
   // subsurface there (bc_window_wayland_surface), which no compositor sizes.
   void (*window_resized)(void* context, bc_id window, double width, double height);
+  // The agent with the id |agent| is done in |tab|: its session there ended for |why|, a
+  // BC_AGENT_SESSION_ value. Also an entry for the activity log. Not for a tab that closed or left
+  // the agent's Space, which tab_closed and spaces_changed tell.
+  void (*agent_session_ended)(void* context, const char* agent, bc_id tab, int why);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -716,6 +728,23 @@ BC_EXPORT bool bc_agent_may_act(const char* agent,
                                 const char* action,
                                 char* reason,
                                 size_t capacity);
+
+// An agent's session with a tab, which the app shows as the agent at work there, lasts from the
+// first call bc_agent_may_act lets it make in the tab until one of these three ends it, each then
+// calling agent_session_ended, or until the tab closes or leaves the agent's Space. A quiet spell
+// ends none: an idle browser schedules nothing.
+
+// The agent with the id |agent| released |tab|. Ends its session there and returns whether it had
+// one. Agent code calls it.
+BC_EXPORT bool bc_agent_release_tab(const char* agent, bc_id tab);
+
+// The client of the agent with the id |agent| disconnected. Ends each of its sessions and returns
+// how many it had. Agent code calls it.
+BC_EXPORT size_t bc_agent_disconnected(const char* agent);
+
+// The user takes |tab| back from the agent at work in it, as at the end of a handoff. Ends that
+// agent's session there and returns whether one had it. The user's: agents get none.
+BC_EXPORT bool bc_tab_take_back(bc_id tab);
 
 // The profile the Space's tabs open in, which its favorites are in.
 BC_EXPORT bc_id bc_space_profile(bc_id space);
