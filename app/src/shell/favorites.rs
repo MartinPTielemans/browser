@@ -369,18 +369,26 @@ impl Shell {
         }
     }
 
-    /// Keeps the frame `tab`'s tile or row is drawn in, `outset` past its inside, for its tooltip
-    /// to hang from, since GPUI gives a hover handler no bounds.
-    pub(super) fn framed(&self, tab: u64, outset: f32) -> impl IntoElement + use<> {
+    /// Keeps the frame `tab`'s tile or row is drawn in, its inside grown by its `border`, for its
+    /// tooltip and card to hang from, since GPUI gives a hover handler no bounds.
+    pub(super) fn framed(&self, tab: u64, border: f32) -> impl IntoElement + use<> {
         let frames = self.tip_frames.clone();
         canvas(
-            move |bounds, _, _| {
-                frames.borrow_mut().insert(tab, bounds);
+            move |bounds, window, _| {
+                // GPUI draws a border at least a device pixel wide, rounding half a pixel down, so
+                // a hairline is 1 pt at 1×, where a -0.5 inset would round to none and put the
+                // frame 1 pt inside the tile.
+                let scale = window.scale_factor();
+                let drawn = match border > 0. {
+                    true => ((border * scale - 0.5).ceil().max(1.)) / scale,
+                    false => 0.,
+                };
+                frames.borrow_mut().insert(tab, bounds.dilate(px(drawn)));
             },
             |_, _, _, _| {},
         )
         .absolute()
-        .inset(px(-outset))
+        .inset_0()
     }
 
     /// A favorite's tile: its favicon on a plate, which the tab shown has filled and ringed by its

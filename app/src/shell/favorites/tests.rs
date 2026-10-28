@@ -7,7 +7,7 @@ use gpui::{Modifiers, TestAppContext, VisualTestContext, point, px};
 
 use crate::{
     hover_card::Anchor,
-    shell::{Folders, PLATE_INSET, Row, Shell, TILE_HEIGHT, recorder::Recorder},
+    shell::{Folders, LIST_TOP, PLATE_INSET, Row, Shell, TILE_HEIGHT, recorder::Recorder},
 };
 
 /// A drawn shell with the favorites 10, 11 and 12.
@@ -65,6 +65,20 @@ fn each_tiles_card_goes_beside_the_rows_at_its_top(cx: &mut TestAppContext) {
         assert_eq!(anchor.window, window);
         assert_eq!(anchor.row.top(), frame.top(), "tile {tab}");
         assert_eq!(f32::from(anchor.row.right()), right, "tile {tab}");
+    }
+}
+
+/// A tile's card starts at the tile's top, under the URL field, and its frame is the tile's
+/// outside on a 1× display as on a 2× one, where GPUI draws the hairline round it 1 pt wide.
+#[gpui::test]
+fn a_tiles_card_starts_at_its_top_at_1x_and_2x(cx: &mut TestAppContext) {
+    let (shell, cx, host) = with_tiles(cx);
+    for (scale, tab) in [(1., 10), (2., 11), (1., 12)] {
+        cx.simulate_scale_factor_change(scale);
+        cx.run_until_parked();
+        let (anchor, frame) = hover_tile(&shell, cx, &host, tab);
+        assert_eq!(f32::from(anchor.row.top()), LIST_TOP, "tile {tab} at {scale}×");
+        assert_eq!(f32::from(frame.size.height), TILE_HEIGHT, "tile {tab} at {scale}×");
     }
 }
 
