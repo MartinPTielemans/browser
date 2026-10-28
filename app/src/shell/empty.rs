@@ -58,6 +58,7 @@ use crate::tokens::shell::empty::BUTTON_KEYS;
 use crate::tokens::shell::empty::BUTTON_KEYS_HEIGHT;
 use crate::tokens::shell::empty::BUTTON_KEYS_INSET;
 use crate::tokens::shell::empty::BUTTON_KEYS_RADIUS;
+use crate::tokens::shell::empty::HINT_BOTTOM;
 
 impl Shell {
     /// Shows the first run's welcome on the empty card until a page shows: the launch had no
@@ -74,6 +75,7 @@ impl Shell {
             self.empty_since = None;
             self.empty_settled = false;
             self.welcome = false;
+            self.in_hint = false;
             return;
         }
         let since = *self.empty_since.get_or_insert_with(Instant::now);
@@ -132,8 +134,38 @@ impl Shell {
                 .on_click(cx.listener(|shell, _, _, cx| {
                     shell.clicked_bar_target(Command::NewTab, "card", cx)
                 }))
-                .child(sign.opacity(self.empty_opacity(Instant::now()))),
+                .child(sign.opacity(self.empty_opacity(Instant::now())))
+                .children(self.in_hint.then(|| self.hint(cx))),
         )
+    }
+
+    /// The onboarding's last word, at the card's foot under the command bar it leaves up: what the
+    /// bar is, and its key.
+    fn hint(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let keys = user_keys(cx).label(Command::NewTab).map(|keys| {
+            div()
+                .h(px(KEYS_HEIGHT))
+                .px(px(KEYS_INSET))
+                .flex()
+                .items_center()
+                .rounded(px(KEYS_RADIUS))
+                .bg(rgba(KEYS_FILL))
+                .text_size(px(KEYS_SIZE))
+                .child(keys)
+        });
+        div()
+            .absolute()
+            .bottom(px(HINT_BOTTOM))
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .items_center()
+            .gap(px(KEYS_GAP))
+            .text_size(px(WORDS_SIZE))
+            .text_color(self.palette.text(SECONDARY))
+            .child("Type a site, a search or a command.")
+            .when_some(keys, |hint, keys| hint.child(keys).child("brings it back from anywhere."))
     }
 
     /// The mark, the Space's name in the display face, and the line.

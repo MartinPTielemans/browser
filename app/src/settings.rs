@@ -1575,12 +1575,12 @@ fn set_haptics(haptics: bool) {
     unsafe { bc::bc_set_haptics(haptics) };
 }
 
-fn set_send_crash_reports(send: bool) {
+pub(crate) fn set_send_crash_reports(send: bool) {
     unsafe { bc::bc_set_send_crash_reports(send) };
 }
 
 /// The host crash reports go to, or nothing in a build that names none.
-fn crash_reports_collector() -> String {
+pub(crate) fn crash_reports_collector() -> String {
     let length = unsafe { bc::bc_crash_reports_collector(std::ptr::null_mut(), 0) };
     let mut host = vec![0u8; length + 1];
     unsafe { bc::bc_crash_reports_collector(host.as_mut_ptr().cast(), host.len()) };
