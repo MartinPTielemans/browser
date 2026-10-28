@@ -23,7 +23,7 @@ index a91818acd0..5ab4a515da 100644
  # WARNING: If you change this, you must also publish a new version of zed-xim to crates.io
  xim = { git = "https://github.com/zed-industries/xim-rs.git", rev = "16f35a2c881b815a2b6cdfd6687988e84f8447d8", features = [
 diff --git i/crates/gpui_linux/src/gpui_linux.rs w/crates/gpui_linux/src/gpui_linux.rs
-index a5390e77f8..89a52b0116 100644
+index a5390e77f8..dd6dcd103c 100644
 --- i/crates/gpui_linux/src/gpui_linux.rs
 +++ w/crates/gpui_linux/src/gpui_linux.rs
 @@ -1,4 +1,13 @@
@@ -37,12 +37,12 @@ index a5390e77f8..89a52b0116 100644
 +    Corner, EmbeddedKeyboard, current_platform, dispatch_embedded, dispatch_embedded_after_read,
 +    embed, embed_wayland, embed_x11, embedded_fd, embedder_size, hide_overlay, leave_overlay,
 +    linux_platform, move_overlay, new_host_window, overlay_size, set_overlay_keyboard,
-+    set_overlay_outline, set_overlay_panel, show_overlay, take_overlay_keyboard,
++    set_overlay_outline, set_overlay_panel, show_overlay, sync_display, take_overlay_keyboard,
 +};
 +#[cfg(feature = "wayland")]
 +pub use linux::{open_next_window_in_surface, resize_embedded};
 diff --git i/crates/gpui_linux/src/linux.rs w/crates/gpui_linux/src/linux.rs
-index e4da54b52b..75379c6e1a 100644
+index e4da54b52b..a06ba727bf 100644
 --- i/crates/gpui_linux/src/linux.rs
 +++ w/crates/gpui_linux/src/linux.rs
 @@ -2,6 +2,7 @@ mod dispatcher;
@@ -59,7 +59,7 @@ index e4da54b52b..75379c6e1a 100644
  pub(crate) use keyboard::*;
 +pub use overlay::{
 +    Corner, embedder_size, hide_overlay, leave_overlay, move_overlay, overlay_size,
-+    set_overlay_keyboard, set_overlay_outline, set_overlay_panel, show_overlay,
++    set_overlay_keyboard, set_overlay_outline, set_overlay_panel, show_overlay, sync_display,
 +    take_overlay_keyboard,
 +};
  pub(crate) use platform::*;
@@ -80,10 +80,10 @@ index e4da54b52b..75379c6e1a 100644
  
 diff --git i/crates/gpui_linux/src/linux/overlay.rs w/crates/gpui_linux/src/linux/overlay.rs
 new file mode 100644
-index 0000000000..e569988146
+index 0000000000..2ae22ebb07
 --- /dev/null
 +++ w/crates/gpui_linux/src/linux/overlay.rs
-@@ -0,0 +1,576 @@
+@@ -0,0 +1,597 @@
 +//! An embedder's overlays: windows GPUI opened with `show: false` that the embedder shows over its
 +//! own window, as a browser shows its command bar over its pages. Under Wayland one is a subsurface
 +//! of the embedder's surface, on X11 a window of its own over the embedder's. One shown
@@ -353,7 +353,11 @@ index 0000000000..e569988146
 +        #[cfg(feature = "wayland")]
 +        DisplayConnection::Wayland(_) => super::wayland::embedded_size(parent),
 +        #[cfg(feature = "x11")]
-+        DisplayConnection::X11(x11) => x11.0.borrow().window_size(parent as u32).log_err(),
++        DisplayConnection::X11(x11) => {
++            let size = x11.0.borrow().window_size(parent as u32).log_err();
++            wake();
++            size
++        }
 +        #[allow(unreachable_patterns)]
 +        _ => None,
 +    })
@@ -366,7 +370,11 @@ index 0000000000..e569988146
 +        #[cfg(feature = "wayland")]
 +        DisplayConnection::Wayland(_) => super::wayland::overlay_size(view),
 +        #[cfg(feature = "x11")]
-+        DisplayConnection::X11(x11) => x11.0.borrow().window_size(view as u32).log_err(),
++        DisplayConnection::X11(x11) => {
++            let size = x11.0.borrow().window_size(view as u32).log_err();
++            wake();
++            size
++        }
 +        #[allow(unreachable_patterns)]
 +        _ => None,
 +    })
@@ -422,6 +430,13 @@ index 0000000000..e569988146
 +
 +fn later(op: Op) {
 +    OPS.with_borrow_mut(|ops| ops.push_back(op));
++    wake();
++}
++
++/// Has GPUI's loop run what the embedder asked. On X11 it then handles the events that the
++/// embedder's wait for a reply read into xcb's queue, where they don't wake it
++/// (`dispatch_embedded`).
++fn wake() {
 +    PING.with_borrow_mut(|ping| {
 +        if ping.is_none() {
 +            *ping = make_ping();
@@ -474,12 +489,18 @@ index 0000000000..e569988146
 +    while let Some(op) = OPS.with_borrow_mut(|ops| ops.pop_front()) {
 +        applied |= run_op(op);
 +    }
-+    // On X11 the events the display sends for what the ops asked, such as an overlay's new size,
-+    // can be read into xcb's queue by a wait for a reply, here or on another thread of the
-+    // connection's, where they don't wake the loop: they're all read by the reply to one more
-+    // request, and handled now.
-+    #[cfg(feature = "x11")]
++    // The events the display sends for what the ops asked, such as an overlay's new size.
 +    if applied {
++        sync_display();
++    }
++}
++
++/// Has GPUI handle the events the X server sent it before now, such as a test driver's. A wait for
++/// a reply, here or on another thread of the connection's, can read them into xcb's queue, where
++/// they don't wake the loop: they're all read by the reply to one more request, and handled now.
++pub fn sync_display() {
++    #[cfg(feature = "x11")]
++    {
 +        let x11 = super::platform::with_embedded_connection(|connection| match connection {
 +            DisplayConnection::X11(x11) => Some(super::X11Client::clone(x11)),
 +            #[allow(unreachable_patterns)]
@@ -661,7 +682,7 @@ index 0000000000..e569988146
 +    }
 +}
 diff --git i/crates/gpui_linux/src/linux/platform.rs w/crates/gpui_linux/src/linux/platform.rs
-index 0c5370db6c..4588022943 100644
+index 0c5370db6c..6960f65d15 100644
 --- i/crates/gpui_linux/src/linux/platform.rs
 +++ w/crates/gpui_linux/src/linux/platform.rs
 @@ -11,7 +11,7 @@ use std::{
@@ -673,7 +694,7 @@ index 0c5370db6c..4588022943 100644
  };
  
  #[cfg(any(feature = "wayland", feature = "x11"))]
-@@ -269,6 +269,216 @@ async fn listen_for_system_power_events(
+@@ -269,6 +269,223 @@ async fn listen_for_system_power_events(
      Ok(())
  }
  
@@ -830,7 +851,14 @@ index 0c5370db6c..4588022943 100644
 +    if !platform.is_null() {
 +        // SAFETY: the platform outlives the app, which the embedder keeps for as long as it
 +        // dispatches, and both are only used on this thread.
-+        unsafe { &*platform }.apply_pending_mode();
++        let platform = unsafe { &*platform };
++        platform.apply_pending_mode();
++        // A frame's requests, such as Vulkan's to present it, read events into xcb's queue as a
++        // runnable's do.
++        let after = platform.common.borrow().after_runnable.clone();
++        if let Some(after) = after {
++            after();
++        }
 +    }
 +    #[cfg(feature = "wayland")]
 +    crate::linux::wayland::dispatch_embedded_queue();
@@ -890,7 +918,7 @@ index 0c5370db6c..4588022943 100644
  /// GPUI's platform for Linux and FreeBSD.
  ///
  /// One event loop serves the whole process. The foreground executor and power listener are
-@@ -617,9 +827,23 @@ impl Platform for LinuxPlatform {
+@@ -617,9 +834,23 @@ impl Platform for LinuxPlatform {
      }
  
      fn run(&self, on_finish_launching: Box<dyn FnOnce()>) {
@@ -914,7 +942,7 @@ index 0c5370db6c..4588022943 100644
          let mut event_loop = self
              .event_loop
              .borrow_mut()
-@@ -1599,6 +1823,18 @@ pub fn keystroke_underlying_dead_key(keysym: Keysym) -> Option<String> {
+@@ -1599,6 +1830,18 @@ pub fn keystroke_underlying_dead_key(keysym: Keysym) -> Option<String> {
      }
  }
  #[cfg(any(feature = "wayland", feature = "x11"))]
