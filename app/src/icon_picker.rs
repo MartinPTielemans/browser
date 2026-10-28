@@ -63,6 +63,7 @@ use crate::tokens::icon_picker::HOVERED;
 use crate::tokens::icon_picker::HINT;
 use crate::tokens::icon_picker::CARET;
 use crate::tokens::icon_picker::CHOSEN_TEXT;
+use crate::tokens::text;
 /// Arc's switch between Emoji and Icon slides the content a card's width over 0.2 s, easing out
 /// (Arc 1.170 rec at 2×).
 const SLIDE: f32 = 0.2;
@@ -857,7 +858,7 @@ impl Render for IconPicker {
                 .relative()
                 .size_full()
                 .text_color(rgb(LABEL))
-                .text_size(px(13.))
+                .text_size(px(text::BODY))
                 .font_weight(FontWeight::MEDIUM)
                 .child(card)
                 .child(top)

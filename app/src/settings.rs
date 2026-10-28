@@ -89,6 +89,7 @@ use browser::tokens::settings::CHIP_HOVERED;
 use browser::tokens::settings::CHIP_RADIUS;
 use browser::tokens::settings::RESTORE_RADIUS;
 use browser::tokens::settings::TILE_GLYPH_COLOR;
+use browser::tokens::text;
 
 /// What Arc offers for how long a Today tab waits unseen before it's archived, in seconds.
 const ARCHIVE_AFTER: [(&str, f64); 4] = [
@@ -473,7 +474,11 @@ impl Settings {
                 }))
                 .child(svg().path(tab.icon()).size(px(ICON)).mt(px(ICON_TOP)).text_color(color))
                 .child(
-                    div().mt(px(LABEL_TOP)).text_size(px(11.)).text_color(color).child(tab.name()),
+                    div()
+                        .mt(px(LABEL_TOP))
+                        .text_size(px(text::SMALL))
+                        .text_color(color)
+                        .child(tab.name()),
                 )
         });
         div()
@@ -489,7 +494,7 @@ impl Settings {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .font_weight(FontWeight::BOLD)
+                    .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgb(TITLE))
                     .child(self.tab.name()),
             )
@@ -557,7 +562,9 @@ impl Settings {
                     .flex_1()
                     .min_w_0()
                     .child(div().truncate().child(row.title()))
-                    .child(div().text_size(px(11.)).text_color(rgb(DETAIL)).child(row.detail())),
+                    .child(
+                        div().text_size(px(text::SMALL)).text_color(rgb(DETAIL)).child(row.detail()),
+                    ),
             )
             .children(make.map(|make| make.ml(px(PADDING))))
     }
@@ -1142,7 +1149,7 @@ fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
         .justify_center()
         .rounded(px(CHIP_RADIUS))
         .bg(rgba(CHIP))
-        .text_size(px(12.))
+        .text_size(px(text::SMALL))
         .text_color(color)
         .child(keys)
 }
@@ -1223,7 +1230,7 @@ impl Render for Settings {
             .flex_col()
             .bg(rgb(BACKGROUND))
             .font_family(".SystemUIFont")
-            .text_size(px(13.))
+            .text_size(px(text::BODY))
             .text_color(rgb(TEXT))
             .child(self.bar(accent, cx))
             .child(

@@ -1,5 +1,6 @@
-//! A colour or a corner radius written into `app/src` instead of `design/tokens.toml` fails the
-//! tests, so the design file can't miss a value the UI draws with.
+//! A colour, a corner radius or a type size written into `app/src` instead of `design/tokens.toml`
+//! fails the tests, and so does a weight off the scale, so the design file can't miss a value the
+//! UI draws with.
 
 use std::{fs, path::Path};
 
@@ -14,6 +15,7 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ("shell/dock_dot.rs", "0x8655BF", "a test's made-up Space colour"),
     ("shell/dock_dot.rs", "0xE0475B", "a test's made-up Space colour"),
     ("shell/undo_tests.rs", "Some(0xff0000)", "a test's made-up Space colour"),
+    ("shell/extensions.rs", "FontWeight::BOLD", "the badge's count, a pictogram inside its pill"),
 ];
 
 #[test]
@@ -125,6 +127,9 @@ fn finds_colours_and_radii_but_not_tokens() {
         ".text_color(rgba(0))",
         ".rounded(px(6.))",
         "corner_radii: Corners::all(px(3.5)),",
+        ".text_size(px(14.))",
+        ".font_weight(FontWeight::BOLD)",
+        "FontWeight(700.)",
     ] {
         assert!(look_literal(code).is_some(), "{code}");
     }
@@ -133,6 +138,8 @@ fn finds_colours_and_radii_but_not_tokens() {
         "hsla(0., 0., 1., TILE_HOVERED)",
         ".rounded(px(PLATE_RADIUS))",
         ".rounded_full()",
+        ".text_size(px(text::BODY))",
+        ".font_weight(FontWeight::SEMIBOLD)",
         "let flags = 0x0100;",
         "let seed = 0x9e37;",
     ] {
@@ -158,11 +165,21 @@ fn sources(dir: &Path) -> Vec<(String, String)> {
     out
 }
 
-/// The first colour or radius written as a number in `code`: a hex colour (six or eight digits),
-/// `rgb` or `rgba` of a number, `hsla` of four numbers, or a corner radius of a number.
+/// The first colour, radius, type size or weight written as a number in `code`: a hex colour (six
+/// or eight digits), `rgb` or `rgba` of a number, `hsla` of four numbers, a corner radius or text
+/// size of a number, or a weight other than the scale's three.
 fn look_literal(code: &str) -> Option<&str> {
     let word = |c: char| c.is_alphanumeric() || c == '_';
     let starts = |at: usize| !code[..at].ends_with(word);
+    for (at, _) in code.match_indices("FontWeight").filter(|(at, _)| starts(*at)) {
+        let end = at + code[at..].find(|c: char| !word(c) && c != ':').unwrap_or(code.len() - at);
+        let named = ["FontWeight::NORMAL", "FontWeight::MEDIUM", "FontWeight::SEMIBOLD"];
+        // The type itself, as in `weight: FontWeight`, names no weight.
+        let bare = code[at..end] == *"FontWeight" && !code[end..].starts_with('(');
+        if !bare && !named.contains(&&code[at..end]) {
+            return Some(&code[at..(end + 1).min(code.len())]);
+        }
+    }
     for (at, _) in code.match_indices("0x").filter(|(at, _)| starts(*at)) {
         let end = at + 2 + code[at + 2..].find(|c: char| !word(c)).unwrap_or(code.len() - at - 2);
         let count = code[at + 2..end].chars().filter(char::is_ascii_hexdigit).count();
@@ -175,7 +192,7 @@ fn look_literal(code: &str) -> Option<&str> {
         arg.starts_with(|c: char| c.is_ascii_digit())
             && arg.chars().all(|c| c.is_ascii_hexdigit() || "._x".contains(c))
     };
-    for call in ["rgb", "rgba", "hsla", "rounded", "corner_radii", "Corners::all"] {
+    for call in ["rgb", "rgba", "hsla", "rounded", "corner_radii", "Corners::all", "text_size"] {
         for (at, _) in code.match_indices(call).filter(|(at, _)| starts(*at)) {
             // `rounded` names a family: `rounded_tl` and the rest.
             let name = at + call.len();
@@ -198,4 +215,39 @@ fn look_literal(code: &str) -> Option<&str> {
         }
     }
     None
+}
+
+/// The weights the code names are the scale's, and every surface's own type size is one of its four
+/// sizes, the badge's aside.
+#[test]
+fn type_is_on_the_scale() {
+    use super::text;
+    use gpui::FontWeight;
+    let weights = [FontWeight::NORMAL, FontWeight::MEDIUM, FontWeight::SEMIBOLD].map(|w| w.0);
+    assert_eq!(weights, [text::REGULAR, text::MEDIUM, text::SEMIBOLD]);
+    let scale = [text::SMALL, text::BODY, text::TITLE, text::HEADING];
+    for (name, size) in [
+        ("capture::PILL_TEXT_SIZE", super::capture::PILL_TEXT_SIZE),
+        ("capture::TEXT_SIZE", super::capture::TEXT_SIZE),
+        ("command_bar::INPUT_TEXT", super::command_bar::INPUT_TEXT),
+        ("command_bar::FIELD_INPUT_TEXT", super::command_bar::FIELD_INPUT_TEXT),
+        ("icon_picker::emoji::HEADER_TEXT", super::icon_picker::emoji::HEADER_TEXT),
+        ("link_target::TEXT_SIZE", super::link_target::TEXT_SIZE),
+        ("shell::empty::WORDS_SIZE", super::shell::empty::WORDS_SIZE),
+        ("shell::empty::KEYS_SIZE", super::shell::empty::KEYS_SIZE),
+        ("shell::recent_downloads::NAME_SIZE", super::shell::recent_downloads::NAME_SIZE),
+        ("shell::recent_downloads::AGE_SIZE", super::shell::recent_downloads::AGE_SIZE),
+        ("shell::side_panel::HEADER_TEXT", super::shell::side_panel::HEADER_TEXT),
+        ("shell::trouble::WORDS_SIZE", super::shell::trouble::WORDS_SIZE),
+        ("site_controls::HEADING_SIZE", super::site_controls::HEADING_SIZE),
+        ("site_controls::LINK_SIZE", super::site_controls::LINK_SIZE),
+        ("site_controls::NAME_SIZE", super::site_controls::NAME_SIZE),
+        ("site_controls::STATE_SIZE", super::site_controls::STATE_SIZE),
+        ("toast::TEXT_SIZE", super::toast::TEXT_SIZE),
+        ("tooltip::TEXT_SIZE", super::tooltip::TEXT_SIZE),
+        ("tooltip::CHIP_TEXT_SIZE", super::tooltip::CHIP_TEXT_SIZE),
+        ("zoom_hud::TEXT_SIZE", super::zoom_hud::TEXT_SIZE),
+    ] {
+        assert!(scale.contains(&size), "{name} is {size}, off the scale {scale:?}");
+    }
 }

@@ -1,6 +1,7 @@
 //! Naming a Space, a tab or a folder in a field in place of its name, a new folder as
 //! it's made; and opening the pickers for a Space's or a tab's icon and a Space's theme.
 
+use crate::tokens::text;
 use std::{
     rc::Rc,
     time::{Duration, Instant},
@@ -326,7 +327,7 @@ impl Shell {
             .on_action(
                 cx.listener(|shell, _: &CancelName, window, cx| shell.cancel_name(window, cx)),
             )
-            .text_size(px(14.))
+            .text_size(px(text::BODY))
             .text_color(rgb(FORM_TEXT))
             .child(renaming.name.clone())
     }

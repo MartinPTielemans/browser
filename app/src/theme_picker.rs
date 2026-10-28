@@ -103,6 +103,7 @@ use crate::tokens::theme_picker::HANDLE_RING;
 use crate::tokens::theme_picker::HINT_COLOR;
 use crate::tokens::theme_picker::SWATCH_RING_COLOR;
 use crate::tokens::theme_picker::KNOB_COLOR;
+use crate::tokens::text;
 /// Pressed, a handle grows by this in 60 ms, and shrinks back as long on release.
 const PRESSED: f32 = 48. / 44.;
 const PRESS: f32 = 0.06;
@@ -733,7 +734,7 @@ impl Render for ThemePicker {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(13.))
+                        .text_size(px(text::BODY))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(rgb(HINT_COLOR))
                         .child(HINT),

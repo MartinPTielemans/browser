@@ -47,6 +47,7 @@ use browser::tokens::find_bar::NOT_FOUND;
 use browser::tokens::find_bar::PLACEHOLDER;
 use browser::tokens::find_bar::CARET;
 use browser::tokens::find_bar::SELECTION;
+use browser::tokens::text;
 
 /// A tab's find in page, as the core reports it.
 #[derive(Clone, Default)]
@@ -388,11 +389,11 @@ impl Render for FindBar {
             .mr(px(COUNT_GAP))
             .when(not_found, |status| {
                 status
-                    .text_size(px(11.))
+                    .text_size(px(text::SMALL))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(rgb(NOT_FOUND))
             })
-            .when(!not_found, |status| status.text_size(px(12.)).text_color(rgba(COUNT)))
+            .when(!not_found, |status| status.text_size(px(text::SMALL)).text_color(rgba(COUNT)))
             .child(status);
         let divider = div()
             .flex_none()
@@ -425,7 +426,7 @@ impl Render for FindBar {
                 .rounded(px(RADIUS))
                 .bg(rgb(FILL))
                 .text_color(rgb(TEXT))
-                .text_size(px(13.))
+                .text_size(px(text::BODY))
                 .line_height(px(18.))
                 .child(search)
                 .child(
