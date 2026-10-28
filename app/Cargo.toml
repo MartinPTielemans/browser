@@ -15,6 +15,11 @@ path = "src/main.rs"
 name = "preview"
 path = "src/preview.rs"
 
+# What an MCP client runs to reach the browser's agents (src/agents/bridge.rs).
+[[bin]]
+name = "mcp-bridge"
+path = "src/bridge.rs"
+
 [features]
 # The build for daily use (`build.sh prod`): the user's profile and the real Keychain.
 prod = []
