@@ -731,7 +731,7 @@ index 0000000000..eb6e0291fd
 +    }
 +}
 diff --git i/crates/gpui_linux/src/linux/platform.rs w/crates/gpui_linux/src/linux/platform.rs
-index 0c5370db6c..4588022943 100644
+index 0c5370db6c..a434c0f403 100644
 --- i/crates/gpui_linux/src/linux/platform.rs
 +++ w/crates/gpui_linux/src/linux/platform.rs
 @@ -11,7 +11,7 @@ use std::{
@@ -984,7 +984,62 @@ index 0c5370db6c..4588022943 100644
          let mut event_loop = self
              .event_loop
              .borrow_mut()
-@@ -1599,6 +1823,18 @@ pub fn keystroke_underlying_dead_key(keysym: Keysym) -> Option<String> {
+@@ -1414,6 +1638,43 @@ fn guess_ascii(keycode: Keycode, shift: bool) -> Option<char> {
+     Some(c)
+ }
+ 
++/// Whether `layout` types Latin letters, as US, AZERTY and Dvorak do and Hebrew, Arabic, Russian
++/// and Armenian don't: any of the keys in the letters' places types one.
++#[cfg(any(feature = "wayland", feature = "x11"))]
++fn is_latin(keymap: &xkb::Keymap, layout: xkb::LayoutIndex) -> bool {
++    (24..=33).chain(38..=46).chain(52..=58).any(|code| {
++        keymap
++            .key_get_syms_by_level(Keycode::new(code), layout, 0)
++            .iter()
++            .any(|&sym| {
++                char::from_u32(xkb::keysym_to_utf32(sym)).is_some_and(|c| c.is_ascii_alphabetic())
++            })
++    })
++}
++
++/// With a layout that isn't Latin, the key as the keymap's Latin layout types it, as the user
++/// switched between them has it ("us,il"), else as US does. Ctrl's shortcuts match by it, as
++/// Chrome's and the Mac's do: Hebrew's key that types "א" is T, and the one that types "'" is W,
++/// though that's ASCII. None on a Latin layout, which keeps its own, and for a key that types no
++/// ASCII there.
++#[cfg(any(feature = "wayland", feature = "x11"))]
++fn latin_key(state: &State, keycode: Keycode, shift: bool) -> Option<String> {
++    let keymap = state.get_keymap();
++    let layout = state.key_get_layout(keycode);
++    if layout >= keymap.num_layouts() || is_latin(&keymap, layout) {
++        return None;
++    }
++    let key = match (0..keymap.num_layouts()).find(|&latin| is_latin(&keymap, latin)) {
++        Some(latin) => keymap
++            .key_get_syms_by_level(keycode, latin, state.key_get_level(keycode, latin))
++            .first()
++            .and_then(|&sym| char::from_u32(xkb::keysym_to_utf32(sym)))?,
++        None => guess_ascii(keycode, shift)?,
++    };
++    key.is_ascii_graphic()
++        .then(|| key.to_ascii_lowercase().to_string())
++}
++
+ #[cfg(any(feature = "wayland", feature = "x11"))]
+ pub(super) fn keystroke_from_xkb(
+     state: &State,
+@@ -1518,6 +1779,10 @@ pub(super) fn keystroke_from_xkb(
+             }
+         }
+     };
++    let key = match modifiers.control {
++        true => latin_key(state, keycode, modifiers.shift).unwrap_or(key),
++        false => key,
++    };
+ 
+     if modifiers.shift {
+         // we only include the shift for upper-case letters by convention,
+@@ -1599,6 +1864,18 @@ pub fn keystroke_underlying_dead_key(keysym: Keysym) -> Option<String> {
      }
  }
  #[cfg(any(feature = "wayland", feature = "x11"))]
