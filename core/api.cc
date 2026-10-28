@@ -353,7 +353,7 @@ bool bc_agent_may_act(const char* agent,
   if (!agent || !*agent || !browser_core::Space::AgentMayAct(agent, tab)) {
     refused = "The tab isn't in the agent's own Space.";
   } else if (browser_core::IsHeld(tab)) {
-    refused = "The tab is handed off to the user until they hand it back.";
+    refused = "The user has this tab until they hand it back. Ask for it with ask_for_tab.";
   } else if (contents && browser_core::Tab::FromWebContents(contents)->system_page()) {
     // Its Space never switches a tab there, but the rule is the core's to keep, not the UI's.
     refused =

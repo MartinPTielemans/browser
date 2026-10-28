@@ -4,7 +4,7 @@
 //! doesn't wait for its tab to be shown. A page's own question goes first, as it's about the page
 //! in front of the user. The Agents keep what waits on the answer (agents::Agents::answer). A
 //! handoff asks the same way: the agent needs the user in a tab, which Show Tab shows and Hand Back
-//! gives back.
+//! gives back. So does an agent asking for a tab the user took over: Keep, or Hand Back.
 
 use gpui::{Context, FontWeight, div, prelude::*, px, rgba};
 
@@ -53,10 +53,19 @@ impl Shell {
         };
         let listener = card_listener("agent question", &self.agent_question_drawn, question.id);
         if let Some(tab) = question.handoff {
-            let show = card_button(&self.palette, "agent-handoff-show", "Show Tab")
-                .on_click(cx.listener(move |shell, _, _, cx| shell.select(tab, cx)));
+            let first = match question.back {
+                true => card_button(&self.palette, "agent-keep", "Keep").on_click(
+                    cx.listener(|shell, _, _, cx| shell.answer_agent(Answer::Never, cx)),
+                ),
+                false => card_button(&self.palette, "agent-handoff-show", "Show Tab")
+                    .on_click(cx.listener(move |shell, _, _, cx| shell.select(tab, cx))),
+            };
             let back = card_button(&self.palette, "agent-handoff-back", "Hand Back")
                 .on_click(cx.listener(move |shell, _, _, cx| shell.browser.hand_back(tab, cx)));
+            let title = match question.back {
+                true => format!("{} asks for a tab", question.agent),
+                false => format!("{} needs you", question.agent),
+            };
             return Some(
                 self.plate("agent-question")
                     .child(listener)
@@ -64,7 +73,7 @@ impl Shell {
                         div()
                             .text_color(self.palette.text(TITLE))
                             .font_weight(FontWeight::MEDIUM)
-                            .child(format!("{} needs you", question.agent)),
+                            .child(title),
                     )
                     .child(div().text_color(rgba(DETAIL)).child(question.why.clone()))
                     .child(
@@ -72,7 +81,7 @@ impl Shell {
                             .mt(px(BUTTONS_TOP))
                             .flex()
                             .gap(px(BUTTON_GAP))
-                            .child(show)
+                            .child(first)
                             .child(back),
                     )
                     .into_any_element(),
@@ -127,6 +136,7 @@ mod tests {
             what: "click “Place order” on shop.example".into(),
             why: "It looks like a payment or an order.".into(),
             handoff: None,
+            back: false,
         }
     }
 
