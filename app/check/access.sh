@@ -99,7 +99,7 @@ else
     send key m
     expect '^browser: menu highlights Move to at ' "typing m didn't select Move to"
     send key right
-    expect '^browser: menu submenu Move to shown$' "→ didn't open Move to's submenu"
+    expect '^browser: menu submenu Move to shown at ' "→ didn't open Move to's submenu"
     submenu="$out/access-menu-submenu.txt"
     ../tools/ax-tree.sh "$pid" 'AXMenu/- "Move to"' > "$submenu"
     grep -q ' AXMenuItem/[^ ]* "Move to" .*expanded' "$submenu" ||
