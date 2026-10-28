@@ -6,9 +6,9 @@
 use std::{sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, BoxShadow, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight,
+    AnyElement, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight,
     Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, hsla, list, point,
+    Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, list,
     prelude::*, px, relative, rgb, rgba, svg,
 };
 
@@ -86,8 +86,7 @@ use crate::tokens::shell::library::CARD_BRUSH;
 use crate::tokens::shell::library::CARD_BRUSH_GLYPH;
 use crate::tokens::shell::library::CARD_BRUSH_RIGHT;
 use crate::tokens::shell::library::CARD_BRUSH_COLOR;
-use crate::tokens::shell::library::CARD_SHADOW;
-use crate::tokens::shell::library::CARD_SHADOW_BLUR;
+use crate::elevation::Level;
 use crate::tokens::shell::library::PLUS_GAP;
 use crate::tokens::shell::library::PLUS_SIZE;
 use crate::tokens::shell::library::PLUS_FILL;
@@ -1012,13 +1011,6 @@ impl Shell {
                     .size(px(CARD_BRUSH_GLYPH))
                     .text_color(rgba(CARD_BRUSH_COLOR)),
             );
-        let shadow = BoxShadow {
-            color: hsla(0., 0., 0., CARD_SHADOW),
-            offset: point(px(0.), px(CARD_SHADOW_BLUR / 4.)),
-            blur_radius: px(CARD_SHADOW_BLUR),
-            spread_radius: px(0.),
-            inset: false,
-        };
         div()
             .id(("space-card", id))
             .flex_none()
@@ -1027,7 +1019,7 @@ impl Shell {
             .overflow_hidden()
             .rounded(px(CARD_RADIUS))
             .bg(self.space_gradient(id))
-            .shadow(vec![shadow])
+            .shadow(Level::Resting.shadow())
             .block_mouse_except_scroll()
             .on_click(cx.listener(move |shell, _, _, cx| shell.pick_space(id, cx)))
             .on_mouse_down(

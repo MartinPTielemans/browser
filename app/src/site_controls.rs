@@ -39,8 +39,7 @@ use crate::tokens::site_controls::BEAK_FOOT_RADIUS;
 use crate::tokens::site_controls::BELOW_FIELD;
 use crate::tokens::site_controls::WINDOW_MARGIN;
 use crate::tokens::site_controls::FILL;
-use crate::tokens::site_controls::OUTLINE;
-use crate::tokens::site_controls::RIM;
+use crate::elevation::Level;
 use crate::tokens::site_controls::TEXT;
 use crate::tokens::site_controls::SECONDARY;
 use crate::tokens::site_controls::LINK;
@@ -1207,8 +1206,6 @@ impl Render for SiteControls {
         };
         let at = layout(&site, open.extensions.len(), open.beak.is_some());
         let shape = corners(open.beak, at.height);
-        // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
-        let hairline = 1. / window.scale_factor();
         let card = canvas(
             |_, _, _| {},
             move |bounds, _, window, _| {
@@ -1217,14 +1214,12 @@ impl Render for SiteControls {
                 if let Ok(path) = fill.build() {
                     window.paint_path(path, rgba(FILL));
                 }
-                for (inset, width, color) in
-                    [(hairline / 2., hairline, OUTLINE), (hairline + 0.5, 1., RIM)]
-                {
-                    let mut edge = PathBuilder::stroke(px(width));
-                    icon_picker::outline(&mut edge, bounds.origin, &shape, inset);
-                    if let Ok(path) = edge.build() {
-                        window.paint_path(path, rgba(color));
-                    }
+                // The popover level's rim, 1 pt inside the edge; its outline and shadow are the
+                // host's, round the window.
+                let mut edge = PathBuilder::stroke(px(1.));
+                icon_picker::outline(&mut edge, bounds.origin, &shape, 0.5);
+                if let Ok(path) = edge.build() {
+                    window.paint_path(path, Level::Popover.rim());
                 }
             },
         )

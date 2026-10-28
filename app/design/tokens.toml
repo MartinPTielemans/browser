@@ -54,8 +54,7 @@ row-hovered = 0xffff_ff14
 row-inset = 4.0
 # The menu keeps this far inside the page, where what's chosen reaches its edge (ours).
 margin = 8.0
-# The menu's shadow (black at this much) and its words.
-menu-shadow = 0.3
+# The menu's words.
 menu-text = 0xffff_ffff
 pill-fill = 0xffff_ffff
 
@@ -108,8 +107,6 @@ field-input-text = 13.0
 beside-end = 70.0
 # Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
 fill = 0x1919_19db
-outline = 0x040404
-edge = 0x59595d
 line-color = 0xffff_ff1a
 title = 0xffff_ffd9
 dim = 0xffff_ff59
@@ -159,8 +156,6 @@ buttons-under-title = 46.0
 # Between a button at the left, such as "Quit, and don't ask again", and Cancel at least.
 also-gap = 16.0
 fill = 0x161b2f
-# A line of white 0.1 inside the card's edge, and one of black 0.5 thick outside it.
-edge = 0xffff_ff1a
 detail = 0xffff_ffc7
 # The window under the card: #151515 at 0.62.
 dim = 0x151515
@@ -200,13 +195,36 @@ return-border = 0xffff_ff45
 return-glyph = 16.0
 # The title, and an action's label and glyph.
 text = 0xffffff
-# Its shadow's black and the black line around it, as alphas.
-shadow = 0.56
-outline = 0.9
 
 [dock-dot]
 # The icon's own green, which a Space in it leaves alone.
 green = 0x0E9F55
+
+[elevation]
+# Three levels, each one recipe (#317): a white rim inside the surface's edge, which reads on dark
+# pages; the outline, a black line a point of blur wide round the outside, which reads on light
+# ones; and one drop shadow. Resting sits on the window: favorite tiles, library cards, pictures
+# of pages. A popover opens from something and closes on a click outside: menus, the Site
+# Controls, the toast, the zoom HUD, tooltips, the link target, the find bar. A modal takes the
+# keyboard: the command bar, the dialog, the icon and theme pickers. A shadow's blur is CSS's,
+# twice the Gaussian's standard deviation, which is what the host's layers take halved.
+outline = 0x0000_00b3
+outline-blur = 1.0
+resting-rim = 0xffff_ff14
+resting-shadow = 0x0000_0033
+resting-shadow-y = 1.0
+resting-shadow-blur = 3.0
+popover-rim = 0xffff_ff1f
+popover-shadow = 0x0000_0059
+popover-shadow-y = 8.0
+popover-shadow-blur = 24.0
+modal-rim = 0xffff_ff26
+modal-shadow = 0x0000_008f
+modal-shadow-y = 24.0
+modal-shadow-blur = 64.0
+# How far a window that draws a popover's shadow itself reaches past what it holds: the drop and
+# the blur's visible reach, with the outline.
+window-margin = 40.0
 
 [find-bar]
 width = 300.0
@@ -300,9 +318,8 @@ near = 16.0
 window-width = 480.0
 pad-x = 10.0
 radius = 6.0
-# The 0.5 pt rim, white at 0.10, as the popovers' and the picture of a page elsewhere have.
+# The rim's thickness, 0.5 pt.
 rim = 0.5
-rim-color = 0xffffff1a
 text-size = 11.0
 secondary = 0xffffff99
 primary = 0xffffff
@@ -387,7 +404,6 @@ button-gap = 8.0
 plate-radius = 6.0
 title = 0xffff_ffff
 detail = 0xffff_ffc7
-edge = 0xffff_ff1a
 plate = 0xffff_ff1a
 hovered = 0xffff_ff1f
 # Ours: Save or Update stands out from the others.
@@ -684,11 +700,10 @@ clear = 0xffffff52
 clear-hovered = 0xffffffcf
 # A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
 sleeping-favicon = 0.5
-# A favorite's tile: white 0.10 with a white 0.14 edge at rest (Dia), and under the pointer white
-# 0.15 (ours: Dia's isn't measured). The one shown is themed by its icon (tile_theme.rs), and
+# A favorite's tile: white 0.10 at rest (Dia), with the resting level's rim, and under the pointer
+# white 0.15 (ours: Dia's isn't measured). The one shown is themed by its icon (tile_theme.rs), and
 # black with Dia's default selection ring, white 0.45, where the icon gives no theme.
 tile = 0.1
-tile-edge = 0xffff_ff24
 tile-hovered = 0.15
 tile-ring = 0xffff_ff73
 tile-unthemed = 0x0000_00ff
@@ -862,9 +877,6 @@ card-brush = 28.0
 card-brush-glyph = 14.0
 card-brush-right = 13.0
 card-brush-color = 0xffffff59
-# Ours: the shadow round a card, which Arc has, soft and dark.
-card-shadow = 0.3
-card-shadow-blur = 16.0
 plus-gap = 33.0
 plus-size = 30.0
 plus-fill = 0x1f2aff
@@ -945,16 +957,12 @@ padding = 12.0
 radius = 16.0
 line = 18.0
 detail = 0xffff_ffc7
-# A line of white 0.1 inside its edge, as the dialog's card has.
-edge = 0xffff_ff1a
 button-height = 28.0
 button-gap = 8.0
 buttons-top = 12.0
 close = 22.0
 close-inset = 7.0
 close-glyph = 12.0
-# Its shadow's black, as an alpha.
-shadow = 0.35
 
 [shell.picture]
 # Ours: the picture is fitted to this much of the card, which reads as a page that isn't live.
@@ -962,11 +970,8 @@ rest = 0.8
 # A veil of black dims it at REST and goes as it grows to the card's size, and in one frame
 # under the pointer.
 veil = 0.12
-# The rim and the shadow, as the popovers have them.
+# The rim's thickness; its colour and shadow are the resting level's.
 rim = 0.5
-shadow = 0.24
-shadow-blur = 16.0
-shadow-drop = 4.0
 
 [shell.recent-downloads]
 recent-pitch = 56.0
@@ -1008,15 +1013,12 @@ target-accent = 0.15
 target-dashes = 0.25
 target-text = 0.6
 picture-radius = 12.0
-picture-rim = 0.25
 picture-lights = [0xff5f57, 0xfebc2e, 0x28c840]
 picture-light = 6.0
 picture-top = 18.0
 picture-inset = 4.0
 # The corners of the half-filled glyph a target shows.
 half-glyph-radius = 3.5
-# The dragged picture's shadow, black at this much.
-picture-shadow = 0.35
 
 [shell.swap]
 check-box = 24.0
@@ -1081,9 +1083,6 @@ below-field = 9.0
 window-margin = 8.0
 # The see-through fill over the host's blur, fitted over the sidebar and over the page.
 fill = 0x7073874d
-# A dark line around it, and a light one inside that.
-outline = 0x000000d9
-rim = 0xffffff1a
 text = 0xffffffcc
 secondary = 0xffffff73
 # "Manage" and "More", which the headings show under the pointer.
@@ -1272,21 +1271,18 @@ chip-glyph = 13.0
 key-gap = 5.0
 # The key in an Undo button: white at 0.6, ours.
 key-color = 0xffff_ff99
-# A line of black 0.3 around it, half a point thick.
-edge = 0x0000_004d
 # It darkens from the window's colour at its top to this much of it at its bottom (Arc's goes
 # from (40,22,80) to (31,17,62) in a purple Space).
 shade = 0.78
 # Its window, wide enough for the longest toast and tall enough for its shadow, at the browser
 # window's top right.
 window-width = 420.0
-window-height = 84.0
+# Tall enough for the popover level's shadow under the toast, a drop of 8 and a blur of 24.
+window-height = 114.0
 note-height = 41.0
 note-top = 4.0
 # Its words and a button's glyph.
 text = 0xffffff
-# Its shadow's black, as an alpha.
-shadow = 0.25
 
 [tooltip]
 # How far below the tile or row it names the tooltip's top is, or above it if it doesn't fit
@@ -1302,9 +1298,8 @@ beside = 3.5
 height = 27.0
 window-width = 320.0
 near-radius = 6.0
-# The 0.5 pt rim, white at about 0.12.
+# The rim's thickness, 0.5 pt.
 rim = 0.5
-rim-color = 0xffffff1f
 text-x = 11.0
 end = 10.0
 text-size = 11.0
@@ -1334,15 +1329,13 @@ height = 41.5
 padding = 16.0
 radius = 12.0
 text-size = 13.0
-edge = 0x0000_004d
 shade = 0.78
-# The window reaches this far past the pill on every side, for its shadow.
-margin = 16.0
-# Wide enough for "500%".
-window-width = 130.0
-window-height = 80.0
+# The window reaches this far past the pill on every side, for its shadow: the popover level's,
+# a drop of 8 and a blur of 24, with the outline.
+margin = 40.0
+# Wide enough for "500%", and with the margin on both sides.
+window-width = 178.0
+window-height = 122.0
 # Its fill once the window it was over has gone.
 fill = 0x333333
-# Its shadow's black, as an alpha.
-shadow = 0.25
 text = 0xffffff

@@ -57,7 +57,7 @@ use crate::tokens::capture::ROW_INSET;
 /// How far the pointer moves with the button down before a click is a drag (ours).
 const DRAG: f32 = 4.;
 use crate::tokens::capture::MARGIN;
-use crate::tokens::capture::MENU_SHADOW;
+use crate::elevation::Level;
 use crate::tokens::capture::MENU_TEXT;
 use crate::tokens::capture::PILL_FILL;
 /// How long the toast after a capture stays, and longer while the pointer is over it (ours).
@@ -647,17 +647,20 @@ impl Capture {
             .flex_col()
             .rounded(px(MENU_RADIUS))
             .bg(rgba(MENU_FILL))
-            .shadow(vec![BoxShadow {
-                color: gpui::hsla(0., 0., 0., MENU_SHADOW),
-                offset: point(px(0.), px(1.)),
-                blur_radius: px(1.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
+            .shadow(Level::Popover.shadow())
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::MEDIUM)
             .text_color(rgba(MENU_TEXT))
             .occlude()
+            // The rim is its own layer, so its border doesn't move the rows.
+            .child(
+                div()
+                    .absolute()
+                    .size_full()
+                    .rounded(px(MENU_RADIUS))
+                    .border(px(0.5))
+                    .border_color(Level::Popover.rim()),
+            )
             .child(field)
             .child(div().h(px(ROWS_TOP)))
             .children(rows)

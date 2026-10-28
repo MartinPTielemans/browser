@@ -16,7 +16,7 @@ use gpui::{
     App, Bounds, BoxShadow, Context, Div, FocusHandle, FontWeight, Global, Hsla, Image,
     KeyBinding, MouseButton, SharedString, Stateful, Task, TitlebarOptions, Window,
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, actions,
-    div, hsla, img, point, prelude::*, px, rgb, rgba, size, svg,
+    div, img, point, prelude::*, px, rgb, rgba, size, svg,
 };
 
 use crate::{command_bar, shell::cubic_bezier};
@@ -41,7 +41,7 @@ use crate::tokens::dialog::BUTTONS_TOP;
 use crate::tokens::dialog::BUTTONS_UNDER_TITLE;
 use crate::tokens::dialog::ALSO_GAP;
 use crate::tokens::dialog::FILL;
-use crate::tokens::dialog::EDGE;
+use crate::elevation::Level;
 use crate::tokens::dialog::DETAIL;
 use crate::tokens::dialog::DIM;
 use crate::tokens::dialog::DIM_OPACITY;
@@ -70,8 +70,6 @@ use crate::tokens::dialog::RETURN_FILL;
 use crate::tokens::dialog::RETURN_BORDER;
 use crate::tokens::dialog::RETURN_GLYPH;
 use crate::tokens::dialog::TEXT;
-use crate::tokens::dialog::SHADOW;
-use crate::tokens::dialog::OUTLINE;
 use crate::tokens::text;
 /// Arc's motion: over 0.275 s the window dims and the card comes down 32 pt into place,
 /// ease-in-out, opaque after the first 0.135 s. It leaves the way it came, fading all the way.
@@ -625,12 +623,9 @@ impl Render for Dialog {
             .flex_col()
             .rounded(px(RADIUS))
             .border_1()
-            .border_color(rgba(EDGE))
+            .border_color(Level::Modal.rim())
             .bg(rgb(FILL))
-            .shadow(vec![
-                shadow(hsla(0., 0., 0., SHADOW), 16., 16., 0.),
-                shadow(hsla(0., 0., 0., OUTLINE), 0., 0., 0.5),
-            ])
+            .shadow(Level::Modal.shadow())
             .opacity(pose.opacity)
             .children(
                 question.icon.clone().map(|icon| img(icon).size(px(ICON)).mb(px(ICON_GAP))),

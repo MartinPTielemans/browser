@@ -215,9 +215,11 @@ expect "^browser: zoom $first 90%\$" "⌘- didn't zoom the page out to 90 %"
 expect '^browser: title [0-9]* zoom 90$' "⌘- didn't zoom the page out"
 expect '^browser: zoom hud shown$' "⌘- didn't show the zoom HUD"
 send layout
-hud=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child .* 130x80$' |
+# The HUD's window reaches 40 past its pill on every side, for the popover level's shadow, so the
+# pill sits 116 in from the content's right and 60 down.
+hud=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout child .* 178x122$' |
   sed 's/^browser: layout child //')
-[ "$hud" = "$((content - 132)),44 130x80" ] ||
+[ "$hud" = "$((content - 156)),20 178x122" ] ||
   fail "the zoom HUD is at ${hud:-nowhere} in a window $content wide, under the find bar"
 ../tools/window-screenshot.sh "$pid" "$out/zoom.png" || fail "no window to capture"
 send menu "Zoom In"
