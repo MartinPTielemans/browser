@@ -7,8 +7,9 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use gpui::{
     AnyElement, App, Bounds, BoxShadow, Context, DispatchPhase, Entity, FocusHandle, Focusable,

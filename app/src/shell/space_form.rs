@@ -1,7 +1,7 @@
 //! The New Space form, which a new Space's page shows in place of its list: its name,
 //! its profile and its theme (docs/ux-spec.md › Spaces).
 
-use std::time::Instant;
+use web_time::Instant;
 
 use gpui::{
     Context, FontWeight, MouseButton, MouseDownEvent, Pixels, Point, Window, div, point, prelude::*,

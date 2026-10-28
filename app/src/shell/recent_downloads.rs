@@ -4,8 +4,9 @@
 
 use std::{
     sync::Arc,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
+use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 use gpui::{
     AnyElement, Context, Image, SharedString, Task, Window, div, img, prelude::*, px, rgba, svg,

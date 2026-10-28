@@ -1,7 +1,8 @@
 //! A new download's icon flying into the footer's Library button, as in Arc and Dia
 //! (docs/ux-spec.md › Downloads; ours until Arc's is recorded).
 
-use std::{collections::HashSet, time::Instant};
+use std::collections::HashSet;
+use web_time::Instant;
 
 use gpui::{Context, Window, div, img, prelude::*, px, rgba, svg};
 

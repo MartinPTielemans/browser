@@ -1,0 +1,56 @@
+diff --git a/crates/gpui_web/src/window.rs b/crates/gpui_web/src/window.rs
+index ddd9095040..70b7ae2f9a 100644
+--- a/crates/gpui_web/src/window.rs
++++ b/crates/gpui_web/src/window.rs
+@@ -86,6 +86,8 @@ pub(crate) struct WebWindowInner {
+     pub(crate) touch_tap_candidate: Cell<Option<(i32, Point<Pixels>)>>,
+     mql_handle: RefCell<Option<MqlHandle>>,
+     pending_physical_size: Cell<Option<(u32, u32)>>,
++    /// The surface couldn't take the canvas's new size yet, so the next frame must draw.
++    resize_deferred: Cell<bool>,
+     raf_id: Cell<Option<i32>>,
+     raf_function: RefCell<Option<js_sys::Function>>,
+ }
+@@ -226,6 +228,7 @@ impl WebWindow {
+             touch_tap_candidate: Cell::new(None),
+             mql_handle: RefCell::new(None),
+             pending_physical_size: Cell::new(None),
++            resize_deferred: Cell::new(false),
+             raf_id: Cell::new(None),
+             raf_function: RefCell::new(None),
+         });
+@@ -455,12 +458,13 @@ impl WebWindowInner {
+             // (e.g. views invalidated during draw) schedule the next request
+             // instead of being swallowed.
+             this.raf_id.set(None);
++            let force = this.resize_deferred.take();
+             this.with_callback(
+                 |callbacks| &mut callbacks.request_frame,
+                 |callback| {
+                     callback(RequestFrameOptions {
+-                        require_presentation: false,
+-                        force_render: false,
++                        require_presentation: force,
++                        force_render: force,
+                         signal_at: None,
+                         signal_source: FrameRequestSource::NativeCallback,
+                     })
+@@ -999,11 +1003,17 @@ impl PlatformWindow for WebWindow {
+             }
+ 
+             let mut state = self.inner.state.borrow_mut();
+-            state.renderer.update_drawable_size(Size {
++            let resized = state.renderer.try_update_drawable_size(Size {
+                 width: DevicePixels(width as i32),
+                 height: DevicePixels(height as i32),
+             });
+             drop(state);
++            // WebGL is still drawing the last frame: the next frame resizes, even if nothing changed.
++            if !resized {
++                self.inner.pending_physical_size.set(Some((width, height)));
++                self.inner.resize_deferred.set(true);
++                self.inner.wake_frame_loop();
++            }
+         }
+ 
+         self.inner.state.borrow_mut().renderer.draw(scene);

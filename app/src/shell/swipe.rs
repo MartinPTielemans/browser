@@ -1,7 +1,8 @@
 //! Two fingers or a wheel across the sidebar, paging between Spaces and out to the
 //! Library (docs/ux-spec.md › Spaces › Switching), and the list's scroll edge.
 
-use std::{collections::VecDeque, time::Instant};
+use std::collections::VecDeque;
+use web_time::Instant;
 
 use gpui::{
     Context, DispatchPhase, Point, ScrollDelta, ScrollEvent, TouchPhase, Window, canvas, div,

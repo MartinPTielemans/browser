@@ -5,7 +5,7 @@
 
 use std::ffi::CString;
 use std::rc::Rc;
-use std::time::Instant;
+use web_time::Instant;
 
 use browser::default_browser::{self, DefaultBrowser};
 use browser::log;

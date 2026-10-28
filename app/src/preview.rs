@@ -6,8 +6,9 @@ use std::{
     cell::{Cell, RefCell},
     rc::Rc,
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use browser::log;
 use browser::shell::{
@@ -27,10 +28,17 @@ thread_local! {
     static PREVIEW_AREA: Cell<Size<Pixels>> = Cell::new(size(px(1280.), px(800.)));
 }
 
+#[cfg(not(target_family = "wasm"))]
 unsafe extern "C" {
     // platform/mac/host.mm: where a window goes, centered on the main display or, with
     // BROWSER_DISPLAY=builtin, on the Mac's own.
     fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
+}
+
+/// On the web the window is the page's canvas, wherever the page put it.
+#[cfg(target_family = "wasm")]
+unsafe fn host_centered(_: f64, _: f64, x: *mut f64, y: *mut f64) {
+    unsafe { (*x, *y) = (0., 0.) };
 }
 
 // Two Spaces, so the switcher shows, the second in Dia's pink. The tabs are in the first, the top
@@ -662,10 +670,15 @@ impl Browser for Fake {
     fn command_bar(
         &self,
         editing: Option<(u64, SharedString)>,
-        _: Vec<BarTab>,
-        _: Option<Bounds<Pixels>>,
+        tabs: Vec<BarTab>,
+        field: Option<Bounds<Pixels>>,
         cx: &mut App,
     ) {
+        // On the web the bar draws in the one window, over the shell (web::Root), which is mid-update
+        // here, so the bar shows once that's over.
+        if cfg!(target_family = "wasm") {
+            return cx.defer(move |cx| command_bar::show(editing, tabs, field, cx));
+        }
         // No command bar here: a new tab opens at once.
         if editing.is_some() {
             return;
@@ -802,9 +815,9 @@ impl Browser for Fake {
 
     fn set_pane_corner(&self, _: f32, _: f32, _: &mut App) {}
 
-    // No command bar here, as for a new tab, and no split views but the made-up one.
-    fn command_bar_open(&self, _: &App) -> bool {
-        false
+    // No command bar here but the web's, as for a new tab, and no split views but the made-up one.
+    fn command_bar_open(&self, cx: &App) -> bool {
+        cfg!(target_family = "wasm") && command_bar::is_open(cx)
     }
 
     fn split_bar(&self, _: u64, _: Bounds<Pixels>, _: Bounds<Pixels>, _: &mut App) {}
@@ -1109,8 +1122,39 @@ fn preview_bar(mode: &str, at: Point<Pixels>, cx: &mut App) {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+fn application() -> gpui::Application {
+    gpui_platform::application()
+}
+
+/// GPUI's web platform, on one thread: threads on the web need nightly Rust and a page served
+/// cross-origin isolated, which the site isn't. wasm-bindgen runs `main` as the page loads the module.
+#[cfg(target_family = "wasm")]
+fn application() -> gpui::Application {
+    gpui_platform::web_init();
+    gpui_platform::single_threaded_web()
+}
+
+/// The page has no system font to lend GPUI, so the UI's comes with it: IBM Plex Sans, which GPUI's
+/// web platform takes for `.SystemUIFont`, in the two weights the UI mostly draws (OFL, in Zed's
+/// assets).
+#[cfg(target_family = "wasm")]
+fn load_fonts(cx: &mut App) {
+    let fonts = [
+        include_bytes!("../.deps/zed/assets/fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf").as_slice(),
+        include_bytes!("../.deps/zed/assets/fonts/ibm-plex-sans/IBMPlexSans-SemiBold.ttf"),
+    ];
+    if let Err(error) = cx.text_system().add_fonts(fonts.map(Into::into).to_vec()) {
+        log!("couldn't load the fonts: {error:#}");
+    }
+}
+
 fn main() {
-    gpui_platform::application().with_assets(shell::Assets).run(|cx| {
+    application().with_assets(shell::Assets).run(|cx| {
+        #[cfg(target_family = "wasm")]
+        load_fonts(cx);
+        #[cfg(target_family = "wasm")]
+        web::bind_keys(cx);
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
         // PREVIEW_SIZE=<width>x<height> opens the window at that size.
@@ -1281,12 +1325,15 @@ fn main() {
                 shell
             });
             window.focus(&shell.focus_handle(cx), cx);
+            #[cfg(target_family = "wasm")]
+            let shell = web::Root::new(shell, window, cx);
             shell
         });
         let shell_window = window.as_ref().ok().copied();
         match window {
             // PREVIEW_LIBRARY=1 opens the Library, and PREVIEW_LIBRARY=downloads or =spaces opens
             // it there.
+            #[cfg(not(target_family = "wasm"))]
             Ok(window) if std::env::var_os("PREVIEW_LIBRARY").is_some() => {
                 window
                     .update(cx, |shell, _, cx| match std::env::var("PREVIEW_LIBRARY").as_deref() {
@@ -1393,4 +1440,265 @@ impl icon_picker::Host for PreviewPicker {
     fn hide(&self) {}
 
     fn keep_recents(&self, _: &str) {}
+}
+
+/// The web's one window: the shell, and over it the command bar, which is a window of its own
+/// elsewhere. The page that hosts it keeps ⌘T, ⌘W, ⌘N and ⌘Q (⌃ off the Mac), so they do nothing
+/// here, and ⌘K (⌃K) opens the bar, as the web's command palettes do.
+#[cfg(target_family = "wasm")]
+mod web {
+    use std::{cell::Cell, rc::Rc};
+
+    use browser::command_bar::{self, CommandBar, Suggestion};
+    use browser::shell::{self, Command, Page, Shell};
+    use gpui::{
+        AnyWindowHandle, App, AppContext, AsyncApp, Context, Entity, Focusable, KeyBinding,
+        MouseButton, NoAction, OperatingSystem, Render, SharedString, WeakEntity, Window, actions, div,
+        prelude::*, px,
+    };
+
+    use super::{READING, TABS, set_today};
+
+    actions!(web, [OpenCommandBar]);
+
+    pub fn bind_keys(cx: &mut App) {
+        let (open, reserved) = match cx.platform_info().os {
+            OperatingSystem::Mac => ("cmd-k", ["cmd-t", "cmd-w", "cmd-n", "cmd-q"]),
+            _ => ("ctrl-k", ["ctrl-t", "ctrl-w", "ctrl-n", "ctrl-q"]),
+        };
+        let mut bindings = vec![KeyBinding::new(open, OpenCommandBar, Some(shell::KEY_CONTEXT))];
+        for key in reserved {
+            for context in [shell::KEY_CONTEXT, "CommandBar"] {
+                bindings.push(KeyBinding::new(key, NoAction, Some(context)));
+            }
+        }
+        cx.bind_keys(bindings);
+    }
+
+    /// Where the bar shows, as `command_bar::Host::show` asks.
+    #[derive(Clone, Copy)]
+    struct Place {
+        centered: bool,
+        left: f32,
+        top: f32,
+        width: f32,
+        radius: f32,
+    }
+
+    pub struct Root {
+        shell: Entity<Shell>,
+        bar: Entity<CommandBar>,
+        place: Option<Place>,
+        height: f32,
+    }
+
+    impl Root {
+        pub fn new(shell: Entity<Shell>, window: &mut Window, cx: &mut App) -> Entity<Root> {
+            let handle = window.window_handle();
+            cx.new(|cx| {
+                let host = Rc::new(Bar {
+                    root: cx.weak_entity(),
+                    window: handle,
+                    app: cx.to_async(),
+                    shell: shell.downgrade(),
+                    next_tab: Cell::new(10_000),
+                });
+                let bar = command_bar::open_in(host, window, cx);
+                Root { shell, bar, place: None, height: command_bar::height(0) }
+            })
+        }
+
+        /// The user left the bar without choosing, by a click outside it or Esc.
+        fn close(&mut self, dismissed: bool, window: &mut Window, cx: &mut Context<Self>) {
+            self.place = None;
+            if dismissed {
+                // The bar draws in this window, which is mid-update.
+                cx.defer(command_bar::dismissed);
+                self.shell.update(cx, |shell, cx| shell.command_bar_dismissed(cx));
+            }
+            window.focus(&self.shell.focus_handle(cx), cx);
+            cx.notify();
+        }
+    }
+
+    impl Render for Root {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let root = div()
+                .size_full()
+                .relative()
+                .on_action(cx.listener(|root, _: &OpenCommandBar, _, cx| {
+                    root.shell.update(cx, |shell, cx| shell.run(Command::NewTab, "web", cx));
+                }))
+                .child(self.shell.clone());
+            let Some(place) = self.place else {
+                return root;
+            };
+            let viewport = window.viewport_size();
+            let (left, top) = match place.centered {
+                true => ((viewport.width - px(place.width)) / 2., viewport.height / 2. - px(place.top)),
+                false => (px(place.left), px(place.top)),
+            };
+            root.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .occlude()
+                    .on_mouse_down(MouseButton::Left, cx.listener(|root, _, window, cx| {
+                        root.close(true, window, cx)
+                    })),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left(left)
+                    .top(top)
+                    .w(px(place.width))
+                    .h(px(self.height))
+                    .rounded(px(place.radius))
+                    .shadow_lg()
+                    .occlude()
+                    .child(self.bar.clone()),
+            )
+        }
+    }
+
+    /// The command bar's requests: the made-up pages, and a search for anything typed.
+    struct Bar {
+        root: WeakEntity<Root>,
+        window: AnyWindowHandle,
+        app: AsyncApp,
+        shell: WeakEntity<Shell>,
+        next_tab: Cell<u64>,
+    }
+
+    impl Bar {
+        /// Runs `change` once the bar's update is over, as a host's reply comes after.
+        fn later(&self, change: impl FnOnce(&mut App) + 'static) {
+            let app = self.app.clone();
+            self.app.foreground_executor().spawn(async move { app.update(change) }).detach();
+        }
+
+        fn later_root(&self, change: impl FnOnce(&mut Root, &mut Window, &mut Context<Root>) + 'static) {
+            let (root, window) = (self.root.clone(), self.window);
+            self.later(move |cx| {
+                window
+                    .update(cx, |_, window, cx| root.update(cx, |root, cx| change(root, window, cx)))
+                    .ok();
+            });
+        }
+
+        fn later_shell(&self, change: impl FnOnce(&mut Shell, &mut Context<Shell>) + 'static) {
+            let shell = self.shell.clone();
+            self.later(move |cx| _ = shell.update(cx, change));
+        }
+    }
+
+    /// A page's made-up title: its host.
+    fn title(url: &str) -> SharedString {
+        let host = url.split_once("://").map_or(url, |(_, rest)| rest);
+        host.split('/').next().unwrap_or(host).to_string().into()
+    }
+
+    impl command_bar::Host for Bar {
+        fn suggest(&self, _: Option<&str>, text: &str, _: bool) {
+            let text = text.to_string();
+            let search = self.search_url(None, &text);
+            self.later(move |cx| {
+                let typed = text.to_lowercase();
+                let mut rows: Vec<Suggestion> = search
+                    .filter(|_| !text.is_empty())
+                    .map(|url| Suggestion { url, text: text.clone().into(), ..Default::default() })
+                    .into_iter()
+                    .collect();
+                let pages = TABS.iter().chain(READING.iter());
+                let matching = pages.filter(|(title, url)| {
+                    !typed.is_empty()
+                        && (title.to_lowercase().contains(&typed) || url.contains(&typed))
+                });
+                rows.extend(matching.map(|(title, url)| Suggestion {
+                    url: url.to_string(),
+                    text: (*title).into(),
+                    detail: self::title(url),
+                    ..Default::default()
+                }));
+                command_bar::suggested(text, rows, cx);
+            });
+        }
+        fn remove_suggestion(&self, _: &str) {}
+        fn typed_url(&self, text: &str) -> Option<String> {
+            match text.contains('.') && !text.contains(' ') {
+                true if text.contains("://") => Some(text.to_string()),
+                true => Some(format!("https://{text}")),
+                false => self.search_url(None, text),
+            }
+        }
+        fn search_url(&self, _: Option<&str>, text: &str) -> Option<String> {
+            Some(format!("https://duckduckgo.com/?q={text}"))
+        }
+        fn page_favicon(&self, _: &str) {}
+        // A made-up tab at the top of Today, shown.
+        fn open_tab(&self, url: &str, behind: bool) {
+            let (tab, url) = (self.next_tab.get(), url.to_string());
+            self.next_tab.set(tab + 1);
+            self.later_shell(move |shell, cx| {
+                shell.set_title(tab, title(&url), cx);
+                shell.set_page(tab, Page { url: url.into(), ..Default::default() }, cx);
+                let mut today = shell.today().to_vec();
+                today.insert(0, tab);
+                set_today(shell, today, cx);
+                if !behind {
+                    shell.set_selected(tab, cx);
+                }
+            });
+        }
+        // The demo has the one window.
+        fn open_window(&self, url: &str, _: &mut App) {
+            self.open_tab(url, false);
+        }
+        fn navigate(&self, tab: u64, url: &str) {
+            let url = url.to_string();
+            self.later_shell(move |shell, cx| {
+                shell.set_title(tab, title(&url), cx);
+                shell.set_page(tab, Page { url: url.into(), ..shell.page(tab) }, cx);
+            });
+        }
+        fn select(&self, tab: u64) {
+            self.later_shell(move |shell, cx| shell.set_selected(tab, cx));
+        }
+        fn tab_window(&self, _: u64) -> Option<u64> {
+            None
+        }
+        fn activate(&self, _: u64, _: u64, _: &mut App) {}
+        fn split(&self, _: u64, _: u64, _: &mut App) {}
+        fn open_split(&self, url: &str, _: u64, _: &mut App) {
+            self.open_tab(url, false);
+        }
+        fn copy(&self, _: &str, _: &mut App) {}
+        fn show(&self, centered: bool, left: f32, top: f32, width: f32, radius: f32) {
+            self.later_root(move |root, window, cx| {
+                root.place = Some(Place { centered, left, top, width, radius });
+                if let Some(input) = command_bar::input_focus(cx) {
+                    window.focus(&input, cx);
+                }
+                cx.notify();
+            });
+        }
+        fn set_height(&self, height: f32) {
+            self.later_root(move |root, _, cx| {
+                root.height = height;
+                cx.notify();
+            });
+        }
+        fn hide(&self) {
+            self.later_root(|root, window, cx| root.close(false, window, cx));
+        }
+        fn dismiss(&self) {
+            self.later_root(|root, window, cx| root.close(true, window, cx));
+        }
+        fn commands(&self, text: &str, cx: &App) -> Vec<shell::BarCommand> {
+            shell::bar_commands(text, cx)
+        }
+    }
 }

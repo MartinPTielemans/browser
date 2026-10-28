@@ -5,7 +5,8 @@
 //! each move live. Like the icon picker, it's a window of its own that the host shows over the
 //! browser window, as its child; what it asks of that window goes through `Host`.
 
-use std::{cell::OnceCell, f32::consts::TAU, rc::Rc, sync::Arc, time::Instant};
+use std::{cell::OnceCell, f32::consts::TAU, rc::Rc, sync::Arc};
+use web_time::Instant;
 
 use gpui::{
     App, Bounds, Context, DispatchPhase, FocusHandle, Focusable, FontWeight, Global, Hsla,

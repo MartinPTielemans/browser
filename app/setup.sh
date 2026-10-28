@@ -13,7 +13,8 @@ if [ ! -d .deps/zed ]; then
     https://github.com/zed-industries/zed .deps/zed
   git -C .deps/zed checkout -q "$ZED_REV"
 fi
-git -C .deps/zed checkout -q -- crates/gpui crates/gpui_macos crates/gpui_windows
+git -C .deps/zed checkout -q -- crates/gpui crates/gpui_macos crates/gpui_windows crates/gpui_web \
+  crates/gpui_wgpu
 # A checkout made for an earlier pin moves to this one.
 if [ "$(git -C .deps/zed rev-parse HEAD)" != "$ZED_REV" ]; then
   git -C .deps/zed fetch -q origin "$ZED_REV"
@@ -21,9 +22,11 @@ if [ "$(git -C .deps/zed rev-parse HEAD)" != "$ZED_REV" ]; then
 fi
 # One patch a crate: gpui_macos's and gpui_windows's embed GPUI in Chromium's window, gpui's scales
 # what's painted, lets the tests stand in for an assistive app and adds the Edit menu's Paste and
-# Match Style.
+# Match Style, and gpui_wgpu's and gpui_web's resize the web preview's canvas under WebGL without
+# waiting on the GPU, which WebGL can't.
 git -C .deps/zed apply "$PWD/patches/gpui-macos-embedded.patch" "$PWD/patches/gpui-windows-embedded.patch" \
-  "$PWD/patches/gpui-scale.patch"
+  "$PWD/patches/gpui-scale.patch" "$PWD/patches/gpui-wgpu-webgl-resize.patch" \
+  "$PWD/patches/gpui-web-webgl-resize.patch"
 
 # GPUI's macOS accessibility adapter, at the version Cargo.lock has, with VoiceOver's menu action
 # and a folder's open state, which upstream lacks. A repository of its own, so a change to it

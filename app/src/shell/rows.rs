@@ -3,8 +3,9 @@
 
 use std::{
     cell::Cell,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use gpui::{
     AnyElement, ClickEvent, Context, Hsla, MouseButton, MouseDownEvent, Role, SharedString,

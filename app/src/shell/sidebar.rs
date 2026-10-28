@@ -2,7 +2,7 @@
 //! hidden, its reveal over the page (docs/ux-spec.md › Sidebar reveal); and its
 //! gradient in the Space's colour.
 
-use std::time::Instant;
+use web_time::Instant;
 
 use gpui::{
     Context, CursorStyle, DispatchPhase, Hsla, MouseButton, MouseDownEvent, MouseMoveEvent,

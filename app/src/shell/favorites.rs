@@ -1,7 +1,8 @@
 //! The favorites' tiles over the list, which scroll with it once they're taller than
 //! 40 % of the window (docs/ux-spec.md › Favorites).
 
-use std::{collections::HashMap, rc::Rc, time::Instant};
+use std::{collections::HashMap, rc::Rc};
+use web_time::Instant;
 
 use gpui::{
     Context, Hsla, MouseButton, MouseDownEvent, Role, canvas, div, hsla, img, prelude::*, px,

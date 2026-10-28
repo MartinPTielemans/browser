@@ -9,8 +9,9 @@
 use std::{
     rc::Rc,
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
+use web_time::Instant;
 
 use gpui::{
     App, Bounds, BoxShadow, Context, Div, FocusHandle, FontWeight, Global, Hsla, Image,

@@ -3,7 +3,7 @@
 //! Nothing native covers it, since the core lays out no page view with no tab shown
 //! (`Window::ShowNothing`), so GPUI draws ilo's mark and one quiet line on it and takes its clicks.
 
-use std::time::Instant;
+use web_time::Instant;
 
 use gpui::{Context, MouseButton, Pixels, Point, Stateful, Window, div, prelude::*, px, rgba};
 

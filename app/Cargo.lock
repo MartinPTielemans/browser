@@ -668,8 +668,12 @@ dependencies = [
  "gpui_platform",
  "gpui_windows",
  "image",
+ "js-sys",
  "raw-window-handle",
  "unicode-segmentation",
+ "wasm-bindgen",
+ "web-sys",
+ "web-time",
 ]
 
 [[package]]

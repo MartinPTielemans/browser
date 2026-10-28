@@ -3,7 +3,8 @@
 //! beside it the section's list, newest first under day headings, with a search field over it, or
 //! for Spaces a card for each (docs/ux-spec.md › Archive and Downloads).
 
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
+use web_time::Instant;
 
 use gpui::{
     AnyElement, BoxShadow, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight,
