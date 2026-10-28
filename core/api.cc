@@ -170,6 +170,23 @@ void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
 #endif
 }
 
+void bc_window_ui_takes_keyboard(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  if (browser_core::Window* window = browser_core::Window::FromId(id)) {
+    browser_core::platform::UITakesKeyboard(window->widget());
+  }
+#endif
+}
+
+bool bc_window_keyboard_is_ui(bc_id id) {
+#if BUILDFLAG(IS_LINUX)
+  browser_core::Window* window = browser_core::Window::FromId(id);
+  return window && browser_core::platform::KeyboardIsUI(window->widget());
+#else
+  return false;
+#endif
+}
+
 bool bc_window_restore(bc_id id) {
   browser_core::Window* window = browser_core::Window::FromId(id);
   return window && browser_core::RestoreSession(*window);
