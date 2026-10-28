@@ -157,6 +157,9 @@ struct Settings {
   // When the newest crash report the user was offered was written, in seconds since 1970, so no
   // report is offered twice, nor one older.
   double crash_report_offered = 0;
+  // Whether the user said yes to Google's Widevine module, which the component updater then keeps
+  // up to date (widevine.h), until they remove it.
+  bool widevine = false;
 };
 
 // The user's settings. Call SessionChanged after changing them.

@@ -17,6 +17,7 @@ use browser::log;
 use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
+use browser::widevine::{self, Widevine, WidevineRow};
 use gpui::{
     AnyElement, App, Bounds, Context, Entity, FocusHandle, Focusable, FontWeight, Global,
     KeyDownEvent, Keystroke, MouseButton, MouseDownEvent, Rgba, SharedString, Subscription,
@@ -305,6 +306,7 @@ pub struct Settings {
     /// can't go over it on Linux.
     #[cfg(target_os = "linux")]
     dialog: Entity<dialog::Dialog>,
+    widevine: Entity<WidevineRow>,
 }
 
 /// Settings' dialog, which it draws in its own content, so there's nothing to show.
@@ -333,6 +335,23 @@ impl default_browser::System for System {
 
 extern "C" fn default_browser_answered() {
     crate::update_app(check_default_browser);
+}
+
+/// Google's Widevine module, for Advanced's row.
+struct Module;
+
+impl widevine::Module for Module {
+    fn state(&self) -> Widevine {
+        Widevine::from_core(unsafe { bc::bc_widevine() })
+    }
+
+    fn download(&self) {
+        unsafe { bc::bc_widevine_download() };
+    }
+
+    fn remove(&self) {
+        unsafe { bc::bc_widevine_remove() };
+    }
 }
 
 struct Renaming {
@@ -456,6 +475,17 @@ pub fn show(cx: &mut App) {
     unsafe { platform::host_show_settings() };
 }
 
+/// Reads again where Google's Widevine module is, as the core says it changed, once Settings has
+/// been opened.
+pub fn check_widevine(cx: &mut App) {
+    let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) else {
+        return;
+    };
+    if let Ok(row) = window.read_with(cx, |settings, _| settings.widevine.clone()) {
+        row.update(cx, |row, cx| row.check(cx));
+    }
+}
+
 /// Reads again whether the browser is the system's default, as Settings shows, the app becomes
 /// active, or the user has answered macOS, once Settings has been opened.
 pub fn check_default_browser(cx: &mut App) {
@@ -531,10 +561,13 @@ fn open(cx: &mut App) {
                 .detach();
                 dialog
             };
+            let widevine = cx.new(|_| WidevineRow::new(Rc::new(Module)));
+            cx.observe(&widevine, |_, _, cx| cx.notify()).detach();
             Settings {
                 #[cfg(target_os = "linux")]
                 dialog,
                 default_browser,
+                widevine,
                 tab: Tab::General,
                 focus: cx.focus_handle(),
                 switched: None,
@@ -1287,6 +1320,9 @@ impl Settings {
         let previews = self.toggle("link previews", previews, set_link_previews, accent, cx);
         let more = button(&RowLook::settings(), "more-settings", "More Settings…")
             .on_click(|_, _, cx| more_settings(cx));
+        let widevine = self.widevine.read(cx).shown().then(|| {
+            group(&RowLook::settings(), [self.widevine_row(cx)]).mt(px(BOX_GAP))
+        });
         div()
             .child(group(&RowLook::settings(), [
                 row(
@@ -1300,8 +1336,23 @@ impl Settings {
                     previews,
                 ),
             ]))
+            .children(widevine)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(more))
             .into_any_element()
+    }
+
+    /// Google's Widevine module, where the core offers it: where it is, and the way to get it or
+    /// remove it. The user's, as the note's yes is.
+    fn widevine_row(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let row = self.widevine.read(cx);
+        let action = row.action().map(|(action, title)| {
+            let act = cx.listener(move |settings: &mut Self, _, _, cx| {
+                log!("browser: settings widevine {action:?}");
+                settings.widevine.read(cx).act(action);
+            });
+            button(&RowLook::settings(), "widevine", title).on_click(act)
+        });
+        detailed_row(row.title(), row.detail(), action.map(IntoElement::into_any_element))
     }
 
     /// Gives the renaming field the keyboard once its profile is listed, which a new one is once

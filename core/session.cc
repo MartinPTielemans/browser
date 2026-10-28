@@ -428,7 +428,8 @@ std::optional<std::string> ToJson(const Saved& saved) {
                            .Set("ad_blocking", saved.settings.ad_blocking)
                            .Set("send_crash_reports", saved.settings.send_crash_reports)
                            .Set("link_previews", saved.settings.link_previews)
-                           .Set("crash_report_offered", saved.settings.crash_report_offered));
+                           .Set("crash_report_offered", saved.settings.crash_report_offered)
+                           .Set("widevine", saved.settings.widevine));
   return base::WriteJson(root);
 }
 
@@ -641,6 +642,7 @@ std::optional<Saved> Read(const base::FilePath& path) {
     saved.settings.link_previews = settings->FindBool("link_previews").value_or(true);
     saved.settings.crash_report_offered =
         settings->FindDouble("crash_report_offered").value_or(0);
+    saved.settings.widevine = settings->FindBool("widevine").value_or(false);
   }
   return saved;
 }

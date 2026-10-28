@@ -112,5 +112,6 @@ pub mod theme_picker;
 pub mod toast;
 pub mod tokens;
 pub mod tooltip;
+pub mod widevine;
 pub mod window_frames;
 pub mod zoom_hud;
