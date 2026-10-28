@@ -99,6 +99,7 @@ pub mod link_target;
 pub mod menu;
 pub mod offer;
 pub mod palette;
+pub mod passwords;
 pub mod settling;
 pub mod shell;
 pub mod site_controls;

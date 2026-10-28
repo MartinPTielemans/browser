@@ -290,8 +290,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Save / update prompt | MVP | page top right; Save / Update Password, username picker, Never, No Thanks in Chrome's words; look: measure | Dia P§16, Chrome |
 | [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
-| [x] | Pending offer on tab switch | MVP | closes | Dia P§16 |
-| [ ] | Fill dropdown | MVP | Chrome's, under the field. Not started; unverified, it may already show | Chrome |
+| [x] | Pending offer on tab switch | MVP | closes; the URL field's key brings it back (ours) | Dia P§16 |
+| [ ] | Fill dropdown | MVP | Chrome's, under the field. The passwords run checks it fills a saved login in; unverified until that runs | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
 | [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
