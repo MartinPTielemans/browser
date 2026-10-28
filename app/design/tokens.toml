@@ -53,6 +53,10 @@ row-hovered = 0xffff_ff14
 row-inset = 4.0
 # The menu keeps this far inside the page, where what's chosen reaches its edge (ours).
 margin = 8.0
+# The menu's shadow (black at this much) and its words.
+menu-shadow = 0.3
+menu-text = 0xffff_ffff
+pill-fill = 0xffff_ffff
 
 [command-bar]
 # The panel's measures, in points, from Arc's capture (docs/ux-spec.md › Command bar).
@@ -117,6 +121,10 @@ arrow-tile = 0xffff_ff0a
 # The accent's lightness is held to this so white reads on it (Arc's is 0.53).
 accent-lightness = 0.55
 accent = 0x4248cf
+# Its words and glyphs, which a row dims from.
+text = 0xffffff
+# A command's keys, as chips.
+chip-radius = 6.0
 
 [dialog]
 # Arc's, measured at 2× (docs/ux-spec.md › Spaces › Renaming and deleting). The card is centred
@@ -185,6 +193,11 @@ return-width = 30.0
 return-fill = 0xffff_ff1a
 return-border = 0xffff_ff45
 return-glyph = 16.0
+# The title, and an action's label and glyph.
+text = 0xffffff
+# Its shadow's black and the black line around it, as alphas.
+shadow = 0.56
+outline = 0.9
 
 [dock-dot]
 # The icon's own green, which a Space in it leaves alone.
@@ -255,6 +268,9 @@ chosen = 0xffff_ff40
 # Arc's hover wasn't captured: half the chosen plate.
 hovered = 0xffff_ff1f
 hint = 0xffff_ff87
+# The search field's caret, and the chosen segment's label on the accent.
+caret = 0xffffff
+chosen-text = 0xffffff
 
 [icon-picker.emoji]
 # The search field, 44 under the card's top, a segment control's height and the grid's width.
@@ -396,6 +412,10 @@ profile-tile = 0x8e8e93
 detail = 0x9e9f9f
 chip = 0xffff_ff14
 chip-hovered = 0xffff_ff24
+# A shortcut's keys as a chip, and the button beside it that restores its default.
+chip-radius = 4.0
+restore-radius = 4.0
+tile-glyph-color = 0xffffff
 
 [shell]
 # The docked sidebar's width at first, where the card starts.
@@ -609,6 +629,10 @@ reveal-border = 0xffffff8a
 window-button-y = 24.0
 window-button-size = 14.0
 window-button-glyph = 0x00000080
+# The window buttons: close, minimize and zoom.
+window-button-close = 0xe0604f
+window-button-minimize = 0xf3bf12
+window-button-zoom = 0x58bb18
 
 [shell.assets]
 bar-length = 11.4
@@ -645,6 +669,9 @@ action-dimmed = 0.4
 badge-color = 0x5f6368
 badge-height = 11.0
 badge-text = 8.5
+# A badge's corners and its words.
+badge-radius = 3.0
+badge-text-color = 0xffffff
 
 [shell.header]
 # Arc's field buttons: Site Control Center 1 pt past the field's end and Copy URL 28 before it,
@@ -776,6 +803,8 @@ dot = 13.0
 glow = 0.18
 glow-width = 80.0
 glow-strip = 4.0
+# The circle's shadow, black at this much.
+shadow = 0.3
 
 [shell.permission]
 # Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the URL field's
@@ -793,6 +822,8 @@ buttons-top = 12.0
 close = 22.0
 close-inset = 7.0
 close-glyph = 12.0
+# Its shadow's black, as an alpha.
+shadow = 0.35
 
 [shell.picture]
 # Ours: the picture is fitted to this much of the card, which reads as a page that isn't live.
@@ -846,9 +877,14 @@ target-dashes = 0.25
 target-text = 0.6
 picture-radius = 10.0
 picture-rim = 0.25
+picture-lights = [0xff5f57, 0xfebc2e, 0x28c840]
 picture-light = 6.0
 picture-top = 18.0
 picture-inset = 4.0
+# The corners of the half-filled glyph a target shows.
+half-glyph-radius = 3.5
+# The dragged picture's shadow, black at this much.
+picture-shadow = 0.35
 
 [shell.swap]
 check-box = 24.0
@@ -971,6 +1007,11 @@ descent = 0.211
 cap = 0.705
 line = 20.0
 
+[text-input]
+# A field's placeholder (black at this much) and selection, until its surface sets its own.
+placeholder = 0.2
+selection = 0x3311ff30
+
 [theme]
 # Where the intensity slider starts (Arc: its knob at 0.81 of its travel).
 default-intensity = 0.81
@@ -1000,6 +1041,7 @@ field-fill = 0xffff_ff08
 field-rim = 0xffff_ff33
 dot-pitch = 4.3
 appearance-y = 49.0
+appearance-x = [137.9, 178.3, 218.7]
 appearance-plate = 31.5
 appearance-radius = 6.0
 appearance-chosen = 0xffff_ff14
@@ -1016,6 +1058,7 @@ count-pressed = 0xffff_ffa6
 count-disabled = 0xffff_ff1f
 count-target = 24.0
 swatch-y = 380.0
+swatches = [0xf0eae5, 0xe59eba, 0x9e749b, 0xe1676f, 0xef8c63, 0xf2d46c, 0x73e49b, 0x7eb6d5, 0x656786]
 swatch-x = 60.5
 swatch-pitch = 29.5
 swatch = 24.0
@@ -1055,6 +1098,10 @@ main-ring = 3.0
 handle = 26.0
 # Ours: the small handles' ring isn't measured; the main one's, scaled.
 handle-ring = 2.0
+# The hint over an empty field, the ring round the chosen swatch, and the knobs.
+hint-color = 0xffffff
+swatch-ring-color = 0xffffff
+knob-color = 0xffffff
 
 [toast]
 height = 46.5
@@ -1087,6 +1134,10 @@ window-width = 420.0
 window-height = 84.0
 note-height = 41.0
 note-top = 4.0
+# Its words and a button's glyph.
+text = 0xffffff
+# Its shadow's black, as an alpha.
+shadow = 0.25
 
 [tooltip]
 # How far below the tile or row it names the tooltip's top is, or above it if it doesn't fit
@@ -1139,3 +1190,8 @@ margin = 16.0
 # Wide enough for "500%".
 window-width = 130.0
 window-height = 80.0
+# Its fill once the window it was over has gone.
+fill = 0x333333
+# Its shadow's black, as an alpha.
+shadow = 0.25
+text = 0xffffff

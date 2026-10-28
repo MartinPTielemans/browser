@@ -54,6 +54,8 @@ const LEAVE: f32 = 0.07;
 const NOTE: &str = "To exit full screen, press ⎋.";
 use crate::tokens::toast::NOTE_HEIGHT;
 use crate::tokens::toast::NOTE_TOP;
+use crate::tokens::toast::TEXT;
+use crate::tokens::toast::SHADOW;
 const NOTE_RIGHT: f32 = CARD_INSET;
 const NOTE_TIME: Duration = Duration::from_millis(4800);
 
@@ -483,7 +485,7 @@ impl Render for Toast {
                 match &button.label {
                     Label::Text(text) => chip.child(text.clone()),
                     Label::Glyph(path) => chip.child(
-                        svg().path(*path).size(px(CHIP_GLYPH)).text_color(rgb(0xffffff)),
+                        svg().path(*path).size(px(CHIP_GLYPH)).text_color(rgb(TEXT)),
                     ),
                     // The key is fainter than the word it goes with.
                     Label::Keyed(text, key) => chip.gap(px(KEY_GAP)).child(text.clone()).child(
@@ -515,11 +517,11 @@ impl Render for Toast {
             .border(px(0.5))
             .border_color(rgba(EDGE))
             .bg(linear_gradient(180., linear_color_stop(fill, 0.), linear_color_stop(bottom, 1.)))
-            .shadow(vec![shadow(hsla(0., 0., 0., 0.25), 4., 12.)])
+            .shadow(vec![shadow(hsla(0., 0., 0., SHADOW), 4., 12.)])
             .opacity(pose.opacity)
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::MEDIUM)
-            .text_color(rgb(0xffffff))
+            .text_color(rgb(TEXT))
             .child(shown.text.clone())
             .children(shown.key.clone().map(|(key, rest)| {
                 div()

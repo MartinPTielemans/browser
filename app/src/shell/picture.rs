@@ -317,7 +317,7 @@ impl Shell {
                         .size_full()
                         .rounded(radius)
                         .bg(hsla(0., 0., 0., veil))
-                        .group_hover("page-picture", |veil| veil.bg(hsla(0., 0., 0., 0.))),
+                        .group_hover("page-picture", |veil| veil.bg(gpui::transparent_black())),
                 )
                 .child(
                     div()

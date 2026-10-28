@@ -43,10 +43,12 @@ const TARGET_TRIGGER: f32 = 26.;
 const PICTURE: (f32, f32) = (209., 109.5);
 use crate::tokens::shell::split_targets::PICTURE_RADIUS;
 use crate::tokens::shell::split_targets::PICTURE_RIM;
-const PICTURE_LIGHTS: [u32; 3] = [0xff5f57, 0xfebc2e, 0x28c840];
+use crate::tokens::shell::split_targets::PICTURE_LIGHTS;
 use crate::tokens::shell::split_targets::PICTURE_LIGHT;
 use crate::tokens::shell::split_targets::PICTURE_TOP;
 use crate::tokens::shell::split_targets::PICTURE_INSET;
+use crate::tokens::shell::split_targets::HALF_GLYPH_RADIUS;
+use crate::tokens::shell::split_targets::PICTURE_SHADOW;
 
 /// A dragged tab over the page, where it can join the page shown in a split view.
 pub(super) struct OverPage {
@@ -364,7 +366,7 @@ fn half_glyph(left: bool, color: Hsla) -> impl IntoElement {
         .relative()
         .w(px(19.))
         .h(px(15.))
-        .rounded(px(3.5))
+        .rounded(px(HALF_GLYPH_RADIUS))
         .border(px(1.5))
         .border_color(color)
         .overflow_hidden()
@@ -416,7 +418,7 @@ fn picture(
         .border(px(0.5))
         .border_color(hsla(0., 0., 1., PICTURE_RIM))
         .shadow(vec![BoxShadow {
-            color: hsla(0., 0., 0., 0.35),
+            color: hsla(0., 0., 0., PICTURE_SHADOW),
             offset: point(px(0.), px(8.)),
             blur_radius: px(24.),
             spread_radius: px(0.),

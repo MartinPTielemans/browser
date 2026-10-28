@@ -86,6 +86,9 @@ use browser::tokens::settings::PROFILE_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
 use browser::tokens::settings::CHIP_HOVERED;
+use browser::tokens::settings::CHIP_RADIUS;
+use browser::tokens::settings::RESTORE_RADIUS;
+use browser::tokens::settings::TILE_GLYPH_COLOR;
 
 /// What Arc offers for how long a Today tab waits unseen before it's archived, in seconds.
 const ARCHIVE_AFTER: [(&str, f64); 4] = [
@@ -912,7 +915,7 @@ impl Settings {
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(4.))
+                .rounded(px(RESTORE_RADIUS))
                 .hover(|restore| restore.bg(rgba(CHIP)))
                 .child("↺")
                 .on_click(cx.listener(move |settings, _, _, cx| settings.restore(command, cx)))
@@ -1086,7 +1089,7 @@ fn tile(glyph: &'static str, color: u32) -> gpui::Div {
         .justify_center()
         .rounded(px(TILE_RADIUS))
         .bg(rgb(color))
-        .child(svg().path(glyph).size(px(TILE_GLYPH)).text_color(rgb(0xffffff)))
+        .child(svg().path(glyph).size(px(TILE_GLYPH)).text_color(rgb(TILE_GLYPH_COLOR)))
 }
 
 /// A push button, darker while pressed.
@@ -1135,7 +1138,7 @@ fn chip(keys: SharedString, color: Rgba) -> gpui::Div {
         .flex()
         .items_center()
         .justify_center()
-        .rounded(px(4.))
+        .rounded(px(CHIP_RADIUS))
         .bg(rgba(CHIP))
         .text_size(px(12.))
         .text_color(color)

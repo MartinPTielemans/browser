@@ -79,6 +79,8 @@ use crate::tokens::command_bar::ARROW_TILE;
 use crate::tokens::command_bar::ACCENT_LIGHTNESS;
 /// The accent until the shell gives the Space's.
 use crate::tokens::command_bar::ACCENT;
+use crate::tokens::command_bar::TEXT;
+use crate::tokens::command_bar::CHIP_RADIUS;
 pub(crate) const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
 
 /// One of the core's suggestions for what's typed.
@@ -1293,7 +1295,7 @@ impl CommandBar {
     /// The input's icon: the search glyph, or once something is typed, the selected row's, as
     /// Arc's becomes its favicon. On a page's URL it's the page's favicon until it's edited.
     fn input_icon(&self) -> AnyElement {
-        let color = rgb(0xffffff).into();
+        let color = rgb(TEXT).into();
         let size = if self.over_field { ICON_SIZE } else { INPUT_ICON };
         if !self.page.is_empty() && self.asked == self.page {
             return self.favicon(&self.page, size, color);
@@ -1360,7 +1362,7 @@ impl CommandBar {
         // The selected row keeps its accent under the pointer.
         let hovered = !selected && self.hovered == Some(index);
         let accent = accent(cx);
-        let white = Hsla::from(rgb(0xffffff));
+        let white = Hsla::from(rgb(TEXT));
         let (title, dim) = match selected {
             true => (white, white.opacity(0.5)),
             false => (Hsla::from(rgba(TITLE)), Hsla::from(rgba(DIM))),
@@ -1569,7 +1571,7 @@ impl Render for CommandBar {
                 .overflow_hidden()
                 .rounded(px(radius))
                 .bg(rgba(FILL))
-                .text_color(rgb(0xffffff))
+                .text_color(rgb(TEXT))
                 // Arc's text is medium, by its strokes at 2× (Arc 1.170.0 cap).
                 .font_weight(FontWeight::MEDIUM)
                 .text_size(px(14.))
@@ -1591,7 +1593,7 @@ impl Render for CommandBar {
                                     .flex_none()
                                     .px(px(6.))
                                     .py(px(2.))
-                                    .rounded(px(6.))
+                                    .rounded(px(CHIP_RADIUS))
                                     .bg(rgba(CHIP))
                                     .text_size(px(14.))
                                     .child(site.name.clone()),

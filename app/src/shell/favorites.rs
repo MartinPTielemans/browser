@@ -479,7 +479,7 @@ impl Shell {
 /// icon, a one-colour icon's is a border, and without a theme it's Dia's default.
 fn shown_look(theme: Option<&TileTheme>) -> (Hsla, f32, Hsla) {
     match theme {
-        Some(TileTheme::Blur { .. }) => (rgba(SELECTED).into(), 0., hsla(0., 0., 0., 0.)),
+        Some(TileTheme::Blur { .. }) => (rgba(SELECTED).into(), 0., gpui::transparent_black()),
         Some(&TileTheme::Flat { fill, ring, .. }) => {
             (rgba(fill).into(), RING_WIDTH, rgba(ring).into())
         }

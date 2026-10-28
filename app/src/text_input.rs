@@ -18,6 +18,8 @@ use gpui::{
     point, prelude::*, px, relative, rgba, size,
 };
 use unicode_segmentation::*;
+use crate::tokens::text_input::PLACEHOLDER;
+use crate::tokens::text_input::SELECTION;
 
 actions!(
     text_input,
@@ -103,9 +105,9 @@ impl TextInput {
             focus_handle: cx.focus_handle(),
             content: "".into(),
             placeholder: placeholder.into(),
-            placeholder_color: hsla(0., 0., 0., 0.2),
+            placeholder_color: hsla(0., 0., 0., PLACEHOLDER),
             caret_color: gpui::blue(),
-            selection_color: rgba(0x3311ff30).into(),
+            selection_color: rgba(SELECTION).into(),
             selected_range: 0..0,
             selection_reversed: false,
             marked_range: None,

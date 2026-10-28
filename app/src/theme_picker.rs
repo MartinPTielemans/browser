@@ -46,7 +46,7 @@ const DOT_ALPHA: u8 = 0x40;
 const HINT: &str = "Tap to pick a color for this space";
 /// The appearance buttons, across the field's top: automatic, light and dark.
 use crate::tokens::theme_picker::APPEARANCE_Y;
-const APPEARANCE_X: [f32; 3] = [137.9, 178.3, 218.7];
+use crate::tokens::theme_picker::APPEARANCE_X;
 use crate::tokens::theme_picker::APPEARANCE_PLATE;
 use crate::tokens::theme_picker::APPEARANCE_RADIUS;
 use crate::tokens::theme_picker::APPEARANCE_CHOSEN;
@@ -67,9 +67,7 @@ use crate::tokens::theme_picker::SWATCH_PITCH;
 use crate::tokens::theme_picker::SWATCH;
 use crate::tokens::theme_picker::SWATCH_RING;
 use crate::tokens::theme_picker::SWATCH_RING_SHADE;
-pub const SWATCHES: [u32; 9] = [
-    0xf0eae5, 0xe59eba, 0x9e749b, 0xe1676f, 0xef8c63, 0xf2d46c, 0x73e49b, 0x7eb6d5, 0x656786,
-];
+pub use crate::tokens::theme_picker::SWATCHES;
 use crate::tokens::theme_picker::SLIDER_Y;
 use crate::tokens::theme_picker::TRACK_LEFT;
 use crate::tokens::theme_picker::TRACK_RIGHT;
@@ -102,6 +100,9 @@ use crate::tokens::theme_picker::MAIN_HANDLE;
 use crate::tokens::theme_picker::MAIN_RING;
 use crate::tokens::theme_picker::HANDLE;
 use crate::tokens::theme_picker::HANDLE_RING;
+use crate::tokens::theme_picker::HINT_COLOR;
+use crate::tokens::theme_picker::SWATCH_RING_COLOR;
+use crate::tokens::theme_picker::KNOB_COLOR;
 /// Pressed, a handle grows by this in 60 ms, and shrinks back as long on release.
 const PRESSED: f32 = 48. / 44.;
 const PRESS: f32 = 0.06;
@@ -734,7 +735,7 @@ impl Render for ThemePicker {
                         .justify_center()
                         .text_size(px(13.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(rgb(0xffffff))
+                        .text_color(rgb(HINT_COLOR))
                         .child(HINT),
                 );
             }
@@ -758,7 +759,7 @@ impl Render for ThemePicker {
                             .rounded_full()
                             .bg(rgb(color))
                             .border(px(ring))
-                            .border_color(rgb(0xffffff)),
+                            .border_color(rgb(SWATCH_RING_COLOR)),
                     );
                 }
             }
@@ -896,14 +897,14 @@ impl Render for ThemePicker {
                     let middle = at(DIAL.0 + DIAL_RING * sin, DIAL.1 - DIAL_RING * cos);
                     let knob = capsule(middle, DIAL_KNOB.0, DIAL_KNOB.1, grain * TAU);
                     if let Ok(path) = knob.build() {
-                        window.paint_path(path, rgb(0xffffff));
+                        window.paint_path(path, rgb(KNOB_COLOR));
                     }
                     let knob = Bounds::new(
                         at(knob_x(intensity) - KNOB_WIDTH / 2., SLIDER_Y - KNOB_HEIGHT / 2.),
                         size(px(KNOB_WIDTH), px(KNOB_HEIGHT)),
                     );
                     window.paint_quad(
-                        fill(knob, rgb(0xffffff)).corner_radii(px(KNOB_WIDTH / 2.)),
+                        fill(knob, rgb(KNOB_COLOR)).corner_radii(px(KNOB_WIDTH / 2.)),
                     );
                 }
             },

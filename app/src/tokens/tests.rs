@@ -4,7 +4,17 @@
 use std::{fs, path::Path};
 
 /// The literals that stay in the code: the file, a piece of the line, and why.
-const ALLOWED: &[(&str, &str, &str)] = &[];
+const ALLOWED: &[(&str, &str, &str)] = &[
+    ("theme.rs", "0x9e37_79b9", "the grain's random seed, not a colour"),
+    ("shell/new_space.rs", "hsla(0., 0., 1., 0.)", "the glow's white fading out, not a colour"),
+    ("preview.rs", "Some(0xbf556a)", "the preview's made-up Space colour"),
+    ("preview.rs", "0x007aff", "the preview's stand-in for the system's accent"),
+    ("preview.rs", "set_accent(0x4248cf", "the preview's stand-in for the system's accent"),
+    ("preview.rs", "0x3d81f9", "the preview's made-up Space colour"),
+    ("shell/dock_dot.rs", "0x8655BF", "a test's made-up Space colour"),
+    ("shell/dock_dot.rs", "0xE0475B", "a test's made-up Space colour"),
+    ("shell/undo_tests.rs", "Some(0xff0000)", "a test's made-up Space colour"),
+];
 
 #[test]
 fn look_values_come_from_the_token_file() {
@@ -15,7 +25,8 @@ fn look_values_come_from_the_token_file() {
         let lines: Vec<&str> = text.lines().collect();
         for (n, line) in lines.iter().enumerate() {
             // A file's tests come last, and their made-up colours aren't the look.
-            if line.starts_with("#[cfg(test)]") && lines.get(n + 1).is_some_and(|l| l.starts_with("mod tests {")) {
+            let next = lines.get(n + 1);
+            if line.starts_with("#[cfg(test)]") && next.is_some_and(|l| l.starts_with("mod tests {")) {
                 break;
             }
             let code = match line.trim_start().starts_with("//") {
@@ -29,7 +40,8 @@ fn look_values_come_from_the_token_file() {
             }
         }
     }
-    assert!(found.is_empty(), "these belong in design/tokens.toml (or in ALLOWED, with why):\n{}", found.join("\n"));
+    let found = found.join("\n");
+    assert!(found.is_empty(), "these belong in design/tokens.toml (or in ALLOWED, with why):\n{found}");
     let stale: Vec<_> = ALLOWED.iter().zip(&used).filter(|(_, used)| !**used).map(|(a, _)| a).collect();
     assert!(stale.is_empty(), "ALLOWED lists literals that are gone: {stale:?}");
 }
@@ -79,24 +91,26 @@ fn sources(dir: &Path) -> Vec<(String, String)> {
 /// The first colour or radius written as a number in `code`: a hex colour (six or eight digits),
 /// `rgb` or `rgba` of a number, `hsla` of four numbers, or a corner radius of a number.
 fn look_literal(code: &str) -> Option<&str> {
-    let starts = |at: usize| at == 0 || !code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_');
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let starts = |at: usize| !code[..at].ends_with(word);
     for (at, _) in code.match_indices("0x").filter(|(at, _)| starts(*at)) {
-        let digits = code[at + 2..].find(|c: char| !c.is_ascii_hexdigit() && c != '_').map_or(code.len(), |e| at + 2 + e);
-        let count = code[at + 2..digits].chars().filter(char::is_ascii_hexdigit).count();
+        let end = at + 2 + code[at + 2..].find(|c: char| !word(c)).unwrap_or(code.len() - at - 2);
+        let count = code[at + 2..end].chars().filter(char::is_ascii_hexdigit).count();
         if count == 6 || count == 8 {
-            return Some(&code[at..digits]);
+            return Some(&code[at..end]);
         }
     }
     let number = |arg: &str| {
         let arg = arg.trim().trim_start_matches('-');
-        arg.starts_with(|c: char| c.is_ascii_digit()) && arg.chars().all(|c| c.is_ascii_hexdigit() || "._x".contains(c))
+        arg.starts_with(|c: char| c.is_ascii_digit())
+            && arg.chars().all(|c| c.is_ascii_hexdigit() || "._x".contains(c))
     };
     for call in ["rgb", "rgba", "hsla", "rounded", "corner_radii", "Corners::all"] {
         for (at, _) in code.match_indices(call).filter(|(at, _)| starts(*at)) {
             // `rounded` names a family: `rounded_tl` and the rest.
             let name = at + call.len();
             let open = match call {
-                "rounded" => name + code[name..].find(|c: char| !c.is_ascii_lowercase() && c != '_').unwrap_or(0),
+                "rounded" => name + code[name..].find(|c: char| !word(c)).unwrap_or(0),
                 _ => name,
             };
             if !code[open..].starts_with('(') {
