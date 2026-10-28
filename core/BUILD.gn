@@ -211,6 +211,7 @@ source_set("browser_core") {
     "//components/page_info",
     "//components/password_manager/core/browser",
     "//components/password_manager/core/browser:password_form",
+    "//components/password_manager/core/browser/import:importer",
     "//components/password_manager/core/browser/ui",
     "//components/password_manager/core/browser/ui:credential_ui_entry",
     "//components/password_manager/core/common",
