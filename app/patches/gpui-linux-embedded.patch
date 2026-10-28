@@ -1575,7 +1575,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..f25d747ffd 100644
+index e21f019c64..f2675d04da 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1595,7 +1595,23 @@ index e21f019c64..f25d747ffd 100644
  };
  use gpui_wgpu::{CompositorGpuHint, GpuContext};
  
-@@ -1069,6 +1070,17 @@ impl X11Client {
+@@ -204,6 +205,7 @@ pub struct X11ClientState {
+     pub(crate) xcb_connection: Rc<XCBConnection>,
+     xkb_device_id: i32,
+     client_side_decorations_supported: bool,
++    compositor_present: bool,
+     pub(crate) x_root_index: usize,
+     pub(crate) resource_database: Database,
+     pub(crate) atoms: XcbAtoms,
+@@ -525,6 +527,7 @@ impl X11Connection {
+                 xcb_connection,
+                 xkb_device_id,
+                 client_side_decorations_supported,
++                compositor_present,
+                 x_root_index,
+                 resource_database,
+                 atoms,
+@@ -1069,6 +1072,17 @@ impl X11Client {
                  self.enable_ime();
              }
              Event::FocusOut(event) => {
@@ -1613,7 +1629,7 @@ index e21f019c64..f25d747ffd 100644
                  let window = self.get_window(event.event)?;
                  window.set_active(false);
                  let mut state = self.0.borrow_mut();
-@@ -1230,6 +1242,7 @@ impl X11Client {
+@@ -1230,6 +1244,7 @@ impl X11Client {
              }
              Event::XinputButtonPress(event) => {
                  let window = self.get_window(event.event)?;
@@ -1621,7 +1637,7 @@ index e21f019c64..f25d747ffd 100644
                  let mut state = self.0.borrow_mut();
  
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -2052,6 +2065,9 @@ impl X11ClientState {
+@@ -2052,6 +2067,9 @@ impl X11ClientState {
          x_window: xproto::Window,
          refresh_rate: Duration,
      ) -> RegistrationToken {
@@ -1631,7 +1647,7 @@ index e21f019c64..f25d747ffd 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2103,176 @@ impl X11ClientState {
+@@ -2087,6 +2105,177 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -1764,7 +1780,8 @@ index e21f019c64..f25d747ffd 100644
 +                .height(height.max(1.) as u32)
 +                .stack_mode(xproto::StackMode::ABOVE),
 +        )?;
-+        // In its outline by its own shape, as without a compositor nothing blends its edges.
++        // In its outline by its own shape: with the pixels its edges touch where a compositor
++        // blends them, else those its edges mostly cover, which the X server draws opaque.
 +        let outline: Vec<_> = (outline.iter())
 +            .map(|&(x, y, radius)| (x * scale, y * scale, radius * scale))
 +            .collect();
@@ -1775,7 +1792,7 @@ index e21f019c64..f25d747ffd 100644
 +            view,
 +            0,
 +            0,
-+            &outline_rows(&outline, height as i16),
++            &outline_rows(&outline, height as i16, self.compositor_present),
 +        )?;
 +        xcb.flush()?;
 +        Ok(())
@@ -1808,7 +1825,7 @@ index e21f019c64..f25d747ffd 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2898,6 +3084,40 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3087,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -1826,7 +1843,7 @@ index e21f019c64..f25d747ffd 100644
 +            (100., 40., 10.),
 +            (0., 40., 10.),
 +        ];
-+        let rows = outline_rows(&card, 40);
++        let rows = outline_rows(&card, 40, true);
 +        assert_eq!(span(&rows, 20), [(0, 100)]);
 +        let (top, bottom) = (span(&rows, 0), span(&rows, 39));
 +        assert_eq!(top, bottom);
@@ -1841,23 +1858,26 @@ index e21f019c64..f25d747ffd 100644
 +            (0., 10., 0.),
 +            (40., 10., 0.),
 +        ];
-+        let rows = outline_rows(&popover, 50);
++        let rows = outline_rows(&popover, 50, true);
 +        assert_eq!(span(&rows, 4), [(45, 10)]);
++        // Without a compositor, only the pixels the arrow covers half of.
++        let rows = outline_rows(&popover, 50, false);
++        assert_eq!(span(&rows, 4), [(46, 9)]);
 +        assert_eq!(span(&rows, 30), [(0, 100)]);
 +    }
 +
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3433,100 @@ mod tests {
+@@ -3213,3 +3439,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
 +
 +/// The rows of the polygon through `corners`, each x, y and the radius it's rounded by, in device
-+/// pixels, for a shape `height` rows tall: each row's spans with every pixel the polygon touches,
-+/// so that the edges GPUI smooths are inside it, for a compositor to blend.
-+fn outline_rows(corners: &[(f32, f32, f32)], height: i16) -> Vec<xproto::Rectangle> {
++/// pixels, for a shape `height` rows tall: each row's spans through the middle of its pixels, or,
++/// `touching`, with every pixel the polygon touches, so that the edges GPUI smooths are inside it.
++fn outline_rows(corners: &[(f32, f32, f32)], height: i16, touching: bool) -> Vec<xproto::Rectangle> {
 +    let points = rounded_polygon(corners);
 +    let spans = |y: f32| {
 +        let mut crossings: Vec<f32> = (points.iter())
@@ -1873,7 +1893,8 @@ index e21f019c64..f25d747ffd 100644
 +        // Across the row, top to bottom; its middle's alone where the spans come apart in it.
 +        let samples = [0.01, 0.5, 0.99].map(|at| spans(row as f32 + at));
 +        let middle = &samples[1];
-+        let crossings: Vec<f32> = match samples.iter().all(|each| each.len() == middle.len()) {
++        let whole = touching && samples.iter().all(|each| each.len() == middle.len());
++        let crossings: Vec<f32> = match whole {
 +            true => (0..middle.len())
 +                .map(|index| {
 +                    let all = samples.iter().map(|each| each[index]);
