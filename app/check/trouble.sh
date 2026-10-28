@@ -31,7 +31,7 @@ rm -f "$saved" "$launch_frame"
 # DevTools' port takes the tab offline later, as a lost network would.
 ports="$(dirname "$saved")/DevToolsActivePort"
 rm -f "$ports"
-BROWSER_DRIVE=1 BROWSER_URL="${site}busy.html" "$app/Contents/MacOS/Browser" --remote-debugging-port=0 \
+BROWSER_DRIVE=1 BROWSER_URL="${site}busy.html" "$browser" --remote-debugging-port=0 \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -108,7 +108,7 @@ second=$(today | cut -d' ' -f1)
 expect "^browser: loaded $second " "the second tab didn't load"
 
 # Every renderer killed: the tab shown shows the card, and the one behind is unloaded, with none.
-pkill -KILL -f "$app/Contents/.*--type=renderer" || fail "no renderer to kill"
+pkill -KILL -f "$procs.*--type=renderer" || fail "no renderer to kill"
 expect "browser: tab $second page gone" "a killed renderer didn't report its page gone"
 expect "^browser: page $second trouble crashed\$" "the tab shown wasn't called crashed"
 expect "^browser: crash card shown $second\$" "the crash card didn't show"

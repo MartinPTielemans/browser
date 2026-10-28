@@ -26,7 +26,7 @@ requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
 // Like Google Docs, the page keeps ⌘F.
 addEventListener("keydown", e => {
-  if (!e.metaKey) return;
+  if (!e.'"$cmd_key"') return;
   document.title = "page saw cmd-" + e.key;
   if (e.key == "f") e.preventDefault();
 }, true);
@@ -38,7 +38,7 @@ log="$out/keys.log"
 step=0
 # The user's keys, which a failed run may have left changed.
 rm -f "$saved" "$launch_frame" "$(dirname "$saved")/Shortcuts"
-BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 # At once, as the overlays' windows are made a frame or two after the window comes on screen.
@@ -388,7 +388,7 @@ awk '/^browser: command (new-tab|edit-url) via/ { command = $3 }
 # macOS kills one under memory pressure, it takes Chrome's sad tab path a crash takes; a SIGSEGV
 # sent from here only prints a stack, and the command bar completes chrome://crash to another page.
 # The core's line comes through Chromium's log, after its prefix.
-pkill -KILL -f "$app/Contents/.*--type=renderer" || fail "no renderer to kill"
+pkill -KILL -f "$procs.*--type=renderer" || fail "no renderer to kill"
 expect 'browser: tab [0-9]* page gone' "a killed renderer didn't report its page gone"
 send click $sidebar_point
 send key r cmd

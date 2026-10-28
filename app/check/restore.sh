@@ -37,7 +37,7 @@ if command -v sqlite3 > /dev/null && [ -f "$history_db" ]; then
   sqlite3 "$history_db" "delete from downloads; delete from downloads_url_chains;
     delete from downloads_slices;" || { echo "FAIL: the downloads wouldn't clear" >&2; exit 1; }
 fi
-BROWSER_DRIVE=1 BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$site" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -212,7 +212,7 @@ exited
 # at the served page, unloaded.
 log="$out/restored.log"
 step=0
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Spaces"
@@ -423,7 +423,7 @@ exited
 # Closing the window kept them too, and the second Space shows.
 log="$out/restored-again.log"
 step=0
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the launch after closing the window didn't restore the Spaces"
@@ -465,7 +465,7 @@ quit
 # A SIGTERM ends the session at once, before the save the new tab scheduled, which the core writes
 # as Chrome exits.
 log="$out/session-ending.log"
-BROWSER_URL="$site" "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+BROWSER_URL="$site" "$browser" < /dev/null > "$log" 2>&1 &
 pid=$!
 await '^browser: restored in ' || fail "the launch before the SIGTERM didn't restore the Spaces"
 await "^browser: loaded [0-9]* $site\$" || fail "the page opened over the Spaces didn't load"
@@ -480,12 +480,12 @@ restore_ms=$(sed -n 's/^browser: restored in \([0-9.]*\) ms$/\1/p' "$out/restore
 # after b shows. Past a's 8 s, the next launch archives a at once and b 8 s after c shows.
 log="$out/archive-a.log"
 rm -f "$saved" "$launch_frame"
-BROWSER_URL="${site}?a" "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+BROWSER_URL="${site}?a" "$browser" < /dev/null > "$log" 2>&1 &
 pid=$!
 await "^browser: loaded [0-9]* ${site}?a\$" || fail "tab a didn't load"
 quit
 log="$out/archive-b.log"
-BROWSER_URL="${site}?b" "$app/Contents/MacOS/Browser" < /dev/null > "$log" 2>&1 &
+BROWSER_URL="${site}?b" "$browser" < /dev/null > "$log" 2>&1 &
 pid=$!
 await "^browser: loaded [0-9]* ${site}?b\$" || fail "tab b didn't load over tab a"
 seen=$(date +%s)
@@ -494,7 +494,7 @@ wait=$((seen + 9 - $(date +%s)))
 [ "$wait" -le 0 ] || sleep "$wait"
 log="$out/archive-c.log"
 start=$(date +%s)
-BROWSER_URL="${site}?c" "$app/Contents/MacOS/Browser" --archive-tabs-after=8 < /dev/null \
+BROWSER_URL="${site}?c" "$browser" --archive-tabs-after=8 < /dev/null \
   > "$log" 2>&1 &
 pid=$!
 await '^browser: archive 1 tabs$' || fail "tab a, unseen for 8 s across the quit, wasn't archived"
@@ -514,7 +514,7 @@ onkeydown = (e) => e.key == "f" && document.documentElement.requestFullscreen();
 log="$out/unloaded-a.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$long" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$long" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -531,7 +531,7 @@ exec 3>&-
 quit
 log="$out/unloaded-b.log"
 step=0
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the launch after scrolling didn't restore the Spaces"

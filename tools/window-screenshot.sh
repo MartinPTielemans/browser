@@ -3,10 +3,18 @@
 # over it, as on screen, but nothing from other apps. A screen capture would include whatever
 # else is open on the owner's Mac. With "all", it takes every window of the process on that display,
 # such as two browser windows, in one picture.
+# On Linux it captures the private session tools/headless.sh --run starts, which holds nothing
+# but the app, and refuses outside one rather than capture the owner's screen.
 # Usage: tools/window-screenshot.sh <pid> <output.png> [all]
 set -e
 [ $# -eq 2 ] || [ $# -eq 3 ] && [ "${3:-all}" = all ] ||
   { echo "usage: $0 <pid> <output.png> [all]" >&2; exit 2; }
+if [ "$(uname)" = Linux ]; then
+  [ -n "${BROWSER_HEADLESS:-}" ] ||
+    { echo "Captures only a session of tools/headless.sh --run." >&2; exit 1; }
+  kill -0 "$1" 2>/dev/null || { echo "process $1 isn't running" >&2; exit 1; }
+  exec env WAYLAND_DISPLAY="$BROWSER_HEADLESS" grim "$2"
+fi
 PID="$1" OUT="$2" ALL="${3:-}" swift - <<'SWIFT'
 import Foundation
 import ImageIO

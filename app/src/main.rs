@@ -37,6 +37,9 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 mod drop_targets;
 mod find_bar;
 #[cfg(target_os = "linux")]
+#[path = "../platform/linux/drive.rs"]
+mod drive;
+#[cfg(target_os = "linux")]
 #[path = "../platform/linux/overlays.rs"]
 mod overlays;
 #[cfg(target_os = "linux")]
@@ -59,7 +62,10 @@ mod platform {
     use std::ffi::{c_char, c_int, c_void};
 
     unsafe extern "C" {
+        #[cfg(not(target_os = "linux"))]
         pub fn drive_start();
+        #[cfg(target_os = "linux")]
+        pub fn host_choose(title: *const c_char) -> bool;
         pub fn host_centered(width: f64, height: f64, x: *mut f64, y: *mut f64);
         #[cfg(not(target_os = "linux"))]
         pub fn host_ui_view() -> *mut c_void;
@@ -4377,6 +4383,9 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         .filter_map(|arg| CString::new(arg).ok())
         .collect();
     if std::env::var_os("BROWSER_DRIVE").is_some() {
+        #[cfg(target_os = "linux")]
+        drive::start();
+        #[cfg(not(target_os = "linux"))]
         unsafe { platform::drive_start() };
     }
     let host = bc::bc_host {

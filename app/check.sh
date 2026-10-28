@@ -12,9 +12,16 @@
 # It opens on the Mac's own screen, where there is one, so it doesn't cover what's playing on
 # another; BROWSER_DISPLAY=main opens it on the main display.
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
+# On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
+# Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
+# windows and input then never reach the owner's session. The runs need what Linux has yet:
+# load, and history, keys and tabs among the driven ones. Captures are the session's whole output.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
+if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
+  exec ../tools/headless.sh --x11 --run ./check.sh "$@"
+fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites extensions adblock windows private capture passwords links access"
 runs="$runs trouble dialogs"
@@ -25,17 +32,29 @@ for run in "$@"; do
     *) echo "FAIL: there's no run $run. The runs: $runs $named" >&2; exit 1 ;;
   esac
 done
-app="$PWD/build/Browser.app"
 out=build/check
+# The app, what runs it, the pattern that finds its processes, Chromium's helpers too, and its dev
+# profile.
+if [ "$(uname)" = Linux ]; then
+  app="$PWD/build/Browser"
+  browser="$app/chrome"
+  procs="$app/chrome"
+  profile_dir="$HOME/.cache/browser-app"
+else
+  app="$PWD/build/Browser.app"
+  browser="$app/Contents/MacOS/Browser"
+  procs="$app/Contents"
+  profile_dir="$HOME/Library/Caches/browser-app"
+fi
 # Another Browser holds the profile directory, so this one couldn't start.
-if pgrep -f "$app/Contents" > /dev/null; then
+if pgrep -f "$procs" > /dev/null; then
   echo "FAIL: Browser is already running. Quit it first." >&2
   exit 1
 fi
 rm -rf "$out"
 mkdir -p "$out"
 # The Spaces the app saves for its next launch. Each run starts without them, but the relaunches.
-saved="$HOME/Library/Caches/browser-app/Spaces.json"
+saved="$profile_dir/Spaces.json"
 # The frame the launch window opens at, which the app keeps next to them. A run that starts without
 # the Spaces starts without it too, so its launch window isn't at the last run's frame.
 launch_frame="$(dirname "$saved")/launch-frame"
@@ -47,7 +66,7 @@ launch_frame="$(dirname "$saved")/launch-frame"
 # site it kept for Safari's engine, whose pages would then open there, and the clear run the site
 # whose protected-video note it closed, which would never show it again, and a failed one the
 # listed host it turned off.
-prefs="$HOME/Library/Caches/browser-app/Default/Preferences"
+prefs="$profile_dir/Default/Preferences"
 mkdir -p "$(dirname "$prefs")" "$out/downloads"
 python3 -I -c '
 import json, os, sys

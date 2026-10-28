@@ -82,7 +82,7 @@ page='data:text/html,<title>loading</title>
 log="$out/extensions.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" \
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" \
   --load-extension="$clicked_dir,$extensions/popup,$extensions/third,$extensions/panel" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
@@ -408,7 +408,7 @@ echo '<title>unanswered</title>' > "$home/extension/unanswered.html"
 log="$out/native-host.log"
 step=0
 BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$home/profile" \
-  "$app/Contents/MacOS/Browser" --load-extension="$home/extension" \
+  "$browser" --load-extension="$home/extension" \
   --other-browsers-dir="$home/browsers" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
@@ -495,7 +495,7 @@ printf '{"download": {"default_directory": "%s", "prompt_for_download": false}}'
 log="$out/install.log"
 step=0
 BROWSER_DRIVE=1 BROWSER_URL="$site" BROWSER_PROFILE_DIR="$crx/profile" \
-  "$app/Contents/MacOS/Browser" --extension-mime-request-handling=always-prompt-for-install \
+  "$browser" --extension-mime-request-handling=always-prompt-for-install \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
