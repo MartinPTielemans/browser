@@ -798,6 +798,10 @@ impl Browser for Recorder {
         self.record("new window".into())
     }
 
+    fn welcome_window(&self, _: &mut App) {
+        self.record("welcome window".into())
+    }
+
     fn close_window(&self, _: &mut App) {
         self.record("close window".into())
     }
