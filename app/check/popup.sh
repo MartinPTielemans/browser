@@ -36,22 +36,25 @@ pid=$!
 exec 3> "$out/drive"
 await_load
 await '^browser: title [0-9]* ready$' || fail "the popup test page didn't draw"
-send click $page_point
-send key p
-expect '^browser: tab [0-9]* opened by [0-9]* in the foreground$' "the page's popup didn't open as a tab"
 opener=$(grep -m1 '^browser: today [0-9]' "$log" | cut -d' ' -f3)
-popup=$(grep '^browser: tab [0-9]* opened by' "$log" | cut -d' ' -f3)
-expect "^browser: today $opener $popup\$" "the popup's tab didn't go under the page: $(grep '^browser: today' "$log" | tail -1)"
-expect '^browser: loaded [0-9]* https://example.com/$' "the popup's page didn't load in its tab"
-check_layout "with the popup's tab"
-../tools/window-screenshot.sh "$pid" "$out/popup.png" || fail "no window to capture"
-# A tab the page didn't open, dragged under its tabs, for the links it opens behind to go above.
+# A tab the page didn't open, dragged under the page, for the links it opens behind to go above.
+# Opened first: a tab opened from the bar in front has the Space forget which tabs opened which, as
+# Chrome's tab strip does, so after the popup it would cut the popup off from its page.
 open_from_bar example.net
 other=$tab
 send drag $(row 0) 100 330
-expect "^browser: dragged $other to today 2\$" "a drag of the top row to the bottom didn't move it"
-expect "^browser: today $opener $popup $other\$" \
-  "the dragged tab didn't go under the popup's: $(grep '^browser: today' "$log" | tail -1)"
+expect "^browser: dragged $other to today 1\$" "a drag of the top row to the bottom didn't move it"
+expect "^browser: today $opener $other\$" \
+  "the dragged tab didn't go under the page: $(grep '^browser: today' "$log" | tail -1)"
+switch "1 cmd" "$opener"
+send click $page_point
+send key p
+expect '^browser: tab [0-9]* opened by [0-9]* in the foreground$' "the page's popup didn't open as a tab"
+popup=$(grep '^browser: tab [0-9]* opened by' "$log" | cut -d' ' -f3)
+expect "^browser: today $opener $popup $other\$" "the popup's tab didn't go under the page: $(grep '^browser: today' "$log" | tail -1)"
+expect '^browser: loaded [0-9]* https://example.com/$' "the popup's page didn't load in its tab"
+check_layout "with the popup's tab"
+../tools/window-screenshot.sh "$pid" "$out/popup.png" || fail "no window to capture"
 # The page's context menu is Chrome's, with Arc's link items, without those Arc's leaves out or
 # whose UI is in Chrome's own window (Copy Link Text, Reading Mode, Lens, QR Code, Cast). It shows
 # in ilo's menu, with its top left at the click.
