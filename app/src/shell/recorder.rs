@@ -57,6 +57,8 @@ pub(super) struct Recorder {
     pub(super) detents: Cell<usize>,
     /// How many tabs and folders it was asked to move.
     pub(super) moves: Cell<usize>,
+    /// Whether the system opens links with it, as `is_default_browser` answers.
+    pub(super) default_browser: Cell<bool>,
     /// The Spaces it was asked to show, in order.
     pub(super) shown: RefCell<Vec<u64>>,
     /// The menus it was asked to show, each item by its title and whether it's enabled.
@@ -769,6 +771,14 @@ impl Browser for Recorder {
 
     fn welcome_window(&self, _: &mut App) {
         self.record("welcome window".into())
+    }
+
+    fn is_default_browser(&self) -> bool {
+        self.default_browser.get()
+    }
+
+    fn make_default_browser(&self, _: &mut App) {
+        self.record("make default browser".into())
     }
 
     fn close_window(&self, _: &mut App) {

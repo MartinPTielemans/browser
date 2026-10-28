@@ -2212,6 +2212,14 @@ impl Browser for Engine {
         });
     }
 
+    fn is_default_browser(&self) -> bool {
+        unsafe { platform::host_is_default_browser() }
+    }
+
+    fn make_default_browser(&self, _: &mut App) {
+        unsafe { platform::host_make_default_browser(settings::default_browser_answered) };
+    }
+
     fn welcome_window(&self, cx: &mut App) {
         let id = self.window;
         cx.defer(move |cx| {
