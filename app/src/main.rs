@@ -2217,7 +2217,7 @@ fn ask(message: &str, detail: &str, buttons: &[&str]) -> usize {
 }
 
 /// A key the page didn't keep, or one it never sees, as a keystroke in GPUI's terms, with the
-/// modifiers in the order shell::SHORTCUTS writes them.
+/// modifiers in the order shell::SHORTCUTS writes them, and Ctrl as ⌘ off the Mac.
 fn keystroke(key: &bc::bc_key) -> String {
     let name = unsafe { CStr::from_ptr(key.key) }.to_string_lossy();
     let mut keystroke = String::new();
@@ -2239,7 +2239,7 @@ fn keystroke(key: &bc::bc_key) -> String {
         " " => "space".to_string(),
         name => name.to_lowercase(),
     };
-    keystroke + &key
+    shell::written_as(&(keystroke + &key))
 }
 
 /// Runs the shortcut `key` is, if it's one of the page shortcuts that are `reserved` or aren't,
@@ -2965,10 +2965,29 @@ unsafe extern "C" fn started(_: *mut c_void) {
         extern "C" fn dispatched() {
             gpui_linux::dispatch_embedded();
         }
+        // Every key reaches the browser window and the UI alike there, and the core says whose
+        // they are, as the X server does by its focus.
+        fn window_in(surface: *mut c_void) -> Option<bc::bc_id> {
+            // GPUI's dispatch can run inside a call to the core made while the list changes.
+            WINDOWS.with(|windows| {
+                let windows = windows.try_borrow().ok()?;
+                windows.iter().find(|w| w.ui_view == surface).map(|w| w.id)
+            })
+        }
+        let keyboard = gpui_linux::EmbeddedKeyboard {
+            pressed: |surface| {
+                if let Some(window) = window_in(surface) {
+                    unsafe { bc::bc_window_ui_takes_keyboard(window) };
+                }
+            },
+            is_ui: |surface| {
+                window_in(surface).is_some_and(|window| unsafe { bc::bc_window_keyboard_is_ui(window) })
+            },
+        };
         let display = unsafe { bc::bc_wayland_display(Some(dispatched)) };
         match display.is_null() {
             true => gpui_linux::embed(),
-            false => gpui_linux::embed_wayland(display),
+            false => gpui_linux::embed_wayland(display, keyboard),
         }
         !display.is_null()
     };
