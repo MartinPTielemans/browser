@@ -11,7 +11,6 @@
 #include <shellapi.h>
 
 #include <cstdio>
-#include <cstdlib>
 #include <ctime>
 #include <functional>
 #include <map>
@@ -1167,7 +1166,7 @@ HRESULT CALLBACK AlertEvent(HWND hwnd, UINT event, WPARAM, LPARAM, LONG_PTR text
   if (event == TDN_CREATED) {
     g_alert = hwnd;
     // Its texts and buttons, as the Mac's driver logs an alert's, for check.sh to wait for.
-    if (getenv("BROWSER_DRIVE")) {
+    if (GetEnvironmentVariableW(L"BROWSER_DRIVE", nullptr, 0) > 0) {
       fprintf(stderr, "browser: modal shown %s\n", reinterpret_cast<const char*>(texts));
     }
   } else if (event == TDN_DESTROYED) {
