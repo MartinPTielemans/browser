@@ -3,7 +3,8 @@
 # path of its Chromium.app, or on Linux and Windows its Chromium directory. On the Mac it's the one
 # prebuilt.ini names, which publish.sh makes. On Linux and Windows it's the newest engine-linux or
 # engine-windows release built from a commit in this checkout's history, which
-# .github/workflows/engine-linux.yml and engine-windows-cross.yml make.
+# .github/workflows/engine-linux.yml and engine-windows-cross.yml make. It exits with 2 when no
+# engine fits this checkout, which CI takes for a reason to skip, and 1 on any other failure.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -11,10 +12,14 @@ fail() {
   echo "fetch: $*" >&2
   exit 1
 }
+none() {
+  echo "fetch: $*" >&2
+  exit 2
+}
 
 case $(uname -sm) in
 "Darwin arm64")
-  [ -e prebuilt.ini ] || fail "no prebuilt engine is published yet. Build one with engine/build.sh."
+  [ -e prebuilt.ini ] || none "no prebuilt engine is published yet. Build one with engine/build.sh."
   commit=$(git config -f prebuilt.ini prebuilt.commit)
   url=$(git config -f prebuilt.ini prebuilt.url)
   sha256=$(git config -f prebuilt.ini prebuilt.sha256)
@@ -39,9 +44,9 @@ case $(uname -sm) in
     fi
   done < <(git ls-remote --tags "$repo.git" "refs/tags/engine-$platform-*")
   [ -n "$commit" ] ||
-    fail "no prebuilt $platform engine was built from this checkout's history. Fetch the history with git fetch --unshallow, or run the engine-$platform workflow."
+    none "no prebuilt $platform engine was built from this checkout's history. Fetch the history with git fetch --unshallow, or run the engine-$platform workflow."
   url=$repo/releases/download/engine-$platform-${commit:0:12}/$asset
-  sha256=$(curl -fsSL "$url.sha256") || fail "the release engine-$platform-${commit:0:12} has no engine yet."
+  sha256=$(curl -fsSL "$url.sha256") || none "the release engine-$platform-${commit:0:12} has no engine yet."
   app=Chromium
   ;;
 *) fail "there's a prebuilt engine for Macs with Apple silicon, x86-64 Linux and x64 Windows only." ;;
@@ -52,7 +57,7 @@ esac
 git cat-file -e "$commit^{commit}" 2>/dev/null ||
   fail "the prebuilt engine's commit ${commit:0:12} isn't in this clone. Fetch the history with git fetch --unshallow."
 git diff --quiet "$commit" -- ../core/public/browser_core.h ||
-  fail "core/public/browser_core.h has changed since the prebuilt engine (${commit:0:12}). Build the engine with engine/build.sh."
+  none "core/public/browser_core.h has changed since the prebuilt engine (${commit:0:12}). Build the engine with engine/build.sh."
 
 dir=$PWD/.deps/prebuilt/$sha256
 if [ ! -d "$dir" ]; then
