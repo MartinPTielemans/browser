@@ -236,6 +236,8 @@ struct Fake {
     spaces: RefCell<Vec<SpaceEntry>>,
     archive: RefCell<Vec<(u64, &'static str, &'static str, f64)>>,
     downloads: RefCell<Vec<Download>>,
+    /// The onboarding's two switches, both offered and off to begin with.
+    opt_ins: Cell<(bool, bool)>,
 }
 
 impl Fake {
@@ -1021,6 +1023,22 @@ impl Browser for Fake {
         false
     }
 
+    fn crash_reports(&self, _: &App) -> Option<bool> {
+        Some(self.opt_ins.get().0)
+    }
+
+    fn set_crash_reports(&self, on: bool, _: &mut App) {
+        self.opt_ins.set((on, self.opt_ins.get().1));
+    }
+
+    fn agents(&self, _: &App) -> Option<bool> {
+        Some(self.opt_ins.get().1)
+    }
+
+    fn set_agents(&self, on: bool, _: &mut App) {
+        self.opt_ins.set((self.opt_ins.get().0, on));
+    }
+
     fn new_private_window(&self, _: &mut App) {}
 
     fn close_window(&self, cx: &mut App) {
@@ -1272,6 +1290,7 @@ fn main() {
                     spaces: RefCell::new(spaces.clone()),
                     archive: RefCell::new(archive),
                     downloads: RefCell::new(downloads),
+                    opt_ins: Cell::new((false, false)),
                 });
                 browser.report_archive(cx);
                 browser.report_downloads(cx);

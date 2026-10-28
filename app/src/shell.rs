@@ -976,6 +976,9 @@ pub struct Shell {
     /// The first launch's import, made at its first step and kept for the window's life, so an
     /// import under way goes on while the steps after it show and once the flow has ended.
     importing: Option<onboarding::Importing>,
+    /// The onboarding has just ended, so the empty card says what the command bar over it is,
+    /// until a page shows.
+    in_hint: bool,
     /// The press under way was on a target that opens the command bar while it was open, so the
     /// click that follows only closes it.
     press_closed_bar: bool,
@@ -1258,6 +1261,7 @@ impl Shell {
             welcome: false,
             onboarding: None,
             importing: None,
+            in_hint: false,
             press_closed_bar: false,
             drag: None,
             dragged: false,

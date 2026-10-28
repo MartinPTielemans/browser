@@ -4,7 +4,8 @@
 //! of it. Any key or click skips the intro; Esc or Skip goes on from a step, and the last step's
 //! leaves the flow for the first Space's welcome. A page shown ends it, as the page would cover it.
 //! A step's button does what it offers, such as asking the system to make ilo the default browser
-//! or giving the first Space its colour; Skip doesn't.
+//! or giving the first Space its colour; Skip doesn't. The flow ends with the command bar up over
+//! the first Space, and a line on the card under it saying what the bar is.
 
 use std::time::{Duration, Instant};
 
@@ -14,12 +15,13 @@ use gpui::{
 };
 
 use super::{
-    Shell,
+    Command, Shell,
     display_face::{cap_top, display_text},
     cubic_bezier, fade_at,
 };
 use crate::default_browser::{self, Os};
 use crate::import::{ImportEvent, ImportView, Look};
+use crate::settings_rows::{SLIDE, switch};
 use crate::theme::Theme;
 use crate::theme_picker::SWATCHES;
 use crate::tokens::palette::{INK, PAPER};
@@ -38,6 +40,10 @@ use crate::tokens::shell::onboarding::CHIP_RADIUS;
 use crate::tokens::shell::onboarding::LINE_GAP;
 use crate::tokens::shell::onboarding::LINE_LINE;
 use crate::tokens::shell::onboarding::LINE_SIZE;
+use crate::tokens::shell::onboarding::OPT_IN_GAP;
+use crate::tokens::shell::onboarding::OPT_IN_LINE;
+use crate::tokens::shell::onboarding::OPT_IN_SWITCH_GAP;
+use crate::tokens::shell::onboarding::OPT_IN_WIDTH;
 use crate::tokens::shell::onboarding::QUIET;
 use crate::tokens::shell::onboarding::SHIFT;
 use crate::tokens::shell::onboarding::SIGNAL;
@@ -67,9 +73,51 @@ pub(super) enum Step {
     DefaultBrowser,
     /// The first Space's colour, from the theme picker's swatches.
     Color,
+    /// Settings' opt-in switches, both off; left out when neither is offered.
+    OptIns,
 }
 
-const STEPS: [Step; 4] = [Step::Intro, Step::Import, Step::DefaultBrowser, Step::Color];
+const STEPS: [Step; 5] =
+    [Step::Intro, Step::Import, Step::DefaultBrowser, Step::Color, Step::OptIns];
+
+/// The opt-ins the first launch offers, each Settings' own switch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum OptIn {
+    CrashReports,
+    Agents,
+}
+
+impl OptIn {
+    const ALL: [OptIn; 2] = [OptIn::CrashReports, OptIn::Agents];
+
+    /// What check.sh calls it.
+    fn name(self) -> &'static str {
+        match self {
+            OptIn::CrashReports => "crash-reports",
+            OptIn::Agents => "agents",
+        }
+    }
+
+    /// Its switch's name and its one sentence: the name Settings' row has, as it's that switch.
+    fn words(self) -> (&'static str, &'static str) {
+        match self {
+            OptIn::CrashReports => (
+                "Send crash reports",
+                concat!(
+                    "When ",
+                    env!("APP_NAME"),
+                    " crashes, it sends a report of what went wrong, so it can be fixed."
+                ),
+            ),
+            // Settings' own line while it's off.
+            OptIn::Agents => (
+                "Let agents use the browser",
+                "They work in a Space of their own, which you can watch, and never see your \
+                 passwords, cookies or autofill.",
+            ),
+        }
+    }
+}
 
 impl Step {
     /// What check.sh calls it.
@@ -79,6 +127,7 @@ impl Step {
             Step::Import => "import",
             Step::DefaultBrowser => "default-browser",
             Step::Color => "color",
+            Step::OptIns => "opt-ins",
         }
     }
 
@@ -109,6 +158,11 @@ impl Step {
             Step::Color => (
                 "Pick a colour for your first Space.",
                 "The window takes it. Each Space can have its own, from its name in the sidebar.",
+                "Continue",
+            ),
+            Step::OptIns => (
+                "Up to you.",
+                "Each stays off until you turn it on, and Settings has it too.",
                 "Continue",
             ),
         };
@@ -208,6 +262,8 @@ pub(super) struct Onboarding {
     pub(super) picked: Option<usize>,
     /// The system it runs on, for the default browser's step.
     os: Os,
+    /// The opt-in switch last turned, and when, for its knob's slide.
+    switched: Option<(OptIn, Instant)>,
     /// When the step came, which its motion runs from.
     pub(super) since: Instant,
     /// The step before, leaving as this one comes, and how far into it it was when it left.
@@ -248,11 +304,13 @@ impl Shell {
             !view.is_empty() || view.running().is_some()
         });
         let default_browser = self.browser.is_default_browser();
+        let opt_ins = !self.opt_ins(cx).is_empty();
         let steps: Vec<Step> = STEPS
             .into_iter()
             .filter(|&step| match step {
                 Step::Import => import,
                 Step::DefaultBrowser => !default_browser,
+                Step::OptIns => opt_ins,
                 _ => true,
             })
             .collect();
@@ -266,6 +324,7 @@ impl Shell {
             step: Step::Intro,
             picked: None,
             os: self.browser.os(),
+            switched: None,
             since: Instant::now(),
             leaving: None,
             ending: None,
@@ -357,6 +416,32 @@ impl Shell {
         importing.view.read(cx).running().or_else(|| importing.said.clone())
     }
 
+    /// The opt-ins offered, each with whether it's on.
+    pub(super) fn opt_ins(&self, cx: &gpui::App) -> Vec<(OptIn, bool)> {
+        let on = |opt_in| match opt_in {
+            OptIn::CrashReports => self.browser.crash_reports(cx),
+            OptIn::Agents => self.browser.agents(cx),
+        };
+        OptIn::ALL.into_iter().filter_map(|opt_in| Some((opt_in, on(opt_in)?))).collect()
+    }
+
+    /// Turns an opt-in's switch, which is Settings' own, so it's set at once.
+    pub(super) fn onboarding_switch(&mut self, opt_in: OptIn, cx: &mut Context<Self>) {
+        let Some(&(_, on)) = self.opt_ins(cx).iter().find(|(each, _)| *each == opt_in) else {
+            return;
+        };
+        // check.sh reads this line.
+        log!("browser: onboarding {} {}", opt_in.name(), if on { "off" } else { "on" });
+        match opt_in {
+            OptIn::CrashReports => self.browser.set_crash_reports(!on, cx),
+            OptIn::Agents => self.browser.set_agents(!on, cx),
+        }
+        if let Some(onboarding) = self.onboarding.as_mut() {
+            onboarding.switched = Some((opt_in, Instant::now()));
+        }
+        cx.notify();
+    }
+
     /// Picks swatch `index` at the colour step.
     fn onboarding_pick(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(onboarding) = self.onboarding.as_mut() {
@@ -404,6 +489,11 @@ impl Shell {
             self.onboarding = None;
             // check.sh waits for this line.
             log!("browser: onboarding done");
+            // In: the first Space with the command bar up, as ⌘T has it, once this frame is drawn.
+            if ended && self.selected == 0 {
+                self.in_hint = true;
+                cx.defer_in(window, |shell, _, cx| shell.run(Command::NewTab, "onboarding", cx));
+            }
             return None;
         }
         if onboarding.keys.is_none() {
@@ -443,7 +533,8 @@ impl Shell {
         }
         // Frames while something moves; the intro's hold waits on a timer instead.
         let ending = onboarding.ending.map(|at| at.elapsed().as_secs_f32());
-        if !came || onboarding.leaving.is_some() || ending.is_some() {
+        let sliding = onboarding.switched.is_some_and(|(_, at)| at.elapsed().as_secs_f32() < SLIDE);
+        if !came || onboarding.leaving.is_some() || ending.is_some() || sliding {
             window.request_animation_frame();
         } else if step == Step::Intro && onboarding.hold.is_none() {
             let end = if still { STILL_END } else { INTRO_END };
@@ -543,6 +634,7 @@ impl Shell {
         }
         let os = self.onboarding.as_ref().map_or(Os::Mac, |onboarding| onboarding.os);
         let (title, line, button) = step.message(os);
+        let switches = (step == Step::OptIns).then(|| self.opt_in_rows(colors, cx));
         let swatches = (step == Step::Color).then(|| {
             let picked = self.onboarding.as_ref().and_then(|onboarding| onboarding.picked);
             swatch_row(picked, colors, cx)
@@ -609,9 +701,54 @@ impl Shell {
                         .child(line),
                 )
                 .children(swatches)
+                .children(switches)
                 .children(import)
                 .children(button),
         )
+    }
+
+    /// The opt-ins offered, a row each: its name and sentence, and Settings' switch, in the green.
+    fn opt_in_rows(&self, colors: Colors, cx: &mut Context<Self>) -> gpui::Div {
+        let switched = self.onboarding.as_ref().and_then(|onboarding| onboarding.switched);
+        // Off, the ink over the ground, as Settings' is over its box.
+        let look = Look::on(colors.ground, colors.ink(1.));
+        let rows = self.opt_ins(cx).into_iter().map(|(opt_in, on)| {
+            let slid = match switched {
+                Some((turned, at)) if turned == opt_in => {
+                    (at.elapsed().as_secs_f32() / SLIDE).min(1.)
+                }
+                _ => 1.,
+            };
+            let (name, sentence) = opt_in.words();
+            div()
+                .id(opt_in.name())
+                .flex()
+                .items_center()
+                .gap(px(OPT_IN_SWITCH_GAP))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .on_click(cx.listener(move |shell, _, _, cx| shell.onboarding_switch(opt_in, cx)))
+                .child(
+                    div()
+                        .flex_1()
+                        .text_size(px(crate::tokens::text::BODY))
+                        .line_height(px(OPT_IN_LINE))
+                        .child(
+                            div()
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(colors.ink(1.))
+                                .child(name),
+                        )
+                        .child(div().text_color(colors.ink(QUIET)).child(sentence)),
+                )
+                .child(div().flex_none().child(switch(&look, on, slid, rgb(SIGNAL))))
+        });
+        div()
+            .mt(px(BUTTON_GAP))
+            .w(px(OPT_IN_WIDTH))
+            .flex()
+            .flex_col()
+            .gap(px(OPT_IN_GAP))
+            .children(rows)
     }
 
     /// Skip, quiet at the window's bottom right, with Esc's chip.
