@@ -15,9 +15,11 @@ use browser::shell::{
     Folders, Match, MenuBar, MenuEntry, Page, Shell, SpaceEntry, Split, Trouble, WindowButton,
 };
 use browser::command_bar::{self, Suggestion};
+use browser::dialog;
 use browser::icon_picker::{self, Recents};
 use browser::menu;
 use browser::palette::{self, Palette};
+use browser::site_controls::{self, Connection, Permission, Site, Value};
 use browser::theme::Theme;
 use gpui::{
     App, AppContext, Bounds, Focusable, Pixels, Point, SharedString, Size, TitlebarOptions,
@@ -27,6 +29,10 @@ use gpui::{
 thread_local! {
     /// The preview window's size, where its menus may go.
     static PREVIEW_AREA: Cell<Size<Pixels>> = Cell::new(size(px(1280.), px(800.)));
+    /// Its top left on screen, where an overlay opened later goes from.
+    static PREVIEW_ORIGIN: Cell<Point<Pixels>> = Cell::new(point(px(0.), px(0.)));
+    /// Whether the dialog's window has opened, the first time the preview asks something.
+    static DIALOG_OPEN: Cell<bool> = const { Cell::new(false) };
 }
 
 unsafe extern "C" {
@@ -690,14 +696,26 @@ impl Browser for Fake {
     // The made-up pages have nothing to find.
     fn find(&self, _: u64, _: &mut App) {}
 
+    // PREVIEW_SITE_CONTROLS=1 opens them over a made-up site, in a window where the panel goes, as
+    // the preview's host can't move one.
     fn site_controls(
         &self,
-        _: u64,
-        _: browser::site_controls::Place,
-        _: Size<Pixels>,
-        _: Vec<browser::site_controls::Extension>,
-        _: &mut App,
+        tab: u64,
+        place: site_controls::Place,
+        window: Size<Pixels>,
+        extensions: Vec<site_controls::Extension>,
+        cx: &mut App,
     ) {
+        if std::env::var_os("PREVIEW_SITE_CONTROLS").is_none() {
+            return;
+        }
+        let (at, _) = site_controls::placed(place, window);
+        let room = size(px(site_controls::WIDTH), window.height - at.y);
+        let bounds = Bounds::new(PREVIEW_ORIGIN.get() + at, room);
+        if site_controls::open_at(Rc::new(PreviewSiteControls), bounds, true, cx).is_some() {
+            site_controls::show(tab, place, window, extensions, cx);
+            site_controls::changed(tab, preview_site(), cx);
+        }
     }
 
     fn site_controls_extensions(
@@ -948,16 +966,25 @@ impl Browser for Fake {
         menu::show(menu::Request { items, at, area, look, chosen }, cx);
     }
 
-    // The dialog's window is one the app's host lays over the browser window. The preview goes
-    // without it.
+    // The dialog's window is one the app's host lays over the browser window. With PREVIEW_DIALOG=1
+    // it opens over the preview's the first time it asks, on top of it, such as when the Space
+    // menu's Delete Space, through PREVIEW_MENU, asks.
     fn confirm(
         &self,
-        _: String,
-        _: String,
-        _: &'static str,
-        _: Box<dyn FnOnce(&mut App)>,
-        _: &mut App,
+        message: String,
+        detail: String,
+        action: &'static str,
+        confirmed: Box<dyn FnOnce(&mut App)>,
+        cx: &mut App,
     ) {
+        if std::env::var_os("PREVIEW_DIALOG").is_none() {
+            return;
+        }
+        if !DIALOG_OPEN.replace(true) {
+            let bounds = Bounds::new(PREVIEW_ORIGIN.get(), PREVIEW_AREA.get());
+            dialog::open_at(Rc::new(PreviewDialog), bounds, true, cx);
+        }
+        dialog::ask(message, detail, action, confirmed, cx);
     }
 
     fn quit(&self, cx: &mut App) {
@@ -1150,6 +1177,8 @@ fn main() {
             point(px(x as f32), px(y as f32)),
             size(px(width as f32), px(height as f32)),
         );
+        PREVIEW_ORIGIN.set(bounds.origin);
+        PREVIEW_AREA.set(bounds.size);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
@@ -1372,10 +1401,21 @@ fn main() {
                 icon_picker::show(subject, icon.into(), point(0., 0.), picked, cx);
             }
         }
+        // PREVIEW_SITE_CONTROLS=1 opens the Site Controls of the tab shown, once the shell has
+        // drawn the URL field they hang from.
+        let site_controls = std::env::var_os("PREVIEW_SITE_CONTROLS").is_some();
+        if let Some(shell) = shell_window.filter(|_| site_controls) {
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(Duration::from_millis(500)).await;
+                shell
+                    .update(cx, |shell, _, cx| shell.run(Command::SiteControls, "preview", cx))
+                    .ok();
+            })
+            .detach();
+        }
         // PREVIEW_MENU=<x>,<y>[,<key>…] right-clicks there in the window, as on a row or a Space's
         // name, and then presses the keys in ilo's menu, such as `m,right` for a submenu.
         if let Ok(what) = std::env::var("PREVIEW_MENU") {
-            PREVIEW_AREA.set(bounds.size);
             if let Some(shell) = shell_window {
                 preview_menu(shell.into(), bounds, &what, cx);
             }
@@ -1541,4 +1581,80 @@ impl icon_picker::Host for PreviewPicker {
     fn hide(&self) {}
 
     fn keep_recents(&self, _: &str) {}
+}
+
+/// The dialog over the preview's window, which it covers, for its host can't move it.
+struct PreviewDialog;
+
+impl dialog::Host for PreviewDialog {
+    fn show(&self) {}
+
+    fn hide(&self) {}
+}
+
+/// The Site Controls over the preview's window, opened where they're to be: their host can't move
+/// them, and the made-up site can't change.
+struct PreviewSiteControls;
+
+impl site_controls::Host for PreviewSiteControls {
+    fn show(&self, _: Point<Pixels>, _: Size<Pixels>, _: &[(f32, f32, f32)]) {}
+
+    fn set_height(&self, _: f32, _: &[(f32, f32, f32)]) {}
+
+    fn drew(&self, _: f32, _: f32, _: Point<Pixels>) {}
+
+    fn release(&self) {}
+
+    fn hide(&self) {}
+
+    fn read(&self, _: u64) {}
+
+    fn stop_reading(&self) {}
+
+    fn set_permission(&self, _: u64, _: i32, _: Value) {}
+
+    fn reset_permissions(&self, _: u64) {}
+
+    fn set_system_engine(&self, _: u64, _: bool) {}
+
+    fn run(&self, _: site_controls::Run, _: u64, _: &mut App) {}
+
+    fn menu(
+        &self,
+        _: Vec<MenuEntry>,
+        _: Point<Pixels>,
+        _: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        _: &mut App,
+    ) {
+    }
+
+    fn tooltip(&self, _: Option<(SharedString, browser::tooltip::Anchor)>, _: &mut App) {}
+}
+
+/// A made-up site, with permissions of each value and one a policy sets, in Chrome's words, the
+/// longest of them Pop-ups and redirects.
+fn preview_site() -> Site {
+    let permission =
+        |kind, key: &str, name: &str, value, state: &str, choices: &[Value]| Permission {
+            kind,
+            key: key.to_string().into(),
+            name: name.to_string().into(),
+            value,
+            state: state.to_string().into(),
+            choices: choices.to_vec(),
+        };
+    Site {
+        site: "en.wikipedia.org".into(),
+        connection: Connection::Secure,
+        connection_summary: "Connection is secure".into(),
+        certificate: true,
+        permissions: vec![
+            permission(5, "geolocation", "Location", Value::Ask, "Ask (default)", &Value::ALL),
+            permission(6, "notifications", "Notifications", Value::Allow, "Allowed", &Value::ALL),
+            permission(4, "popups", "Pop-ups and redirects", Value::Block, "Blocked", &Value::ALL),
+            permission(2, "javascript", "JavaScript", Value::Allow, "Allowed", &[]),
+        ],
+        reset: Some("Reset permissions".into()),
+        system_engine: None,
+    }
 }
