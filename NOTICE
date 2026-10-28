@@ -194,10 +194,12 @@ and U+FFFD. The license's full text is next to them, in app/assets/fonts/Inter-O
   Copyright (c) 2016 The Inter Project Authors (https://github.com/rsms/inter)
 
 uBlock Origin (https://github.com/gorhill/uBlock), GNU General Public License v3.0 or later
-Shipped unchanged but for the "key" app/fetch-ublock.sh adds to its manifest, in the app's
-framework's resources, as app/build.sh puts it there: release 1.75.0, the version and sha256
-app/ublock.ini pins, whose source is at https://github.com/gorhill/uBlock/tree/1.75.0. The license
-travels with it, as its LICENSE.txt, and the filter lists it bundles keep their own.
+Shipped modified, in the app's framework's resources, as app/build.sh puts it there: release
+1.75.0, the version and sha256 app/ublock.ini pins, whose source is at
+https://github.com/gorhill/uBlock/tree/1.75.0. app/fetch-ublock.sh adds a "key" to its manifest
+and changes js/tab.js and js/traffic.js, each saying so on its first line, so its housekeeping
+timers don't wake an idle browser; the script is the record of each change. The license travels
+with it, as its LICENSE.txt, and the filter lists it bundles keep their own.
 
   uBlock Origin - a comprehensive, efficient content blocker
   Copyright (C) 2014-present Raymond Hill
