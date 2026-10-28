@@ -106,63 +106,114 @@ fn valid(key: &str) -> bool {
     !key.contains(char::is_whitespace) && parsed.is_ok()
 }
 
-/// GPUI's binding of `key` to `action` while the UI has the keyboard.
-fn binding(key: &str, action: Box<dyn Action>, cx: &App) -> Option<KeyBinding> {
-    let key = pressed_as(key)?;
-    let context = KeyBindingContextPredicate::parse(KEY_CONTEXT).ok()?.into();
-    KeyBinding::load(&key, action, Some(context), false, None, cx).ok()
+/// GPUI's bindings of `key` to `action` while the UI has the keyboard, one for each way this
+/// platform presses it.
+fn bindings_of(key: &str, action: Box<dyn Action>, cx: &App) -> Vec<KeyBinding> {
+    let Ok(context) = KeyBindingContextPredicate::parse(KEY_CONTEXT) else {
+        return Vec::new();
+    };
+    let context = std::rc::Rc::new(context);
+    let load = |key: String| {
+        let action = action.boxed_clone();
+        KeyBinding::load(&key, action, Some(context.clone()), false, None, cx).ok()
+    };
+    pressed_as(key).into_iter().filter_map(load).collect()
 }
 
-/// Off the Mac, Ctrl does what ⌘ does there, as in Chrome: SHORTCUTS' cmd-t is ctrl-t. Where a ⌘
-/// key's Ctrl form is one of the Mac's ⌃ keys, as ⌘1's is ⌃1, the ⌘ key's command has it.
-/// shortcut: the ⌃ keys that lose theirs, the Spaces' and the split view's, have none off the Mac
-/// until its keys are settled. The tests run the Mac's keys everywhere.
-const CTRL_IS_CMD: bool = cfg!(not(any(target_os = "macos", test)));
+/// Off the Mac, as on Linux and Windows, the keys SHORTCUTS writes the Mac's way are pressed with
+/// Ctrl for ⌘ and Alt for ⌃ (docs/ux-spec.md › Keyboard). The tests run the Mac's keys everywhere.
+pub(super) const OFF_THE_MAC: bool = cfg!(not(any(target_os = "macos", test)));
 
-/// `key`, as SHORTCUTS writes it, as this platform's keyboard presses it, if it can.
-fn pressed_as(key: &str) -> Option<String> {
-    match CTRL_IS_CMD {
+/// Chrome's Alt keys on Linux and Windows, which keep Chrome's meaning there, so no ⌃ key becomes
+/// one, with the key of ours that does what Chrome's does, if one does.
+const CHROME_ALT_KEYS: &[(&str, Option<&str>)] = &[
+    ("alt-left", Some("cmd-left")),
+    ("alt-right", Some("cmd-right")),
+    ("alt-d", Some("cmd-l")),
+    ("alt-f4", Some("shift-cmd-w")),
+    ("alt-home", None),
+    ("alt-e", None),
+    ("alt-f", None),
+];
+
+/// `key`, as SHORTCUTS writes it, as this platform's keyboard presses it: none, one way or more.
+pub(super) fn pressed_as(key: &str) -> Vec<String> {
+    match OFF_THE_MAC {
         true => pressed_off_the_mac(key),
-        false => Some(key.to_string()),
+        false => vec![key.to_string()],
     }
 }
 
-fn pressed_off_the_mac(key: &str) -> Option<String> {
-    match key.split_once("cmd-") {
-        Some((held, _)) if held.contains("ctrl-") => None,
-        Some((held, rest)) => Some(format!("ctrl-{held}{rest}")),
-        None if written_off_the_mac(key) != key => None,
-        None => Some(key.to_string()),
+fn pressed_off_the_mac(key: &str) -> Vec<String> {
+    let ([ctrl, alt, shift, cmd], rest) = held(key);
+    // ⌃Tab stays Ctrl+Tab, as Alt+Tab is the desktop's, and a key with ⌃ and ⌥ has no Alt of its
+    // own.
+    let pressed = match (ctrl, alt) {
+        _ if ctrl && !cmd && rest == "tab" => key.to_string(),
+        (true, true) => return Vec::new(),
+        _ => written([cmd, ctrl || alt, shift, false], rest),
+    };
+    if CHROME_ALT_KEYS.iter().any(|&(chrome, _)| chrome == pressed) {
+        return Vec::new();
     }
+    let chrome = CHROME_ALT_KEYS.iter().filter(|&&(_, ours)| ours == Some(key));
+    std::iter::once(pressed).chain(chrome.map(|&(chrome, _)| chrome.to_string())).collect()
 }
 
-/// The key `keystroke`, as a page names it, is as SHORTCUTS writes it: cmd-t for ctrl-t off the
-/// Mac.
+/// The key `keystroke`, as this platform names it, as SHORTCUTS writes it: cmd-t for ctrl-t and
+/// ctrl-2 for alt-2 off the Mac.
 pub fn written_as(keystroke: &str) -> String {
-    match CTRL_IS_CMD {
+    match OFF_THE_MAC {
         true => written_off_the_mac(keystroke),
         false => keystroke.to_string(),
     }
 }
 
 fn written_off_the_mac(keystroke: &str) -> String {
-    let Some(mut rest) = keystroke.strip_prefix("ctrl-").filter(|rest| !rest.contains("cmd-"))
-    else {
-        return keystroke.to_string();
-    };
-    let mut held = String::new();
-    for modifier in ["alt-", "shift-"] {
-        if let Some(after) = rest.strip_prefix(modifier) {
-            held.push_str(modifier);
-            rest = after;
-        }
+    if let Some(&(_, Some(ours))) = CHROME_ALT_KEYS.iter().find(|&&(chrome, _)| chrome == keystroke)
+    {
+        return ours.to_string();
     }
-    let cmd = format!("{held}cmd-{rest}");
-    match SHORTCUTS.iter().any(|&(key, ..)| key == cmd) {
-        true => cmd,
-        false => keystroke.to_string(),
+    let ([ctrl, alt, shift, superkey], rest) = held(keystroke);
+    if superkey {
+        // The desktop's, and no ⌘.
+        return keystroke.replace("cmd-", "super-");
+    }
+    if ctrl && !alt && rest == "tab" {
+        return keystroke.to_string();
+    }
+    // Alt alone is ⌃, since ⌥ alone is no shortcut. With Ctrl it's ⌥, unless ⌃⌘ makes a key ours.
+    let as_control = written([alt, false, shift, ctrl], rest);
+    let known = |key: &str| {
+        let keys = SHORTCUTS.iter().map(|&(key, ..)| key);
+        keys.chain(SYSTEM_KEYS.iter().map(|&(key, _)| key)).any(|each| each == key)
+    };
+    match alt && (!ctrl || known(&as_control)) {
+        true => as_control,
+        false => written([false, alt, shift, ctrl], rest),
     }
 }
+
+/// The modifiers `key` holds, ctrl, alt, shift and cmd, in the order SHORTCUTS writes them, and
+/// the key.
+fn held(key: &str) -> ([bool; 4], &str) {
+    let mut rest = key;
+    let held = MODIFIERS.map(|modifier| match rest.strip_prefix(modifier) {
+        Some(after) => {
+            rest = after;
+            true
+        }
+        None => false,
+    });
+    (held, rest)
+}
+
+fn written(held: [bool; 4], key: &str) -> String {
+    let modifiers = MODIFIERS.iter().zip(held).filter(|&(_, held)| held);
+    modifiers.map(|(modifier, _)| *modifier).collect::<String>() + key
+}
+
+const MODIFIERS: [&str; 4] = ["ctrl-", "alt-", "shift-", "cmd-"];
 
 /// The keys the user pressed, as SHORTCUTS writes them: the one GPUI matches first, then the one
 /// a page names, where they differ.
@@ -170,9 +221,6 @@ pub fn recorded(keystroke: &Keystroke) -> Result<Vec<String>, Refused> {
     let modifiers = &keystroke.modifiers;
     let key = keystroke.key.as_str();
     let function = key.strip_prefix('f').is_some_and(|number| number.parse::<u8>().is_ok());
-    if !modifiers.control && !modifiers.platform && !function {
-        return Err(Refused::Plain);
-    }
     let text = |shift: bool| {
         let mut text = String::new();
         for (held, name) in [
@@ -185,13 +233,14 @@ pub fn recorded(keystroke: &Keystroke) -> Result<Vec<String>, Refused> {
                 text.push_str(name);
             }
         }
-        text + key
+        written_as(&(text + key))
     };
     let mut keys = vec![text(modifiers.shift)];
     if !modifiers.shift && key.chars().count() == 1 && SHIFTED.contains(key) {
         keys.push(text(true));
     }
-    keys.retain(|key| valid(key));
+    // Without ⌘ or ⌃, the Mac's way, it would type.
+    keys.retain(|key| valid(key) && (function || key.contains("ctrl-") || key.contains("cmd-")));
     match keys.is_empty() {
         true => Err(Refused::Plain),
         false => Ok(keys),
@@ -345,11 +394,11 @@ pub fn change_keys<R>(cx: &mut App, change: impl FnOnce(&mut UserKeys) -> R) -> 
     // disables the earlier ones, for keystrokes and for the menus' key equivalents, and the
     // bindings after it win again.
     let old = changed.iter().flat_map(|&command| before.keys(command));
-    let old: Vec<KeyBinding> = old.filter_map(|key| binding(key, Box::new(NoAction), cx)).collect();
+    let old: Vec<KeyBinding> = old.flat_map(|key| bindings_of(key, Box::new(NoAction), cx)).collect();
     let app: &App = cx;
     let new = changed.iter().flat_map(|&command| {
         let keys = after.keys(command).into_iter();
-        keys.filter_map(move |key| binding(key, Box::new(Run(command)), app))
+        keys.flat_map(move |key| bindings_of(key, Box::new(Run(command)), app))
     });
     let new: Vec<KeyBinding> = new.collect();
     cx.bind_keys(old);
@@ -376,7 +425,7 @@ pub fn change_keys<R>(cx: &mut App, change: impl FnOnce(&mut UserKeys) -> R) -> 
 /// GPUI's bindings for the keys the store has now.
 pub(super) fn key_bindings(cx: &App) -> Vec<KeyBinding> {
     (user_keys(cx).bindings().into_iter())
-        .filter_map(|(key, command)| binding(key, Box::new(Run(command)), cx))
+        .flat_map(|(key, command)| bindings_of(key, Box::new(Run(command)), cx))
         .collect()
 }
 
@@ -482,15 +531,41 @@ mod tests {
     }
 
     /// A rebound key runs its command, and the key it had runs nothing.
+    /// Off the Mac, ⌘ is Ctrl and ⌃ is Alt, except where Chrome or the desktop keeps the key.
     #[test]
-    fn ctrl_does_what_cmd_does_off_the_mac() {
+    fn ctrl_is_cmd_and_alt_is_ctrl_off_the_mac() {
+        let pressed = |key| pressed_off_the_mac(key);
+        assert_eq!(pressed("cmd-t"), ["ctrl-t"]);
+        assert_eq!(pressed("ctrl-2"), ["alt-2"]);
+        assert_eq!(pressed("ctrl-shift-="), ["alt-shift-="]);
+        assert_eq!(pressed("alt-cmd-down"), ["ctrl-alt-down"]);
+        assert_eq!(pressed("ctrl-tab"), ["ctrl-tab"]);
+        assert_eq!(pressed("cmd-left"), ["ctrl-left", "alt-left"]);
+        assert!(pressed("ctrl-left").is_empty() && pressed("ctrl-alt-k").is_empty());
         assert_eq!(written_off_the_mac("ctrl-t"), "cmd-t");
+        assert_eq!(written_off_the_mac("alt-2"), "ctrl-2");
         assert_eq!(written_off_the_mac("ctrl-alt-shift-c"), "alt-shift-cmd-c");
-        assert_eq!(written_off_the_mac("ctrl-1"), "cmd-1");
-        assert_eq!(written_off_the_mac("ctrl-tab"), "ctrl-tab");
-        assert_eq!(pressed_off_the_mac("shift-cmd-t").as_deref(), Some("ctrl-shift-t"));
-        assert_eq!(pressed_off_the_mac("ctrl-tab").as_deref(), Some("ctrl-tab"));
-        assert_eq!(pressed_off_the_mac("ctrl-1"), None);
+        assert_eq!(written_off_the_mac("ctrl-alt-f"), "ctrl-cmd-f");
+        assert_eq!(written_off_the_mac("ctrl-shift-tab"), "ctrl-shift-tab");
+        assert_eq!(written_off_the_mac("alt-left"), "cmd-left");
+        assert_eq!(written_off_the_mac("cmd-t"), "super-t");
+    }
+
+    /// Every default key has a way to press it off the Mac that reads back as it, and no two
+    /// commands share one.
+    #[test]
+    fn the_shortcuts_keep_their_keys_off_the_mac() {
+        let mut taken: Vec<(String, Command)> = Vec::new();
+        for &(key, command, _) in SHORTCUTS {
+            let pressed = pressed_off_the_mac(key);
+            assert_eq!(pressed.first().map(|first| written_off_the_mac(first)).as_deref(), Some(key));
+            for each in pressed {
+                match taken.iter().find(|(other, _)| *other == each) {
+                    Some(&(_, other)) => assert_eq!(other, command, "{each}"),
+                    None => taken.push((each, command)),
+                }
+            }
+        }
     }
 
     #[test]
