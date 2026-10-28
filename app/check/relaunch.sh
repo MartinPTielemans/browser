@@ -27,9 +27,9 @@ launch_logged() {
   log="$1"
   step=0
   if [ -n "${2:-}" ]; then
-    BROWSER_DRIVE=1 BROWSER_URL="$2" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+    BROWSER_DRIVE=1 BROWSER_URL="$2" "$browser" < "$out/drive" > "$log" 2>&1 &
   else
-    BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+    BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
   fi
   pid=$!
   exec 3> "$out/drive"

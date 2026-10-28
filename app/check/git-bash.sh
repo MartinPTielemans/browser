@@ -1,0 +1,41 @@
+# What the runs use from the Mac that Git Bash lacks or has only for its own processes. check.sh
+# sources it on Windows.
+
+# The ids of the Windows processes whose command line, its backslashes as slashes, matches $1, as
+# pgrep -f finds them. Git Bash's ps shows a native process's executable, never its arguments.
+windows_procs() {
+  PATTERN="$1" powershell.exe -NoProfile -NonInteractive -Command '
+    Get-CimInstance Win32_Process | Where-Object {
+      $_.CommandLine -and ($_.CommandLine -replace "\\", "/") -match $env:PATTERN
+    } | ForEach-Object { $_.ProcessId }' | tr -d '\r'
+}
+# pgrep -f and pkill [-9 | -KILL] -f on those, ending them by id, never by image name, which would
+# reach any other Chrome too.
+pgrep() {
+  [ "$1" = -f ] || { echo "pgrep: only -f" >&2; return 2; }
+  ids=$(windows_procs "$2")
+  [ -n "$ids" ] && echo "$ids"
+}
+pkill() {
+  force=
+  case "$1" in -9 | -KILL) force=//F; shift ;; esac
+  [ "$1" = -f ] || { echo "pkill: only -f" >&2; return 2; }
+  ids=$(windows_procs "$2")
+  [ -n "$ids" ] || return 1
+  for id in $ids; do
+    taskkill $force //PID "$id" > /dev/null 2>&1 || true
+  done
+}
+# Runs the app. A native program can't read Git Bash's fifo, so cat passes the driver's commands on
+# through a pipe, and exec keeps $! the app's, whose Windows id is in /proc/$!/winpid.
+windows_browser() {
+  exec "$app/chrome.exe" "$@" < <(cat)
+}
+# Writes the image $1 as the BMP $2, as sips does on the Mac.
+to_bmp() {
+  IN="$(cygpath -w "$1")" OUT="$(cygpath -w "$2")" powershell.exe -NoProfile -NonInteractive \
+    -Command 'Add-Type -AssemblyName System.Drawing
+      $image = [System.Drawing.Image]::FromFile($env:IN)
+      $image.Save($env:OUT, [System.Drawing.Imaging.ImageFormat]::Bmp)
+      $image.Dispose()'
+}

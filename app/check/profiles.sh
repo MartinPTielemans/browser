@@ -27,7 +27,7 @@ cookie_page="$(echo "$site" | sed 's/127\.0\.0\.1/localhost/')profile.html"
 log="$out/profiles.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$cookie_page" "$app/Contents/MacOS/Browser" \
+BROWSER_DRIVE=1 BROWSER_URL="$cookie_page" "$browser" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -163,7 +163,7 @@ quit
 # Launched again, each Space is in its profile, and each tab loads in its own.
 log="$out/profiles-restored.log"
 step=0
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Spaces"

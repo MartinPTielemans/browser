@@ -25,14 +25,14 @@ document.getElementById("opens").onclick = () => open("https://example.com/");
 document.getElementById("field").oninput = e => document.title = e.target.value;
 // A popup needs a user gesture, which a key press is.
 addEventListener("keydown", e =>
-  e.key == "p" && !e.metaKey && open("https://example.com/", "", "popup,width=400,height=300"));
+  e.key == "p" && !e.'"$cmd_key"' && open("https://example.com/", "", "popup,width=400,height=300"));
 addEventListener("keydown", e =>
-  e.key == "f" && !e.metaKey && document.documentElement.requestFullscreen());
+  e.key == "f" && !e.'"$cmd_key"' && document.documentElement.requestFullscreen());
 </script>'
 log="$out/popup.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="$page" "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 BROWSER_URL="$page" "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -233,7 +233,7 @@ quit
 # After the relaunch, the third link's tab is back with the link's address, and loads once shown.
 log="$out/popup-relaunch.log"
 step=0
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Spaces"
@@ -270,7 +270,7 @@ onmessage = e => {
 };
 // A popup needs a user gesture, which a key press is.
 onkeydown = e => {
-  if (e.key != "o" || e.metaKey) {
+  if (e.key != "o" || e.'"$cmd_key"') {
     return;
   }
   const popup = open("http://localhost:" + location.port + "/consent.html", "",
@@ -301,7 +301,7 @@ close();
 log="$out/popup-sign-in.log"
 step=0
 rm -f "$saved" "$launch_frame"
-BROWSER_DRIVE=1 BROWSER_URL="${site}sign-in-page.html" "$app/Contents/MacOS/Browser" \
+BROWSER_DRIVE=1 BROWSER_URL="${site}sign-in-page.html" "$browser" \
   < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"

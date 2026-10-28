@@ -11,7 +11,7 @@ step=0
 rm -f "$saved" "$launch_frame"
 # The user's tab, as the first run opens none.
 BROWSER_DRIVE=1 BROWSER_URL='https://en.wikipedia.org/wiki/Arc_(web_browser)' \
-  "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+  "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await_load
@@ -85,7 +85,7 @@ quit
 # Launched again, the agent's Space comes back the agent's, with its tab, and the user's the user's.
 log="$out/agents-restored.log"
 step=0
-BROWSER_DRIVE=1 "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
+BROWSER_DRIVE=1 "$browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
 await '^browser: restored in ' || fail "the relaunch didn't restore the Spaces"
