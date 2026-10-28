@@ -57,6 +57,21 @@ void* host_ui_view(void);
 // runs inside it (gpui_linux::embed).
 void host_watch_fd(int fd, void (*ready)(void));
 
+// Linux only: |window| is the core's id for the browser window of |ui_view|. The window is
+// Chromium's, so the calls below that act on it go through the core.
+void host_window_opened(void* ui_view, uint64_t window);
+
+// Linux only: the browser window of |ui_view| has closed, for the watches below.
+void host_window_closed(void* ui_view);
+
+// Linux only: GPUI's window in |ui_view| became active, or stopped being, for the watches below.
+// With |whole_window|, as under Wayland, that's the browser window's having the keyboard; on X11
+// GPUI hears only of its own window's, which the page's taking the keyboard ends.
+void host_window_active(void* ui_view, bool active, bool whole_window);
+
+// Linux only: a capture's file name, as the Mac's save panel offers it.
+void host_capture_name(char* name, size_t capacity);
+
 // Shows the window holding |ui_view| in front, with its title bar over the UI, and makes the
 // app the active one.
 void host_show_window(void* ui_view);
