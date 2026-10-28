@@ -15,6 +15,9 @@ git clone -q -c advice.detachedHead=false -c core.autocrlf=false --depth 1 --bra
   https://github.com/ungoogled-software/ungoogled-chromium-windows.git "$ucw"
 . "$engine/tree.sh"
 check_ungoogled "$ucw/ungoogled-chromium" "ungoogled-chromium-windows $ucw_tag"
+# PlayReady, which Chromium turns on only for Chrome's own builds, plays protected video on
+# Windows (decision 1). build.py writes this file's args after ungoogled-chromium's.
+printf '\nenable_playready=true\n' >>"$ucw/flags.windows.gn"
 
 # Each hook replaces a line build.py has at this tag, and fails if it's gone.
 hook() {

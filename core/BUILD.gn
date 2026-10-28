@@ -104,6 +104,7 @@ source_set("browser_core") {
     "permission_question.h",
     "platform/keychain.h",
     "platform/native_hosts.h",
+    "platform/playready.h",
     "platform/system_page.h",
     "platform/window_views.h",
     "popular_sites.cc",
@@ -284,10 +285,15 @@ source_set("browser_core") {
     sources += [
       "platform/native_hosts_win.cc",
       "platform/win/app_library.cc",
+      "platform/win/playready.cc",
       "platform/win/window_views.cc",
     ]
+    deps += [ "//components/cdm/common:buildflags" ]
   } else {
-    sources += [ "platform/native_hosts_posix.cc" ]
+    sources += [
+      "platform/native_hosts_posix.cc",
+      "platform/playready_none.cc",
+    ]
   }
   if (is_linux) {
     sources += [

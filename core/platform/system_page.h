@@ -1,7 +1,7 @@
-// A page shown by the system's own web view in place of Chromium's: WebKit's on the Mac, and later
-// WebView2 on Windows. A tab switches to one for a site whose protected video only the system's
-// engine plays (docs/decisions.md, decision 1). The tab keeps its id, its Space and its place;
-// only its pane's view and what it reports come from here.
+// A page shown by the system's own web view in place of Chromium's: WebKit's on the Mac. A tab
+// switches to one for a site whose protected video only the system's engine plays
+// (docs/decisions.md, decision 1). The tab keeps its id, its Space and its place; only its pane's
+// view and what it reports come from here.
 
 #ifndef BROWSER_CORE_PLATFORM_SYSTEM_PAGE_H_
 #define BROWSER_CORE_PLATFORM_SYSTEM_PAGE_H_

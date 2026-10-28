@@ -596,12 +596,14 @@ typedef struct bc_host {
   void (*window_side_panel)(void* context, bc_id window, const bc_side_panel* panel);
   // A page of |tab| asked for a protected-media key system ilo can't play, such as Widevine, which
   // Netflix and Spotify play their video with: |key_system| is "com.widevine.alpha" or
-  // "com.microsoft.playready", never the page's own string. Once for each key system a document
-  // asks for, unless it's the one the app was last told. It comes with an empty |key_system| once
-  // the tab goes to another site, or once bc_tab_set_system_engine switches it: the note it asks
-  // for is gone. bc_tab_set_system_engine answers it where bc_system_engine_available. Never at a
-  // site whose note the user closed (bc_tab_close_media_note). Agents get none: the note hands the
-  // user's page to another engine or app.
+  // "com.microsoft.playready", never the page's own string. Once for each key system a document is
+  // refused, unless it's the one the app was last told, and never once a page at the site was given
+  // one, as a site may ask for Widevine and then play with PlayReady on Windows. It comes with an
+  // empty |key_system| once the tab goes to another site, or once bc_tab_set_system_engine switches
+  // it: the note it asks for is gone. bc_tab_set_system_engine answers it where
+  // bc_system_engine_available. Never at a site whose note the user closed
+  // (bc_tab_close_media_note). Agents get none: the note hands the user's page to another engine or
+  // app.
   void (*tab_media_unsupported)(void* context, bc_id tab, const char* key_system);
   // Google's Widevine module is now |state|, a BC_WIDEVINE_ value (bc_widevine).
   void (*widevine_changed)(void* context, int state);
@@ -1367,6 +1369,22 @@ BC_EXPORT void bc_widevine_download(void);
 // module the browser loaded plays until it restarts. Then widevine_changed with
 // BC_WIDEVINE_ABSENT. The user's: agents get none.
 BC_EXPORT void bc_widevine_remove(void);
+
+// What PlayReady, which Windows plays these sites with in Chromium, needs that this PC may lack,
+// for the protected-media note to say why a site was refused. It plays on Windows 11 on an x64 PC
+// whose graphics have PlayReady's hardware DRM (security level 3000), outside private windows,
+// which can't keep its licences. Chromium finds the hardware out only as a page asks, so this
+// names what it can rule out first.
+// - BC_PLAYREADY_NONE: no PlayReady here, off Windows: the note says nothing of it.
+// - BC_PLAYREADY_WINDOWS_11: Windows 10, which Chromium's PlayReady doesn't run on.
+// - BC_PLAYREADY_X64: an ARM PC, which runs the browser emulated and has no PlayReady for it.
+// - BC_PLAYREADY_HARDWARE: Windows 11 on x64, so the graphics have no hardware DRM, or Chromium
+//   turned it off after it failed.
+#define BC_PLAYREADY_NONE 0
+#define BC_PLAYREADY_WINDOWS_11 1
+#define BC_PLAYREADY_X64 2
+#define BC_PLAYREADY_HARDWARE 3
+BC_EXPORT int bc_playready_needs(void);
 
 // Opens the tab's find bar, if it isn't open, with the text it had when it last closed, else the
 // text last found in another of the profile's tabs. Text selected in the page takes its place, as

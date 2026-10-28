@@ -6,7 +6,8 @@
 
 namespace browser_core::platform {
 
-// No system engine yet off the Mac: WebView2 on Windows comes later (decision 1).
+// No system engine off the Mac: Windows plays protected video with Chromium's own PlayReady
+// (decision 1).
 
 bool SystemPage::Available() {
   return false;
