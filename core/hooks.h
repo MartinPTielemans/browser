@@ -129,6 +129,12 @@ extern void (*g_browser_core_page_hung)(content::WebContents* contents,
 // game is going. Only the error document in the tab's main frame can say it.
 extern void (*g_browser_core_offline_game)(content::WebContents* contents, bool running);
 
+// chrome/browser/ui/tabs/tab_strip_model.cc: whether |contents| and |other| are tabs of one of the
+// core's split views, between which a switch isn't timed, as Chrome doesn't time one between the
+// tabs of its own split: both pages are on screen already.
+extern bool (*g_browser_core_split_together)(content::WebContents* contents,
+                                             content::WebContents* other);
+
 // chrome/browser/extensions/api/messaging/launch_context.cc: the manifest of the native messaging
 // host |name| when neither the browser's user folder nor its system one has it, or an empty path.
 // Runs where Chrome looks in its own, on a thread that may block.

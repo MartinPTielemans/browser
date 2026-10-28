@@ -225,6 +225,7 @@ void Install(const bc_host& host) {
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
+  g_browser_core_split_together = &Window::SplitTogether;
   g_browser_core_find_native_host = &FindNativeHost;
   g_browser_core_login_handler = &SignInDialog::Create;
   g_browser_core_external_protocol_dialog = &OpenAppDialog::Ask;
