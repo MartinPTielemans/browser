@@ -1,0 +1,35 @@
+Lets the core find a native messaging host that only another Chromium browser's folders hold
+(//browser_core/hooks.h). Desktop apps such as 1Password and Bitwarden write their host's
+manifest only into the folders of browsers they know, so an extension in ours can't reach its
+app. When neither the browser's user folder nor its system folder has the manifest, and user-level
+hosts are allowed, the core looks in Chrome's, Edge's, Brave's, Arc's and Vivaldi's. The manifest
+is then read and checked as Chrome checks its own: its allowed_origins still decide which
+extensions may connect.
+
+--- a/chrome/browser/extensions/api/messaging/launch_context.cc
++++ b/chrome/browser/extensions/api/messaging/launch_context.cc
+@@ -37,6 +37,11 @@
+ #include "components/app_launch_prefetch/app_launch_prefetch.h"
+ #include "net/base/file_stream.h"
+ 
++// browser_core: the core finds a host that only another Chromium browser's
++// folders hold (//browser_core/hooks.h).
++base::FilePath (*g_browser_core_find_native_host)(const std::string& name) =
++    nullptr;
++
+ namespace extensions {
+ 
+ namespace {
+@@ -143,6 +148,12 @@
+   std::string error_message;
+   base::FilePath manifest_path =
+       FindManifest(native_host_name, allow_user_level_hosts, error_message);
++  // browser_core: those folders are the user's, as the browser's own user
++  // folder is, so only where user-level hosts are allowed.
++  if (manifest_path.empty() && allow_user_level_hosts &&
++      g_browser_core_find_native_host) {
++    manifest_path = g_browser_core_find_native_host(native_host_name);
++  }
+ 
+   if (manifest_path.empty()) {
+     LOG(WARNING) << "Can't find manifest for native messaging host "
