@@ -34,6 +34,7 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/reload_type.h"
 #include "content/public/browser/web_contents.h"
+#include "extensions/browser/api/web_request/web_request_api_helpers.h"
 #include "extensions/browser/disable_reason.h"
 #include "extensions/browser/extension_prefs.h"
 #include "extensions/browser/extension_registrar.h"
@@ -333,6 +334,11 @@ void SetAdBlockingOnSite(content::WebContents* contents, bool on) {
   prefs->UpdateExtensionPref(kId, kOffSitesPref, base::Value(std::move(sites)));
   ApplyOffSites(profile,
                 *extensions::ExtensionRegistry::Get(profile)->enabled_extensions().GetByID(kId));
+  // What a page takes from its renderer's memory cache never reaches uBlock Origin, so the
+  // reloaded page would run the ad script it loaded while blocking was off. Chrome empties those
+  // caches as an extension adds a request listener, which turning blocking on in Settings does, but
+  // not as a site's host restrictions change.
+  extension_web_request_api_helpers::ClearCacheOnNavigation();
   contents->GetController().Reload(content::ReloadType::NORMAL, /*check_for_repost=*/true);
 }
 
