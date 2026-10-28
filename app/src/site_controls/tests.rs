@@ -16,6 +16,8 @@ struct Recorder {
     tips: RefCell<Vec<String>>,
     /// The index the next menu answers with.
     answer: Cell<Option<usize>>,
+    /// The system has no share sheet, as on Linux.
+    no_share_sheet: bool,
 }
 
 impl Recorder {
@@ -100,6 +102,9 @@ impl Host for Recorder {
             None => "none".into(),
         });
     }
+    fn has_share_sheet(&self) -> bool {
+        !self.no_share_sheet
+    }
 }
 
 const TAB: u64 = 7;
@@ -166,7 +171,17 @@ impl Panel {
     }
 
     fn at(cx: &mut TestAppContext, place: Place, window: Size<Pixels>, site: Site) -> Self {
-        let host = Rc::new(Recorder::default());
+        Panel::on(Recorder::default(), cx, place, window, site)
+    }
+
+    fn on(
+        host: Recorder,
+        cx: &mut TestAppContext,
+        place: Place,
+        window: Size<Pixels>,
+        site: Site,
+    ) -> Self {
+        let host = Rc::new(host);
         let panel = cx.update(|cx| open(host.clone(), cx));
         let panel = panel.expect("no window for the Site Controls");
         let cx = VisualTestContext::from_window(panel.into(), cx);
@@ -317,6 +332,24 @@ fn share_hangs_its_menu_from_its_tile(cx: &mut TestAppContext) {
     panel.calls();
     panel.click(SHARE);
     panel.ran("share 98 101 48 32");
+}
+
+/// Without a share sheet, as on Linux, there's no Share tile to do nothing: the captures close
+/// up from the left, in its place and the next, and the third place is empty.
+#[gpui::test]
+fn share_is_left_out_where_the_system_cant_share(cx: &mut TestAppContext) {
+    let host = Recorder { no_share_sheet: true, ..Recorder::default() };
+    let mut panel = Panel::on(host, cx, under_button(), window(), site());
+    panel.calls();
+    panel.hover(SHARE);
+    panel.hover(CAPTURE);
+    panel.hover(CAPTURE_FULL_PAGE);
+    assert_eq!(
+        panel.host.tips.take(),
+        ["Capture a Portion of This Page at 122 133", "Capture Full Page at 178 133", "none"]
+    );
+    panel.click(CAPTURE);
+    panel.ran("CaptureFullPage");
 }
 
 /// The capture tiles close the panel first, so the picture has none of it, then ask for what

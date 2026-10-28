@@ -603,6 +603,12 @@ fn set_frames(
     unsafe { bc::bc_window_set_side_panel_frame(window, rect(panel)) };
 }
 
+/// Whether host_share opens a share sheet, which the tab menu's Share… and Site Controls' Share
+/// tile both ask. Linux's host has none yet.
+fn has_share_sheet() -> bool {
+    cfg!(any(target_os = "macos", target_os = "windows"))
+}
+
 /// Opens the system's share sheet in `window` for the page at `url`, hanging from `frame`.
 fn share_page(window: &BrowserWindow, url: &str, title: &str, frame: Bounds<Pixels>) {
     let (Ok(url), Ok(title)) = (CString::new(url), CString::new(title)) else {
@@ -831,6 +837,10 @@ impl site_controls::Host for SiteControlsHost {
             Some((text, anchor)) => tooltip::hover(tooltip::Tip::named(text), anchor, cx),
             None => tooltip::dismiss(cx),
         }
+    }
+
+    fn has_share_sheet(&self) -> bool {
+        has_share_sheet()
     }
 }
 
@@ -2032,9 +2042,8 @@ impl Browser for Engine {
         }
     }
 
-    // Linux's host has no share sheet yet.
     fn has_share_sheet(&self) -> bool {
-        cfg!(any(target_os = "macos", target_os = "windows"))
+        has_share_sheet()
     }
 
     fn show_share_sheet(&self, tab: u64, url: &str, title: &str, at: Point<Pixels>, cx: &mut App) {
