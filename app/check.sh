@@ -14,8 +14,10 @@
 # Leaves window captures and logs in build/check/. Build first with ./build.sh.
 # On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
 # Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
-# windows and input then never reach the owner's session. The runs need what Linux has yet:
-# load, and history, keys and tabs among the driven ones. Captures are the session's whole output.
+# windows and input then never reach the owner's session. Of the runs, load and history pass
+# there so far; the others stop where they need what Linux hasn't yet, such as ilo's menus and IME.
+# Captures are the session's whole output. BROWSER_PROFILE_DIR gives the app and the runs another
+# profile directory, such as a new one for each run.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
@@ -39,12 +41,12 @@ if [ "$(uname)" = Linux ]; then
   app="$PWD/build/Browser"
   browser="$app/chrome"
   procs="$app/chrome"
-  profile_dir="$HOME/.cache/browser-app"
+  profile_dir="${BROWSER_PROFILE_DIR:-$HOME/.cache/browser-app}"
 else
   app="$PWD/build/Browser.app"
   browser="$app/Contents/MacOS/Browser"
   procs="$app/Contents"
-  profile_dir="$HOME/Library/Caches/browser-app"
+  profile_dir="${BROWSER_PROFILE_DIR:-$HOME/Library/Caches/browser-app}"
 fi
 # Another Browser holds the profile directory, so this one couldn't start.
 if pgrep -f "$procs" > /dev/null; then
