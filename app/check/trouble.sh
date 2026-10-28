@@ -82,6 +82,7 @@ expect '^browser: toast hidden$' "the note stayed once the page answered"
 
 # Wait gives it Chrome's timeout again, which the page answers within.
 hang "wait"
+send move $toast_wait
 send click $toast_wait
 expect '^browser: toast button wait$' "Wait wasn't pressed at $toast_wait"
 expect "^browser: page $tab trouble fine\$" "Wait didn't make the page fine"
@@ -90,6 +91,7 @@ none_since "page $tab trouble hung" || fail "the page was called hung again with
 
 # Reload ends the renderer and loads the page again, without the crash card.
 hang "reload"
+send move $toast_reload
 send click $toast_reload
 expect '^browser: toast button reload$' "Reload wasn't pressed at $toast_reload"
 expect "browser: tab $tab page gone" "Reload didn't end the hung renderer"
