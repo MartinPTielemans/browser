@@ -13,7 +13,7 @@ empty_profile="Profile › Default (checked), Profile › New Profile"
 app_name=$(cat branding/name)
 # The KeyboardEvent property a page reads ⌘ from, which off the Mac is pressed with Ctrl (keys.rs).
 cmd_key=metaKey
-windows && cmd_key=ctrlKey
+{ windows || [ "$(uname)" = Linux ]; } && cmd_key=ctrlKey
 # Points from the window's top-left corner. The sidebar is 228 wide.
 page_point="600 400"
 sidebar_point="100 400"
@@ -58,7 +58,7 @@ exited() {
     sleep 0.5
   done
   if kill -0 "$pid" 2>/dev/null; then
-    windows || sample "$pid" 2 -file "$out/hang.txt" > /dev/null 2>&1
+    windows || [ "$(uname)" = Linux ] || sample "$pid" 2 -file "$out/hang.txt" > /dev/null 2>&1
     fail "the app didn't quit. Where it was: $out/hang.txt"
   fi
   wait "$pid" || fail "the app exited with status $?"
@@ -74,10 +74,12 @@ exited() {
 }
 # A quit Apple Event goes through -[NSApplication terminate:], the way macOS quits apps when the
 # user logs out. On Windows taskkill without /F closes the app's windows, as the user would, and
-# Chromium quits with its last one.
+# Chromium quits with its last one. On Linux SIGTERM is that way, which Chromium takes for a quit.
 quit_app() {
   if windows; then
     taskkill //PID "$(cat "/proc/$pid/winpid")" > /dev/null
+  elif [ "$(uname)" = Linux ]; then
+    kill -TERM "$pid"
   else
     osascript -e 'tell application id "dev.browser.app" to quit'
   fi
@@ -87,7 +89,8 @@ quit() {
   exited "$@"
 }
 
-# Sends a command to the app's driver (platform/mac/drive.mm, platform/windows/drive.cc) and waits
+# Sends a command to the app's driver (platform/mac/drive.mm, platform/windows/drive.cc,
+# platform/linux/drive.rs) and waits
 # until the app has handled it.
 send() {
   step=$((step + 1))
@@ -309,6 +312,8 @@ served() {
 pixel() {
   if windows; then
     to_bmp "$1" "$out/pixel.bmp" || fail "PowerShell couldn't read $1"
+  elif [ "$(uname)" = Linux ]; then
+    magick "$1" BMP3:"$out/pixel.bmp" || fail "ImageMagick couldn't read $1"
   else
     sips -s format bmp "$1" --out "$out/pixel.bmp" > /dev/null || fail "sips couldn't read $1"
   fi

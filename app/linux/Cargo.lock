@@ -650,6 +650,7 @@ dependencies = [
  "gpui_linux",
  "gpui_platform",
  "raw-window-handle",
+ "x11rb",
 ]
 
 [[package]]
