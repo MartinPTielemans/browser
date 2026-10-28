@@ -65,6 +65,7 @@ source_set("browser_core") {
     "permission_question.cc",
     "permission_question.h",
     "platform/keychain.h",
+    "platform/native_hosts.h",
     "platform/system_page.h",
     "platform/window_views.h",
     "popular_sites.cc",
@@ -212,5 +213,10 @@ source_set("browser_core") {
     }
   } else {
     sources += [ "platform/system_page_none.cc" ]
+  }
+  if (is_win) {
+    sources += [ "platform/native_hosts_win.cc" ]
+  } else {
+    sources += [ "platform/native_hosts_posix.cc" ]
   }
 }

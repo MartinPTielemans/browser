@@ -1,5 +1,6 @@
 #include "browser_core/main_delegate.h"
 
+#include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
@@ -16,6 +17,7 @@
 #include "browser_core/password_offer.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/platform/keychain.h"
+#include "browser_core/platform/native_hosts.h"
 #include "browser_core/profiles.h"
 #include "browser_core/session.h"
 #include "browser_core/system_engine.h"
@@ -65,6 +67,17 @@ void OpenLinks(const std::vector<GURL>& urls) {
   g_host.open_links(g_host.context, links.data(), links.size());
 }
 #endif
+
+// A host's manifest from another browser's folders, said in the log, as the user can't see where
+// a host came from.
+base::FilePath FindNativeHost(const std::string& name) {
+  base::FilePath manifest = platform::FindOtherBrowsersNativeHost(name);
+  if (!manifest.empty()) {
+    fprintf(stderr, "browser: native host %s from %s\n", name.c_str(),
+            manifest.DirName().AsUTF8Unsafe().c_str());
+  }
+  return manifest;
+}
 
 // Keeps the browser process up while it has no windows, which Chrome would otherwise quit at, and
 // tells the app when it can call in and when it has to stop.
@@ -160,6 +173,7 @@ int Run(int argc, const char** argv, const bc_host& host) {
 #endif
   g_browser_core_page_hung = &Tab::PageHung;
   g_browser_core_offline_game = &Tab::GameRunning;
+  g_browser_core_find_native_host = &FindNativeHost;
   return ChromeMain(argc, argv);
 }
 

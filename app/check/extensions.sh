@@ -10,7 +10,8 @@
 # opens Chrome's extensions page. An extension's keyboard commands run with the page focused and
 # with the UI, but a key it suggests doesn't take one of the browser's. An extension's side panel
 # opens from its action as a card right of the page, drags from its left edge to resize, closes
-# from its header's ✕ and ⋯ menu, and goes as its tab does. Chrome asks whether to add
+# from its header's ✕ and ⋯ menu, and goes as its tab does. An extension reaches a desktop app's
+# native messaging host that only another Chromium browser's folder has. Chrome asks whether to add
 # an extension with the browser's dialog, which lists what Chrome warns it can do: escape cancels,
 # and return adds it. Add Extension… opens the Web Store in a new tab.
 
@@ -340,6 +341,67 @@ quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
 echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/side-panel.png, $out/side-panel-resized.png"
+
+# A desktop app's native messaging host that only another Chromium browser's folder has, as
+# 1Password writes its own only for the browsers it knows. The launch has a home of its own, with
+# the host in its Chrome Beta folder and a profile without one, so no folder of the owner's is read.
+# A click on the extension's action asks the host, whose answer opens a page.
+home="$PWD/$out/native-home"
+rm -rf "$home"
+host_dir="$home/Library/Application Support/Google/Chrome Beta/NativeMessagingHosts"
+mkdir -p "$host_dir" "$home/extension" "$home/profile"
+cat > "$home/host.sh" << 'EOF'
+#!/bin/sh
+# One answer in native messaging's framing: its length, 11, in four bytes, then the JSON.
+printf '\013\000\000\000{"ok":true}'
+cat > /dev/null
+EOF
+chmod +x "$home/host.sh"
+cat > "$home/extension/manifest.json" << 'EOF'
+{"manifest_version": 3, "name": "Check Native", "version": "1", "action": {},
+ "permissions": ["nativeMessaging"], "background": {"service_worker": "background.js"}}
+EOF
+cat > "$home/extension/background.js" << 'EOF'
+chrome.action.onClicked.addListener(() =>
+  chrome.runtime.sendNativeMessage("dev.browser.check", {}, answer =>
+    chrome.tabs.create({url: answer && answer.ok ? "answered.html" : "unanswered.html"})));
+EOF
+echo '<title>answered</title>' > "$home/extension/answered.html"
+echo '<title>unanswered</title>' > "$home/extension/unanswered.html"
+log="$out/native-host.log"
+step=0
+HOME="$home" BROWSER_DRIVE=1 BROWSER_URL="$page" BROWSER_PROFILE_DIR="$home/profile" \
+  "$app/Contents/MacOS/Browser" --load-extension="$home/extension" \
+  < "$out/drive" > "$log" 2>&1 &
+pid=$!
+exec 3> "$out/drive"
+await_load
+await '^browser: extensions menu [a-p]*$' || fail "the Extensions menu didn't list Check Native"
+native=$(grep -m1 '^browser: extensions menu [a-p]*$' "$log" | cut -d' ' -f4)
+# The host allows only the extension, whose id comes from its folder.
+printf '{"name": "dev.browser.check", "description": "Check", "path": "%s", "type": "stdio",
+ "allowed_origins": ["chrome-extension://%s/"]}\n' "$home/host.sh" "$native" \
+  > "$host_dir/dev.browser.check.json"
+# As Check Clicked's, the script's listener comes once it has run.
+heard='^browser: native host dev.browser.check from '
+for _ in $(seq 10); do
+  send menu "Check Native"
+  expect "^browser: run extension $native ran\$" "Check Native didn't run from the Extensions menu"
+  for _ in $(seq 20); do
+    none_since "$heard" || break 2
+    sleep 0.1
+  done
+done
+none_since "$heard" && fail "the browser didn't find the host in Chrome Beta's folder"
+grep -qxF "browser: native host dev.browser.check from $host_dir" "$log" ||
+  fail "the host came from another folder: $(grep "$heard" "$log")"
+await "^browser: loaded [0-9]* chrome-extension://$native/answered.html\$" ||
+  fail "Check Native didn't hear the host's answer: $(grep -o 'chrome-extension://[^ ]*' "$log" |
+    sort -u | tr '\n' ' ')"
+quit_by_key
+await '^browser: command quit via ' || fail "⌘Q didn't quit"
+exited
+echo "ok: an extension reaches a native messaging host that only Chrome Beta's folder has, and hears its answer."
 
 # An extension's .crx from the served page, which Chrome installs from off the Web Store with
 # ungoogled-chromium's flag, asking first. It's added in a profile of the launch's own, which the
