@@ -16,27 +16,23 @@ use super::{Command, Shell, Swipe};
 /// the ring has closed (Arc on video: the fingers 333 pt across).
 const NEW_SPACE_READY: f32 = 22.7;
 const RING_FULL: f32 = 22.;
-/// The circle: across, its white ring, and the line of the sidebar's colour inside the ring.
-const CIRCLE: f32 = 30.;
-const RING: f32 = 2.5;
-const CUT: f32 = 0.5;
+use crate::tokens::shell::new_space::CIRCLE;
+use crate::tokens::shell::new_space::RING;
+use crate::tokens::shell::new_space::CUT;
 /// The circle's centre at rest, right of the page's edge, how much faster than the page it comes
 /// out, and how far left of the edge it stops, while the page goes on.
 const CIRCLE_START: f32 = 20.;
 const CIRCLE_SPEED: f32 = 3.1;
 const CIRCLE_INSET: f32 = 27.;
 const TRAVEL: f32 = CIRCLE_START + CIRCLE_INSET;
-/// The + on it: its arms across, and their thickness.
-const PLUS: f32 = 13.;
-const PLUS_STROKE: f32 = 1.5;
-/// The Space's colour on the circle is no lighter than this, for the white on it.
-const ACCENT_LIGHTNESS: f32 = 0.55;
-/// The circle's white has this much of the Space's colour.
-const WHITE_TINT: f32 = 0.09;
+use crate::tokens::shell::new_space::PLUS;
+use crate::tokens::shell::new_space::PLUS_STROKE;
+use crate::tokens::shell::new_space::ACCENT_LIGHTNESS;
+use crate::tokens::shell::new_space::WHITE_TINT;
 /// Readying, the white closes in on the colour to a dot over 60 ms, which shrinks into a + over
 /// 70 ms more, as the circle pops to 1.13× and back over 120 ms from 40 ms in.
 const CLOSE: f32 = 0.06;
-const DOT: f32 = 13.;
+use crate::tokens::shell::new_space::DOT;
 const MORPH: f32 = 0.07;
 const POP_AT: f32 = 0.04;
 const POP: f32 = 0.12;
@@ -45,10 +41,9 @@ const POP_SCALE: f32 = 1.13;
 const UNREADY: f32 = 0.12;
 /// Let go readied, the circle goes back under the edge over 100 ms.
 const EXIT: f32 = 0.1;
-/// The glow: its brightest white, how far left its middle reaches, and the strips it's drawn in.
-const GLOW: f32 = 0.18;
-const GLOW_WIDTH: f32 = 80.;
-const GLOW_STRIP: f32 = 4.;
+use crate::tokens::shell::new_space::GLOW;
+use crate::tokens::shell::new_space::GLOW_WIDTH;
+use crate::tokens::shell::new_space::GLOW_STRIP;
 
 /// The circle going back under the page's edge after a pull made `space`, and where the fingers
 /// left the page they pulled.

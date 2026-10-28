@@ -1,0 +1,1141 @@
+# ilo's look: colours, radii, type, elevation, state alphas, and the spacing and sizes that belong
+# to it. The code and the design file share these values. build.rs turns them into
+# `crate::tokens`, and tools/design-sync.md takes them to the design file and back.
+#
+# A table holds one surface's tokens and is named after its module, so `[shell.library]` becomes
+# `tokens::shell::library`, which `shell::library` re-exports. A key is its constant's name in
+# kebab-case. An integer is a `u32`, written in hex when it's a colour: six digits for `rgb`, eight
+# for `rgba`. A float is an `f32`, so a whole one keeps its `.0`. A one-line array of either is an
+# array. Comments right above a key become its docs.
+#
+# Timings, springs and other motion stay in the code: the design file has no motion.
+
+[capture]
+# Arc's, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen, the pill that
+# says how, and the menu.
+ring = 4.0
+ring-radius = 6.0
+ring-color = 0x151c_2fff
+# The page around what's chosen is grey, Rec. 601's luma at this much of its brightness, which
+# gives Arc's grey to the level at each of the three measured.
+dim = 0.749
+pill-width = 356.0
+pill-height = 67.0
+pill-radius = 18.0
+pill-bottom = 35.5
+pill-text-size = 14.0
+pill-text = 0x471c_9dff
+# The pill's lilac glow, fitted by eye to its edge over the grey page (interim).
+glow = 0x825a_9666
+glow-blur = 90.0
+menu-left = 10.0
+menu-width = 273.0
+menu-radius = 7.0
+menu-fill = 0x120f_2cff
+field-inset = 10.0
+field-top = 13.0
+field-height = 29.5
+field-fill = 0x2320_3bff
+field-text = 0xaaa9_b4ff
+field-text-left = 10.0
+rows-top = 7.5
+row = 40.0
+glyph = 14.0
+glyph-left = 18.0
+glyph-color = 0xffff_ff4d
+text-left = 42.0
+text-size = 14.0
+separator = 9.0
+separator-color = 0xffff_ff0f
+menu-bottom = 6.0
+# A row under the pointer, which Arc's wasn't recorded with (ours, as the app's menus' plates).
+row-hovered = 0xffff_ff14
+row-inset = 4.0
+# The menu keeps this far inside the page, where what's chosen reaches its edge (ours).
+margin = 8.0
+
+[command-bar]
+# The panel's measures, in points, from Arc's capture (docs/ux-spec.md › Command bar).
+width = 765.0
+# The input's row, down to the line under it.
+height = 64.0
+# The line under it in the bar's height: one device pixel at 2×, as Arc's is.
+line = 0.5
+# The line stops this far short of the panel's sides.
+line-inset = 12.0
+# Between the line and the first row, and under the last.
+list-top = 4.0
+list-end = 10.0
+list-x = 8.0
+row-height = 50.0
+# The selected row's plate is this far inside its row, on every side.
+plate-inset = 2.0
+plate-radius = 6.5
+# The row's icon is a 24 pt box, centred 24 in, and its title starts 43 in.
+icon-box = 24.0
+icon-box-x = 12.0
+icon-size = 16.0
+title-x = 43.0
+# The input's icon is 18 pt and 23 in; its text, 18 pt too, starts 53 in.
+input-icon = 18.0
+input-text = 18.0
+input-icon-x = 23.0
+input-text-x = 53.0
+# The hint after the input ends this far from the panel's side, 11 after the field.
+hint-end = 22.0
+hint-gap = 11.0
+# The panel's corners, which the host's blur and shadow take too.
+radius = 18.0
+# How far above the browser window's middle the panel's top is: Arc's is at y 396 of 1130 and at
+# 305.5 of 949, which no fraction of the height fits.
+above-middle = 169.0
+# A click on the URL field opens the panel over it (Arc 1.170 rec): 350 wide, its left at the
+# field's and its top 2 above, rounded as the panels anchored to the field are.
+field-width = 350.0
+field-above = 2.0
+field-radius = 12.0
+field-input-text = 14.0
+# Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
+beside-end = 70.0
+# Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
+fill = 0x1919_19db
+outline = 0x040404
+edge = 0x59595d
+line-color = 0xffff_ff1a
+title = 0xffff_ffd9
+dim = 0xffff_ff59
+# The row under the pointer while the selection is elsewhere: white 0.05, (31, 31, 31) on the
+# (19, 19, 19) panel (Arc 1.170 rec).
+hovered = 0xffff_ff0d
+placeholder = 0xffff_ff87
+caret = 0x4a77d4
+selection = 0x787d_86b3
+# A tile under an icon or a hint's key, and a command's shortcut (ours).
+chip = 0xffff_ff14
+# The arrow's tile on a row that switches to a tab.
+arrow-tile = 0xffff_ff0a
+# The accent's lightness is held to this so white reads on it (Arc's is 0.53).
+accent-lightness = 0.55
+accent = 0x4248cf
+
+[dialog]
+# Arc's, measured at 2× (docs/ux-spec.md › Spaces › Renaming and deleting). The card is centred
+# in the window. Its text is inset 38 from its top and left, and its buttons 28 from its right
+# and bottom. Arc's has its icon over the title, and ours starts with the title unless what it
+# asks about has an icon of its own, such as an extension.
+width = 450.0
+radius = 16.0
+text-inset = 38.0
+button-inset = 28.0
+title-line = 22.0
+detail-top = 15.5
+detail-line = 18.0
+# An icon over the title, such as the extension's, and the gap under it.
+icon = 32.0
+icon-gap = 16.0
+# A list under the detail, such as an extension's permission warnings, each with its smaller,
+# dimmer lines under it, indented.
+list-top = 10.0
+list-gap = 6.0
+subline = 16.0
+subline-indent = 12.0
+subline-text = 0xffff_ff8c
+buttons-top = 38.0
+# From the title's line to the buttons when there's no detail, as in Arc's ⌘Q.
+buttons-under-title = 46.0
+# Between a button at the left, such as "Quit, and don't ask again", and Cancel at least.
+also-gap = 16.0
+fill = 0x161b2f
+# A line of white 0.1 inside the card's edge, and one of black 0.5 thick outside it.
+edge = 0xffff_ff1a
+detail = 0xffff_ffc7
+# The window under the card: #151515 at 0.62.
+dim = 0x151515
+dim-opacity = 0.62
+button-height = 36.0
+button-radius = 8.0
+# A button's label starts 12 in from its left edge, and its key's chip ends 12 in from its
+# right, 8 after the label.
+label-x = 12.0
+chip-end = 12.0
+chip-gap = 8.0
+cancel-fill = 0x2f305f
+# Under the pointer it lightens, as white 0.1 over it (Arc 1.170 rec, ⌘Q's dialog).
+cancel-hovered = 0x45436f
+cancel-border = 0x6462a9
+cancel-text = 0xffff_ffe6
+# The action, which darkens under the pointer and sits on a ledge of its own colour at 0.2.
+action = 0xe1492c
+action-hovered = 0xcc4126
+action-ledge = 0xe149_2c33
+# An action that can be taken back, such as Quit, is blue, on a darker ledge. Ours darkens
+# under the pointer as the red does.
+safe-action = 0x3338f2
+safe-action-hovered = 0x2e32da
+safe-action-ledge = 0x393f92
+# An action that takes nothing back, such as adding an extension, has the Space's accent
+# instead, darker by this under the pointer.
+accent-hovered = 0.05
+chip-height = 20.0
+chip-radius = 5.0
+# White 0.14 over the button, so it lightens with it.
+esc-fill = 0xffff_ff24
+esc-text = 0xbbb9e3
+return-width = 30.0
+return-fill = 0xffff_ff1a
+return-border = 0xffff_ff45
+return-glyph = 16.0
+
+[dock-dot]
+# The icon's own green, which a Space in it leaves alone.
+green = 0x0E9F55
+
+[find-bar]
+width = 300.0
+height = 32.0
+radius = 6.0
+fill = 0x131d32
+# Arc's buttons are 28 pt, 2 pt inside the bar, previous and next 26 apart, and a 4 pt divider
+# before close. The field starts 1 pt after the search glyph's square.
+inset = 2.0
+button = 28.0
+arrow-overlap = 2.0
+divider-gap = 4.0
+field-gap = 1.0
+count-gap = 2.5
+# Ours: Arc's glyph sizes and colours aren't measured, so the header's.
+glyph = 14.0
+glyph-color = 0xffffff99
+glyph-disabled = 0xffffff42
+hovered = 0xffffff14
+divider = 0xffffff26
+divider-height = 16.0
+text = 0xffffff
+count = 0xffffff99
+# Arc's red for no match.
+not-found = 0xdb1929
+# The command bar's.
+placeholder = 0xffff_ff87
+caret = 0x4a77d4
+selection = 0x787d_86b3
+
+[icon-picker]
+# Arc's, measured at 2× (docs/ux-spec.md › Spaces › Icon). The card is square, and the window
+# holds the arrow over it too.
+width = 273.0
+card = 273.0
+# The arrow's tip is this far over the card, and its sides go down at 45° from there.
+arrow = 13.0
+# Its tip, from the card's left edge, which its left side goes down to.
+arrow-x = 13.0
+arrow-tip-radius = 5.0
+arrow-foot-radius = 3.5
+radius = 20.0
+# The card's top is this far under the middle of the icon the arrow points at.
+below-icon = 25.0
+# Grey at 0.565 over the blur: lighter than the command bar's fill, as Arc's is.
+fill = 0x4848_4890
+# Emoji | Icon, 14.5 under the card's top, with the trash button 7 after it, the two centred; with
+# no icon to remove, Emoji | Icon is centred alone (Arc 1.170 cap).
+segments-top = 14.5
+segment-width = 57.0
+segments-height = 24.0
+segments-radius = 6.0
+segments-fill = 0xffff_ff2e
+trash-gap = 7.0
+trash-glyph = 16.0
+label = 0xededef
+pitch = 31.0
+grid-x = 12.25
+grid-top = 47.75
+glyph-size = 16.0
+plate = 30.0
+plate-radius = 4.0
+chosen = 0xffff_ff40
+# Arc's hover wasn't captured: half the chosen plate.
+hovered = 0xffff_ff1f
+hint = 0xffff_ff87
+
+[icon-picker.emoji]
+# The search field, 44 under the card's top, a segment control's height and the grid's width.
+search-top = 44.0
+search-height = 24.0
+search-radius = 6.0
+search-padding = 8.0
+list-bottom = 6.0
+emoji-size = 20.0
+# A group's header takes a row, its text on the plates' left edge and the row's bottom.
+header-text = 11.0
+header-left = 4.0
+header-bottom = 3.0
+
+[link-target]
+height = 24.0
+# Its distance from the card's left or right edge and from its bottom: more than the card's
+# corner radius, so the plate clears the corner.
+margin = 8.0
+# The pointer this near the plate, in points, sends it to the other side.
+near = 16.0
+window-width = 480.0
+pad-x = 10.0
+radius = 8.0
+# The 0.5 pt rim, white at 0.10, as the popovers' and the picture of a page elsewhere have.
+rim = 0.5
+rim-color = 0xffffff1a
+text-size = 12.0
+secondary = 0xffffff99
+primary = 0xffffff
+
+[offer]
+width = 320.0
+inset = 16.0
+radius = 12.0
+title-line = 16.0
+site-line = 14.0
+header-gap = 8.0
+row = 32.0
+row-gap = 6.0
+field-x = 10.0
+chevron = 24.0
+glyph = 14.0
+# The permission card's buttons and colours.
+buttons-top = 12.0
+button-height = 28.0
+button-x = 12.0
+button-gap = 8.0
+plate-radius = 6.0
+title = 0xffff_ffff
+detail = 0xffff_ffc7
+edge = 0xffff_ff1a
+plate = 0xffff_ff1a
+hovered = 0xffff_ff1f
+# Ours: Save or Update stands out from the others.
+default-plate = 0xffff_ff33
+# The find bar's.
+placeholder = 0xffff_ff87
+caret = 0x4a77_d4ff
+selection = 0x787d_86b3
+
+[settings]
+# Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
+width = 684.0
+height = 650.0
+# The title is centred in the bar over the toolbar.
+title-bar = 32.0
+# The toolbar's tabs are 55 wide, or as wide as a long name needs, 1 apart, and the one shown
+# sits on a plate 44 tall, 2 down.
+toolbar = 56.0
+tab = 55.0
+tab-padding = 6.0
+plate-top = 2.0
+plate = 44.0
+icon = 20.0
+icon-top = 4.0
+label-top = 3.0
+# Boxes of rows are 64 in from the window's sides, the first 20 under the toolbar, and 9 apart. A
+# row's text and its control are 10 in from the box's edges, and 10 from its top and bottom, and
+# the lines between rows 8 in.
+side = 64.0
+first = 20.0
+box-gap = 9.0
+padding = 10.0
+line-inset = 8.0
+radius = 6.0
+# A row's icon is a tile of colour 20 across with a white glyph, 8 before the text.
+tile = 20.0
+tile-glyph = 14.0
+tile-radius = 4.5
+tile-gap = 8.0
+switch-width = 36.0
+switch-height = 16.0
+knob-width = 21.0
+knob-height = 13.0
+knob-inset = 1.5
+# Pop-up buttons and buttons are 24 tall with their text 12 in; a pop-up button is 155 wide,
+# with its chevrons 10 from its right edge, and ends 22.5 short of the switches and buttons.
+control-height = 24.0
+control-padding = 12.0
+control-radius = 5.0
+popup-width = 155.0
+# Ours: the favorites' longest choice, "In Each Profile's Spaces", needs more than 155.
+favorites-popup-width = 195.0
+popup-end = 22.5
+chevrons = 14.0
+# Buttons under the boxes are 11 below them.
+buttons-top = 11.0
+# Ours, for the Shortcuts tab: a header 8 over each box, 20 below the box before, and keys in
+# chips as the command bar shows them, at least 56 wide so they line up, with a command's way
+# back to its default 6 before its chip.
+header-gap = 8.0
+section-gap = 20.0
+chip-height = 20.0
+chip-padding = 6.0
+chip-width = 56.0
+chip-gap = 6.0
+# Ours, for the Profiles tab: rows as tall as a button's, so they're even with and without one.
+profile-row = 40.0
+bar = 0x282a2a
+bar-line = 0x303131
+background = 0x202222
+box = 0x232525
+box-line = 0x353737
+plate-fill = 0x444747
+plate-edge = 0x525656
+title = 0xa4a6a6
+tab-text = 0x9e9f9f
+text = 0xc2c2c2
+control = 0x313333
+control-pressed = 0x404242
+switch-off = 0x383939
+knob = 0xe1e2e2
+# The knob over the accent colour, which tints it.
+knob-on = 0xe1ebfe
+haptics-tile = 0x3f8ff7
+profile-tile = 0x8e8e93
+# A row's detail, such as a profile's Spaces, in the toolbar's grey.
+detail = 0x9e9f9f
+chip = 0xffff_ff14
+chip-hovered = 0xffff_ff24
+
+[shell]
+# The docked sidebar's width at first, where the card starts.
+sidebar-width = 228.0
+# The card's inset from the window's top, right and bottom edges.
+card-inset = 10.0
+# The radius of the card's corners and the page's in it: Arc's, a circle of 12 pixels in its
+# window at 2×.
+card-radius = 6.0
+# Between the pages of a split view, as in Arc. The core's is the same.
+split-gap = 10.0
+# The glow outside a split view's focused page, in its ring's colour (Arc: ≈ 8 pt).
+focus-glow = 8.0
+focus-glow-alpha = 0.5
+sidebar-min = 164.0
+sidebar-max = 500.0
+reveal-inset = 5.0
+# The header's buttons: their plates' tops and left edges, from the window's, as Arc 1.170's
+# accessibility tree has them. The sidebar button is 3 pt past the traffic lights, 13 before back.
+nav-top = 7.5
+sidebar-button-x = 77.0
+back-x = 122.0
+forward-x = 156.0
+reload-x = 190.0
+nav-size = 32.0
+nav-radius = 6.0
+# Header glyphs are drawn in points in a box this big, at Arc's sizes and centres.
+nav-glyph = 24.0
+# A header button shows while its plate ends this far inside the sidebar, so a narrow sidebar loses
+# reload, then forward, as Ardia's does.
+nav-end = 5.0
+url-field-top = 46.0
+url-field-height = 36.0
+url-field-text-x = 21.0
+# The URL field's button, which shows while the pointer is over the sidebar: 30 pt, as Arc's, 3 pt
+# inside the field's end (ours: Arc's frames end 1 pt past where its field would).
+url-button-size = 30.0
+url-button-inset = 3.0
+url-button-glyph = 14.0
+# The favorites' tiles, over the Space's name (docs/ux-spec.md › Favorites): their height, the gap
+# between them and under the last row, the narrowest a row's tiles get before it takes one fewer,
+# and their corners.
+tile-height = 41.0
+tile-gap = 6.0
+tile-min = 48.0
+tile-radius = 10.0
+# Favorites taller than this much of the window scroll with the list instead of staying put
+# (Ardia), so they never leave the rows too little room.
+tall-favorites = 0.4
+# The Space's name, over its tabs.
+name-height = 44.0
+name-x = 41.0
+space-icon-slot = 20.0
+# The sidebar's icon takes clicks on Arc's frame, which lights with the header's plate (ours).
+space-icon-plate = 26.0
+icon-placeholder = 24.0
+icon-placeholder-radius = 6.0
+icon-placeholder-line = 1.0
+icon-placeholder-color = 0x0000_004d
+# A glyph's box: Phosphor's drawings fill 13/16 of theirs, so their ink is the emoji's size.
+space-glyph = 16.0
+row-pitch = 41.0
+row-height = 40.0
+plate-height = 36.0
+plate-inset = 8.0
+folder-indent = 16.0
+# A dragged row's drop line is Arc's: 2 pt, from a ring 8 across, drawn with the same 2 pt,
+# whose left is 7 in from the plate's, to 2 before the plate's end (Arc 1.170 rec).
+drop-line = 2.0
+drop-ring = 8.0
+drop-ring-x = 7.0
+drop-line-end = 2.0
+drop = 0xffff_ffe6
+plate-radius = 12.0
+favicon-x = 17.0
+favicon-size = 18.0
+# The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot
+# rather than scaled up soft.
+favicon-drawn = 16.0
+# An emoji's text size in a favicon's place, for its glyph to fill what a favicon does.
+emoji-size = 13.0
+loading-size = 12.0
+# A row narrower than this, such as a split's segment in a narrow sidebar, leaves the spinner out
+# (Dia), as it would leave the title no room.
+loading-row-min = 48.0
+title-gap = 8.0
+# The speaker before a title, while its tab plays sound or is muted, and its pressable square.
+speaker-drawn = 16.0
+speaker-size = 18.0
+speaker-gap = 4.0
+# Arc's close button, 5 inside the plate's right edge, and the box its glyph is drawn in.
+close-size = 26.0
+close-right = 5.0
+close-glyph = 14.0
+# A split's row (Arc): a segment per tab, all as wide, each after the first behind a line. Its
+# favicon is 7 pt after the line, its title 10 pt after the favicon, and it ends 5 pt before the
+# next line.
+segment-favicon-x = 7.0
+segment-title-gap = 10.0
+segment-end = 5.0
+segment-line = 16.0
+# Arc's divider line is one device pixel, 18 in from each side of the sidebar. GPUI widens a border
+# under one device pixel to one, so borders use this 0.5 pt; a line that's a box's height has to
+# ask the window for its pixel, or it's rounded away at 1x.
+hairline = 0.5
+divider-x = 18.0
+divider-height = 15.0
+divider-gap = 9.0
+clear-gap = 3.0
+clear-height = 20.0
+# The footer: the Space switcher between the Library button and the +, which is 8 in from the
+# sidebar's right edge (Arc 1.170.0 ax). The switcher keeps 42 from each side, Arc's at 228.
+footer-height = 50.0
+switcher-inset = 42.0
+plus-inset = 8.0
+space-pitch = 34.0
+space-height = 34.0
+space-dot = 8.0
+form-title-top = 140.0
+form-title-height = 20.0
+form-inset = 14.0
+form-plate-height = 36.0
+form-radius = 8.0
+form-glyph-x = 30.0
+form-glyph = 15.0
+form-label-x = 46.5
+form-pill-x = 95.0
+form-pill-height = 22.0
+form-pill-left = 8.0
+form-chevron = 18.0
+create-bottom = 96.0
+cancel-bottom = 66.5
+cancel-height = 15.0
+# The window's layers over its material (docs/ux-spec.md › Window material): a tint of black 0.25,
+# then the Space's gradient, its stops at 0.36 (0.12 for a neutral colour) in a layer at 0.5.
+# Dia's tint is 0.4, but material 29 draws darker in our window than Dia's measures, so the
+# lighter tint brings the window to Dia's composite. check/window.sh measures it.
+tint = 0x0000_0040
+gradient-alpha = 0.18
+neutral-gradient-alpha = 0.06
+# A colour under this HSL saturation is neutral (ours: Dia's line isn't measured).
+neutral = 0.1
+# A private window's layer in the gradient's place: black, darker than any Space and without its
+# colour (ours: Arc's and Dia's private look isn't recorded).
+private-shade = 0.35
+# What stands in for the material where the window's look has to be opaque, under rows it covers
+# or in the reveal's panel over the page: Dia's composite over grey 20, before the gradient (ours).
+material-stand-in = 0x131313
+# Dia's card, #121212 at 0.5: what shows before a page first paints.
+card = 0x1212_1280
+# Arc's row tokens (docs/ux-spec.md › Tab rows): the tab shown is white 0.2, a row under the
+# pointer 0.12 and a pressed one 0.065, with no line or shadow in dark mode. Titles are Dia's,
+# white, at 0.78 unless selected (ours: Arc's aren't measured).
+title = 0xffffffff
+unselected-title = 0xffffffc7
+selected = 0xffff_ff33
+# The selected row under the pointer: Arc's (113–116) over the dark Space's (37, 35, 53).
+selected-hovered = 0xffff_ff5c
+hovered = 0xffff_ff1f
+pressed = 0xffff_ff11
+secondary = 0xffffff99
+# The close button's square under the pointer: Dia's subtle fill, white 0.12, at the header
+# buttons' radius (ours: Dia's fill isn't measured).
+close-hovered = 0xffffff1f
+url-field = 0xffffff1a
+new-tab = 0xffffff8c
+new-tab-plus = 0xffffff40
+# The Clear divider's line, white 0.15 (Arc).
+divider = 0xffffff26
+# The edge under the favorites while the list is scrolled: Dia's separator, white 0.09.
+scroll-edge = 0xffffff17
+# Clear, white 0.32, and white 0.81 under the pointer: Arc lights the word and its arrow, with no
+# plate (Arc in use, the owner's captures, 2026-10-26).
+clear = 0xffffff52
+clear-hovered = 0xffffffcf
+# A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
+sleeping-favicon = 0.5
+# A favorite's tile: white 0.10 with a white 0.14 edge at rest (Dia), and under the pointer white
+# 0.15 (ours: Dia's isn't measured). The one shown is themed by its icon (tile_theme.rs), and
+# black with Dia's default selection ring, white 0.45, where the icon gives no theme.
+tile = 0.1
+tile-edge = 0xffff_ff24
+tile-hovered = 0.15
+tile-ring = 0xffff_ff73
+tile-unthemed = 0x0000_00ff
+# The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
+# forward with nowhere to go, over a hover plate of white 0.077.
+nav = 0xffffff99
+nav-disabled = 0xffffff42
+nav-hovered = 0xffffff14
+# The Space's name, white 0.56, and the switcher's dots: white 0.5 for the Space shown and 0.19
+# for the others (Arc), 0.3 under the pointer (ours: Arc's isn't measured).
+space-name = 0xffffff8f
+space-shown = 0xffffff80
+space-other = 0xffffff30
+space-hovered = 0xffffff4d
+# The form (Arc): a white title, plates of white 0.075, a placeholder of white 0.55, and Create
+# Space in Arc's blue with a white label, all of it at 0.4 until there's a name.
+form-text = 0xffffff
+form-plate = 0xffffff13
+form-placeholder = 0xffffff8c
+# The rows' glyphs are white 0.5, and the profile's pill white 0.1 over its row.
+form-glyph-color = 0xffffff80
+form-pill = 0xffffff1a
+create = 0x2129fb
+create-unnamed = 0.4
+# The reveal panel's radius and its 0.5 pt light border, as in a capture of Arc at 1×: a circle of
+# 12, and one pixel of white 0.27 over the panel, which half a pixel of white 0.54 makes.
+reveal-radius = 12.0
+reveal-border = 0xffffff8a
+window-button-y = 24.0
+window-button-size = 14.0
+window-button-glyph = 0x00000080
+
+[shell.assets]
+bar-length = 11.4
+bar-width = 2.0
+bars-box = 14.0
+
+[shell.empty]
+# The sidebar's New Tab row is 14 pt.
+words-size = 14.0
+# The command bar's key chip, which a command's row ends in: 24 tall, 7 in, white 0.08 on the
+# panel, with its text at 13 pt.
+keys-size = 13.0
+keys-height = 24.0
+keys-inset = 7.0
+keys-radius = 6.5
+keys-fill = 0xffff_ff14
+# From the words to their keys, as the toast sets its chip.
+keys-gap = 8.0
+# The icon's green dot, #0E9F55, the one colour on the card, and the stem at a tile's white 0.10
+# plus a little, so it reads as pressed into the card rather than printed on it.
+mark-dot-fill = 0x0e9f_55ff
+mark-stem-fill = 0xffff_ff24
+# From the mark's foot to the line, so they read as a sign and its caption, not one block.
+mark-gap = 24.0
+
+[shell.extensions]
+# The room the URL field keeps for the host before it shows fewer actions (Ardia).
+host-room = 84.0
+# An action's icon, 16 pt as in Chrome's toolbar, on its button's 30 pt pitch (Dia: 30.25).
+action-icon = 16.0
+# An action that doesn't act on the tab is dimmed, as in Chrome.
+action-dimmed = 0.4
+# The badge over the icon's bottom: Chrome's grey when the extension gives no colour, white text.
+badge-color = 0x5f6368
+badge-height = 11.0
+badge-text = 8.5
+
+[shell.header]
+# Arc's field buttons: Site Control Center 1 pt past the field's end and Copy URL 28 before it,
+# their plates overlapping by 2 (x 191 and 163 of 228). Pinned extensions' buttons keep the
+# field's end, and these go before them.
+site-controls-end = -1.0
+tool-pitch = 28.0
+# The URL field's words with no page shown: the command bar's placeholder, which a click opens
+# over them, at white 0.32, which is to the host's 0.60 as the bar's placeholder is to its text.
+url-placeholder = 0xffff_ff52
+
+[shell.library]
+# Where the card's left edge goes while the Library is open: the Library's right edge, which is
+# this for Downloads and Archived Tabs and `spaces_width` for Spaces.
+library-width = 417.0
+# The column of sections, and the line at its edge.
+column-width = 112.0
+column = 0xffffff0f
+column-edge = 0xffffff0a
+# A section's button, its glyph centred 31 below its top and its label 56 below.
+section-x = 8.0
+section-width = 97.0
+section-height = 80.0
+section-radius = 12.0
+section-glyph = 20.0
+section-glyph-y = 31.0
+section-label-y = 56.0
+section-label-height = 15.0
+section-label = 0xffffffd9
+# Ours: the glyph of a section not shown, and the plate under one hovered.
+section-glyph-unselected = 0xffffff99
+section-hovered = 0xffffff0d
+# Between two sections' buttons, 100 apart.
+section-gap = 20.0
+# The plate under the selected section and the search field.
+library-plate = 0xffffff17
+# The back button, at the column's bottom.
+library-back-inset = 8.0
+# The Spaces section (Arc 1.170 cap, one Space, and rec, three): a card per Space starts 28 after
+# the column, 240 wide, 24 apart and as tall as the window less 48 above and below, with Arc's
+# blue + 33 after the last, 30 across and halfway down, and the Library ends 37 after it, so it's
+# 216 + 264 a Space wide. The card is the Space's gradient at radius 14, with its list drawn as
+# the sidebar draws it, and its name's row has a brush at its end, 28 square, 13 from the card's
+# right. Arc's card has no search field over it.
+spaces-left = 28.0
+spaces-inset = 48.0
+card-width = 240.0
+card-radius = 14.0
+card-gap = 24.0
+# Ours (*interim*, as Arc's recording never ran out of room): the section grows until the page
+# beside it would be narrower than this, and its cards scroll across past that.
+spaces-page = 400.0
+# The name's row in the card, 33 down to its middle as in Arc, with the rows 52 down.
+card-name-top = 14.0
+card-name-height = 38.0
+card-brush = 28.0
+card-brush-glyph = 14.0
+card-brush-right = 13.0
+card-brush-color = 0xffffff59
+# Ours: the shadow round a card, which Arc has, soft and dark.
+card-shadow = 0.3
+card-shadow-blur = 16.0
+plus-gap = 33.0
+plus-size = 30.0
+plus-fill = 0x1f2aff
+# Ours: under the pointer the + darkens to 0.9 of its fill, as the dialog's action does, and a
+# card lightens by the sections' hover plate (Arc's aren't recorded).
+plus-hovered = 0x1c26e6
+plus-glyph = 14.0
+# The room after the +, to the Library's edge.
+plus-after = 37.0
+# The search field, on the window buttons' row. Arc's Filter button is left out, and the field
+# takes its place.
+search-x = 120.0
+search-top = 10.0
+search-width = 289.0
+search-height = 36.0
+search-radius = 10.0
+search-glyph = 15.0
+search-glyph-x = 14.5
+search-text-x = 44.0
+search-placeholder = 0xffffff8f
+# The command bar's.
+search-caret = 0x4a77d4
+search-selection = 0x787d_86b3
+# The archive's list, beside the column.
+archive-top = 56.0
+archive-width = 304.0
+heading-x = 12.0
+heading-top = 8.0
+heading-height = 15.0
+heading-bottom = 4.0
+# Over a heading after rows. Ours: Arc's capture had one heading.
+heading-gap = 12.0
+archived-pitch = 56.0
+archived-plate = 50.0
+archived-left = 8.0
+archived-right = 3.0
+archived-favicon-x = 14.0
+archived-text-x = 44.0
+archived-radius = 12.0
+# Ours: a running download's bar, under its text, and the footer button's, under its glyph.
+progress-height = 3.0
+progress-bottom = 6.0
+progress-track = 0xffffff1f
+progress-fill = 0xffffff99
+button-progress-width = 16.0
+button-progress-height = 2.0
+button-progress-bottom = 4.0
+
+[shell.link]
+# The least a plate may be wide, in a card too narrow for the half it is.
+min-width = 160.0
+
+[shell.new-space]
+# The circle: across, its white ring, and the line of the sidebar's colour inside the ring.
+circle = 30.0
+ring = 2.5
+cut = 0.5
+# The + on it: its arms across, and their thickness.
+plus = 13.0
+plus-stroke = 1.5
+# The Space's colour on the circle is no lighter than this, for the white on it.
+accent-lightness = 0.55
+# The circle's white has this much of the Space's colour.
+white-tint = 0.09
+dot = 13.0
+# The glow: its brightest white, how far left its middle reaches, and the strips it's drawn in.
+glow = 0.18
+glow-width = 80.0
+glow-strip = 4.0
+
+[shell.permission]
+# Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the URL field's
+# radius and plates. The text is the dialog's detail colour.
+gap = 6.0
+padding = 12.0
+radius = 12.0
+line = 18.0
+detail = 0xffff_ffc7
+# A line of white 0.1 inside its edge, as the dialog's card has.
+edge = 0xffff_ff1a
+button-height = 28.0
+button-gap = 8.0
+buttons-top = 12.0
+close = 22.0
+close-inset = 7.0
+close-glyph = 12.0
+
+[shell.picture]
+# Ours: the picture is fitted to this much of the card, which reads as a page that isn't live.
+rest = 0.8
+# A veil of black dims it at REST and goes as it grows to the card's size, and in one frame
+# under the pointer.
+veil = 0.12
+# The rim and the shadow, as the popovers have them.
+rim = 0.5
+shadow = 0.24
+shadow-blur = 16.0
+shadow-drop = 4.0
+
+[shell.recent-downloads]
+recent-pitch = 56.0
+column-x = 8.0
+column = 40.0
+icon = 26.0
+text-x = 61.0
+text-end = 12.0
+name = 0xffffffff
+name-size = 15.0
+name-line = 19.0
+age-size = 12.0
+age-line = 15.0
+# Ours: a tall image's preview keeps 4 pt inside its row, with small rounded corners.
+preview-height = 48.0
+preview-radius = 4.0
+# Ours: a row's plate under the pointer, as the Library's rows have one.
+plate-inset = 4.0
+plate-radius = 10.0
+
+[shell.side-panel]
+# The panel's width until the user gives it one, Chrome's, and the range they can give it,
+# Ardia's.
+panel-width = 360.0
+panel-min = 320.0
+panel-max = 600.0
+header-icon = 16.0
+header-text = 13.0
+
+[shell.split-targets]
+target-radius = 20.0
+target-dash-inset = 9.5
+# Ours: a target's fill, a step lighter than the window's, and its 0.5 pt edge. Under the tab the
+# fill takes the accent at TARGET_ACCENT, and the line, glyph and title the accent.
+target-lighter = 0.06
+target-edge = 0.14
+target-accent = 0.15
+target-dashes = 0.25
+target-text = 0.6
+picture-radius = 10.0
+picture-rim = 0.25
+picture-light = 6.0
+picture-top = 18.0
+picture-inset = 4.0
+
+[shell.swap]
+check-box = 24.0
+check-stroke = 2.0
+
+[shell.themes]
+# Two colours go from the main one at the window's top left to the second this far along its
+# diagonal (Arc 1.170 rec at 2×, with Ardia's account of Arc's rule: OKLab, 45°, to 75 %).
+second-at = 0.75
+# How strongly the window takes a theme's colours at intensity `i`: in proportion to
+# `INTENSITY_FLOOR + INTENSITY_SPAN * i`, so the slider's start is the colour as before themes
+# and its left end washes most of it out (ours, fitted to Arc's window at 0.81 and 0.24).
+intensity-floor = 0.2
+intensity-span = 0.55
+
+[shell.tile-theme]
+# A pixel counts towards the icon's colour from this alpha.
+opaque = 0.975
+# The mean distance from the mean colour at which an icon is colourful.
+colourful = 0.055
+# Above this relative luminance a one-colour icon is near-white.
+near-white = 0.88
+blur-sigma = 5.0
+# The blurred icon is aspect-filled to this many tiles, centred.
+blur-scale = 2.5
+blur-opacity = 0.22
+# The ring of a colourful tile shows the blurred icon at this opacity over black, with
+# saturation 2 and brightness -0.1.
+ring-opacity = 0.75
+ring-saturation = 2.0
+ring-brightness = -0.1
+# Dia's `itemStrokeWidth`: the width of every themed ring.
+ring-width = 3.0
+# The ring's image is made for a tile this wide and stretched to fit, in points, and baked at
+# this many pixels to the point, a Retina display's, so its pixels are the screen's.
+ring-baked-width = 88.0
+ring-scale = 2.0
+near-white-ring = 0xffff_ff4d
+black = 0x0000_00ff
+
+[shell.trouble]
+# The empty card's line is 14 pt, as the sidebar's New Tab row.
+words-size = 14.0
+# The card's button, wider than the plates' pair as it stands alone.
+button-inset = 14.0
+line = 18.0
+
+[site-controls]
+padding = 11.0
+radius = 17.0
+gap = 8.0
+# The beak's sharp tip is this far over the body, its sides at 45°, rounded at the tip and where
+# they meet the top edge: 10.5 pt shows.
+beak = 12.5
+beak-tip-radius = 5.0
+beak-foot-radius = 3.0
+# The body's top under the URL field's bottom edge, which puts the beak's tip 1.5 pt into it.
+below-field = 9.0
+# Ours: how close to the browser window's edges the body comes.
+window-margin = 8.0
+# The see-through fill over the host's blur, fitted over the sidebar and over the page.
+fill = 0x7073874d
+# A dark line around it, and a light one inside that.
+outline = 0x000000d9
+rim = 0xffffff1a
+text = 0xffffffcc
+secondary = 0xffffff73
+# "Manage" and "More", which the headings show under the pointer.
+link = 0xffffff7a
+tile-width = 48.0
+tile-height = 32.0
+tile-radius = 8.0
+# An action tile is opaque, lighter at its top, with a light line along its top inside.
+tile-top = 0x282828ff
+tile-bottom = 0x161616ff
+tile-highlight = 0xffffff33
+# The + tile's, an extension's and the lock button's plate.
+plate = 0xffffff0d
+# Ours: a tile or the "…" button under the pointer, and a plate.
+hovered = 0xffffff0d
+plate-hovered = 0xffffff1a
+# Ours: an extension's icon, as the toolbar's is.
+extension-icon = 16.0
+plus-glyph = 16.5
+heading-size = 14.0
+link-size = 12.0
+name-size = 14.0
+state-size = 13.0
+circle = 32.0
+row-pitch = 43.0
+# A permission's circle when it isn't allowed and when it is, with its glyph darker, as if cut
+# out of it.
+off = 0xffffff4d
+on = 0xffffffeb
+off-glyph = 0x00000080
+on-glyph = 0x000000a8
+row-glyph = 17.0
+# Ours: a policy's row, which the user can't change.
+managed-opacity = 0.5
+divider = 0xffffff2b
+footer = 32.0
+lock-radius = 6.0
+lock-left = 10.0
+lock-slot = 10.0
+lock-glyph = 15.0
+lock-text-gap = 6.0
+lock-right = 8.0
+# The lock's words' cap top in its plate.
+lock-cap = 11.5
+# Ours: the lock button with no certificate to show.
+disabled-opacity = 0.5
+more-fill = 0x0000000a
+more-glyph = 17.5
+heading-to-tiles = 23.0
+heading-to-rows = 25.0
+divider-to-footer = 11.0
+# SF's ascent, descent and cap height for its size, which put a line's cap where it was measured.
+ascent = 0.967
+descent = 0.211
+cap = 0.705
+line = 20.0
+
+[theme]
+# Where the intensity slider starts (Arc: its knob at 0.81 of its travel).
+default-intensity = 0.81
+# How strongly grain at 1 lies over the colours: Arc's window at full grain is ≈ 5.5 levels of
+# luminance noisier (Arc 1.170 rec at 2×).
+grain-strength = 0.075
+
+[theme-picker]
+# Arc 1.170's, measured at 2× (docs/ux-spec.md › Themes), in points from the card's top left.
+# The window holds the arrow left of the card too.
+card-width = 357.0
+height = 509.0
+# The arrow's sides meet this far left of the card, at 45°, as the icon picker's do.
+arrow = 13.0
+arrow-tip-radius = 5.0
+arrow-foot-radius = 3.5
+radius = 20.0
+# The arrow's tip is this far right of the row it points at.
+gap = 2.5
+# Kept off the browser window's top and bottom, when the card can't centre on its arrow (ours).
+margin = 8.0
+# The square field, 8.5 inside the card's top and sides.
+field-inset = 8.5
+field = 340.0
+field-radius = 12.0
+field-fill = 0xffff_ff08
+field-rim = 0xffff_ff33
+dot-pitch = 4.3
+appearance-y = 49.0
+appearance-plate = 31.5
+appearance-radius = 6.0
+appearance-chosen = 0xffff_ff14
+appearance-glyph = 16.0
+appearance-color = 0xffff_ffa6
+# − and +, at the field's foot.
+count-y = 316.5
+remove-x = 158.5
+add-x = 198.5
+count-glyph = 12.0
+count-color = 0xffff_ff59
+count-pressed = 0xffff_ffa6
+# Ours: Arc's with one colour or three wasn't recorded.
+count-disabled = 0xffff_ff1f
+count-target = 24.0
+swatch-y = 380.0
+swatch-x = 60.5
+swatch-pitch = 29.5
+swatch = 24.0
+swatch-ring = 1.5
+swatch-ring-shade = 0.88
+# The intensity's wave slider: a pill with a sine over it, brighter left of the knob.
+slider-y = 452.0
+track-left = 18.5
+track-right = 242.5
+track-height = 16.0
+track-fill = 0xffff_ff1a
+wave-left = 26.5
+wave-right = 235.5
+wave-periods = 7.0
+wave-stroke = 4.0
+# Half the wave's height at full intensity: 12.25 at 0.81.
+wave-amplitude = 15.0
+wave-on = 0xffff_ff8c
+wave-off = 0xffff_ff40
+knob-width = 23.0
+knob-height = 55.5
+# The knob's middle at intensity 0 and at 1.
+knob-left = 30.0
+knob-right = 231.0
+dial-ring = 32.0
+dial-dot = 4.0
+dial-swept = 0xffff_ff8a
+dial-dim = 0xffff_ff29
+dial-disc = 20.0
+dial-disc-fill = 0x0000_001a
+dial-disc-rim = 0xffff_ff4d
+# How far from the dial's middle a press turns it (ours).
+dial-reach = 44.0
+# The handles: the main colour's 44 pt with a 3 pt white ring, the others 26 pt.
+main-handle = 44.0
+main-ring = 3.0
+handle = 26.0
+# Ours: the small handles' ring isn't measured; the main one's, scaled.
+handle-ring = 2.0
+
+[toast]
+height = 46.5
+text-left = 12.5
+text-right = 13.5
+radius = 10.0
+# Medium, and the key semibold. 13.5 makes Arc's toast 256.5 wide, as measured, where 14 makes it
+# 263.5.
+text-size = 13.5
+chip-height = 26.0
+chip-radius = 6.0
+chip-x = 9.0
+chip-gap = 8.0
+chip-fill = 0xffff_ff1a
+# A button's chip under the pointer, which Arc's wasn't recorded with (ours).
+chip-hovered = 0xffff_ff29
+# A button's glyph, as Arc's Share is (Capture's toast at 3×).
+chip-glyph = 13.0
+key-gap = 5.0
+# The key in an Undo button: white at 0.6, ours.
+key-color = 0xffff_ff99
+# A line of black 0.3 around it, half a point thick.
+edge = 0x0000_004d
+# It darkens from the window's colour at its top to this much of it at its bottom (Arc's goes
+# from (40,22,80) to (31,17,62) in a purple Space).
+shade = 0.78
+# Its window, wide enough for the longest toast and tall enough for its shadow, at the browser
+# window's top right.
+window-width = 420.0
+window-height = 84.0
+note-height = 41.0
+note-top = 4.0
+
+[tooltip]
+# How far below the tile or row it names the tooltip's top is, or above it if it doesn't fit
+# below. The gap between two tiles, so it reads as the tile's own and the tile's edge shows.
+gap = 6.0
+# How far in from the window's left and right edges a tooltip that would cross one stays (ours).
+edge-inset = 8.0
+# How far right of a footer button's plate the tooltip beside it starts (Arc).
+beside = 3.5
+# Arc's, from the Library button's: a capsule 27 tall and 161.5 wide for View Library ⇧⌘L, its
+# 12 pt semibold text 11 in and its last chip 10 from its end.
+height = 27.0
+window-width = 320.0
+near-radius = 2.0
+# The 0.5 pt rim, white at about 0.12.
+rim = 0.5
+rim-color = 0xffffff1f
+text-x = 11.0
+end = 10.0
+text-size = 12.0
+# A key's chip: 18.5 wide, wider for a key named in words, 8 after the text and 22 apart. Its
+# body is 16.25 tall, centred on the capsule, with a 2 pt lip showing under it (Arc).
+chip = 18.5
+chip-body = 16.25
+chip-lip = 2.0
+chip-radius = 3.5
+chip-padding = 3.0
+chip-after-text = 8.0
+chip-gap = 3.5
+chip-text-size = 10.0
+# Arc's, measured at full opacity: the plate is #090C4B, the text #E2E5FF, the chips #D2D3FC over
+# a lip of #8486E3, and their glyphs the blue itself, #1F2AFF, as the Library's + is.
+fill = 0x090c4b
+text = 0xe2e5ff
+chip-fill = 0xd2d3fc
+chip-lip-fill = 0x8486e3
+chip-text = 0x1f2aff
+
+[zoom-hud]
+# Arc's, measured at 2× (Arc 1.170 rec): 41.5 tall, 8 inside the card's top right corner, the
+# percent 14 pt and 16 in from the pill's right, in the toast's fill, rim and shadow.
+height = 41.5
+padding = 16.0
+radius = 10.0
+text-size = 14.0
+edge = 0x0000_004d
+shade = 0.78
+# The window reaches this far past the pill on every side, for its shadow.
+margin = 16.0
+# Wide enough for "500%".
+window-width = 130.0
+window-height = 80.0

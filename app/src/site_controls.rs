@@ -30,93 +30,76 @@ actions!(site_controls, [Close]);
 // Arc 1.170.0 cap, in a dark Space, 1 pt a pixel, except where a comment says ours.
 /// The body's width: a row of four tiles inside the padding.
 pub const WIDTH: f32 = 4. * TILE_WIDTH + 3. * GAP + 2. * PADDING;
-const PADDING: f32 = 11.;
-const RADIUS: f32 = 17.;
-const GAP: f32 = 8.;
-/// The beak's sharp tip is this far over the body, its sides at 45°, rounded at the tip and where
-/// they meet the top edge: 10.5 pt shows.
-const BEAK: f32 = 12.5;
-const BEAK_TIP_RADIUS: f32 = 5.;
-const BEAK_FOOT_RADIUS: f32 = 3.;
-/// The body's top under the URL field's bottom edge, which puts the beak's tip 1.5 pt into it.
-const BELOW_FIELD: f32 = 9.;
-/// Ours: how close to the browser window's edges the body comes.
-const WINDOW_MARGIN: f32 = 8.;
-/// The see-through fill over the host's blur, fitted over the sidebar and over the page.
-const FILL: u32 = 0x7073874d;
-/// A dark line around it, and a light one inside that.
-const OUTLINE: u32 = 0x000000d9;
-const RIM: u32 = 0xffffff1a;
-const TEXT: u32 = 0xffffffcc;
-const SECONDARY: u32 = 0xffffff73;
-/// "Manage" and "More", which the headings show under the pointer.
-const LINK: u32 = 0xffffff7a;
-const TILE_WIDTH: f32 = 48.;
-const TILE_HEIGHT: f32 = 32.;
-const TILE_RADIUS: f32 = 8.;
-/// An action tile is opaque, lighter at its top, with a light line along its top inside.
-const TILE_TOP: u32 = 0x282828ff;
-const TILE_BOTTOM: u32 = 0x161616ff;
-const TILE_HIGHLIGHT: u32 = 0xffffff33;
-/// The + tile's, an extension's and the lock button's plate.
-const PLATE: u32 = 0xffffff0d;
-/// Ours: a tile or the "…" button under the pointer, and a plate.
-const HOVERED: u32 = 0xffffff0d;
-const PLATE_HOVERED: u32 = 0xffffff1a;
-/// Ours: an extension's icon, as the toolbar's is.
-const EXTENSION_ICON: f32 = 16.;
-const PLUS_GLYPH: f32 = 16.5;
-const HEADING_SIZE: f32 = 14.;
-const LINK_SIZE: f32 = 12.;
-const NAME_SIZE: f32 = 14.;
-const STATE_SIZE: f32 = 13.;
-const CIRCLE: f32 = 32.;
-const ROW_PITCH: f32 = 43.;
+use crate::tokens::site_controls::PADDING;
+use crate::tokens::site_controls::RADIUS;
+use crate::tokens::site_controls::GAP;
+use crate::tokens::site_controls::BEAK;
+use crate::tokens::site_controls::BEAK_TIP_RADIUS;
+use crate::tokens::site_controls::BEAK_FOOT_RADIUS;
+use crate::tokens::site_controls::BELOW_FIELD;
+use crate::tokens::site_controls::WINDOW_MARGIN;
+use crate::tokens::site_controls::FILL;
+use crate::tokens::site_controls::OUTLINE;
+use crate::tokens::site_controls::RIM;
+use crate::tokens::site_controls::TEXT;
+use crate::tokens::site_controls::SECONDARY;
+use crate::tokens::site_controls::LINK;
+use crate::tokens::site_controls::TILE_WIDTH;
+use crate::tokens::site_controls::TILE_HEIGHT;
+use crate::tokens::site_controls::TILE_RADIUS;
+use crate::tokens::site_controls::TILE_TOP;
+use crate::tokens::site_controls::TILE_BOTTOM;
+use crate::tokens::site_controls::TILE_HIGHLIGHT;
+use crate::tokens::site_controls::PLATE;
+use crate::tokens::site_controls::HOVERED;
+use crate::tokens::site_controls::PLATE_HOVERED;
+use crate::tokens::site_controls::EXTENSION_ICON;
+use crate::tokens::site_controls::PLUS_GLYPH;
+use crate::tokens::site_controls::HEADING_SIZE;
+use crate::tokens::site_controls::LINK_SIZE;
+use crate::tokens::site_controls::NAME_SIZE;
+use crate::tokens::site_controls::STATE_SIZE;
+use crate::tokens::site_controls::CIRCLE;
+use crate::tokens::site_controls::ROW_PITCH;
 /// The text's left edge, past the circle.
 const ROW_TEXT: f32 = PADDING + CIRCLE + 8.;
-/// A permission's circle when it isn't allowed and when it is, with its glyph darker, as if cut
-/// out of it.
-const OFF: u32 = 0xffffff4d;
-const ON: u32 = 0xffffffeb;
-const OFF_GLYPH: u32 = 0x00000080;
-const ON_GLYPH: u32 = 0x000000a8;
-const ROW_GLYPH: f32 = 17.;
+use crate::tokens::site_controls::OFF;
+use crate::tokens::site_controls::ON;
+use crate::tokens::site_controls::OFF_GLYPH;
+use crate::tokens::site_controls::ON_GLYPH;
+use crate::tokens::site_controls::ROW_GLYPH;
 /// Ours: the reset row's glyph, as Chrome's page info's button has none.
 const RESET: &str = "icons/rotate-ccw-clock.svg";
 /// Ours: the row of a site the profile keeps for Safari's engine, first, as the URL field's mark
 /// for it. Named for Safari, which people know, though the page plays here, in ilo's tab.
 const ENGINE: &str = "icons/compass.svg";
 const ENGINE_NAME: &str = "Safari's engine";
-/// Ours: a policy's row, which the user can't change.
-const MANAGED_OPACITY: f32 = 0.5;
-const DIVIDER: u32 = 0xffffff2b;
-const FOOTER: f32 = 32.;
-const LOCK_RADIUS: f32 = 6.;
-const LOCK_LEFT: f32 = 10.;
-const LOCK_SLOT: f32 = 10.;
-const LOCK_GLYPH: f32 = 15.;
-const LOCK_TEXT_GAP: f32 = 6.;
-const LOCK_RIGHT: f32 = 8.;
-/// The lock's words' cap top in its plate.
-const LOCK_CAP: f32 = 11.5;
-/// Ours: the lock button with no certificate to show.
-const DISABLED_OPACITY: f32 = 0.5;
-const MORE_FILL: u32 = 0x0000000a;
-const MORE_GLYPH: f32 = 17.5;
+use crate::tokens::site_controls::MANAGED_OPACITY;
+use crate::tokens::site_controls::DIVIDER;
+use crate::tokens::site_controls::FOOTER;
+use crate::tokens::site_controls::LOCK_RADIUS;
+use crate::tokens::site_controls::LOCK_LEFT;
+use crate::tokens::site_controls::LOCK_SLOT;
+use crate::tokens::site_controls::LOCK_GLYPH;
+use crate::tokens::site_controls::LOCK_TEXT_GAP;
+use crate::tokens::site_controls::LOCK_RIGHT;
+use crate::tokens::site_controls::LOCK_CAP;
+use crate::tokens::site_controls::DISABLED_OPACITY;
+use crate::tokens::site_controls::MORE_FILL;
+use crate::tokens::site_controls::MORE_GLYPH;
 // Down the body, each from the top of what's above it.
 const HEADING_CAP: f32 = TILE_HEIGHT + 14.;
-const HEADING_TO_TILES: f32 = 23.;
+use crate::tokens::site_controls::HEADING_TO_TILES;
 const TILES_TO_HEADING: f32 = TILE_HEIGHT + 18.;
-const HEADING_TO_ROWS: f32 = 25.;
+use crate::tokens::site_controls::HEADING_TO_ROWS;
 const ROWS_TO_DIVIDER: f32 = CIRCLE + 15.;
-const DIVIDER_TO_FOOTER: f32 = 11.;
+use crate::tokens::site_controls::DIVIDER_TO_FOOTER;
 /// Ours: the extensions' rows are as far apart as their tiles.
 const EXTENSIONS_PER_ROW: usize = 4;
-// SF's ascent, descent and cap height for its size, which put a line's cap where it was measured.
-const ASCENT: f32 = 0.967;
-const DESCENT: f32 = 0.211;
-const CAP: f32 = 0.705;
-const LINE: f32 = 20.;
+use crate::tokens::site_controls::ASCENT;
+use crate::tokens::site_controls::DESCENT;
+use crate::tokens::site_controls::CAP;
+use crate::tokens::site_controls::LINE;
 /// Ours, as before: it opens in 0.15 s and closes in 0.1 s, growing from the beak's tip and
 /// shrinking back into it, from and to this much of its size, as it fades.
 const OPEN: f32 = 0.15;

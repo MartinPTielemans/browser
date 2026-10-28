@@ -23,11 +23,9 @@ const STOPPED: &str = "This page stopped";
 pub const RELOAD: &str = "Reload";
 pub const NOT_RESPONDING: &str = "Not responding";
 pub const WAIT: &str = "Wait";
-/// The empty card's line is 14 pt, as the sidebar's New Tab row.
-const WORDS_SIZE: f32 = 14.;
-/// The card's button, wider than the plates' pair as it stands alone.
-const BUTTON_INSET: f32 = 14.;
-const LINE: f32 = 18.;
+use crate::tokens::shell::trouble::WORDS_SIZE;
+use crate::tokens::shell::trouble::BUTTON_INSET;
+use crate::tokens::shell::trouble::LINE;
 /// Lucide's circle-alert, in the speaker's place in the row.
 pub(super) const MARK: &str = "icons/circle-alert.svg";
 

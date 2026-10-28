@@ -9,20 +9,18 @@ use emojis::{Emoji, Group, SkinTone};
 
 use super::COLUMNS;
 
-/// The search field, 44 under the card's top, a segment control's height and the grid's width.
-pub const SEARCH_TOP: f32 = 44.;
-pub const SEARCH_HEIGHT: f32 = 24.;
-pub const SEARCH_RADIUS: f32 = 6.;
-pub const SEARCH_PADDING: f32 = 8.;
+pub use crate::tokens::icon_picker::emoji::SEARCH_TOP;
+pub use crate::tokens::icon_picker::emoji::SEARCH_HEIGHT;
+pub use crate::tokens::icon_picker::emoji::SEARCH_RADIUS;
+pub use crate::tokens::icon_picker::emoji::SEARCH_PADDING;
 /// The list starts 6 under the field and ends 6 over the card's bottom, so its rows stop short of
 /// the corners' curve.
 pub const LIST_TOP: f32 = SEARCH_TOP + SEARCH_HEIGHT + 6.;
-pub const LIST_BOTTOM: f32 = 6.;
-pub const EMOJI_SIZE: f32 = 20.;
-/// A group's header takes a row, its text on the plates' left edge and the row's bottom.
-pub const HEADER_TEXT: f32 = 11.;
-pub const HEADER_LEFT: f32 = 4.;
-pub const HEADER_BOTTOM: f32 = 3.;
+pub use crate::tokens::icon_picker::emoji::LIST_BOTTOM;
+pub use crate::tokens::icon_picker::emoji::EMOJI_SIZE;
+pub use crate::tokens::icon_picker::emoji::HEADER_TEXT;
+pub use crate::tokens::icon_picker::emoji::HEADER_LEFT;
+pub use crate::tokens::icon_picker::emoji::HEADER_BOTTOM;
 /// How many emoji the picker remembers as used last.
 pub const RECENTS: usize = 16;
 

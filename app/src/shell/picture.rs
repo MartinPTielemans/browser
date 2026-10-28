@@ -17,20 +17,16 @@ use image::{Frame, RgbaImage};
 
 use super::{CARD_RADIUS, Shell, new_space::ease_out, pane_frames, permission::EDGE};
 
-/// Ours: the picture is fitted to this much of the card, which reads as a page that isn't live.
-const REST: f32 = 0.8;
+use crate::tokens::shell::picture::REST;
 /// It steps back from the card's size to REST as the page goes to the other window, and comes
 /// forward to the card's before the page takes its place. Both ease out.
 const STEP_BACK: f32 = 0.2;
 const COME_BACK: f32 = 0.12;
-/// A veil of black dims it at REST and goes as it grows to the card's size, and in one frame
-/// under the pointer.
-const VEIL: f32 = 0.12;
-/// The rim and the shadow, as the popovers have them.
-const RIM: f32 = 0.5;
-const SHADOW: f32 = 0.24;
-const SHADOW_BLUR: f32 = 16.;
-const SHADOW_DROP: f32 = 4.;
+use crate::tokens::shell::picture::VEIL;
+use crate::tokens::shell::picture::RIM;
+use crate::tokens::shell::picture::SHADOW;
+use crate::tokens::shell::picture::SHADOW_BLUR;
+use crate::tokens::shell::picture::SHADOW_DROP;
 /// What a request for a picture is numbered from, above the numbers capture mode's count up from.
 const FIRST_REQUEST: u64 = 1 << 63;
 

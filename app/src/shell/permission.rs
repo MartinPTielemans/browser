@@ -17,21 +17,18 @@ use super::{
     URL_FIELD_TOP,
 };
 
-/// Ours, as Arc's wasn't recorded: under the URL field, as wide as it, with the URL field's
-/// radius and plates. The text is the dialog's detail colour.
-const GAP: f32 = 6.;
-const PADDING: f32 = 12.;
-const RADIUS: f32 = 12.;
-const LINE: f32 = 18.;
-const DETAIL: u32 = 0xffff_ffc7;
-/// A line of white 0.1 inside its edge, as the dialog's card has.
-pub(super) const EDGE: u32 = 0xffff_ff1a;
-const BUTTON_HEIGHT: f32 = 28.;
-const BUTTON_GAP: f32 = 8.;
-pub(super) const BUTTONS_TOP: f32 = 12.;
-const CLOSE: f32 = 22.;
-const CLOSE_INSET: f32 = 7.;
-const CLOSE_GLYPH: f32 = 12.;
+use crate::tokens::shell::permission::GAP;
+use crate::tokens::shell::permission::PADDING;
+use crate::tokens::shell::permission::RADIUS;
+use crate::tokens::shell::permission::LINE;
+use crate::tokens::shell::permission::DETAIL;
+pub(super) use crate::tokens::shell::permission::EDGE;
+use crate::tokens::shell::permission::BUTTON_HEIGHT;
+use crate::tokens::shell::permission::BUTTON_GAP;
+pub(super) use crate::tokens::shell::permission::BUTTONS_TOP;
+use crate::tokens::shell::permission::CLOSE;
+use crate::tokens::shell::permission::CLOSE_INSET;
+use crate::tokens::shell::permission::CLOSE_GLYPH;
 /// The room a card's first line leaves for its ×.
 pub(super) const BESIDE_CLOSE: f32 = CLOSE + CLOSE_INSET - PADDING;
 

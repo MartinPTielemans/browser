@@ -22,9 +22,7 @@ use super::{
 };
 use crate::text_input::TextInput;
 
-/// Where the card's left edge goes while the Library is open: the Library's right edge, which is
-/// this for Downloads and Archived Tabs and `spaces_width` for Spaces.
-const LIBRARY_WIDTH: f32 = 417.;
+use crate::tokens::shell::library::LIBRARY_WIDTH;
 /// The push, on Arc's measured spring (1 run, rms 1.0 pt). The Library comes with it from its own
 /// width to the left, so they meet as they stop.
 const LIBRARY_RESPONSE: f32 = 0.245;
@@ -53,105 +51,80 @@ const LIBRARY_BAND_STIFFNESS: f32 = 0.25;
 /// buttons: half a pixel at 2×, so their swap from the panel's copy can't be seen.
 const LIBRARY_REST_SLACK: f32 = 0.25;
 
-/// The column of sections, and the line at its edge.
-const COLUMN_WIDTH: f32 = 112.;
-const COLUMN: u32 = 0xffffff0f;
-const COLUMN_EDGE: u32 = 0xffffff0a;
-/// A section's button, its glyph centred 31 below its top and its label 56 below.
-const SECTION_X: f32 = 8.;
-const SECTION_WIDTH: f32 = 97.;
-const SECTION_HEIGHT: f32 = 80.;
-const SECTION_RADIUS: f32 = 12.;
-const SECTION_GLYPH: f32 = 20.;
-const SECTION_GLYPH_Y: f32 = 31.;
-const SECTION_LABEL_Y: f32 = 56.;
-const SECTION_LABEL_HEIGHT: f32 = 15.;
-const SECTION_LABEL: u32 = 0xffffffd9;
-/// Ours: the glyph of a section not shown, and the plate under one hovered.
-const SECTION_GLYPH_UNSELECTED: u32 = 0xffffff99;
-const SECTION_HOVERED: u32 = 0xffffff0d;
-/// Between two sections' buttons, 100 apart.
-const SECTION_GAP: f32 = 20.;
-/// The plate under the selected section and the search field.
-const LIBRARY_PLATE: u32 = 0xffffff17;
-/// The back button, at the column's bottom.
-pub(super) const LIBRARY_BACK_INSET: f32 = 8.;
+use crate::tokens::shell::library::COLUMN_WIDTH;
+use crate::tokens::shell::library::COLUMN;
+use crate::tokens::shell::library::COLUMN_EDGE;
+use crate::tokens::shell::library::SECTION_X;
+use crate::tokens::shell::library::SECTION_WIDTH;
+use crate::tokens::shell::library::SECTION_HEIGHT;
+use crate::tokens::shell::library::SECTION_RADIUS;
+use crate::tokens::shell::library::SECTION_GLYPH;
+use crate::tokens::shell::library::SECTION_GLYPH_Y;
+use crate::tokens::shell::library::SECTION_LABEL_Y;
+use crate::tokens::shell::library::SECTION_LABEL_HEIGHT;
+use crate::tokens::shell::library::SECTION_LABEL;
+use crate::tokens::shell::library::SECTION_GLYPH_UNSELECTED;
+use crate::tokens::shell::library::SECTION_HOVERED;
+use crate::tokens::shell::library::SECTION_GAP;
+use crate::tokens::shell::library::LIBRARY_PLATE;
+pub(super) use crate::tokens::shell::library::LIBRARY_BACK_INSET;
 
-/// The Spaces section (Arc 1.170 cap, one Space, and rec, three): a card per Space starts 28 after
-/// the column, 240 wide, 24 apart and as tall as the window less 48 above and below, with Arc's
-/// blue + 33 after the last, 30 across and halfway down, and the Library ends 37 after it, so it's
-/// 216 + 264 a Space wide. The card is the Space's gradient at radius 14, with its list drawn as
-/// the sidebar draws it, and its name's row has a brush at its end, 28 square, 13 from the card's
-/// right. Arc's card has no search field over it.
-const SPACES_LEFT: f32 = 28.;
-const SPACES_INSET: f32 = 48.;
-const CARD_WIDTH: f32 = 240.;
-const CARD_RADIUS: f32 = 14.;
-const CARD_GAP: f32 = 24.;
-/// Ours (*interim*, as Arc's recording never ran out of room): the section grows until the page
-/// beside it would be narrower than this, and its cards scroll across past that.
-const SPACES_PAGE: f32 = 400.;
-/// The name's row in the card, 33 down to its middle as in Arc, with the rows 52 down.
-const CARD_NAME_TOP: f32 = 14.;
-const CARD_NAME_HEIGHT: f32 = 38.;
-const CARD_BRUSH: f32 = 28.;
-const CARD_BRUSH_GLYPH: f32 = 14.;
-const CARD_BRUSH_RIGHT: f32 = 13.;
-const CARD_BRUSH_COLOR: u32 = 0xffffff59;
-/// Ours: the shadow round a card, which Arc has, soft and dark.
-const CARD_SHADOW: f32 = 0.3;
-const CARD_SHADOW_BLUR: f32 = 16.;
-const PLUS_GAP: f32 = 33.;
-const PLUS_SIZE: f32 = 30.;
-const PLUS_FILL: u32 = 0x1f2aff;
-/// Ours: under the pointer the + darkens to 0.9 of its fill, as the dialog's action does, and a
-/// card lightens by the sections' hover plate (Arc's aren't recorded).
-const PLUS_HOVERED: u32 = 0x1c26e6;
-const PLUS_GLYPH: f32 = 14.;
-/// The room after the +, to the Library's edge.
-const PLUS_AFTER: f32 = 37.;
+use crate::tokens::shell::library::SPACES_LEFT;
+use crate::tokens::shell::library::SPACES_INSET;
+use crate::tokens::shell::library::CARD_WIDTH;
+use crate::tokens::shell::library::CARD_RADIUS;
+use crate::tokens::shell::library::CARD_GAP;
+use crate::tokens::shell::library::SPACES_PAGE;
+use crate::tokens::shell::library::CARD_NAME_TOP;
+use crate::tokens::shell::library::CARD_NAME_HEIGHT;
+use crate::tokens::shell::library::CARD_BRUSH;
+use crate::tokens::shell::library::CARD_BRUSH_GLYPH;
+use crate::tokens::shell::library::CARD_BRUSH_RIGHT;
+use crate::tokens::shell::library::CARD_BRUSH_COLOR;
+use crate::tokens::shell::library::CARD_SHADOW;
+use crate::tokens::shell::library::CARD_SHADOW_BLUR;
+use crate::tokens::shell::library::PLUS_GAP;
+use crate::tokens::shell::library::PLUS_SIZE;
+use crate::tokens::shell::library::PLUS_FILL;
+use crate::tokens::shell::library::PLUS_HOVERED;
+use crate::tokens::shell::library::PLUS_GLYPH;
+use crate::tokens::shell::library::PLUS_AFTER;
 
-/// The search field, on the window buttons' row. Arc's Filter button is left out, and the field
-/// takes its place.
-const SEARCH_X: f32 = 120.;
-const SEARCH_TOP: f32 = 10.;
-const SEARCH_WIDTH: f32 = 289.;
-const SEARCH_HEIGHT: f32 = 36.;
-const SEARCH_RADIUS: f32 = 10.;
-const SEARCH_GLYPH: f32 = 15.;
-const SEARCH_GLYPH_X: f32 = 14.5;
-const SEARCH_TEXT_X: f32 = 44.;
-const SEARCH_PLACEHOLDER: u32 = 0xffffff8f;
-// The command bar's.
-const SEARCH_CARET: u32 = 0x4a77d4;
-const SEARCH_SELECTION: u32 = 0x787d_86b3;
+use crate::tokens::shell::library::SEARCH_X;
+use crate::tokens::shell::library::SEARCH_TOP;
+use crate::tokens::shell::library::SEARCH_WIDTH;
+use crate::tokens::shell::library::SEARCH_HEIGHT;
+use crate::tokens::shell::library::SEARCH_RADIUS;
+use crate::tokens::shell::library::SEARCH_GLYPH;
+use crate::tokens::shell::library::SEARCH_GLYPH_X;
+use crate::tokens::shell::library::SEARCH_TEXT_X;
+use crate::tokens::shell::library::SEARCH_PLACEHOLDER;
+use crate::tokens::shell::library::SEARCH_CARET;
+use crate::tokens::shell::library::SEARCH_SELECTION;
 
-/// The archive's list, beside the column.
-const ARCHIVE_TOP: f32 = 56.;
-const ARCHIVE_WIDTH: f32 = 304.;
-const HEADING_X: f32 = 12.;
-const HEADING_TOP: f32 = 8.;
-const HEADING_HEIGHT: f32 = 15.;
-const HEADING_BOTTOM: f32 = 4.;
-/// Over a heading after rows. Ours: Arc's capture had one heading.
-const HEADING_GAP: f32 = 12.;
-const ARCHIVED_PITCH: f32 = 56.;
-const ARCHIVED_PLATE: f32 = 50.;
-const ARCHIVED_LEFT: f32 = 8.;
-const ARCHIVED_RIGHT: f32 = 3.;
-const ARCHIVED_FAVICON_X: f32 = 14.;
-const ARCHIVED_TEXT_X: f32 = 44.;
-const ARCHIVED_RADIUS: f32 = 12.;
+use crate::tokens::shell::library::ARCHIVE_TOP;
+use crate::tokens::shell::library::ARCHIVE_WIDTH;
+use crate::tokens::shell::library::HEADING_X;
+use crate::tokens::shell::library::HEADING_TOP;
+use crate::tokens::shell::library::HEADING_HEIGHT;
+use crate::tokens::shell::library::HEADING_BOTTOM;
+use crate::tokens::shell::library::HEADING_GAP;
+use crate::tokens::shell::library::ARCHIVED_PITCH;
+use crate::tokens::shell::library::ARCHIVED_PLATE;
+use crate::tokens::shell::library::ARCHIVED_LEFT;
+use crate::tokens::shell::library::ARCHIVED_RIGHT;
+use crate::tokens::shell::library::ARCHIVED_FAVICON_X;
+use crate::tokens::shell::library::ARCHIVED_TEXT_X;
+use crate::tokens::shell::library::ARCHIVED_RADIUS;
 /// Rows laid out past the list's ends, so a scroll doesn't show them late.
 const ARCHIVE_OVERDRAW: f32 = 300.;
-/// Ours: a running download's bar, under its text, and the footer button's, under its glyph.
-const PROGRESS_HEIGHT: f32 = 3.;
-const PROGRESS_BOTTOM: f32 = 6.;
-const PROGRESS_TRACK: u32 = 0xffffff1f;
-const PROGRESS_FILL: u32 = 0xffffff99;
-const BUTTON_PROGRESS_WIDTH: f32 = 16.;
-const BUTTON_PROGRESS_HEIGHT: f32 = 2.;
-const BUTTON_PROGRESS_BOTTOM: f32 = 4.;
+use crate::tokens::shell::library::PROGRESS_HEIGHT;
+use crate::tokens::shell::library::PROGRESS_BOTTOM;
+use crate::tokens::shell::library::PROGRESS_TRACK;
+use crate::tokens::shell::library::PROGRESS_FILL;
+use crate::tokens::shell::library::BUTTON_PROGRESS_WIDTH;
+use crate::tokens::shell::library::BUTTON_PROGRESS_HEIGHT;
+use crate::tokens::shell::library::BUTTON_PROGRESS_BOTTOM;
 
 /// The headings, by how long ago a tab was archived: the starts of `Browser::day_starts`, then
 /// before them.

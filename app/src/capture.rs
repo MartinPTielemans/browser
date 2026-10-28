@@ -20,50 +20,43 @@ use crate::toast;
 
 actions!(capture, [Leave]);
 
-// Arc's, measured at 1× (docs/ux-spec.md › Capture): the ring around what's chosen, the pill that
-// says how, and the menu.
-const RING: f32 = 4.;
-const RING_RADIUS: f32 = 6.;
-const RING_COLOR: u32 = 0x151c_2fff;
-/// The page around what's chosen is grey, Rec. 601's luma at this much of its brightness, which
-/// gives Arc's grey to the level at each of the three measured.
-const DIM: f32 = 0.749;
-const PILL_WIDTH: f32 = 356.;
-const PILL_HEIGHT: f32 = 67.;
-const PILL_RADIUS: f32 = 18.;
-const PILL_BOTTOM: f32 = 35.5;
-const PILL_TEXT_SIZE: f32 = 14.;
-const PILL_TEXT: u32 = 0x471c_9dff;
-/// The pill's lilac glow, fitted by eye to its edge over the grey page (interim).
-const GLOW: u32 = 0x825a_9666;
-const GLOW_BLUR: f32 = 90.;
-const MENU_LEFT: f32 = 10.;
-const MENU_WIDTH: f32 = 273.;
-const MENU_RADIUS: f32 = 7.;
-const MENU_FILL: u32 = 0x120f_2cff;
-const FIELD_INSET: f32 = 10.;
-const FIELD_TOP: f32 = 13.;
-const FIELD_HEIGHT: f32 = 29.5;
-const FIELD_FILL: u32 = 0x2320_3bff;
-const FIELD_TEXT: u32 = 0xaaa9_b4ff;
-const FIELD_TEXT_LEFT: f32 = 10.;
-const ROWS_TOP: f32 = 7.5;
-const ROW: f32 = 40.;
-const GLYPH: f32 = 14.;
-const GLYPH_LEFT: f32 = 18.;
-const GLYPH_COLOR: u32 = 0xffff_ff4d;
-const TEXT_LEFT: f32 = 42.;
-const TEXT_SIZE: f32 = 14.;
-const SEPARATOR: f32 = 9.;
-const SEPARATOR_COLOR: u32 = 0xffff_ff0f;
-const MENU_BOTTOM: f32 = 6.;
-/// A row under the pointer, which Arc's wasn't recorded with (ours, as the app's menus' plates).
-const ROW_HOVERED: u32 = 0xffff_ff14;
-const ROW_INSET: f32 = 4.;
+use crate::tokens::capture::RING;
+use crate::tokens::capture::RING_RADIUS;
+use crate::tokens::capture::RING_COLOR;
+use crate::tokens::capture::DIM;
+use crate::tokens::capture::PILL_WIDTH;
+use crate::tokens::capture::PILL_HEIGHT;
+use crate::tokens::capture::PILL_RADIUS;
+use crate::tokens::capture::PILL_BOTTOM;
+use crate::tokens::capture::PILL_TEXT_SIZE;
+use crate::tokens::capture::PILL_TEXT;
+use crate::tokens::capture::GLOW;
+use crate::tokens::capture::GLOW_BLUR;
+use crate::tokens::capture::MENU_LEFT;
+use crate::tokens::capture::MENU_WIDTH;
+use crate::tokens::capture::MENU_RADIUS;
+use crate::tokens::capture::MENU_FILL;
+use crate::tokens::capture::FIELD_INSET;
+use crate::tokens::capture::FIELD_TOP;
+use crate::tokens::capture::FIELD_HEIGHT;
+use crate::tokens::capture::FIELD_FILL;
+use crate::tokens::capture::FIELD_TEXT;
+use crate::tokens::capture::FIELD_TEXT_LEFT;
+use crate::tokens::capture::ROWS_TOP;
+use crate::tokens::capture::ROW;
+use crate::tokens::capture::GLYPH;
+use crate::tokens::capture::GLYPH_LEFT;
+use crate::tokens::capture::GLYPH_COLOR;
+use crate::tokens::capture::TEXT_LEFT;
+use crate::tokens::capture::TEXT_SIZE;
+use crate::tokens::capture::SEPARATOR;
+use crate::tokens::capture::SEPARATOR_COLOR;
+use crate::tokens::capture::MENU_BOTTOM;
+use crate::tokens::capture::ROW_HOVERED;
+use crate::tokens::capture::ROW_INSET;
 /// How far the pointer moves with the button down before a click is a drag (ours).
 const DRAG: f32 = 4.;
-/// The menu keeps this far inside the page, where what's chosen reaches its edge (ours).
-const MARGIN: f32 = 8.;
+use crate::tokens::capture::MARGIN;
 /// How long the toast after a capture stays, and longer while the pointer is over it (ours).
 const TOAST_TIME: Duration = Duration::from_secs(5);
 /// How long "Capture in Progress" can stay, which the capture's toast replaces when it comes.

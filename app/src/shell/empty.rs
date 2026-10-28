@@ -12,17 +12,13 @@ use super::{Command, SECONDARY, Shell, fade_at, keys::user_keys};
 /// The mark and the line fade in over this long on the scroll edge's curve, as the hover card's
 /// opacity does, from nothing, so a window that shows a page a frame later never shows them.
 pub(super) const FADE: f32 = 0.1;
-/// The sidebar's New Tab row is 14 pt.
-const WORDS_SIZE: f32 = 14.;
-/// The command bar's key chip, which a command's row ends in: 24 tall, 7 in, white 0.08 on the
-/// panel, with its text at 13 pt.
-const KEYS_SIZE: f32 = 13.;
-const KEYS_HEIGHT: f32 = 24.;
-const KEYS_INSET: f32 = 7.;
-const KEYS_RADIUS: f32 = 6.5;
-const KEYS_FILL: u32 = 0xffff_ff14;
-/// From the words to their keys, as the toast sets its chip.
-const KEYS_GAP: f32 = 8.;
+use crate::tokens::shell::empty::WORDS_SIZE;
+use crate::tokens::shell::empty::KEYS_SIZE;
+use crate::tokens::shell::empty::KEYS_HEIGHT;
+use crate::tokens::shell::empty::KEYS_INSET;
+use crate::tokens::shell::empty::KEYS_RADIUS;
+use crate::tokens::shell::empty::KEYS_FILL;
+use crate::tokens::shell::empty::KEYS_GAP;
 /// ilo's mark, the app icon's lowercase i (branding/ilo.icon) drawn from its 1024 pt canvas at a
 /// sixteenth, so 39 tall: a 184.4 dot 81.9 over a 133.1 × 358.4 stem with round ends.
 const MARK_SCALE: f32 = 1. / 16.;
@@ -30,12 +26,9 @@ const MARK_DOT: f32 = 184.4 * MARK_SCALE;
 const MARK_DOT_GAP: f32 = 81.9 * MARK_SCALE;
 const MARK_STEM_WIDTH: f32 = 133.1 * MARK_SCALE;
 const MARK_STEM_HEIGHT: f32 = 358.4 * MARK_SCALE;
-/// The icon's green dot, #0E9F55, the one colour on the card, and the stem at a tile's white 0.10
-/// plus a little, so it reads as pressed into the card rather than printed on it.
-const MARK_DOT_FILL: u32 = 0x0e9f_55ff;
-const MARK_STEM_FILL: u32 = 0xffff_ff24;
-/// From the mark's foot to the line, so they read as a sign and its caption, not one block.
-const MARK_GAP: f32 = 24.;
+use crate::tokens::shell::empty::MARK_DOT_FILL;
+use crate::tokens::shell::empty::MARK_STEM_FILL;
+use crate::tokens::shell::empty::MARK_GAP;
 
 impl Shell {
     /// Starts the fade as the card comes to show no page, and ends it as a page shows.

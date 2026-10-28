@@ -23,72 +23,52 @@ use crate::{command_bar, shell::cubic_bezier};
 
 actions!(dialog, [Confirm, Cancel]);
 
-// Arc's, measured at 2× (docs/ux-spec.md › Spaces › Renaming and deleting). The card is centred
-// in the window. Its text is inset 38 from its top and left, and its buttons 28 from its right
-// and bottom. Arc's has its icon over the title, and ours starts with the title unless what it
-// asks about has an icon of its own, such as an extension.
-const WIDTH: f32 = 450.;
-const RADIUS: f32 = 16.;
-const TEXT_INSET: f32 = 38.;
-const BUTTON_INSET: f32 = 28.;
-const TITLE_LINE: f32 = 22.;
-const DETAIL_TOP: f32 = 15.5;
-const DETAIL_LINE: f32 = 18.;
-/// An icon over the title, such as the extension's, and the gap under it.
-const ICON: f32 = 32.;
-const ICON_GAP: f32 = 16.;
-/// A list under the detail, such as an extension's permission warnings, each with its smaller,
-/// dimmer lines under it, indented.
-const LIST_TOP: f32 = 10.;
-const LIST_GAP: f32 = 6.;
-const SUBLINE: f32 = 16.;
-const SUBLINE_INDENT: f32 = 12.;
-const SUBLINE_TEXT: u32 = 0xffff_ff8c;
-const BUTTONS_TOP: f32 = 38.;
-/// From the title's line to the buttons when there's no detail, as in Arc's ⌘Q.
-const BUTTONS_UNDER_TITLE: f32 = 46.;
-/// Between a button at the left, such as "Quit, and don't ask again", and Cancel at least.
-const ALSO_GAP: f32 = 16.;
-const FILL: u32 = 0x161b2f;
-/// A line of white 0.1 inside the card's edge, and one of black 0.5 thick outside it.
-const EDGE: u32 = 0xffff_ff1a;
-const DETAIL: u32 = 0xffff_ffc7;
-/// The window under the card: #151515 at 0.62.
-const DIM: u32 = 0x151515;
-const DIM_OPACITY: f32 = 0.62;
-const BUTTON_HEIGHT: f32 = 36.;
-const BUTTON_RADIUS: f32 = 8.;
-/// A button's label starts 12 in from its left edge, and its key's chip ends 12 in from its
-/// right, 8 after the label.
-const LABEL_X: f32 = 12.;
-const CHIP_END: f32 = 12.;
-const CHIP_GAP: f32 = 8.;
-const CANCEL_FILL: u32 = 0x2f305f;
-/// Under the pointer it lightens, as white 0.1 over it (Arc 1.170 rec, ⌘Q's dialog).
-const CANCEL_HOVERED: u32 = 0x45436f;
-const CANCEL_BORDER: u32 = 0x6462a9;
-const CANCEL_TEXT: u32 = 0xffff_ffe6;
-/// The action, which darkens under the pointer and sits on a ledge of its own colour at 0.2.
-const ACTION: u32 = 0xe1492c;
-const ACTION_HOVERED: u32 = 0xcc4126;
-const ACTION_LEDGE: u32 = 0xe149_2c33;
-/// An action that can be taken back, such as Quit, is blue, on a darker ledge. Ours darkens
-/// under the pointer as the red does.
-const SAFE_ACTION: u32 = 0x3338f2;
-const SAFE_ACTION_HOVERED: u32 = 0x2e32da;
-const SAFE_ACTION_LEDGE: u32 = 0x393f92;
-/// An action that takes nothing back, such as adding an extension, has the Space's accent
-/// instead, darker by this under the pointer.
-const ACCENT_HOVERED: f32 = 0.05;
-const CHIP_HEIGHT: f32 = 20.;
-const CHIP_RADIUS: f32 = 5.;
-/// White 0.14 over the button, so it lightens with it.
-const ESC_FILL: u32 = 0xffff_ff24;
-const ESC_TEXT: u32 = 0xbbb9e3;
-const RETURN_WIDTH: f32 = 30.;
-const RETURN_FILL: u32 = 0xffff_ff1a;
-const RETURN_BORDER: u32 = 0xffff_ff45;
-const RETURN_GLYPH: f32 = 16.;
+use crate::tokens::dialog::WIDTH;
+use crate::tokens::dialog::RADIUS;
+use crate::tokens::dialog::TEXT_INSET;
+use crate::tokens::dialog::BUTTON_INSET;
+use crate::tokens::dialog::TITLE_LINE;
+use crate::tokens::dialog::DETAIL_TOP;
+use crate::tokens::dialog::DETAIL_LINE;
+use crate::tokens::dialog::ICON;
+use crate::tokens::dialog::ICON_GAP;
+use crate::tokens::dialog::LIST_TOP;
+use crate::tokens::dialog::LIST_GAP;
+use crate::tokens::dialog::SUBLINE;
+use crate::tokens::dialog::SUBLINE_INDENT;
+use crate::tokens::dialog::SUBLINE_TEXT;
+use crate::tokens::dialog::BUTTONS_TOP;
+use crate::tokens::dialog::BUTTONS_UNDER_TITLE;
+use crate::tokens::dialog::ALSO_GAP;
+use crate::tokens::dialog::FILL;
+use crate::tokens::dialog::EDGE;
+use crate::tokens::dialog::DETAIL;
+use crate::tokens::dialog::DIM;
+use crate::tokens::dialog::DIM_OPACITY;
+use crate::tokens::dialog::BUTTON_HEIGHT;
+use crate::tokens::dialog::BUTTON_RADIUS;
+use crate::tokens::dialog::LABEL_X;
+use crate::tokens::dialog::CHIP_END;
+use crate::tokens::dialog::CHIP_GAP;
+use crate::tokens::dialog::CANCEL_FILL;
+use crate::tokens::dialog::CANCEL_HOVERED;
+use crate::tokens::dialog::CANCEL_BORDER;
+use crate::tokens::dialog::CANCEL_TEXT;
+use crate::tokens::dialog::ACTION;
+use crate::tokens::dialog::ACTION_HOVERED;
+use crate::tokens::dialog::ACTION_LEDGE;
+use crate::tokens::dialog::SAFE_ACTION;
+use crate::tokens::dialog::SAFE_ACTION_HOVERED;
+use crate::tokens::dialog::SAFE_ACTION_LEDGE;
+use crate::tokens::dialog::ACCENT_HOVERED;
+use crate::tokens::dialog::CHIP_HEIGHT;
+use crate::tokens::dialog::CHIP_RADIUS;
+use crate::tokens::dialog::ESC_FILL;
+use crate::tokens::dialog::ESC_TEXT;
+use crate::tokens::dialog::RETURN_WIDTH;
+use crate::tokens::dialog::RETURN_FILL;
+use crate::tokens::dialog::RETURN_BORDER;
+use crate::tokens::dialog::RETURN_GLYPH;
 /// Arc's motion: over 0.275 s the window dims and the card comes down 32 pt into place,
 /// ease-in-out, opaque after the first 0.135 s. It leaves the way it came, fading all the way.
 const MOVE: f32 = 0.275;

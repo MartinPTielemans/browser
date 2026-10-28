@@ -14,15 +14,13 @@ use super::{
     URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE, card, panes::page_frame,
 };
 
-/// The panel's width until the user gives it one, Chrome's, and the range they can give it,
-/// Ardia's.
-const PANEL_WIDTH: f32 = 360.;
-const PANEL_MIN: f32 = 320.;
-const PANEL_MAX: f32 = 600.;
+use crate::tokens::shell::side_panel::PANEL_WIDTH;
+use crate::tokens::shell::side_panel::PANEL_MIN;
+use crate::tokens::shell::side_panel::PANEL_MAX;
 /// The header over the panel's page, holding a button's height.
 const HEADER: f32 = URL_BUTTON_SIZE + 2. * URL_BUTTON_INSET;
-const HEADER_ICON: f32 = 16.;
-const HEADER_TEXT: f32 = 13.;
+use crate::tokens::shell::side_panel::HEADER_ICON;
+use crate::tokens::shell::side_panel::HEADER_TEXT;
 
 /// The side panel shown, as the core reports it.
 #[derive(Clone)]

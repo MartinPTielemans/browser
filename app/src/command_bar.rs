@@ -32,74 +32,53 @@ actions!(
     ]
 );
 
-// The panel's measures, in points, from Arc's capture (docs/ux-spec.md › Command bar).
-pub const WIDTH: f32 = 765.;
-/// The input's row, down to the line under it.
-const HEIGHT: f32 = 64.;
-/// The line under it in the bar's height: one device pixel at 2×, as Arc's is.
-const LINE: f32 = 0.5;
-/// The line stops this far short of the panel's sides.
-const LINE_INSET: f32 = 12.;
-/// Between the line and the first row, and under the last.
-const LIST_TOP: f32 = 4.;
-const LIST_END: f32 = 10.;
+pub use crate::tokens::command_bar::WIDTH;
+use crate::tokens::command_bar::HEIGHT;
+use crate::tokens::command_bar::LINE;
+use crate::tokens::command_bar::LINE_INSET;
+use crate::tokens::command_bar::LIST_TOP;
+use crate::tokens::command_bar::LIST_END;
 /// The rows are 8 in from the panel's sides, 50 tall, and the bar shows five before it scrolls.
-const LIST_X: f32 = 8.;
-const ROW_HEIGHT: f32 = 50.;
+use crate::tokens::command_bar::LIST_X;
+use crate::tokens::command_bar::ROW_HEIGHT;
 const ROWS_SHOWN: usize = 5;
-/// The selected row's plate is this far inside its row, on every side.
-const PLATE_INSET: f32 = 2.;
-const PLATE_RADIUS: f32 = 6.5;
-/// The row's icon is a 24 pt box, centred 24 in, and its title starts 43 in.
-const ICON_BOX: f32 = 24.;
-const ICON_BOX_X: f32 = 12.;
-const ICON_SIZE: f32 = 16.;
-const TITLE_X: f32 = 43.;
-/// The input's icon is 18 pt and 23 in; its text, 18 pt too, starts 53 in.
-const INPUT_ICON: f32 = 18.;
-const INPUT_TEXT: f32 = 18.;
-const INPUT_ICON_X: f32 = 23.;
-const INPUT_TEXT_X: f32 = 53.;
-/// The hint after the input ends this far from the panel's side, 11 after the field.
-const HINT_END: f32 = 22.;
-const HINT_GAP: f32 = 11.;
-/// The panel's corners, which the host's blur and shadow take too.
-pub const RADIUS: f32 = 18.;
-/// How far above the browser window's middle the panel's top is: Arc's is at y 396 of 1130 and at
-/// 305.5 of 949, which no fraction of the height fits.
-pub const ABOVE_MIDDLE: f32 = 169.;
-/// A click on the URL field opens the panel over it (Arc 1.170 rec): 350 wide, its left at the
-/// field's and its top 2 above, rounded as the panels anchored to the field are.
-pub const FIELD_WIDTH: f32 = 350.;
-const FIELD_ABOVE: f32 = 2.;
-pub const FIELD_RADIUS: f32 = 12.;
+use crate::tokens::command_bar::PLATE_INSET;
+use crate::tokens::command_bar::PLATE_RADIUS;
+use crate::tokens::command_bar::ICON_BOX;
+use crate::tokens::command_bar::ICON_BOX_X;
+use crate::tokens::command_bar::ICON_SIZE;
+use crate::tokens::command_bar::TITLE_X;
+use crate::tokens::command_bar::INPUT_ICON;
+use crate::tokens::command_bar::INPUT_TEXT;
+use crate::tokens::command_bar::INPUT_ICON_X;
+use crate::tokens::command_bar::INPUT_TEXT_X;
+use crate::tokens::command_bar::HINT_END;
+use crate::tokens::command_bar::HINT_GAP;
+pub use crate::tokens::command_bar::RADIUS;
+pub use crate::tokens::command_bar::ABOVE_MIDDLE;
+pub use crate::tokens::command_bar::FIELD_WIDTH;
+use crate::tokens::command_bar::FIELD_ABOVE;
+pub use crate::tokens::command_bar::FIELD_RADIUS;
 /// There the input's row is a row tall, with no line under it, and its icon and 14 pt text sit in
 /// the rows' icon and title columns.
 const FIELD_INPUT: f32 = ROW_HEIGHT;
-const FIELD_INPUT_TEXT: f32 = 14.;
-/// Over a new pane of a split view, the bar's right edge stays this far inside the card's (Arc).
-const BESIDE_END: f32 = 70.;
-/// Arc's fill, #191919 at 0.86, over the blur of what's behind that the host puts under the bar.
-const FILL: u32 = 0x1919_19db;
-pub(crate) const OUTLINE: u32 = 0x040404;
-pub(crate) const EDGE: u32 = 0x59595d;
-const LINE_COLOR: u32 = 0xffff_ff1a;
-const TITLE: u32 = 0xffff_ffd9;
-const DIM: u32 = 0xffff_ff59;
-/// The row under the pointer while the selection is elsewhere: white 0.05, (31, 31, 31) on the
-/// (19, 19, 19) panel (Arc 1.170 rec).
-const HOVERED: u32 = 0xffff_ff0d;
-const PLACEHOLDER: u32 = 0xffff_ff87;
-const CARET: u32 = 0x4a77d4;
-const SELECTION: u32 = 0x787d_86b3;
-/// A tile under an icon or a hint's key, and a command's shortcut (ours).
-const CHIP: u32 = 0xffff_ff14;
-/// The arrow's tile on a row that switches to a tab.
-const ARROW_TILE: u32 = 0xffff_ff0a;
-/// The accent's lightness is held to this so white reads on it (Arc's is 0.53).
-const ACCENT_LIGHTNESS: f32 = 0.55;
+use crate::tokens::command_bar::FIELD_INPUT_TEXT;
+use crate::tokens::command_bar::BESIDE_END;
+use crate::tokens::command_bar::FILL;
+pub(crate) use crate::tokens::command_bar::OUTLINE;
+pub(crate) use crate::tokens::command_bar::EDGE;
+use crate::tokens::command_bar::LINE_COLOR;
+use crate::tokens::command_bar::TITLE;
+use crate::tokens::command_bar::DIM;
+use crate::tokens::command_bar::HOVERED;
+use crate::tokens::command_bar::PLACEHOLDER;
+use crate::tokens::command_bar::CARET;
+use crate::tokens::command_bar::SELECTION;
+use crate::tokens::command_bar::CHIP;
+use crate::tokens::command_bar::ARROW_TILE;
+use crate::tokens::command_bar::ACCENT_LIGHTNESS;
 /// The accent until the shell gives the Space's.
-const ACCENT: u32 = 0x4248cf;
+use crate::tokens::command_bar::ACCENT;
 pub(crate) const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
 
 /// One of the core's suggestions for what's typed.

@@ -26,7 +26,7 @@ actions!(offer, [Accept, NotNow]);
 // Ours, as neither Arc's nor Dia's was measured: the panel grid (docs/ux-spec.md › Overlays), 8
 // from the card's side and 8 below the page's top, its content 16 in, its title and site at 13/16
 // and 11/14, and 32 pt rows.
-pub const WIDTH: f32 = 320.;
+pub use crate::tokens::offer::WIDTH;
 pub const HEIGHT: f32 = INSET * 2.
     + TITLE_LINE
     + SITE_LINE
@@ -37,33 +37,30 @@ pub const HEIGHT: f32 = INSET * 2.
     + BUTTON_HEIGHT;
 pub const RIGHT: f32 = shell::CARD_INSET + 8.;
 pub const TOP: f32 = shell::CARD_INSET + 8.;
-const INSET: f32 = 16.;
-const RADIUS: f32 = 12.;
-const TITLE_LINE: f32 = 16.;
-const SITE_LINE: f32 = 14.;
-const HEADER_GAP: f32 = 8.;
-const ROW: f32 = 32.;
-const ROW_GAP: f32 = 6.;
-const FIELD_X: f32 = 10.;
-const CHEVRON: f32 = 24.;
-const GLYPH: f32 = 14.;
-// The permission card's buttons and colours.
-const BUTTONS_TOP: f32 = 12.;
-const BUTTON_HEIGHT: f32 = 28.;
-const BUTTON_X: f32 = 12.;
-const BUTTON_GAP: f32 = 8.;
-const PLATE_RADIUS: f32 = 6.;
-const TITLE: u32 = 0xffff_ffff;
-const DETAIL: u32 = 0xffff_ffc7;
-const EDGE: u32 = 0xffff_ff1a;
-const PLATE: u32 = 0xffff_ff1a;
-const HOVERED: u32 = 0xffff_ff1f;
-// Ours: Save or Update stands out from the others.
-const DEFAULT_PLATE: u32 = 0xffff_ff33;
-// The find bar's.
-const PLACEHOLDER: u32 = 0xffff_ff87;
-const CARET: u32 = 0x4a77_d4ff;
-const SELECTION: u32 = 0x787d_86b3;
+use crate::tokens::offer::INSET;
+use crate::tokens::offer::RADIUS;
+use crate::tokens::offer::TITLE_LINE;
+use crate::tokens::offer::SITE_LINE;
+use crate::tokens::offer::HEADER_GAP;
+use crate::tokens::offer::ROW;
+use crate::tokens::offer::ROW_GAP;
+use crate::tokens::offer::FIELD_X;
+use crate::tokens::offer::CHEVRON;
+use crate::tokens::offer::GLYPH;
+use crate::tokens::offer::BUTTONS_TOP;
+use crate::tokens::offer::BUTTON_HEIGHT;
+use crate::tokens::offer::BUTTON_X;
+use crate::tokens::offer::BUTTON_GAP;
+use crate::tokens::offer::PLATE_RADIUS;
+use crate::tokens::offer::TITLE;
+use crate::tokens::offer::DETAIL;
+use crate::tokens::offer::EDGE;
+use crate::tokens::offer::PLATE;
+use crate::tokens::offer::HOVERED;
+use crate::tokens::offer::DEFAULT_PLATE;
+use crate::tokens::offer::PLACEHOLDER;
+use crate::tokens::offer::CARET;
+use crate::tokens::offer::SELECTION;
 
 /// What an offer offers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

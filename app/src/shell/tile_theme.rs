@@ -11,29 +11,20 @@ use super::{TILE_HEIGHT, TILE_RADIUS};
 
 /// The icon is looked at, and blurred, at no more than this on its long side.
 const MAX_SIDE: usize = 32;
-/// A pixel counts towards the icon's colour from this alpha.
-const OPAQUE: f32 = 0.975;
-/// The mean distance from the mean colour at which an icon is colourful.
-const COLOURFUL: f32 = 0.055;
-/// Above this relative luminance a one-colour icon is near-white.
-const NEAR_WHITE: f32 = 0.88;
-const BLUR_SIGMA: f32 = 5.;
-/// The blurred icon is aspect-filled to this many tiles, centred.
-const BLUR_SCALE: f32 = 2.5;
-const BLUR_OPACITY: f32 = 0.22;
-/// The ring of a colourful tile shows the blurred icon at this opacity over black, with
-/// saturation 2 and brightness -0.1.
-const RING_OPACITY: f32 = 0.75;
-const RING_SATURATION: f32 = 2.;
-const RING_BRIGHTNESS: f32 = -0.1;
-/// Dia's `itemStrokeWidth`: the width of every themed ring.
-pub(super) const RING_WIDTH: f32 = 3.;
-/// The ring's image is made for a tile this wide and stretched to fit, in points, and baked at
-/// this many pixels to the point, a Retina display's, so its pixels are the screen's.
-const RING_BAKED_WIDTH: f32 = 88.;
-const RING_SCALE: f32 = 2.;
-const NEAR_WHITE_RING: u32 = 0xffff_ff4d;
-const BLACK: u32 = 0x0000_00ff;
+use crate::tokens::shell::tile_theme::OPAQUE;
+use crate::tokens::shell::tile_theme::COLOURFUL;
+use crate::tokens::shell::tile_theme::NEAR_WHITE;
+use crate::tokens::shell::tile_theme::BLUR_SIGMA;
+use crate::tokens::shell::tile_theme::BLUR_SCALE;
+use crate::tokens::shell::tile_theme::BLUR_OPACITY;
+use crate::tokens::shell::tile_theme::RING_OPACITY;
+use crate::tokens::shell::tile_theme::RING_SATURATION;
+use crate::tokens::shell::tile_theme::RING_BRIGHTNESS;
+pub(super) use crate::tokens::shell::tile_theme::RING_WIDTH;
+use crate::tokens::shell::tile_theme::RING_BAKED_WIDTH;
+use crate::tokens::shell::tile_theme::RING_SCALE;
+use crate::tokens::shell::tile_theme::NEAR_WHITE_RING;
+use crate::tokens::shell::tile_theme::BLACK;
 
 /// How an icon themes its tile.
 #[derive(Debug, PartialEq)]

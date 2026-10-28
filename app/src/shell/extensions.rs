@@ -16,16 +16,12 @@ use super::{
     URL_FIELD_TOP, UserKeys, user_keys,
 };
 
-/// The room the URL field keeps for the host before it shows fewer actions (Ardia).
-const HOST_ROOM: f32 = 84.;
-/// An action's icon, 16 pt as in Chrome's toolbar, on its button's 30 pt pitch (Dia: 30.25).
-const ACTION_ICON: f32 = 16.;
-/// An action that doesn't act on the tab is dimmed, as in Chrome.
-const ACTION_DIMMED: f32 = 0.4;
-/// The badge over the icon's bottom: Chrome's grey when the extension gives no colour, white text.
-const BADGE_COLOR: u32 = 0x5f6368;
-const BADGE_HEIGHT: f32 = 11.;
-const BADGE_TEXT: f32 = 8.5;
+use crate::tokens::shell::extensions::HOST_ROOM;
+use crate::tokens::shell::extensions::ACTION_ICON;
+use crate::tokens::shell::extensions::ACTION_DIMMED;
+use crate::tokens::shell::extensions::BADGE_COLOR;
+use crate::tokens::shell::extensions::BADGE_HEIGHT;
+use crate::tokens::shell::extensions::BADGE_TEXT;
 
 /// An extension of a profile's, one Chrome's extensions page lists.
 #[derive(Clone, PartialEq, Debug)]

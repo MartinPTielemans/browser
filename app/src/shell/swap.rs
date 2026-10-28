@@ -54,8 +54,8 @@ const CHECK_DRAW: f32 = 0.25;
 // Lucide's check in its 24 box, from its left end down to its point and up to its right end,
 // stroked 2 wide with round ends and join.
 const CHECK_LINE: [(f32, f32); 3] = [(4., 12.), (9., 17.), (20., 6.)];
-const CHECK_BOX: f32 = 24.;
-const CHECK_STROKE: f32 = 2.;
+use crate::tokens::shell::swap::CHECK_BOX;
+use crate::tokens::shell::swap::CHECK_STROKE;
 
 struct Swap {
     what: Swapped,

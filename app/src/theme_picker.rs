@@ -24,98 +24,84 @@ use crate::{
 
 actions!(theme_picker, [Dismiss]);
 
-// Arc 1.170's, measured at 2× (docs/ux-spec.md › Themes), in points from the card's top left.
-// The window holds the arrow left of the card too.
-const CARD_WIDTH: f32 = 357.;
-pub const HEIGHT: f32 = 509.;
-/// The arrow's sides meet this far left of the card, at 45°, as the icon picker's do.
-const ARROW: f32 = 13.;
-const ARROW_TIP_RADIUS: f32 = 5.;
-const ARROW_FOOT_RADIUS: f32 = 3.5;
+use crate::tokens::theme_picker::CARD_WIDTH;
+pub use crate::tokens::theme_picker::HEIGHT;
+use crate::tokens::theme_picker::ARROW;
+use crate::tokens::theme_picker::ARROW_TIP_RADIUS;
+use crate::tokens::theme_picker::ARROW_FOOT_RADIUS;
 /// How far inside where its sides meet the rounded tip is.
 const TIP_SHORT: f32 = ARROW_TIP_RADIUS * (std::f32::consts::SQRT_2 - 1.);
 pub const WIDTH: f32 = ARROW + CARD_WIDTH;
-const RADIUS: f32 = 20.;
-/// The arrow's tip is this far right of the row it points at.
-const GAP: f32 = 2.5;
-/// Kept off the browser window's top and bottom, when the card can't centre on its arrow (ours).
-const MARGIN: f32 = 8.;
-/// The square field, 8.5 inside the card's top and sides.
-const FIELD_INSET: f32 = 8.5;
-const FIELD: f32 = 340.;
-const FIELD_RADIUS: f32 = 12.;
-const FIELD_FILL: u32 = 0xffff_ff08;
-const FIELD_RIM: u32 = 0xffff_ff33;
+use crate::tokens::theme_picker::RADIUS;
+use crate::tokens::theme_picker::GAP;
+use crate::tokens::theme_picker::MARGIN;
+use crate::tokens::theme_picker::FIELD_INSET;
+use crate::tokens::theme_picker::FIELD;
+use crate::tokens::theme_picker::FIELD_RADIUS;
+use crate::tokens::theme_picker::FIELD_FILL;
+use crate::tokens::theme_picker::FIELD_RIM;
 /// Its grid of 1 pt dots.
-const DOT_PITCH: f32 = 4.3;
+use crate::tokens::theme_picker::DOT_PITCH;
 const DOT_ALPHA: u8 = 0x40;
 const HINT: &str = "Tap to pick a color for this space";
 /// The appearance buttons, across the field's top: automatic, light and dark.
-const APPEARANCE_Y: f32 = 49.;
+use crate::tokens::theme_picker::APPEARANCE_Y;
 const APPEARANCE_X: [f32; 3] = [137.9, 178.3, 218.7];
-const APPEARANCE_PLATE: f32 = 31.5;
-const APPEARANCE_RADIUS: f32 = 6.;
-const APPEARANCE_CHOSEN: u32 = 0xffff_ff14;
-const APPEARANCE_GLYPH: f32 = 16.;
-const APPEARANCE_COLOR: u32 = 0xffff_ffa6;
-/// − and +, at the field's foot.
-const COUNT_Y: f32 = 316.5;
-const REMOVE_X: f32 = 158.5;
-const ADD_X: f32 = 198.5;
-const COUNT_GLYPH: f32 = 12.;
-const COUNT_COLOR: u32 = 0xffff_ff59;
-const COUNT_PRESSED: u32 = 0xffff_ffa6;
-/// Ours: Arc's with one colour or three wasn't recorded.
-const COUNT_DISABLED: u32 = 0xffff_ff1f;
-const COUNT_TARGET: f32 = 24.;
+use crate::tokens::theme_picker::APPEARANCE_PLATE;
+use crate::tokens::theme_picker::APPEARANCE_RADIUS;
+use crate::tokens::theme_picker::APPEARANCE_CHOSEN;
+use crate::tokens::theme_picker::APPEARANCE_GLYPH;
+use crate::tokens::theme_picker::APPEARANCE_COLOR;
+use crate::tokens::theme_picker::COUNT_Y;
+use crate::tokens::theme_picker::REMOVE_X;
+use crate::tokens::theme_picker::ADD_X;
+use crate::tokens::theme_picker::COUNT_GLYPH;
+use crate::tokens::theme_picker::COUNT_COLOR;
+use crate::tokens::theme_picker::COUNT_PRESSED;
+use crate::tokens::theme_picker::COUNT_DISABLED;
+use crate::tokens::theme_picker::COUNT_TARGET;
 /// The swatches: 24 pt discs on a 29.5 pitch, each with a ring a shade darker than its fill.
-const SWATCH_Y: f32 = 380.;
-const SWATCH_X: f32 = 60.5;
-const SWATCH_PITCH: f32 = 29.5;
-const SWATCH: f32 = 24.;
-const SWATCH_RING: f32 = 1.5;
-const SWATCH_RING_SHADE: f32 = 0.88;
+use crate::tokens::theme_picker::SWATCH_Y;
+use crate::tokens::theme_picker::SWATCH_X;
+use crate::tokens::theme_picker::SWATCH_PITCH;
+use crate::tokens::theme_picker::SWATCH;
+use crate::tokens::theme_picker::SWATCH_RING;
+use crate::tokens::theme_picker::SWATCH_RING_SHADE;
 pub const SWATCHES: [u32; 9] = [
     0xf0eae5, 0xe59eba, 0x9e749b, 0xe1676f, 0xef8c63, 0xf2d46c, 0x73e49b, 0x7eb6d5, 0x656786,
 ];
-/// The intensity's wave slider: a pill with a sine over it, brighter left of the knob.
-const SLIDER_Y: f32 = 452.;
-const TRACK_LEFT: f32 = 18.5;
-const TRACK_RIGHT: f32 = 242.5;
-const TRACK_HEIGHT: f32 = 16.;
-const TRACK_FILL: u32 = 0xffff_ff1a;
-const WAVE_LEFT: f32 = 26.5;
-const WAVE_RIGHT: f32 = 235.5;
-const WAVE_PERIODS: f32 = 7.;
-const WAVE_STROKE: f32 = 4.;
-/// Half the wave's height at full intensity: 12.25 at 0.81.
-const WAVE_AMPLITUDE: f32 = 15.;
-const WAVE_ON: u32 = 0xffff_ff8c;
-const WAVE_OFF: u32 = 0xffff_ff40;
-const KNOB_WIDTH: f32 = 23.;
-const KNOB_HEIGHT: f32 = 55.5;
-/// The knob's middle at intensity 0 and at 1.
-const KNOB_LEFT: f32 = 30.;
-const KNOB_RIGHT: f32 = 231.;
+use crate::tokens::theme_picker::SLIDER_Y;
+use crate::tokens::theme_picker::TRACK_LEFT;
+use crate::tokens::theme_picker::TRACK_RIGHT;
+use crate::tokens::theme_picker::TRACK_HEIGHT;
+use crate::tokens::theme_picker::TRACK_FILL;
+use crate::tokens::theme_picker::WAVE_LEFT;
+use crate::tokens::theme_picker::WAVE_RIGHT;
+use crate::tokens::theme_picker::WAVE_PERIODS;
+use crate::tokens::theme_picker::WAVE_STROKE;
+use crate::tokens::theme_picker::WAVE_AMPLITUDE;
+use crate::tokens::theme_picker::WAVE_ON;
+use crate::tokens::theme_picker::WAVE_OFF;
+use crate::tokens::theme_picker::KNOB_WIDTH;
+use crate::tokens::theme_picker::KNOB_HEIGHT;
+use crate::tokens::theme_picker::KNOB_LEFT;
+use crate::tokens::theme_picker::KNOB_RIGHT;
 /// The grain's dial: 24 dots round a disc, those the knob has swept bright.
 const DIAL: (f32, f32) = (298.5, 452.);
 const DIAL_DOTS: usize = 24;
-const DIAL_RING: f32 = 32.;
-const DIAL_DOT: f32 = 4.;
-const DIAL_SWEPT: u32 = 0xffff_ff8a;
-const DIAL_DIM: u32 = 0xffff_ff29;
-const DIAL_DISC: f32 = 20.;
-const DIAL_DISC_FILL: u32 = 0x0000_001a;
-const DIAL_DISC_RIM: u32 = 0xffff_ff4d;
+use crate::tokens::theme_picker::DIAL_RING;
+use crate::tokens::theme_picker::DIAL_DOT;
+use crate::tokens::theme_picker::DIAL_SWEPT;
+use crate::tokens::theme_picker::DIAL_DIM;
+use crate::tokens::theme_picker::DIAL_DISC;
+use crate::tokens::theme_picker::DIAL_DISC_FILL;
+use crate::tokens::theme_picker::DIAL_DISC_RIM;
 const DIAL_KNOB: (f32, f32) = (7., 15.);
-/// How far from the dial's middle a press turns it (ours).
-const DIAL_REACH: f32 = 44.;
-/// The handles: the main colour's 44 pt with a 3 pt white ring, the others 26 pt.
-const MAIN_HANDLE: f32 = 44.;
-const MAIN_RING: f32 = 3.;
-const HANDLE: f32 = 26.;
-/// Ours: the small handles' ring isn't measured; the main one's, scaled.
-const HANDLE_RING: f32 = 2.;
+use crate::tokens::theme_picker::DIAL_REACH;
+use crate::tokens::theme_picker::MAIN_HANDLE;
+use crate::tokens::theme_picker::MAIN_RING;
+use crate::tokens::theme_picker::HANDLE;
+use crate::tokens::theme_picker::HANDLE_RING;
 /// Pressed, a handle grows by this in 60 ms, and shrinks back as long on release.
 const PRESSED: f32 = 48. / 44.;
 const PRESS: f32 = 0.06;

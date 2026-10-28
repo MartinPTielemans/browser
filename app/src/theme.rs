@@ -15,8 +15,7 @@ use gpui::{Hsla, RenderImage, Rgba, hsla, rgb};
 use image::{Frame, RgbaImage};
 
 pub const MAX_COLORS: usize = 3;
-/// Where the intensity slider starts (Arc: its knob at 0.81 of its travel).
-pub const DEFAULT_INTENSITY: f32 = 0.81;
+pub use crate::tokens::theme::DEFAULT_INTENSITY;
 
 /// The window's look with the theme: light, dark, or picked from the colours (Arc's sparkles).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -254,9 +253,7 @@ pub fn diagonal(x: f32, y: f32, width: f32, height: f32) -> f32 {
     ((x * width + y * height) / (width + height).max(1.)).clamp(0., 1.)
 }
 
-/// How strongly grain at 1 lies over the colours: Arc's window at full grain is ≈ 5.5 levels of
-/// luminance noisier (Arc 1.170 rec at 2×).
-pub const GRAIN_STRENGTH: f32 = 0.075;
+pub use crate::tokens::theme::GRAIN_STRENGTH;
 
 /// Grain's side, in device pixels: a tile the window repeats.
 pub const GRAIN_TILE: usize = 256;

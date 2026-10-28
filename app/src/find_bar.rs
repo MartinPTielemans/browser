@@ -22,36 +22,31 @@ actions!(find_bar, [FindNext, FindPrevious, SelectAll, Close]);
 
 // Arc's bar (docs/ux-spec.md › Find in page): 300 × 32, radius 6, 10 in from the card's top right
 // corner, so twice the card's inset from the window's.
-const WIDTH: f32 = 300.;
-const HEIGHT: f32 = 32.;
-const RADIUS: f32 = 6.;
+use browser::tokens::find_bar::WIDTH;
+use browser::tokens::find_bar::HEIGHT;
+use browser::tokens::find_bar::RADIUS;
 const RIGHT: f32 = shell::CARD_INSET * 2.;
 // Arc's fill, a navy unlike its window's colour (one Space captured).
-const FILL: u32 = 0x131d32;
+use browser::tokens::find_bar::FILL;
 const TOP: f32 = shell::CARD_INSET * 2.;
-// Arc's buttons are 28 pt, 2 pt inside the bar, previous and next 26 apart, and a 4 pt divider
-// before close. The field starts 1 pt after the search glyph's square.
-const INSET: f32 = 2.;
-const BUTTON: f32 = 28.;
-const ARROW_OVERLAP: f32 = 2.;
-const DIVIDER_GAP: f32 = 4.;
-const FIELD_GAP: f32 = 1.;
-const COUNT_GAP: f32 = 2.5;
-// Ours: Arc's glyph sizes and colours aren't measured, so the header's.
-const GLYPH: f32 = 14.;
-const GLYPH_COLOR: u32 = 0xffffff99;
-const GLYPH_DISABLED: u32 = 0xffffff42;
-const HOVERED: u32 = 0xffffff14;
-const DIVIDER: u32 = 0xffffff26;
-const DIVIDER_HEIGHT: f32 = 16.;
-const TEXT: u32 = 0xffffff;
-const COUNT: u32 = 0xffffff99;
-// Arc's red for no match.
-const NOT_FOUND: u32 = 0xdb1929;
-// The command bar's.
-const PLACEHOLDER: u32 = 0xffff_ff87;
-const CARET: u32 = 0x4a77d4;
-const SELECTION: u32 = 0x787d_86b3;
+use browser::tokens::find_bar::INSET;
+use browser::tokens::find_bar::BUTTON;
+use browser::tokens::find_bar::ARROW_OVERLAP;
+use browser::tokens::find_bar::DIVIDER_GAP;
+use browser::tokens::find_bar::FIELD_GAP;
+use browser::tokens::find_bar::COUNT_GAP;
+use browser::tokens::find_bar::GLYPH;
+use browser::tokens::find_bar::GLYPH_COLOR;
+use browser::tokens::find_bar::GLYPH_DISABLED;
+use browser::tokens::find_bar::HOVERED;
+use browser::tokens::find_bar::DIVIDER;
+use browser::tokens::find_bar::DIVIDER_HEIGHT;
+use browser::tokens::find_bar::TEXT;
+use browser::tokens::find_bar::COUNT;
+use browser::tokens::find_bar::NOT_FOUND;
+use browser::tokens::find_bar::PLACEHOLDER;
+use browser::tokens::find_bar::CARET;
+use browser::tokens::find_bar::SELECTION;
 
 /// A tab's find in page, as the core reports it.
 #[derive(Clone, Default)]
