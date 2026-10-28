@@ -422,6 +422,12 @@ pub const WINDOW_BUTTONS: [(f32, u32); 3] =
 // On Linux the browser window is Chromium's without a frame, so nothing else draws its buttons: the
 // UI draws them where AppKit's show.
 const DRAWS_WINDOW_BUTTONS: bool = cfg!(target_os = "linux");
+// The third button maximizes on Linux, as on every Linux desktop, where on the Mac it goes full
+// screen.
+const ZOOM_GLYPH: &str = match cfg!(target_os = "linux") {
+    true => "icons/window-maximize.svg",
+    false => "icons/window-full-screen.svg",
+};
 use crate::tokens::shell::WINDOW_BUTTON_Y;
 use crate::tokens::shell::WINDOW_BUTTON_SIZE;
 use crate::tokens::shell::WINDOW_BUTTON_GLYPH;
@@ -3230,7 +3236,7 @@ impl Shell {
         let buttons = [
             (WindowButton::Close, "icons/window-close.svg"),
             (WindowButton::Minimize, "icons/window-minimize.svg"),
-            (WindowButton::Zoom, "icons/window-full-screen.svg"),
+            (WindowButton::Zoom, ZOOM_GLYPH),
         ];
         let (first, _) = WINDOW_BUTTONS[0];
         let (second, _) = WINDOW_BUTTONS[1];

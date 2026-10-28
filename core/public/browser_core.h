@@ -745,9 +745,10 @@ BC_EXPORT void bc_window_overlay_takes_keyboard(bc_id window, bool takes);
 // |window|, as its minimize button does, where the window manager can.
 BC_EXPORT void bc_window_minimize(bc_id window);
 
-// On Linux, as bc_window_minimize: takes |window| full screen, or out, as the Mac's zoom button
-// does, which the core then reports as it does the user taking it there.
-BC_EXPORT void bc_window_toggle_full_screen(bc_id window);
+// On Linux, as bc_window_minimize: maximizes |window|, or restores it, as the third window button
+// does on every Linux desktop. Full screen, it leaves full screen instead, as Escape asks of that
+// button (the Mac's zoom button, which leaves it there too).
+BC_EXPORT void bc_window_toggle_maximized(bc_id window);
 
 // Puts back the favorites and the Spaces as the user left them when the browser last quit or its
 // last window closed, in the window, which shows the Space the front window showed, with its
