@@ -183,6 +183,9 @@ typedef struct bc_extension_action {
   uint32_t badge_color;
   // Whether it acts on the tab. An action that doesn't shows dimmed, as in Chrome.
   bool enabled;
+  // Whether it's pinned, for the URL field's end. The others come only while the Site Controls
+  // show (bc_tab_site_controls).
+  bool pinned;
 } bc_extension_action;
 
 // An extension's install, re-enable or new permissions, for the user to confirm, in Chrome's words.
@@ -475,7 +478,9 @@ typedef struct bc_host {
   // window shows another tab, or when its page closes it.
   void (*window_extension_popup)(void* context, bc_id window, const char* extension);
   // The actions the window shows changed: those pinned in the profile of the tab it shows, in
-  // their order, as they are for that tab. Once the tab shown changes, if they're different for it.
+  // their order, as they are for that tab, then, while the Site Controls show for the tab
+  // (bc_tab_site_controls), every other turned-on extension's of the profile, by name. Once the tab
+  // shown changes, if they're different for it.
   void (*window_extension_actions)(void* context,
                                    bc_id window,
                                    const bc_extension_action* actions,
@@ -1211,10 +1216,14 @@ BC_EXPORT void bc_tab_capture_end(bc_id tab);
 BC_EXPORT void bc_tab_answer_permission(bc_id tab, int answer);
 
 // Reads the site of the tab's page for its Site Controls, as Chrome's page info does, and watches
-// it until bc_site_controls_close or another tab's bc_tab_site_controls. Then tab_site_controls.
+// it until bc_site_controls_close or another tab's bc_tab_site_controls. Then tab_site_controls,
+// and window_extension_actions for the window showing the tab, with every turned-on extension's
+// action until then, as the panel lists them all and a tab switch with it closed needn't pay for
+// them.
 BC_EXPORT void bc_tab_site_controls(bc_id tab);
 
-// Stops watching the site bc_tab_site_controls read.
+// Stops watching the site bc_tab_site_controls read. Then window_extension_actions, with the
+// pinned actions alone.
 BC_EXPORT void bc_site_controls_close(void);
 
 // Gives the site of the tab's page |value|, a BC_SITE_ value, for the permission of |type|, as

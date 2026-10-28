@@ -17,7 +17,7 @@ namespace browser_core {
 // The site of the tab's page as the app's Site Controls show it, in place of Chrome's page info
 // bubble (tab_site_controls): its permissions as Chrome's page info lists them, its connection,
 // and whether it plays a video that can go Picture in Picture. One tab's at a time, while the
-// app's panel shows.
+// app's panel shows, and meanwhile its window tells of every turned-on extension's action.
 class SiteControls : public PageInfoUI, public content::WebContentsObserver {
  public:
   // See bc_tab_site_controls and the calls after it.
@@ -61,6 +61,9 @@ class SiteControls : public PageInfoUI, public content::WebContentsObserver {
   void Report();
 
   const bc_id tab_;
+  // The window showing the tab as the panel opened, which tells of every extension's action while
+  // the panel shows, as the panel lists them all.
+  bc_id window_ = 0;
   std::unique_ptr<ChromePageInfoUiDelegate> ui_delegate_;
   // Null for a file or a browser page, which Chrome's page info shows no permissions for.
   std::unique_ptr<PageInfo> page_info_;

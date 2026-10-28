@@ -66,7 +66,11 @@ impl Host for Recorder {
                 format!("share {x} {y} {width} {height}")
             }
             Run::SiteSettings => "site settings".into(),
-            Run::Extension(id) => format!("extension {id}"),
+            Run::Extension(id, tile) => {
+                let (x, y) = (f32::from(tile.origin.x), f32::from(tile.origin.y));
+                let (width, height) = (f32::from(tile.size.width), f32::from(tile.size.height));
+                format!("extension {id} {x} {y} {width} {height}")
+            }
             Run::Certificate => "certificate".into(),
         };
         self.push(format!("run {run} {tab}"));
@@ -129,7 +133,7 @@ fn site() -> Site {
 }
 
 fn extension() -> Extension {
-    Extension { id: "abc".into(), title: "Notes".into(), icon: None }
+    Extension { id: "abc".into(), title: "Notes".into(), icon: None, enabled: true }
 }
 
 fn bounds(x: f32, y: f32, width: f32, height: f32) -> Bounds<Pixels> {
@@ -341,12 +345,43 @@ fn a_tile_names_itself_in_a_tooltip(cx: &mut TestAppContext) {
     assert_eq!(tips, ["Share at 122 133", "Notes at 122 202", "none"]);
 }
 
+/// Its popup hangs from the tile, in the browser window.
 #[gpui::test]
 fn an_extension_runs_as_its_toolbar_button(cx: &mut TestAppContext) {
     let mut panel = Panel::new(cx, site());
     panel.calls();
     panel.click(EXTENSION);
-    panel.ran("extension abc");
+    panel.ran("extension abc 98 170 48 32");
+}
+
+/// The core reports the unpinned extensions once the panel opens, and the grid takes them, four to
+/// a row with the + tile last, the panel growing by a row for the fifth tile.
+#[gpui::test]
+fn the_grid_takes_the_extensions_the_core_reports_once_open(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    let shown = panel.calls().into_iter().find(|call| call.starts_with("show ")).unwrap();
+    let height: f32 = shown.rsplit(' ').next().unwrap().parse().unwrap();
+    let each = |id: &str| Extension { id: id.to_string().into(), ..extension() };
+    let four = vec![each("abc"), each("def"), each("ghi"), each("jkl")];
+    panel.cx.cx.update(|cx| set_extensions(TAB, four, cx));
+    panel.cx.run_until_parked();
+    assert_eq!(panel.calls(), [format!("height {}", height + TILE_HEIGHT + GAP)]);
+    // The second's tile is where + was, and runs it.
+    panel.click(ADD);
+    panel.ran("extension def 154 170 48 32");
+}
+
+/// Another tab's extensions don't reach the panel.
+#[gpui::test]
+fn the_grid_takes_only_its_tabs_extensions(cx: &mut TestAppContext) {
+    let mut panel = Panel::new(cx, site());
+    panel.calls();
+    let other = Extension { id: "def".into(), ..extension() };
+    panel.cx.cx.update(|cx| set_extensions(TAB + 1, vec![other.clone(), other], cx));
+    panel.cx.run_until_parked();
+    assert_eq!(panel.calls(), Vec::<String>::new());
+    panel.click(ADD);
+    panel.ran("ManageExtensions");
 }
 
 /// The browser has no add path of its own, so + opens Chrome's extensions page, which links the

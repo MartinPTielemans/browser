@@ -27,8 +27,9 @@ class View;
 namespace browser_core {
 
 // The extension actions a window shows: those pinned in the profile of its tab shown, as they are
-// for that tab. Tells the app with window_extension_actions whenever they differ from what it last
-// told, so a tab switch that changes nothing costs nothing.
+// for that tab, and the other turned-on extensions' while its Site Controls show. Tells the app
+// with window_extension_actions whenever they differ from what it last told, so a tab switch that
+// changes nothing costs nothing.
 class WindowActions : public ToolbarActionsModel::Observer {
  public:
   explicit WindowActions(bc_id window);
@@ -36,6 +37,10 @@ class WindowActions : public ToolbarActionsModel::Observer {
 
   // Shows the actions for |contents|, or none.
   void Show(content::WebContents* contents);
+
+  // Shows every turned-on extension's action, the unpinned ones after the pinned, by name, or the
+  // pinned alone, as until this is called.
+  void ShowEvery(bool every);
 
  private:
   class Icon;
@@ -48,6 +53,7 @@ class WindowActions : public ToolbarActionsModel::Observer {
     std::string badge;
     uint32_t badge_color;
     bool enabled;
+    bool pinned;
   };
 
   // ToolbarActionsModel::Observer:
@@ -67,6 +73,7 @@ class WindowActions : public ToolbarActionsModel::Observer {
   base::ScopedObservation<ToolbarActionsModel, ToolbarActionsModel::Observer> observation_{this};
   std::map<std::string, std::unique_ptr<Icon>> icons_;
   std::vector<Told> told_;
+  bool every_ = false;
   bool report_posted_ = false;
   base::WeakPtrFactory<WindowActions> weak_factory_{this};
 };

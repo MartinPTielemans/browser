@@ -7,13 +7,15 @@
 # it, its popup hanging from it, and its right-click menu unpins it, opens its options or its
 # details on Chrome's extensions page, or removes it once the user confirms. The actions that don't
 # fit are behind an overflow button in the last place, whose menu runs them. Manage Extensions…
-# opens Chrome's extensions page. An extension's keyboard commands run with the page focused and
-# with the UI, but a key it suggests doesn't take one of the browser's. An extension's side panel
-# opens from its action as a card right of the page, drags from its left edge to resize, closes
-# from its header's ✕ and ⋯ menu, and goes as its tab does. An extension reaches a desktop app's
-# native messaging host that only another Chromium browser's folder has. Chrome asks whether to add
-# an extension with the browser's dialog, which lists what Chrome warns it can do: escape cancels,
-# and return adds it. Add Extension… opens the Web Store in a new tab.
+# opens Chrome's extensions page. The Site Controls list every turned-on extension, unpinned ones
+# too, and a click on one's tile runs it, its popup hanging from the tile. An extension's keyboard
+# commands run with the page focused and with the UI, but a key it suggests doesn't take one of the
+# browser's. An extension's side panel opens from its action as a card right of the page, drags
+# from its left edge to resize, closes from its header's ✕ and ⋯ menu, and goes as its tab does. An
+# extension reaches a desktop app's native messaging host that only another Chromium browser's
+# folder has. Chrome asks whether to add an extension with the browser's dialog, which lists what
+# Chrome warns it can do: escape cancels, and return adds it. Add Extension… opens the Web Store in
+# a new tab.
 
 # Four unpacked extensions of the check's own, loaded as a developer loads one. A click on the
 # first gives the tab it's on a badge, then opens its page, and its command ⇧⌘Y opens another. The
@@ -266,6 +268,40 @@ expect "^browser: remove extension $third removed\$" "Remove didn't remove Check
 expect "^browser: extensions menu $clicked $panel $popup\$" \
   "the removed Check Third stayed in the Extensions menu"
 expect '^browser: extension actions $' "the removed Check Third's action stayed"
+# The Site Controls list every turned-on extension, here the three unpinned ones, by name, and a
+# click on one's tile runs it, its popup hanging from the tile. On the first tab. The grid's third
+# tile has its middle at 234 187: the tiles are 56 apart from 122, and their first row is 23 under
+# the heading's cap, which is 46 under the action tiles' top at 102.
+index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
+send click $(row $((index - 1)))
+expect "^browser: selected $first\( in .*\)\{0,1\}\$" \
+  "a click on the first tab's row didn't show it"
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send type site controls
+expect '^browser: command bar commands "site controls": Site Controls$' \
+  "the command bar didn't find Site Controls"
+send key return
+expect '^browser: command site-controls via command bar$' "Site Controls didn't run from the bar"
+expect "^browser: site controls extensions $clicked $panel $popup\$" \
+  "the Site Controls didn't list the unpinned extensions by name: $(grep \
+    '^browser: site controls extensions' "$log" | tail -1)"
+expect '^browser: site controls settled$' "the Site Controls didn't finish opening"
+../tools/window-screenshot.sh "$pid" "$out/site-controls-extensions.png" ||
+  fail "no window to capture"
+send click 234 187
+expect '^browser: site controls run extension$' "a click on Check Popup's tile didn't run it"
+expect "^browser: run extension $popup ran\$" "Check Popup didn't run from its tile"
+# Its popup hangs from the tile it was clicked on, 48 by 32.
+from=$(grep "^browser: run extension $popup from " "$log" | tail -1 | cut -d' ' -f6-)
+echo "$from" | awk '{ exit !($3 == 48 && $4 == 32 && $1 <= 234 && 234 <= $1 + $3 &&
+  $2 <= 187 && 187 <= $2 + $4) }' ||
+  fail "Check Popup's popup didn't hang from its tile, but from $from"
+expect "^browser: extension popup $popup\$" "Check Popup's popup didn't show from its tile"
+../tools/window-screenshot.sh "$pid" "$out/site-controls-extension-popup.png" ||
+  fail "no window to capture"
+send key escape
+expect '^browser: extension popup none$' "escape didn't close Check Popup's popup"
 # Check Panel's side panel, on the first tab. Its script sets its action to open the panel once it
 # has run, so on a fresh profile it's chosen until the panel opens.
 index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
@@ -340,7 +376,7 @@ expect '^browser: side panel none$' "Close Side Panel didn't close the side pane
 quit_by_key
 await '^browser: command quit via ' || fail "⌘Q didn't quit"
 exited
-echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/side-panel.png, $out/side-panel-resized.png"
+echo "ok: the Extensions menu lists the profile's extensions by name, and choosing one runs its action on the tab shown: one without a popup hears the click, and one with a popup shows it with the keyboard, which escape closes, giving the browser window the keyboard back. Pin to URL Field pins and unpins them, and the pinned actions show at the URL field's end in the order pinned, with their badges for the tab shown as they change. A click on one runs it, with its popup hanging from it, and its right-click menu unpins it, opens its options and its details, and removes it after asking. The ones that don't fit are behind the overflow button, whose menu runs them. Manage Extensions… opens Chrome's extensions page. The Site Controls list the unpinned extensions by name, and a click on one's tile runs it, its popup hanging from the tile. Their keyboard commands and their actions' keys run from the page and the UI, but one they suggest that's the browser's stays the browser's. An extension's side panel opens from its action as a card right of the page with its page loaded, its page takes the keyboard, its edge drags it narrower, its header's ✕ and ⋯ menu close it, and a tab's own panel goes on a switch to a tab without one and comes back with it at the width given. Windows: $out/extension-actions.png, $out/extension-popup.png, $out/extension-overflow.png, $out/extension-overflow-popup.png, $out/extension-key-popup.png, $out/extensions.png, $out/extension-remove.png, $out/site-controls-extensions.png, $out/site-controls-extension-popup.png, $out/side-panel.png, $out/side-panel-resized.png"
 
 # A desktop app's native messaging host that only another Chromium browser's folder has, as
 # 1Password writes its own only for the browsers it knows. The launch has a profile without one and

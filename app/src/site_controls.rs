@@ -1,6 +1,6 @@
 //! The Site Controls: the panel the URL field's Site Controls button opens, as Arc's Site
 //! Control Center (docs/ux-spec.md › Extensions › Site Controls). For the site of the page shown:
-//! the action tiles, the extensions that act on it, its permissions as Chrome's page info lists
+//! the action tiles, the turned-on extensions, its permissions as Chrome's page info lists
 //! them, each changeable, and its connection. GPUI can't draw over the page's native view, so
 //! it's a window of its own that the host shows over the browser window, as its child, with the
 //! keyboard, as the command bar is, over a blur in its shape with a shadow. What it asks of its
@@ -51,6 +51,7 @@ use crate::tokens::site_controls::TILE_BOTTOM;
 use crate::tokens::site_controls::TILE_HIGHLIGHT;
 use crate::tokens::site_controls::PLATE;
 use crate::tokens::site_controls::EXTENSION_ICON;
+use crate::tokens::shell::extensions::ACTION_DIMMED;
 use crate::tokens::site_controls::PLUS_GLYPH;
 use crate::tokens::site_controls::HEADING_SIZE;
 use crate::tokens::site_controls::LINK_SIZE;
@@ -166,12 +167,14 @@ pub struct Site {
     pub system_engine: Option<bool>,
 }
 
-/// An extension acting on the tab's page, as the toolbar shows it.
+/// A turned-on extension, as its action is for the tab's page.
 #[derive(Clone)]
 pub struct Extension {
     pub id: SharedString,
     pub title: SharedString,
     pub icon: Option<Arc<Image>>,
+    /// It acts on the page. One that doesn't is dimmed, as in the toolbar.
+    pub enabled: bool,
 }
 
 /// What the panel hangs from.
@@ -192,8 +195,9 @@ pub enum Run {
     Share(Bounds<Pixels>),
     /// Chrome's settings for the site.
     SiteSettings,
-    /// The extension's action, as a click on its toolbar button.
-    Extension(SharedString),
+    /// The extension's action, as a click on its toolbar button, its popup hanging from this, its
+    /// tile, in the browser window.
+    Extension(SharedString, Bounds<Pixels>),
     /// The certificate the page came with, in the system's viewer.
     Certificate,
 }
@@ -574,6 +578,7 @@ pub fn show(
             return panel.close("toggle", cx);
         }
         let (at, beak) = placed(place, window);
+        log_extensions(&extensions);
         panel.open = Some(Open {
             tab,
             at,
@@ -617,6 +622,39 @@ pub fn changed(tab: u64, site: Site, cx: &mut App) {
         }
         cx.notify();
     });
+}
+
+/// The extensions the panel for `tab` lists changed, or the core first reported the unpinned ones,
+/// which it does once the panel opens.
+pub fn set_extensions(tab: u64, extensions: Vec<Extension>, cx: &mut App) {
+    update(cx, |panel, _, cx| {
+        let open = panel.open.as_mut();
+        let Some(open) = open.filter(|open| open.tab == tab && open.closing.is_none()) else {
+            return;
+        };
+        let ids = |extensions: &[Extension]| -> Vec<SharedString> {
+            extensions.iter().map(|extension| extension.id.clone()).collect()
+        };
+        if ids(&extensions) != ids(&open.extensions) {
+            log_extensions(&extensions);
+        }
+        open.extensions = extensions;
+        if let Some(site) = &open.site {
+            let height = layout(site, open.extensions.len(), open.beak.is_some()).height;
+            if height != open.height {
+                open.height = height;
+                panel.host.set_height(height, &corners(open.beak, height));
+            }
+        }
+        cx.notify();
+    });
+}
+
+/// The extensions' grid for the log, by id.
+fn log_extensions(extensions: &[Extension]) {
+    let ids: Vec<&str> = extensions.iter().map(|extension| extension.id.as_ref()).collect();
+    // check.sh reads this line.
+    log!("browser: site controls extensions {}", ids.join(" "));
 }
 
 /// The user left the panel: a click outside it, another window or another app. The host has
@@ -924,16 +962,18 @@ impl SiteControls {
             .map(|(index, extension)| {
                 let (element, frame) = plate(format!("extension-{}", extension.id).into(), index);
                 let (id, title) = (extension.id.clone(), extension.title.clone());
+                let tile = open.in_window(frame);
                 element
                     .on_hover(cx.listener(move |panel, hovered: &bool, _, cx| {
                         panel.tooltip(title.clone(), frame, *hovered, cx)
                     }))
                     .on_click(cx.listener(move |panel, _, _, cx| {
-                        panel.run("extension", Run::Extension(id.clone()), cx)
+                        panel.run("extension", Run::Extension(id.clone(), tile), cx)
                     }))
-                    .children(
-                        (extension.icon.clone()).map(|icon| img(icon).size(px(EXTENSION_ICON))),
-                    )
+                    .children((extension.icon.clone()).map(|icon| {
+                        let icon = img(icon).size(px(EXTENSION_ICON));
+                        icon.when(!extension.enabled, |icon| icon.opacity(ACTION_DIMMED))
+                    }))
                     .into_any_element()
             })
             .collect();

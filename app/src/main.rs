@@ -713,8 +713,8 @@ impl site_controls::Host for SiteControlsHost {
                 let settings = url.and_then(|url| site_controls::site_settings_url(&url));
                 open_tab(window.id, settings.as_deref().unwrap_or("chrome://settings/content"));
             }
-            site_controls::Run::Extension(id) => {
-                window.shell.update(cx, |shell, cx| shell.run_extension(&id, cx)).ok();
+            site_controls::Run::Extension(id, tile) => {
+                window.shell.update(cx, |shell, cx| shell.run_extension_from(&id, tile, cx)).ok();
             }
             site_controls::Run::Certificate => unsafe { bc::bc_tab_show_certificate(tab) },
         }
@@ -1921,6 +1921,16 @@ impl Browser for Engine {
         cx: &mut App,
     ) {
         with_overlays(move |cx| site_controls::show(tab, place, window, extensions, cx), cx);
+    }
+
+    fn site_controls_extensions(
+        &self,
+        tab: u64,
+        extensions: Vec<site_controls::Extension>,
+        cx: &mut App,
+    ) {
+        // The panel isn't open while the overlays wait to open.
+        site_controls::set_extensions(tab, extensions, cx);
     }
 
     fn capture(
@@ -3539,6 +3549,7 @@ unsafe extern "C" fn window_extension_actions(
             badge: text(action.badge),
             badge_color: action.badge_color,
             enabled: action.enabled,
+            pinned: action.pinned,
         })
         .collect();
     update_window(window, |shell, cx| shell.set_extension_actions(actions, cx));

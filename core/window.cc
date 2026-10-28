@@ -1593,6 +1593,13 @@ bool Window::RunExtension(const std::string& id, const gfx::Rect& anchor) {
   return browser_core::RunExtension(id_, browser, contents, id, popup_anchor_.view());
 }
 
+void Window::ShowEveryExtensionAction(bool every) {
+  // Made with the first tab shown, before the panel can show for one.
+  if (actions_) {
+    actions_->ShowEvery(every);
+  }
+}
+
 void Window::SetSidePanelFrame(const gfx::Rect& frame) {
   if (frame != side_panel_frame_) {
     side_panel_frame_ = frame;
