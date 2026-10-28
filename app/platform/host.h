@@ -313,8 +313,12 @@ void host_share_png(const uint8_t* png,
 // corner when shown, as its child, and lets the mouse through. It starts hidden.
 void host_add_toast(void* toast_view);
 
-// The toast takes clicks, while it has buttons, or lets the mouse through to the page.
+// The toast takes clicks, while it has buttons, or lets the mouse through to the page. Even then
+// only its plate does (host_set_toast_plate), and the margin round it lets them through.
 void host_toast_takes_clicks(bool takes);
+
+// Where the toast's plate is in its window, from the window's top left corner, in points.
+void host_set_toast_plate(double x, double y, double width, double height);
 
 // Shows the toast's window over |ui_view|'s window, as the UI draws it now.
 void host_show_toast(void* ui_view);

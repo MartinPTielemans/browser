@@ -3,7 +3,8 @@
 # top-left 40 points goes to a text file, and so does another, 200 by 40 points, 100 in from the page's
 # left and top, which the link target's plate shows the address of. "d" typed in the page downloads a file, "q" the same
 # file as another, "s" one that takes longer than the run to come, and "k" opens the cookie page,
-# once a check, as later runs type in it too. "x" and "z" each open check.crx, an extension the
+# once a check, as later runs type in it too. A click in its top right 480 by 140 points puts
+# "corner" in the title. "x" and "z" each open check.crx, an extension the
 # extensions run puts there, which Chrome installs from. "a" asks to manage windows on all the
 # displays, a permission with no question from macOS, and puts the answer in the title. Keys with
 # ⌘, ⌃ or ⌥ are the browser's. /wait is a page that never comes. login.html is a login form, its
@@ -20,6 +21,12 @@ printf '%s' '<title>loading</title><link rel="icon" href="icon.png">
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "ready"));
 text.oninput = () => document.title = "value " + text.value;
+// A click in the page's top right 480 by 140, where the toast's window falls, says so.
+onclick = e => {
+  if (e.clientX > innerWidth - 480 && e.clientY < 140) {
+    document.title = "corner";
+  }
+};
 onkeydown = e => {
   if (e.metaKey || e.ctrlKey || e.altKey) {
     return;

@@ -5,6 +5,7 @@
 //! page, unless it has buttons, as Capture's does. What it asks of its window goes through `Host`.
 
 use std::{
+    cell::Cell,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -12,7 +13,7 @@ use std::{
 use gpui::{
     App, Bounds, ClickEvent, Context, FontWeight, Global, Hsla, Pixels, Point, Role,
     SharedString, Task, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, linear_color_stop, linear_gradient, point,
+    WindowHandle, WindowKind, WindowOptions, canvas, div, linear_color_stop, linear_gradient, point,
     accesskit::Live, prelude::*, px, size, svg,
 };
 
@@ -66,8 +67,12 @@ pub trait Host {
     fn show(&self);
     /// Hides it.
     fn hide(&self);
-    /// It takes clicks, while it has buttons, or lets the mouse through to the page.
+    /// It takes clicks, while it has buttons, or lets the mouse through to the page. Even then
+    /// only its plate does, and the margin round it, where its shadow falls, lets them through.
     fn take_clicks(&self, takes: bool);
+    /// Where the plate is in the window, which changes with the words and the buttons, and is
+    /// told again once the toast has hidden.
+    fn plate(&self, bounds: Bounds<Pixels>);
 }
 
 /// What a button after the toast's words shows.
@@ -163,6 +168,8 @@ pub struct Toast {
     shown: Option<Shown>,
     /// Whether the host was last told it takes clicks.
     takes_clicks: bool,
+    /// Where the host was last told the plate is.
+    plate: Rc<Cell<Option<Bounds<Pixels>>>>,
 }
 
 struct ToastWindow(WindowHandle<Toast>);
@@ -199,7 +206,13 @@ pub fn open(
         ..Default::default()
     };
     let window = cx.open_window(options, |_, cx| {
-        cx.new(|_| Toast { host, look: Box::new(look), shown: None, takes_clicks: false })
+        cx.new(|_| Toast {
+            host,
+            look: Box::new(look),
+            shown: None,
+            takes_clicks: false,
+            plate: Rc::default(),
+        })
     });
     match window {
         Ok(window) => {
@@ -404,6 +417,7 @@ impl Toast {
             toast
                 .update(cx, |toast, cx| {
                     toast.shown = None;
+                    toast.plate.set(None);
                     toast.host.hide();
                     // check.sh reads this line.
                     log!("browser: toast hidden");
@@ -431,7 +445,8 @@ impl Render for Toast {
         if shown.shown.is_none() && window.is_visible() {
             shown.shown = Some(Instant::now());
         }
-        if shown.moving() {
+        let at_rest = !shown.moving();
+        if !at_rest {
             window.request_animation_frame();
         } else if !shown.settled {
             shown.settled = true;
@@ -530,7 +545,28 @@ impl Render for Toast {
                     )
                     .child(rest)
             }))
-            .children(buttons);
+            .children(buttons)
+            // The plate is what takes clicks, so the host is told where it is once it has come to
+            // rest, since it's drawn scaled until then, and the plate under a click is where it
+            // was drawn.
+            .child(canvas(
+                {
+                    let (host, told) = (self.host.clone(), self.plate.clone());
+                    move |bounds, _, _| {
+                        // Inside the plate's 0.5 border.
+                        let bounds = bounds.dilate(px(0.5));
+                        if at_rest && told.replace(Some(bounds)) != Some(bounds) {
+                            host.plate(bounds);
+                        }
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            // Over the plate's whole inside, not after its padding.
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full());
         root.child(scaled_from_top(toast, pose.scale))
     }
 }

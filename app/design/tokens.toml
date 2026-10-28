@@ -216,8 +216,8 @@ modal-rim = 0xffff_ff26
 modal-shadow = 0x0000_008f
 modal-shadow-y = 24.0
 modal-shadow-blur = 64.0
-# How far a window that draws a popover's shadow itself reaches past what it holds: the drop and
-# the blur's visible reach, with the outline.
+# How far a window that draws a popover's shadow itself reaches past what it holds, at least the
+# popover's `Level::reach` below it; a test holds every such window to it.
 window-margin = 40.0
 
 [find-bar]
@@ -1289,7 +1289,7 @@ shade = 0.78
 # Its window, wide enough for the longest toast and tall enough for its shadow, at the browser
 # window's top right.
 window-width = 420.0
-# Tall enough for the popover level's shadow under the toast, a drop of 8 and a blur of 24.
+# Tall enough for the popover level's shadow under the toast (`Level::reach`).
 window-height = 114.0
 note-height = 41.0
 note-top = 4.0
@@ -1337,8 +1337,8 @@ padding = 16.0
 radius = 12.0
 text-size = 13.0
 shade = 0.78
-# The window reaches this far past the pill on every side, for its shadow: the popover level's,
-# a drop of 8 and a blur of 24, with the outline.
+# The window reaches this far past the pill on every side, for the popover level's shadow
+# (`Level::reach`).
 margin = 40.0
 # Wide enough for "500%", and with the margin on both sides.
 window-width = 178.0

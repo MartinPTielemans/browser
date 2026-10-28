@@ -262,6 +262,20 @@ none_since '^browser: selected' || fail "Remove from Favorites showed another ta
 # The toast offers Undo, and ⌘Z puts the tile back where it was and the tab out of Today, without
 # showing another tab; ⇧⌘Z removes it again.
 expect '^browser: toast shown Removed from Favorites \[undo\]$' "Remove from Favorites didn't offer Undo"
+# Only the toast's plate takes clicks while it offers Undo, and a click just under it, in its
+# window's margin where its shadow falls, reaches the page. The margin is the window's 420 minus
+# the plate, which the app logs. This step has never run: the moves and the click are posted, as
+# the driver's are, to the window the window server would pick, so it stands or falls with the
+# toast's window letting the mouse through there.
+expect '^browser: toast plate [0-9]* [0-9]* [0-9]* [0-9]*$' "the undo toast didn't tell where its plate is"
+set -- $(grep '^browser: toast plate' "$log" | tail -1 | sed 's/^browser: toast plate //')
+send layout
+toast_content=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep -m1 '^browser: layout' |
+  sed 's/^browser: layout content \([0-9]*\)x[0-9]*,.*/\1/')
+under="$((toast_content - 420 + $1 + $3 / 2)) $(($2 + $4 + 12))"
+send move $under
+send click $under
+expect '^browser: title [0-9]* corner$' "a click just under the undo toast's plate didn't reach the page"
 send key z cmd
 expect '^browser: command undo via \(ui\|page\)$' "⌘Z didn't undo Remove from Favorites"
 expect "^browser: favorites $a\$" "⌘Z didn't put the tile back"

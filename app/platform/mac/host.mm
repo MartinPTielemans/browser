@@ -364,6 +364,12 @@ Browser* g_toast_over;
 NSWindow* g_toast;
 NSView* g_toast_view;
 bool g_toast_shown = false;
+// Whether the toast has buttons, so its plate takes clicks; its window's margin, where its shadow
+// falls, never does. The plate, from the window's top left, and the monitor that hears the pointer
+// move on and off it, since a window is all or nothing for the mouse.
+bool g_toast_takes = false;
+NSRect g_toast_plate = NSZeroRect;
+id g_toast_monitor;
 
 // The tooltip's window and view, the browser it shows over, where its top left goes there, and a
 // count of its shows and hides, so a fade's end doesn't hide one shown since.
@@ -2523,8 +2529,44 @@ void host_share_png(const uint8_t* png,
   fprintf(stderr, "browser: capture share menu shown\n");
 }
 
+// Lets the mouse through the toast's window, unless it has buttons and the pointer, at |screen|, is
+// on its plate.
+void PlaceToastClicks(NSPoint screen) {
+  NSPoint at = [g_toast convertPointFromScreen:screen];
+  at.y = NSHeight(g_toast.frame) - at.y;
+  g_toast.ignoresMouseEvents = !(g_toast_takes && NSPointInRect(at, g_toast_plate));
+}
+
 void host_toast_takes_clicks(bool takes) {
-  g_toast.ignoresMouseEvents = !takes;
+  g_toast_takes = takes;
+  if (!takes) {
+    [NSEvent removeMonitor:g_toast_monitor];
+    g_toast_monitor = nil;
+    g_toast.ignoresMouseEvents = YES;
+    return;
+  }
+  // The page's view takes the pointer's moves while it's over the page, so the toast's window
+  // doesn't hear them. Only while the toast has buttons, so an idle browser is never woken.
+  if (!g_toast_monitor) {
+    g_toast_monitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved
+                                                            handler:^NSEvent*(NSEvent* event) {
+                                                              NSPoint at = event.locationInWindow;
+                                                              if (event.window) {
+                                                                at = [event.window
+                                                                    convertPointToScreen:at];
+                                                              }
+                                                              PlaceToastClicks(at);
+                                                              return event;
+                                                            }];
+  }
+  PlaceToastClicks(NSEvent.mouseLocation);
+}
+
+void host_set_toast_plate(double x, double y, double width, double height) {
+  g_toast_plate = NSMakeRect(x, y, width, height);
+  if (g_toast_takes) {
+    PlaceToastClicks(NSEvent.mouseLocation);
+  }
 }
 
 void host_add_toast(void* toast_view) {
@@ -2570,6 +2612,7 @@ void host_hide_toast(void) {
     return;
   }
   g_toast_shown = false;
+  g_toast_plate = NSZeroRect;
   [g_toast_over->window removeChildWindow:g_toast];
   [g_toast orderOut:nil];
 }

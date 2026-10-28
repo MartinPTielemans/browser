@@ -271,6 +271,7 @@ mod platform {
         );
         pub fn host_add_toast(toast_view: *mut c_void);
         pub fn host_toast_takes_clicks(takes: bool);
+        pub fn host_set_toast_plate(x: f64, y: f64, width: f64, height: f64);
         pub fn host_show_toast(ui_view: *mut c_void);
         pub fn host_hide_toast();
         pub fn host_add_tooltip(tooltip_view: *mut c_void, margin: f64, away: extern "C" fn());
@@ -815,6 +816,14 @@ impl toast::Host for ToastHost {
 
     fn take_clicks(&self, takes: bool) {
         unsafe { platform::host_toast_takes_clicks(takes) };
+    }
+
+    fn plate(&self, bounds: Bounds<Pixels>) {
+        let (x, y) = (bounds.origin.x.into(), bounds.origin.y.into());
+        let (width, height) = (bounds.size.width.into(), bounds.size.height.into());
+        // check.sh reads this line, to click just outside the plate.
+        log!("browser: toast plate {x:.0} {y:.0} {width:.0} {height:.0}");
+        unsafe { platform::host_set_toast_plate(x, y, width, height) };
     }
 }
 
