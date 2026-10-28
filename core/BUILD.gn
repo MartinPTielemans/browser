@@ -299,6 +299,7 @@ source_set("browser_core") {
       "//ui/ozone",
       "//ui/ozone/platform/wayland:wayland_proxy",
       "//ui/platform_window",
+      "//ui/platform_window/wm",
     ]
     all_dependent_configs = [ ":linux_exports" ]
   }

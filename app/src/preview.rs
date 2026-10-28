@@ -893,6 +893,9 @@ impl Browser for Fake {
 
     fn press_window_button(&self, _: WindowButton, _: &mut App) {}
 
+    // The preview's window is GPUI's own, which GPUI moves.
+    fn start_window_move(&self, _: &mut App) {}
+
     // The reveal's window is the app's, over the page, which the preview has neither of.
     fn show_reveal(&self, _: f32, _: &mut App) {}
 

@@ -1952,6 +1952,10 @@ impl Browser for Engine {
         unsafe { platform::host_press_window_button(self.ui_view, button) };
     }
 
+    fn start_window_move(&self, _: &mut App) {
+        unsafe { bc::bc_window_start_move(self.window) };
+    }
+
     fn show_reveal(&self, width: f32, _: &mut App) {
         unsafe { platform::host_show_reveal(self.ui_view, width.into()) };
     }

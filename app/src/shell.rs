@@ -2306,6 +2306,10 @@ impl Shell {
             self.run(Command::NewTab, "sidebar", cx);
         } else if self.empty_card_hit(at) {
             // The empty card is a button, not a title bar: its first click opened the command bar.
+        } else if cfg!(target_os = "linux") {
+            // The browser window is Chromium's, out of GPUI's reach, and every Linux desktop's
+            // double-click on a title bar maximizes or restores it, as its third button does.
+            self.browser.press_window_button(WindowButton::Zoom, cx);
         } else {
             window.titlebar_double_click();
         }
@@ -2762,6 +2766,11 @@ impl Render for Shell {
                     // check.sh reads this line.
                     log!("browser: window move");
                     window.start_window_move();
+                    // GPUI's window is inside the browser window on Linux, so the core moves that.
+                    // GPUI's own still lets go of the X server's pointer grab its press took,
+                    // which would keep the window manager from taking the pointer.
+                    #[cfg(target_os = "linux")]
+                    shell.browser.start_window_move(cx);
                 }
                 shell.pointer_at(event.position.x.into(), cx);
             }))

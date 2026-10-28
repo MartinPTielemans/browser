@@ -609,6 +609,8 @@ impl Browser for Recorder {
         }
     }
 
+    fn start_window_move(&self, _: &mut App) {}
+
     fn show_reveal(&self, _: f32, _: &mut App) {}
 
     fn saved_sidebar_width(&self) -> Option<f32> {

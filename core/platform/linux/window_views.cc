@@ -38,7 +38,9 @@
 #include "ui/gfx/x/shape.h"
 #include "ui/gfx/x/window_event_manager.h"
 #include "ui/gfx/x/xproto.h"
+#include "ui/base/hit_test.h"
 #include "ui/platform_window/platform_window.h"
+#include "ui/platform_window/wm/wm_move_resize_handler.h"
 #include "ui/views/widget/desktop_aura/desktop_native_widget_aura.h"
 #include "ui/views/widget/widget.h"
 #include "ui/views/widget/widget_observer.h"
@@ -718,6 +720,22 @@ void KeepKeyboard(views::Widget* widget, base::OnceClosure change) {
       widget->GetNativeView()->Contains(window)) {
     client->FocusWindow(window);
   }
+}
+
+void StartMove(views::Widget* widget) {
+  ui::WmMoveResizeHandler* handler = ui::GetWmMoveResizeHandler(*PlatformWindowOf(widget));
+  if (!handler) {
+    return;
+  }
+  // The window manager on X11 starts the move from where the pointer is on the screen, in pixels.
+  // A compositor takes it from the press, which Chromium heard too (its serial).
+  gfx::Point pointer;
+  if (!OnWayland()) {
+    if (auto reply = x11::Connection::Get()->QueryPointer({XWindowOf(widget)}).Sync()) {
+      pointer = gfx::Point(reply->root_x, reply->root_y);
+    }
+  }
+  handler->DispatchHostWindowDragMovement(HTCAPTION, pointer);
 }
 
 void UITakesKeyboard(views::Widget* widget) {
