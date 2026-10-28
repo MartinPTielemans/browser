@@ -625,6 +625,9 @@ typedef struct bc_host {
   // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
   // agents hear none, as it names the user's login.
   void (*tab_offer_changed)(void* context, bc_id tab, const bc_offer* offer);
+  // The tab's key icon changed: what Chrome's password manager has for its page, a BC_PASSWORDS_
+  // value, as Chrome's toolbar would show its key for it. The user's alone: agents hear none.
+  void (*tab_passwords_changed)(void* context, bc_id tab, int passwords);
   // The profile's logins, after bc_profile_read_logins, and again each time they change: the saved
   // ones by site, then the sites set to Never. The user's alone: agents hear none.
   void (*profile_logins_changed)(void* context,
@@ -1466,6 +1469,19 @@ BC_EXPORT void bc_tab_show_certificate(bc_id tab);
 // or null to keep the offer's, if the offer is still open. Then tab_offer_changed. The user's:
 // agents get none, as saving a password is the user's to decide.
 BC_EXPORT void bc_tab_answer_offer(bc_id tab, int answer, const char* username);
+
+// What tab_passwords_changed says Chrome's password manager has for a tab's page, as its key icon:
+// nothing, so no key shows;
+#define BC_PASSWORDS_NONE 0
+// the site's saved logins, filled in or just saved, which the Site Controls list;
+#define BC_PASSWORDS_SAVED 1
+// or an offer to save or update the page's login, which bc_tab_show_offer brings back once closed.
+#define BC_PASSWORDS_OFFER 2
+
+// Brings back the tab's offer, closed by showing another tab, as Chrome's key icon does, if the
+// password manager still holds the login. Then tab_offer_changed. Does nothing for a tab without
+// BC_PASSWORDS_OFFER. The user's: agents get none, as the offer names the user's login.
+BC_EXPORT void bc_tab_show_offer(bc_id tab);
 
 // Closes the page menu tab_page_menu showed for |tab|, after running its row with |command|, as
 // Chrome's menu runs the row the user chose, or none with 0. Does nothing if the tab's menu isn't

@@ -19,6 +19,16 @@ pub struct Login {
     pub key: SharedString,
 }
 
+/// What the password manager has for a tab's page, as the key after the host in the URL field
+/// shows it (ours, for Chrome's key icon). A page it has nothing for has no key.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Key {
+    /// The site's saved logins, filled in or just saved, which the Site Controls list.
+    Saved,
+    /// An offer to save or update the page's login, which the key brings back once closed.
+    Offer,
+}
+
 /// What the Passwords row's menu does with the item chosen.
 #[derive(Clone, PartialEq, Debug)]
 pub enum Action {

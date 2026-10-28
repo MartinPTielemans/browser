@@ -1063,6 +1063,10 @@ void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
   browser_core::PasswordOffer::Answer(id, answer, username);
 }
 
+void bc_tab_show_offer(bc_id id) {
+  browser_core::PasswordOffer::ShowAgain(id);
+}
+
 void bc_tab_close_page_menu(bc_id id, int command) {
   browser_core::PageMenu::Close(id, command);
 }

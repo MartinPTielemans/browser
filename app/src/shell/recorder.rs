@@ -422,6 +422,10 @@ impl Browser for Recorder {
         }
     }
 
+    fn show_offer(&self, tab: u64) {
+        self.record(format!("show offer {tab}"))
+    }
+
     fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, _: &mut App) {
         self.record(format!("answer dialog {tab} {id} {reply:?}"));
         self.replies.borrow_mut().push(reply);

@@ -1665,6 +1665,10 @@ impl Browser for Engine {
         answer_page_dialog(tab, id, reply);
     }
 
+    fn show_offer(&self, tab: u64) {
+        unsafe { bc::bc_tab_show_offer(tab) };
+    }
+
     fn stop(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_stop(tab) };
     }
@@ -4146,6 +4150,18 @@ unsafe extern "C" fn tab_offer_changed(
     update_app(|cx| offer::changed(tab, offer, cx));
 }
 
+unsafe extern "C" fn tab_passwords_changed(_: *mut c_void, tab: bc::bc_id, passwords: c_int) {
+    let key = match passwords as u32 {
+        bc::BC_PASSWORDS_SAVED => Some(passwords::Key::Saved),
+        bc::BC_PASSWORDS_OFFER => Some(passwords::Key::Offer),
+        _ => None,
+    };
+    // check.sh reads this line.
+    let words = key.map_or("none".into(), |key| format!("{key:?}").to_lowercase());
+    log!("browser: key {tab} {words}");
+    update_shells(|shell, cx| shell.set_key(tab, key, cx));
+}
+
 /// Tells the core the user's answer to the dialog `id` of `tab`'s page.
 fn answer_page_dialog(tab: u64, id: u64, reply: shell::PageReply) {
     let text = CString::new(reply.text).unwrap_or_default();
@@ -4472,6 +4488,7 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         tab_media_unsupported: Some(tab_media_unsupported),
         tab_page_menu: Some(tab_page_menu),
         tab_offer_changed: Some(tab_offer_changed),
+        tab_passwords_changed: Some(tab_passwords_changed),
         profile_logins_changed: Some(profile_logins_changed),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),

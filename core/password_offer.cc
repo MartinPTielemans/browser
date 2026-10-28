@@ -11,17 +11,26 @@
 #include "base/functional/bind.h"
 #include "base/memory/weak_ptr.h"
 #include "base/no_destructor.h"
+#include "base/scoped_observation.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/host.h"
 #include "browser_core/tab.h"
+#include "chrome/browser/ui/actions/chrome_action_id.h"
+#include "chrome/browser/ui/page_action/page_action_controller.h"
+#include "chrome/browser/ui/page_action/page_action_model.h"
+#include "chrome/browser/ui/page_action/page_action_model_observer.h"
 #include "chrome/browser/ui/passwords/bubble_controllers/save_update_bubble_controller.h"
+#include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
 #include "chrome/browser/ui/passwords/passwords_model_delegate.h"
+#include "chrome/browser/ui/tabs/public/tab_features.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/password_manager/core/browser/password_form.h"
 #include "components/password_manager/core/common/password_manager_ui.h"
+#include "components/tabs/public/tab_interface.h"
 #include "components/url_formatter/elide_url.h"
+#include "content/public/browser/web_contents_user_data.h"
 #include "ui/base/l10n/l10n_util.h"
 
 namespace browser_core {
@@ -61,7 +70,112 @@ bool Current(const SaveUpdateBubbleController& offer) {
   return delegate && delegate->GetState() == offer.state();
 }
 
+// The BC_PASSWORDS_ value for the password manager's state on |contents|'s page: no key where
+// Chrome's toolbar shows none, and where it shows one for an account chooser or an automatic
+// sign-in, which have no UI here.
+int KeyOf(content::WebContents* contents) {
+  base::WeakPtr<PasswordsModelDelegate> delegate = PasswordsModelDelegateFromWebContents(contents);
+  if (!delegate) {
+    return BC_PASSWORDS_NONE;
+  }
+  const password_manager::ui::State state = delegate->GetState();
+  if (IsOffer(state)) {
+    return BC_PASSWORDS_OFFER;
+  }
+  switch (state) {
+    case password_manager::ui::INACTIVE_STATE:
+    case password_manager::ui::CREDENTIAL_REQUEST_STATE:
+    case password_manager::ui::AUTO_SIGNIN_STATE:
+      return BC_PASSWORDS_NONE;
+    default:
+      return BC_PASSWORDS_SAVED;
+  }
+}
+
 }  // namespace
+
+// Chrome's passwords page action for a tab, which its toolbar would show as the key, watched for
+// the app. Chrome changes it each time the password manager's state for the page does, and this
+// then tells the app what the key is for, from a task of its own, as Chrome changes it inside the
+// app's calls.
+class KeyIcon : public content::WebContentsUserData<KeyIcon>,
+                public page_actions::PageActionModelObserver {
+ public:
+  ~KeyIcon() override = default;
+
+  void OnPageActionModelChanged(const page_actions::PageActionModelInterface& model) override {
+    ReportSoon();
+  }
+
+  void OnPageActionModelWillBeDeleted(
+      const page_actions::PageActionModelInterface& model) override {
+    observation_.Reset();
+  }
+
+  bool Watching() const { return observation_.IsObserving(); }
+
+  void Watch(page_actions::PageActionController& controller) {
+    controller.AddObserver(kActionShowPasswordsBubbleOrPage, observation_);
+    ReportSoon();
+  }
+
+ private:
+  friend WebContentsUserData;
+  explicit KeyIcon(content::WebContents* contents) : WebContentsUserData(*contents) {}
+
+  void ReportSoon() {
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(&KeyIcon::Report, weak_factory_.GetWeakPtr()));
+  }
+
+  void Report() {
+    const int key = KeyOf(&GetWebContents());
+    if (key == reported_) {
+      return;
+    }
+    reported_ = key;
+    if (Host().tab_passwords_changed) {
+      Host().tab_passwords_changed(Host().context, Tab::IdOf(&GetWebContents()), key);
+    }
+  }
+
+  base::ScopedObservation<page_actions::PageActionModelInterface,
+                          page_actions::PageActionModelObserver>
+      observation_{this};
+  int reported_ = BC_PASSWORDS_NONE;
+  base::WeakPtrFactory<KeyIcon> weak_factory_{this};
+
+  WEB_CONTENTS_USER_DATA_KEY_DECL();
+};
+
+WEB_CONTENTS_USER_DATA_KEY_IMPL(KeyIcon);
+
+void PasswordOffer::WatchKey(content::WebContents* contents) {
+  tabs::TabInterface* tab = tabs::TabInterface::MaybeGetFromContents(contents);
+  tabs::TabFeatures* features = tab ? tab->GetTabFeatures() : nullptr;
+  page_actions::PageActionController* actions =
+      features ? features->page_action_controller() : nullptr;
+  if (!actions || !actions->ActionExists(kActionShowPasswordsBubbleOrPage)) {
+    return;
+  }
+  KeyIcon::CreateForWebContents(contents);
+  KeyIcon* key = KeyIcon::FromWebContents(contents);
+  if (!key->Watching()) {
+    key->Watch(*actions);
+  }
+}
+
+void PasswordOffer::ShowAgain(bc_id tab) {
+  content::WebContents* contents = Tab::FromId(tab);
+  if (!contents || KeyOf(contents) != BC_PASSWORDS_OFFER || Offers().contains(tab)) {
+    return;
+  }
+  // As a click on Chrome's key does: the password manager asks for its bubble, which Prompt shows
+  // as the app's offer.
+  if (auto* passwords = ManagePasswordsUIController::FromWebContents(contents)) {
+    passwords->QueueOrShowBubble(/*user_action=*/true);
+  }
+}
 
 void PasswordOffer::Prompt(content::WebContents* contents, bool show) {
   const bc_id tab = Tab::IdOf(contents);

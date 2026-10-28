@@ -1,8 +1,10 @@
 # A page's submitted login brings our offer to save its password, a card 18 in from the page
 # card's top right corner, which keeps its place through a resize. Showing another tab closes it,
-# and showing the tab again doesn't bring it back. Japanese input composes in its username field,
-# where return commits it without saving; return saves the username as left in the field, and the
-# login page fills the saved password in after. A changed password brings the offer to update it,
+# and showing the tab again doesn't bring it back, but the key after the host in the URL field
+# does. Japanese input composes in its username field, where return commits it without saving;
+# return saves the username as left in the field, and the login page fills the saved password in
+# after, with a key that opens the Site Controls. Chrome's dropdown under the username field fills
+# the login in again once the password is cleared. A changed password brings the offer to update it,
 # and escape there declines. On another site, Never answers, and that site's Site Controls list it
 # in a Passwords row whose menu takes it off Never. On the first site, the row names the login,
 # All Passwords… lists it in Settings, whose Remove asks first, and the row's Remove asks in the
@@ -92,11 +94,30 @@ expect '^browser: offer hidden$' "showing another tab didn't hide the offer"
 expect "^browser: offer $tab gone\$" "showing another tab didn't close Chrome's offer"
 switch "$(($(pinned | wc -w) + 2)) cmd" "$tab"
 back=$step
-# The page goes back to the login, which takes longer than the core reporting an offer.
-go_from_bar "${site#http://}login.html"
-expect "^browser: title $tab login\$" "the login page didn't load again"
+# The command bar opening and closing takes longer than the core reporting an offer.
+send key l cmd
+expect '^browser: command bar shown$' "⌘L didn't open the command bar"
+send key escape
+expect '^browser: command bar hidden$' "escape didn't close the command bar"
 sed -n "/^browser: drive $back: /,\$p" "$log" | grep -q '^browser: offer shown$' &&
   fail "showing the tab again brought its closed offer back"
+# The key after the host stays for the offer, and a click on it brings the offer back, which Not
+# Now answers.
+grep -q "^browser: key $tab offer\$" "$log" || fail "the offer gave its tab no key"
+# Where the key was drawn last, its centre in the window.
+key_at() { grep '^browser: key drawn at ' "$log" | tail -1 | cut -d' ' -f5-6; }
+[ -n "$(key_at)" ] || fail "the key wasn't drawn"
+../tools/window-screenshot.sh "$pid" "$out/password-key.png" || fail "no window to capture"
+send click $(key_at)
+expect "^browser: key $tab clicked\$" "a click on the key didn't reach it"
+offered save
+send click $(offer_field)
+send key escape
+expect "^browser: offer $tab answered NotNow check@example.test\$" \
+  "escape didn't decline the offer the key brought back"
+expect '^browser: offer hidden$' "declining didn't hide the offer the key brought back"
+go_from_bar "${site#http://}login.html"
+expect "^browser: title $tab login\$" "the login page didn't load again"
 
 # Japanese input composes in the offer's username field, and return commits it without saving.
 send click 600 60
@@ -127,6 +148,27 @@ expect "^browser: offer $tab gone\$" "saving didn't close Chrome's offer"
 # escape declines.
 go_from_bar "${site#http://}login.html"
 expect "^browser: title $tab filled\$" "the login page didn't fill the saved password in"
+# The saved login gives the page a key, and a click on it opens the Site Controls, which list it.
+await "^browser: key $tab saved\$" || fail "the saved login gave the page no key"
+send click $(key_at)
+expect "^browser: key $tab clicked\$" "a click on the saved login's key didn't reach it"
+expect '^browser: command site-controls via key$' \
+  "the saved login's key didn't open the Site Controls"
+expect '^browser: site controls settled$' "the Site Controls the key opened didn't settle"
+send key escape
+expect '^browser: site controls hidden$' "escape didn't close the Site Controls the key opened"
+# With the password cleared, a click in the username field shows Chrome's dropdown under it, where
+# down and return fill the saved login in again.
+send click 600 60
+send key tab
+send key a cmd
+send key backspace
+expect "^browser: title $tab cleared\$" "clearing the password didn't undo the fill"
+send click 600 60
+send key down
+../tools/window-screenshot.sh "$pid" "$out/password-fill.png" || fail "no window to capture"
+send key return
+expect "^browser: title $tab filled\$" "Chrome's dropdown didn't fill the saved login in"
 send click 600 60
 send key tab
 send key a cmd
@@ -222,4 +264,4 @@ expect "^browser: remove login [0-9]* 127.0.0.1:$port check@example.test\$" \
 expect "^browser: passwords [0-9]*: none\$" "Settings didn't hear the login was removed"
 exec 3>&-
 quit
-echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it for good; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
+echo "ok: a submitted login offers to save its password in a card 18 from the page's top right, through a resize; another tab closes it, and the key after the host brings it back; Japanese input composes in its username field and return commits it without saving; return saves the username as left, and the login page fills the saved password in, with a key that opens the Site Controls, and Chrome's dropdown fills it in again; a changed password offers to update it, which escape declines; and Never answers on another site, whose Site Controls take it off Never; the first site's Site Controls name its login, All Passwords… lists it in Settings, where Remove asks and Cancel keeps it, and the row's Remove asks in the dialog and removes it, which Settings hears. Windows: $out/password-offer.png, $out/password-key.png, $out/password-fill.png, $out/password-offer-ime.png, $out/password-update.png, $out/site-controls-never.png, $out/site-controls-passwords.png, $out/settings-passwords.png, $out/password-remove.png"
