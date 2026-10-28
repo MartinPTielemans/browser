@@ -417,8 +417,11 @@ use crate::tokens::shell::REVEAL_BORDER;
 // it: their centres from the panel's corner, as the docked sidebar's are from the window's, their
 // size, and their colours, sampled from AppKit's in a capture of the browser window. The glyphs
 // show while the pointer is over any of them, as AppKit's do.
-const WINDOW_BUTTONS: [(f32, u32); 3] =
+pub const WINDOW_BUTTONS: [(f32, u32); 3] =
     [(20., WINDOW_BUTTON_CLOSE), (43., WINDOW_BUTTON_MINIMIZE), (66., WINDOW_BUTTON_ZOOM)];
+// On Linux the browser window is Chromium's without a frame, so nothing else draws its buttons: the
+// UI draws them where AppKit's show.
+const DRAWS_WINDOW_BUTTONS: bool = cfg!(target_os = "linux");
 use crate::tokens::shell::WINDOW_BUTTON_Y;
 use crate::tokens::shell::WINDOW_BUTTON_SIZE;
 use crate::tokens::shell::WINDOW_BUTTON_GLYPH;
@@ -2760,6 +2763,8 @@ impl Render for Shell {
             && self.sidebar_motion.is_none()
             && self.library.is_none();
         let edge = docked.then(|| self.sidebar_edge(cx));
+        let own_buttons = (DRAWS_WINDOW_BUTTONS && self.window_buttons && !self.full_screen)
+            .then(|| self.window_buttons(cx));
         self.breath.arm(cx);
         div()
             .key_context(KEY_CONTEXT)
@@ -2811,6 +2816,7 @@ impl Render for Shell {
             .children(sidebar)
             .children(over)
             .children(edge)
+            .children(own_buttons)
             .child(self.scroll_listener(true, cx))
     }
 }
