@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "base/files/file_path.h"
 #include "base/functional/bind.h"
 #include "base/functional/callback_helpers.h"
 #include "base/numerics/safe_conversions.h"
@@ -21,12 +22,14 @@
 #include "browser_core/favicon.h"
 #include "browser_core/favorites.h"
 #include "browser_core/find.h"
+#include "browser_core/history_import.h"
 #include "browser_core/host.h"
 #include "browser_core/idle_unload.h"
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/page_menu.h"
 #include "browser_core/password_offer.h"
+#include "browser_core/passwords.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
 #include "browser_core/profiles.h"
@@ -354,6 +357,11 @@ bc_id bc_profile_create(const char* name) {
 
 bool bc_profile_delete(bc_id profile) {
   return browser_core::DeleteProfile(profile);
+}
+
+bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count) {
+  return (pages || !count) &&
+         browser_core::AddImportedHistory(LoadedProfile(profile), profile, pages, count);
 }
 
 size_t bc_spaces(bc_id* spaces, size_t capacity) {
@@ -1062,8 +1070,24 @@ void bc_tab_answer_offer(bc_id id, int answer, const char* username) {
   browser_core::PasswordOffer::Answer(id, answer, username);
 }
 
+void bc_tab_show_offer(bc_id id) {
+  browser_core::PasswordOffer::ShowAgain(id);
+}
+
 void bc_tab_close_page_menu(bc_id id, int command) {
   browser_core::PageMenu::Close(id, command);
+}
+
+void bc_profile_read_logins(bc_id profile) {
+  browser_core::Passwords::Read(profile);
+}
+
+void bc_profile_remove_login(bc_id profile, const char* key, const char* username, bool never) {
+  browser_core::Passwords::Remove(profile, key ? key : "", username ? username : "", never);
+}
+
+bool bc_profile_import_passwords(bc_id profile, const char* path) {
+  return path && browser_core::Passwords::Import(profile, base::FilePath::FromUTF8Unsafe(path));
 }
 
 void bc_tab_jump_to_selection(bc_id id) {

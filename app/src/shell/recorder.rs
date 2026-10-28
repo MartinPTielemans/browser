@@ -422,6 +422,10 @@ impl Browser for Recorder {
         }
     }
 
+    fn show_offer(&self, tab: u64) {
+        self.record(format!("show offer {tab}"))
+    }
+
     fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, _: &mut App) {
         self.record(format!("answer dialog {tab} {id} {reply:?}"));
         self.replies.borrow_mut().push(reply);
@@ -553,6 +557,12 @@ impl Browser for Recorder {
 
     fn create_profile(&self, _: &str, _: &mut App) -> u64 {
         Default::default()
+    }
+
+    fn import_host(&self) -> std::rc::Rc<dyn crate::import::Host> {
+        let nowhere = std::path::Path::new("/nonexistent");
+        let roots = crate::import::sources::Roots::under(nowhere, crate::import::sources::Os::Mac);
+        std::rc::Rc::new(crate::import::Detached(roots))
     }
 
     fn delete_profile(&self, _: u64, _: &mut App) {}
@@ -742,6 +752,10 @@ impl Browser for Recorder {
     fn settings(&self, _: &mut App) {}
 
     fn shortcuts(&self, _: &mut App) {}
+
+    fn passwords(&self, space: u64, _: &mut App) {
+        self.record(format!("passwords {space}"));
+    }
 
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 

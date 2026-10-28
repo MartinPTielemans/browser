@@ -3,12 +3,15 @@
 //! Settings). It opens on ⌘, and hides when closed, keeping its place and its tab until the
 //! browser quits.
 
+use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::rc::Rc;
 use std::time::Instant;
 
 use browser::default_browser::{self, DefaultBrowser};
+use browser::import::ImportView;
 use browser::log;
+use browser::passwords::{self, Login};
 use browser::shell::{self, CancelName, Command, Holder, KeepName, MenuEntry, Refused, UserKeys};
 use browser::text_input::{self, TextInput};
 use gpui::{
@@ -21,6 +24,7 @@ use gpui::{
 use crate::{bc, ns_view, platform, show_menu};
 use browser::menu::Look;
 use browser::palette::{Palette, STATE_HOVERED, STATE_PRESSED, state_alpha};
+use browser::settings_rows::{Look as RowLook, SLIDE, button, group, row, switch, tile};
 
 actions!(settings, [CloseSettings]);
 
@@ -39,19 +43,8 @@ use browser::tokens::settings::SIDE;
 use browser::tokens::settings::FIRST;
 use browser::tokens::settings::BOX_GAP;
 use browser::tokens::settings::PADDING;
-use browser::tokens::settings::LINE_INSET;
 use browser::tokens::settings::RADIUS;
-use browser::tokens::settings::TILE;
-use browser::tokens::settings::TILE_GLYPH;
-use browser::tokens::settings::TILE_RADIUS;
-use browser::tokens::settings::TILE_GAP;
-/// A switch is 36 by 16, with a knob 21 by 13, 1.5 in, that slides across over 150 ms (ours).
-use browser::tokens::settings::SWITCH_WIDTH;
 use browser::tokens::settings::SWITCH_HEIGHT;
-use browser::tokens::settings::KNOB_WIDTH;
-use browser::tokens::settings::KNOB_HEIGHT;
-use browser::tokens::settings::KNOB_INSET;
-const SLIDE: f32 = 0.15;
 use browser::tokens::settings::CONTROL_HEIGHT;
 use browser::tokens::settings::CONTROL_PADDING;
 use browser::tokens::settings::CONTROL_RADIUS;
@@ -67,12 +60,11 @@ use browser::tokens::settings::CHIP_PADDING;
 use browser::tokens::settings::CHIP_WIDTH;
 use browser::tokens::settings::CHIP_GAP;
 use browser::tokens::settings::PROFILE_ROW;
+use browser::tokens::settings::USERNAME_SIZE;
 
 use browser::tokens::settings::BAR;
 use browser::tokens::settings::BAR_LINE;
 use browser::tokens::settings::BACKGROUND;
-use browser::tokens::settings::BOX;
-use browser::tokens::settings::BOX_LINE;
 use browser::tokens::settings::PLATE_FILL;
 use browser::tokens::settings::PLATE_EDGE;
 use browser::tokens::settings::TITLE;
@@ -80,18 +72,15 @@ use browser::tokens::settings::TAB_TEXT;
 use browser::tokens::settings::TEXT;
 use browser::tokens::settings::CONTROL;
 use browser::tokens::settings::CONTROL_PRESSED;
-use browser::tokens::settings::SWITCH_OFF;
-use browser::tokens::settings::KNOB;
-use browser::tokens::settings::KNOB_ON;
 use browser::tokens::settings::HAPTICS_TILE;
 use browser::tokens::settings::PROFILE_TILE;
+use browser::tokens::settings::PASSWORD_TILE;
 use browser::tokens::settings::DETAIL;
 use browser::tokens::settings::CHIP;
 /// The chip's plate, as Paper's alpha, for the ladder to go over.
 const CHIP_ALPHA: f32 = (CHIP & 0xff) as f32 / 255.;
 use browser::tokens::settings::CHIP_RADIUS;
 use browser::tokens::settings::RESTORE_RADIUS;
-use browser::tokens::settings::TILE_GLYPH_COLOR;
 use browser::tokens::text;
 
 /// What Arc offers for how long a Today tab waits unseen before it's archived, in seconds.
@@ -106,17 +95,28 @@ const ARCHIVE_AFTER: [(&str, f64); 4] = [
 enum Tab {
     General,
     Profiles,
+    Passwords,
+    Import,
     Shortcuts,
     Advanced,
 }
 
 impl Tab {
-    const ALL: [Tab; 4] = [Tab::General, Tab::Profiles, Tab::Shortcuts, Tab::Advanced];
+    const ALL: [Tab; 6] = [
+        Tab::General,
+        Tab::Profiles,
+        Tab::Passwords,
+        Tab::Import,
+        Tab::Shortcuts,
+        Tab::Advanced,
+    ];
 
     fn name(self) -> &'static str {
         match self {
             Tab::General => "General",
             Tab::Profiles => "Profiles",
+            Tab::Passwords => "Passwords",
+            Tab::Import => "Import",
             Tab::Shortcuts => "Shortcuts",
             Tab::Advanced => "Advanced",
         }
@@ -126,6 +126,8 @@ impl Tab {
         match self {
             Tab::General => "icons/settings.svg",
             Tab::Profiles => "icons/user.svg",
+            Tab::Passwords => "icons/key-round.svg",
+            Tab::Import => "icons/arrow-down-to-line.svg",
             Tab::Shortcuts => "icons/keyboard.svg",
             Tab::Advanced => "icons/sliders-horizontal.svg",
         }
@@ -250,6 +252,7 @@ const SHORTCUTS: &[(&str, &[(&str, Keys)])] = &[
 enum Popup {
     ArchiveAfter,
     Favorites,
+    PasswordsProfile,
 }
 
 pub struct Settings {
@@ -268,6 +271,15 @@ pub struct Settings {
     /// Why the key pressed for this command wasn't given to it.
     refused: Option<(Command, SharedString)>,
     default_browser: Entity<DefaultBrowser>,
+    /// The profile whose logins the Passwords tab lists, once the user has picked one.
+    passwords_profile: Option<u64>,
+    /// Each profile's logins, as the core last told them.
+    logins: HashMap<u64, Vec<Login>>,
+    /// The profiles whose logins were asked for since the Passwords tab showed.
+    asked: HashSet<u64>,
+    /// Made when the tab first shows, so the other browsers' files are read only once the user
+    /// asks.
+    import: Option<Entity<ImportView>>,
 }
 
 /// The system's default browser, for General's row.
@@ -334,6 +346,31 @@ pub fn show_shortcuts(cx: &mut App) {
             settings.show_tab(Tab::Shortcuts, window, cx)
         };
         window.update(cx, show).ok();
+    }
+}
+
+/// Shows the Settings window on its Passwords tab, with `profile`'s logins, or those it showed.
+pub fn show_passwords(profile: Option<u64>, cx: &mut App) {
+    show(cx);
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let show = move |settings: &mut Settings, window: &mut Window, cx: &mut Context<Settings>| {
+            settings.passwords_profile = profile.or(settings.passwords_profile);
+            settings.show_tab(Tab::Passwords, window, cx)
+        };
+        window.update(cx, show).ok();
+    }
+}
+
+/// The profile's logins, which the Passwords tab asked the core for, as they are now.
+pub fn logins_changed(profile: u64, logins: Vec<Login>, cx: &mut App) {
+    // check.sh waits for this line. The app has no passwords to log, only sites and usernames.
+    log!("browser: passwords {profile}: {}", passwords::describe(&logins));
+    if let Some(window) = cx.try_global::<SettingsWindow>().map(|settings| settings.0) {
+        let changed = move |settings: &mut Settings, _: &mut Window, cx: &mut Context<Settings>| {
+            settings.logins.insert(profile, logins);
+            cx.notify();
+        };
+        window.update(cx, changed).ok();
     }
 }
 
@@ -411,6 +448,10 @@ fn open(cx: &mut App) {
                 focus_renaming: false,
                 recording: None,
                 refused: None,
+                passwords_profile: None,
+                logins: HashMap::new(),
+                asked: HashSet::new(),
+                import: None,
             }
         })
     });
@@ -446,11 +487,28 @@ impl Settings {
         self.keep_name(window, cx);
         self.recording = None;
         self.refused = None;
+        // Read again each time it shows: a profile closed since has the core forget it was asked.
+        self.asked.clear();
         // check.sh waits for this line.
         log!("browser: settings tab {}", tab.name());
         self.tab = tab;
+        if tab == Tab::Import {
+            self.show_import(cx);
+        }
         window.set_window_title(tab.name());
         cx.notify();
+    }
+
+    /// The import's view, made the first time, else with the browsers found again, as they may
+    /// have changed since.
+    fn show_import(&mut self, cx: &mut Context<Self>) {
+        match &self.import {
+            Some(import) => import.update(cx, |import, cx| import.refresh(cx)),
+            None => {
+                let host = Rc::new(crate::import_host::CoreImport);
+                self.import = Some(cx.new(|_| ImportView::new(host, false)));
+            }
+        }
     }
 
     /// The title, and the toolbar's tabs. Dragging either moves the window, as a toolbar does.
@@ -540,7 +598,7 @@ impl Settings {
             .flex_col()
             .gap(px(BOX_GAP))
             // Unload under the archive's time, as both are about tabs left unseen.
-            .child(group([
+            .child(group(&RowLook::settings(), [
                 row(None, "Warn before quitting", warn),
                 row(None, "Archive tabs after", archive.into_any_element()),
                 row(None, "Unload tabs you haven't used in a while", unload),
@@ -548,7 +606,7 @@ impl Settings {
                 // Last, so popup_text finds the pop-ups where they were.
                 row(None, "Block ads and trackers", ad_blocking),
             ]))
-            .child(group([self.default_browser_row(cx)]))
+            .child(group(&RowLook::settings(), [self.default_browser_row(cx)]))
             .into_any_element()
     }
 
@@ -562,7 +620,7 @@ impl Settings {
                 log!("browser: make default browser");
                 settings.default_browser.read(cx).make_default();
             });
-            button("make-default-browser", "Make Default").on_click(make)
+            button(&RowLook::settings(), "make-default-browser", "Make Default").on_click(make)
         });
         div()
             .px(px(PADDING))
@@ -633,7 +691,7 @@ impl Settings {
                 settings.switched = Some((name, Instant::now()));
                 cx.notify();
             }))
-            .child(switch(on, slid, accent))
+            .child(switch(&RowLook::settings(), on, slid, accent))
             .into_any_element()
     }
 
@@ -749,7 +807,7 @@ impl Settings {
             };
             let name = profile.name.clone();
             let delete = profile.deletable.then(|| {
-                button(("delete-profile", id), "Delete").on_click(
+                button(&RowLook::settings(), ("delete-profile", id), "Delete").on_click(
                     cx.listener(move |settings, _, _, cx| settings.delete(id, name.clone(), cx)),
                 )
             });
@@ -763,10 +821,10 @@ impl Settings {
                 .child(div().flex_none().ml(px(PADDING)).text_color(rgb(DETAIL)).child(spaces))
                 .children(delete.map(|delete| delete.ml(px(PADDING))))
         });
-        let new = button("new-profile", "New Profile")
+        let new = button(&RowLook::settings(), "new-profile", "New Profile")
             .on_click(cx.listener(|settings, _, _, cx| settings.new_profile(cx)));
         div()
-            .child(group(rows))
+            .child(group(&RowLook::settings(), rows))
             .child(div().mt(px(BUTTONS_TOP)).flex().child(new))
             .into_any_element()
     }
@@ -838,12 +896,164 @@ impl Settings {
         .detach();
     }
 
+    /// The profile the Passwords tab lists: the one picked or asked for while it's there, or else
+    /// the one the browser started with.
+    fn passwords_profile(&self, profiles: &[Profile]) -> Option<u64> {
+        let picked = self.passwords_profile.filter(|&id| profiles.iter().any(|each| each.id == id));
+        picked.or(profiles.first().map(|profile| profile.id))
+    }
+
+    /// The profile's logins: the saved ones in a box, each with its username under its site, and
+    /// the sites set to Never in another, each removable. A pop-up picks the profile, if there are
+    /// more than one, as each keeps its own.
+    fn passwords(&mut self, profiles: &[Profile], cx: &mut Context<Self>) -> AnyElement {
+        let Some(profile) = self.passwords_profile(profiles) else {
+            return div().into_any_element();
+        };
+        if self.asked.insert(profile) {
+            unsafe { bc::bc_profile_read_logins(profile) };
+        }
+        let logins = self.logins.get(&profile).cloned().unwrap_or_default();
+        // As the Shortcuts tab's headers, the first at the top unless the pop-up is over it.
+        let header = |title: &'static str, first: bool| {
+            div()
+                .when(!first, |header| header.mt(px(SECTION_GAP)))
+                .mb(px(HEADER_GAP))
+                .pl(px(PADDING))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title)
+        };
+        let login_row = |index: usize, login: &Login, cx: &mut Context<Self>| {
+            let (site, username) = passwords::lines(login);
+            let login = login.clone();
+            let remove = button(&RowLook::settings(), ("remove-login", index), "Remove");
+            let remove = remove.on_click(cx.listener(move |settings, _, _, cx| {
+                settings.remove(profile, login.clone(), cx)
+            }));
+            div()
+                .h(px(PROFILE_ROW))
+                .px(px(PADDING))
+                .flex()
+                .items_center()
+                .child(tile(Tab::Passwords.icon(), PASSWORD_TILE))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().truncate().child(site))
+                        .children(username.map(|username| {
+                            div()
+                                .truncate()
+                                .text_size(px(USERNAME_SIZE))
+                                .text_color(rgb(DETAIL))
+                                .child(username)
+                        })),
+                )
+                .child(remove.ml(px(PADDING)))
+        };
+        let (saved, never): (Vec<_>, Vec<_>) =
+            logins.iter().enumerate().partition(|(_, login)| !login.never);
+        let saved: Vec<gpui::Div> =
+            saved.into_iter().map(|(index, login)| login_row(index, login, cx)).collect();
+        let never: Vec<gpui::Div> =
+            never.into_iter().map(|(index, login)| login_row(index, login, cx)).collect();
+        let saved = match saved.is_empty() {
+            true => vec![
+                div()
+                    .h(px(PROFILE_ROW))
+                    .px(px(PADDING))
+                    .flex()
+                    .items_center()
+                    .text_color(rgb(DETAIL))
+                    .child("Passwords you save are listed here."),
+            ],
+            false => saved,
+        };
+        let chooser = (profiles.len() > 1).then(|| {
+            let chosen = profiles.iter().position(|each| each.id == profile);
+            let names: Vec<SharedString> = profiles.iter().map(|each| each.name.clone()).collect();
+            let ids: Vec<u64> = profiles.iter().map(|each| each.id).collect();
+            let label = chosen.map(|index| names[index].clone()).unwrap_or_default();
+            let view = cx.entity().downgrade();
+            let popup = self.popup(Popup::PasswordsProfile, label, POPUP_WIDTH, move |_, window, cx| {
+                let (names, ids) = (names.clone(), ids.clone());
+                let choose = |settings: &mut Settings, cx: &mut Context<Settings>| {
+                    settings.choose_profile(names, ids, chosen, window, cx)
+                };
+                view.update(cx, choose).ok();
+            });
+            let icon = Some(("icons/user.svg", PROFILE_TILE));
+            group(&RowLook::settings(), [row(icon, "Profile", popup.into_any_element())])
+        });
+        let first = chooser.is_none();
+        div()
+            .children(chooser)
+            .child(header("Saved", first))
+            .child(group(&RowLook::settings(), saved))
+            .when(!never.is_empty(), |tab| {
+                tab.child(header("Never Saved", false)).child(group(&RowLook::settings(), never))
+            })
+            .into_any_element()
+    }
+
+    /// Opens the profiles' pop-up menu over its button, as the archive's, and lists the profile
+    /// picked's logins.
+    fn choose_profile(
+        &mut self,
+        names: Vec<SharedString>,
+        ids: Vec<u64>,
+        chosen: Option<usize>,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let items: Vec<MenuEntry> = (names.iter().enumerate())
+            .map(|(index, name)| {
+                let on = Some(index) == chosen;
+                MenuEntry { checked: on, over: on, ..MenuEntry::new(name.to_string(), true) }
+            })
+            .collect();
+        let settings = cx.weak_entity();
+        let picked = Box::new(move |picked: Option<usize>, cx: &mut App| {
+            settings
+                .update(cx, |settings, cx| {
+                    if let Some(&profile) = picked.and_then(|index| ids.get(index)) {
+                        // check.sh waits for this line.
+                        log!("browser: passwords profile {profile}");
+                        settings.passwords_profile = Some(profile);
+                    }
+                    settings.chose(cx);
+                })
+                .ok();
+        });
+        self.pop_up(Popup::PasswordsProfile, items, picked, window, cx);
+    }
+
+    /// Removes a saved login once the user confirms, in an alert, as a profile's Delete asks, as
+    /// nothing brings it back. A site set to Never comes off it at once: the offer coming again is
+    /// its way back.
+    fn remove(&mut self, profile: u64, login: Login, cx: &mut Context<Self>) {
+        if login.never {
+            crate::remove_login(profile, &login);
+            return;
+        }
+        cx.spawn(async move |_, _| {
+            let (message, detail) = passwords::question(&login);
+            if crate::ask(&message, &detail, &["Remove", "Cancel"]) == 0 {
+                crate::remove_login(profile, &login);
+            }
+        })
+        .detach();
+    }
+
     fn advanced(&self, accent: Rgba, cx: &mut Context<Self>) -> AnyElement {
         let haptics = unsafe { bc::bc_haptics() };
         let haptics = self.toggle("haptics", haptics, set_haptics, accent, cx);
-        let more = button("more-settings", "More Settings…").on_click(|_, _, cx| more_settings(cx));
+        let more = button(&RowLook::settings(), "more-settings", "More Settings…")
+            .on_click(|_, _, cx| more_settings(cx));
         div()
-            .child(group([row(
+            .child(group(&RowLook::settings(), [row(
                 Some(("icons/vibrate.svg", HAPTICS_TILE)),
                 "Haptic feedback when swiping between Spaces",
                 haptics,
@@ -883,7 +1093,7 @@ impl Settings {
                     Keys::Of(command) => self.shortcut(*command, accent, cx),
                     Keys::Text(text) => chip((*text).into(), rgb(DETAIL)).into_any_element(),
                 };
-                row(None, name, control)
+                row(None, *name, control)
             });
             div()
                 .when(index > 0, |section| section.mt(px(SECTION_GAP)))
@@ -894,20 +1104,19 @@ impl Settings {
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(*section),
                 )
-                .child(group(rows))
+                .child(group(&RowLook::settings(), rows))
         });
         let sections: Vec<gpui::Div> = sections.collect();
-        let restore = button("restore-shortcuts", "Restore Defaults").on_click(cx.listener(
-            |settings, _, _, cx| {
-                shell::change_keys(cx, UserKeys::reset_all);
-                // check.sh waits for this line.
-                log!("browser: shortcuts restored");
-                settings.recording = None;
-                settings.refused = None;
-                save_shortcuts(cx);
-                cx.notify();
-            },
-        ));
+        let restore = button(&RowLook::settings(), "restore-shortcuts", "Restore Defaults");
+        let restore = restore.on_click(cx.listener(|settings, _, _, cx| {
+            shell::change_keys(cx, UserKeys::reset_all);
+            // check.sh waits for this line.
+            log!("browser: shortcuts restored");
+            settings.recording = None;
+            settings.refused = None;
+            save_shortcuts(cx);
+            cx.notify();
+        }));
         div()
             .children(sections)
             .child(div().mt(px(BUTTONS_TOP)).flex().child(restore))
@@ -1026,8 +1235,8 @@ impl Settings {
     }
 }
 
-/// Where `which`'s pop-up button's text starts in the window, in the first box under the switch's
-/// row, one row each.
+/// Where `which`'s pop-up button's text starts in the window: General's in the first box under the
+/// switch's row, one row each, and the Passwords tab's in its first row.
 fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
     let switch_row = PADDING + SWITCH_HEIGHT + PADDING + 1.;
     let popup_row = PADDING + CONTROL_HEIGHT + PADDING + 1.;
@@ -1035,10 +1244,12 @@ fn popup_text(which: Popup) -> gpui::Point<gpui::Pixels> {
         Popup::ArchiveAfter => (POPUP_WIDTH, 0.),
         // Under Unload's switch.
         Popup::Favorites => (FAVORITES_POPUP_WIDTH, popup_row + switch_row),
+        // The Passwords tab's first row.
+        Popup::PasswordsProfile => (POPUP_WIDTH, 0.),
     };
     point(
         px(WIDTH - SIDE - PADDING - POPUP_END - width + CONTROL_PADDING),
-        px(TITLE_BAR + TOOLBAR + FIRST + 1. + switch_row + above + PADDING),
+        px(TITLE_BAR + TOOLBAR + FIRST + 1. + above + PADDING),
     )
 }
 
@@ -1076,87 +1287,6 @@ fn more_settings(cx: &mut App) {
     log!("browser: more settings");
     crate::open_tab(crate::front().0, "chrome://settings");
     hide(cx);
-}
-
-/// A box of `rows`, with lines between them.
-fn group(rows: impl IntoIterator<Item = gpui::Div>) -> gpui::Div {
-    let rows = rows.into_iter().enumerate().map(|(index, row)| {
-        div().when(index > 0, |below| {
-            below.child(div().mx(px(LINE_INSET)).h(px(1.)).bg(rgb(BOX_LINE)))
-        })
-        .child(row)
-    });
-    div()
-        .flex()
-        .flex_col()
-        .rounded(px(RADIUS))
-        .border_1()
-        .border_color(rgb(BOX_LINE))
-        .bg(rgb(BOX))
-        .children(rows)
-}
-
-/// A row: its icon if any, its name, and its control at the right.
-fn row(icon: Option<(&'static str, u32)>, name: &'static str, control: AnyElement) -> gpui::Div {
-    div()
-        .px(px(PADDING))
-        .py(px(PADDING))
-        .flex()
-        .items_center()
-        .children(icon.map(|(glyph, color)| tile(glyph, color)))
-        .child(div().flex_1().min_w_0().truncate().child(name))
-        .child(div().flex_none().ml(px(PADDING)).child(control))
-}
-
-/// A row's icon: a white glyph on a tile of colour.
-fn tile(glyph: &'static str, color: u32) -> gpui::Div {
-    div()
-        .flex_none()
-        .size(px(TILE))
-        .mr(px(TILE_GAP))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(TILE_RADIUS))
-        .bg(rgb(color))
-        .child(svg().path(glyph).size(px(TILE_GLYPH)).text_color(rgb(TILE_GLYPH_COLOR)))
-}
-
-/// A push button, darker while pressed.
-fn button(id: impl Into<gpui::ElementId>, title: &'static str) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .flex_none()
-        .h(px(CONTROL_HEIGHT))
-        .px(px(CONTROL_PADDING))
-        .flex()
-        .items_center()
-        .rounded(px(CONTROL_RADIUS))
-        .bg(rgb(CONTROL))
-        .active(|button| button.bg(rgb(CONTROL_PRESSED)))
-        .child(title)
-}
-
-/// A switch, on or off, with its knob `slid` of the way to that side.
-fn switch(on: bool, slid: f32, accent: Rgba) -> impl IntoElement {
-    let travel = SWITCH_WIDTH - KNOB_WIDTH - 2. * KNOB_INSET;
-    let way = if on { slid } else { 1. - slid };
-    div()
-        .relative()
-        .w(px(SWITCH_WIDTH))
-        .h(px(SWITCH_HEIGHT))
-        .rounded_full()
-        .bg(if on { accent } else { rgb(SWITCH_OFF) })
-        .child(
-            div()
-                .absolute()
-                .top(px((SWITCH_HEIGHT - KNOB_HEIGHT) / 2.))
-                .left(px(KNOB_INSET + travel * way))
-                .w(px(KNOB_WIDTH))
-                .h(px(KNOB_HEIGHT))
-                .rounded_full()
-                .bg(rgb(if on { KNOB_ON } else { KNOB })),
-        )
 }
 
 /// Keys as a chip, as the command bar shows a command's, in `color`.
@@ -1236,7 +1366,12 @@ impl Render for Settings {
                 self.focus_field(&profiles, window, cx);
                 self.profiles(&profiles, cx)
             }
+            Tab::Passwords => self.passwords(&profiles(), cx),
             Tab::Shortcuts => self.shortcuts(accent, cx),
+            Tab::Import => match &self.import {
+                Some(import) => import.clone().into_any_element(),
+                None => div().into_any_element(),
+            },
             Tab::Advanced => self.advanced(accent, cx),
         };
         div()

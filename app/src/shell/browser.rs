@@ -135,6 +135,9 @@ pub trait Browser {
     fn show_page_dialog(&self, shown: Option<ShownPageDialog>, cx: &mut App);
     /// Answers the dialog `id` of `tab`'s page (Shell::set_page_dialog), if it still asks.
     fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, cx: &mut App);
+    /// Brings back the tab's offer to save or update its login, closed by showing another tab, as
+    /// its key does. The user's alone: agents get no path to it.
+    fn show_offer(&self, _tab: u64) {}
     fn stop(&self, tab: u64, cx: &mut App);
     /// Zooms the tab's page in (1), out (-1) or to 100 % (0), for its site.
     fn zoom(&self, tab: u64, step: i32, cx: &mut App);
@@ -213,6 +216,8 @@ pub trait Browser {
     fn set_space_profile(&self, space: u64, profile: u64, cx: &mut App);
     /// Makes a profile named `name`, and returns it. It's listed once it's made.
     fn create_profile(&self, name: &str, cx: &mut App) -> u64;
+    /// What the import view (crate::import) reads and adds through, for the first launch's step.
+    fn import_host(&self) -> Rc<dyn crate::import::Host>;
     /// Deletes a profile no Space or favorite is in, with everything the browser keeps in it.
     fn delete_profile(&self, profile: u64, cx: &mut App);
     /// Shows ilo's own menu of `items` at `position` in the window, or in the reveal's panel if
@@ -385,6 +390,8 @@ pub trait Browser {
     fn settings(&self, cx: &mut App);
     /// Opens the Settings window on its Shortcuts tab.
     fn shortcuts(&self, cx: &mut App);
+    /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
+    fn passwords(&self, space: u64, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.

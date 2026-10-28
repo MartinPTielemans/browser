@@ -157,6 +157,8 @@ pub enum Command {
     Settings,
     /// Opens the Settings window on its Shortcuts tab.
     KeyboardShortcuts,
+    /// Opens the Settings window on its Passwords tab, with the Space's profile's logins.
+    Passwords,
     /// Plays a new profile's first launch again.
     Welcome,
     Quit,
@@ -327,6 +329,7 @@ pub(super) const BAR_COMMANDS: &[(&str, Command, &[&str])] = &[
     ("View History", Command::ViewHistory, &[]),
     ("Settings", Command::Settings, &["preferences"]),
     ("Essential Keyboard Shortcuts", Command::KeyboardShortcuts, &["keys"]),
+    ("Passwords", Command::Passwords, &["logins", "keychain"]),
     (concat!("Welcome to ", env!("APP_NAME")), Command::Welcome, &["onboarding", "intro"]),
     (concat!("Quit ", env!("APP_NAME")), Command::Quit, &[]),
 ];
@@ -606,6 +609,7 @@ impl Command {
             Command::ViewHistory => "view-history",
             Command::Settings => "settings",
             Command::KeyboardShortcuts => "keyboard-shortcuts",
+            Command::Passwords => "passwords",
             Command::Welcome => "welcome",
             Command::Quit => "quit",
         }
@@ -797,6 +801,7 @@ impl Shell {
             Command::AddExtension => return self.browser.add_extension(cx),
             Command::Settings => return self.browser.settings(cx),
             Command::KeyboardShortcuts => return self.browser.shortcuts(cx),
+            Command::Passwords => return self.browser.passwords(self.space, cx),
             Command::Welcome => return self.welcome_again(cx),
             Command::ViewHistory => {
                 // Chrome's ⌘Y shows the history page it has open rather than a second one.
@@ -1111,6 +1116,7 @@ impl Shell {
             | Command::AddExtension
             | Command::ViewHistory
             | Command::KeyboardShortcuts
+            | Command::Passwords
             | Command::Welcome
             | Command::Settings => true,
             _ => self.selected != 0,

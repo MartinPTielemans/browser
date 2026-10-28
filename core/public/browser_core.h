@@ -280,6 +280,18 @@ typedef struct bc_site_permission {
 #define BC_PICTURE_IN_PICTURE_ENTER 1
 #define BC_PICTURE_IN_PICTURE_EXIT 2
 
+// A login Chrome's password manager keeps in a profile, without its password, which never leaves
+// the core, or a site set to Never, where it doesn't offer to save one.
+typedef struct bc_login {
+  // The site as the user should see it, such as "accounts.example.com".
+  const char* site;
+  // The username, "" for a login without one and for a site set to Never.
+  const char* username;
+  bool never;
+  // What bc_profile_remove_login takes back to name it, with the username; not for showing.
+  const char* key;
+} bc_login;
+
 // Whether the ad blocker runs on the site of a tab's page, as its Site Controls show: not the
 // user's to change there (a page that isn't http(s), one the system's engine shows, a private
 // window, or ad blocking off), on, or turned off for the site.
@@ -313,9 +325,14 @@ typedef struct bc_site_controls {
   // only it plays, the user closed the site's note (bc_tab_close_media_note), or it's a listed
   // service the user turned off. bc_tab_set_system_engine turns it on.
   bool system_engine_offered;
+  // The logins the profile keeps for the site, |login_count| of them: those saved for its domain,
+  // as Chrome's password manager offers them there, then the site set to Never, if it is.
+  const bc_login* logins;
+  size_t login_count;
   // A BC_AD_BLOCKING_ value, which bc_tab_set_ad_blocking changes.
   int ad_blocking;
 } bc_site_controls;
+
 
 // An agent's call the core checked, for the activity log (bc_agent_may_act).
 typedef struct bc_agent_activity {
@@ -608,6 +625,26 @@ typedef struct bc_host {
   // and answer with bc_tab_answer_offer. A tab shown again doesn't get it back. The user's alone:
   // agents hear none, as it names the user's login.
   void (*tab_offer_changed)(void* context, bc_id tab, const bc_offer* offer);
+  // The tab's key icon changed: what Chrome's password manager has for its page, a BC_PASSWORDS_
+  // value, as Chrome's toolbar would show its key for it. The user's alone: agents hear none.
+  void (*tab_passwords_changed)(void* context, bc_id tab, int passwords);
+  // The profile's logins, after bc_profile_read_logins, and again each time they change: the saved
+  // ones by site, then the sites set to Never. The user's alone: agents hear none.
+  void (*profile_logins_changed)(void* context,
+                                 bc_id profile,
+                                 const bc_login* logins,
+                                 size_t count);
+  // bc_profile_import_passwords is done with its file: |result| is a BC_PASSWORDS_IMPORT_ value,
+  // and with BC_PASSWORDS_IMPORTED, |imported| logins came in, or were here already, |conflicted|
+  // were kept as the profile had them, as it holds another password for that site and username,
+  // and |skipped| rows weren't logins it could take, such as one without a password. The user's
+  // alone: agents hear none, and no file, row or count reaches them.
+  void (*passwords_imported)(void* context,
+                             bc_id profile,
+                             int result,
+                             size_t imported,
+                             size_t conflicted,
+                             size_t skipped);
   // Another app asked the browser to open |urls|, |count| http, https or file URLs: a link clicked
   // in Mail or Slack, `open https://…`, an .html file from Finder. Open each in a new tab of the
   // user's, in front. Those that launched the browser come as AppKit finishes launching the app,
@@ -665,6 +702,9 @@ typedef struct bc_host {
   // the agent can't answer: a sign-in is the user's to give. A page in an agent's Space never opens
   // another app, so it asks none.
   void (*tab_dialog)(void* context, bc_id tab, const bc_page_dialog* dialog);
+  // bc_profile_add_history added |added| pages to |profile|'s history, once for each call that
+  // returned true, in order.
+  void (*history_added)(void* context, bc_id profile, size_t added);
 } bc_host;
 
 // Runs Chromium in this process with these arguments (Chromium's switches) and returns its exit
@@ -851,6 +891,23 @@ BC_EXPORT bc_id bc_profile_create(const char* name);
 // Deletes the profile, with everything Chrome keeps in it, and returns whether it will. Not one a
 // Space or a favorite is in, the one the core started with or the last. Then spaces_changed.
 BC_EXPORT bool bc_profile_delete(bc_id profile);
+
+// A page of another browser's history, for bc_profile_add_history. Strings are UTF-8.
+typedef struct bc_history_page {
+  const char* url;
+  const char* title;
+  // When it was last visited, in microseconds since 1970.
+  int64_t last_visit;
+  int32_t visits;
+  // How many of the visits were typed into the address bar, which ranks it among suggestions.
+  int32_t typed;
+} bc_history_page;
+
+// Adds |count| pages from another browser's history to the loaded profile's, as Chrome's importer
+// does, and returns whether it will: not to a private profile or one that hasn't loaded. A page
+// already there with a visit as late is skipped, so importing the same history again adds
+// nothing. Then history_added, with how many it added. The core copies what it needs.
+BC_EXPORT bool bc_profile_add_history(bc_id profile, const bc_history_page* pages, size_t count);
 
 // Copies up to |capacity| of the Spaces into |spaces|, in order, and returns how many there are.
 BC_EXPORT size_t bc_spaces(bc_id* spaces, size_t capacity);
@@ -1444,10 +1501,52 @@ BC_EXPORT void bc_tab_show_certificate(bc_id tab);
 // agents get none, as saving a password is the user's to decide.
 BC_EXPORT void bc_tab_answer_offer(bc_id tab, int answer, const char* username);
 
+// What tab_passwords_changed says Chrome's password manager has for a tab's page, as its key icon:
+// nothing, so no key shows;
+#define BC_PASSWORDS_NONE 0
+// the site's saved logins, filled in or just saved, which the Site Controls list;
+#define BC_PASSWORDS_SAVED 1
+// or an offer to save or update the page's login, which bc_tab_show_offer brings back once closed.
+#define BC_PASSWORDS_OFFER 2
+
+// Brings back the tab's offer, closed by showing another tab, as Chrome's key icon does, if the
+// password manager still holds the login. Then tab_offer_changed. Does nothing for a tab without
+// BC_PASSWORDS_OFFER. The user's: agents get none, as the offer names the user's login.
+BC_EXPORT void bc_tab_show_offer(bc_id tab);
+
 // Closes the page menu tab_page_menu showed for |tab|, after running its row with |command|, as
 // Chrome's menu runs the row the user chose, or none with 0. Does nothing if the tab's menu isn't
 // open. The user's: agents get none, as they have no page menu.
 BC_EXPORT void bc_tab_close_page_menu(bc_id tab, int command);
+
+// User-only on purpose, unlike the rest of the API: agents get sessions, never secrets.
+// Reads the profile's logins, then profile_logins_changed, and again each time they change while
+// the profile is loaded.
+BC_EXPORT void bc_profile_read_logins(bc_id profile);
+// Removes the profile's login of |key| and |username|, as bc_login gives them, or takes its site
+// off Never if |never|, so the offer comes there again. Then profile_logins_changed, if read, and
+// tab_site_controls for a site the Site Controls show.
+BC_EXPORT void bc_profile_remove_login(bc_id profile,
+                                       const char* key,
+                                       const char* username,
+                                       bool never);
+// What bc_profile_import_passwords did with its file, for passwords_imported.
+#define BC_PASSWORDS_IMPORTED 0
+// The file couldn't be read.
+#define BC_PASSWORDS_IMPORT_UNREADABLE 1
+// Its first row isn't a password export's: url, username and password columns, by any of the
+// names Chrome, Firefox and Safari give them.
+#define BC_PASSWORDS_IMPORT_NOT_EXPORT 2
+// Over Chrome's limits for one file, in its size or its number of logins.
+#define BC_PASSWORDS_IMPORT_TOO_LARGE 3
+#define BC_PASSWORDS_IMPORT_FAILED 4
+// Imports the logins in the file at |path|, a CSV another browser or password manager exported,
+// into the profile, with Chrome's password importer, as its password manager's Import passwords
+// does, parsing the file away from the browser. A login the profile holds with another password
+// stays as it is. The core keeps no copy of the file and doesn't delete it. Returns whether it
+// will: not without a loaded profile, or while the profile's last import isn't done. Then
+// passwords_imported.
+BC_EXPORT bool bc_profile_import_passwords(bc_id profile, const char* path);
 
 // Scrolls the tab's page to put its selection, or its caret, in the middle of the page's view, as
 // Edit › Find › Jump to Selection does. Does nothing if it has neither.

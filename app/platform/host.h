@@ -476,6 +476,10 @@ void host_copy(const char* text);
 // so checks never launch Safari.
 void host_open_in_safari(const char* url);
 
+// Shows System Settings' list of apps with Full Disk Access, which an import from Safari needs. A
+// driven run only logs it, so checks never open System Settings.
+void host_open_full_disk_access(void);
+
 // Shows the system's share menu for the page at |url| titled |title|, hanging from the frame at
 // |x|, |y|, |width| by |height| points in |ui_view|'s window's content.
 void host_share(void* ui_view,

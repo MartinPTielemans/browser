@@ -15,7 +15,7 @@ use std::{
 
 use browser::window_frames::{self, Frame};
 use browser::{
-    capture, command_bar, dialog, dock_dot, elevation::Level, icon_picker, link_target, log, menu, offer, site_controls,
+    capture, command_bar, dialog, dock_dot, elevation::Level, icon_picker, link_target, log, menu, offer, passwords, site_controls,
     theme_picker, toast, tooltip, zoom_hud,
 };
 use browser::shell::{
@@ -36,6 +36,7 @@ use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 mod drop_targets;
 mod find_bar;
+mod import_host;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/overlays.rs"]
 mod overlays;
@@ -197,6 +198,7 @@ mod platform {
         );
         pub fn host_copy(text: *const c_char);
         pub fn host_open_in_safari(url: *const c_char);
+        pub fn host_open_full_disk_access();
         pub fn host_share(
             ui_view: *mut c_void,
             x: f64,
@@ -470,6 +472,16 @@ fn update_window<R>(
 
 /// The window showing `tab`'s page, as the core says, else the one whose shell thinks it does,
 /// else the one last key, such as for a key from a page no shell has heard is shown yet.
+/// Removes the profile's `login`, or takes its site off Never, as the Site Controls and Settings
+/// do. The user's alone: agents get sessions, never secrets.
+fn remove_login(profile: bc::bc_id, login: &passwords::Login) {
+    let text = |text: &str| CString::new(text).unwrap_or_default();
+    let (key, username) = (text(&login.key), text(&login.username));
+    // check.sh reads this line.
+    log!("browser: remove login {profile} {}", passwords::describe(std::slice::from_ref(login)));
+    unsafe { bc::bc_profile_remove_login(profile, key.as_ptr(), username.as_ptr(), login.never) };
+}
+
 fn tab_window(tab: u64, cx: &App) -> Option<BrowserWindow> {
     let core = unsafe { bc::bc_tab_window(tab) };
     WINDOWS.with_borrow(|windows| {
@@ -730,6 +742,10 @@ impl site_controls::Host for SiteControlsHost {
         }
     }
 
+    fn allow_saving(&self, tab: u64, login: &passwords::Login) {
+        remove_login(unsafe { bc::bc_tab_profile(tab) }, login);
+    }
+
     fn set_ad_blocking(&self, tab: u64, on: bool) {
         unsafe { bc::bc_tab_set_ad_blocking(tab, on) };
     }
@@ -768,6 +784,16 @@ impl site_controls::Host for SiteControlsHost {
                 window.shell.update(cx, |shell, cx| shell.run_extension_from(&id, tile, cx)).ok();
             }
             site_controls::Run::Certificate => unsafe { bc::bc_tab_show_certificate(tab) },
+            site_controls::Run::RemoveLogin(login) => {
+                let profile = unsafe { bc::bc_tab_profile(tab) };
+                let (message, detail) = passwords::question(&login);
+                let confirmed = Box::new(move |_: &mut App| remove_login(profile, &login));
+                dialog::ask(message, detail, "Remove", confirmed, cx);
+            }
+            site_controls::Run::Passwords => {
+                let profile = unsafe { bc::bc_tab_profile(tab) };
+                settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
+            }
         }
     }
 
@@ -1644,6 +1670,10 @@ impl Browser for Engine {
         answer_page_dialog(tab, id, reply);
     }
 
+    fn show_offer(&self, tab: u64) {
+        unsafe { bc::bc_tab_show_offer(tab) };
+    }
+
     fn stop(&self, tab: u64, _: &mut App) {
         unsafe { bc::bc_tab_stop(tab) };
     }
@@ -1845,6 +1875,10 @@ impl Browser for Engine {
     fn create_profile(&self, name: &str, _: &mut App) -> u64 {
         let name = CString::new(name).unwrap_or_default();
         unsafe { bc::bc_profile_create(name.as_ptr()) }
+    }
+
+    fn import_host(&self) -> Rc<dyn browser::import::Host> {
+        Rc::new(import_host::CoreImport)
     }
 
     fn delete_profile(&self, profile: u64, _: &mut App) {
@@ -2139,6 +2173,11 @@ impl Browser for Engine {
 
     fn shortcuts(&self, cx: &mut App) {
         settings::show_shortcuts(cx);
+    }
+
+    fn passwords(&self, space: u64, cx: &mut App) {
+        let profile = unsafe { bc::bc_space_profile(space) };
+        settings::show_passwords(Some(profile).filter(|&profile| profile != 0), cx);
     }
 
     fn new_window(&self, cx: &mut App) {
@@ -3464,9 +3503,12 @@ unsafe extern "C" fn launching(_: *mut c_void) {
 }
 
 /// Back from another app, such as System Settings, where the user may have changed the default
-/// browser.
+/// browser or given the app Full Disk Access.
 extern "C" fn became_active() {
-    update_app(settings::check_default_browser);
+    update_app(|cx| {
+        settings::check_default_browser(cx);
+        import_host::became_active(cx);
+    });
 }
 
 unsafe extern "C" fn stopping(_: *mut c_void) {
@@ -3553,6 +3595,13 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_spaces(spaces.clone(), cx);
     });
     update_app(settings::refresh);
+    // After the update under way, as an import waiting here makes Spaces of its own.
+    update_app_later(import_host::spaces_changed);
+}
+
+unsafe extern "C" fn history_added(_: *mut c_void, profile: bc::bc_id, added: usize) {
+    log!("browser: history added {added} to profile {profile}");
+    update_app_later(move |cx| import_host::history_added(added, cx));
 }
 
 unsafe extern "C" fn favorites_changed(_: *mut c_void) {
@@ -4066,8 +4115,63 @@ unsafe extern "C" fn tab_site_controls(
             bc::BC_AD_BLOCKING_OFF => Some(false),
             _ => None,
         },
+        logins: logins(controls.logins, controls.login_count),
     };
     update_app(|cx| site_controls::changed(tab, site, cx));
+}
+
+/// The core's `count` logins at `logins`, as the app keeps them.
+fn logins(logins: *const bc::bc_login, count: usize) -> Vec<passwords::Login> {
+    let string = |text: *const c_char| -> SharedString {
+        unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned().into()
+    };
+    let logins = match count {
+        0 => &[][..],
+        count => unsafe { std::slice::from_raw_parts(logins, count) },
+    };
+    (logins.iter())
+        .map(|login| passwords::Login {
+            site: string(login.site),
+            username: string(login.username),
+            never: login.never,
+            key: string(login.key),
+        })
+        .collect()
+}
+
+/// The profile's logins, which Settings asked the core for.
+unsafe extern "C" fn profile_logins_changed(
+    _: *mut c_void,
+    profile: bc::bc_id,
+    list: *const bc::bc_login,
+    count: usize,
+) {
+    let list = logins(list, count);
+    update_app(|cx| settings::logins_changed(profile, list, cx));
+}
+
+/// What came of a passwords file the import gave the core. Never logged: the counts are the
+/// user's.
+unsafe extern "C" fn passwords_imported(
+    _: *mut c_void,
+    profile: bc::bc_id,
+    result: i32,
+    imported: usize,
+    conflicted: usize,
+    skipped: usize,
+) {
+    let passwords = match result as u32 {
+        bc::BC_PASSWORDS_IMPORTED => browser::import::Passwords::Imported {
+            imported,
+            conflicted,
+            skipped,
+        },
+        bc::BC_PASSWORDS_IMPORT_UNREADABLE => browser::import::Passwords::Unreadable,
+        bc::BC_PASSWORDS_IMPORT_NOT_EXPORT => browser::import::Passwords::NotExport,
+        bc::BC_PASSWORDS_IMPORT_TOO_LARGE => browser::import::Passwords::TooLarge,
+        _ => browser::import::Passwords::Failed,
+    };
+    update_app_later(move |cx| import_host::passwords_imported(profile, passwords, cx));
 }
 
 unsafe extern "C" fn tab_find_changed(
@@ -4121,6 +4225,18 @@ unsafe extern "C" fn tab_offer_changed(
         }
     });
     update_app(|cx| offer::changed(tab, offer, cx));
+}
+
+unsafe extern "C" fn tab_passwords_changed(_: *mut c_void, tab: bc::bc_id, passwords: c_int) {
+    let key = match passwords as u32 {
+        bc::BC_PASSWORDS_SAVED => Some(passwords::Key::Saved),
+        bc::BC_PASSWORDS_OFFER => Some(passwords::Key::Offer),
+        _ => None,
+    };
+    // check.sh reads this line.
+    let words = key.map_or("none".into(), |key| format!("{key:?}").to_lowercase());
+    log!("browser: key {tab} {words}");
+    update_shells(|shell, cx| shell.set_key(tab, key, cx));
 }
 
 /// Tells the core the user's answer to the dialog `id` of `tab`'s page.
@@ -4449,12 +4565,16 @@ fn switches_and_host() -> (Vec<CString>, bc::bc_host) {
         tab_media_unsupported: Some(tab_media_unsupported),
         tab_page_menu: Some(tab_page_menu),
         tab_offer_changed: Some(tab_offer_changed),
+        tab_passwords_changed: Some(tab_passwords_changed),
+        profile_logins_changed: Some(profile_logins_changed),
+        passwords_imported: Some(passwords_imported),
         open_links: Some(open_links),
         agent_activity: Some(agent_activity),
         #[cfg(target_os = "linux")]
         window_resized: Some(window_resized),
         agent_session_ended: Some(agent_session_ended),
         tab_dialog: Some(tab_dialog),
+        history_added: Some(history_added),
         ..Default::default()
     };
     (args, host)

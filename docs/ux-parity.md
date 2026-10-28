@@ -290,8 +290,8 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 |---|---|---|---|---|
 | [x] | Save / update prompt | MVP | page top right; Save / Update Password, username picker, Never, No Thanks in Chrome's words; look: measure | Dia P§16, Chrome |
 | [ ] | Address and card offers | MVP | same prompt, Chrome's words. Not started: after the save prompt | Chrome |
-| [x] | Pending offer on tab switch | MVP | closes | Dia P§16 |
-| [ ] | Fill dropdown | MVP | Chrome's, under the field. Not started; unverified, it may already show | Chrome |
+| [x] | Pending offer on tab switch | MVP | closes; the URL field's key brings it back (ours) | Dia P§16 |
+| [ ] | Fill dropdown | MVP | Chrome's, under the field. The passwords run checks it fills a saved login in; unverified until that runs | Chrome |
 | [ ] | Edit › AutoFill items | MVP | open the dropdown at the focused field, else settings. Not started | Dia |
 | [ ] | Password generation | MVP | Use Strong Password / Choose Your Own. Not started: generation is off with no Google sign-in | Chrome |
 | [ ] | Eye reveal in pages | MVP | once the user types, never for a filled password. Not started: Blink's feature is off | Dia |
@@ -359,16 +359,18 @@ Dia's New Tab page isn't ours (decision 6). ⌘T opens the command bar over the 
 
 | Done | Item | Phase | Target | Source |
 |---|---|---|---|---|
-| [ ] | Arc: Spaces → Spaces, profiles → profiles | MVP | yes | decision 5 |
-| [ ] | Arc: favorites, pinned tabs, custom names | MVP | favorites → favorites; pinned → pinned rows | Dia 1.52 P§20 |
-| [ ] | Arc: themes | MVP | `windowTheme` colours, intensity, noise, texture, appearance, light and dark | Arc 1.167 P§20 |
-| [ ] | Arc: folders | MVP | measure | — |
-| [ ] | Chrome: bookmarks, history, open tabs, passwords, addresses, cards | MVP | yes | P§20 |
-| [ ] | Chrome: cookies | MVP | never over existing ones, never into private | P§20 |
+| [x] | Arc: Spaces → Spaces, profiles → profiles | MVP | yes; Settings › Import | decision 5 |
+| [x] | Arc: favorites, pinned tabs, custom names | MVP | favorites → favorites; pinned → pinned rows | Dia 1.52 P§20 |
+| [ ] | Arc: themes | MVP | `windowTheme` colours, intensity, noise, texture, appearance, light and dark; built: colour, count, intensity, noise, appearance | Arc 1.167 P§20 |
+| [x] | Arc: folders | MVP | ours: folders, nested; split views as their tabs *interim*; measure | ours |
+| [ ] | Chrome: bookmarks, history, open tabs, passwords, addresses, cards | MVP | yes, passwords from the user's exported CSV; built: bookmarks and history, for Chrome's whole family, and passwords from any browser's exported CSV | P§20 |
+| [x] | Chrome: cookies | MVP | not imported: no other browser's cookies or passwords are decrypted, and the user signs in again | #453 |
+| [x] | Firefox, Zen, LibreWolf: bookmarks, history | MVP | ours: as Chrome's family's, from `places.sqlite` | ours |
+| [x] | Safari: bookmarks, Reading List, history | MVP | ours: as Chrome's family's, the Reading List as a folder | ours |
 | [ ] | Chrome: extensions | MVP | listed with store links, not installed | P§20 |
-| [ ] | Full Disk Access | MVP | explain, link to System Settings, re-check on return | P§20 |
-| [ ] | Rerun | MVP | adds nothing | P§20 |
-| [ ] | Where Chrome bookmarks land | MVP | measure | — |
+| [x] | Full Disk Access | MVP | explain, link to System Settings, re-check on return; Safari's | P§20 |
+| [x] | Rerun | MVP | adds nothing | P§20 |
+| [x] | Where Chrome bookmarks land | MVP | ours: a Space named after the browser, the bar's bookmarks pinned, or in a folder past 12; measure Arc's | ours |
 
 ## Updates
 
