@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <ctime>
 #include <iterator>
 #include <memory>
 #include <optional>
@@ -22,10 +23,13 @@
 #include "base/task/single_thread_task_runner.h"
 #include "base/task/thread_pool.h"
 #include "base/time/time.h"
+#include "browser_core/host.h"
 #include "browser_core/session.h"
 #include "build/build_config.h"
 #include "chrome/browser/after_startup_task_utils.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/sessions/exit_type_service.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/crash/core/app/crashpad.h"
@@ -66,7 +70,9 @@ constexpr net::NetworkTrafficAnnotationTag kCrashReport =
           "developers can fix it."
         trigger:
           "The user has Settings › Privacy › Send Crash Reports on, and a report hasn't been sent "
-          "yet. Checked once the browser has started, and when the user turns it on."
+          "yet, checked once the browser has started and when the user turns it on. Or, with it "
+          "off, the user pressed Send Report when the browser offered to send the report of its "
+          "crash the time before."
         data:
           "The minidump alone: the crashed process's threads, their stacks and registers, its "
           "loaded modules and Crashpad's annotations, such as the browser's version."
@@ -76,7 +82,8 @@ constexpr net::NetworkTrafficAnnotationTag kCrashReport =
       policy {
         cookies_allowed: NO
         setting: "Settings › Privacy › Send Crash Reports, off by default."
-        policy_exception_justification: "Off unless the user turns it on."
+        policy_exception_justification:
+          "Off unless the user turns it on, or says to send one report."
       })");
 
 const GURL& Collector() {
@@ -126,6 +133,37 @@ std::optional<Unsent> ReadOldest() {
   return std::nullopt;
 }
 
+// The report `uuid`, read whole, if it's still waiting to be sent.
+std::optional<Unsent> Read(const crashpad::UUID& uuid) {
+  std::unique_ptr<CrashReportDatabase> reports = OpenReports();
+  CrashReportDatabase::Report report;
+  std::string minidump;
+  if (!reports || reports->LookUpCrashReport(uuid, &report) != CrashReportDatabase::kNoError ||
+      report.uploaded || !base::ReadFileToString(report.file_path, &minidump)) {
+    return std::nullopt;
+  }
+  return Unsent{uuid, std::move(minidump)};
+}
+
+struct Newest {
+  crashpad::UUID uuid;
+  time_t created;
+};
+
+// The newest report waiting to be sent, if it was written after `after`.
+std::optional<Newest> NewestAfter(double after) {
+  std::unique_ptr<CrashReportDatabase> reports = OpenReports();
+  std::vector<CrashReportDatabase::Report> pending;
+  if (!reports || reports->GetPendingReports(&pending) != CrashReportDatabase::kNoError) {
+    return std::nullopt;
+  }
+  auto newest = std::ranges::max_element(pending, {}, &CrashReportDatabase::Report::creation_time);
+  if (newest == pending.end() || newest->creation_time <= after) {
+    return std::nullopt;
+  }
+  return Newest{newest->uuid, newest->creation_time};
+}
+
 void Delete(const crashpad::UUID& uuid) {
   if (std::unique_ptr<CrashReportDatabase> reports = OpenReports()) {
     reports->DeleteReport(uuid);
@@ -158,6 +196,12 @@ bool g_busy = false;
 // Counts the times the user turned sending off, so what was on its way then stops where it is.
 int g_round = 0;
 
+// The report the browser offered to send, until the user answers.
+std::optional<crashpad::UUID>& Offered() {
+  static base::NoDestructor<std::optional<crashpad::UUID>> offered;
+  return *offered;
+}
+
 std::unique_ptr<network::SimpleURLLoader>& Loader() {
   static base::NoDestructor<std::unique_ptr<network::SimpleURLLoader>> loader;
   return *loader;
@@ -185,12 +229,12 @@ void Sent(int round,
 
 // The minidump alone, as a Breakpad collector takes it, which GlitchTip's and Sentry's minidump
 // endpoints are. Crashpad's handler would add the minidump's annotations as fields, which the
-// minidump has anyway.
-void Send(int round, std::optional<Unsent> report) {
+// minidump has anyway. `asked`, it's the one report the user said to send.
+void Send(int round, bool asked, std::optional<Unsent> report) {
   if (round != g_round) {
     return;
   }
-  if (!report || !Sending() || !g_browser_process) {
+  if (!report || !(asked || Sending()) || !Collector().is_valid() || !g_browser_process) {
     g_busy = false;
     return;
   }
@@ -216,7 +260,33 @@ void SendNext() {
   }
   g_busy = true;
   Reports()->PostTaskAndReplyWithResult(FROM_HERE, base::BindOnce(&ReadOldest),
-                                        base::BindOnce(&Send, g_round));
+                                        base::BindOnce(&Send, g_round, false));
+}
+
+void Offer(std::optional<Newest> report) {
+  if (!report || Sending()) {
+    return;
+  }
+  UserSettings().crash_report_offered = report->created;
+  SessionChanged();
+  Offered() = report->uuid;
+  // check.sh waits for this line.
+  fprintf(stderr, "browser: crash report offered\n");
+  if (Host().crash_report_offered) {
+    Host().crash_report_offered(Host().context);
+  }
+}
+
+void OfferNewest() {
+  Reports()->PostTaskAndReplyWithResult(
+      FROM_HERE, base::BindOnce(&NewestAfter, UserSettings().crash_report_offered),
+      base::BindOnce(&Offer));
+}
+
+// Chrome marks a profile's session crashed as it starts, and clean as it quits.
+bool LastSessionCrashed() {
+  Profile* profile = ProfileManager::GetLastUsedProfileIfLoaded();
+  return profile && ExitTypeService::GetLastSessionExitType(profile) == ExitType::kCrashed;
 }
 
 // Whether Crashpad's handler takes crashes yet. On the Mac the browser doesn't wait for it to start
@@ -300,7 +370,30 @@ void Started() {
   if (Sending()) {
     AfterStartupTaskUtils::PostTask(FROM_HERE, base::SequencedTaskRunner::GetCurrentDefault(),
                                     base::BindOnce(&SendNext));
+  } else if (Collector().is_valid() && LastSessionCrashed()) {
+    AfterStartupTaskUtils::PostTask(FROM_HERE, base::SequencedTaskRunner::GetCurrentDefault(),
+                                    base::BindOnce(&OfferNewest));
   }
+}
+
+void Answer(bool send) {
+  std::optional<crashpad::UUID> uuid = std::exchange(Offered(), std::nullopt);
+  if (!uuid) {
+    return;
+  }
+  // check.sh waits for this line.
+  fprintf(stderr, "browser: crash report %s\n", send ? "to send" : "not to send");
+  if (!send) {
+    Reports()->PostTask(FROM_HERE, base::BindOnce(&Delete, *uuid));
+    return;
+  }
+  // Already on its way with the rest, as the user turned sending on since.
+  if (g_busy) {
+    return;
+  }
+  g_busy = true;
+  Reports()->PostTaskAndReplyWithResult(FROM_HERE, base::BindOnce(&Read, *uuid),
+                                        base::BindOnce(&Send, g_round, true));
 }
 
 }  // namespace browser_core::crash_reports

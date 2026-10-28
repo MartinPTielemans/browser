@@ -145,6 +145,33 @@ fn an_undo_toast_runs_its_undo_with_a_click_on_the_button(cx: &mut TestAppContex
     assert_eq!(undone.get(), 1);
 }
 
+#[gpui::test]
+fn a_question_stays_until_a_button_answers_it(cx: &mut TestAppContext) {
+    let host = open_toast(cx);
+    let answers = Rc::new(RefCell::new(Vec::new()));
+    let button = |name: &'static str, send| {
+        let answers = answers.clone();
+        Button {
+            label: Label::Text(name.into()),
+            name,
+            run: Rc::new(move |_, _| answers.borrow_mut().push(send)),
+        }
+    };
+    let buttons = vec![button("Send Report", true), button("Don't Send", false)];
+    cx.update(|cx| show_until_answered("ilo quit unexpectedly.", buttons, cx));
+    cx.run_until_parked();
+    assert_eq!(host.0.take(), ["clicks true", "show"]);
+    assert!(after(cx, &host, 60.).is_empty(), "it waits for the answer");
+    cx.update(|cx| {
+        let window = cx.global::<ToastWindow>().0;
+        window.update(cx, |toast, _, cx| toast.press(1, point(px(0.), px(0.)), cx)).unwrap();
+    });
+    cx.run_until_parked();
+    assert_eq!(*answers.borrow(), [false]);
+    assert_eq!(host.0.take(), ["clicks false"]);
+    assert_eq!(after(cx, &host, LEAVE), ["hide"]);
+}
+
 /// The toast's window ends below the plate, where its shadow falls, and the shadow fades out
 /// before the window's edge. Above and right of it the window's edge is the browser window's.
 #[test]
