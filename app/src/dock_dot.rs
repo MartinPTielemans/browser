@@ -16,8 +16,7 @@ pub trait Host {
 /// by 300 ms, and long enough to take quick switches as one.
 pub const QUIET: Duration = Duration::from_millis(400);
 
-/// The icon's own green, which a Space in it leaves alone.
-pub const GREEN: u32 = 0x0E9F55;
+pub use crate::tokens::dock_dot::GREEN;
 
 struct DockDot {
     host: Rc<dyn Host>,

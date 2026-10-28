@@ -12,9 +12,9 @@ pub struct Assets;
 // The close button's bars, as Arc's: 11.4 pt between the middles of their round ends, 2 wide,
 // crossing in a 14 pt box (Arc 1.170 rec at 2×).
 const BARS: &str = "bars/";
-const BAR_LENGTH: f32 = 11.4;
-const BAR_WIDTH: f32 = 2.;
-const BARS_BOX: f32 = 14.;
+use crate::tokens::shell::assets::BAR_LENGTH;
+use crate::tokens::shell::assets::BAR_WIDTH;
+use crate::tokens::shell::assets::BARS_BOX;
 
 /// The close button's bars, crossing `angle` degrees from level either way, to the nearest
 /// degree, so the turn between ✕ and − draws a few dozen glyphs at most.

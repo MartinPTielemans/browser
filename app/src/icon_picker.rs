@@ -30,46 +30,37 @@ pub use emoji::Recents;
 
 actions!(icon_picker, [Dismiss, Keep, Up, Down]);
 
-// Arc's, measured at 2× (docs/ux-spec.md › Spaces › Icon). The card is square, and the window
-// holds the arrow over it too.
-pub const WIDTH: f32 = 273.;
-const CARD: f32 = 273.;
-/// The arrow's tip is this far over the card, and its sides go down at 45° from there.
-const ARROW: f32 = 13.;
-/// Its tip, from the card's left edge, which its left side goes down to.
-const ARROW_X: f32 = 13.;
+pub use crate::tokens::icon_picker::WIDTH;
+use crate::tokens::icon_picker::CARD;
+use crate::tokens::icon_picker::ARROW;
+use crate::tokens::icon_picker::ARROW_X;
 /// The arrow's tip in the window, which the picker grows in from as it opens.
 pub const ARROW_TIP: (f32, f32) = (ARROW_X, 0.);
-const ARROW_TIP_RADIUS: f32 = 5.;
-const ARROW_FOOT_RADIUS: f32 = 3.5;
-const RADIUS: f32 = 20.;
+use crate::tokens::icon_picker::ARROW_TIP_RADIUS;
+use crate::tokens::icon_picker::ARROW_FOOT_RADIUS;
+use crate::tokens::icon_picker::RADIUS;
 pub const HEIGHT: f32 = ARROW + CARD;
-/// The card's top is this far under the middle of the icon the arrow points at.
-const BELOW_ICON: f32 = 25.;
-/// Grey at 0.565 over the blur: lighter than the command bar's fill, as Arc's is.
-const FILL: u32 = 0x4848_4890;
-/// Emoji | Icon, 14.5 under the card's top, with the trash button 7 after it, the two centred; with
-/// no icon to remove, Emoji | Icon is centred alone (Arc 1.170 cap).
-const SEGMENTS_TOP: f32 = 14.5;
-const SEGMENT_WIDTH: f32 = 57.;
-const SEGMENTS_HEIGHT: f32 = 24.;
-const SEGMENTS_RADIUS: f32 = 6.;
-const SEGMENTS_FILL: u32 = 0xffff_ff2e;
-const TRASH_GAP: f32 = 7.;
-const TRASH_GLYPH: f32 = 16.;
-const LABEL: u32 = 0xededef;
+use crate::tokens::icon_picker::BELOW_ICON;
+use crate::tokens::icon_picker::FILL;
+use crate::tokens::icon_picker::SEGMENTS_TOP;
+use crate::tokens::icon_picker::SEGMENT_WIDTH;
+use crate::tokens::icon_picker::SEGMENTS_HEIGHT;
+use crate::tokens::icon_picker::SEGMENTS_RADIUS;
+use crate::tokens::icon_picker::SEGMENTS_FILL;
+use crate::tokens::icon_picker::TRASH_GAP;
+use crate::tokens::icon_picker::TRASH_GLYPH;
+use crate::tokens::icon_picker::LABEL;
 /// The glyphs, eight to a row on a 31 pt pitch, the first 12.25 in and 47.75 under the card's top.
 const COLUMNS: usize = 8;
-const PITCH: f32 = 31.;
-const GRID_X: f32 = 12.25;
-const GRID_TOP: f32 = 47.75;
-const GLYPH_SIZE: f32 = 16.;
-const PLATE: f32 = 30.;
-const PLATE_RADIUS: f32 = 4.;
-const CHOSEN: u32 = 0xffff_ff40;
-/// Arc's hover wasn't captured: half the chosen plate.
-const HOVERED: u32 = 0xffff_ff1f;
-const HINT: u32 = 0xffff_ff87;
+use crate::tokens::icon_picker::PITCH;
+use crate::tokens::icon_picker::GRID_X;
+use crate::tokens::icon_picker::GRID_TOP;
+use crate::tokens::icon_picker::GLYPH_SIZE;
+use crate::tokens::icon_picker::PLATE;
+use crate::tokens::icon_picker::PLATE_RADIUS;
+use crate::tokens::icon_picker::CHOSEN;
+use crate::tokens::icon_picker::HOVERED;
+use crate::tokens::icon_picker::HINT;
 /// Arc's switch between Emoji and Icon slides the content a card's width over 0.2 s, easing out
 /// (Arc 1.170 rec at 2×).
 const SLIDE: f32 = 0.2;

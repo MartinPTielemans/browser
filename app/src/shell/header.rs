@@ -31,14 +31,9 @@ pub(super) enum TipSide {
     Beside,
 }
 
-/// Arc's field buttons: Site Control Center 1 pt past the field's end and Copy URL 28 before it,
-/// their plates overlapping by 2 (x 191 and 163 of 228). Pinned extensions' buttons keep the
-/// field's end, and these go before them.
-const SITE_CONTROLS_END: f32 = -1.;
-const TOOL_PITCH: f32 = 28.;
-/// The URL field's words with no page shown: the command bar's placeholder, which a click opens
-/// over them, at white 0.32, which is to the host's 0.60 as the bar's placeholder is to its text.
-const URL_PLACEHOLDER: u32 = 0xffff_ff52;
+use crate::tokens::shell::header::SITE_CONTROLS_END;
+use crate::tokens::shell::header::TOOL_PITCH;
+use crate::tokens::shell::header::URL_PLACEHOLDER;
 
 impl Shell {
     /// A header button at `x`, with the glyph `icon`, that runs `command`. One that can't dims, as

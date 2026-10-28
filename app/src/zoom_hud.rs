@@ -17,19 +17,15 @@ use gpui::{
 
 use crate::shell::{CARD_INSET, Shell, cubic_bezier, scaled::scaled_from_top};
 
-// Arc's, measured at 2× (Arc 1.170 rec): 41.5 tall, 8 inside the card's top right corner, the
-// percent 14 pt and 16 in from the pill's right, in the toast's fill, rim and shadow.
-const HEIGHT: f32 = 41.5;
-const PADDING: f32 = 16.;
-const RADIUS: f32 = 10.;
-const TEXT_SIZE: f32 = 14.;
-const EDGE: u32 = 0x0000_004d;
-const SHADE: f32 = 0.78;
-/// The window reaches this far past the pill on every side, for its shadow.
-pub const MARGIN: f32 = 16.;
-/// Wide enough for "500%".
-pub const WINDOW_WIDTH: f32 = 130.;
-pub const WINDOW_HEIGHT: f32 = 80.;
+use crate::tokens::zoom_hud::HEIGHT;
+use crate::tokens::zoom_hud::PADDING;
+use crate::tokens::zoom_hud::RADIUS;
+use crate::tokens::zoom_hud::TEXT_SIZE;
+use crate::tokens::zoom_hud::EDGE;
+use crate::tokens::zoom_hud::SHADE;
+pub use crate::tokens::zoom_hud::MARGIN;
+pub use crate::tokens::zoom_hud::WINDOW_WIDTH;
+pub use crate::tokens::zoom_hud::WINDOW_HEIGHT;
 /// Where the window goes, from the top right corner of the focused page's pane in the window.
 pub const WINDOW_RIGHT: f32 = CARD_INSET + 8. - MARGIN;
 pub const WINDOW_TOP: f32 = CARD_INSET + 8. - MARGIN;

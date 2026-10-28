@@ -18,14 +18,9 @@ use crate::{
     theme_picker::{self, Changed},
 };
 
-/// Two colours go from the main one at the window's top left to the second this far along its
-/// diagonal (Arc 1.170 rec at 2×, with Ardia's account of Arc's rule: OKLab, 45°, to 75 %).
-const SECOND_AT: f32 = 0.75;
-/// How strongly the window takes a theme's colours at intensity `i`: in proportion to
-/// `INTENSITY_FLOOR + INTENSITY_SPAN * i`, so the slider's start is the colour as before themes
-/// and its left end washes most of it out (ours, fitted to Arc's window at 0.81 and 0.24).
-const INTENSITY_FLOOR: f32 = 0.2;
-const INTENSITY_SPAN: f32 = 0.55;
+use crate::tokens::shell::themes::SECOND_AT;
+use crate::tokens::shell::themes::INTENSITY_FLOOR;
+use crate::tokens::shell::themes::INTENSITY_SPAN;
 
 impl Shell {
     /// The theme `space` shows: the one the picker is making for it, else its own.

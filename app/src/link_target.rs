@@ -30,25 +30,21 @@ pub const GRACE: Duration = Duration::from_millis(400);
 /// links that touch isn't a flicker.
 pub const FADE_IN: Duration = Duration::ZERO;
 pub const FADE_OUT: Duration = Duration::from_millis(120);
-pub const HEIGHT: f32 = 24.;
-/// Its distance from the card's left or right edge and from its bottom: more than the card's
-/// corner radius, so the plate clears the corner.
-pub const MARGIN: f32 = 8.;
-/// The pointer this near the plate, in points, sends it to the other side.
-pub const NEAR: f32 = 16.;
+pub use crate::tokens::link_target::HEIGHT;
+pub use crate::tokens::link_target::MARGIN;
+pub use crate::tokens::link_target::NEAR;
 /// Its window, wide enough for the longest address, which elides past it.
-pub const WINDOW_WIDTH: f32 = 480.;
+pub use crate::tokens::link_target::WINDOW_WIDTH;
 pub const WINDOW_HEIGHT: f32 = HEIGHT;
-const PAD_X: f32 = 10.;
-const RADIUS: f32 = 8.;
-/// The 0.5 pt rim, white at 0.10, as the popovers' and the picture of a page elsewhere have.
-const RIM: f32 = 0.5;
-const RIM_COLOR: u32 = 0xffffff1a;
-const TEXT_SIZE: f32 = 12.;
+use crate::tokens::link_target::PAD_X;
+use crate::tokens::link_target::RADIUS;
+use crate::tokens::link_target::RIM;
+use crate::tokens::link_target::RIM_COLOR;
+use crate::tokens::link_target::TEXT_SIZE;
 /// The address in the secondary text colour, but its site in the primary, so one that differs from
 /// the site it passes for stands out.
-const SECONDARY: u32 = 0xffffff99;
-const PRIMARY: u32 = 0xffffff;
+use crate::tokens::link_target::SECONDARY;
+use crate::tokens::link_target::PRIMARY;
 const ELLIPSIS: &str = "…";
 /// A longer tail than the plate could ever show is cut before it's measured: a data: link can be
 /// a megabyte.

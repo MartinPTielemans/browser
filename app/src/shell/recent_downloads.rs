@@ -21,23 +21,21 @@ const RECENT_FADE: f32 = 0.15;
 /// Arc's: four rows 56 apart, a 40 pt column at 8 for an image's preview 40 wide or the file's
 /// icon 26 wide, and the name at 61 over its age.
 const RECENT_COUNT: usize = 4;
-const RECENT_PITCH: f32 = 56.;
-const COLUMN_X: f32 = 8.;
-const COLUMN: f32 = 40.;
-const ICON: f32 = 26.;
-const TEXT_X: f32 = 61.;
-const TEXT_END: f32 = 12.;
-const NAME: u32 = 0xffffffff;
-const NAME_SIZE: f32 = 15.;
-const NAME_LINE: f32 = 19.;
-const AGE_SIZE: f32 = 12.;
-const AGE_LINE: f32 = 15.;
-/// Ours: a tall image's preview keeps 4 pt inside its row, with small rounded corners.
-const PREVIEW_HEIGHT: f32 = 48.;
-const PREVIEW_RADIUS: f32 = 4.;
-/// Ours: a row's plate under the pointer, as the Library's rows have one.
-const PLATE_INSET: f32 = 4.;
-const PLATE_RADIUS: f32 = 10.;
+use crate::tokens::shell::recent_downloads::RECENT_PITCH;
+use crate::tokens::shell::recent_downloads::COLUMN_X;
+use crate::tokens::shell::recent_downloads::COLUMN;
+use crate::tokens::shell::recent_downloads::ICON;
+use crate::tokens::shell::recent_downloads::TEXT_X;
+use crate::tokens::shell::recent_downloads::TEXT_END;
+use crate::tokens::shell::recent_downloads::NAME;
+use crate::tokens::shell::recent_downloads::NAME_SIZE;
+use crate::tokens::shell::recent_downloads::NAME_LINE;
+use crate::tokens::shell::recent_downloads::AGE_SIZE;
+use crate::tokens::shell::recent_downloads::AGE_LINE;
+use crate::tokens::shell::recent_downloads::PREVIEW_HEIGHT;
+use crate::tokens::shell::recent_downloads::PREVIEW_RADIUS;
+use crate::tokens::shell::recent_downloads::PLATE_INSET;
+use crate::tokens::shell::recent_downloads::PLATE_RADIUS;
 
 const MINUTE: f64 = 60_000.;
 const HOUR: f64 = 60. * MINUTE;

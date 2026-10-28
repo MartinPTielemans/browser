@@ -115,20 +115,14 @@ use swap::{ARROW_DOWN, Swapped, Swaps, UNLOAD};
 use tile_theme::TileTheme;
 use undo::{Edit, What};
 
-/// The docked sidebar's width at first, where the card starts.
-pub const SIDEBAR_WIDTH: f32 = 228.;
-/// The card's inset from the window's top, right and bottom edges.
-pub const CARD_INSET: f32 = 10.;
-/// The radius of the card's corners and the page's in it: Arc's, a circle of 12 pixels in its
-/// window at 2×.
-pub const CARD_RADIUS: f32 = 6.;
-/// Between the pages of a split view, as in Arc. The core's is the same.
-const SPLIT_GAP: f32 = 10.;
+pub use crate::tokens::shell::SIDEBAR_WIDTH;
+pub use crate::tokens::shell::CARD_INSET;
+pub use crate::tokens::shell::CARD_RADIUS;
+use crate::tokens::shell::SPLIT_GAP;
 /// The most pages a split view shows, as the core's Space has it.
 const MAX_PANES: usize = 3;
-/// The glow outside a split view's focused page, in its ring's colour (Arc: ≈ 8 pt).
-const FOCUS_GLOW: f32 = 8.;
-const FOCUS_GLOW_ALPHA: f32 = 0.5;
+use crate::tokens::shell::FOCUS_GLOW;
+use crate::tokens::shell::FOCUS_GLOW_ALPHA;
 // Dragged, the gap between a split view's pages leaves each a tenth of the card, no less than 50 pt
 // and no more than 200, and snaps them even within 15 pt, as Chrome's does.
 const PANE_LEAST: (f32, f32) = (50., 200.);
@@ -142,15 +136,15 @@ const SIDEBAR_SHOW: f32 = 0.1;
 // the narrowest it hides the sidebar (docs/ux-spec.md › Sidebar › Width). A double-click on the
 // edge settles it back, as the Space pages settle, at the width it starts at. The edge is the
 // margin right of the rows.
-const SIDEBAR_MIN: f32 = 164.;
-const SIDEBAR_MAX: f32 = 500.;
+use crate::tokens::shell::SIDEBAR_MIN;
+use crate::tokens::shell::SIDEBAR_MAX;
 const SIDEBAR_EDGE: f32 = 6.;
 
 // The sidebar reveal (docs/ux-spec.md › Sidebar reveal): the hidden sidebar slides over the page as
 // a panel once the pointer has been at the window's left edge for a moment, and slides away once
 // the pointer is past the hold zone, both on Arc's springs. Its window starts at the browser
 // window's top-left corner, so a point is at the same place in both.
-pub const REVEAL_INSET: f32 = 5.;
+pub use crate::tokens::shell::REVEAL_INSET;
 const REVEAL_HOLD: f32 = 24.;
 const REVEAL_WAIT: Duration = Duration::from_millis(100);
 const REVEAL_IN_RESPONSE: f32 = 0.175;
@@ -206,161 +200,129 @@ const WHEEL_LINE: f32 = 10.;
 const WHEEL_BURST: Duration = Duration::from_millis(49);
 const WHEEL_REST: Duration = Duration::from_millis(250);
 
-// The header's buttons: their plates' tops and left edges, from the window's, as Arc 1.170's
-// accessibility tree has them. The sidebar button is 3 pt past the traffic lights, 13 before back.
-const NAV_TOP: f32 = 7.5;
-const SIDEBAR_BUTTON_X: f32 = 77.;
-const BACK_X: f32 = 122.;
-const FORWARD_X: f32 = 156.;
-const RELOAD_X: f32 = 190.;
-const NAV_SIZE: f32 = 32.;
-const NAV_RADIUS: f32 = 6.;
-// Header glyphs are drawn in points in a box this big, at Arc's sizes and centres.
-const NAV_GLYPH: f32 = 24.;
-// A header button shows while its plate ends this far inside the sidebar, so a narrow sidebar loses
-// reload, then forward, as Ardia's does.
-const NAV_END: f32 = 5.;
+use crate::tokens::shell::NAV_TOP;
+use crate::tokens::shell::SIDEBAR_BUTTON_X;
+use crate::tokens::shell::BACK_X;
+use crate::tokens::shell::FORWARD_X;
+use crate::tokens::shell::RELOAD_X;
+use crate::tokens::shell::NAV_SIZE;
+use crate::tokens::shell::NAV_RADIUS;
+use crate::tokens::shell::NAV_GLYPH;
+use crate::tokens::shell::NAV_END;
 
-const URL_FIELD_TOP: f32 = 46.;
-const URL_FIELD_HEIGHT: f32 = 36.;
-const URL_FIELD_TEXT_X: f32 = 21.;
-// The URL field's button, which shows while the pointer is over the sidebar: 30 pt, as Arc's, 3 pt
-// inside the field's end (ours: Arc's frames end 1 pt past where its field would).
-const URL_BUTTON_SIZE: f32 = 30.;
-const URL_BUTTON_INSET: f32 = 3.;
-const URL_BUTTON_GLYPH: f32 = 14.;
+use crate::tokens::shell::URL_FIELD_TOP;
+use crate::tokens::shell::URL_FIELD_HEIGHT;
+use crate::tokens::shell::URL_FIELD_TEXT_X;
+use crate::tokens::shell::URL_BUTTON_SIZE;
+use crate::tokens::shell::URL_BUTTON_INSET;
+use crate::tokens::shell::URL_BUTTON_GLYPH;
 // Arc puts favorites between the URL field and the Space's name. This is their gap while there are
 // none, which Arc has no layout for.
 const LIST_TOP: f32 = URL_FIELD_TOP + URL_FIELD_HEIGHT + 8.;
-// The favorites' tiles, over the Space's name (docs/ux-spec.md › Favorites): their height, the gap
-// between them and under the last row, the narrowest a row's tiles get before it takes one fewer,
-// and their corners.
-const TILE_HEIGHT: f32 = 41.;
-const TILE_GAP: f32 = 6.;
-const TILE_MIN: f32 = 48.;
-const TILE_RADIUS: f32 = 10.;
-// Favorites taller than this much of the window scroll with the list instead of staying put
-// (Ardia), so they never leave the rows too little room.
-const TALL_FAVORITES: f32 = 0.4;
-// The Space's name, over its tabs.
-const NAME_HEIGHT: f32 = 44.;
+use crate::tokens::shell::TILE_HEIGHT;
+use crate::tokens::shell::TILE_GAP;
+use crate::tokens::shell::TILE_MIN;
+use crate::tokens::shell::TILE_RADIUS;
+use crate::tokens::shell::TALL_FAVORITES;
+use crate::tokens::shell::NAME_HEIGHT;
 // The name's left edge. After an icon it's Arc's 41, 2 pt before its titles at 43 (ax, measured on
 // a Space with an icon), and after the icon picker's placeholder too. With neither, nothing stands
 // in the icon column, so the name starts on it, at the favicons' left edge (ours).
-const NAME_X: f32 = 41.;
+use crate::tokens::shell::NAME_X;
 const ICONLESS_NAME_X: f32 = FAVICON_X + (FAVICON_SIZE - FAVICON_DRAWN) / 2.;
 // A Space's icon before its name. Arc's frame is 26 wide at x 13, centred on its favicons' (ax),
 // so ours is centred there too; its size and look are *interim*, as Arc's isn't recorded. The emoji
 // is a tab's size,
 // so it sits on the name's cap height as a tab's does on its title; bigger, it outweighed the name
 // and sat below its middle.
-const SPACE_ICON_SLOT: f32 = 20.;
+use crate::tokens::shell::SPACE_ICON_SLOT;
 const SPACE_ICON_X: f32 = FAVICON_X + FAVICON_SIZE / 2. - SPACE_ICON_SLOT / 2.;
-// The sidebar's icon takes clicks on Arc's frame, which lights with the header's plate (ours).
-const SPACE_ICON_PLATE: f32 = 26.;
+use crate::tokens::shell::SPACE_ICON_PLATE;
 // While the icon picker shows for a Space with no icon, a dashed square holds the icon's place,
 // centred in its frame (Arc 1.170 cap at 1×): 24 across, its corners rounded by about 6, a 1 pt
 // line of 4 pt dashes and 2 pt gaps, in black at 0.30, seen over a red Space (*interim* over the
 // others).
-const ICON_PLACEHOLDER: f32 = 24.;
-const ICON_PLACEHOLDER_RADIUS: f32 = 6.;
-const ICON_PLACEHOLDER_LINE: f32 = 1.;
+use crate::tokens::shell::ICON_PLACEHOLDER;
+use crate::tokens::shell::ICON_PLACEHOLDER_RADIUS;
+use crate::tokens::shell::ICON_PLACEHOLDER_LINE;
 const ICON_PLACEHOLDER_DASH: (f32, f32) = (4., 2.);
-const ICON_PLACEHOLDER_COLOR: u32 = 0x0000_004d;
+use crate::tokens::shell::ICON_PLACEHOLDER_COLOR;
 const SPACE_ICON_TEXT: f32 = EMOJI_SIZE;
-/// A glyph's box: Phosphor's drawings fill 13/16 of theirs, so their ink is the emoji's size.
-const SPACE_GLYPH: f32 = 16.;
-const ROW_PITCH: f32 = 41.;
-const ROW_HEIGHT: f32 = 40.;
-const PLATE_HEIGHT: f32 = 36.;
-const PLATE_INSET: f32 = 8.;
+use crate::tokens::shell::SPACE_GLYPH;
+use crate::tokens::shell::ROW_PITCH;
+use crate::tokens::shell::ROW_HEIGHT;
+use crate::tokens::shell::PLATE_HEIGHT;
+use crate::tokens::shell::PLATE_INSET;
 // What's in a folder sits this far in from it (Arc).
-const FOLDER_INDENT: f32 = 16.;
+use crate::tokens::shell::FOLDER_INDENT;
 const NEW_FOLDER: &str = "New Folder";
-// A dragged row's drop line is Arc's: 2 pt, from a ring 8 across, drawn with the same 2 pt,
-// whose left is 7 in from the plate's, to 2 before the plate's end (Arc 1.170 rec).
-const DROP_LINE: f32 = 2.;
-const DROP_RING: f32 = 8.;
-const DROP_RING_X: f32 = 7.;
-const DROP_LINE_END: f32 = 2.;
-const DROP: u32 = 0xffff_ffe6;
-pub const PLATE_RADIUS: f32 = 12.;
-const FAVICON_X: f32 = 17.;
-const FAVICON_SIZE: f32 = 18.;
+use crate::tokens::shell::DROP_LINE;
+use crate::tokens::shell::DROP_RING;
+use crate::tokens::shell::DROP_RING_X;
+use crate::tokens::shell::DROP_LINE_END;
+use crate::tokens::shell::DROP;
+pub use crate::tokens::shell::PLATE_RADIUS;
+use crate::tokens::shell::FAVICON_X;
+use crate::tokens::shell::FAVICON_SIZE;
 // Arc's titles end as far from the sidebar's edge as its favicons start.
 const TITLE_END_INSET: f32 = FAVICON_X - PLATE_INSET;
-// The engine's favicons are 16 pt, drawn at 2×, so they sit in the middle of Arc's 18 pt slot
-// rather than scaled up soft.
-const FAVICON_DRAWN: f32 = 16.;
-/// An emoji's text size in a favicon's place, for its glyph to fill what a favicon does.
-const EMOJI_SIZE: f32 = 13.;
-const LOADING_SIZE: f32 = 12.;
-// A row narrower than this, such as a split's segment in a narrow sidebar, leaves the spinner out
-// (Dia), as it would leave the title no room.
-const LOADING_ROW_MIN: f32 = 48.;
+use crate::tokens::shell::FAVICON_DRAWN;
+use crate::tokens::shell::EMOJI_SIZE;
+use crate::tokens::shell::LOADING_SIZE;
+use crate::tokens::shell::LOADING_ROW_MIN;
 // One clockwise turn (docs/ux-spec.md › Motion).
 const LOADING_TURN: Duration = Duration::from_millis(1880);
-const TITLE_GAP: f32 = 8.;
+use crate::tokens::shell::TITLE_GAP;
 /// Where a row's title starts, in from its plate's left.
 const FOLDER_TITLE_X: f32 = FAVICON_X - PLATE_INSET + FAVICON_SIZE + TITLE_GAP;
-// The speaker before a title, while its tab plays sound or is muted, and its pressable square.
-const SPEAKER_DRAWN: f32 = 16.;
-const SPEAKER_SIZE: f32 = 18.;
-const SPEAKER_GAP: f32 = 4.;
-// Arc's close button, 5 inside the plate's right edge, and the box its glyph is drawn in.
-const CLOSE_SIZE: f32 = 26.;
-const CLOSE_RIGHT: f32 = 5.;
-const CLOSE_GLYPH: f32 = 14.;
-// A split's row (Arc): a segment per tab, all as wide, each after the first behind a line. Its
-// favicon is 7 pt after the line, its title 10 pt after the favicon, and it ends 5 pt before the
-// next line.
-const SEGMENT_FAVICON_X: f32 = 7.;
-const SEGMENT_TITLE_GAP: f32 = 10.;
-const SEGMENT_END: f32 = 5.;
-const SEGMENT_LINE: f32 = 16.;
-// Arc's divider line is one device pixel, 18 in from each side of the sidebar. GPUI widens a border
-// under one device pixel to one, so borders use this 0.5 pt; a line that's a box's height has to
-// ask the window for its pixel, or it's rounded away at 1x.
-const HAIRLINE: f32 = 0.5;
-const DIVIDER_X: f32 = 18.;
+use crate::tokens::shell::SPEAKER_DRAWN;
+use crate::tokens::shell::SPEAKER_SIZE;
+use crate::tokens::shell::SPEAKER_GAP;
+use crate::tokens::shell::CLOSE_SIZE;
+use crate::tokens::shell::CLOSE_RIGHT;
+use crate::tokens::shell::CLOSE_GLYPH;
+use crate::tokens::shell::SEGMENT_FAVICON_X;
+use crate::tokens::shell::SEGMENT_TITLE_GAP;
+use crate::tokens::shell::SEGMENT_END;
+use crate::tokens::shell::SEGMENT_LINE;
+use crate::tokens::shell::HAIRLINE;
+use crate::tokens::shell::DIVIDER_X;
 // The Clear divider, under the pinned tabs. Its line's centre is 25 pt above the centre of the first
 // row under it. While Clear shows, the line ends 9 pt before it.
-const DIVIDER_HEIGHT: f32 = 15.;
+use crate::tokens::shell::DIVIDER_HEIGHT;
 const DIVIDER_LINE_Y: f32 = DIVIDER_HEIGHT - (25. - ROW_HEIGHT / 2.);
-const DIVIDER_GAP: f32 = 9.;
+use crate::tokens::shell::DIVIDER_GAP;
 // The arrow before Clear while it would close the last Today tabs, 8 pt tall and 3 pt before the
 // word (Arc). Lucide's arrow-down spans 14 of its 24 each way.
 const CLEAR_ARROW: f32 = 8. * 24. / 14.;
 const CLEAR_ARROW_INSET: f32 = CLEAR_ARROW * 5. / 24.;
-const CLEAR_GAP: f32 = 3.;
+use crate::tokens::shell::CLEAR_GAP;
 const CLEAR_ARROW_ROOM: f32 = CLEAR_ARROW - 2. * CLEAR_ARROW_INSET + CLEAR_GAP;
-const CLEAR_HEIGHT: f32 = 20.;
+use crate::tokens::shell::CLEAR_HEIGHT;
 // Clear takes clicks 5 pt past the word each way, as the header's buttons past their glyphs.
 const CLEAR_HIT_OUT: f32 = 5.;
 // How long the toast after a copy shows (ours: Arc's isn't measured), and after a Space is deleted
 // (Arc).
 const COPIED_TIME: Duration = Duration::from_secs(2);
 const DELETED_TIME: Duration = Duration::from_secs(5);
-// The footer: the Space switcher between the Library button and the +, which is 8 in from the
-// sidebar's right edge (Arc 1.170.0 ax). The switcher keeps 42 from each side, Arc's at 228.
-const FOOTER_HEIGHT: f32 = 50.;
-const SWITCHER_INSET: f32 = 42.;
-const PLUS_INSET: f32 = 8.;
-const SPACE_PITCH: f32 = 34.;
-const SPACE_HEIGHT: f32 = 34.;
-const SPACE_DOT: f32 = 8.;
+use crate::tokens::shell::FOOTER_HEIGHT;
+use crate::tokens::shell::SWITCHER_INSET;
+use crate::tokens::shell::PLUS_INSET;
+use crate::tokens::shell::SPACE_PITCH;
+use crate::tokens::shell::SPACE_HEIGHT;
+use crate::tokens::shell::SPACE_DOT;
 // A Space's icon in the switcher takes its dot's place in the same item. Its glyph is 16 pt, a
 // favicon's size (ours, *interim*).
 const SPACE_ICON_SWITCHER: f32 = EMOJI_SIZE;
 // The Create a Space form, in Arc's places and type, without its illustration and subtitle, which
 // are Arc's art and copy. The field moves up into the subtitle's place, Arc's 35 pt under the text
 // above it. Distances to the buttons are from the window's bottom.
-const FORM_TITLE_TOP: f32 = 140.;
-const FORM_TITLE_HEIGHT: f32 = 20.;
+use crate::tokens::shell::FORM_TITLE_TOP;
+use crate::tokens::shell::FORM_TITLE_HEIGHT;
 const FORM_FIELD_TOP: f32 = FORM_TITLE_TOP + FORM_TITLE_HEIGHT + 35.;
-const FORM_INSET: f32 = 14.;
-const FORM_PLATE_HEIGHT: f32 = 36.;
-const FORM_RADIUS: f32 = 8.;
+use crate::tokens::shell::FORM_INSET;
+use crate::tokens::shell::FORM_PLATE_HEIGHT;
+use crate::tokens::shell::FORM_RADIUS;
 // Arc's name starts at x 48, after the Space's icon, which Spaces don't have yet. This is the URL
 // field's padding.
 const FORM_TEXT_X: f32 = FORM_INSET + URL_FIELD_TEXT_X - PLATE_INSET;
@@ -369,92 +331,61 @@ const FORM_TEXT_X: f32 = FORM_INSET + URL_FIELD_TEXT_X - PLATE_INSET;
 // chevron 6.5 after the name and 10 from the pill's end, which the chevron's box takes 4.5 of.
 const FORM_PROFILE_TOP: f32 = FORM_FIELD_TOP + 42.;
 const FORM_THEME_TOP: f32 = FORM_FIELD_TOP + 86.;
-const FORM_GLYPH_X: f32 = 30.;
-const FORM_GLYPH: f32 = 15.;
-const FORM_LABEL_X: f32 = 46.5;
-const FORM_PILL_X: f32 = 95.;
-const FORM_PILL_HEIGHT: f32 = 22.;
-const FORM_PILL_LEFT: f32 = 8.;
-const FORM_CHEVRON: f32 = 18.;
+use crate::tokens::shell::FORM_GLYPH_X;
+use crate::tokens::shell::FORM_GLYPH;
+use crate::tokens::shell::FORM_LABEL_X;
+use crate::tokens::shell::FORM_PILL_X;
+use crate::tokens::shell::FORM_PILL_HEIGHT;
+use crate::tokens::shell::FORM_PILL_LEFT;
+use crate::tokens::shell::FORM_CHEVRON;
 const FORM_CHEVRON_GAP: f32 = 6.5 - FORM_CHEVRON / 4.;
 const FORM_PILL_RIGHT: f32 = 10. - FORM_CHEVRON / 4.;
-const CREATE_BOTTOM: f32 = 96.;
-const CANCEL_BOTTOM: f32 = 66.5;
-const CANCEL_HEIGHT: f32 = 15.;
+use crate::tokens::shell::CREATE_BOTTOM;
+use crate::tokens::shell::CANCEL_BOTTOM;
+use crate::tokens::shell::CANCEL_HEIGHT;
 
-// The window's layers over its material (docs/ux-spec.md › Window material): a tint of black 0.25,
-// then the Space's gradient, its stops at 0.36 (0.12 for a neutral colour) in a layer at 0.5.
-// Dia's tint is 0.4, but material 29 draws darker in our window than Dia's measures, so the
-// lighter tint brings the window to Dia's composite. check/window.sh measures it.
-const TINT: u32 = 0x0000_0040;
-const GRADIENT_ALPHA: f32 = 0.18;
-const NEUTRAL_GRADIENT_ALPHA: f32 = 0.06;
-// A colour under this HSL saturation is neutral (ours: Dia's line isn't measured).
-const NEUTRAL: f32 = 0.1;
-// A private window's layer in the gradient's place: black, darker than any Space and without its
-// colour (ours: Arc's and Dia's private look isn't recorded).
-const PRIVATE_SHADE: f32 = 0.35;
-// What stands in for the material where the window's look has to be opaque, under rows it covers
-// or in the reveal's panel over the page: Dia's composite over grey 20, before the gradient (ours).
-const MATERIAL_STAND_IN: u32 = 0x131313;
-// Dia's card, #121212 at 0.5: what shows before a page first paints.
-const CARD: u32 = 0x1212_1280;
-// Arc's row tokens (docs/ux-spec.md › Tab rows): the tab shown is white 0.2, a row under the
-// pointer 0.12 and a pressed one 0.065, with no line or shadow in dark mode. Titles are Dia's,
-// white, at 0.78 unless selected (ours: Arc's aren't measured).
-const TITLE: u32 = 0xffffffff;
-const UNSELECTED_TITLE: u32 = 0xffffffc7;
-const SELECTED: u32 = 0xffff_ff33;
-// The selected row under the pointer: Arc's (113–116) over the dark Space's (37, 35, 53).
-const SELECTED_HOVERED: u32 = 0xffff_ff5c;
-const HOVERED: u32 = 0xffff_ff1f;
-const PRESSED: u32 = 0xffff_ff11;
-const SECONDARY: u32 = 0xffffff99;
-// The close button's square under the pointer: Dia's subtle fill, white 0.12, at the header
-// buttons' radius (ours: Dia's fill isn't measured).
-const CLOSE_HOVERED: u32 = 0xffffff1f;
-const URL_FIELD: u32 = 0xffffff1a;
-const NEW_TAB: u32 = 0xffffff8c;
-const NEW_TAB_PLUS: u32 = 0xffffff40;
-// The Clear divider's line, white 0.15 (Arc).
-const DIVIDER: u32 = 0xffffff26;
-// The edge under the favorites while the list is scrolled: Dia's separator, white 0.09.
-const SCROLL_EDGE: u32 = 0xffffff17;
-// Clear, white 0.32, and white 0.81 under the pointer: Arc lights the word and its arrow, with no
-// plate (Arc in use, the owner's captures, 2026-10-26).
-const CLEAR: u32 = 0xffffff52;
-const CLEAR_HOVERED: u32 = 0xffffffcf;
-// A tab whose page isn't loaded fades its favicon (ours: Arc's alpha isn't measured).
-const SLEEPING_FAVICON: f32 = 0.5;
-// A favorite's tile: white 0.10 with a white 0.14 edge at rest (Dia), and under the pointer white
-// 0.15 (ours: Dia's isn't measured). The one shown is themed by its icon (tile_theme.rs), and
-// black with Dia's default selection ring, white 0.45, where the icon gives no theme.
-const TILE: f32 = 0.1;
-const TILE_EDGE: u32 = 0xffff_ff24;
-const TILE_HOVERED: f32 = 0.15;
-const TILE_RING: u32 = 0xffff_ff73;
-const TILE_UNTHEMED: u32 = 0x0000_00ff;
-// The header's glyphs (docs/ux-spec.md › Header and URL field): white 0.60, and 0.26 for back or
-// forward with nowhere to go, over a hover plate of white 0.077.
-const NAV: u32 = 0xffffff99;
-const NAV_DISABLED: u32 = 0xffffff42;
-const NAV_HOVERED: u32 = 0xffffff14;
-// The Space's name, white 0.56, and the switcher's dots: white 0.5 for the Space shown and 0.19
-// for the others (Arc), 0.3 under the pointer (ours: Arc's isn't measured).
-const SPACE_NAME: u32 = 0xffffff8f;
-const SPACE_SHOWN: u32 = 0xffffff80;
-const SPACE_OTHER: u32 = 0xffffff30;
-const SPACE_HOVERED: u32 = 0xffffff4d;
-// The form (Arc): a white title, plates of white 0.075, a placeholder of white 0.55, and Create
-// Space in Arc's blue with a white label, all of it at 0.4 until there's a name.
-const FORM_TEXT: u32 = 0xffffff;
-const FORM_PLATE: u32 = 0xffffff13;
-const FORM_PLACEHOLDER: u32 = 0xffffff8c;
-// The rows' glyphs are white 0.5, and the profile's pill white 0.1 over its row.
-const FORM_GLYPH_COLOR: u32 = 0xffffff80;
-const FORM_PILL: u32 = 0xffffff1a;
-const CREATE: u32 = 0x2129fb;
-const CREATE_UNNAMED: f32 = 0.4;
+use crate::tokens::shell::TINT;
+use crate::tokens::shell::GRADIENT_ALPHA;
+use crate::tokens::shell::NEUTRAL_GRADIENT_ALPHA;
+use crate::tokens::shell::NEUTRAL;
+use crate::tokens::shell::PRIVATE_SHADE;
+use crate::tokens::shell::MATERIAL_STAND_IN;
+use crate::tokens::shell::CARD;
+use crate::tokens::shell::TITLE;
+use crate::tokens::shell::UNSELECTED_TITLE;
+use crate::tokens::shell::SELECTED;
+use crate::tokens::shell::SELECTED_HOVERED;
+use crate::tokens::shell::HOVERED;
+use crate::tokens::shell::PRESSED;
+use crate::tokens::shell::SECONDARY;
+use crate::tokens::shell::CLOSE_HOVERED;
+use crate::tokens::shell::URL_FIELD;
+use crate::tokens::shell::NEW_TAB;
+use crate::tokens::shell::NEW_TAB_PLUS;
+use crate::tokens::shell::DIVIDER;
+use crate::tokens::shell::SCROLL_EDGE;
+use crate::tokens::shell::CLEAR;
+use crate::tokens::shell::CLEAR_HOVERED;
+use crate::tokens::shell::SLEEPING_FAVICON;
+use crate::tokens::shell::TILE;
+use crate::tokens::shell::TILE_EDGE;
+use crate::tokens::shell::TILE_HOVERED;
+use crate::tokens::shell::TILE_RING;
+use crate::tokens::shell::TILE_UNTHEMED;
+use crate::tokens::shell::NAV;
+use crate::tokens::shell::NAV_DISABLED;
+use crate::tokens::shell::NAV_HOVERED;
+use crate::tokens::shell::SPACE_NAME;
+use crate::tokens::shell::SPACE_SHOWN;
+use crate::tokens::shell::SPACE_OTHER;
+use crate::tokens::shell::SPACE_HOVERED;
+use crate::tokens::shell::FORM_TEXT;
+use crate::tokens::shell::FORM_PLATE;
+use crate::tokens::shell::FORM_PLACEHOLDER;
+use crate::tokens::shell::FORM_GLYPH_COLOR;
+use crate::tokens::shell::FORM_PILL;
+use crate::tokens::shell::CREATE;
+use crate::tokens::shell::CREATE_UNNAMED;
 // Create sends the form away from the bottom up, as Arc does (docs/ux-spec.md › Creating): the
 // buttons fade, then the rows, the field and the title fade as they sink, each over 150 ms.
 const FORM_LEAVE: f32 = 0.15;
@@ -462,18 +393,16 @@ const FORM_LEAVE_ROWS: f32 = 0.04;
 const FORM_LEAVE_FIELD: f32 = 0.08;
 const FORM_LEAVE_TITLE: f32 = 0.13;
 const FORM_SINK: f32 = 20.;
-// The reveal panel's radius and its 0.5 pt light border, as in a capture of Arc at 1×: a circle of
-// 12, and one pixel of white 0.27 over the panel, which half a pixel of white 0.54 makes.
-const REVEAL_RADIUS: f32 = 12.;
-const REVEAL_BORDER: u32 = 0xffffff8a;
+use crate::tokens::shell::REVEAL_RADIUS;
+use crate::tokens::shell::REVEAL_BORDER;
 // The panel draws the window's buttons itself, since AppKit's stay in the browser window, under
 // it: their centres from the panel's corner, as the docked sidebar's are from the window's, their
 // size, and their colours, sampled from AppKit's in a capture of the browser window. The glyphs
 // show while the pointer is over any of them, as AppKit's do.
 const WINDOW_BUTTONS: [(f32, u32); 3] = [(20., 0xe0604f), (43., 0xf3bf12), (66., 0x58bb18)];
-const WINDOW_BUTTON_Y: f32 = 24.;
-const WINDOW_BUTTON_SIZE: f32 = 14.;
-const WINDOW_BUTTON_GLYPH: u32 = 0x00000080;
+use crate::tokens::shell::WINDOW_BUTTON_Y;
+use crate::tokens::shell::WINDOW_BUTTON_SIZE;
+use crate::tokens::shell::WINDOW_BUTTON_GLYPH;
 
 #[derive(Clone, Default)]
 struct Tab {

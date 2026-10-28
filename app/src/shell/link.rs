@@ -7,8 +7,7 @@ use gpui::{Context, WindowTextSystem};
 use super::Shell;
 use crate::link_target::{self, Plate, Side, Target};
 
-/// The least a plate may be wide, in a card too narrow for the half it is.
-const MIN_WIDTH: f32 = 160.;
+use crate::tokens::shell::link::MIN_WIDTH;
 
 /// The link the plate shows.
 pub(super) struct Link {

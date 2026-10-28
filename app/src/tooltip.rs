@@ -27,45 +27,34 @@ pub const GRACE: Duration = Duration::from_millis(500);
 /// It shows in a frame and fades out over 0.27 s, ease-out (Arc).
 pub const FADE_IN: Duration = Duration::ZERO;
 pub const FADE_OUT: Duration = Duration::from_millis(270);
-/// How far below the tile or row it names the tooltip's top is, or above it if it doesn't fit
-/// below. The gap between two tiles, so it reads as the tile's own and the tile's edge shows.
-pub const GAP: f32 = 6.;
-/// How far in from the window's left and right edges a tooltip that would cross one stays (ours).
-pub const EDGE_INSET: f32 = 8.;
-/// How far right of a footer button's plate the tooltip beside it starts (Arc).
-pub const BESIDE: f32 = 3.5;
-// Arc's, from the Library button's: a capsule 27 tall and 161.5 wide for View Library ⇧⌘L, its
-// 12 pt semibold text 11 in and its last chip 10 from its end.
-const HEIGHT: f32 = 27.;
+pub use crate::tokens::tooltip::GAP;
+pub use crate::tokens::tooltip::EDGE_INSET;
+pub use crate::tokens::tooltip::BESIDE;
+use crate::tokens::tooltip::HEIGHT;
 /// Its window, wide enough for a long name, which truncates past it.
-pub const WINDOW_WIDTH: f32 = 320.;
+pub use crate::tokens::tooltip::WINDOW_WIDTH;
 pub const WINDOW_HEIGHT: f32 = HEIGHT;
 /// Round at half its height, but the corner at what it names, which is nearly square.
 const RADIUS: f32 = HEIGHT / 2.;
-const NEAR_RADIUS: f32 = 2.;
-/// The 0.5 pt rim, white at about 0.12.
-const RIM: f32 = 0.5;
-const RIM_COLOR: u32 = 0xffffff1f;
-const TEXT_X: f32 = 11.;
-const END: f32 = 10.;
-const TEXT_SIZE: f32 = 12.;
-/// A key's chip: 18.5 wide, wider for a key named in words, 8 after the text and 22 apart. Its
-/// body is 16.25 tall, centred on the capsule, with a 2 pt lip showing under it (Arc).
-const CHIP: f32 = 18.5;
-const CHIP_BODY: f32 = 16.25;
-const CHIP_LIP: f32 = 2.;
-const CHIP_RADIUS: f32 = 3.5;
-const CHIP_PADDING: f32 = 3.;
-const CHIP_AFTER_TEXT: f32 = 8.;
-const CHIP_GAP: f32 = 3.5;
-const CHIP_TEXT_SIZE: f32 = 10.;
-// Arc's, measured at full opacity: the plate is #090C4B, the text #E2E5FF, the chips #D2D3FC over
-// a lip of #8486E3, and their glyphs the blue itself, #1F2AFF, as the Library's + is.
-const FILL: u32 = 0x090c4b;
-const TEXT: u32 = 0xe2e5ff;
-const CHIP_FILL: u32 = 0xd2d3fc;
-const CHIP_LIP_FILL: u32 = 0x8486e3;
-const CHIP_TEXT: u32 = 0x1f2aff;
+use crate::tokens::tooltip::NEAR_RADIUS;
+use crate::tokens::tooltip::RIM;
+use crate::tokens::tooltip::RIM_COLOR;
+use crate::tokens::tooltip::TEXT_X;
+use crate::tokens::tooltip::END;
+use crate::tokens::tooltip::TEXT_SIZE;
+use crate::tokens::tooltip::CHIP;
+use crate::tokens::tooltip::CHIP_BODY;
+use crate::tokens::tooltip::CHIP_LIP;
+use crate::tokens::tooltip::CHIP_RADIUS;
+use crate::tokens::tooltip::CHIP_PADDING;
+use crate::tokens::tooltip::CHIP_AFTER_TEXT;
+use crate::tokens::tooltip::CHIP_GAP;
+use crate::tokens::tooltip::CHIP_TEXT_SIZE;
+use crate::tokens::tooltip::FILL;
+use crate::tokens::tooltip::TEXT;
+use crate::tokens::tooltip::CHIP_FILL;
+use crate::tokens::tooltip::CHIP_LIP_FILL;
+use crate::tokens::tooltip::CHIP_TEXT;
 
 /// What the tooltip asks of its window.
 pub trait Host {

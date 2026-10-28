@@ -22,88 +22,70 @@ use crate::{bc, ns_view, platform, show_menu};
 
 actions!(settings, [CloseSettings]);
 
-// Arc's, measured in its dark Settings window, but for the Shortcuts tab, which isn't captured.
-const WIDTH: f32 = 684.;
-const HEIGHT: f32 = 650.;
-/// The title is centred in the bar over the toolbar.
-const TITLE_BAR: f32 = 32.;
-/// The toolbar's tabs are 55 wide, or as wide as a long name needs, 1 apart, and the one shown
-/// sits on a plate 44 tall, 2 down.
-const TOOLBAR: f32 = 56.;
-const TAB: f32 = 55.;
-const TAB_PADDING: f32 = 6.;
-const PLATE_TOP: f32 = 2.;
-const PLATE: f32 = 44.;
-const ICON: f32 = 20.;
-const ICON_TOP: f32 = 4.;
-const LABEL_TOP: f32 = 3.;
-/// Boxes of rows are 64 in from the window's sides, the first 20 under the toolbar, and 9 apart. A
-/// row's text and its control are 10 in from the box's edges, and 10 from its top and bottom, and
-/// the lines between rows 8 in.
-const SIDE: f32 = 64.;
-const FIRST: f32 = 20.;
-const BOX_GAP: f32 = 9.;
-const PADDING: f32 = 10.;
-const LINE_INSET: f32 = 8.;
-const RADIUS: f32 = 6.;
-/// A row's icon is a tile of colour 20 across with a white glyph, 8 before the text.
-const TILE: f32 = 20.;
-const TILE_GLYPH: f32 = 14.;
-const TILE_RADIUS: f32 = 4.5;
-const TILE_GAP: f32 = 8.;
+use browser::tokens::settings::WIDTH;
+use browser::tokens::settings::HEIGHT;
+use browser::tokens::settings::TITLE_BAR;
+use browser::tokens::settings::TOOLBAR;
+use browser::tokens::settings::TAB;
+use browser::tokens::settings::TAB_PADDING;
+use browser::tokens::settings::PLATE_TOP;
+use browser::tokens::settings::PLATE;
+use browser::tokens::settings::ICON;
+use browser::tokens::settings::ICON_TOP;
+use browser::tokens::settings::LABEL_TOP;
+use browser::tokens::settings::SIDE;
+use browser::tokens::settings::FIRST;
+use browser::tokens::settings::BOX_GAP;
+use browser::tokens::settings::PADDING;
+use browser::tokens::settings::LINE_INSET;
+use browser::tokens::settings::RADIUS;
+use browser::tokens::settings::TILE;
+use browser::tokens::settings::TILE_GLYPH;
+use browser::tokens::settings::TILE_RADIUS;
+use browser::tokens::settings::TILE_GAP;
 /// A switch is 36 by 16, with a knob 21 by 13, 1.5 in, that slides across over 150 ms (ours).
-const SWITCH_WIDTH: f32 = 36.;
-const SWITCH_HEIGHT: f32 = 16.;
-const KNOB_WIDTH: f32 = 21.;
-const KNOB_HEIGHT: f32 = 13.;
-const KNOB_INSET: f32 = 1.5;
+use browser::tokens::settings::SWITCH_WIDTH;
+use browser::tokens::settings::SWITCH_HEIGHT;
+use browser::tokens::settings::KNOB_WIDTH;
+use browser::tokens::settings::KNOB_HEIGHT;
+use browser::tokens::settings::KNOB_INSET;
 const SLIDE: f32 = 0.15;
-/// Pop-up buttons and buttons are 24 tall with their text 12 in; a pop-up button is 155 wide,
-/// with its chevrons 10 from its right edge, and ends 22.5 short of the switches and buttons.
-const CONTROL_HEIGHT: f32 = 24.;
-const CONTROL_PADDING: f32 = 12.;
-const CONTROL_RADIUS: f32 = 5.;
-const POPUP_WIDTH: f32 = 155.;
-/// Ours: the favorites' longest choice, "In Each Profile's Spaces", needs more than 155.
-const FAVORITES_POPUP_WIDTH: f32 = 195.;
-const POPUP_END: f32 = 22.5;
-const CHEVRONS: f32 = 14.;
-/// Buttons under the boxes are 11 below them.
-const BUTTONS_TOP: f32 = 11.;
-/// Ours, for the Shortcuts tab: a header 8 over each box, 20 below the box before, and keys in
-/// chips as the command bar shows them, at least 56 wide so they line up, with a command's way
-/// back to its default 6 before its chip.
-const HEADER_GAP: f32 = 8.;
-const SECTION_GAP: f32 = 20.;
-const CHIP_HEIGHT: f32 = 20.;
-const CHIP_PADDING: f32 = 6.;
-const CHIP_WIDTH: f32 = 56.;
-const CHIP_GAP: f32 = 6.;
-/// Ours, for the Profiles tab: rows as tall as a button's, so they're even with and without one.
-const PROFILE_ROW: f32 = 40.;
+use browser::tokens::settings::CONTROL_HEIGHT;
+use browser::tokens::settings::CONTROL_PADDING;
+use browser::tokens::settings::CONTROL_RADIUS;
+use browser::tokens::settings::POPUP_WIDTH;
+use browser::tokens::settings::FAVORITES_POPUP_WIDTH;
+use browser::tokens::settings::POPUP_END;
+use browser::tokens::settings::CHEVRONS;
+use browser::tokens::settings::BUTTONS_TOP;
+use browser::tokens::settings::HEADER_GAP;
+use browser::tokens::settings::SECTION_GAP;
+use browser::tokens::settings::CHIP_HEIGHT;
+use browser::tokens::settings::CHIP_PADDING;
+use browser::tokens::settings::CHIP_WIDTH;
+use browser::tokens::settings::CHIP_GAP;
+use browser::tokens::settings::PROFILE_ROW;
 
-const BAR: u32 = 0x282a2a;
-const BAR_LINE: u32 = 0x303131;
-const BACKGROUND: u32 = 0x202222;
-const BOX: u32 = 0x232525;
-const BOX_LINE: u32 = 0x353737;
-const PLATE_FILL: u32 = 0x444747;
-const PLATE_EDGE: u32 = 0x525656;
-const TITLE: u32 = 0xa4a6a6;
-const TAB_TEXT: u32 = 0x9e9f9f;
-const TEXT: u32 = 0xc2c2c2;
-const CONTROL: u32 = 0x313333;
-const CONTROL_PRESSED: u32 = 0x404242;
-const SWITCH_OFF: u32 = 0x383939;
-const KNOB: u32 = 0xe1e2e2;
-/// The knob over the accent colour, which tints it.
-const KNOB_ON: u32 = 0xe1ebfe;
-const HAPTICS_TILE: u32 = 0x3f8ff7;
-const PROFILE_TILE: u32 = 0x8e8e93;
-/// A row's detail, such as a profile's Spaces, in the toolbar's grey.
-const DETAIL: u32 = 0x9e9f9f;
-const CHIP: u32 = 0xffff_ff14;
-const CHIP_HOVERED: u32 = 0xffff_ff24;
+use browser::tokens::settings::BAR;
+use browser::tokens::settings::BAR_LINE;
+use browser::tokens::settings::BACKGROUND;
+use browser::tokens::settings::BOX;
+use browser::tokens::settings::BOX_LINE;
+use browser::tokens::settings::PLATE_FILL;
+use browser::tokens::settings::PLATE_EDGE;
+use browser::tokens::settings::TITLE;
+use browser::tokens::settings::TAB_TEXT;
+use browser::tokens::settings::TEXT;
+use browser::tokens::settings::CONTROL;
+use browser::tokens::settings::CONTROL_PRESSED;
+use browser::tokens::settings::SWITCH_OFF;
+use browser::tokens::settings::KNOB;
+use browser::tokens::settings::KNOB_ON;
+use browser::tokens::settings::HAPTICS_TILE;
+use browser::tokens::settings::PROFILE_TILE;
+use browser::tokens::settings::DETAIL;
+use browser::tokens::settings::CHIP;
+use browser::tokens::settings::CHIP_HOVERED;
 
 /// What Arc offers for how long a Today tab waits unseen before it's archived, in seconds.
 const ARCHIVE_AFTER: [(&str, f64); 4] = [

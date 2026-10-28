@@ -24,31 +24,29 @@ const TARGET_LEAN: f32 = 0.43;
 /// cubic with no overshoot.
 const TARGET_SLIDE: f32 = 0.11;
 const TARGET_GROW: f32 = 0.12;
-const TARGET_RADIUS: f32 = 20.;
+use crate::tokens::shell::split_targets::TARGET_RADIUS;
 /// A target's dashed line, TARGET_DASH_INSET inside its edge: its dashes, as long as its gaps, and
 /// its width, away from the tab and under it.
-const TARGET_DASH_INSET: f32 = 9.5;
+use crate::tokens::shell::split_targets::TARGET_DASH_INSET;
 const TARGET_DASH: (f32, f32) = (6., 1.75);
 const TARGET_DASH_UNDER: (f32, f32) = (7., 2.);
-/// Ours: a target's fill, a step lighter than the window's, and its 0.5 pt edge. Under the tab the
-/// fill takes the accent at TARGET_ACCENT, and the line, glyph and title the accent.
-const TARGET_LIGHTER: f32 = 0.06;
-const TARGET_EDGE: f32 = 0.14;
-const TARGET_ACCENT: f32 = 0.15;
-const TARGET_DASHES: f32 = 0.25;
-const TARGET_TEXT: f32 = 0.6;
+use crate::tokens::shell::split_targets::TARGET_LIGHTER;
+use crate::tokens::shell::split_targets::TARGET_EDGE;
+use crate::tokens::shell::split_targets::TARGET_ACCENT;
+use crate::tokens::shell::split_targets::TARGET_DASHES;
+use crate::tokens::shell::split_targets::TARGET_TEXT;
 /// Dia's targets came once the pointer was 26 pt into the page from its top strip. Ours: the same
 /// past the card's left edge, until Arc's is measured.
 const TARGET_TRIGGER: f32 = 26.;
 /// The picture of a window the tab becomes over the page, centred on the pointer (Dia), and ours:
 /// its corners, rim, traffic lights and the page in it.
 const PICTURE: (f32, f32) = (209., 109.5);
-const PICTURE_RADIUS: f32 = 10.;
-const PICTURE_RIM: f32 = 0.25;
+use crate::tokens::shell::split_targets::PICTURE_RADIUS;
+use crate::tokens::shell::split_targets::PICTURE_RIM;
 const PICTURE_LIGHTS: [u32; 3] = [0xff5f57, 0xfebc2e, 0x28c840];
-const PICTURE_LIGHT: f32 = 6.;
-const PICTURE_TOP: f32 = 18.;
-const PICTURE_INSET: f32 = 4.;
+use crate::tokens::shell::split_targets::PICTURE_LIGHT;
+use crate::tokens::shell::split_targets::PICTURE_TOP;
+use crate::tokens::shell::split_targets::PICTURE_INSET;
 
 /// A dragged tab over the page, where it can join the page shown in a split view.
 pub(super) struct OverPage {

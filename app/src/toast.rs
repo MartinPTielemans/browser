@@ -21,36 +21,26 @@ use crate::shell::{CARD_INSET, cubic_bezier, scaled::scaled_from_top, spring};
 // Arc's, measured at 2× (docs/ux-spec.md › Toast): 46.5 tall, 8 inside the card's top right
 // corner, its text 12.5 in from its left and 13.5 from its right, and a key's chip 8 from the words
 // each side of it.
-const HEIGHT: f32 = 46.5;
+use crate::tokens::toast::HEIGHT;
 const RIGHT: f32 = CARD_INSET + 8.;
 const TOP: f32 = CARD_INSET + 8.;
-const TEXT_LEFT: f32 = 12.5;
-const TEXT_RIGHT: f32 = 13.5;
-const RADIUS: f32 = 10.;
-/// Medium, and the key semibold. 13.5 makes Arc's toast 256.5 wide, as measured, where 14 makes it
-/// 263.5.
-const TEXT_SIZE: f32 = 13.5;
-const CHIP_HEIGHT: f32 = 26.;
-const CHIP_RADIUS: f32 = 6.;
-const CHIP_X: f32 = 9.;
-const CHIP_GAP: f32 = 8.;
-const CHIP_FILL: u32 = 0xffff_ff1a;
-/// A button's chip under the pointer, which Arc's wasn't recorded with (ours).
-const CHIP_HOVERED: u32 = 0xffff_ff29;
-/// A button's glyph, as Arc's Share is (Capture's toast at 3×).
-const CHIP_GLYPH: f32 = 13.;
-const KEY_GAP: f32 = 5.;
-/// The key in an Undo button: white at 0.6, ours.
-const KEY_COLOR: u32 = 0xffff_ff99;
-/// A line of black 0.3 around it, half a point thick.
-const EDGE: u32 = 0x0000_004d;
-/// It darkens from the window's colour at its top to this much of it at its bottom (Arc's goes
-/// from (40,22,80) to (31,17,62) in a purple Space).
-const SHADE: f32 = 0.78;
-/// Its window, wide enough for the longest toast and tall enough for its shadow, at the browser
-/// window's top right.
-pub const WINDOW_WIDTH: f32 = 420.;
-pub const WINDOW_HEIGHT: f32 = 84.;
+use crate::tokens::toast::TEXT_LEFT;
+use crate::tokens::toast::TEXT_RIGHT;
+use crate::tokens::toast::RADIUS;
+use crate::tokens::toast::TEXT_SIZE;
+use crate::tokens::toast::CHIP_HEIGHT;
+use crate::tokens::toast::CHIP_RADIUS;
+use crate::tokens::toast::CHIP_X;
+use crate::tokens::toast::CHIP_GAP;
+use crate::tokens::toast::CHIP_FILL;
+use crate::tokens::toast::CHIP_HOVERED;
+use crate::tokens::toast::CHIP_GLYPH;
+use crate::tokens::toast::KEY_GAP;
+use crate::tokens::toast::KEY_COLOR;
+use crate::tokens::toast::EDGE;
+use crate::tokens::toast::SHADE;
+pub use crate::tokens::toast::WINDOW_WIDTH;
+pub use crate::tokens::toast::WINDOW_HEIGHT;
 /// Arc's motion: it grows from 0.7 of its size about the middle of its top edge on a spring of
 /// 0.32 s and ζ 0.52, fading in over the first 0.1 s, and leaves the way it came over 0.07 s,
 /// speeding up.
@@ -62,8 +52,8 @@ const LEAVE: f32 = 0.07;
 /// The note a window shows as it goes full screen (Arc 1.170 rec at 2×): 41 tall, 4 from the
 /// window's top and its right edge on the card's, in the toast's look and motion, for 4.8 s.
 const NOTE: &str = "To exit full screen, press ⎋.";
-const NOTE_HEIGHT: f32 = 41.;
-const NOTE_TOP: f32 = 4.;
+use crate::tokens::toast::NOTE_HEIGHT;
+use crate::tokens::toast::NOTE_TOP;
 const NOTE_RIGHT: f32 = CARD_INSET;
 const NOTE_TIME: Duration = Duration::from_millis(4800);
 
