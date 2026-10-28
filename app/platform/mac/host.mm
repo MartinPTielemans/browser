@@ -2817,24 +2817,6 @@ void host_detent(void) {
              performanceTime:NSHapticFeedbackPerformanceTimeNow];
 }
 
-uint32_t host_accent_color(void) {
-  NSColor* color = [NSColor.controlAccentColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-  auto channel = [](CGFloat value) {
-    return (uint32_t)lround(std::clamp(value, (CGFloat)0, (CGFloat)1) * 255);
-  };
-  return channel(color.redComponent) << 16 | channel(color.greenComponent) << 8 |
-         channel(color.blueComponent);
-}
-
-void host_watch_accent_color(void (*changed)(void)) {
-  [NSNotificationCenter.defaultCenter addObserverForName:NSSystemColorsDidChangeNotification
-                                                  object:nil
-                                                   queue:nil
-                                              usingBlock:^(NSNotification*) {
-                                                changed();
-                                              }];
-}
-
 void ControlReleased() {
   if (!g_control_monitor) {
     return;

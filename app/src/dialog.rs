@@ -40,7 +40,6 @@ use crate::tokens::dialog::SUBLINE_TEXT;
 use crate::tokens::dialog::BUTTONS_TOP;
 use crate::tokens::dialog::BUTTONS_UNDER_TITLE;
 use crate::tokens::dialog::ALSO_GAP;
-use crate::tokens::dialog::FILL;
 use crate::elevation::Level;
 use crate::tokens::dialog::DETAIL;
 use crate::tokens::dialog::DIM;
@@ -57,10 +56,6 @@ use crate::tokens::dialog::CANCEL_TEXT;
 use crate::tokens::dialog::ACTION;
 use crate::tokens::dialog::ACTION_HOVERED;
 use crate::tokens::dialog::ACTION_LEDGE;
-use crate::tokens::dialog::SAFE_ACTION;
-use crate::tokens::dialog::SAFE_ACTION_HOVERED;
-use crate::tokens::dialog::SAFE_ACTION_LEDGE;
-use crate::tokens::dialog::ACCENT_HOVERED;
 use crate::tokens::dialog::CHIP_HEIGHT;
 use crate::tokens::dialog::CHIP_RADIUS;
 use crate::tokens::dialog::ESC_FILL;
@@ -99,9 +94,8 @@ pub struct Question {
 pub enum Tone {
     /// Red, as it's hard to take back, such as deleting a Space.
     Destructive,
-    /// Blue, as it can be taken back, such as quitting.
-    Safe,
-    /// The Space's accent, as it takes nothing back, such as adding an extension.
+    /// The Space's accent, as it's easily taken back or takes nothing back, such as quitting or
+    /// adding an extension.
     Accent,
 }
 
@@ -498,25 +492,26 @@ impl Render for Dialog {
             log!("browser: dialog settled");
         }
         let question = &asked.question;
+        let palette = palette::current(cx);
         let cancel = button(
             "dialog-cancel",
             question.cancel.clone(),
             chip()
                 .px(px(6.5))
-                .bg(rgba(ESC_FILL))
+                .bg(palette.plate(ESC_FILL))
                 .text_size(px(text::SMALL))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(ESC_TEXT))
+                .text_color(palette.on_overlay(ESC_TEXT))
                 .child("ESC"),
         )
             // Its border is inside its edge, where Arc's label and chip are measured from.
             .pl(px(LABEL_X - 1.))
             .pr(px(CHIP_END - 1.))
             .border_1()
-            .border_color(rgb(CANCEL_BORDER))
-            .bg(rgb(CANCEL_FILL))
-            .hover(|style| style.bg(rgb(CANCEL_HOVERED)))
-            .text_color(rgba(CANCEL_TEXT))
+            .border_color(palette.plate(CANCEL_BORDER))
+            .bg(palette.plate(CANCEL_FILL))
+            .hover(move |style| style.bg(palette.plate(CANCEL_HOVERED)))
+            .text_color(palette.on_overlay(CANCEL_TEXT))
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Cancel, cx)));
         // A text-only button in Cancel's look, its label as far in from each side.
         let also = asked.also.clone().map(|label| {
@@ -529,31 +524,30 @@ impl Render for Dialog {
                 .rounded(px(BUTTON_RADIUS))
                 .text_size(px(text::BODY))
                 .border_1()
-                .border_color(rgb(CANCEL_BORDER))
-                .bg(rgb(CANCEL_FILL))
-                .hover(|style| style.bg(rgb(CANCEL_HOVERED)))
-                .text_color(rgba(CANCEL_TEXT))
+                .border_color(palette.plate(CANCEL_BORDER))
+                .bg(palette.plate(CANCEL_FILL))
+                .hover(move |style| style.bg(palette.plate(CANCEL_HOVERED)))
+                .text_color(palette.on_overlay(CANCEL_TEXT))
                 .child(label)
                 .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Also, cx)))
         });
-        let white = Hsla::from(rgb(TEXT));
-        let (fill, hovered, ledge, label): (Hsla, Hsla, Hsla, Hsla) = match question.tone {
-            Tone::Destructive => {
-                (rgb(ACTION).into(), rgb(ACTION_HOVERED).into(), rgba(ACTION_LEDGE).into(), white)
-            }
-            Tone::Safe => (
-                rgb(SAFE_ACTION).into(),
-                rgb(SAFE_ACTION_HOVERED).into(),
-                rgb(SAFE_ACTION_LEDGE).into(),
-                white,
-            ),
-            Tone::Accent => {
-                let palette = palette::current(cx);
-                let accent = Hsla::from(palette.accent);
-                let hovered = Hsla { l: accent.l - ACCENT_HOVERED, ..accent };
-                (accent, hovered, accent.opacity(0.2), palette.accent_label.into())
-            }
-        };
+        let (fill, hovered, pressed, ledge, label): (Hsla, Hsla, Hsla, Hsla, Hsla) =
+            match question.tone {
+                Tone::Destructive => {
+                    let hovered = rgb(ACTION_HOVERED).into();
+                    (rgb(ACTION).into(), hovered, hovered, rgba(ACTION_LEDGE).into(), rgb(TEXT).into())
+                }
+                Tone::Accent => {
+                    let accent = Hsla::from(palette.accent);
+                    (
+                        accent,
+                        palette.accent_hovered(),
+                        palette.accent_pressed(),
+                        accent.opacity(0.2),
+                        palette.accent_label.into(),
+                    )
+                }
+            };
         let action = (!question.action.is_empty()).then(|| {
             button(
                 "dialog-confirm",
@@ -561,8 +555,8 @@ impl Render for Dialog {
                 chip()
                     .w(px(RETURN_WIDTH))
                     .border_1()
-                    .border_color(rgba(RETURN_BORDER))
-                    .bg(rgba(RETURN_FILL))
+                    .border_color(label.opacity(RETURN_BORDER))
+                    .bg(label.opacity(RETURN_FILL))
                     .child(
                         svg()
                             .path("icons/corner-down-left.svg")
@@ -572,6 +566,7 @@ impl Render for Dialog {
             )
             .bg(fill)
             .hover(move |style| style.bg(hovered))
+            .active(move |style| style.bg(pressed))
             .shadow(vec![shadow(ledge, 2., 0., 0.)])
             .text_color(label)
             .on_click(cx.listener(|dialog, _, _, cx| dialog.answer(Answer::Action, cx)))
@@ -586,7 +581,7 @@ impl Render for Dialog {
                         .pl(px(SUBLINE_INDENT))
                         .line_height(px(SUBLINE))
                         .text_size(px(text::SMALL))
-                        .text_color(rgba(SUBLINE_TEXT))
+                        .text_color(palette.on_overlay(SUBLINE_TEXT))
                         .child(subline.clone())
                 }))
         });
@@ -598,7 +593,7 @@ impl Render for Dialog {
                 .flex_col()
                 .line_height(px(DETAIL_LINE))
                 .text_size(px(text::BODY))
-                .text_color(rgba(DETAIL))
+                .text_color(palette.on_overlay(DETAIL))
                 .when(!question.detail.is_empty(), |text| text.child(question.detail.clone()))
                 .when(!question.list.is_empty(), |text| {
                     text.child(
@@ -627,8 +622,8 @@ impl Render for Dialog {
             .flex_col()
             .rounded(px(RADIUS))
             .border_1()
-            .border_color(Level::Modal.rim())
-            .bg(rgb(FILL))
+            .border_color(Level::Modal.rim_in(&palette))
+            .bg(palette.dialog)
             .shadow(Level::Modal.shadow())
             .opacity(pose.opacity)
             .children(
@@ -640,7 +635,7 @@ impl Render for Dialog {
                     .line_height(px(TITLE_LINE))
                     .text_size(px(text::HEADING))
                     .font_weight(FontWeight::MEDIUM)
-                    .text_color(rgb(TEXT))
+                    .text_color(palette.on_overlay(1.))
                     .child(question.message.clone()),
             )
             .children(detail)

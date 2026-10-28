@@ -157,7 +157,6 @@ mod platform {
         pub fn host_show_reveal(ui_view: *mut c_void, width: f64);
         pub fn host_hide_reveal(ui_view: *mut c_void);
         pub fn host_detent();
-        pub fn host_accent_color() -> u32;
         pub fn host_dock_dot_launch(profile_dir: *const c_char);
         pub fn host_dock_dot(colored: bool, color: u32);
         pub fn host_watch_control(released: extern "C" fn());
@@ -2027,7 +2026,7 @@ impl Browser for Engine {
             list: Vec::new(),
             action: "Quit".into(),
             cancel: "Cancel".into(),
-            tone: dialog::Tone::Safe,
+            tone: dialog::Tone::Accent,
             also: Some((
                 "Quit, and don’t ask again".into(),
                 Box::new(|_| {

@@ -10,7 +10,7 @@ use gpui::{
     Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, linear_color_stop,
     linear_gradient, list,
-    prelude::*, px, relative, rgb, rgba, svg,
+    prelude::*, px, relative, svg,
 };
 
 use super::{
@@ -91,8 +91,6 @@ use crate::tokens::shell::library::CARD_BRUSH_COLOR;
 use crate::elevation::Level;
 use crate::tokens::shell::library::PLUS_GAP;
 use crate::tokens::shell::library::PLUS_SIZE;
-use crate::tokens::shell::library::PLUS_FILL;
-use crate::tokens::shell::library::PLUS_HOVERED;
 use crate::tokens::shell::library::PLUS_GLYPH;
 use crate::tokens::shell::library::PLUS_AFTER;
 
@@ -105,8 +103,6 @@ use crate::tokens::shell::library::SEARCH_GLYPH;
 use crate::tokens::shell::library::SEARCH_GLYPH_X;
 use crate::tokens::shell::library::SEARCH_TEXT_X;
 use crate::tokens::shell::library::SEARCH_PLACEHOLDER;
-use crate::tokens::shell::library::SEARCH_CARET;
-use crate::tokens::shell::library::SEARCH_SELECTION;
 
 use crate::tokens::shell::library::ARCHIVE_TOP;
 use crate::tokens::shell::library::ARCHIVE_WIDTH;
@@ -579,8 +575,8 @@ impl Shell {
         let search = cx.new(|cx| {
             TextInput::new(placeholder, cx)
                 .placeholder_color(self.palette.text(SEARCH_PLACEHOLDER))
-                .caret_color(rgb(SEARCH_CARET))
-                .selection_color(rgba(SEARCH_SELECTION))
+                .caret_color(self.palette.accent)
+                .selection_color(self.palette.selection())
         });
         let observe = cx.observe(&search, |shell, _, cx| shell.filter(false, cx));
         self.library = Some(Library {
@@ -928,15 +924,22 @@ impl Shell {
             .items_center()
             .justify_center()
             .rounded_full()
-            .bg(rgb(PLUS_FILL))
-            .hover(|style| style.bg(rgb(PLUS_HOVERED)))
+            .bg(self.palette.accent)
+            .hover({
+                let hovered = self.palette.accent_hovered();
+                move |style| style.bg(hovered)
+            })
+            .active({
+                let pressed = self.palette.accent_pressed();
+                move |style| style.bg(pressed)
+            })
             .block_mouse_except_scroll()
             .on_click(cx.listener(|shell, _, _, cx| {
                 shell.run(Command::NewSpace, "library", cx);
                 shell.set_library(false, cx);
             }))
             .child(
-                svg().path("icons/nav-plus.svg").size(px(PLUS_GLYPH)).text_color(self.palette.text(FORM_TEXT)),
+                svg().path("icons/nav-plus.svg").size(px(PLUS_GLYPH)).text_color(self.palette.accent_label),
             );
         div()
             .id("library-spaces")

@@ -27,7 +27,7 @@ use crate::tokens::palette::{
     STAND_IN, TINT,
 };
 pub use crate::tokens::palette::SECOND_AT;
-use crate::tokens::palette::{INTENSITY_FLOOR, INTENSITY_SPAN, RING};
+use crate::tokens::palette::{ACCENT_HOVERED, ACCENT_PRESSED, INTENSITY_FLOOR, INTENSITY_SPAN, RING, SELECTION};
 /// The ends of the scale each family's text runs toward, which the accent's search needs, and the
 /// ground a swatch's colours are judged on.
 const BLACK: Rgba = Rgba { r: 0., g: 0., b: 0., a: 1. };
@@ -216,6 +216,27 @@ impl Palette {
             card: near.card,
             swatch: near.swatch,
         }
+    }
+
+    /// The accent under the pointer, and pressed: moved away from its label in OKLab lightness,
+    /// darker under Paper and lighter under Ink, so the label reads more, never less.
+    pub fn accent_hovered(&self) -> Hsla {
+        self.accent_moved(ACCENT_HOVERED)
+    }
+
+    pub fn accent_pressed(&self) -> Hsla {
+        self.accent_moved(ACCENT_PRESSED)
+    }
+
+    fn accent_moved(&self, by: f32) -> Hsla {
+        let [l, a, b] = theme::oklab(self.accent);
+        let away = if self.accent_label == rgb(INK) { by } else { -by };
+        in_gamut((l + away).clamp(0., 1.), a, b).into()
+    }
+
+    /// Behind selected text in a field: the accent, faint.
+    pub fn selection(&self) -> Hsla {
+        Hsla::from(self.accent).opacity(SELECTION)
     }
 
     /// Ink or Paper at `alpha`, or as much more as text needs to read on any theme.
