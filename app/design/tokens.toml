@@ -738,10 +738,10 @@ bar-width = 2.0
 bars-box = 14.0
 
 [shell.empty]
-# The sidebar's New Tab row is 14 pt.
+# The sidebar's New Tab row's size, body.
 words-size = 13.0
 # The command bar's key chip, which a command's row ends in: 24 tall, 7 in, white 0.08 on the
-# panel, with its text at 13 pt.
+# panel, with its text at body.
 keys-size = 13.0
 keys-height = 24.0
 keys-inset = 7.0
@@ -1026,7 +1026,7 @@ near-white-ring = 0xffff_ff4d
 black = 0x0000_00ff
 
 [shell.trouble]
-# The empty card's line is 14 pt, as the sidebar's New Tab row.
+# The empty card's line is body, as the sidebar's New Tab row.
 words-size = 13.0
 # The card's button, wider than the plates' pair as it stands alone.
 button-inset = 14.0
@@ -1295,7 +1295,8 @@ chip-text = 0x1f2aff
 
 [zoom-hud]
 # Arc's, measured at 2× (Arc 1.170 rec): 41.5 tall, 8 inside the card's top right corner, the
-# percent 14 pt and 16 in from the pill's right, in the toast's fill, rim and shadow.
+# percent 16 in from the pill's right, in the toast's fill, rim and shadow. Arc's percent is 14 pt;
+# ours is body.
 height = 41.5
 padding = 16.0
 radius = 12.0
