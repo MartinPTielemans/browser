@@ -6,20 +6,29 @@
 # has logged a line matching <ready> and the picture has stopped changing, the capture is the
 # session's one output; the program's log goes beside it. sway and the program go when it ends.
 # --page waits only for the right half, the page's, to stand still, as the preview's sidebar has a
-# loading tab that never stops.
-# Usage: tools/headless.sh [--x11] [--page] <output.png> <ready> <program> [arguments...]
+# loading tab that never stops. --scale gives the output that scale, 1 by default, at 1280 by 800
+# points. --then runs a
+# command once the capture is taken, before the session ends, with the session's WAYLAND_DISPLAY
+# and SWAYSOCK and the program's log as $LOG: to click (swaymsg seat seat0 cursor ...), type or
+# capture again.
+# Usage: tools/headless.sh [--x11] [--page] [--scale <n>] [--then <command>] <output.png> <ready>
+#   <program> [arguments...]
 set -euo pipefail
 x11=
 still=()
+scale=1
+then=
 while [ $# -gt 0 ]; do
   case $1 in
     --x11) x11=1 ;;
     --page) still=(-gravity east -crop 50%x100%+0+0) ;;
+    --scale) scale=$2; shift ;;
+    --then) then=$2; shift ;;
     *) break ;;
   esac
   shift
 done
-[ $# -ge 3 ] || { echo "usage: $0 [--x11] [--page] <output.png> <ready> <program> [arguments...]" >&2; exit 2; }
+[ $# -ge 3 ] || { echo "usage: $0 [--x11] [--page] [--scale <n>] [--then <command>] <output.png> <ready> <program> [arguments...]" >&2; exit 2; }
 out=$(realpath -m "$1")
 ready=$2
 shift 2
@@ -43,14 +52,19 @@ trap cleanup EXIT
 # The session tells its children's environment, where the Wayland socket and Xwayland's display
 # are, through a file once it's up.
 cat >"$dir/config" <<EOF
-output HEADLESS-1 resolution 1280x800 scale 1
+output HEADLESS-1 resolution $(awk "BEGIN { printf \"%dx%d\", 1280 * $scale, 800 * $scale }") scale $scale
 xwayland enable
 default_border none
-exec sh -c 'echo "\$WAYLAND_DISPLAY \${DISPLAY:-}" > $dir/env'
+exec sh -c 'echo "\$WAYLAND_DISPLAY \$SWAYSOCK \${DISPLAY:-}" > $dir/env'
 EOF
+# The integrated GPU's, not NVIDIA's: Vulkan, which GPUI draws with, finds no adapter that can
+# present to a compositor on NVIDIA's render node.
+for render in /dev/dri/renderD*; do
+  [ "$(basename "$(readlink -f "/sys/class/drm/${render##*/}/device/driver")")" = nvidia ] || break
+done
 mkdir -p "$(dirname "$out")"
 env -u WAYLAND_DISPLAY -u DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK \
-  WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDER_DRM_DEVICE=/dev/dri/renderD128 \
+  WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDER_DRM_DEVICE=$render \
   sway -c "$dir/config" >"$dir/sway.log" 2>&1 &
 sway_pid=$!
 for _ in $(seq 100); do
@@ -58,7 +72,7 @@ for _ in $(seq 100); do
   sleep 0.1
 done
 [ -s "$dir/env" ] || { cat "$dir/sway.log" >&2; echo "The session didn't come up." >&2; exit 1; }
-read -r wayland display <"$dir/env"
+read -r wayland swaysock display <"$dir/env"
 [ -z "$x11" ] || [ -n "$display" ] || { echo "The session has no Xwayland." >&2; exit 1; }
 
 # The owner's session's scale (Chromium reads GDK_SCALE on X11) isn't this session's, which is 1.
@@ -78,7 +92,11 @@ last=
 for _ in $(seq 100); do
   WAYLAND_DISPLAY=$wayland grim "$out"
   now=$(magick "$out" "${still[@]}" rgb:- | sha256sum)
-  [ "$now" = "$last" ] && { echo "$out"; exit 0; }
+  if [ "$now" = "$last" ]; then
+    echo "$out"
+    [ -z "$then" ] || WAYLAND_DISPLAY=$wayland SWAYSOCK=$swaysock LOG=$log bash -c "$then"
+    exit 0
+  fi
   last=$now
   sleep 0.2
 done
