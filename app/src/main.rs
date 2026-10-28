@@ -2615,9 +2615,13 @@ fn open_window_as(
                     set_frames(id, shell, frame, viewport);
                     shell.full_screen_step("laid", viewport);
                 }
-                // The panels keep their place from the page's top right corner.
+                // The panels keep their place from the page's top right corner, and the dialog
+                // its insets from the content's edges.
                 #[cfg(target_os = "linux")]
-                panels::place(ui_view);
+                {
+                    panels::place(ui_view);
+                    overlays::place_dialog(ui_view);
+                }
             })
             .detach();
             let engine = Rc::new(Engine { window: id, ui_view, view: ns_view(window) });
