@@ -241,8 +241,8 @@ expect '^browser: loaded [0-9]* chrome://extensions/$' \
   "Manage Extensions… didn't open Chrome's extensions page"
 ../tools/window-screenshot.sh "$pid" "$out/extensions.png" || fail "no window to capture"
 # A suggested key that's one of the browser's stays the browser's, with the UI focused and the
-# page.
-send click $sidebar_point
+# page. The sidebar below the rows, as a click on a row gives the page the keyboard.
+send click 100 700
 send key j cmd
 expect '^browser: command jump-to-selection via ui$' "⌘J with the UI focused didn't reach the UI"
 none_since "^browser: extension command $third " ||

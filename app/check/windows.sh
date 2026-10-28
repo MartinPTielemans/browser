@@ -180,7 +180,6 @@ counting "in the new window again"
 keyed=$(grep -c "^browser: key window $first\$" "$log" || true)
 send click $(row 1)
 expect "^browser: window $second shows $b\$" "a click on the other tab's row didn't show it"
-clicked_focus=$focus
 expect "^browser: window $first shows $a\$" \
   "the page the new window left didn't go to the first, which had its picture"
 expect "^browser: window $first page elsewhere 0\$" \
@@ -189,8 +188,9 @@ counting "back in the first window after the new one left it"
 send front
 front=$(grep '^browser: front ' "$log" | tail -1)
 echo "$front" | grep -q ' key driven,' || fail "the page going back took the keyboard: $front"
-[ "$focus" = "$clicked_focus" ] ||
-  fail "the page going back moved the new window's keyboard from $clicked_focus to $focus"
+# The row's click gave the new window's page the keyboard, in a task of its own.
+[ "$focus" = RenderWidgetHostViewCocoa ] ||
+  fail "the page going back moved the new window's keyboard from its page to $focus"
 [ "$(grep -c "^browser: key window $first\$" "$log")" = "$keyed" ] ||
   fail "the page going back made the first window key"
 ../tools/window-screenshot.sh "$pid" "$out/windows-handed-back.png" all || fail "no window to capture"
