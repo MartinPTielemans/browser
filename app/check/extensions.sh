@@ -271,10 +271,10 @@ expect "^browser: remove extension $third removed\$" "Remove didn't remove Check
 expect "^browser: extensions menu $clicked $panel $popup $ublock\$" \
   "the removed Check Third stayed in the Extensions menu"
 expect '^browser: extension actions $' "the removed Check Third's action stayed"
-# The Site Controls list every turned-on extension, here the three unpinned ones, by name, and a
-# click on one's tile runs it, its popup hanging from the tile. On the first tab. The grid's third
-# tile has its middle at 234 187: the tiles are 56 apart from 122, and their first row is 23 under
-# the heading's cap, which is 46 under the action tiles' top at 102.
+# The Site Controls list every turned-on extension, here the three unpinned ones and the ad
+# blocker, by name, and a click on one's tile runs it, its popup hanging from the tile. On the
+# first tab. The grid's third tile has its middle at 234 187: the tiles are 56 apart from 122, and
+# their first row is 23 under the heading's cap, which is 46 under the action tiles' top at 102.
 index=$(today | tr ' ' '\n' | grep -n "^$first\$" | cut -d: -f1)
 send click $(row $((index - 1)))
 expect "^browser: selected $first\( in .*\)\{0,1\}\$" \
@@ -286,7 +286,7 @@ expect '^browser: command bar commands "site controls": Site Controls$' \
   "the command bar didn't find Site Controls"
 send key return
 expect '^browser: command site-controls via command bar$' "Site Controls didn't run from the bar"
-expect "^browser: site controls extensions $clicked $panel $popup\$" \
+expect "^browser: site controls extensions $clicked $panel $popup $ublock\$" \
   "the Site Controls didn't list the unpinned extensions by name: $(grep \
     '^browser: site controls extensions' "$log" | tail -1)"
 expect '^browser: site controls settled$' "the Site Controls didn't finish opening"
