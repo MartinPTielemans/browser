@@ -368,7 +368,6 @@ use crate::tokens::shell::CLEAR;
 use crate::tokens::shell::CLEAR_HOVERED;
 use crate::tokens::shell::SLEEPING_FAVICON;
 use crate::tokens::shell::TILE;
-use crate::tokens::shell::TILE_EDGE;
 use crate::tokens::shell::TILE_HOVERED;
 use crate::tokens::shell::TILE_RING;
 use crate::tokens::shell::TILE_UNTHEMED;

@@ -7,7 +7,7 @@
 use std::time::Instant;
 
 use gpui::{
-    AnyElement, BoxShadow, Bounds, Context, FontWeight, Hsla, PathBuilder, Pixels, Point, Window,
+    AnyElement, Bounds, Context, FontWeight, Hsla, PathBuilder, Pixels, Point, Window,
     canvas, div, hsla, point, prelude::*, px, rgb, size,
 };
 
@@ -42,13 +42,12 @@ const TARGET_TRIGGER: f32 = 26.;
 /// its corners, rim, traffic lights and the page in it.
 const PICTURE: (f32, f32) = (209., 109.5);
 use crate::tokens::shell::split_targets::PICTURE_RADIUS;
-use crate::tokens::shell::split_targets::PICTURE_RIM;
+use crate::elevation::Level;
 use crate::tokens::shell::split_targets::PICTURE_LIGHTS;
 use crate::tokens::shell::split_targets::PICTURE_LIGHT;
 use crate::tokens::shell::split_targets::PICTURE_TOP;
 use crate::tokens::shell::split_targets::PICTURE_INSET;
 use crate::tokens::shell::split_targets::HALF_GLYPH_RADIUS;
-use crate::tokens::shell::split_targets::PICTURE_SHADOW;
 
 /// A dragged tab over the page, where it can join the page shown in a split view.
 pub(super) struct OverPage {
@@ -416,14 +415,8 @@ fn picture(
         .rounded(px(PICTURE_RADIUS))
         .bg(fill)
         .border(px(0.5))
-        .border_color(hsla(0., 0., 1., PICTURE_RIM))
-        .shadow(vec![BoxShadow {
-            color: hsla(0., 0., 0., PICTURE_SHADOW),
-            offset: point(px(0.), px(8.)),
-            blur_radius: px(24.),
-            spread_radius: px(0.),
-            inset: false,
-        }])
+        .border_color(Level::Popover.rim())
+        .shadow(Level::Popover.shadow())
         .child(div().absolute().left(px(8.)).top(px(6.)).flex().gap(px(4.)).children(lights))
         .child(page)
 }

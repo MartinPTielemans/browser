@@ -108,6 +108,19 @@ void host_forget_window(void* ui_view);
 #define HOST_COMMAND_BAR 0
 #define HOST_ICON_PICKER 1
 #define HOST_THEME_PICKER 2
+// The Site Controls take the same elevation call, though they aren't one of the overlays.
+#define HOST_SITE_CONTROLS 3
+
+// Gives the |overlay| (or the Site Controls) the shadow its elevation level draws, in Core
+// Animation's terms: a black line round its shape and a black drop shadow, each with an opacity
+// and a blur |radius|, which is half CSS's blur, and the drop shadow falling |shadow_drop| points.
+// The shadow reaches three radii and the drop past the window. Call it before the overlay is added.
+void host_set_overlay_elevation(int overlay,
+                                float outline_opacity,
+                                double outline_radius,
+                                float shadow_opacity,
+                                double shadow_radius,
+                                double shadow_drop);
 
 // Makes the window of |overlay_view| the |overlay| (one of the HOST_ overlays above), which
 // floats over a browser window when shown, for UI that has to draw over the page, translucent over
@@ -308,7 +321,9 @@ void host_hide_toast(void);
 // Makes the window of |tooltip_view| the tooltip's, which floats over a browser window as its
 // child when shown, and lets the mouse through and never takes the keyboard. It starts hidden.
 // |away| is called when that window stops being key or the app stops being active, which hide it.
-void host_add_tooltip(void* tooltip_view, void (*away)(void));
+// The window reaches |margin| points past the plate on every side, for its shadow, which the UI
+// draws; |left| and |top| below are the plate's.
+void host_add_tooltip(void* tooltip_view, double margin, void (*away)(void));
 
 // Shows the tooltip's window as the UI draws it now, fading in over |fade| seconds from where it
 // is, or moves it, with its top left at (|left|, |top|) points in the content of |ui_view|'s
@@ -321,8 +336,9 @@ void host_hide_tooltip(double fade);
 // Makes the window of |link_view| the link target's, which floats over a browser window as its
 // child when shown, and lets the mouse through and never takes the keyboard. It starts hidden.
 // |pointer| is called with the pointer's place in the content of the browser window, in points
-// from its top left, at every move of it while that window shows.
-void host_add_link_target(void* link_view, void (*pointer)(double x, double y));
+// from its top left, at every move of it while that window shows. As the tooltip's, its window
+// reaches |margin| points past the plate.
+void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y));
 
 // Shows the link target's window as the UI draws it now, fading in over |fade| seconds from where
 // it is, or moves it, with its top left at (|left|, |top|) points in the content of |ui_view|'s

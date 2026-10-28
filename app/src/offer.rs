@@ -54,7 +54,7 @@ use crate::tokens::offer::BUTTON_GAP;
 use crate::tokens::offer::PLATE_RADIUS;
 use crate::tokens::offer::TITLE;
 use crate::tokens::offer::DETAIL;
-use crate::tokens::offer::EDGE;
+use crate::elevation::Level;
 use crate::tokens::offer::PLATE;
 use crate::tokens::offer::HOVERED;
 use crate::tokens::offer::DEFAULT_PLATE;
@@ -418,7 +418,7 @@ impl Render for OfferPrompt {
                 .rounded(px(RADIUS))
                 .bg((self.fill)(cx))
                 .border_1()
-                .border_color(rgba(EDGE))
+                .border_color(Level::Popover.rim())
                 .text_color(rgba(TITLE))
                 .text_size(px(13.))
                 .line_height(px(18.))

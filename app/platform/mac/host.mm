@@ -298,30 +298,23 @@ Browser* FrontBrowser() {
   return nullptr;
 }
 
-// The overlays' shadow, Arc's command bar's: soft and even on every side (Arc 1.170.0 cap over a
-// light page, fitted to a Gaussian). It's a window of its own under the overlay's that the mouse
+// The overlays' shadow, one of the elevation levels (host_set_overlay_elevation): the outline round
+// the overlay and a drop shadow. It's a window of its own under the overlay's that the mouse
 // goes through, so a click on it lands on the browser window and closes the overlay as any click
 // outside it does, and the overlay's window keeps the overlay's frame. It goes on screen with the
 // overlay's first show over a browser window and stays there, shown and hidden by its alpha, since
 // putting a window on screen cost each ⌘T about 4 ms.
-constexpr double kOverlayShadowRadius = 20;
 // An overlay that grows in, as a system popover does, is done in 0.2 s, mostly in the first 0.1
 // (Arc 1.170 rec at 2×, the Space's icon picker: 0.57 of its size at 55 ms, 0.83 at 105 ms).
 constexpr double kOverlayGrow = 0.2;
 constexpr double kOverlayGrowFade = 0.1;
 // Arc's theme picker shrinks to its arrow and fades as it closes, gone in 0.11 s.
 constexpr double kOverlayShrink = 0.11;
-constexpr float kOverlayShadowOpacity = 0.23;
 
 // A window of the UI's over a browser window's page, translucent over a blur, with a shadow: the
 // command bar, the Space's icon or theme picker, or the Site Controls.
 struct Overlay {
   explicit Overlay(const char* name) : name(name) {}
-  Overlay(const char* name, float shadow_opacity, double shadow_radius, double shadow_drop)
-      : name(name),
-        shadow_opacity(shadow_opacity),
-        shadow_radius(shadow_radius),
-        shadow_drop(shadow_drop) {}
   // What its log lines call it, which check.sh reads.
   const char* name;
   NSWindow* window = nil;
@@ -341,14 +334,19 @@ struct Overlay {
   std::vector<double> corners;
   NSWindow* shadow = nil;
   CALayer* shadow_layer = nil;
+  // The black line round the shape, a point of blur wide.
+  CALayer* outline_layer = nil;
   CAShapeLayer* shadow_mask = nil;
   // From host_set_overlay_growth: whether it grows in as it shows, and from where, in points from
   // its top left.
   bool grows = false;
   double grow_x = 0;
   double grow_y = 0;
-  float shadow_opacity = kOverlayShadowOpacity;
-  double shadow_radius = kOverlayShadowRadius;
+  // From host_set_overlay_elevation, which the UI calls before it adds the overlay.
+  float outline_opacity = 0;
+  double outline_radius = 0;
+  float shadow_opacity = 0;
+  double shadow_radius = 0;
   // How far down it falls.
   double shadow_drop = 0;
   // Past this, three times the blur and its drop, the shadow is nothing.
@@ -359,9 +357,9 @@ struct Overlay {
 
 Overlay g_overlays[] = {Overlay("command bar"), Overlay("icon picker"), Overlay("theme picker")};
 
-// Arc's Site Controls' shadow, fitted over a dark page: darker below, as it falls 4 pt. It's an
-// overlay for its blur and shadow alone, outside g_overlays, so the tooltip shows over it.
-Overlay g_site_controls_overlay("site controls", 0.24, 16, 4);
+// The Site Controls: an overlay for its blur and shadow alone, outside g_overlays, so the tooltip
+// shows over it.
+Overlay g_site_controls_overlay("site controls");
 
 Overlay* OverlayAt(int index) {
   return index >= 0 && index < int(std::size(g_overlays)) && g_overlays[index].window
@@ -412,6 +410,8 @@ NSView* g_tooltip_view;
 bool g_tooltip_shown = false;
 double g_tooltip_left = 0;
 double g_tooltip_top = 0;
+// How far its window reaches past the plate, for the shadow.
+double g_tooltip_margin = 0;
 unsigned g_tooltip_changes = 0;
 void (*g_tooltip_away)(void);
 
@@ -424,6 +424,7 @@ NSView* g_link_view;
 bool g_link_shown = false;
 double g_link_left = 0;
 double g_link_top = 0;
+double g_link_margin = 0;
 unsigned g_link_changes = 0;
 void (*g_link_pointer)(double x, double y);
 id g_link_monitor;
@@ -699,8 +700,9 @@ void PlaceTooltip() {
   NSWindow* window = g_tooltip_over->window;
   NSRect content = [window contentRectForFrameRect:window.frame];
   NSSize size = g_tooltip.frame.size;
-  [g_tooltip setFrameOrigin:NSMakePoint(NSMinX(content) + g_tooltip_left,
-                                        NSMaxY(content) - g_tooltip_top - size.height)];
+  [g_tooltip setFrameOrigin:NSMakePoint(NSMinX(content) + g_tooltip_left - g_tooltip_margin,
+                                        NSMaxY(content) - g_tooltip_top + g_tooltip_margin -
+                                            size.height)];
 }
 
 // As the tooltip's: where the UI asked, inside the browser window, and its window wider than the
@@ -709,8 +711,8 @@ void PlaceLinkTarget() {
   NSWindow* window = g_link_over->window;
   NSRect content = [window contentRectForFrameRect:window.frame];
   NSSize size = g_link.frame.size;
-  [g_link setFrameOrigin:NSMakePoint(NSMinX(content) + g_link_left,
-                                     NSMaxY(content) - g_link_top - size.height)];
+  [g_link setFrameOrigin:NSMakePoint(NSMinX(content) + g_link_left - g_link_margin,
+                                     NSMaxY(content) - g_link_top + g_link_margin - size.height)];
 }
 
 // The overlay's shape filling |bounds|, in coordinates whose y goes up, as Core Graphics draws.
@@ -794,6 +796,8 @@ void PlaceOverlayShadow(Overlay& overlay) {
   overlay.shadow_layer.superlayer.frame = bounds;
   overlay.shadow_layer.frame = bounds;
   overlay.shadow_layer.shadowPath = shape;
+  overlay.outline_layer.frame = bounds;
+  overlay.outline_layer.shadowPath = shape;
   overlay.shadow_mask.frame = bounds;
   overlay.shadow_mask.path = outside;
   [CATransaction commit];
@@ -839,6 +843,12 @@ void AddBlurAndShadow(Overlay& overlay) {
   // The layer's y goes up.
   overlay.shadow_layer.shadowOffset = CGSizeMake(0, -overlay.shadow_drop);
   [holder addSublayer:overlay.shadow_layer];
+  overlay.outline_layer = [CALayer layer];
+  overlay.outline_layer.shadowColor = NSColor.blackColor.CGColor;
+  overlay.outline_layer.shadowOpacity = overlay.outline_opacity;
+  overlay.outline_layer.shadowRadius = overlay.outline_radius;
+  overlay.outline_layer.shadowOffset = CGSizeZero;
+  [holder addSublayer:overlay.outline_layer];
   [shadow_view.layer addSublayer:holder];
 }
 
@@ -1517,6 +1527,25 @@ void host_forget_window(void* ui_view) {
   browser->offer_view = nil;
   browser->reveal = nil;
   browser->reveal_view = nil;
+}
+
+void host_set_overlay_elevation(int index,
+                                float outline_opacity,
+                                double outline_radius,
+                                float shadow_opacity,
+                                double shadow_radius,
+                                double shadow_drop) {
+  Overlay* overlay = index == HOST_SITE_CONTROLS ? &g_site_controls_overlay
+                     : index >= 0 && index < int(std::size(g_overlays)) ? &g_overlays[index]
+                                                                          : nullptr;
+  if (!overlay) {
+    return;
+  }
+  overlay->outline_opacity = outline_opacity;
+  overlay->outline_radius = outline_radius;
+  overlay->shadow_opacity = shadow_opacity;
+  overlay->shadow_radius = shadow_radius;
+  overlay->shadow_drop = shadow_drop;
 }
 
 void host_add_overlay(int index, void* overlay_view, double radius, void (*dismissed)(void)) {
@@ -2574,7 +2603,8 @@ void host_hide_toast(void) {
   [g_toast orderOut:nil];
 }
 
-void host_add_tooltip(void* tooltip_view, void (*away)(void)) {
+void host_add_tooltip(void* tooltip_view, double margin, void (*away)(void)) {
+  g_tooltip_margin = margin;
   g_tooltip_view = (__bridge NSView*)tooltip_view;
   g_tooltip = g_tooltip_view.window;
   g_tooltip_away = away;
@@ -2645,8 +2675,8 @@ void host_show_tooltip(void* ui_view, double left, double top, double fade) {
       NSWindow* over = browser->window;
       NSRect content = [over contentRectForFrameRect:over.frame];
       fprintf(stderr, "browser: tooltip window at %g %g\n",
-              NSMinX(g_tooltip.frame) - NSMinX(content),
-              NSMaxY(content) - NSMaxY(g_tooltip.frame));
+              NSMinX(g_tooltip.frame) - NSMinX(content) + g_tooltip_margin,
+              NSMaxY(content) - NSMaxY(g_tooltip.frame) + g_tooltip_margin);
     }
     [g_tooltip_view.layer setNeedsDisplay];
     [g_tooltip_view.layer displayIfNeeded];
@@ -2688,7 +2718,8 @@ void host_hide_tooltip(double fade) {
   FadeTooltip(0, fade, gone);
 }
 
-void host_add_link_target(void* link_view, void (*pointer)(double x, double y)) {
+void host_add_link_target(void* link_view, double margin, void (*pointer)(double x, double y)) {
+  g_link_margin = margin;
   g_link_view = (__bridge NSView*)link_view;
   g_link = g_link_view.window;
   g_link_pointer = pointer;

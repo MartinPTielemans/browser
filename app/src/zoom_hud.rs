@@ -11,8 +11,8 @@ use std::{
 
 use gpui::{
     App, Bounds, Context, FontWeight, Global, Hsla, Task, TitlebarOptions, WeakEntity, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, hsla,
-    linear_color_stop, linear_gradient, point, prelude::*, px, rgb, rgba, size,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div,
+    linear_color_stop, linear_gradient, point, prelude::*, px, rgb, size,
 };
 
 use crate::shell::{CARD_INSET, Shell, cubic_bezier, scaled::scaled_from_top};
@@ -21,13 +21,12 @@ use crate::tokens::zoom_hud::HEIGHT;
 use crate::tokens::zoom_hud::PADDING;
 use crate::tokens::zoom_hud::RADIUS;
 use crate::tokens::zoom_hud::TEXT_SIZE;
-use crate::tokens::zoom_hud::EDGE;
+use crate::elevation::Level;
 use crate::tokens::zoom_hud::SHADE;
 pub use crate::tokens::zoom_hud::MARGIN;
 pub use crate::tokens::zoom_hud::WINDOW_WIDTH;
 pub use crate::tokens::zoom_hud::WINDOW_HEIGHT;
 use crate::tokens::zoom_hud::FILL;
-use crate::tokens::zoom_hud::SHADOW;
 use crate::tokens::zoom_hud::TEXT;
 /// Where the window goes, from the top right corner of the focused page's pane in the window.
 pub const WINDOW_RIGHT: f32 = CARD_INSET + 8. - MARGIN;
@@ -293,9 +292,9 @@ impl Render for ZoomHud {
             .items_center()
             .rounded(px(RADIUS))
             .border(px(0.5))
-            .border_color(rgba(EDGE))
+            .border_color(Level::Popover.rim())
             .bg(linear_gradient(180., linear_color_stop(fill, 0.), linear_color_stop(bottom, 1.)))
-            .shadow(vec![crate::toast::shadow(hsla(0., 0., 0., SHADOW), 4., 12.)])
+            .shadow(Level::Popover.shadow())
             .opacity(pose.opacity)
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::MEDIUM)

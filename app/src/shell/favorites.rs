@@ -8,6 +8,7 @@ use gpui::{
     rgba,
 };
 
+use crate::elevation::Level;
 use crate::tooltip::{self, Anchor, Tip};
 
 use super::{
@@ -15,7 +16,7 @@ use super::{
     Curve, FAVICON_DRAWN, FAVICON_SIZE, FAVICON_X, FOLDER_TITLE_X, FOOTER_HEIGHT, HAIRLINE,
     HOVERED, LIST_TOP,
     PLATE_INSET, Place, Row, SELECTED, SLEEPING_FAVICON, Shell, Slot, TALL_FAVORITES, TILE,
-    TILE_EDGE, TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
+    TILE_GAP, TILE_HEIGHT, TILE_HOVERED, TILE_MIN, TILE_RADIUS, TILE_RING,
     TILE_UNTHEMED, TITLE_END_INSET, TITLE_GAP, TURN_TITLE_FADE, TileTheme, tile_theme::RING_WIDTH,
     title,
 };
@@ -118,7 +119,7 @@ impl Shell {
         };
         let (ring_width, ring) = match selected {
             true => (ring_width, ring),
-            false => (HAIRLINE, rgba(TILE_EDGE).into()),
+            false => (HAIRLINE, Level::Resting.rim().into()),
         };
         let row_icon = FAVICON_X - PLATE_INSET;
         let icon_left = row_icon + ((width - FAVICON_SIZE) / 2. - row_icon) * turned;
@@ -434,7 +435,7 @@ impl Shell {
             .justify_center()
             .rounded(px(TILE_RADIUS))
             .border(px(if selected { ring_width } else { HAIRLINE }))
-            .border_color(if selected { ring } else { rgba(TILE_EDGE).into() })
+            .border_color(if selected { ring } else { Level::Resting.rim().into() })
             .bg(fill)
             .block_mouse_except_scroll()
             .on_hover(cx.listener(move |shell, hovered: &bool, _, cx| {
