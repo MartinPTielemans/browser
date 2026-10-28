@@ -53,6 +53,8 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/page_zoom.h"
+#include "ui/display/display.h"
+#include "ui/display/screen.h"
 #include "ui/gfx/geometry/point_f.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
@@ -156,6 +158,11 @@ void* bc_wayland_display(void (*dispatched)(void)) {
 #else
   return nullptr;
 #endif
+}
+
+double bc_display_scale(void) {
+  display::Screen* screen = display::Screen::Get();
+  return screen ? screen->GetPrimaryDisplay().device_scale_factor() : 1;
 }
 
 void* bc_window_wayland_surface(bc_id id, double* width, double* height) {
