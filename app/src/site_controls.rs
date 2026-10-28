@@ -1229,7 +1229,7 @@ impl Render for SiteControls {
             .track_focus(&self.focus)
             .on_action(cx.listener(|panel, _: &Close, _, cx| panel.close("escape", cx)))
             .size_full()
-            .font_family(".SystemUIFont");
+            .font_family(crate::face::UI);
         let Some(open) = self.open.as_mut() else {
             return root;
         };

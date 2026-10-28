@@ -269,7 +269,7 @@ impl Render for ZoomHud {
             .justify_end()
             .items_start()
             .p(px(MARGIN))
-            .font_family(".SystemUIFont");
+            .font_family(crate::face::UI);
         let Some(shown) = &mut self.shown else {
             return root;
         };

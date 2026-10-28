@@ -69,6 +69,7 @@ pub mod default_browser;
 pub mod dialog;
 pub mod dock_dot;
 pub mod elevation;
+pub mod face;
 pub mod icon_picker;
 pub mod link_target;
 pub mod menu;
