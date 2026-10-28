@@ -624,6 +624,7 @@ void Tab::Stop() {
 
 void Tab::DropSystemPage() {
   system_page_.reset();
+  ForgetOutputRestricted();
   favicon_ = gfx::Image();
   system_page_favicon_.clear();
   system_page_title_.reset();
@@ -706,6 +707,7 @@ void Tab::SystemPageCommitted() {
   // Chromium tells each new document's title. WebKit's can replace the empty one the commit set
   // before the next report, and when it's the last page's, it would go untold.
   system_page_title_.reset();
+  ForgetOutputRestricted(url);
   StateChanged();
 }
 
@@ -749,6 +751,30 @@ bool Tab::SystemPageKey(const input::NativeWebKeyboardEvent& event,
 
 void Tab::SystemPageClicked() {
   Window::OnPageClicked(id_);
+}
+
+void Tab::SystemPageOutputRestricted() {
+  // Once a site, as pages ask for keys again at every play.
+  if (!system_page_ || output_restricted_at_.is_valid() || !Host().tab_media_unsupported) {
+    return;
+  }
+  output_restricted_at_ = system_page_->url();
+  // Logged, as no check can make a display's connection fall short.
+  fprintf(stderr, "browser: tab %llu output restricted\n", static_cast<unsigned long long>(id_));
+  Host().tab_media_unsupported(Host().context, id_, "output-restricted");
+}
+
+void Tab::ForgetOutputRestricted(const GURL& url) {
+  if (!output_restricted_at_.is_valid() ||
+      net::registry_controlled_domains::SameDomainOrHost(
+          url, output_restricted_at_,
+          net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES)) {
+    return;
+  }
+  output_restricted_at_ = GURL();
+  if (Host().tab_media_unsupported) {
+    Host().tab_media_unsupported(Host().context, id_, "");
+  }
 }
 
 bool Tab::muted() const {

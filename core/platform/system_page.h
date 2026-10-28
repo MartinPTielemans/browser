@@ -71,6 +71,9 @@ class SystemPage {
                                bool editing) = 0;
     // A click in the page.
     virtual void SystemPageClicked() = 0;
+    // The page's protected video is kept off the screen: the display connection's protection
+    // (HDCP) isn't enough for a key it has. The page says so, so the page can say it falsely.
+    virtual void SystemPageOutputRestricted() = 0;
 
    protected:
     virtual ~Delegate() = default;
