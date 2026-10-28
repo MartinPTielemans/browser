@@ -213,7 +213,7 @@ expect "^browser: menu shown In Every Space, In Each Profile's Spaces (checked),
   "a click on Favorites didn't show the choices, with Each Profile's Spaces chosen"
 send choose In Each Space
 expect "^browser: favorites scope In Each Space\$" "choosing In Each Space in Settings didn't set it"
-send clickkey 430 60
+send clickkey 464 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics off$' "a click on the haptics switch didn't turn them off"
@@ -467,7 +467,7 @@ expect "^browser: menu shown In Every Space, In Each Profile's Spaces, In Each S
   "Settings didn't keep Each Space across the quit"
 send choose "In Each Profile's Spaces"
 expect "^browser: favorites scope In Each Profile's Spaces\$" "choosing Each Profile's Spaces didn't set it"
-send clickkey 430 60
+send clickkey 464 60
 expect '^browser: settings tab Advanced$' "a click on Advanced didn't show its tab"
 send clickkey 592 126
 expect '^browser: haptics on$' "Settings didn't keep the haptics off across the quit"

@@ -135,6 +135,9 @@ pub trait Browser {
     fn show_page_dialog(&self, shown: Option<ShownPageDialog>, cx: &mut App);
     /// Answers the dialog `id` of `tab`'s page (Shell::set_page_dialog), if it still asks.
     fn answer_page_dialog(&self, tab: u64, id: u64, reply: PageReply, cx: &mut App);
+    /// Brings back the tab's offer to save or update its login, closed by showing another tab, as
+    /// its key does. The user's alone: agents get no path to it.
+    fn show_offer(&self, _tab: u64) {}
     fn stop(&self, tab: u64, cx: &mut App);
     /// Zooms the tab's page in (1), out (-1) or to 100 % (0), for its site.
     fn zoom(&self, tab: u64, step: i32, cx: &mut App);
@@ -401,6 +404,8 @@ pub trait Browser {
     fn settings(&self, cx: &mut App);
     /// Opens the Settings window on its Shortcuts tab.
     fn shortcuts(&self, cx: &mut App);
+    /// Opens the Settings window on its Passwords tab, with the logins of `space`'s profile.
+    fn passwords(&self, space: u64, cx: &mut App);
     /// Selects the tab's next match, or the one before, opening its find bar if it's closed.
     fn find_next(&self, tab: u64, forward: bool, cx: &mut App);
     /// Scrolls the tab's page to put its selection in the middle.
