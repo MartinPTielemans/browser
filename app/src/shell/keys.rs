@@ -166,6 +166,12 @@ fn pressed_off_the_mac(key: &str) -> Vec<String> {
 /// Mac's menus and Chrome's have them: Hebrew's ⌘ on the key it types "א" with is ⌘T, and on the
 /// one it types "'" with is ⌘W, though that's ASCII.
 pub fn page_keystroke(key: &str, latin_key: &str, modifiers: u32) -> String {
+    written_as(&pressed_in_page(key, latin_key, modifiers, OFF_THE_MAC))
+}
+
+/// The key the page had, as the platform names it: by `latin_key` with the platform's ⌘ held,
+/// which off the Mac is Ctrl, as Chrome's shortcuts there take a key by its place on the US layout.
+fn pressed_in_page(key: &str, latin_key: &str, modifiers: u32, off_the_mac: bool) -> String {
     use crate::bc;
     let mut keystroke = String::new();
     for (flag, modifier) in [
@@ -178,8 +184,11 @@ pub fn page_keystroke(key: &str, latin_key: &str, modifiers: u32) -> String {
             keystroke.push_str(modifier);
         }
     }
-    let command = modifiers & bc::BC_MODIFIER_META != 0;
-    let name = if command && !latin_key.is_empty() { latin_key } else { key };
+    let command = match off_the_mac {
+        true => bc::BC_MODIFIER_CONTROL,
+        false => bc::BC_MODIFIER_META,
+    };
+    let name = if modifiers & command != 0 && !latin_key.is_empty() { latin_key } else { key };
     let name = match name {
         "ArrowDown" => "down".to_string(),
         "ArrowUp" => "up".to_string(),
@@ -188,7 +197,7 @@ pub fn page_keystroke(key: &str, latin_key: &str, modifiers: u32) -> String {
         " " => "space".to_string(),
         name => name.to_lowercase(),
     };
-    written_as(&(keystroke + &name))
+    keystroke + &name
 }
 
 /// The key `keystroke`, as this platform names it, as SHORTCUTS writes it: cmd-t for ctrl-t and
@@ -583,6 +592,31 @@ mod tests {
         assert_eq!(page_keystroke("ArrowLeft", "", BC_MODIFIER_META), "cmd-left");
         // Without ⌘ the layout's own character stays.
         assert_eq!(page_keystroke("א", "t", BC_MODIFIER_CONTROL), "ctrl-א");
+    }
+
+    /// Off the Mac, Ctrl's shortcuts with the page focused are the keys' on the US layout, which
+    /// the core reads from Windows' virtual key, on Russian, Hebrew, Arabic and Armenian: Ctrl and
+    /// the key Russian types "е" with is Ctrl+T. Alt alone keeps the layout's character, as ⌃
+    /// does on the Mac.
+    #[test]
+    fn ctrl_keys_on_a_layout_that_isnt_latin_are_the_us_layouts_off_the_mac() {
+        use crate::bc::{BC_MODIFIER_ALT, BC_MODIFIER_CONTROL, BC_MODIFIER_SHIFT};
+        let pressed = |key, latin, modifiers| {
+            written_off_the_mac(&pressed_in_page(key, latin, modifiers, true))
+        };
+        let ran = |key, latin, reserved| {
+            DEFAULTS.command_for(&pressed(key, latin, BC_MODIFIER_CONTROL), reserved)
+        };
+        assert_eq!(ran("е", "t", true), Some(Command::NewTab));
+        assert_eq!(ran("'", "w", true), Some(Command::CloseTab));
+        assert_eq!(ran("ل", "l", false), Some(Command::EditUrl));
+        assert_eq!(ran("ֆ", "f", false), Some(Command::Find));
+        assert_eq!(ran("ת", ",", false), ran(",", "", false));
+        let shifted = BC_MODIFIER_CONTROL | BC_MODIFIER_SHIFT;
+        assert_eq!(pressed("Е", "T", shifted), pressed("T", "", shifted));
+        assert_eq!(pressed("е", "t", BC_MODIFIER_ALT), "ctrl-е");
+        // ⌘ is Ctrl there, so the Mac's ⌘ the core names isn't one.
+        assert_eq!(pressed_in_page("е", "t", crate::bc::BC_MODIFIER_META, true), "cmd-е");
     }
 
     /// A rebound key runs its command, and the key it had runs nothing.

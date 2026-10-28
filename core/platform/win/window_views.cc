@@ -7,14 +7,18 @@
 #include <utility>
 #include <vector>
 
+#include "base/auto_reset.h"
 #include "base/functional/callback.h"
 #include "base/memory/raw_ptr.h"
 #include "base/no_destructor.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/scoped_observation.h"
+#include "ui/aura/client/focus_change_observer.h"
 #include "ui/aura/client/focus_client.h"
 #include "ui/aura/window.h"
 #include "ui/aura/window_tracker.h"
+#include "ui/base/ime/input_method.h"
+#include "ui/base/win/hwnd_subclass.h"
 #include "ui/display/win/screen_win.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/rect.h"
@@ -32,9 +36,96 @@ namespace browser_core::platform {
 
 namespace {
 
+// Gives a slot's HWND the keyboard while a page in it has aura's focus, and takes the page's focus
+// as the HWND loses it. Windows sends keys and the input method's messages only to the focused
+// HWND, and Chromium focuses a child widget's HWND, and tells its input method, only as a
+// top-level window activates, which a child never does.
+class PaneKeyboard : public aura::client::FocusChangeObserver,
+                     public ui::HWNDMessageFilter,
+                     public views::WidgetObserver {
+ public:
+  explicit PaneKeyboard(views::Widget* widget)
+      : widget_(widget),
+        hwnd_(views::HWNDForWidget(widget)),
+        client_(aura::client::GetFocusClient(widget->GetNativeView())) {
+    if (client_) {
+      client_->AddObserver(this);
+    }
+    ui::HWNDSubclass::AddFilterToTarget(hwnd_, this);
+    observation_.Observe(widget);
+  }
+
+  ~PaneKeyboard() override { Stop(); }
+
+  // aura::client::FocusChangeObserver: heard before the page's view, so its input method finds the
+  // HWND focused, which it needs to take the input method's text. Not while another of the app's
+  // windows is in front, such as the command bar.
+  void OnWindowFocused(aura::Window* gained_focus, aura::Window*) override {
+    if (gained_focus && GetFocus() != hwnd_ && GetActiveWindow() == GetAncestor(hwnd_, GA_ROOT)) {
+      base::AutoReset<bool> taking(&taking_, true);
+      SetFocus(hwnd_);
+    }
+  }
+
+  // ui::HWNDMessageFilter:
+  bool FilterMessage(HWND, UINT message, WPARAM w_param, LPARAM, LRESULT*) override {
+    ui::InputMethod* input_method = widget_->GetInputMethod();
+    if (message == WM_SETFOCUS) {
+      if (input_method) {
+        input_method->OnFocus();
+      }
+      // A page focused while another window was in front hears again, to take the input method.
+      aura::Window* focused = client_ && !taking_ ? client_->GetFocusedWindow() : nullptr;
+      if (focused) {
+        aura::WindowTracker tracker;
+        tracker.Add(focused);
+        client_->FocusWindow(nullptr);
+        if (tracker.Contains(focused)) {
+          client_->FocusWindow(focused);
+        }
+      }
+    } else if (message == WM_KILLFOCUS) {
+      HWND to = reinterpret_cast<HWND>(w_param);
+      if (to && IsChild(hwnd_, to)) {
+        return false;
+      }
+      if (input_method) {
+        input_method->OnBlur();
+      }
+      // The page blurs with its HWND, as a page view does on the Mac as another takes the
+      // keyboard, so focusing the page again reaches here and gives the HWND the keyboard back.
+      if (client_) {
+        client_->FocusWindow(nullptr);
+      }
+    }
+    return false;
+  }
+
+  // views::WidgetObserver:
+  void OnWidgetDestroying(views::Widget*) override { Stop(); }
+
+ private:
+  void Stop() {
+    if (client_) {
+      client_->RemoveObserver(this);
+      client_ = nullptr;
+    }
+    ui::HWNDSubclass::RemoveFilterFromAllTargets(this);
+    observation_.Reset();
+  }
+
+  raw_ptr<views::Widget> widget_;
+  HWND hwnd_;
+  raw_ptr<aura::client::FocusClient> client_;
+  bool taking_ = false;
+  base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
+};
+
 // A child widget, one HWND, holding one pane's page and its docked DevTools, or the side panel.
 struct Slot {
   std::unique_ptr<views::Widget> widget;
+  // After the widget, so it goes first.
+  std::unique_ptr<PaneKeyboard> keyboard;
   raw_ptr<aura::Window> page = nullptr;
   raw_ptr<aura::Window> devtools = nullptr;
   // From each edge of the window's content to the slot's, kept as the window resizes.
@@ -45,11 +136,14 @@ struct Slot {
   bool bottom_corners_only = false;
 };
 
-class WindowViews : public views::WidgetObserver {
+class WindowViews : public views::WidgetObserver, public ui::HWNDMessageFilter {
  public:
   WindowViews(views::Widget* widget, HWND ui) : widget_(widget), ui_(ui) {
     observation_.Observe(widget);
+    ui::HWNDSubclass::AddFilterToTarget(window(), this);
   }
+
+  ~WindowViews() override { ui::HWNDSubclass::RemoveFilterFromAllTargets(this); }
 
   HWND window() const { return views::HWNDForWidget(widget_); }
   HWND ui() const { return ui_; }
@@ -69,6 +163,7 @@ class WindowViews : public views::WidgetObserver {
       params.native_widget = new views::DesktopNativeWidgetAura(slot.widget.get());
       params.name = "BrowserCorePane";
       slot.widget->Init(std::move(params));
+      slot.keyboard = std::make_unique<PaneKeyboard>(slot.widget.get());
     }
     return slot.widget.get();
   }
@@ -159,6 +254,26 @@ class WindowViews : public views::WidgetObserver {
     panes_.clear();
     side_panel_ = Slot();
     observation_.Reset();
+    ui::HWNDSubclass::RemoveFilterFromAllTargets(this);
+  }
+
+  // ui::HWNDMessageFilter: Windows gives a window coming back to the front the keyboard itself, not
+  // the child that had it, a page's or the UI's, so it goes back to that child, as AppKit gives it
+  // back to the view that had it. Only from another window: the core gives the window the keyboard
+  // to take it from both (ReleaseKeyboard).
+  bool FilterMessage(HWND hwnd, UINT message, WPARAM w_param, LPARAM, LRESULT*) override {
+    if (message == WM_ACTIVATE && LOWORD(w_param) == WA_INACTIVE) {
+      HWND focus = GetFocus();
+      had_keyboard_ = focus && IsChild(hwnd, focus) ? focus : nullptr;
+    } else if (message == WM_SETFOCUS) {
+      HWND from = reinterpret_cast<HWND>(w_param);
+      HWND had = std::exchange(had_keyboard_, nullptr);
+      if (had && from != hwnd && !(from && IsChild(hwnd, from)) && IsChild(hwnd, had) &&
+          IsWindowVisible(had)) {
+        SetFocus(had);
+      }
+    }
+    return false;
   }
 
  private:
@@ -167,6 +282,7 @@ class WindowViews : public views::WidgetObserver {
   std::vector<Slot> panes_;
   Slot side_panel_;
   double corner_radius_ = 0;
+  HWND had_keyboard_ = nullptr;
   base::ScopedObservation<views::Widget, views::WidgetObserver> observation_{this};
 };
 

@@ -1,8 +1,8 @@
 diff --git a/crates/gpui_windows/src/events.rs b/crates/gpui_windows/src/events.rs
-index 08f91bd626..823cb8e731 100644
+index 08f91bd626..45a77e4727 100644
 --- a/crates/gpui_windows/src/events.rs
 +++ b/crates/gpui_windows/src/events.rs
-@@ -146,6 +146,11 @@ impl WindowsWindowInner {
+@@ -146,11 +146,18 @@ impl WindowsWindowInner {
              }
              WM_MOUSEWHEEL => self.handle_mouse_wheel_msg(handle, wparam, lparam),
              WM_MOUSEHWHEEL => self.handle_mouse_horizontal_wheel_msg(handle, wparam, lparam),
@@ -14,7 +14,14 @@ index 08f91bd626..823cb8e731 100644
              WM_SYSKEYUP => self.handle_syskeyup_msg(wparam, lparam),
              WM_KEYUP => self.handle_keyup_msg(wparam, lparam),
              WM_CHAR => self.handle_char_msg(wparam),
-@@ -439,6 +444,28 @@ impl WindowsWindowInner {
+             WM_IME_STARTCOMPOSITION => self.handle_ime_position(handle),
+             WM_IME_COMPOSITION => self.handle_ime_composition(handle, lparam),
++            WM_IME_ENDCOMPOSITION => self.handle_ime_end_composition(),
++            WM_KILLFOCUS => self.handle_kill_focus_msg(handle),
+             WM_SETCURSOR => self.handle_set_cursor(handle, lparam),
+             WM_SETTINGCHANGE => self.handle_system_settings_changed(handle, wparam, lparam),
+             WM_INPUTLANGCHANGE => self.handle_input_language_changed(),
+@@ -439,6 +446,31 @@ impl WindowsWindowInner {
          if handled { Some(0) } else { Some(1) }
      }
  
@@ -27,6 +34,9 @@ index 08f91bd626..823cb8e731 100644
 +        wparam: WPARAM,
 +        lparam: LPARAM,
 +    ) -> Option<isize> {
++        if self.handle_input_mode_key(handle, wparam) {
++            return Some(0);
++        }
 +        if self.handle_keydown_msg(wparam, lparam) != Some(0) {
 +            return None;
 +        }
@@ -43,6 +53,79 @@ index 08f91bd626..823cb8e731 100644
      fn handle_keyup_msg(&self, wparam: WPARAM, lparam: LPARAM) -> Option<isize> {
          let Some(input) = handle_key_event(wparam, lparam, &self.state, |keystroke, _| {
              PlatformInput::KeyUp(KeyUpEvent { keystroke })
+@@ -710,6 +742,72 @@ impl WindowsWindowInner {
+         }
+     }
+ 
++    /// The JIS keyboard's 英数 and かな keys, and the IME on and off keys, switch the input mode
++    /// while no field has the keyboard too, as on the Mac, where the input source is the system's.
++    /// A field's input method handles them itself.
++    fn handle_input_mode_key(&self, handle: HWND, wparam: WPARAM) -> bool {
++        let open = match VIRTUAL_KEY(wparam.loword()) {
++            VK_DBE_ALPHANUMERIC | VK_IME_OFF => false,
++            VK_DBE_HIRAGANA | VK_IME_ON => true,
++            _ => return false,
++        };
++        if self.state.ime_enabled.get() {
++            return false;
++        }
++        unsafe {
++            // Without a field the window has no input context, so it takes the thread's, which a
++            // field takes as it's focused, for the change.
++            ImmAssociateContextEx(handle, HIMC::default(), IACE_DEFAULT)
++                .ok()
++                .log_err();
++            if let Some(ctx) = ImeContext::get(handle) {
++                ImmSetOpenStatus(*ctx, open).ok().log_err();
++                let mut mode = IME_CONVERSION_MODE::default();
++                let mut sentence = IME_SENTENCE_MODE::default();
++                if open
++                    && ImmGetConversionStatus(*ctx, Some(&mut mode), Some(&mut sentence)).as_bool()
++                {
++                    let hiragana = (mode.0 | IME_CMODE_NATIVE.0 | IME_CMODE_FULLSHAPE.0)
++                        & !IME_CMODE_KATAKANA.0;
++                    ImmSetConversionStatus(*ctx, IME_CONVERSION_MODE(hiragana), sentence)
++                        .ok()
++                        .log_err();
++                }
++            }
++            ImmAssociateContextEx(handle, HIMC::default(), 0)
++                .ok()
++                .log_err();
++        }
++        true
++    }
++
++    /// An input method that ends its composition without a result, as one cancelled by Esc can,
++    /// leaves nothing marked, as Chromium's fields do.
++    fn handle_ime_end_composition(&self) -> Option<isize> {
++        self.with_input_handler(|input_handler| {
++            if input_handler.marked_text_range().is_some() {
++                input_handler.replace_text_in_range(None, "");
++            }
++        });
++        None
++    }
++
++    /// The keyboard leaving the window commits what the input method composes, as Chromium's
++    /// fields and AppKit's do, so the text the user saw stays.
++    fn handle_kill_focus_msg(&self, handle: HWND) -> Option<isize> {
++        if let Some(ctx) = ImeContext::get(handle) {
++            unsafe {
++                let _ = ImmNotifyIME(*ctx, NI_COMPOSITIONSTR, CPS_COMPLETE, 0);
++            }
++        }
++        self.with_input_handler(|input_handler| {
++            if input_handler.marked_text_range().is_some() {
++                input_handler.unmark_text();
++            }
++        });
++        None
++    }
++
+     fn handle_ime_composition(&self, handle: HWND, lparam: LPARAM) -> Option<isize> {
+         let ctx = ImeContext::get(handle)?;
+         self.handle_ime_composition_inner(*ctx, lparam)
 diff --git a/crates/gpui_windows/src/gpui_windows.rs b/crates/gpui_windows/src/gpui_windows.rs
 index e7a45a034d..0f2c31b687 100644
 --- a/crates/gpui_windows/src/gpui_windows.rs
@@ -57,6 +140,125 @@ index e7a45a034d..0f2c31b687 100644
  pub(crate) use clipboard::*;
  pub(crate) use destination_list::*;
  pub(crate) use direct_write::*;
+diff --git a/crates/gpui_windows/src/keyboard.rs b/crates/gpui_windows/src/keyboard.rs
+index 8164bc1564..ed7d01d6c4 100644
+--- a/crates/gpui_windows/src/keyboard.rs
++++ b/crates/gpui_windows/src/keyboard.rs
+@@ -3,9 +3,10 @@ use collections::HashMap;
+ use windows::Win32::UI::{
+     Input::KeyboardAndMouse::{
+         GetKeyboardLayoutNameW, MAPVK_VK_TO_CHAR, MAPVK_VK_TO_VSC, MapVirtualKeyW, ToUnicode,
+-        VIRTUAL_KEY, VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9, VK_ABNT_C1,
++        VIRTUAL_KEY, VK_0, VK_1, VK_2, VK_3, VK_4, VK_5, VK_6, VK_7, VK_8, VK_9, VK_A, VK_ABNT_C1,
+         VK_CONTROL, VK_MENU, VK_OEM_1, VK_OEM_2, VK_OEM_3, VK_OEM_4, VK_OEM_5, VK_OEM_6, VK_OEM_7,
+         VK_OEM_8, VK_OEM_102, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD, VK_OEM_PLUS, VK_SHIFT,
++        VK_Z,
+     },
+     WindowsAndMessaging::KL_NAMELENGTH,
+ };
+@@ -150,6 +151,9 @@ pub(crate) fn get_keystroke_key(
+     scan_code: u32,
+     modifiers: &mut Modifiers,
+ ) -> Option<String> {
++    if let Some(key) = shortcut_key(vkey, get_key_from_vkey(vkey).as_deref(), modifiers) {
++        return Some(key);
++    }
+     if modifiers.shift && need_to_convert_to_shifted_key(vkey) {
+         get_shifted_key(vkey, scan_code).inspect(|_| {
+             modifiers.shift = false;
+@@ -159,6 +163,49 @@ pub(crate) fn get_keystroke_key(
+     }
+ }
+ 
++/// A shortcut's key, held with Ctrl, Alt or the Windows key, by its place on the US layout where
++/// the layout's own character isn't ASCII, as on Russian, Hebrew, Arabic or Armenian, as Chrome's
++/// shortcuts on Windows match by the virtual key: Ctrl and the key Russian types "е" with is
++/// Ctrl+T. A letter is always its virtual key's, which a Latin layout types too. Shift stays, as
++/// a binding naming a key the layout doesn't type stays as written. AltGr, Ctrl and Alt, keeps a
++/// key that isn't a letter as it is, since it's typing the layout's character.
++fn shortcut_key(vkey: VIRTUAL_KEY, typed: Option<&str>, modifiers: &Modifiers) -> Option<String> {
++    if !(modifiers.control || modifiers.alt || modifiers.platform) {
++        return None;
++    }
++    if (VK_A.0..=VK_Z.0).contains(&vkey.0) {
++        return Some(char::from(vkey.0 as u8).to_ascii_lowercase().to_string());
++    }
++    if (modifiers.control && modifiers.alt) || typed.is_some_and(|typed| typed.is_ascii()) {
++        return None;
++    }
++    let key = match vkey {
++        VK_0 => "0",
++        VK_1 => "1",
++        VK_2 => "2",
++        VK_3 => "3",
++        VK_4 => "4",
++        VK_5 => "5",
++        VK_6 => "6",
++        VK_7 => "7",
++        VK_8 => "8",
++        VK_9 => "9",
++        VK_OEM_1 => ";",
++        VK_OEM_PLUS => "=",
++        VK_OEM_COMMA => ",",
++        VK_OEM_MINUS => "-",
++        VK_OEM_PERIOD => ".",
++        VK_OEM_2 => "/",
++        VK_OEM_3 => "`",
++        VK_OEM_4 => "[",
++        VK_OEM_5 => "\\",
++        VK_OEM_6 => "]",
++        VK_OEM_7 => "'",
++        _ => return None,
++    };
++    Some(key.to_string())
++}
++
+ fn get_key_from_vkey(vkey: VIRTUAL_KEY) -> Option<String> {
+     let key_data = unsafe { MapVirtualKeyW(vkey.0 as u32, MAPVK_VK_TO_CHAR) };
+     if key_data == 0 {
+@@ -318,6 +365,42 @@ const CANDIDATE_VKEYS: &[VIRTUAL_KEY] = &[
+ mod tests {
+     use crate::WindowsKeyboardMapper;
+     use gpui::{Keystroke, Modifiers, PlatformKeyboardMapper};
++    use windows::Win32::UI::Input::KeyboardAndMouse::{
++        VK_1, VK_OEM_2, VK_OEM_6, VK_OEM_COMMA, VK_T, VK_W,
++    };
++
++    #[test]
++    fn shortcut_keys_are_the_us_layouts_where_the_layout_types_outside_ascii() {
++        use super::shortcut_key;
++        let control = Modifiers::control();
++        // Russian's "е", Hebrew's "'" and Arabic's "و" on the T, W and comma keys.
++        assert_eq!(
++            shortcut_key(VK_T, Some("е"), &control).as_deref(),
++            Some("t")
++        );
++        assert_eq!(
++            shortcut_key(VK_W, Some("'"), &control).as_deref(),
++            Some("w")
++        );
++        assert_eq!(
++            shortcut_key(VK_OEM_COMMA, Some("و"), &control).as_deref(),
++            Some(",")
++        );
++        assert_eq!(
++            shortcut_key(VK_OEM_6, Some("ъ"), &Modifiers::control_shift()).as_deref(),
++            Some("]")
++        );
++        // A layout's ASCII stays its own, as do keys typed without a shortcut's modifier, and AltGr.
++        assert_eq!(shortcut_key(VK_OEM_2, Some("."), &control), None);
++        assert_eq!(shortcut_key(VK_1, Some("&"), &control), None);
++        assert_eq!(shortcut_key(VK_T, Some("е"), &Modifiers::none()), None);
++        let alt_gr = Modifiers {
++            control: true,
++            alt: true,
++            ..Modifiers::default()
++        };
++        assert_eq!(shortcut_key(VK_OEM_6, Some("ъ"), &alt_gr), None);
++    }
+ 
+     #[test]
+     fn test_keyboard_mapper() {
 diff --git a/crates/gpui_windows/src/platform.rs b/crates/gpui_windows/src/platform.rs
 index 095e009e23..32e8217aad 100644
 --- a/crates/gpui_windows/src/platform.rs

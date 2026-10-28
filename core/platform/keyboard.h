@@ -15,7 +15,8 @@ namespace browser_core::platform {
 // is one that isn't Latin, such as Hebrew, Arabic or Armenian: "t" for the key Hebrew types "א"
 // with. The Mac's menus match ⌘ shortcuts by it, and Chromium's characters keep the layout's own,
 // even its ASCII ones, as Hebrew's "/" on the Q key. Empty on a Latin layout, for a key that types
-// nothing there, and on platforms without such layouts.
+// nothing there, and on platforms without such layouts. On Windows it's the key's place on the US
+// layout, on every layout, as Chrome's Ctrl shortcuts there match by the virtual key.
 std::string LatinKey(const input::NativeWebKeyboardEvent& event);
 
 }  // namespace browser_core::platform
