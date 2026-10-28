@@ -157,6 +157,21 @@ impl Browser for Core {
     fn ask(&self, question: Option<Question>, cx: &mut App) {
         crate::update_shells_in(cx, |shell, cx| shell.set_agent_question(question.clone(), cx));
     }
+
+    fn hand_off(&self, agent: &str, tab: u64) -> bool {
+        let Ok(agent) = CString::new(agent) else {
+            return false;
+        };
+        call(|| unsafe { bc::bc_agent_hand_off(agent.as_ptr(), tab) })
+    }
+
+    fn take_back(&self, tab: u64, _: &mut App) {
+        unsafe { bc::bc_tab_take_back(tab) };
+    }
+
+    fn hand_back(&self, tab: u64) -> bool {
+        unsafe { bc::bc_tab_hand_back(tab) }
+    }
 }
 
 /// The tabs `copy` copies of `space`, as bc_space_today does.
@@ -195,6 +210,12 @@ pub fn start(cx: &mut App) {
     );
     let made = cx.new(|_| made);
     cx.set_global(GlobalAgents(made.clone()));
+    // The bar in an agent's Space follows what it does, and what the user holds from it.
+    cx.observe(&made, |agents, cx| {
+        let status = agents.read(cx).status();
+        crate::update_shells_in(cx, |shell, cx| shell.set_agent_status(status.clone(), cx));
+    })
+    .detach();
     cx.spawn(async move |cx| {
         let read = cx.background_spawn(async { std::fs::read_to_string(path()) });
         if let Ok(saved) = read.await {

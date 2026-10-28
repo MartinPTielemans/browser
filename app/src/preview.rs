@@ -732,6 +732,12 @@ impl Browser for Fake {
 
     fn disconnect_agent(&self, _: u64, _: &mut App) {}
 
+    fn take_over(&self, _: SharedString, _: u64, _: &mut App) {}
+
+    fn hand_back(&self, _: u64, _: &mut App) {}
+
+    fn stop_agent(&self, _: SharedString, _: &mut App) {}
+
     fn shortcuts(&self, _: &mut App) {}
 
     // Each made-up Space shows its top tab.
@@ -1301,6 +1307,28 @@ fn main() {
                 if agent.is_some() {
                     shell.set_space(first_space + 1, cx);
                     shell.agent_acted("claude-code".into(), reading[2], cx);
+                    // =handoff has it hand its fourth tab to the user, shown, for a sign-in.
+                    let handoff = agent.as_deref() == Some("handoff");
+                    let why: SharedString = "Sign in to finish the order".into();
+                    let held = if handoff { vec![(reading[3], why.clone())] } else { Vec::new() };
+                    let status = browser::agents::Status {
+                        agent: "claude-code".into(),
+                        space: first_space + 1,
+                        doing: "Clicked · en.wikipedia.org".into(),
+                        held,
+                    };
+                    shell.set_agent_status(vec![status], cx);
+                    if handoff {
+                        shell.set_selected(reading[3], cx);
+                        let question = browser::agents::Question {
+                            id: 1,
+                            agent: "Claude Code".into(),
+                            what: "hand you a tab".into(),
+                            why,
+                            handoff: Some(reading[3]),
+                        };
+                        shell.set_agent_question(Some(question), cx);
+                    }
                 }
                 let favorite = std::env::var("PREVIEW_FAVORITE").ok().and_then(|n| n.parse().ok());
                 match (empty.as_deref(), favorite.and_then(|n: usize| favorites.get(n))) {
