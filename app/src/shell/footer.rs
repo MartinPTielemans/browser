@@ -71,11 +71,16 @@ impl Shell {
                             })
                             .into_any_element()
                     }
-                    // In the dot's colours.
+                    // The Space shown's in its accent, as its dot is in its colour, or the ink
+                    // without one; the others' in the dots' greys.
                     SpaceIcon::Glyph(index) => svg()
                         .path(GLYPHS[index].1)
                         .size(px(SPACE_GLYPH))
-                        .text_color(self.palette.glyph(if shown { SPACE_SHOWN } else { SPACE_OTHER }))
+                        .text_color(match (shown, self.space_theme(id).is_some()) {
+                            (true, true) => self.palette_of(id).accent.into(),
+                            (true, false) => self.palette.glyph(1.),
+                            (false, _) => self.palette.glyph(SPACE_OTHER),
+                        })
                         .when(!shown, |glyph| {
                             glyph.group_hover("space", |style| {
                                 style.text_color(self.palette.glyph(SPACE_HOVERED))
