@@ -51,6 +51,8 @@ config("app_calls") {
 source_set("browser_core") {
   configs += [ ":app_calls" ]
   sources = [
+    "agent_autofill.cc",
+    "agent_autofill.h",
     "agent_page.cc",
     "agent_page.h",
     "agent_session.cc",
@@ -204,6 +206,8 @@ source_set("browser_core") {
     "//components/keep_alive_registry",
     "//components/omnibox/browser",
     "//components/page_info",
+    "//components/password_manager/content/browser",
+    "//components/password_manager/core/browser",
     "//components/password_manager/core/browser:password_form",
     "//components/password_manager/core/common",
     "//components/performance_manager",

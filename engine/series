@@ -33,3 +33,4 @@ ours/chromium-core-native-host-fallback.patch
 ours/chromium-xcode-build-define.patch
 ours/chromium-core-login-dialog.patch
 ours/chromium-core-external-protocol-dialog.patch
+ours/chromium-core-agent-no-autofill.patch
