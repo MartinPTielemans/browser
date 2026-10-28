@@ -1,16 +1,16 @@
-# Settings › Import finds the made-up Arc in src/import/fixture and a made-up Chrome beside it,
-# never the Mac's own browsers. From Arc it brings its two Spaces, one in a new profile named Work
-# as Arc's Local State names it, their pinned tabs and folders, and its favorites; from Chrome its
-# bookmarks as a Space named Chrome and its history, which the core adds. Run again, each adds
-# nothing. Each step is captured.
+# Settings › Import finds the made-up Arc in src/import/fixture and a made-up Chrome and Firefox
+# beside it, never the Mac's own browsers. From Arc it brings its two Spaces, one in a new profile
+# named Work as Arc's Local State names it, their pinned tabs and folders, and its favorites; from
+# Chrome and from Firefox their bookmarks as a Space named after each and their history, which the
+# core adds. Run again, each adds nothing. Each step is captured.
 
 serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
 log="$out/import.log"
 step=0
 rm -f "$saved"
-# A copy of the fixture's home, with Chrome's History written as SQLite here rather than kept in
-# the repo as a binary file.
+# A copy of the fixture's home, with Chrome's History and Firefox's places.sqlite written as SQLite
+# here rather than kept in the repo as binary files.
 home="$out/import-home"
 rm -rf "$home"
 cp -R src/import/fixture "$home"
@@ -37,8 +37,31 @@ sqlite3 "$chrome/Default/History" "
   INSERT INTO urls(url, title, visit_count, typed_count, last_visit_time) VALUES
     ('https://history-one.example.org/', 'One', 3, 1, $now - 3600000000),
     ('https://history-two.example.org/', 'Two', 1, 0, $now - 7200000000);"
-# Arc used last, so it's listed first.
+firefox="$home/Library/Application Support/Firefox"
+mkdir -p "$firefox/Profiles/x.default-release"
+printf '[Profile0]\nName=default-release\nIsRelative=1\nPath=Profiles/x.default-release\n' \
+  > "$firefox/profiles.ini"
+# Firefox counts microseconds from 1970: its two bookmarks never visited, two pages visited an hour
+# and two hours ago.
+now=$(( $(date +%s) * 1000000 ))
+sqlite3 "$firefox/Profiles/x.default-release/places.sqlite" "
+  CREATE TABLE moz_places(id INTEGER PRIMARY KEY, url LONGVARCHAR, title LONGVARCHAR,
+    visit_count INTEGER DEFAULT 0, hidden INTEGER DEFAULT 0 NOT NULL,
+    typed INTEGER DEFAULT 0 NOT NULL, last_visit_date INTEGER, guid TEXT);
+  CREATE TABLE moz_bookmarks(id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER DEFAULT NULL,
+    parent INTEGER, position INTEGER, title LONGVARCHAR, guid TEXT);
+  INSERT INTO moz_places(id, url, title, visit_count, last_visit_date) VALUES
+    (1, 'https://fox-mail.example.org/', 'Mail', 0, NULL),
+    (2, 'https://fox-docs.example.org/', 'Docs', 0, NULL),
+    (3, 'https://history-three.example.org/', 'Three', 2, $now - 3600000000),
+    (4, 'https://history-four.example.org/', 'Four', 1, $now - 7200000000);
+  INSERT INTO moz_bookmarks(id, type, fk, parent, position, title, guid) VALUES
+    (1, 2, NULL, NULL, 0, '', 'root________'), (2, 2, NULL, 1, 0, 'menu', 'menu________'),
+    (3, 2, NULL, 1, 1, 'toolbar', 'toolbar_____'), (4, 1, 1, 3, 0, 'Mail', NULL),
+    (5, 1, 2, 2, 0, 'Docs', NULL);"
+# Arc used last, so it's listed first, then Chrome, then Firefox.
 touch -t 200001010000 "$chrome/Default/History" "$chrome/Default/Preferences"
+touch -t 199901010000 "$firefox/Profiles/x.default-release/places.sqlite"
 touch "$home/Library/Application Support/Arc/StorableSidebar.json"
 BROWSER_IMPORT_HOME="$home" BROWSER_DRIVE=1 BROWSER_URL="${site}import.html" \
   "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
@@ -61,7 +84,8 @@ send menu Settings…
 expect '^browser: settings shown ' "Settings… didn't show Settings"
 send clickkey 370 60
 expect '^browser: settings tab Import$' "a click on Import didn't show its tab"
-expect '^browser: import found Arc, Chrome$' "the import didn't find the fixture's Arc and Chrome, and only them"
+expect '^browser: import found Arc, Chrome, Firefox$' \
+  "the import didn't find the fixture's Arc, Chrome and Firefox, and only them"
 ../tools/window-screenshot.sh "$pid" "$out/import-list.png" || fail "no window to capture"
 send clickkey 575 134
 expect '^browser: import pick Arc$' "Import… on Arc's row didn't show what comes from it"
@@ -108,6 +132,24 @@ send clickkey 588 231
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Chrome's pages again"
 expect '^browser: import done: Everything from Chrome is here already\.$' \
   "the second import from Chrome said it added something"
+# Firefox, the third row, brings its toolbar's bookmark, its menu's in a folder, and its history.
+send clickkey 590 145
+send clickkey 575 236
+expect '^browser: import pick Firefox$' "Import… on Firefox's row didn't show what comes from it"
+send clickkey 588 231
+expect '^browser: import from Firefox: 1 Spaces, 2 pinned tabs, 0 favorites, 2 pages$' \
+  "Import didn't plan Firefox's bookmarks and history"
+await '^browser: history added 2 to profile [0-9]*$' || fail "the core didn't add Firefox's 2 pages"
+expect '^browser: import done: 1 Space, 2 pinned tabs and 2 pages of history came in from Firefox\.$' \
+  "the import didn't say what came from Firefox"
+../tools/window-screenshot.sh "$pid" "$out/import-firefox.png" || fail "no window to capture"
+send clickkey 590 145
+send clickkey 575 236
+expect '^browser: import pick Firefox$' "Import… didn't show Firefox's choices again"
+send clickkey 588 231
+await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Firefox's pages again"
+expect '^browser: import done: Everything from Firefox is here already\.$' \
+  "the second import from Firefox said it added something"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 # The Personal Space shows its pinned tabs: HN, then Reading with a, b and c and Deep with d.
@@ -117,8 +159,9 @@ expect '^browser: pinned [0-9]*\( [0-9]*\)\{6\}$' \
   "Personal's pinned tabs and folders aren't the 7 rows Arc's are: $(pinned)"
 ../tools/window-screenshot.sh "$pid" "$out/import-personal.png" || fail "no window to capture"
 quit
-echo "ok: Settings › Import finds the fixture's Arc and Chrome. From Arc come its Spaces, one in a"
-echo "  new profile, their pinned tabs and folders, and its favorites; from Chrome its bookmarks as"
-echo "  a Space and its history; and a second import of each adds nothing."
+echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From Arc come its Spaces,"
+echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
+echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."
 echo "  Windows: $out/import-list.png, $out/import-pick.png, $out/import-done.png,"
-echo "  $out/import-again.png, $out/import-chrome.png, $out/import-personal.png"
+echo "  $out/import-again.png, $out/import-chrome.png, $out/import-firefox.png,"
+echo "  $out/import-personal.png"

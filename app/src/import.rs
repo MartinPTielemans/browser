@@ -1,8 +1,10 @@
 //! Import from the other browsers on the machine (#453): one view, shown in Settings › Import and
 //! as a step of the first launch, that lists the browsers found, the one used last first, and
-//! brings in what the user picks from one. From Chromium's family so far: Arc's Spaces with their
-//! names, icons, themes and profiles, their pinned tabs and folders, and its favorites; the
-//! others' bookmarks, as a Space named after the browser; and every one's history.
+//! brings in what the user picks from one: Arc's Spaces with their names, icons, themes and
+//! profiles, their pinned tabs and folders, and its favorites; the other browsers' bookmarks, from
+//! Chromium's family, Firefox's and Safari, as a Space named after the browser, with Safari's
+//! Reading List; and every one's history. Saved passwords and cookies never come from another
+//! browser's files: passwords come from a file the user exports, and the user signs in again.
 //!
 //! It reads the user's data, so it's the user's alone: agents get no path to it. It only reads
 //! the other browser's files, and it adds through the core's calls a user's actions make, so a
@@ -10,8 +12,11 @@
 
 pub mod arc;
 pub mod chromium;
+pub mod firefox;
 pub mod found;
 pub mod plan;
+pub mod read;
+pub mod safari;
 pub mod sources;
 #[cfg(test)]
 mod tests;
@@ -27,10 +32,10 @@ use crate::settings_rows::{SLIDE, button, group, row, switch};
 use crate::theme::Theme;
 use crate::tokens::settings::{BOX_GAP, BUTTONS_TOP, PADDING};
 use crate::tokens::text;
-use chromium::Kind;
 use found::{Found, Page, Tab};
 use plan::{Add, Counts, Existing, Plan, ProfileRef, Target};
-use sources::{Family, Roots, Source};
+use read::{Kind, ReadError};
+use sources::{Roots, Source};
 
 /// What the import asks of the browser: the core's calls, which the tests stand in for.
 pub trait Host {
@@ -65,6 +70,11 @@ pub trait Host {
     /// Calls `then` once, the next time the Spaces change, such as when a Space's profile has
     /// loaded.
     fn when_spaces_change(&self, then: Box<dyn FnOnce(&mut App)>);
+    /// Shows the system's list of apps with Full Disk Access, where the user can add this one.
+    fn open_full_disk_access(&self);
+    /// Calls `then` once, the next time this app becomes the active one, such as back from System
+    /// Settings.
+    fn when_active(&self, then: Box<dyn FnOnce(&mut App)>);
 }
 
 /// A host with no browser behind it, for the preview and the shell's tests: it finds the browsers
@@ -100,6 +110,8 @@ impl Host for Detached {
         false
     }
     fn when_spaces_change(&self, _: Box<dyn FnOnce(&mut App)>) {}
+    fn open_full_disk_access(&self) {}
+    fn when_active(&self, _: Box<dyn FnOnce(&mut App)>) {}
 }
 
 /// An import under way: the profiles and Spaces it made, and what goes into them once each Space
@@ -233,6 +245,9 @@ enum Step {
     /// Reading the browser's files, then waiting for new profiles to load and for the history to
     /// go in.
     Running { source: usize, run: Run },
+    /// The system keeps the browser's files from this app until the user gives it Full Disk
+    /// Access. Each time the app comes back to the front, it tries again.
+    NoAccess { source: usize, picked: Vec<Kind> },
     /// What came in, or why nothing did.
     Done(SharedString),
 }
@@ -268,7 +283,7 @@ impl EventEmitter<ImportEvent> for ImportView {}
 pub fn importable(roots: &Roots) -> Vec<Source> {
     sources::find(roots)
         .into_iter()
-        .filter(|source| source.browser.family == Family::Chromium && chromium::has_any(source))
+        .filter(read::has_any)
         .collect()
 }
 
@@ -330,7 +345,7 @@ impl ImportView {
     fn pick(&mut self, source: usize, cx: &mut Context<Self>) {
         // check.sh waits for this line.
         log!("browser: import pick {}", self.sources[source].browser.name);
-        let picked = chromium::kinds(&self.sources[source]).to_vec();
+        let picked = read::kinds(&self.sources[source]).to_vec();
         self.step = Step::Pick { source, picked };
         cx.notify();
     }
@@ -350,7 +365,7 @@ impl ImportView {
 
     /// Reads what was picked from the browser, away from the UI, then brings it in.
     fn import(&mut self, cx: &mut Context<Self>) {
-        let Step::Pick { source, picked } = &self.step else {
+        let (Step::Pick { source, picked } | Step::NoAccess { source, picked }) = &self.step else {
             return;
         };
         let (source, picked) = (*source, picked.clone());
@@ -362,23 +377,52 @@ impl ImportView {
         cx.emit(ImportEvent::Started);
         cx.notify();
         let read = cx.background_spawn(async move {
-            chromium::read(&from, &picked, SystemTime::now()).map(|found| (from, found))
+            let found = read::read(&from, &picked, SystemTime::now());
+            (from, picked, found)
         });
         cx.spawn(async move |view, cx| {
-            let read = read.await;
-            view.update(cx, |view, cx| view.read(read, cx)).ok();
+            let (from, picked, found) = read.await;
+            view.update(cx, |view, cx| view.read(from, picked, found, cx))
+                .ok();
         })
         .detach();
     }
 
     /// Plans what's read against what's here, and starts it.
-    fn read(&mut self, read: Result<(Source, Found), String>, cx: &mut Context<Self>) {
+    fn read(
+        &mut self,
+        from: Source,
+        picked: Vec<Kind>,
+        found: Result<Found, ReadError>,
+        cx: &mut Context<Self>,
+    ) {
         let Step::Running { source, run } = &mut self.step else {
             return;
         };
         let name = self.sources[*source].browser.name;
-        let (from, found) = match read {
-            Ok(read) => read,
+        let found = match found {
+            Ok(found) => found,
+            Err(ReadError::NoAccess) => {
+                log!("browser: import from {name} needs full disk access");
+                self.step = Step::NoAccess {
+                    source: *source,
+                    picked,
+                };
+                let view = cx.entity().downgrade();
+                self.host.when_active(Box::new(move |cx| {
+                    view.update(cx, |view, cx| {
+                        // Unless the user went back from it meanwhile.
+                        if matches!(view.step, Step::NoAccess { .. }) {
+                            view.import(cx);
+                        }
+                    })
+                    .ok();
+                }));
+                cx.emit(ImportEvent::Finished(
+                    format!("{name} needs Full Disk Access.").into(),
+                ));
+                return cx.notify();
+            }
             Err(error) => {
                 log!("browser: import from {name} failed: {error}");
                 return self.finish(format!("Couldn't read {name}'s data: {error}."), cx);
@@ -475,6 +519,37 @@ impl ImportView {
         cx.notify();
     }
 
+    /// Says why the browser's files can't be read, with the way to System Settings, where the
+    /// user can let this app read them.
+    fn no_access(&self, source: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let look = &self.look;
+        let name = self.sources[source].browser.name;
+        let open = button(look, "import-full-disk-access", "Open System Settings")
+            .on_click(cx.listener(|view, _, _, _| view.host.open_full_disk_access()));
+        let back = button(look, "import-back", "Back")
+            .on_click(cx.listener(|view, _, _, cx| view.back(cx)));
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(BOX_GAP))
+            .child(line(format!(
+                "macOS lets an app read {name}'s bookmarks and history only with Full Disk Access. \
+                 Turn on {app} in System Settings › Privacy & Security › Full Disk Access, and the \
+                 import goes on once you're back. If it doesn't, quit {app} and open it again.",
+                app = env!("APP_NAME"),
+            )))
+            .child(
+                div()
+                    .mt(px(BUTTONS_TOP - BOX_GAP))
+                    .flex()
+                    .justify_end()
+                    .gap(px(PADDING))
+                    .child(back)
+                    .child(open),
+            )
+            .into_any_element()
+    }
+
     fn list(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         if self.sources.is_empty() {
             return line("No browser to import from was found on this computer.")
@@ -500,7 +575,7 @@ impl ImportView {
     fn picking(&self, source: usize, picked: &[Kind], cx: &mut Context<Self>) -> gpui::AnyElement {
         let look = &self.look;
         let name = self.sources[source].browser.name;
-        let rows = chromium::kinds(&self.sources[source]).iter().map(|&kind| {
+        let rows = read::kinds(&self.sources[source]).iter().map(|&kind| {
             let slid = match self.switched {
                 Some((switched, at)) if switched == kind => {
                     (at.elapsed().as_secs_f32() / SLIDE).min(1.)
@@ -611,6 +686,7 @@ impl Render for ImportView {
             Step::List => self.list(cx),
             Step::Pick { source, picked } => self.picking(*source, &picked.clone(), cx),
             Step::Running { .. } => line(self.running().unwrap_or_default()).into_any_element(),
+            Step::NoAccess { source, .. } => self.no_access(*source, cx),
             Step::Done(said) => {
                 let done = button(&look, "import-done", "Done")
                     .on_click(cx.listener(|view, _, _, cx| view.done(cx)));
@@ -623,7 +699,12 @@ impl Render for ImportView {
                     .into_any_element()
             }
         };
-        let skip = (self.skip && matches!(self.step, Step::List | Step::Pick { .. })).then(|| {
+        let skip = (self.skip
+            && matches!(
+                self.step,
+                Step::List | Step::Pick { .. } | Step::NoAccess { .. }
+            ))
+        .then(|| {
             button(&look, "import-skip", "Skip")
                 .on_click(cx.listener(|_, _, _, cx| cx.emit(ImportEvent::Skipped)))
         });
