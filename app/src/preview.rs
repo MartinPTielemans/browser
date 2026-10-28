@@ -719,6 +719,8 @@ impl Browser for Fake {
     // The preview has no Settings window.
     fn settings(&self, _: &mut App) {}
 
+    fn passwords(&self, _: u64, _: &mut App) {}
+
     fn shortcuts(&self, _: &mut App) {}
 
     // Each made-up Space shows its top tab.

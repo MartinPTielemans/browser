@@ -45,7 +45,8 @@ onkeydown = e => {
 };
 </script>' > "$out/site/index.html"
 printf 'notes\n' > "$out/site/notes.txt"
-# Its title says "login" once it's drawn, and "filled" once Chrome has filled in a saved password.
+# Its title says "login" once it's drawn, "filled" each time Chrome fills a saved password in, and
+# "cleared" when the password filled in is edited.
 printf '%s' '<title>loading</title>
 <form method="post" action="login">
 <input id=user name=username autocomplete=username
@@ -56,10 +57,11 @@ printf '%s' '<title>loading</title>
 </form>
 <script>
 requestAnimationFrame(() => setTimeout(() => document.title = "login"));
-const filled = setInterval(() => {
-  if (pass.matches(":autofill")) {
-    clearInterval(filled);
-    document.title = "filled";
+let filled = false;
+setInterval(() => {
+  if (pass.matches(":autofill") != filled) {
+    filled = !filled;
+    document.title = filled ? "filled" : "cleared";
   }
 }, 100);
 </script>' > "$out/site/login.html"
