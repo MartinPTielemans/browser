@@ -2,7 +2,8 @@
 Read CONTRIBUTING.md first. Review capacity is limited: meeting it makes a PR eligible for
 review, not certain of a merge. One PR solves one underlying problem, and drafts meet the same
 bar. Title: a conventional commit in plain language, such as
-"fix(spike): page view keeps its margins on resize". Every commit is signed off (git commit -s).
+"fix(app): the sidebar recedes under the Library as Arc's does". Every commit is signed off
+(git commit -s).
 -->
 
 ## Problem
