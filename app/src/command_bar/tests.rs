@@ -4,7 +4,8 @@
 use std::{cell::RefCell, ops::Range, rc::Rc};
 
 use gpui::{
-    App, ClipboardItem, Modifiers, MouseButton, TestAppContext, VisualTestContext, WindowHandle,
+    App, ClipboardItem, EntityInputHandler, Modifiers, MouseButton, TestAppContext,
+    VisualTestContext, WindowHandle,
 };
 
 use super::*;
@@ -155,6 +156,30 @@ impl Bar {
     fn keys(&mut self, keys: &str) {
         self.cx.simulate_keystrokes(keys);
         self.cx.run_until_parked();
+    }
+
+    /// Does to the input what the platform's input method does through GPUI's input handler.
+    fn input_method(
+        &mut self,
+        change: impl FnOnce(&mut TextInput, &mut Window, &mut Context<TextInput>),
+    ) {
+        (self.window)
+            .update(&mut self.cx.cx, |bar, window, cx| {
+                bar.input.update(cx, |input, cx| change(input, window, cx))
+            })
+            .unwrap();
+        self.cx.run_until_parked();
+    }
+
+    /// The input method composing `text` in place of what it composed before.
+    fn compose(&mut self, text: &str) {
+        self.input_method(|input, window, cx| {
+            input.replace_and_mark_text_in_range(None, text, None, window, cx)
+        });
+    }
+
+    fn composing(&mut self) -> bool {
+        self.window.read_with(&self.cx.cx, |bar, cx| bar.input.read(cx).composing()).unwrap()
     }
 
     /// The core's suggestions for `text`.
@@ -585,6 +610,51 @@ fn a_space_after_the_hinted_keyword_searches_its_site(cx: &mut TestAppContext) {
     assert_eq!(bar.input(), ("duck.test cats".into(), 10..10));
     bar.keys("escape");
     assert_eq!(bar.calls(), ["dismiss"]);
+}
+
+/// Japanese input, as Windows' input method and AppKit's give it to the field: what it composes is
+/// marked, and the core's rows don't complete over it until it's committed.
+#[gpui::test]
+fn the_input_method_composes_and_commits_in_the_bar(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.compose("にほん");
+    assert!(bar.composing());
+    bar.suggest("にほん", vec![completing("https://にほんご.test/", "ご")]);
+    assert_eq!(bar.input(), ("にほん".into(), 9..9));
+    bar.input_method(|input, window, cx| input.replace_text_in_range(None, "日本", window, cx));
+    assert!(!bar.composing());
+    assert_eq!(bar.input(), ("日本".into(), 6..6));
+    assert_eq!(bar.calls(), Vec::<String>::new());
+
+    // The keyboard leaving the field keeps what was composed, as committed.
+    let mut bar = Bar::new(cx);
+    bar.compose("ねこ");
+    bar.input_method(|input, window, cx| input.unmark_text(window, cx));
+    assert!(!bar.composing());
+    assert_eq!(bar.input(), ("ねこ".into(), 6..6));
+}
+
+/// Esc goes to the input method while it composes, which cancels, putting back the text from
+/// before, with the bar open; Esc then closes it. An input method cancels by replacing what it
+/// composed with nothing, or by composing nothing.
+#[gpui::test]
+fn esc_cancels_the_composition_before_it_closes_the_bar(cx: &mut TestAppContext) {
+    let mut bar = Bar::new(cx);
+    bar.type_text("cats ");
+    bar.compose("ねこ");
+    bar.input_method(|input, window, cx| input.replace_text_in_range(None, "", window, cx));
+    assert!(!bar.composing());
+    assert_eq!(bar.input(), ("cats ".into(), 5..5));
+    assert_eq!(bar.calls(), Vec::<String>::new());
+    bar.keys("escape");
+    assert_eq!(bar.calls(), ["dismiss"]);
+
+    let mut bar = Bar::new(cx);
+    bar.type_text("cats ");
+    bar.compose("ねこ");
+    bar.compose("");
+    assert!(!bar.composing());
+    assert_eq!(bar.input(), ("cats ".into(), 5..5));
 }
 
 #[gpui::test]
