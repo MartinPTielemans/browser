@@ -2,7 +2,10 @@
 # beside it, never the Mac's own browsers. From Arc it brings its two Spaces, one in a new profile
 # named Work as Arc's Local State names it, their pinned tabs and folders, and its favorites; from
 # Chrome and from Firefox their bookmarks as a Space named after each and their history, which the
-# core adds. Run again, each adds nothing. Each step is captured.
+# core adds. Run again, each adds nothing. Then a passwords file, made up here, comes in through
+# Chrome's password importer: the view says how many came in, deletes the file when asked, and a
+# second file with a login's password changed says it conflicted and kept the saved one. Settings'
+# Passwords tab lists what came in. Each step is captured.
 
 serve
 printf '%s' '<title>import ready</title>' > "$out/site/import.html"
@@ -63,7 +66,12 @@ sqlite3 "$firefox/Profiles/x.default-release/places.sqlite" "
 touch -t 200001010000 "$chrome/Default/History" "$chrome/Default/Preferences"
 touch -t 199901010000 "$firefox/Profiles/x.default-release/places.sqlite"
 touch "$home/Library/Application Support/Arc/StorableSidebar.json"
-BROWSER_IMPORT_HOME="$home" BROWSER_DRIVE=1 BROWSER_URL="${site}import.html" \
+# The file the open panel would give, which a run can't drive: made-up logins, never real ones.
+passwords="$out/passwords.csv"
+printf '%s\n' 'name,url,username,password,note' \
+  'login,https://login.example.test/,check@example.test,made-up-one,' \
+  'mail,https://mail.example.test/,check@example.test,made-up-two,' > "$passwords"
+BROWSER_IMPORT_HOME="$home" BROWSER_IMPORT_PASSWORDS="$passwords" BROWSER_DRIVE=1 BROWSER_URL="${site}import.html" \
   "$app/Contents/MacOS/Browser" < "$out/drive" > "$log" 2>&1 &
 pid=$!
 exec 3> "$out/drive"
@@ -150,6 +158,34 @@ send clickkey 588 231
 await '^browser: history added 0 to profile [0-9]*$' || fail "the core added Firefox's pages again"
 expect '^browser: import done: Everything from Firefox is here already\.$' \
   "the second import from Firefox said it added something"
+# The Passwords box is under the browsers' box, its Choose File… at its row's end. Done's line
+# offers to delete the file, with Delete File before Done.
+send clickkey 590 145
+send clickkey 590 296
+expect '^browser: import passwords$' "Choose File… didn't import the passwords file"
+await '^browser: import done: 2 passwords came in to Default from passwords\.csv\.$' ||
+  fail "the import didn't say the file's 2 passwords came in: $(grep '^browser: import done' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/import-passwords.png" || fail "no window to capture"
+[ -e "$passwords" ] || fail "the import deleted the passwords file before the user asked"
+send clickkey 515 170
+expect '^browser: import deleted the passwords file$' "Delete File didn't delete the passwords file"
+[ ! -e "$passwords" ] || fail "the passwords file is still there after Delete File"
+# A second file: the login's password changed, which keeps the saved one, and a new login.
+printf '%s\n' 'url,username,password' \
+  'https://login.example.test/,check@example.test,made-up-changed' \
+  'https://new.example.test/,new@example.test,made-up-three' > "$passwords"
+send clickkey 590 145
+send clickkey 590 296
+expect '^browser: import passwords$' "Choose File… didn't import the second passwords file"
+await '^browser: import done: 1 password came in to Default from passwords\.csv\. 1 conflicted with a saved password, which was kept\.$' ||
+  fail "the import didn't say 1 came in and 1 conflicted: $(grep '^browser: import done' "$log" | tail -1)"
+../tools/window-screenshot.sh "$pid" "$out/import-passwords-conflict.png" || fail "no window to capture"
+rm -f "$passwords"
+# Passwords, the third of Settings' tabs, lists the three logins, not their passwords.
+send clickkey 308 60
+expect '^browser: settings tab Passwords$' "a click on Passwords didn't show its tab"
+await '^browser: passwords [0-9]*: login\.example\.test check@example\.test, mail\.example\.test check@example\.test, new\.example\.test new@example\.test$' ||
+  fail "Settings didn't list the imported logins: $(grep '^browser: passwords [0-9]*:' "$log" | tail -1)"
 send key w cmd
 expect '^browser: settings hidden$' "⌘W didn't hide Settings"
 # The Personal Space shows its pinned tabs: HN, then Reading with a, b and c and Deep with d.
@@ -162,6 +198,8 @@ quit
 echo "ok: Settings › Import finds the fixture's Arc, Chrome and Firefox. From Arc come its Spaces,"
 echo "  one in a new profile, their pinned tabs and folders, and its favorites; from Chrome and"
 echo "  Firefox their bookmarks as a Space and their history; and a second import of each adds nothing."
+echo "  A passwords file comes in, says how many, and is deleted when asked; a second one says its"
+echo "  changed login conflicted and kept the saved one; Settings' Passwords tab lists the three."
 echo "  Windows: $out/import-list.png, $out/import-pick.png, $out/import-done.png,"
 echo "  $out/import-again.png, $out/import-chrome.png, $out/import-firefox.png,"
-echo "  $out/import-personal.png"
+echo "  $out/import-passwords.png, $out/import-passwords-conflict.png, $out/import-personal.png"

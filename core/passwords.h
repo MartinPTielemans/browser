@@ -1,14 +1,17 @@
 #ifndef BROWSER_CORE_PASSWORDS_H_
 #define BROWSER_CORE_PASSWORDS_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "base/files/file_path.h"
 #include "base/memory/raw_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observation.h"
 #include "browser_core/public/browser_core.h"
 #include "chrome/browser/profiles/profile_observer.h"
+#include "components/password_manager/core/browser/import/password_importer.h"
 #include "components/password_manager/core/browser/ui/saved_passwords_presenter.h"
 
 class GURL;
@@ -40,6 +43,8 @@ class Passwords : public password_manager::SavedPasswordsPresenter::Observer,
                      const std::string& key,
                      const std::string& username,
                      bool never);
+  // See bc_profile_import_passwords.
+  static bool Import(bc_id profile, const base::FilePath& path);
   // The C API's view of |logins|, which it points into.
   static std::vector<bc_login> ToC(const std::vector<Login>& logins);
 
@@ -64,6 +69,11 @@ class Passwords : public password_manager::SavedPasswordsPresenter::Observer,
   // ProfileObserver: the presenter can't outlive the profile's stores. This destroys this.
   void OnProfileWillBeDestroyed(Profile* profile) override;
 
+  // Imports |import_path_| once the store is read, as the importer weighs the file against it.
+  void StartImport();
+  // The importer's answer: conflicts, which keep what the profile has, or the end.
+  void Imported(const password_manager::ImportResults& results);
+
   // Tells the app, and the Site Controls, from a task of its own.
   void Changed();
   void Report();
@@ -73,6 +83,12 @@ class Passwords : public password_manager::SavedPasswordsPresenter::Observer,
   bool ready_ = false;
   // Whether the app asked for the list, which it then hears again as it changes.
   bool read_ = false;
+  // The file being imported, from bc_profile_import_passwords until passwords_imported.
+  base::FilePath import_path_;
+  // Logins of the file the profile holds with another password, which it kept.
+  size_t conflicted_ = 0;
+  // While a file is imported. After the presenter, which it points to.
+  std::unique_ptr<password_manager::PasswordImporter> importer_;
   base::ScopedObservation<Profile, ProfileObserver> profile_observation_{this};
   base::WeakPtrFactory<Passwords> weak_factory_{this};
 };
