@@ -56,6 +56,27 @@ bool IsBlock(ax::mojom::Role role) {
   }
 }
 
+// A field the user types, picks or has filled in, whose value is theirs, as autofill's is: a text
+// field or text area of any kind, an editable region such as a mail's body, a select, and a date,
+// time, number or colour input. Its subtree too, where Chromium puts the text typed into it.
+bool IsField(const ui::AXNodeData& node) {
+  if (node.IsTextField() || node.HasState(ax::mojom::State::kEditable) ||
+      node.HasState(ax::mojom::State::kRichlyEditable)) {
+    return true;
+  }
+  switch (node.role) {
+    case ax::mojom::Role::kColorWell:
+    case ax::mojom::Role::kComboBoxSelect:
+    case ax::mojom::Role::kDate:
+    case ax::mojom::Role::kDateTime:
+    case ax::mojom::Role::kInputTime:
+    case ax::mojom::Role::kSpinButton:
+      return true;
+    default:
+      return false;
+  }
+}
+
 void NewLine(std::string& text) {
   while (!text.empty() && text.back() == ' ') {
     text.pop_back();
@@ -110,8 +131,8 @@ std::string TextOf(const ui::AXTreeUpdate& update) {
       NewLine(text);
       continue;
     }
-    // Hidden, or a password field, whose value is the user's alone.
-    if (node.IsInvisible() || node.HasState(ax::mojom::State::kProtected)) {
+    // Hidden, or a field, a password field above all, whose value is the user's alone.
+    if (node.IsInvisible() || node.HasState(ax::mojom::State::kProtected) || IsField(node)) {
       continue;
     }
     // An ignored node, such as a plain wrapper, has no text of its own, but its children may.
