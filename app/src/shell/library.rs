@@ -1956,7 +1956,8 @@ mod tests {
     }
 
     /// A download's report that moves the bar less than it can draw is not worth a frame, while
-    /// one that finishes it, or starts another, is.
+    /// one that finishes it, or starts another, is. One of a size not yet known, or held, draws no
+    /// bar, so its reports are never worth one.
     #[test]
     fn the_bar_draws_a_frame_only_when_it_moves() {
         let gigabyte = 1_000_000_000;
@@ -1965,6 +1966,13 @@ mod tests {
         assert_ne!(bar(0), bar(gigabyte / 4));
         assert_eq!(bar(gigabyte), Some(64));
         assert_eq!(bar_drawn(&[download(DownloadState::Done, false)]), None);
-        assert_ne!(bar_drawn(&[running(0, 0)]), None);
+        assert_ne!(bar_drawn(&[]), bar(0));
+        let unknown = |received| bar_drawn(&[running(received, 0)]);
+        assert_eq!(unknown(1_000), None);
+        assert_eq!(unknown(1_000), unknown(gigabyte));
+        let held = |received| {
+            bar_drawn(&[Download { received, total: gigabyte, held: true, ..running(0, 0) }])
+        };
+        assert_eq!(held(0), held(gigabyte / 4));
     }
 }
