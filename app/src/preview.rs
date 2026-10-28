@@ -1587,7 +1587,7 @@ impl icon_picker::Host for PreviewPicker {
 struct PreviewDialog;
 
 impl dialog::Host for PreviewDialog {
-    fn show(&self) {}
+    fn show(&self, _: Option<Bounds<Pixels>>) {}
 
     fn hide(&self) {}
 }
