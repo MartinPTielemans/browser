@@ -132,6 +132,11 @@ impl TextInput {
         self
     }
 
+    /// The placeholder's colour, for an input whose ground changes with the Space.
+    pub fn set_placeholder_color(&mut self, color: impl Into<Hsla>) {
+        self.placeholder_color = color.into();
+    }
+
     pub fn caret_color(mut self, color: impl Into<Hsla>) -> Self {
         self.caret_color = color.into();
         self

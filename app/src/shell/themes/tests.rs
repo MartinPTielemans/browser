@@ -6,6 +6,7 @@ use std::rc::Rc;
 use gpui::{Entity, TestAppContext, VisualTestContext, point, px, size};
 
 use super::*;
+use crate::theme::DEFAULT_INTENSITY;
 use crate::shell::recorder::Recorder;
 
 const BLUE: u32 = 0x3d81f9;
@@ -57,31 +58,33 @@ fn two_colours_go_from_the_top_left_to_the_second_along_the_diagonal(cx: &mut Te
     let [main, second] = theme.colors()[..] else { panic!("two colours") };
     let (shell, cx) = shell(Some(main), Some(theme), cx);
     shell.update(cx, |shell, _| {
-        assert_eq!(rgb_of(shell.theme_color_at(&theme, 0., 0.)), main);
-        assert_eq!(rgb_of(shell.theme_color_at(&theme, 1., 1.)), second);
+        assert_eq!(rgb_of(shell.theme_color_at(&theme, 1., 0., 0.)), main);
+        assert_eq!(rgb_of(shell.theme_color_at(&theme, 1., 1., 1.)), second);
         // The right edge is the second colour from three quarters of the way down the diagonal.
         let (width, height) = (1800., 1130.);
         let y = (SECOND_AT * (width + height) - width) / height;
-        assert_eq!(rgb_of(shell.theme_color_at(&theme, 1., y + 0.01)), second);
-        assert_ne!(rgb_of(shell.theme_color_at(&theme, 1., y - 0.2)), second);
+        assert_eq!(rgb_of(shell.theme_color_at(&theme, 1., 1., y + 0.01)), second);
+        assert_ne!(rgb_of(shell.theme_color_at(&theme, 1., 1., y - 0.2)), second);
         // A third comes in down the window.
         let three = theme.with_count(3);
         let third = three.colors()[2];
-        let bottom_left = shell.theme_color_at(&three, 0., 1.);
+        let bottom_left = shell.theme_color_at(&three, 1., 0., 1.);
         assert_eq!(rgb_of(bottom_left), rgb_of(theme::mix_oklab(rgb(main), rgb(third), 1.)));
     });
 }
 
 #[gpui::test]
 fn intensity_washes_the_colours_out(cx: &mut TestAppContext) {
-    let theme = Theme::at(0.6, 0.);
+    // A deep red the palette never has to hold back (a paler one stops at its legibility cap).
+    let theme = Theme::at(0.3, 0.);
     let (shell, cx) = shell(Some(theme.main_color()), Some(theme), cx);
     shell.update(cx, |shell, _| {
-        let alpha =
-            |intensity| shell.theme_color_at(&Theme { intensity, ..theme }, 0.5, 0.5).a;
+        let alpha = |intensity| {
+            let theme = Theme { intensity, ..theme };
+            shell.theme_color_at(&theme, Palette::of(Some(&theme)).layer_alpha, 0.5, 0.5).a
+        };
         assert!(alpha(0.) < alpha(0.24) && alpha(0.24) < alpha(DEFAULT_INTENSITY));
         assert!(alpha(DEFAULT_INTENSITY) < alpha(1.));
-        assert_eq!(alpha(DEFAULT_INTENSITY), GRADIENT_ALPHA);
     });
 }
 

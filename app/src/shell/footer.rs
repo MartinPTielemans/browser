@@ -1,11 +1,11 @@
 //! The sidebar's footer: the Space switcher and the plus button beside it.
 
-use gpui::{Context, MouseButton, MouseDownEvent, Role, div, prelude::*, px, rgba, svg};
+use gpui::{Context, MouseButton, MouseDownEvent, Role, div, prelude::*, px, svg};
 
 use super::{
-    FOOTER_HEIGHT, NAV, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLUS_INSET, SPACE_DOT,
-    SPACE_GLYPH, SPACE_HEIGHT, SPACE_HOVERED, SPACE_ICON_SWITCHER, SPACE_OTHER, SPACE_PITCH,
-    SPACE_SHOWN, SWITCHER_INSET, Shell, access::Accessible,
+    FOOTER_HEIGHT, NAV, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLUS_INSET, SPACE_GLYPH, SPACE_HEIGHT, SPACE_HOVERED, SPACE_ICON_SWITCHER, SPACE_OTHER, SPACE_PITCH,
+    SPACE_SHOWN, SPACE_SWATCH, SPACE_SWATCH_HOVERED, SPACE_SWATCH_SHOWN, SWITCHER_INSET, Shell,
+    access::Accessible,
 };
 use crate::space_icon::{GLYPHS, SpaceIcon};
 
@@ -13,11 +13,10 @@ use crate::space_icon::{GLYPHS, SpaceIcon};
 /// strength, the others dimmed by the dot's own ratio, and a hovered one by the dot's hovered
 /// ratio.
 pub(super) fn icon_opacity(shown: bool, hovered: bool) -> f32 {
-    let alpha = |color: u32| (color & 0xff) as f32;
     match (shown, hovered) {
         (true, _) => 1.,
-        (false, false) => alpha(SPACE_OTHER) / alpha(SPACE_SHOWN),
-        (false, true) => alpha(SPACE_HOVERED) / alpha(SPACE_SHOWN),
+        (false, false) => SPACE_OTHER / SPACE_SHOWN,
+        (false, true) => SPACE_HOVERED / SPACE_SHOWN,
     }
 }
 
@@ -29,6 +28,9 @@ impl Shell {
         }
         let span = self.width() - 2. * SWITCHER_INSET;
         let pitch = SPACE_PITCH.min(span / self.spaces.len() as f32);
+        // What the swatches lie on: the window at the footer.
+        let window = f32::from(self.viewport.height).max(1.);
+        let behind = self.window_fill_at((window - FOOTER_HEIGHT / 2.) / window).to_rgb();
         let dots = self.spaces.iter().map(|space| {
             let (id, shown) = (space.id, space.id == self.space);
             div()
@@ -58,22 +60,24 @@ impl Shell {
                     }),
                 )
                 .child(match SpaceIcon::parse(&space.icon) {
-                    SpaceIcon::Dot => div()
-                        .size(px(SPACE_DOT))
-                        .rounded_full()
-                        .bg(rgba(if shown { SPACE_SHOWN } else { SPACE_OTHER }))
-                        .when(!shown, |dot| {
-                            dot.group_hover("space", |style| style.bg(rgba(SPACE_HOVERED)))
-                        })
-                        .into_any_element(),
+                    SpaceIcon::Dot => {
+                        let size = if shown { SPACE_SWATCH_SHOWN } else { SPACE_SWATCH };
+                        (self.palette_of(id).swatch.draw(size, behind))
+                            .when(!shown, |swatch| {
+                                swatch.group_hover("space", |style| {
+                                    style.size(px(SPACE_SWATCH_HOVERED))
+                                })
+                            })
+                            .into_any_element()
+                    }
                     // In the dot's colours.
                     SpaceIcon::Glyph(index) => svg()
                         .path(GLYPHS[index].1)
                         .size(px(SPACE_GLYPH))
-                        .text_color(rgba(if shown { SPACE_SHOWN } else { SPACE_OTHER }))
+                        .text_color(self.palette.glyph(if shown { SPACE_SHOWN } else { SPACE_OTHER }))
                         .when(!shown, |glyph| {
                             glyph.group_hover("space", |style| {
-                                style.text_color(rgba(SPACE_HOVERED))
+                                style.text_color(self.palette.glyph(SPACE_HOVERED))
                             })
                         })
                         .into_any_element(),
@@ -121,34 +125,32 @@ impl Shell {
             .justify_center()
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
-            .hover(|style| style.bg(rgba(NAV_HOVERED)))
+            .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|shell, event: &MouseDownEvent, _, cx| {
                     shell.plus_menu(event.position, cx)
                 }),
             )
-            .child(svg().path("icons/nav-plus.svg").size(px(NAV_GLYPH)).text_color(rgba(NAV)))
+            .child(svg().path("icons/nav-plus.svg").size(px(NAV_GLYPH)).text_color(self.palette.glyph(NAV)))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::icon_opacity;
-    use crate::shell::{SPACE_OTHER, SPACE_SHOWN};
 
     /// An icon is dimmed as the dot it replaces is: the Space shown at full strength, the others
-    /// by the dots' ratio of 0.19 to 0.50, and a hovered one by the dots' 0.30 to 0.50.
+    /// by the dots' ratio of 0.35 to 0.6, and a hovered one by the dots' 0.5 to 0.6 (#320's
+    /// ladder).
     #[test]
     fn an_icon_dims_as_the_dot_does() {
-        let alpha = |color: u32| (color & 0xff) as f32 / 255.;
         assert_eq!(icon_opacity(true, false), 1.);
         assert_eq!(icon_opacity(true, true), 1.);
         let others = icon_opacity(false, false);
-        assert!((others - alpha(SPACE_OTHER) / alpha(SPACE_SHOWN)).abs() < 1e-6);
-        assert!((others - 0.19 / 0.5).abs() < 0.02, "the others are at {others}");
+        assert!((others - 0.35 / 0.6).abs() < 0.02, "the others are at {others}");
         let hovered = icon_opacity(false, true);
-        assert!((hovered - 0.30 / 0.5).abs() < 0.02, "a hovered one is at {hovered}");
+        assert!((hovered - 0.5 / 0.6).abs() < 0.02, "a hovered one is at {hovered}");
         assert!(others < hovered && hovered < 1.);
     }
 }

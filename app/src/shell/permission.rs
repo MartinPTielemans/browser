@@ -12,6 +12,7 @@ use gpui::{
     point, prelude::*, px, rgba, svg,
 };
 
+use crate::palette::Palette;
 use super::{
     HOVERED, NAV, NAV_HOVERED, NAV_RADIUS, PLATE_INSET, Shell, TITLE, URL_FIELD, URL_FIELD_HEIGHT,
     URL_FIELD_TOP,
@@ -88,10 +89,10 @@ impl Shell {
             return None;
         };
         let button = |id: &'static str, label: &'static str, answer: Answer| {
-            card_button(id, label)
+            card_button(&self.palette, id, label)
                 .on_click(cx.listener(move |shell, _, _, cx| shell.answer(answer, cx)))
         };
-        let close = card_close("question-close")
+        let close = card_close(&self.palette, "question-close")
             .on_click(cx.listener(|shell, _, _, cx| shell.answer(Answer::Dismiss, cx)));
         let listener = card_listener("question", &self.question_drawn, self.selected);
         Some(
@@ -100,7 +101,7 @@ impl Shell {
                 .child(
                     div()
                         .pr(px(BESIDE_CLOSE))
-                        .text_color(rgba(TITLE))
+                        .text_color(self.palette.text(TITLE))
                         .font_weight(FontWeight::MEDIUM)
                         // Kept together, so "to" doesn't wrap alone under a long site.
                         .child(format!("{} wants\u{a0}to", question.site)),
@@ -122,7 +123,7 @@ impl Shell {
 }
 
 /// A card's ×, in its top corner, its glyph's edge on the text's.
-pub(super) fn card_close(id: &'static str) -> Stateful<Div> {
+pub(super) fn card_close(palette: &Palette, id: &'static str) -> Stateful<Div> {
     div()
         .id(id)
         .absolute()
@@ -133,13 +134,13 @@ pub(super) fn card_close(id: &'static str) -> Stateful<Div> {
         .items_center()
         .justify_center()
         .rounded(px(NAV_RADIUS))
-        .hover(|style| style.bg(rgba(NAV_HOVERED)))
-        .child(svg().path("icons/x.svg").size(px(CLOSE_GLYPH)).text_color(rgba(NAV)))
+        .hover(|style| style.bg(palette.plate(NAV_HOVERED)))
+        .child(svg().path("icons/x.svg").size(px(CLOSE_GLYPH)).text_color(palette.glyph(NAV)))
 }
 
 /// A button on a card, as wide as its share of the row, as tall as a line of text and a half, and
 /// taller if its words wrap.
-pub(super) fn card_button(id: &'static str, label: &'static str) -> Stateful<Div> {
+pub(super) fn card_button(palette: &Palette, id: &'static str, label: &'static str) -> Stateful<Div> {
     div()
         .id(id)
         .flex_1()
@@ -151,10 +152,10 @@ pub(super) fn card_button(id: &'static str, label: &'static str) -> Stateful<Div
         .justify_center()
         .text_center()
         .rounded(px(NAV_RADIUS))
-        .bg(rgba(URL_FIELD))
-        .hover(|style| style.bg(rgba(HOVERED)))
+        .bg(palette.plate(URL_FIELD))
+        .hover(|style| style.bg(palette.plate(HOVERED)))
         .font_weight(FontWeight::MEDIUM)
-        .text_color(rgba(TITLE))
+        .text_color(palette.text(TITLE))
         .child(label)
 }
 

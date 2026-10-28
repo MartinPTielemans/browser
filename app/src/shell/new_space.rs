@@ -7,7 +7,7 @@ use std::{f32::consts::PI, time::Instant};
 
 use gpui::{
     Bounds, BoxShadow, Context, Hsla, PathBuilder, Window, canvas, div, fill, hsla,
-    linear_color_stop, linear_gradient, point, prelude::*, px, rgb, size,
+    linear_color_stop, linear_gradient, point, prelude::*, px, size,
 };
 
 use super::{Command, Shell, Swipe};
@@ -27,7 +27,6 @@ const CIRCLE_INSET: f32 = 27.;
 const TRAVEL: f32 = CIRCLE_START + CIRCLE_INSET;
 use crate::tokens::shell::new_space::PLUS;
 use crate::tokens::shell::new_space::PLUS_STROKE;
-use crate::tokens::shell::new_space::ACCENT_LIGHTNESS;
 use crate::tokens::shell::new_space::WHITE_TINT;
 /// Readying, the white closes in on the colour to a dot over 60 ms, which shrinks into a + over
 /// 70 ms more, as the circle pops to 1.13× and back over 120 ms from 40 ms in.
@@ -50,7 +49,7 @@ use crate::tokens::shell::new_space::SHADOW;
 /// left the page they pulled.
 pub(super) struct CircleExit {
     space: u64,
-    accent: Hsla,
+    accent: (Hsla, Hsla),
     start: Instant,
     held: f32,
 }
@@ -141,12 +140,10 @@ impl Shell {
         (last && x < 0.).then_some((space, -x))
     }
 
-    /// The circle's colour: `space`'s, dark enough for white on it.
-    fn circle_accent(&self, space: u64) -> Hsla {
-        let space = self.spaces.iter().find(|each| each.id == space);
-        let color = space.and_then(|space| space.color).unwrap_or(self.accent_color);
-        let color = Hsla::from(rgb(color));
-        Hsla { l: color.l.min(ACCENT_LIGHTNESS), ..color }
+    /// The circle's colour, `space`'s accent, and its label's on it.
+    fn circle_accent(&self, space: u64) -> (Hsla, Hsla) {
+        let palette = self.palette_of(space);
+        (palette.accent.into(), palette.accent_label.into())
     }
 
     /// The circle halfway down the page's edge and its glow, while the last Space's page is pulled
@@ -174,7 +171,8 @@ impl Shell {
                 ((CIRCLE_SPEED * pulled).min(TRAVEL), self.circle_accent(space), look)
             }
         };
-        let white = gpui::white().blend(accent.opacity(WHITE_TINT));
+        let (accent, label) = accent;
+        let white = label.blend(accent.opacity(WHITE_TINT));
         let popped = match look {
             Look::Readying(t) => (PI * ((t - POP_AT) / POP).clamp(0., 1.)).sin(),
             _ => 0.,

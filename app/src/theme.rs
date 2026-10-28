@@ -214,7 +214,7 @@ pub fn mix_oklab(from: Rgba, to: Rgba, t: f32) -> Rgba {
     Rgba { r, g, b: bl, a: from.a + (to.a - from.a) * t }
 }
 
-fn to_linear(c: f32) -> f32 {
+pub(crate) fn to_linear(c: f32) -> f32 {
     if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
 }
 
@@ -223,7 +223,7 @@ fn from_linear(c: f32) -> f32 {
     if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1. / 2.4) - 0.055 }
 }
 
-fn oklab(color: Rgba) -> [f32; 3] {
+pub(crate) fn oklab(color: Rgba) -> [f32; 3] {
     let (r, g, b) = (to_linear(color.r), to_linear(color.g), to_linear(color.b));
     let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
     let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
@@ -235,14 +235,20 @@ fn oklab(color: Rgba) -> [f32; 3] {
     ]
 }
 
-fn from_oklab([l, a, b]: [f32; 3]) -> [f32; 3] {
+pub(crate) fn from_oklab(lab: [f32; 3]) -> [f32; 3] {
+    oklab_to_linear(lab).map(from_linear)
+}
+
+/// The linear sRGB channels of OKLab `[l, a, b]`, unclamped: outside 0 to 1 where it's out of
+/// gamut.
+pub(crate) fn oklab_to_linear([l, a, b]: [f32; 3]) -> [f32; 3] {
     let l_ = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
     let m_ = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
     let s_ = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
     [
-        from_linear(4.0767416621 * l_ - 3.3077118613 * m_ + 0.2309699292 * s_),
-        from_linear(-1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_),
-        from_linear(-0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076127010 * s_),
+        4.0767416621 * l_ - 3.3077118613 * m_ + 0.2309699292 * s_,
+        -1.2684380046 * l_ + 2.6097574011 * m_ - 0.3413193965 * s_,
+        -0.0041960863 * l_ - 0.7034186147 * m_ + 1.7076127010 * s_,
     ]
 }
 

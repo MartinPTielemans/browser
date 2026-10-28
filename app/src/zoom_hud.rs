@@ -15,6 +15,7 @@ use gpui::{
     linear_color_stop, linear_gradient, point, prelude::*, px, rgb, rgba, size,
 };
 
+use crate::palette::Palette;
 use crate::shell::{CARD_INSET, Shell, cubic_bezier, scaled::scaled_from_top};
 
 use crate::tokens::zoom_hud::HEIGHT;
@@ -28,7 +29,6 @@ pub use crate::tokens::zoom_hud::WINDOW_WIDTH;
 pub use crate::tokens::zoom_hud::WINDOW_HEIGHT;
 use crate::tokens::zoom_hud::FILL;
 use crate::tokens::zoom_hud::SHADOW;
-use crate::tokens::zoom_hud::TEXT;
 /// Where the window goes, from the top right corner of the focused page's pane in the window.
 pub const WINDOW_RIGHT: f32 = CARD_INSET + 8. - MARGIN;
 pub const WINDOW_TOP: f32 = CARD_INSET + 8. - MARGIN;
@@ -283,8 +283,9 @@ impl Render for ZoomHud {
             window.request_animation_frame();
         }
         let pose = shown.pose();
-        let fill = shown.shell.upgrade().map(|shell| shell.read(cx).window_fill());
-        let fill = fill.unwrap_or(rgb(FILL).into());
+        let shell = shown.shell.upgrade();
+        let look = shell.map(|shell| (shell.read(cx).window_fill(), shell.read(cx).palette()));
+        let (fill, palette) = look.unwrap_or((rgb(FILL).into(), Palette::default()));
         let bottom = Hsla { l: fill.l * SHADE, ..fill };
         let pill = div()
             .h(px(HEIGHT))
@@ -299,7 +300,7 @@ impl Render for ZoomHud {
             .opacity(pose.opacity)
             .text_size(px(TEXT_SIZE))
             .font_weight(FontWeight::MEDIUM)
-            .text_color(rgb(TEXT))
+            .text_color(palette.ink)
             .child(div().opacity(pose.text_opacity()).child(format!("{}%", shown.percent())));
         root.child(scaled_from_top(pill, pose.scale))
     }

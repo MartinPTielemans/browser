@@ -14,7 +14,6 @@
 
 use gpui::{
     App, Context, FontWeight, KeyBinding, MouseButton, SharedString, actions, div, prelude::*, px,
-    rgba,
 };
 
 use super::{
@@ -153,20 +152,20 @@ impl Shell {
         // Where neither is, the note says why and offers nothing.
         let button = if switch {
             Some(
-                card_button("drm-note-switch", SWITCH)
+                card_button(&self.palette, "drm-note-switch", SWITCH)
                     .on_click(cx.listener(|shell, _, _, cx| shell.use_system_engine(cx))),
             )
         } else {
             self.browser.can_open_in_safari().then(|| {
                 let label = if self.private { OPEN_PRIVATE } else { OPEN };
-                card_button("drm-note-safari", label)
+                card_button(&self.palette, "drm-note-safari", label)
                     .on_click(cx.listener(|shell, _, _, cx| shell.open_in_safari(cx)))
             })
         };
         let words = if switch { SWITCH_WORDS } else { WORDS };
         // Shown under the pointer, as a row's ×, and always to VoiceOver's cursor, which is no
         // pointer. It takes clicks either way, as the pointer is over the card to click it.
-        let close = card_close(CLOSE_KEY)
+        let close = card_close(&self.palette, CLOSE_KEY)
             .when(!self.a11y, |close| {
                 close.opacity(0.).group_hover("drm-note", |style| style.opacity(1.))
             })
@@ -186,7 +185,7 @@ impl Shell {
                 .child(
                     div()
                         .pr(px(BESIDE_CLOSE))
-                        .text_color(rgba(TITLE))
+                        .text_color(self.palette.text(TITLE))
                         .font_weight(FontWeight::MEDIUM)
                         .child(words),
                 )

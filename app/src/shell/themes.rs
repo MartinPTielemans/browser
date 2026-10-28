@@ -10,17 +10,18 @@ use gpui::{
 };
 
 use super::{
-    GRADIENT_ALPHA, NEUTRAL, NEUTRAL_GRADIENT_ALPHA, Shell,
+    Shell,
     undo::{Prop, Value},
 };
 use crate::{
-    theme::{self, DEFAULT_INTENSITY, GRAIN_STRENGTH, GRAIN_TILE, Theme},
+    palette::{self, Palette, SECOND_AT},
+    theme::{self, GRAIN_STRENGTH, GRAIN_TILE, Theme},
     theme_picker::{self, Changed},
 };
 
-use crate::tokens::shell::themes::SECOND_AT;
-use crate::tokens::shell::themes::INTENSITY_FLOOR;
-use crate::tokens::shell::themes::INTENSITY_SPAN;
+/// How many themes' palettes a window keeps, the least recently drawn going first: more than
+/// the Spaces whose swatches a frame draws, and the one the picker is making.
+const PALETTES: usize = 64;
 
 impl Shell {
     /// The theme `space` shows: the one the picker is making for it, else its own.
@@ -28,6 +29,50 @@ impl Shell {
         match self.theme_preview {
             Some((previewed, theme)) if previewed == space => Some(theme),
             _ => self.spaces.iter().find(|each| each.id == space).and_then(|each| each.theme),
+        }
+    }
+
+    /// The theme `space`'s window shows: its own, or a theme of its colour alone for a Space whose
+    /// colour came before themes did; none in a private window.
+    pub(super) fn space_theme(&self, space: u64) -> Option<Theme> {
+        if self.private {
+            return None;
+        }
+        self.theme_of(space).or_else(|| {
+            let entry = self.spaces.iter().find(|each| each.id == space)?;
+            entry.color.map(Theme::of_color)
+        })
+    }
+
+    /// `space`'s palette, worked out once for each theme it shows rather than while drawing.
+    pub(super) fn palette_of(&self, space: u64) -> Palette {
+        let theme = self.space_theme(space);
+        let mut palettes = self.palettes.borrow_mut();
+        if let Some(at) = palettes.iter().position(|(each, _)| *each == theme) {
+            let kept = palettes.remove(at);
+            palettes.push(kept);
+            return kept.1;
+        }
+        let palette = Palette::of(theme.as_ref());
+        if palettes.len() == PALETTES {
+            palettes.remove(0);
+        }
+        palettes.push((theme, palette));
+        palette
+    }
+
+    /// The palette the chrome draws with: the shown Space's, or while the sidebar pages between
+    /// two, going from one's to the other's as the window's colour does. The key window's is the
+    /// one what floats over the page takes, and its accent the focused page's ring.
+    pub(super) fn update_palette(&mut self, cx: &mut Context<Self>) {
+        let (space, beside) = self.colored_pages();
+        let mut palette = self.palette_of(space);
+        if let Some((beside, t)) = beside {
+            palette = palette.toward(&self.palette_of(beside), t);
+        }
+        self.palette = palette;
+        if cx.try_global::<super::commands::ShellHandle>().is_some_and(|key| key.0 == cx.weak_entity()) {
+            palette::set_current(palette, cx);
         }
     }
 
@@ -63,7 +108,7 @@ impl Shell {
         cx.notify();
     }
 
-    /// Takes `space`'s theme and colour away, so it shows the system's accent again.
+    /// Takes `space`'s theme and colour away, so it shows the underlay alone and ilo's accent.
     pub(super) fn remove_space_theme(&mut self, space: u64, cx: &mut Context<Self>) {
         let none = Value::Color { color: None, theme: String::new() };
         self.change(Prop::SpaceColor(space), none, cx);
@@ -81,11 +126,11 @@ impl Shell {
         }
     }
 
-    /// `theme`'s colour `x` of the way across the window and `y` of the way down: one colour going
-    /// to the same at HSL lightness + 0.25 down the window, as a Space's colour does; two from the
-    /// main one at the top left to the second along the diagonal; and a third coming in toward
-    /// the bottom.
-    pub(super) fn theme_color_at(&self, theme: &Theme, x: f32, y: f32) -> Rgba {
+    /// `theme`'s colour `x` of the way across the window and `y` of the way down, at `alpha`: one
+    /// colour going to the same at HSL lightness + 0.25 down the window, as a Space's colour does;
+    /// two from the main one at the top left to the second along the diagonal; and a third coming
+    /// in toward the bottom.
+    pub(super) fn theme_color_at(&self, theme: &Theme, alpha: f32, x: f32, y: f32) -> Rgba {
         let colors: Vec<Rgba> = theme.colors().into_iter().map(rgb).collect();
         let main = Hsla::from(colors[0]);
         let color = match colors.len() {
@@ -97,7 +142,7 @@ impl Shell {
                 if count > 2 { theme::mix_oklab(two, colors[2], y) } else { two }
             }
         };
-        Rgba { a: theme_alpha(theme, main.s), ..color }
+        Rgba { a: alpha, ..color }
     }
 
     /// Where the sidebar's middle is across the window, 0 to 1, where the window's colour is taken
@@ -119,7 +164,7 @@ impl Shell {
         let themes: Vec<_> = pages
             .into_iter()
             .map(|(space, weight)| {
-                let theme = self.theme_of(space).filter(|_| !self.private);
+                let theme = self.space_theme(space);
                 (space, theme, weight)
             })
             .collect();
@@ -146,7 +191,7 @@ impl Shell {
             return layer.size_full().bg(self.space_gradient(space));
         };
         let colors: Vec<Rgba> = theme.colors().into_iter().map(rgb).collect();
-        let alpha = theme_alpha(&theme, Hsla::from(colors[0]).s);
+        let alpha = self.palette_of(space).layer_alpha;
         let stop = |color: Rgba, at: f32| linear_color_stop(Rgba { a: alpha, ..color }, at);
         let (width, height) = (f32::from(self.viewport.width), f32::from(self.viewport.height));
         let (side, start, end) = diagonal_stops(width, height);
@@ -183,14 +228,6 @@ fn diagonal_stops(width: f32, height: f32) -> (f32, f32, f32) {
     let start = 0.5 - std::f32::consts::FRAC_1_SQRT_2;
     let end = start + std::f32::consts::FRAC_1_SQRT_2 * SECOND_AT * (width + height) / side;
     (side, start, end)
-}
-
-/// How opaque `theme`'s colours lie over the window, its main colour `saturation` saturated: as a
-/// Space's colour alone at the intensity a theme starts with.
-fn theme_alpha(theme: &Theme, saturation: f32) -> f32 {
-    let alpha = if saturation < NEUTRAL { NEUTRAL_GRADIENT_ALPHA } else { GRADIENT_ALPHA };
-    let at = |intensity: f32| INTENSITY_FLOOR + INTENSITY_SPAN * intensity;
-    alpha * at(theme.intensity) / at(DEFAULT_INTENSITY)
 }
 
 /// Noise over the whole window, `grain` strong (0 to 1), in tiles of the grain image at one device

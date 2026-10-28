@@ -6,9 +6,10 @@
 use std::{sync::Arc, time::Instant};
 
 use gpui::{
-    AnyElement, BoxShadow, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight,
+    AnyElement, BoxShadow, ClickEvent, Context, DispatchPhase, Div, Entity, Focusable, FontWeight, Hsla,
     Image, ListAlignment, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, hsla, list, point,
+    Pixels, Point, SharedString, Stateful, Subscription, Window, canvas, div, hsla, linear_color_stop,
+    linear_gradient, list, point,
     prelude::*, px, relative, rgb, rgba, svg,
 };
 
@@ -17,7 +18,8 @@ use super::{
     Command, DRAG_START, FAVICON_X, FOLDER_INDENT, FOOTER_HEIGHT, FORM_TEXT, HOVERED, MenuEntry,
     NAV, NAV_HOVERED, NAV_RADIUS, NAV_SIZE, PLATE_INSET, PRESSED, SECONDARY, SEGMENT_FAVICON_X,
     Shell, Space, UNSELECTED_TITLE, clean_link, divider_box, favicon, folder_icon, host,
-    name_box, plate, row_box, space_icon, spring_to, split_plate, still_clear, title,
+    SPACE_SWATCH_SHOWN, icon_slot, name_box, plate, row_box, space_icon, spring_to, split_plate,
+    still_clear, title,
     header::TipSide,
 };
 use crate::{menu::Look, text_input::TextInput};
@@ -570,7 +572,7 @@ impl Shell {
         };
         let search = cx.new(|cx| {
             TextInput::new(placeholder, cx)
-                .placeholder_color(rgba(SEARCH_PLACEHOLDER))
+                .placeholder_color(self.palette.text(SEARCH_PLACEHOLDER))
                 .caret_color(rgb(SEARCH_CARET))
                 .selection_color(rgba(SEARCH_SELECTION))
         });
@@ -762,8 +764,8 @@ impl Shell {
         let Some(library) = &self.library else {
             return div();
         };
-        // The selected section's glyph has the Space's colour, as in Arc.
-        let color = self.shown_space().and_then(|space| space.color).unwrap_or(self.accent_color);
+        // The selected section's glyph has the Space's accent, as in Arc.
+        let color = Hsla::from(self.palette.accent);
         let sections = div()
             .flex()
             .flex_col()
@@ -787,18 +789,18 @@ impl Shell {
             .justify_center()
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
-            .hover(|style| style.bg(rgba(NAV_HOVERED)))
+            .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
             .on_click(cx.listener(|shell, _, _, cx| {
                 shell.run(Command::ViewLibrary, "library", cx)
             }))
-            .child(svg().path("icons/arrow-left.svg").size(px(16.)).text_color(rgba(NAV)));
+            .child(svg().path("icons/arrow-left.svg").size(px(16.)).text_color(self.palette.glyph(NAV)));
         let column = div()
             .absolute()
             .left(px(-past))
             .top_0()
             .bottom_0()
             .w(px(COLUMN_WIDTH + past))
-            .bg(rgba(COLUMN))
+            .bg(self.palette.plate(COLUMN))
             .flex()
             .items_center()
             .pl(px(SECTION_X + past))
@@ -813,7 +815,7 @@ impl Shell {
             .top_0()
             .bottom_0()
             .w(px(1.))
-            .bg(rgba(COLUMN_EDGE));
+            .bg(self.palette.faint(COLUMN_EDGE));
         let search = library.search.clone();
         let field = div()
             .id("library-search")
@@ -827,7 +829,7 @@ impl Shell {
             .pl(px(SEARCH_TEXT_X))
             .pr(px(12.))
             .rounded(px(SEARCH_RADIUS))
-            .bg(rgba(LIBRARY_PLATE))
+            .bg(self.palette.plate(LIBRARY_PLATE))
             .block_mouse_except_scroll()
             // The page may have the keyboard.
             .on_mouse_down(
@@ -838,7 +840,7 @@ impl Shell {
                 }),
             )
             .text_size(px(14.))
-            .text_color(rgb(FORM_TEXT))
+            .text_color(self.palette.text(FORM_TEXT))
             .child(
                 svg()
                     .path("icons/search.svg")
@@ -846,7 +848,7 @@ impl Shell {
                     .left(px(SEARCH_GLYPH_X))
                     .top(px((SEARCH_HEIGHT - SEARCH_GLYPH) / 2.))
                     .size(px(SEARCH_GLYPH))
-                    .text_color(rgba(SEARCH_PLACEHOLDER)),
+                    .text_color(self.palette.text(SEARCH_PLACEHOLDER)),
             )
             .child(library.search.clone());
         let spaces = self.section == Section::Spaces;
@@ -865,7 +867,7 @@ impl Shell {
                 .pt(px(HEADING_TOP + 40.))
                 .px(px(HEADING_X))
                 .text_size(px(12.))
-                .text_color(rgba(SECONDARY))
+                .text_color(self.palette.text(SECONDARY))
                 .child(empty)
                 .into_any_element()
         } else {
@@ -921,7 +923,7 @@ impl Shell {
                 shell.set_library(false, cx);
             }))
             .child(
-                svg().path("icons/nav-plus.svg").size(px(PLUS_GLYPH)).text_color(rgb(FORM_TEXT)),
+                svg().path("icons/nav-plus.svg").size(px(PLUS_GLYPH)).text_color(self.palette.text(FORM_TEXT)),
             );
         div()
             .id("library-spaces")
@@ -949,21 +951,30 @@ impl Shell {
     /// in.
     fn space_card(&self, space: &Space, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let id = space.id;
+        // The card is the Space's window, opaque, so it's drawn in the Space's own palette.
+        let palette = self.palette_of(id);
+        let underlay = Hsla::from(palette.underlay);
+        let window_at = |y: f32| underlay.blend(Hsla::from(self.space_color_at(id, 0.5, y)));
+        let fill = linear_gradient(
+            180.,
+            linear_color_stop(window_at(0.), 0.),
+            linear_color_stop(window_at(1.), 1.),
+        );
         let rows = space.card_lines().into_iter().map(|line| match line {
             Line::Divider => {
-                let clear = still_clear(space.clears_last(space.shown));
-                divider_box(self.hairline(), Some(clear)).into_any_element()
+                let clear = still_clear(&palette, space.clears_last(space.shown));
+                divider_box(&palette, self.hairline(), Some(clear)).into_any_element()
             }
             Line::Folder(folder, depth) => {
                 let name = space.folders.folders.get(&folder).map(|(name, _)| name.clone());
-                let name = title(name.unwrap_or_default(), false).pr(px(PLATE_INSET));
-                let icon = folder_icon(space.is_open(folder));
+                let name = title(&palette, name.unwrap_or_default(), false).pr(px(PLATE_INSET));
+                let icon = folder_icon(&palette, space.is_open(folder));
                 card_row(depth, plate(icon, name))
             }
             Line::Tab(tab, depth) => {
                 let panes = space.panes(tab);
                 if panes.len() == 1 {
-                    let label = title(self.title(tab), false).pr(px(PLATE_INSET));
+                    let label = title(&palette, self.title(tab), false).pr(px(PLATE_INSET));
                     return card_row(depth, plate(self.tab_icon(tab), label));
                 }
                 let plate = CARD_WIDTH - 2. * PLATE_INSET - depth as f32 * FOLDER_INDENT;
@@ -975,7 +986,12 @@ impl Shell {
                 card_row(depth, split_plate(segments))
             }
         });
-        let icon = space_icon(&space.icon);
+        // A Space without an icon shows its swatch in the icon's place.
+        let icon = space_icon(&palette, &space.icon).or_else(|| {
+            let behind = window_at(0.).to_rgb();
+            let swatch = palette.swatch.draw(SPACE_SWATCH_SHOWN, behind);
+            Some(icon_slot(swatch))
+        });
         let brush = div()
             .id(("space-brush", id))
             .absolute()
@@ -987,7 +1003,7 @@ impl Shell {
             .justify_center()
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
-            .hover(|style| style.bg(rgba(NAV_HOVERED)))
+            .hover(|style| style.bg(palette.plate(NAV_HOVERED)))
             .on_click(cx.listener(move |shell, event: &ClickEvent, _, cx| {
                 cx.stop_propagation();
                 shell.space_menu(id, event.position(), cx);
@@ -996,7 +1012,7 @@ impl Shell {
                 svg()
                     .path("icons/paintbrush.svg")
                     .size(px(CARD_BRUSH_GLYPH))
-                    .text_color(rgba(CARD_BRUSH_COLOR)),
+                    .text_color(palette.glyph(CARD_BRUSH_COLOR)),
             );
         let shadow = BoxShadow {
             color: hsla(0., 0., 0., CARD_SHADOW),
@@ -1012,7 +1028,7 @@ impl Shell {
             .h_full()
             .overflow_hidden()
             .rounded(px(CARD_RADIUS))
-            .bg(self.space_gradient(id))
+            .bg(fill)
             .shadow(vec![shadow])
             .block_mouse_except_scroll()
             .on_click(cx.listener(move |shell, _, _, cx| shell.pick_space(id, cx)))
@@ -1029,10 +1045,10 @@ impl Shell {
                     .absolute()
                     .inset_0()
                     .rounded(px(CARD_RADIUS))
-                    .group_hover("space-card", |style| style.bg(rgba(SECTION_HOVERED))),
+                    .group_hover("space-card", |style| style.bg(palette.plate(SECTION_HOVERED))),
             )
             .child(
-                name_box(icon.is_some())
+                name_box(&palette, icon.is_some())
                     .mt(px(CARD_NAME_TOP))
                     .h(px(CARD_NAME_HEIGHT))
                     .children(icon)
@@ -1069,7 +1085,7 @@ impl Shell {
                             .items_center()
                             .text_size(px(12.))
                             .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(rgba(SECONDARY))
+                            .text_color(self.palette.text(SECONDARY))
                             .child(heading),
                     )
                     .into_any_element();
@@ -1087,7 +1103,7 @@ impl Shell {
             self.page_favicons.insert(url.clone(), None);
             self.browser.page_favicon(&url, cx);
         }
-        let icon = favicon(self.page_favicons.get(&url).cloned().flatten());
+        let icon = favicon(&self.palette, self.page_favicons.get(&url).cloned().flatten());
         let host = SharedString::from(host(&url).to_string());
         div()
             .h(px(ARCHIVED_PITCH))
@@ -1101,8 +1117,8 @@ impl Shell {
                     .relative()
                     .rounded(px(ARCHIVED_RADIUS))
                     .block_mouse_except_scroll()
-                    .hover(|style| style.bg(rgba(HOVERED)))
-                    .active(|style| style.bg(rgba(PRESSED)))
+                    .hover(|style| style.bg(self.palette.plate(HOVERED)))
+                    .active(|style| style.bg(self.palette.plate(PRESSED)))
                     .on_click(cx.listener(move |shell, _, _, cx| shell.restore_archived(id, cx)))
                     .on_mouse_down(
                         MouseButton::Right,
@@ -1128,8 +1144,8 @@ impl Shell {
                             .justify_center()
                             .pl(px(ARCHIVED_TEXT_X))
                             .pr(px(12.))
-                            .child(text_line(title, 14., 17., UNSELECTED_TITLE))
-                            .child(text_line(host, 12., 15., SECONDARY)),
+                            .child(text_line(title, 14., 17., self.palette.text(UNSELECTED_TITLE)))
+                            .child(text_line(host, 12., 15., self.palette.text(SECONDARY))),
                     ),
             )
             .into_any_element()
@@ -1139,7 +1155,7 @@ impl Shell {
     fn section_button(
         &self,
         section: Section,
-        color: u32,
+        color: Hsla,
         cx: &mut Context<Self>,
     ) -> impl IntoElement + use<> {
         let selected = section == self.section;
@@ -1155,8 +1171,8 @@ impl Shell {
             .h(px(SECTION_HEIGHT))
             .rounded(px(SECTION_RADIUS))
             .block_mouse_except_scroll()
-            .when(selected, |button| button.bg(rgba(LIBRARY_PLATE)))
-            .when(!selected, |button| button.hover(|style| style.bg(rgba(SECTION_HOVERED))))
+            .when(selected, |button| button.bg(self.palette.plate(LIBRARY_PLATE)))
+            .when(!selected, |button| button.hover(|style| style.bg(self.palette.plate(SECTION_HOVERED))))
             .on_click(cx.listener(move |shell, _, _, cx| {
                 if section != shell.section {
                     shell.show_section(section, cx);
@@ -1169,7 +1185,7 @@ impl Shell {
                     .left(px((SECTION_WIDTH - SECTION_GLYPH) / 2.))
                     .top(px(SECTION_GLYPH_Y - SECTION_GLYPH / 2.))
                     .size(px(SECTION_GLYPH))
-                    .text_color(if selected { rgb(color) } else { rgba(SECTION_GLYPH_UNSELECTED) }),
+                    .text_color(if selected { color } else { self.palette.glyph(SECTION_GLYPH_UNSELECTED) }),
             )
             .child(
                 div()
@@ -1181,7 +1197,7 @@ impl Shell {
                     .justify_center()
                     .text_size(px(12.))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgba(SECTION_LABEL))
+                    .text_color(self.palette.text(SECTION_LABEL))
                     .child(label),
             )
     }
@@ -1218,8 +1234,8 @@ impl Shell {
             self.browser.download_icon(id, cx);
         }
         let icon = match self.download_icons.get(&id).cloned().flatten() {
-            Some(icon) => favicon(Some(icon)).into_any_element(),
-            None => (svg().path("icons/file.svg").size(px(16.)).text_color(rgba(SECONDARY)))
+            Some(icon) => favicon(&self.palette, Some(icon)).into_any_element(),
+            None => (svg().path("icons/file.svg").size(px(16.)).text_color(self.palette.text(SECONDARY)))
                 .into_any_element(),
         };
         div()
@@ -1251,8 +1267,8 @@ impl Shell {
                             .justify_center()
                             .pl(px(ARCHIVED_TEXT_X))
                             .pr(px(12.))
-                            .child(text_line(name, 14., 17., UNSELECTED_TITLE))
-                            .child(text_line(status, 12., 15., SECONDARY)),
+                            .child(text_line(name, 14., 17., self.palette.text(UNSELECTED_TITLE)))
+                            .child(text_line(status, 12., 15., self.palette.text(SECONDARY))),
                     )
                     .children(progress.map(|done| {
                         div()
@@ -1262,13 +1278,13 @@ impl Shell {
                             .bottom(px(PROGRESS_BOTTOM))
                             .h(px(PROGRESS_HEIGHT))
                             .rounded(px(PROGRESS_HEIGHT / 2.))
-                            .bg(rgba(PROGRESS_TRACK))
+                            .bg(self.palette.faint(PROGRESS_TRACK))
                             .child(
                                 div()
                                     .h_full()
                                     .w(relative(done))
                                     .rounded(px(PROGRESS_HEIGHT / 2.))
-                                    .bg(rgba(PROGRESS_FILL)),
+                                    .bg(self.palette.glyph(PROGRESS_FILL)),
                             )
                     })),
             )
@@ -1292,8 +1308,8 @@ impl Shell {
         // GPUI never hears the release that ends the system's drag, and would keep the row
         // pressed.
         let dragged = matches!(self.download_press, Some((pressed, _, true)) if pressed == id);
-        row.hover(|style| style.bg(rgba(HOVERED)))
-            .when(!dragged, |row| row.active(|style| style.bg(rgba(PRESSED))))
+        row.hover(|style| style.bg(self.palette.plate(HOVERED)))
+            .when(!dragged, |row| row.active(|style| style.bg(self.palette.plate(PRESSED))))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
@@ -1488,14 +1504,14 @@ impl Shell {
             .rounded(px(NAV_RADIUS))
             .block_mouse_except_scroll()
             .map(|button| self.with_tooltip(button, command, TipSide::Beside, cx))
-            .hover(|style| style.bg(rgba(NAV_HOVERED)))
+            .hover(|style| style.bg(self.palette.plate(NAV_HOVERED)))
             // A button has one hover handler, so this one also carries the tooltip's.
             .on_hover(cx.listener(move |shell, hovered: &bool, window, cx| {
                 shell.hover_button(command, TipSide::Beside, *hovered, cx);
                 shell.hover_recent_downloads(false, *hovered, window, cx)
             }))
             .on_click(cx.listener(move |shell, _, _, cx| shell.run(command, "sidebar", cx)))
-            .child(svg().path("icons/archive.svg").size(px(16.)).text_color(rgba(NAV)))
+            .child(svg().path("icons/archive.svg").size(px(16.)).text_color(self.palette.glyph(NAV)))
             .when_some(progress, |button, done| {
                 button.child(
                     div()
@@ -1505,13 +1521,13 @@ impl Shell {
                         .w(px(BUTTON_PROGRESS_WIDTH))
                         .h(px(BUTTON_PROGRESS_HEIGHT))
                         .rounded(px(BUTTON_PROGRESS_HEIGHT / 2.))
-                        .bg(rgba(PROGRESS_TRACK))
+                        .bg(self.palette.faint(PROGRESS_TRACK))
                         .child(
                             div()
                                 .h_full()
                                 .w(relative(done))
                                 .rounded(px(BUTTON_PROGRESS_HEIGHT / 2.))
-                                .bg(rgba(PROGRESS_FILL)),
+                                .bg(self.palette.glyph(PROGRESS_FILL)),
                         ),
                 )
             })
@@ -1585,13 +1601,13 @@ pub(super) fn library_band(way: f32) -> f32 {
 }
 
 /// A line of a row's text, cut short with an ellipsis.
-fn text_line(text: SharedString, size: f32, height: f32, color: u32) -> gpui::Div {
+fn text_line(text: SharedString, size: f32, height: f32, color: Hsla) -> gpui::Div {
     div()
         .h(px(height))
         .flex()
         .items_center()
         .text_size(px(size))
-        .text_color(rgba(color))
+        .text_color(color)
         .child(div().truncate().child(text))
 }
 

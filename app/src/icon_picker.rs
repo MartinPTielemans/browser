@@ -62,7 +62,6 @@ use crate::tokens::icon_picker::CHOSEN;
 use crate::tokens::icon_picker::HOVERED;
 use crate::tokens::icon_picker::HINT;
 use crate::tokens::icon_picker::CARET;
-use crate::tokens::icon_picker::CHOSEN_TEXT;
 /// Arc's switch between Emoji and Icon slides the content a card's width over 0.2 s, easing out
 /// (Arc 1.170 rec at 2×).
 const SLIDE: f32 = 0.2;
@@ -126,7 +125,6 @@ struct Picking {
     subject: Subject,
     icon: SharedString,
     tab: Tab,
-    accent: u32,
     picked: Picked,
     /// What the Emoji tab lists for what's in its search, and the one on the plate, which ↩ picks.
     query: String,
@@ -247,13 +245,12 @@ pub fn tab_for(icon: &str) -> Tab {
 }
 
 /// Shows the picker for `subject`, which has `icon`, its arrow at `anchor`, the middle of the
-/// icon's slot in the browser window, with the chosen segment in `accent`, 0xRRGGBB. `picked` gets
-/// the icon the user picks.
+/// icon's slot in the browser window, with the chosen segment in the Space's accent. `picked`
+/// gets the icon the user picks.
 pub fn show(
     subject: Subject,
     icon: SharedString,
     anchor: Point<f32>,
-    accent: u32,
     picked: Picked,
     cx: &mut App,
 ) {
@@ -272,7 +269,6 @@ pub fn show(
                 subject,
                 icon,
                 tab,
-                accent,
                 picked,
                 query: String::new(),
                 grid: Grid::default(),
@@ -502,7 +498,8 @@ impl IconPicker {
                 .justify_center()
                 .rounded(px(SEGMENTS_RADIUS))
                 .when(chosen, |segment| {
-                    segment.bg(rgb(picking.accent)).text_color(rgb(CHOSEN_TEXT))
+                    let palette = crate::palette::current(cx);
+                    segment.bg(palette.accent).text_color(palette.accent_label)
                 })
                 // The other takes the trash's plate under the pointer (ours: Arc's isn't recorded).
                 .when(!chosen, |segment| segment.hover(|style| style.bg(rgba(HOVERED))))

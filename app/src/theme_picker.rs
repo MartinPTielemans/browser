@@ -8,7 +8,7 @@
 use std::{cell::OnceCell, f32::consts::TAU, rc::Rc, sync::Arc, time::Instant};
 
 use gpui::{
-    App, Bounds, Context, DispatchPhase, FocusHandle, Focusable, FontWeight, Global, Hsla,
+    App, Bounds, Context, DispatchPhase, FocusHandle, Focusable, FontWeight, Global,
     KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels,
     Point, RenderImage, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds,
     WindowHandle, WindowKind, WindowOptions, actions, canvas, div, fill, point, prelude::*, px,
@@ -18,6 +18,7 @@ use image::{Frame, RgbaImage};
 
 use crate::{
     icon_picker,
+    palette::{OVERLAY_DARK, Swatch},
     shell::{KEY_CONTEXT, cubic_bezier},
     theme::{self, Appearance, DEFAULT_INTENSITY, MAX_COLORS, Theme},
 };
@@ -60,13 +61,10 @@ use crate::tokens::theme_picker::COUNT_COLOR;
 use crate::tokens::theme_picker::COUNT_PRESSED;
 use crate::tokens::theme_picker::COUNT_DISABLED;
 use crate::tokens::theme_picker::COUNT_TARGET;
-/// The swatches: 24 pt discs on a 29.5 pitch, each with a ring a shade darker than its fill.
 use crate::tokens::theme_picker::SWATCH_Y;
 use crate::tokens::theme_picker::SWATCH_X;
 use crate::tokens::theme_picker::SWATCH_PITCH;
 use crate::tokens::theme_picker::SWATCH;
-use crate::tokens::theme_picker::SWATCH_RING;
-use crate::tokens::theme_picker::SWATCH_RING_SHADE;
 pub use crate::tokens::theme_picker::SWATCHES;
 use crate::tokens::theme_picker::SLIDER_Y;
 use crate::tokens::theme_picker::TRACK_LEFT;
@@ -170,6 +168,8 @@ pub struct ThemePicker {
     host: Rc<dyn Host>,
     focus: FocusHandle,
     editing: Option<Editing>,
+    /// SWATCHES' marks, worked out as the picker opens, ahead of time.
+    swatches: Vec<Swatch>,
 }
 
 struct ThemePickerWindow(WindowHandle<ThemePicker>);
@@ -201,7 +201,9 @@ pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<ThemePicker
         ..Default::default()
     };
     let window = cx.open_window(options, |_, cx| {
-        cx.new(|cx| ThemePicker { host, focus: cx.focus_handle(), editing: None })
+        let swatches =
+            SWATCHES.iter().map(|&color| Swatch::of_theme(Some(&Theme::of_color(color)))).collect();
+        cx.new(|cx| ThemePicker { host, focus: cx.focus_handle(), editing: None, swatches })
     });
     match window {
         Ok(window) => {
@@ -815,18 +817,14 @@ impl Render for ThemePicker {
             (1..MAX_COLORS).contains(&count),
         );
 
-        let swatches = SWATCHES.iter().enumerate().map(|(index, &color)| {
-            let ring = Hsla::from(rgb(color));
-            let ring = Hsla { l: ring.l * SWATCH_RING_SHADE, ..ring };
+        // The panel's dark material, behind them, is near the dark overlay.
+        let behind = rgb(OVERLAY_DARK);
+        let swatches = self.swatches.iter().enumerate().map(|(index, swatch)| {
             div()
                 .absolute()
                 .left(card_x(SWATCH_X + SWATCH_PITCH * index as f32 - SWATCH / 2.))
                 .top(px(SWATCH_Y - SWATCH / 2.))
-                .size(px(SWATCH))
-                .rounded_full()
-                .bg(rgb(color))
-                .border(px(SWATCH_RING))
-                .border_color(ring)
+                .child(swatch.draw(SWATCH, behind))
         });
 
         // The wave slider and the dial, which show without knobs, dimmer, until there's a colour.

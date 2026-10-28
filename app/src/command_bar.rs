@@ -18,6 +18,7 @@ use gpui::{
 use gpui::{Role, accesskit::Live};
 
 use crate::{
+    palette,
     shell::{self, Match},
     text_input::{self, PasteAndGo, PasteAndSearch, TextInput},
 };
@@ -65,22 +66,21 @@ pub use crate::tokens::command_bar::FIELD_RADIUS;
 const FIELD_INPUT: f32 = ROW_HEIGHT;
 use crate::tokens::command_bar::FIELD_INPUT_TEXT;
 use crate::tokens::command_bar::BESIDE_END;
-use crate::tokens::command_bar::FILL;
 pub(crate) use crate::tokens::command_bar::OUTLINE;
 pub(crate) use crate::tokens::command_bar::EDGE;
+use crate::tokens::command_bar::EDGE_PLATE;
 use crate::tokens::command_bar::LINE_COLOR;
 use crate::tokens::command_bar::TITLE;
 use crate::tokens::command_bar::DIM;
 use crate::tokens::command_bar::HOVERED;
 use crate::tokens::command_bar::PLACEHOLDER;
+use crate::tokens::command_bar::ROW_GLYPH;
+use crate::tokens::command_bar::ARROW;
+use crate::tokens::command_bar::SELECTED_DIM;
 use crate::tokens::command_bar::CARET;
 use crate::tokens::command_bar::SELECTION;
 use crate::tokens::command_bar::CHIP;
 use crate::tokens::command_bar::ARROW_TILE;
-use crate::tokens::command_bar::ACCENT_LIGHTNESS;
-/// The accent until the shell gives the Space's.
-use crate::tokens::command_bar::ACCENT;
-use crate::tokens::command_bar::TEXT;
 use crate::tokens::command_bar::CHIP_RADIUS;
 pub(crate) const PLACEHOLDER_TEXT: &str = "Search or Enter URL…";
 
@@ -326,16 +326,6 @@ struct CommandBarWindow(WindowHandle<CommandBar>);
 
 impl Global for CommandBarWindow {}
 
-/// The Space's colour, or the system's accent, which the selected row is filled with.
-struct Accent(u32);
-
-impl Global for Accent {}
-
-/// The colour the selected row takes, for the Space shown.
-pub fn set_accent(color: u32, cx: &mut App) {
-    cx.set_global(Accent(color));
-}
-
 /// Opens the command bar's window, hidden, for `host` to show over the browser window. Opening it
 /// ahead of time keeps window setup off the path from the shortcut to the bar on screen.
 pub fn open(host: Rc<dyn Host>, cx: &mut App) -> Option<WindowHandle<CommandBar>> {
@@ -390,7 +380,7 @@ pub fn open_at(
     let window = cx.open_window(options, |window, cx| {
         let input = cx.new(|cx| {
             TextInput::new(PLACEHOLDER_TEXT, cx)
-                .placeholder_color(rgba(PLACEHOLDER))
+                .placeholder_color(palette::current(cx).on_overlay(PLACEHOLDER))
                 .caret_color(rgb(CARET))
                 .selection_color(rgba(SELECTION))
                 .paste_and_go()
@@ -1295,8 +1285,8 @@ impl CommandBar {
 
     /// The input's icon: the search glyph, or once something is typed, the selected row's, as
     /// Arc's becomes its favicon. On a page's URL it's the page's favicon until it's edited.
-    fn input_icon(&self) -> AnyElement {
-        let color = rgb(TEXT).into();
+    fn input_icon(&self, cx: &App) -> AnyElement {
+        let color = palette::current(cx).ink.into();
         let size = if self.over_field { ICON_SIZE } else { INPUT_ICON };
         if !self.page.is_empty() && self.asked == self.page {
             return self.favicon(&self.page, size, color);
@@ -1310,16 +1300,17 @@ impl CommandBar {
 
     /// "Search <site>" and the Tab key, at the input's end, while the row ↩ takes hints a site
     /// search.
-    fn site_hint(&self) -> Option<impl IntoElement + use<>> {
+    fn site_hint(&self, cx: &App) -> Option<impl IntoElement + use<>> {
         let row = self.chosen().filter(|row| self.site.is_none() && !row.keyword.is_empty())?;
+        let palette = palette::current(cx);
         let key = div()
             .h(px(ICON_BOX))
             .px(px(4.))
             .flex()
             .items_center()
             .rounded(px(CHIP_RADIUS))
-            .bg(rgba(CHIP))
-            .text_color(rgba(TITLE))
+            .bg(palette.plate(CHIP))
+            .text_color(palette.on_overlay(TITLE))
             .child("Tab");
         Some(
             div()
@@ -1329,7 +1320,7 @@ impl CommandBar {
                 .items_center()
                 .gap(px(9.))
                 .text_size(px(14.))
-                .child(div().text_color(rgba(DIM)).child(format!("Search {}", row.site)))
+                .child(div().text_color(palette.on_overlay(DIM)).child(format!("Search {}", row.site)))
                 .child(key),
         )
     }
@@ -1362,21 +1353,22 @@ impl CommandBar {
         let selected = index == self.selected;
         // The selected row keeps its accent under the pointer.
         let hovered = !selected && self.hovered == Some(index);
-        let accent = accent(cx);
-        let white = Hsla::from(rgb(TEXT));
+        let palette = palette::current(cx);
+        let accent = Hsla::from(palette.accent);
+        let label = Hsla::from(palette.accent_label);
         let (title, dim) = match selected {
-            true => (white, white.opacity(0.5)),
-            false => (Hsla::from(rgba(TITLE)), Hsla::from(rgba(DIM))),
+            true => (label, label.opacity(SELECTED_DIM)),
+            false => (palette.on_overlay(TITLE), palette.on_overlay(DIM)),
         };
-        // The icon sits on a white tile in the selected row, and a command's on a faint one in
-        // the rest.
+        // The icon sits on a tile of the accent's label in the selected row, and a command's on a
+        // faint one in the rest.
         let glyph = match selected {
             true => accent,
-            false => white.opacity(0.7),
+            false => palette.on_overlay(ROW_GLYPH),
         };
         let tile = match (selected, row.kind()) {
-            (true, _) => Some(white),
-            (false, Kind::Command) => Some(Hsla::from(rgba(CHIP))),
+            (true, _) => Some(label),
+            (false, Kind::Command) => Some(palette.plate(CHIP)),
             _ => None,
         };
         let icon = div()
@@ -1389,11 +1381,11 @@ impl CommandBar {
             .rounded(px(CHIP_RADIUS))
             .when_some(tile, |icon, tile| icon.bg(tile))
             .children(self.glyph(row, ICON_SIZE, glyph));
-        // A key's chip: white with the accent's lighter shade on the selected row.
+        // A key's chip: the accent's label with the accent on it on the selected row.
         let chip = |text: SharedString| {
             let (fill, text_color) = match selected {
-                true => (white, Hsla { l: (accent.l + 0.12).min(1.), ..accent }),
-                false => (Hsla::from(rgba(CHIP)), dim),
+                true => (label, accent),
+                false => (palette.plate(CHIP), dim),
             };
             div()
                 .h(px(ICON_BOX))
@@ -1427,7 +1419,7 @@ impl CommandBar {
             .rounded(px(PLATE_RADIUS))
             .text_color(title)
             .when(selected, |line| line.bg(accent))
-            .when(hovered, |line| line.bg(rgba(HOVERED)))
+            .when(hovered, |line| line.bg(palette.plate(HOVERED)))
             // Arc keeps the plate under the pointer as the keys move the selection.
             .hover_listener_mode(HoverListenerMode::InputModalityIndependent)
             .on_hover(cx.listener(move |bar, hovered: &bool, _, cx| bar.hover(index, *hovered, cx)))
@@ -1458,14 +1450,14 @@ impl CommandBar {
                     .items_center()
                     .justify_center()
                     .rounded(px(CHIP_RADIUS))
-                    .bg(if selected { white } else { Hsla::from(rgba(ARROW_TILE)) })
+                    .bg(if selected { label } else { palette.plate(ARROW_TILE) })
                     .child(
                         svg()
                             .path("icons/arrow-right.svg")
                             .size(px(14.))
-                            .text_color(if selected { accent } else { white.opacity(0.65) }),
+                            .text_color(if selected { accent } else { palette.on_overlay(ARROW) }),
                     );
-                let tint = if selected { white } else { dim };
+                let tint = if selected { label } else { dim };
                 let label = div().flex_none().mr(px(7.)).text_color(tint);
                 line.child(div().flex_1()).child(label.child(action)).child(arrow)
             })
@@ -1494,14 +1486,6 @@ fn glyph(path: &'static str, size: f32, color: Hsla) -> AnyElement {
     svg().path(path).size(px(size)).flex_none().text_color(color).into_any_element()
 }
 
-/// The Space's accent, which the selected row and the dialog's action take, dark enough for white
-/// on it.
-pub fn accent(cx: &App) -> Hsla {
-    let color = cx.try_global::<Accent>().map_or(ACCENT, |accent| accent.0);
-    let color = Hsla::from(rgb(color));
-    Hsla { l: color.l.min(ACCENT_LIGHTNESS), ..color }
-}
-
 impl Render for CommandBar {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // check.sh reads these lines.
@@ -1528,7 +1512,7 @@ impl Render for CommandBar {
         };
         // One device pixel, which a 0.5 pt line isn't on a 1× display, where it doesn't draw.
         let hairline = 1. / window.scale_factor();
-        let edge = |inset: f32, width: f32, color: u32| {
+        let edge = |inset: f32, width: f32, color: Hsla| {
             div()
                 .absolute()
                 .top(px(inset))
@@ -1537,8 +1521,11 @@ impl Render for CommandBar {
                 .bottom(px(inset))
                 .rounded(px(radius - inset))
                 .border(px(width))
-                .border_color(rgb(color))
+                .border_color(color)
         };
+        let palette = palette::current(cx);
+        // The placeholder follows the Space's overlay, which may have changed since it opened.
+        self.input.update(cx, |input, _| input.set_placeholder_color(palette.on_overlay(PLACEHOLDER)));
         // The browser's shortcuts work here too, below the bar's own keys.
         div().key_context(shell::KEY_CONTEXT).size_full().child(
             div()
@@ -1571,8 +1558,8 @@ impl Render for CommandBar {
                 .size_full()
                 .overflow_hidden()
                 .rounded(px(radius))
-                .bg(rgba(FILL))
-                .text_color(rgb(TEXT))
+                .bg(palette.overlay)
+                .text_color(palette.ink)
                 // Arc's text is medium, by its strokes at 2× (Arc 1.170.0 cap).
                 .font_weight(FontWeight::MEDIUM)
                 .text_size(px(14.))
@@ -1587,7 +1574,7 @@ impl Render for CommandBar {
                         .gap(px(text_x - icon_x - icon))
                         .text_size(px(text_size))
                         .line_height(px(23.))
-                        .child(self.input_icon())
+                        .child(self.input_icon(cx))
                         .when_some(self.site.as_ref(), |line, site| {
                             line.child(
                                 div()
@@ -1595,17 +1582,17 @@ impl Render for CommandBar {
                                     .px(px(6.))
                                     .py(px(2.))
                                     .rounded(px(CHIP_RADIUS))
-                                    .bg(rgba(CHIP))
+                                    .bg(palette.plate(CHIP))
                                     .text_size(px(14.))
                                     .child(site.name.clone()),
                             )
                         })
                         .child(div().flex_1().min_w_0().child(self.input.clone()))
-                        .children(self.site_hint()),
+                        .children(self.site_hint(cx)),
                 )
                 .when(!rows.is_empty() && !self.over_field, |bar| {
                     bar.child(
-                        div().h(px(hairline)).mx(px(LINE_INSET)).flex_none().bg(rgba(LINE_COLOR)),
+                        div().h(px(hairline)).mx(px(LINE_INSET)).flex_none().bg(palette.faint(LINE_COLOR)),
                     )
                 })
                 .when(!rows.is_empty(), |bar| {
@@ -1628,8 +1615,8 @@ impl Render for CommandBar {
                 })
                 .children(self.a11y.then(|| self.announcer()))
                 // Arc's edge: a 0.5 pt outline, and inside it a 1 pt grey one.
-                .child(edge(0., hairline, OUTLINE))
-                .child(edge(hairline, 1., EDGE)),
+                .child(edge(0., hairline, rgb(OUTLINE).into()))
+                .child(edge(hairline, 1., palette.plate(EDGE_PLATE))),
         )
     }
 }
