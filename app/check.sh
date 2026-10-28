@@ -15,9 +15,16 @@
 # On Windows it runs under Git Bash, with python3 on the PATH, on the app the engine's chrome.exe
 # runs from build/Browser. The runs need what the Windows driver (platform/windows/drive.cc) does
 # so far: load, tabs and dialogs.
+# On Linux it runs itself in a headless sway session of its own (tools/headless.sh --run), on its
+# Xwayland, as the driver (platform/linux/drive.rs) can drive only X11 so far, and the app's
+# windows and input then never reach the owner's session. The runs need what Linux has yet:
+# load, and history, keys and tabs among the driven ones. Captures are the session's whole output.
 set -e
 export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
+if [ "$(uname)" = Linux ] && [ -z "${BROWSER_HEADLESS:-}" ]; then
+  exec ../tools/headless.sh --x11 --run ./check.sh "$@"
+fi
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites cards extensions adblock windows private capture passwords links access"
 runs="$runs trouble dialogs crash"
@@ -41,6 +48,11 @@ if windows; then
   browser=windows_browser
   procs="$(cygpath -m "$app/chrome.exe")"
   profile_dir="$(cygpath -u "$LOCALAPPDATA")/browser-app"
+elif [ "$(uname)" = Linux ]; then
+  app="$PWD/build/Browser"
+  browser="$app/chrome"
+  procs="$app/chrome"
+  profile_dir="$HOME/.cache/browser-app"
 else
   app="$PWD/build/Browser.app"
   browser="$app/Contents/MacOS/Browser"

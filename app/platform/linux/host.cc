@@ -222,9 +222,6 @@ std::string DefaultFor(const std::string& type) {
 
 extern "C" {
 
-// shortcut: no test driver on Linux yet; BROWSER_DRIVE does nothing.
-void drive_start(void) {}
-
 // Wayland gives a client no say in where its window goes, nor sight of the displays' layout: the
 // compositor places it, Hyprland on the display with the focus. X11 window managers mostly place
 // a new window themselves too. So the origin is left for them, and BROWSER_DISPLAY has nothing
