@@ -40,14 +40,16 @@ index 96fb383617..58f2a59158 100644
              let mouse_event: &web_sys::MouseEvent = event.as_ref();
              let position = mouse_position_in_element(mouse_event);
 diff --git a/crates/gpui_web/src/gpui_web.rs b/crates/gpui_web/src/gpui_web.rs
-index c915084325..78c5392e94 100644
+index c915084325..4ae34518cd 100644
 --- a/crates/gpui_web/src/gpui_web.rs
 +++ b/crates/gpui_web/src/gpui_web.rs
-@@ -41,9 +41,12 @@ pub use dispatcher::WebDispatcher;
+@@ -41,9 +41,14 @@ pub use dispatcher::WebDispatcher;
  #[cfg(target_family = "wasm")]
  pub use display::WebDisplay;
  #[cfg(target_family = "wasm")]
 +pub use events::wheel_time_stamp;
++#[cfg(target_family = "wasm")]
++pub use ime_mirror::release_keyboard;
 +#[cfg(target_family = "wasm")]
  pub use gpui_wgpu::WebBackendPreference;
  #[cfg(target_family = "wasm")]
@@ -57,21 +59,70 @@ index c915084325..78c5392e94 100644
  pub use keyboard::WebKeyboardLayout;
  #[cfg(target_family = "wasm")]
 diff --git a/crates/gpui_web/src/ime_mirror.rs b/crates/gpui_web/src/ime_mirror.rs
-index 5cb08b5a29..86fdd41122 100644
+index 5cb08b5a29..dbc00ae6a2 100644
 --- a/crates/gpui_web/src/ime_mirror.rs
 +++ b/crates/gpui_web/src/ime_mirror.rs
-@@ -110,7 +110,10 @@ impl ImeMirror {
+@@ -22,6 +22,21 @@ use wasm_bindgen::JsCast;
+ 
+ use crate::window::WebWindowInner;
+ 
++thread_local! {
++    /// The input of an app drawn in a page's canvas, which the page's keys reach only through it.
++    static PAGE_INPUT: RefCell<Option<web_sys::HtmlTextAreaElement>> = const { RefCell::new(None) };
++}
++
++/// Hands the keyboard back to the page around an app drawn in its canvas, as it was before the app
++/// was clicked, so the page's own keys, such as Space to scroll, are the page's again.
++pub fn release_keyboard() {
++    PAGE_INPUT.with_borrow(|input| {
++        if let Some(input) = input.as_ref().filter(|input| ImeMirror::element_is_focused(input)) {
++            input.blur().ok();
++        }
++    });
++}
++
+ /// UTF-16 code units of document text mirrored on each side of the
+ /// selection.
+ ///
+@@ -110,7 +125,12 @@ impl ImeMirror {
          style.set_property("font-size", "16px").ok();
          body.append_child(&element)
              .map_err(|e| anyhow::anyhow!("Failed to append input to body: {e:?}"))?;
 -        Self::focus_element(&element);
 +        // An app drawn in a page's canvas leaves the page its keys until it's clicked.
-+        if !crate::window::draws_in_page_canvas() {
++        if crate::window::draws_in_page_canvas() {
++            PAGE_INPUT.with_borrow_mut(|input| *input = Some(element.clone()));
++        } else {
 +            Self::focus_element(&element);
 +        }
          // The element must stay focused to receive hardware-key and IME
          // events, but on touch-first devices a focused *editable* element
          // invites the browser to summon the virtual keyboard on the next
+@@ -197,7 +217,11 @@ impl ImeMirror {
+     }
+ 
+     pub(crate) fn is_focused(&self) -> bool {
+-        let element: &web_sys::Element = self.element.as_ref();
++        Self::element_is_focused(&self.element)
++    }
++
++    fn element_is_focused(element: &web_sys::HtmlTextAreaElement) -> bool {
++        let element: &web_sys::Element = element.as_ref();
+         web_sys::window()
+             .and_then(|window| window.document())
+             .and_then(|document| document.active_element())
+@@ -226,6 +250,11 @@ impl ImeMirror {
+     }
+ 
+     pub(crate) fn remove(&self) {
++        PAGE_INPUT.with_borrow_mut(|input| {
++            if input.as_ref() == Some(&self.element) {
++                *input = None;
++            }
++        });
+         let element: &web_sys::Element = self.element.as_ref();
+         element.remove();
+     }
 diff --git a/crates/gpui_web/src/platform.rs b/crates/gpui_web/src/platform.rs
 index 5022b77a54..a80a156714 100644
 --- a/crates/gpui_web/src/platform.rs

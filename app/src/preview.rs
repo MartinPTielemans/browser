@@ -1579,8 +1579,8 @@ impl icon_picker::Host for PreviewPicker {
 /// for its first Today tab, else its first pinned one. `host` hears `layOut(x, y, width, height,
 /// radius)` for the page's frame, `show(url)` for the tab shown ("" for none), `space(index)` for
 /// the Space shown, `cover(covered)` while something draws over the frame, and `ready()` once the
-/// first frame is up. The demo takes the keyboard only once it's clicked, and `openBar()` opens
-/// the command bar.
+/// first frame is up. The demo takes the keyboard only once it's clicked or its command bar opens,
+/// and gives it back when the bar closes; `openBar()` opens the bar.
 #[cfg(target_family = "wasm")]
 mod web {
     use std::{
@@ -2018,6 +2018,9 @@ mod web {
                 self.shell.update(cx, |shell, cx| shell.command_bar_dismissed(cx));
             }
             window.focus(&self.shell.focus_handle(cx), cx);
+            // The site's keys were its own until the bar took them, so they go back with it; a
+            // click that closed it in the demo takes them again.
+            gpui_web::release_keyboard();
             cx.notify();
         }
     }
