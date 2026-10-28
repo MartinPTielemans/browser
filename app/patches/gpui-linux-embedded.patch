@@ -1610,7 +1610,7 @@ index f9b9727330..83a4d209ba 100644
  pub(crate) use window::*;
  pub(crate) use xim_handler::*;
 diff --git i/crates/gpui_linux/src/linux/x11/client.rs w/crates/gpui_linux/src/linux/x11/client.rs
-index e21f019c64..fbaa8b413d 100644
+index e21f019c64..fbdbb3aef7 100644
 --- i/crates/gpui_linux/src/linux/x11/client.rs
 +++ w/crates/gpui_linux/src/linux/x11/client.rs
 @@ -25,6 +25,7 @@ use x11rb::{
@@ -1646,7 +1646,31 @@ index e21f019c64..fbaa8b413d 100644
                  x_root_index,
                  resource_database,
                  atoms,
-@@ -1069,6 +1072,17 @@ impl X11Client {
+@@ -890,10 +893,21 @@ impl X11Client {
+             }
+             Event::MapNotify(event) => {
+                 let mut state = self.0.borrow_mut();
+-                if let Some(window_ref) = state.windows.get_mut(&event.window) {
++                let window = (state.windows.get_mut(&event.window)).map(|window_ref| {
+                     window_ref.is_mapped = true;
+-                }
++                    window_ref.window.clone()
++                });
+                 handle_visibility_changed(state, event.window);
++                // A window mapped again, such as an overlay shown again, shows nothing until it
++                // presents, and GPUI presents only what changed.
++                if let Some(window) = window {
++                    window.refresh(RequestFrameOptions {
++                        require_presentation: true,
++                        force_render: false,
++                        signal_at: None,
++                        signal_source: FrameRequestSource::NativeCallback,
++                    });
++                }
+             }
+             Event::VisibilityNotify(event) => {
+                 let mut state = self.0.borrow_mut();
+@@ -1069,6 +1083,17 @@ impl X11Client {
                  self.enable_ime();
              }
              Event::FocusOut(event) => {
@@ -1664,7 +1688,7 @@ index e21f019c64..fbaa8b413d 100644
                  let window = self.get_window(event.event)?;
                  window.set_active(false);
                  let mut state = self.0.borrow_mut();
-@@ -1230,6 +1244,7 @@ impl X11Client {
+@@ -1230,6 +1255,7 @@ impl X11Client {
              }
              Event::XinputButtonPress(event) => {
                  let window = self.get_window(event.event)?;
@@ -1672,7 +1696,7 @@ index e21f019c64..fbaa8b413d 100644
                  let mut state = self.0.borrow_mut();
  
                  let modifiers = modifiers_from_xinput_info(event.mods);
-@@ -1416,6 +1431,7 @@ impl X11Client {
+@@ -1416,6 +1442,7 @@ impl X11Client {
                  drop(state);
  
                  let window = self.get_window(event.event)?;
@@ -1680,7 +1704,7 @@ index e21f019c64..fbaa8b413d 100644
                  window.handle_input(PlatformInput::MouseExited(gpui::MouseExitEvent {
                      pressed_button,
                      position,
-@@ -2052,6 +2068,9 @@ impl X11ClientState {
+@@ -2052,6 +2079,9 @@ impl X11ClientState {
          x_window: xproto::Window,
          refresh_rate: Duration,
      ) -> RegistrationToken {
@@ -1690,7 +1714,7 @@ index e21f019c64..fbaa8b413d 100644
          self.loop_handle
              .insert_source(calloop::timer::Timer::immediate(), {
                  let this = self.this.clone();
-@@ -2087,6 +2106,177 @@ impl X11ClientState {
+@@ -2087,6 +2117,177 @@ impl X11ClientState {
              .expect("Failed to initialize window refresh timer")
      }
  
@@ -1868,7 +1892,7 @@ index e21f019c64..fbaa8b413d 100644
      fn get_cursor_icon(&mut self, style: CursorStyle) -> Option<xproto::Cursor> {
          if let Some(cursor) = self.cursor_cache.get(&style) {
              return *cursor;
-@@ -2898,6 +3088,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
+@@ -2898,6 +3099,43 @@ fn xkb_state_for_key_event(xkb: &xkbc::State, event_state: xproto::KeyButMask) -
  mod tests {
      use super::*;
  
@@ -1912,7 +1936,7 @@ index e21f019c64..fbaa8b413d 100644
      fn test_keymap(layouts: &str) -> xkbc::Keymap {
          test_keymap_with_variant(layouts, "")
      }
-@@ -3213,3 +3440,101 @@ mod tests {
+@@ -3213,3 +3451,101 @@ mod tests {
          assert_eq!(key_event_state.key_get_utf8(space), " ");
      }
  }
