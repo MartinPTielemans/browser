@@ -5,6 +5,7 @@
 
 #include "browser_core/browser_window_stand_in.h"
 
+#include <cstdio>
 #include <string>
 #include <utility>
 
@@ -665,9 +666,23 @@ bool BrowserWindowStandIn::GetAcceleratorForCommandId(int command_id,
 void BrowserWindowStandIn::OnWidgetShowStateChanged(views::Widget* widget) {
   // As Chrome's windows do once a fullscreen change is done, or has failed. The controller takes a
   // full-screen page back when the window has left full screen, as by its green button.
-  if (ExclusiveAccessManager* manager = ExclusiveAccessManager::From(browser_)) {
-    manager->fullscreen_controller()->WindowFullscreenStateChanged();
+  ExclusiveAccessManager* manager = ExclusiveAccessManager::From(browser_);
+  if (!manager) {
+    return;
   }
+  FullscreenController* controller = manager->fullscreen_controller();
+  // A page's full screen whose display went away while the window was on its way there ends with
+  // the window's: AppKit finishes on another display, which the page didn't ask for, and Chrome's
+  // controller, which still holds the first, would abort the Dev engine on it (#420).
+  content::WebContents* page = controller->exclusive_access_tab();
+  if (page && controller->IsTabFullscreen() && IsFullscreen() &&
+      controller->GetFullscreenState(page).target_display_id !=
+          FullscreenController::GetDisplayId(*page)) {
+    // check.sh reads this line.
+    fprintf(stderr, "browser: page full screen ended, its display gone\n");
+    page->ExitFullscreen(/*will_cause_resize=*/true);
+  }
+  controller->WindowFullscreenStateChanged();
 }
 
 void BrowserWindowStandIn::OnWidgetDestroying(views::Widget* widget) {
