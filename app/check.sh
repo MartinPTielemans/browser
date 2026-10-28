@@ -3,7 +3,7 @@
 # Each run's file in check/ says what it checks. ./check.sh tabs spaces does only those runs, in
 # that order, and ./check.sh all of them:
 #   load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear
-#   split favorites extensions windows private capture passwords links access trouble dialogs
+#   split favorites extensions windows private capture passwords links access trouble dialogs mcp
 # The store run installs from Google's Web Store, so it needs the network and runs only when named:
 # ./check.sh store.
 # Every run but load needs Browser to be the active app, and window and find take it full screen
@@ -16,7 +16,7 @@ export BROWSER_DISPLAY="${BROWSER_DISPLAY:-builtin}"
 cd "$(dirname "$0")"
 runs="load keys tabs window popup history spaces agents profiles restore relaunch find pinned clear"
 runs="$runs split favorites extensions windows private capture passwords links access trouble"
-runs="$runs dialogs"
+runs="$runs dialogs mcp"
 named="store"
 for run in "$@"; do
   case " $runs $named " in
@@ -38,6 +38,8 @@ saved="$HOME/Library/Caches/browser-app/Spaces.json"
 # The frame the launch window opens at, which the app keeps next to them. A run that starts without
 # the Spaces starts without it too, so its launch window isn't at the last run's frame.
 launch_frame="$(dirname "$saved")/launch-frame"
+# The mcp run turns agents on with a token of its own, which a failed one left.
+rm -f "$(dirname "$saved")/Agents"
 # DevTools open where the profile last had them, so an undocked try would leave them in a window.
 # The find run docks them, so they start on the right. The restore run's download goes in the
 # check's own folder, never the user's Downloads. A failed extensions run may have left one of its

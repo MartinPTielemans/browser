@@ -1,0 +1,156 @@
+//! The agents' browser: the core, as the Agents in the lib ask it (decision 8), and the Agents made
+//! once the first window's UI shows, so nothing of theirs is on the launch's path.
+
+use std::cell::Cell;
+use std::ffi::CString;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use browser::agents::{self, Agents, Browser, GlobalAgents, TabInfo};
+use gpui::{App, AppContext};
+
+use crate::{WINDOWS, bc, ids, name};
+
+thread_local! {
+    /// A call of the Agents' into the core is under way, whose check the Agents log themselves.
+    static CALLING: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether the core's report of an agent's call is of one the Agents made.
+pub fn calling() -> bool {
+    CALLING.get()
+}
+
+/// Calls the core for the Agents.
+fn call<T>(core: impl FnOnce() -> T) -> T {
+    CALLING.set(true);
+    let answer = core();
+    CALLING.set(false);
+    answer
+}
+
+struct Core;
+
+impl Browser for Core {
+    fn agent_space(&self, agent: &str) -> u64 {
+        let mut spaces = ids(bc::bc_spaces).into_iter();
+        spaces
+            .find(|&space| name(bc::bc_space_agent, space) == agent)
+            .unwrap_or(0)
+    }
+
+    fn make_agent_space(&self, agent: &str, agent_name: &str, _: &mut App) -> u64 {
+        let (Ok(id), Ok(named)) = (CString::new(agent), CString::new(agent_name)) else {
+            return 0;
+        };
+        let space =
+            unsafe { bc::bc_space_create_for_agent(named.as_ptr(), id.as_ptr(), named.as_ptr()) };
+        // check.sh reads this line, as the driver's agentspace writes it.
+        browser::log!("browser: made space {space} for agent {agent}");
+        space
+    }
+
+    fn space_tabs(&self, space: u64, cx: &App) -> Vec<TabInfo> {
+        let pinned = tabs(bc::bc_space_pinned, space).into_iter();
+        let pinned = pinned.filter(|&row| !unsafe { bc::bc_folder(row, &mut false) });
+        let today = tabs(bc::bc_space_today, space);
+        pinned.chain(today).map(|tab| self.tab(tab, cx)).collect()
+    }
+
+    fn tab(&self, tab: u64, cx: &App) -> TabInfo {
+        // Every window's shell has every Space's tabs.
+        let shell = WINDOWS.with_borrow(|windows| windows.first().map(|w| w.shell.clone()));
+        let Some(shell) = shell.and_then(|shell| shell.upgrade()) else {
+            return TabInfo {
+                id: tab,
+                ..TabInfo::default()
+            };
+        };
+        let shell = shell.read(cx);
+        TabInfo {
+            id: tab,
+            title: shell.title(tab),
+            url: shell.page(tab).url,
+        }
+    }
+
+    fn may_act(&self, agent: &str, tab: u64, action: &str, _: &mut App) -> Result<(), String> {
+        let (Ok(agent), Ok(action)) = (CString::new(agent), CString::new(action)) else {
+            return Err("The agent's name can't be used.".into());
+        };
+        let mut reason = [0u8; 512];
+        let may = call(|| unsafe {
+            let reason = reason.as_mut_ptr().cast();
+            bc::bc_agent_may_act(agent.as_ptr(), tab, action.as_ptr(), reason, 512)
+        });
+        match may {
+            true => Ok(()),
+            false => {
+                let end = reason
+                    .iter()
+                    .position(|&byte| byte == 0)
+                    .unwrap_or(reason.len());
+                Err(String::from_utf8_lossy(&reason[..end]).into_owned())
+            }
+        }
+    }
+
+    fn read_text(&self, tab: u64, request: u64) {
+        unsafe { bc::bc_tab_read_text(tab, request) };
+    }
+
+    fn disconnected(&self, agent: &str, _: &mut App) {
+        if let Ok(agent) = CString::new(agent) {
+            call(|| unsafe { bc::bc_agent_disconnected(agent.as_ptr()) });
+        }
+    }
+}
+
+/// The tabs `copy` copies of `space`, as bc_space_today does.
+fn tabs(
+    copy: unsafe extern "C" fn(bc::bc_id, *mut bc::bc_id, usize) -> usize,
+    space: u64,
+) -> Vec<u64> {
+    let count = unsafe { copy(space, std::ptr::null_mut(), 0) };
+    let mut tabs = vec![0; count];
+    let count = unsafe { copy(space, tabs.as_mut_ptr(), tabs.len()) };
+    tabs.truncate(count);
+    tabs
+}
+
+/// Where the Agents' settings are kept: in the profile directory, beside the Shortcuts.
+fn path() -> std::path::PathBuf {
+    format!("{}/Agents", crate::profile_dir()).into()
+}
+
+/// Makes the Agents, off, and reads what was saved in the background, which turns the server on
+/// if the user left it on. Once, as the first window's UI shows.
+pub fn start(cx: &mut App) {
+    if agents::global(cx).is_some() {
+        return;
+    }
+    let made = Agents::new(
+        Rc::new(Core),
+        Arc::new(agents::System),
+        Some(path()),
+        agents::PORT,
+    );
+    let made = cx.new(|_| made);
+    cx.set_global(GlobalAgents(made.clone()));
+    cx.spawn(async move |cx| {
+        let read = cx.background_spawn(async { std::fs::read_to_string(path()) });
+        if let Ok(saved) = read.await {
+            made.update(cx, |agents, cx| agents.load(&saved, cx));
+        }
+    })
+    .detach();
+}
+
+/// Tells the Agents what the core reported, once the update the report came from, if any, is over.
+pub fn update(change: impl FnOnce(&mut Agents, &mut gpui::Context<Agents>) + 'static) {
+    crate::update_app_later(move |cx| {
+        if let Some(agents) = agents::global(cx) {
+            agents.update(cx, change);
+        }
+    });
+}

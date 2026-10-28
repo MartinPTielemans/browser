@@ -8,6 +8,7 @@
 #include "base/functional/callback_helpers.h"
 #include "base/numerics/safe_conversions.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task/single_thread_task_runner.h"
 #include "base/time/time.h"
 #include "browser_core/agent_session.h"
 #include "browser_core/archive.h"
@@ -25,6 +26,7 @@
 #include "browser_core/install_question.h"
 #include "browser_core/main_delegate.h"
 #include "browser_core/page_menu.h"
+#include "browser_core/page_text.h"
 #include "browser_core/password_offer.h"
 #include "browser_core/page_dialog.h"
 #include "browser_core/permission_question.h"
@@ -990,6 +992,23 @@ void bc_tab_capture(bc_id id, uint64_t request, bool full_page, bc_rect rect) {
 void bc_tab_picture(bc_id id, uint64_t request) {
   if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
     browser_core::PicturePage(contents, request);
+  }
+}
+
+void bc_tab_read_text(bc_id id, uint64_t request) {
+  if (content::WebContents* contents = browser_core::Tab::FromId(id)) {
+    browser_core::PageText::GetOrCreateForWebContents(contents)->Read(request);
+  } else if (browser_core::Host().tab_text) {
+    // A tab without its page, or none: nothing to read, told from a task of its own.
+    base::SingleThreadTaskRunner::GetCurrentDefault()->PostTask(
+        FROM_HERE, base::BindOnce(
+                       [](bc_id tab, uint64_t request) {
+                         if (browser_core::Host().tab_text) {
+                           browser_core::Host().tab_text(browser_core::Host().context, tab,
+                                                         request, nullptr);
+                         }
+                       },
+                       id, request));
   }
 }
 
