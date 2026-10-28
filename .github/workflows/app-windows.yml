@@ -1,14 +1,14 @@
-# The UI builds and its tests pass on Windows (AGENTS.md, Hit every surface: Platforms). The browser
-# needs the engine engine-windows-cross.yml builds to link, so this is the UI's library and the
-# preview, which need none, and the browser checked without linking. GitHub's hosted runners only: the self-hosted one never runs a pull request's
-# code.
+# The UI builds and its tests pass on Windows, and its screens are captured there (AGENTS.md, Hit
+# every surface: Platforms). The browser needs the engine engine-windows-cross.yml builds to link,
+# so this is the UI's library and the preview, which need none, and the browser checked without
+# linking. GitHub's hosted runners only: the self-hosted one never runs a pull request's code.
 name: UI on Windows
 
 on:
   push:
-    paths: [app/**, core/public/**, .github/workflows/app-windows.yml, '!**/*.md']
+    paths: [app/**, core/public/**, tools/parity.sh, tools/window-capture.ps1, .github/workflows/app-windows.yml, '!**/*.md']
   pull_request:
-    paths: [app/**, core/public/**, .github/workflows/app-windows.yml, '!**/*.md']
+    paths: [app/**, core/public/**, tools/parity.sh, tools/window-capture.ps1, .github/workflows/app-windows.yml, '!**/*.md']
 
 permissions:
   contents: read
@@ -46,3 +46,21 @@ jobs:
       # The browser, Browser.dll, unlinked, as it links the engine: its Windows code and the driver's.
       - run: cargo check --release --manifest-path windows/Cargo.toml --target-dir target
 
+      # The screens tools/parity.sh captures on Linux, here on the runner's desktop, which GPUI draws
+      # on with Direct3D's software adapter. The desktop starts at 1024 by 768, smaller than the
+      # preview's window. It only reports: nothing here fails the job.
+      - name: Capture the parity screens
+        continue-on-error: true
+        run: |
+          powershell.exe -NoProfile -Command 'Set-DisplayResolution -Width 1920 -Height 1080 -Force' ||
+            echo "::warning title=Parity captures::The desktop stays at its own size"
+          choco install imagemagick -y --no-progress >/dev/null
+          PATH=$(ls -d /c/Program\ Files/ImageMagick-* | head -1):$PATH
+          ../tools/parity.sh target/release/preview.exe ../parity
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parity-windows
+          path: parity/
+          if-no-files-found: ignore
