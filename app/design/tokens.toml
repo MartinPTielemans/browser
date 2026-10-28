@@ -494,7 +494,8 @@ icon-placeholder = 24.0
 icon-placeholder-radius = 6.0
 icon-placeholder-line = 1.0
 icon-placeholder-color = 0x0000_004d
-# A glyph's box: Phosphor's drawings fill 13/16 of theirs, so their ink is the emoji's size.
+# A glyph's box: Lucide's drawings fill 20/24 of theirs, 13 of 16 pt, so their ink is the emoji's
+# size.
 space-glyph = 16.0
 row-pitch = 41.0
 row-height = 40.0
@@ -655,6 +656,12 @@ window-button-minimize = 0xf3bf12
 window-button-zoom = 0x58bb18
 
 [shell.assets]
+# Every Lucide outline's stroke, in its 24 grid: 1.5 pt in a 16 pt box, 1.3 at 14 and 1.69 at 18.
+# The nav glyphs keep Arc's 1.75 pt in 24 and the window buttons their 1.3 in 14, so those files
+# are the only ones that differ (ours, drawn on Lucide's grid with round ends).
+icon-stroke = 2.25
+# The grid Lucide draws on and every outline here shares.
+icon-grid = 24.0
 bar-length = 11.4
 bar-width = 2.0
 bars-box = 14.0
@@ -909,7 +916,8 @@ picture-shadow = 0.35
 
 [shell.swap]
 check-box = 24.0
-check-stroke = 2.0
+# The check is Lucide's, so it draws at the icons' one stroke, `shell::assets::ICON_STROKE`.
+check-stroke = 2.25
 
 [shell.themes]
 # Two colours go from the main one at the window's top left to the second this far along its

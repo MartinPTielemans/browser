@@ -4,9 +4,9 @@ use std::borrow::Cow;
 
 use gpui::{AssetSource, SharedString};
 
-/// The shell's glyphs, built in. Lucide's and, for Spaces' icons and Capture's menu, Phosphor's
-/// (NOTICE), and the loading ring, the window buttons' glyphs and the close button's bars,
-/// which are ours.
+/// The shell's glyphs, built in: Lucide's outlines (NOTICE) at one stroke weight, and the nav
+/// buttons, the Library's cards, the loading ring, the window buttons' glyphs, the close button's
+/// bars, the baseball and the planet, which are ours.
 pub struct Assets;
 
 // The close button's bars, as Arc's: 11.4 pt between the middles of their round ends, 2 wide,
@@ -42,73 +42,88 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/app-window.svg", include_bytes!("../../assets/icons/app-window.svg")),
     ("icons/archive.svg", include_bytes!("../../assets/icons/archive.svg")),
     ("icons/arrow-down.svg", include_bytes!("../../assets/icons/arrow-down.svg")),
-    (
-        "icons/arrow-down-to-line.svg",
-        include_bytes!("../../assets/icons/arrow-down-to-line.svg"),
-    ),
+    ("icons/arrow-down-to-line.svg", include_bytes!("../../assets/icons/arrow-down-to-line.svg")),
     ("icons/arrow-left.svg", include_bytes!("../../assets/icons/arrow-left.svg")),
     ("icons/arrow-left-right.svg", include_bytes!("../../assets/icons/arrow-left-right.svg")),
     ("icons/arrow-right.svg", include_bytes!("../../assets/icons/arrow-right.svg")),
     ("icons/arrow-up.svg", include_bytes!("../../assets/icons/arrow-up.svg")),
+    ("icons/asterisk.svg", include_bytes!("../../assets/icons/asterisk.svg")),
+    ("icons/bandage.svg", include_bytes!("../../assets/icons/bandage.svg")),
+    ("icons/baseball.svg", include_bytes!("../../assets/icons/baseball.svg")),
+    ("icons/bed.svg", include_bytes!("../../assets/icons/bed.svg")),
     ("icons/bell.svg", include_bytes!("../../assets/icons/bell.svg")),
     ("icons/bluetooth.svg", include_bytes!("../../assets/icons/bluetooth.svg")),
+    ("icons/book-open.svg", include_bytes!("../../assets/icons/book-open.svg")),
+    ("icons/bookmark.svg", include_bytes!("../../assets/icons/bookmark.svg")),
     ("icons/brush-cleaning.svg", include_bytes!("../../assets/icons/brush-cleaning.svg")),
     ("icons/cable.svg", include_bytes!("../../assets/icons/cable.svg")),
+    ("icons/calendar-days.svg", include_bytes!("../../assets/icons/calendar-days.svg")),
     ("icons/camera.svg", include_bytes!("../../assets/icons/camera.svg")),
-    (
-        "icons/capture/arrow-counter-clockwise-bold.svg",
-        include_bytes!("../../assets/icons/capture/arrow-counter-clockwise-bold.svg"),
-    ),
-    (
-        "icons/capture/chat-circle-fill.svg",
-        include_bytes!("../../assets/icons/capture/chat-circle-fill.svg"),
-    ),
-    (
-        "icons/capture/tray-arrow-down-fill.svg",
-        include_bytes!("../../assets/icons/capture/tray-arrow-down-fill.svg"),
-    ),
     ("icons/check.svg", include_bytes!("../../assets/icons/check.svg")),
     ("icons/chevron-down.svg", include_bytes!("../../assets/icons/chevron-down.svg")),
     ("icons/chevron-up.svg", include_bytes!("../../assets/icons/chevron-up.svg")),
     ("icons/chevrons-up-down.svg", include_bytes!("../../assets/icons/chevrons-up-down.svg")),
     ("icons/clipboard.svg", include_bytes!("../../assets/icons/clipboard.svg")),
     ("icons/circle-alert.svg", include_bytes!("../../assets/icons/circle-alert.svg")),
+    ("icons/circle.svg", include_bytes!("../../assets/icons/circle.svg")),
     ("icons/clock.svg", include_bytes!("../../assets/icons/clock.svg")),
+    ("icons/cloud.svg", include_bytes!("../../assets/icons/cloud.svg")),
+    ("icons/cloudy.svg", include_bytes!("../../assets/icons/cloudy.svg")),
     ("icons/code.svg", include_bytes!("../../assets/icons/code.svg")),
     ("icons/command.svg", include_bytes!("../../assets/icons/command.svg")),
     ("icons/compass.svg", include_bytes!("../../assets/icons/compass.svg")),
     ("icons/cookie.svg", include_bytes!("../../assets/icons/cookie.svg")),
+    ("icons/copy.svg", include_bytes!("../../assets/icons/copy.svg")),
     ("icons/corner-down-left.svg", include_bytes!("../../assets/icons/corner-down-left.svg")),
     ("icons/credit-card.svg", include_bytes!("../../assets/icons/credit-card.svg")),
     ("icons/database.svg", include_bytes!("../../assets/icons/database.svg")),
     ("icons/download.svg", include_bytes!("../../assets/icons/download.svg")),
+    ("icons/dumbbell.svg", include_bytes!("../../assets/icons/dumbbell.svg")),
+    ("icons/egg.svg", include_bytes!("../../assets/icons/egg.svg")),
+    ("icons/eighth-note.svg", include_bytes!("../../assets/icons/eighth-note.svg")),
     ("icons/ellipsis.svg", include_bytes!("../../assets/icons/ellipsis.svg")),
     ("icons/external-link.svg", include_bytes!("../../assets/icons/external-link.svg")),
     ("icons/file.svg", include_bytes!("../../assets/icons/file.svg")),
+    ("icons/flag.svg", include_bytes!("../../assets/icons/flag.svg")),
+    ("icons/flame.svg", include_bytes!("../../assets/icons/flame.svg")),
     ("icons/fold-vertical.svg", include_bytes!("../../assets/icons/fold-vertical.svg")),
     ("icons/folder.svg", include_bytes!("../../assets/icons/folder.svg")),
     ("icons/folder-open.svg", include_bytes!("../../assets/icons/folder-open.svg")),
     ("icons/folder-plus.svg", include_bytes!("../../assets/icons/folder-plus.svg")),
+    (
+        "icons/gallery-vertical-end.svg",
+        include_bytes!("../../assets/icons/gallery-vertical-end.svg"),
+    ),
     ("icons/gamepad-2.svg", include_bytes!("../../assets/icons/gamepad-2.svg")),
+    ("icons/gift.svg", include_bytes!("../../assets/icons/gift.svg")),
     ("icons/glasses.svg", include_bytes!("../../assets/icons/glasses.svg")),
     ("icons/globe.svg", include_bytes!("../../assets/icons/globe.svg")),
+    ("icons/grid-2x2.svg", include_bytes!("../../assets/icons/grid-2x2.svg")),
+    ("icons/grip.svg", include_bytes!("../../assets/icons/grip.svg")),
     ("icons/hand.svg", include_bytes!("../../assets/icons/hand.svg")),
+    ("icons/heart.svg", include_bytes!("../../assets/icons/heart.svg")),
     ("icons/image.svg", include_bytes!("../../assets/icons/image.svg")),
+    ("icons/inbox.svg", include_bytes!("../../assets/icons/inbox.svg")),
     ("icons/keyboard.svg", include_bytes!("../../assets/icons/keyboard.svg")),
+    ("icons/layers.svg", include_bytes!("../../assets/icons/layers.svg")),
+    ("icons/leaf.svg", include_bytes!("../../assets/icons/leaf.svg")),
     ("icons/library.svg", include_bytes!("../../assets/icons/library.svg")),
+    ("icons/lightbulb.svg", include_bytes!("../../assets/icons/lightbulb.svg")),
     ("icons/link.svg", include_bytes!("../../assets/icons/link.svg")),
     ("icons/loading.svg", include_bytes!("../../assets/icons/loading.svg")),
-    ("icons/lock-simple-fill.svg", include_bytes!("../../assets/icons/lock-simple-fill.svg")),
-    (
-        "icons/lock-simple-open-fill.svg",
-        include_bytes!("../../assets/icons/lock-simple-open-fill.svg"),
-    ),
+    ("icons/lock-open.svg", include_bytes!("../../assets/icons/lock-open.svg")),
+    ("icons/lock.svg", include_bytes!("../../assets/icons/lock.svg")),
+    ("icons/mail.svg", include_bytes!("../../assets/icons/mail.svg")),
     ("icons/map-pin.svg", include_bytes!("../../assets/icons/map-pin.svg")),
+    ("icons/map.svg", include_bytes!("../../assets/icons/map.svg")),
     ("icons/maximize.svg", include_bytes!("../../assets/icons/maximize.svg")),
     ("icons/megaphone.svg", include_bytes!("../../assets/icons/megaphone.svg")),
+    ("icons/message-circle-more.svg", include_bytes!("../../assets/icons/message-circle-more.svg")),
+    ("icons/message-circle.svg", include_bytes!("../../assets/icons/message-circle.svg")),
     ("icons/mic.svg", include_bytes!("../../assets/icons/mic.svg")),
     ("icons/minus.svg", include_bytes!("../../assets/icons/minus.svg")),
     ("icons/moon-star.svg", include_bytes!("../../assets/icons/moon-star.svg")),
+    ("icons/moon.svg", include_bytes!("../../assets/icons/moon.svg")),
     ("icons/mouse-pointer-2.svg", include_bytes!("../../assets/icons/mouse-pointer-2.svg")),
     ("icons/nav-back.svg", include_bytes!("../../assets/icons/nav-back.svg")),
     ("icons/nav-forward.svg", include_bytes!("../../assets/icons/nav-forward.svg")),
@@ -119,7 +134,9 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/network.svg", include_bytes!("../../assets/icons/network.svg")),
     ("icons/nfc.svg", include_bytes!("../../assets/icons/nfc.svg")),
     ("icons/paintbrush.svg", include_bytes!("../../assets/icons/paintbrush.svg")),
+    ("icons/palette.svg", include_bytes!("../../assets/icons/palette.svg")),
     ("icons/panel-left.svg", include_bytes!("../../assets/icons/panel-left.svg")),
+    ("icons/paw-print.svg", include_bytes!("../../assets/icons/paw-print.svg")),
     ("icons/pencil.svg", include_bytes!("../../assets/icons/pencil.svg")),
     ("icons/piano.svg", include_bytes!("../../assets/icons/piano.svg")),
     (
@@ -127,151 +144,49 @@ const ICONS: &[(&str, &[u8])] = &[
         include_bytes!("../../assets/icons/picture-in-picture-2.svg"),
     ),
     ("icons/pin.svg", include_bytes!("../../assets/icons/pin.svg")),
+    ("icons/pizza.svg", include_bytes!("../../assets/icons/pizza.svg")),
+    ("icons/plane.svg", include_bytes!("../../assets/icons/plane.svg")),
+    ("icons/planet.svg", include_bytes!("../../assets/icons/planet.svg")),
     ("icons/plus.svg", include_bytes!("../../assets/icons/plus.svg")),
     ("icons/printer.svg", include_bytes!("../../assets/icons/printer.svg")),
     ("icons/puzzle.svg", include_bytes!("../../assets/icons/puzzle.svg")),
+    ("icons/receipt.svg", include_bytes!("../../assets/icons/receipt.svg")),
     ("icons/rotate-ccw-clock.svg", include_bytes!("../../assets/icons/rotate-ccw-clock.svg")),
+    ("icons/rotate-ccw.svg", include_bytes!("../../assets/icons/rotate-ccw.svg")),
     ("icons/rotate-cw.svg", include_bytes!("../../assets/icons/rotate-cw.svg")),
     ("icons/save.svg", include_bytes!("../../assets/icons/save.svg")),
     ("icons/search.svg", include_bytes!("../../assets/icons/search.svg")),
     ("icons/settings.svg", include_bytes!("../../assets/icons/settings.svg")),
+    ("icons/shapes.svg", include_bytes!("../../assets/icons/shapes.svg")),
     ("icons/share.svg", include_bytes!("../../assets/icons/share.svg")),
-    (
-        "icons/space/airplane-tilt-fill.svg",
-        include_bytes!("../../assets/icons/space/airplane-tilt-fill.svg"),
-    ),
-    ("icons/space/asterisk-bold.svg", include_bytes!("../../assets/icons/space/asterisk-bold.svg")),
-    ("icons/space/bandaids-fill.svg", include_bytes!("../../assets/icons/space/bandaids-fill.svg")),
-    ("icons/space/barbell-fill.svg", include_bytes!("../../assets/icons/space/barbell-fill.svg")),
-    ("icons/space/baseball-fill.svg", include_bytes!("../../assets/icons/space/baseball-fill.svg")),
-    ("icons/space/basket-fill.svg", include_bytes!("../../assets/icons/space/basket-fill.svg")),
-    ("icons/space/bed-fill.svg", include_bytes!("../../assets/icons/space/bed-fill.svg")),
-    ("icons/space/bell-fill.svg", include_bytes!("../../assets/icons/space/bell-fill.svg")),
-    (
-        "icons/space/book-open-fill.svg",
-        include_bytes!("../../assets/icons/space/book-open-fill.svg"),
-    ),
-    (
-        "icons/space/bookmark-simple-fill.svg",
-        include_bytes!("../../assets/icons/space/bookmark-simple-fill.svg"),
-    ),
-    (
-        "icons/space/calendar-dots-fill.svg",
-        include_bytes!("../../assets/icons/space/calendar-dots-fill.svg"),
-    ),
-    ("icons/space/campfire-fill.svg", include_bytes!("../../assets/icons/space/campfire-fill.svg")),
-    (
-        "icons/space/cards-three-fill.svg",
-        include_bytes!("../../assets/icons/space/cards-three-fill.svg"),
-    ),
-    (
-        "icons/space/chat-circle-dots-fill.svg",
-        include_bytes!("../../assets/icons/space/chat-circle-dots-fill.svg"),
-    ),
-    (
-        "icons/space/check-square-fill.svg",
-        include_bytes!("../../assets/icons/space/check-square-fill.svg"),
-    ),
-    ("icons/space/circle-fill.svg", include_bytes!("../../assets/icons/space/circle-fill.svg")),
-    ("icons/space/cloud-bold.svg", include_bytes!("../../assets/icons/space/cloud-bold.svg")),
-    ("icons/space/cloud-fill.svg", include_bytes!("../../assets/icons/space/cloud-fill.svg")),
-    (
-        "icons/space/code-simple-bold.svg",
-        include_bytes!("../../assets/icons/space/code-simple-bold.svg"),
-    ),
-    ("icons/space/copy-fill.svg", include_bytes!("../../assets/icons/space/copy-fill.svg")),
-    ("icons/space/database-fill.svg", include_bytes!("../../assets/icons/space/database-fill.svg")),
-    (
-        "icons/space/dots-nine-bold.svg",
-        include_bytes!("../../assets/icons/space/dots-nine-bold.svg"),
-    ),
-    ("icons/space/egg-fill.svg", include_bytes!("../../assets/icons/space/egg-fill.svg")),
-    (
-        "icons/space/envelope-simple-fill.svg",
-        include_bytes!("../../assets/icons/space/envelope-simple-fill.svg"),
-    ),
-    ("icons/space/file-fill.svg", include_bytes!("../../assets/icons/space/file-fill.svg")),
-    ("icons/space/flag-fill.svg", include_bytes!("../../assets/icons/space/flag-fill.svg")),
-    ("icons/space/folder-fill.svg", include_bytes!("../../assets/icons/space/folder-fill.svg")),
-    (
-        "icons/space/fork-knife-fill.svg",
-        include_bytes!("../../assets/icons/space/fork-knife-fill.svg"),
-    ),
-    ("icons/space/gift-fill.svg", include_bytes!("../../assets/icons/space/gift-fill.svg")),
-    ("icons/space/heart-fill.svg", include_bytes!("../../assets/icons/space/heart-fill.svg")),
-    ("icons/space/leaf-fill.svg", include_bytes!("../../assets/icons/space/leaf-fill.svg")),
-    (
-        "icons/space/lightbulb-fill.svg",
-        include_bytes!("../../assets/icons/space/lightbulb-fill.svg"),
-    ),
-    (
-        "icons/space/lightning-fill.svg",
-        include_bytes!("../../assets/icons/space/lightning-fill.svg"),
-    ),
-    (
-        "icons/space/map-trifold-fill.svg",
-        include_bytes!("../../assets/icons/space/map-trifold-fill.svg"),
-    ),
-    ("icons/space/moon-fill.svg", include_bytes!("../../assets/icons/space/moon-fill.svg")),
-    (
-        "icons/space/music-note-fill.svg",
-        include_bytes!("../../assets/icons/space/music-note-fill.svg"),
-    ),
-    ("icons/space/palette-fill.svg", include_bytes!("../../assets/icons/space/palette-fill.svg")),
-    (
-        "icons/space/paw-print-fill.svg",
-        include_bytes!("../../assets/icons/space/paw-print-fill.svg"),
-    ),
-    ("icons/space/pizza-fill.svg", include_bytes!("../../assets/icons/space/pizza-fill.svg")),
-    ("icons/space/planet-fill.svg", include_bytes!("../../assets/icons/space/planet-fill.svg")),
-    ("icons/space/receipt-fill.svg", include_bytes!("../../assets/icons/space/receipt-fill.svg")),
-    ("icons/space/shapes-fill.svg", include_bytes!("../../assets/icons/space/shapes-fill.svg")),
-    ("icons/space/skull-fill.svg", include_bytes!("../../assets/icons/space/skull-fill.svg")),
-    ("icons/space/square-fill.svg", include_bytes!("../../assets/icons/space/square-fill.svg")),
-    (
-        "icons/space/squares-four-fill.svg",
-        include_bytes!("../../assets/icons/space/squares-four-fill.svg"),
-    ),
-    ("icons/space/stack-fill.svg", include_bytes!("../../assets/icons/space/stack-fill.svg")),
-    ("icons/space/star-fill.svg", include_bytes!("../../assets/icons/space/star-fill.svg")),
-    ("icons/space/sun-fill.svg", include_bytes!("../../assets/icons/space/sun-fill.svg")),
-    (
-        "icons/space/terminal-window-fill.svg",
-        include_bytes!("../../assets/icons/space/terminal-window-fill.svg"),
-    ),
-    (
-        "icons/space/thumbs-up-fill.svg",
-        include_bytes!("../../assets/icons/space/thumbs-up-fill.svg"),
-    ),
-    (
-        "icons/space/train-simple-fill.svg",
-        include_bytes!("../../assets/icons/space/train-simple-fill.svg"),
-    ),
-    ("icons/space/tray-fill.svg", include_bytes!("../../assets/icons/space/tray-fill.svg")),
-    ("icons/space/triangle-fill.svg", include_bytes!("../../assets/icons/space/triangle-fill.svg")),
-    ("icons/space/users-fill.svg", include_bytes!("../../assets/icons/space/users-fill.svg")),
-    (
-        "icons/space/video-camera-fill.svg",
-        include_bytes!("../../assets/icons/space/video-camera-fill.svg"),
-    ),
-    ("icons/space/wrench-fill.svg", include_bytes!("../../assets/icons/space/wrench-fill.svg")),
     ("icons/share.svg", include_bytes!("../../assets/icons/share.svg")),
+    ("icons/shopping-basket.svg", include_bytes!("../../assets/icons/shopping-basket.svg")),
+    ("icons/skull.svg", include_bytes!("../../assets/icons/skull.svg")),
     ("icons/spaces.svg", include_bytes!("../../assets/icons/spaces.svg")),
     ("icons/sliders-horizontal.svg", include_bytes!("../../assets/icons/sliders-horizontal.svg")),
     ("icons/sparkles.svg", include_bytes!("../../assets/icons/sparkles.svg")),
     ("icons/speaker.svg", include_bytes!("../../assets/icons/speaker.svg")),
+    ("icons/square-check.svg", include_bytes!("../../assets/icons/square-check.svg")),
     ("icons/sun.svg", include_bytes!("../../assets/icons/sun.svg")),
     (
         "icons/square-mouse-pointer.svg",
         include_bytes!("../../assets/icons/square-mouse-pointer.svg"),
     ),
+    ("icons/square-terminal.svg", include_bytes!("../../assets/icons/square-terminal.svg")),
+    ("icons/square.svg", include_bytes!("../../assets/icons/square.svg")),
+    ("icons/star.svg", include_bytes!("../../assets/icons/star.svg")),
     ("icons/terminal.svg", include_bytes!("../../assets/icons/terminal.svg")),
     ("icons/text-search.svg", include_bytes!("../../assets/icons/text-search.svg")),
+    ("icons/thumbs-up.svg", include_bytes!("../../assets/icons/thumbs-up.svg")),
+    ("icons/train-front.svg", include_bytes!("../../assets/icons/train-front.svg")),
     ("icons/trash.svg", include_bytes!("../../assets/icons/trash.svg")),
+    ("icons/triangle.svg", include_bytes!("../../assets/icons/triangle.svg")),
     ("icons/type.svg", include_bytes!("../../assets/icons/type.svg")),
     ("icons/undo-2.svg", include_bytes!("../../assets/icons/undo-2.svg")),
     ("icons/usb.svg", include_bytes!("../../assets/icons/usb.svg")),
     ("icons/user.svg", include_bytes!("../../assets/icons/user.svg")),
+    ("icons/users.svg", include_bytes!("../../assets/icons/users.svg")),
+    ("icons/utensils.svg", include_bytes!("../../assets/icons/utensils.svg")),
     ("icons/vibrate.svg", include_bytes!("../../assets/icons/vibrate.svg")),
     ("icons/video.svg", include_bytes!("../../assets/icons/video.svg")),
     ("icons/volume-2.svg", include_bytes!("../../assets/icons/volume-2.svg")),
@@ -279,6 +194,7 @@ const ICONS: &[(&str, &[u8])] = &[
     ("icons/window-close.svg", include_bytes!("../../assets/icons/window-close.svg")),
     ("icons/window-full-screen.svg", include_bytes!("../../assets/icons/window-full-screen.svg")),
     ("icons/window-minimize.svg", include_bytes!("../../assets/icons/window-minimize.svg")),
+    ("icons/wrench.svg", include_bytes!("../../assets/icons/wrench.svg")),
     ("icons/x.svg", include_bytes!("../../assets/icons/x.svg")),
     ("icons/zap.svg", include_bytes!("../../assets/icons/zap.svg")),
     ("icons/zoom-in.svg", include_bytes!("../../assets/icons/zoom-in.svg")),
@@ -324,6 +240,48 @@ mod tests {
         assert_eq!(cross.matches("<path").count(), 1);
         let line = load(0.);
         assert!(line.contains("M1.30 7.00 L12.70 7.00 M1.30 7.00 L12.70 7.00"), "{line}");
+    }
+
+    /// The glyphs that keep their own stroke: Arc's measured nav glyphs, the window buttons' and
+    /// the loading ring, and the Library's cards, which has one solid.
+    fn keeps_its_own_stroke(name: &str) -> bool {
+        name.starts_with("nav-")
+            || name.starts_with("window-")
+            || ["loading.svg", "spaces.svg"].contains(&name)
+    }
+
+    /// One family: every other glyph is an outline on Lucide's grid at the one stroke, with round
+    /// ends and no fill, so a footer, a menu and the picker don't mix weights. And a glyph's file
+    /// that nothing builds in would be missing from the app without a word.
+    #[test]
+    fn every_icon_is_a_round_outline_at_the_one_stroke() {
+        use crate::tokens::shell::assets::{ICON_GRID, ICON_STROKE};
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icons");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+            assert!(path.is_file(), "{name}: icons sit flat, one family");
+            assert!(Assets.load(&format!("icons/{name}")).unwrap().is_some(), "{name}: not built in");
+            if keeps_its_own_stroke(&name) {
+                continue;
+            }
+            let svg = std::fs::read_to_string(&path).unwrap();
+            let viewbox = format!("viewBox=\"0 0 {ICON_GRID} {ICON_GRID}\"");
+            let stroke = format!("stroke-width=\"{ICON_STROKE}\"");
+            for want in [
+                viewbox.as_str(),
+                stroke.as_str(),
+                "stroke-linecap=\"round\"",
+                "stroke-linejoin=\"round\"",
+                "fill=\"none\"",
+            ] {
+                assert!(svg.contains(want), "{name}: needs {want}");
+            }
+            assert_eq!(svg.matches("fill=").count(), 1, "{name}: an outline has no fill");
+            checked += 1;
+        }
+        assert!(checked > 90, "{checked}");
     }
 
     /// A glyph that isn't built in draws nothing, with no error to say so.
