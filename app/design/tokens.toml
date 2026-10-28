@@ -360,6 +360,12 @@ pressed = 0x1614_0f2e
 # rule: the no-theme accent with an Ink label.
 highlight = 0x2890_54ff
 highlight-label = 0x1614_0fff
+# A Space's swatch in Move to (#320), before its name: its gradient, with a hairline Paper ring on a
+# dark panel and Ink on a light one where an end of it is under 3:1 against the panel.
+swatch = 10.0
+swatch-contrast = 3.0
+dark-swatch-ring = 0xf3f0_e8ff
+light-swatch-ring = 0x1614_0fff
 
 [offer]
 width = 320.0

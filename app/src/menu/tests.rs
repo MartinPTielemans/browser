@@ -9,7 +9,10 @@ use gpui::{
     VisualTestContext, point, px, size,
 };
 
-use super::{Key, Layout, Look, Outcome, Pointer, Request, Tracking, described, key_of, lay_out};
+use super::{
+    CHECK, GAP, Key, Layout, Look, Outcome, PADDING, Pointer, ROW_X, Request, Swatch, Tracking, contrast,
+    described, key_of, lay_out, lay_out_over, swatch_ring,
+};
 use crate::shell::MenuEntry;
 
 /// Seven points a character, near enough to SF's 13 pt for where things go.
@@ -422,4 +425,79 @@ fn the_host_drives_the_menu_and_the_menu_closes_outside_its_update(cx: &mut Test
     cx.simulate_keystrokes("escape");
     assert_eq!(chosen.get(), Some(None));
     assert_eq!(host.calls.borrow().iter().filter(|call| **call == "hide").count(), 6);
+}
+
+/// A pop-up button's menu, such as the Space form's Profile: the current choice checked and over
+/// the button's title.
+fn pop_up() -> Vec<MenuEntry> {
+    let checked = |title| MenuEntry { checked: true, over: true, ..item(title) };
+    vec![item("Default"), checked("work"), MenuEntry::line(), item("New Profile")]
+}
+
+/// The current choice's title goes on the button's, highlighted, and a click on the button, which
+/// lands on it, leaves the menu open, as a pop-up button's does.
+#[test]
+fn a_pop_ups_menu_opens_with_its_choice_over_the_buttons_title() {
+    let entries = pop_up();
+    let button = at(400., 300.);
+    let layout = lay_out_over(&entries, button, area(), &width_of);
+    let root = &layout.levels[0];
+    let row = root.row_bounds(1, &entries);
+    assert_eq!(row.origin.x + px(ROW_X + CHECK + GAP), button.x, "the title's left on the button's");
+    assert_eq!(row.origin.y, button.y, "the row's top on the button's text");
+    assert_eq!(root.bounds.origin.y, button.y - px(PADDING + super::ROW), "Default above it");
+
+    let mut menu = Tracking::new(entries.clone(), layout, button);
+    assert_eq!(menu.highlighted(), ["work"]);
+    let release = button + point(px(10.), px(8.));
+    assert_eq!(menu.released(release), Outcome::Stay, "a click on the button leaves it open");
+    menu.moved(row_of(&menu, 3), Instant::now());
+    menu.pressed(row_of(&menu, 3));
+    assert_eq!(menu.released(row_of(&menu, 3)), Outcome::Pick(3));
+
+    // Without a choice over the button, it opens at the point as any menu does.
+    let plain: Vec<MenuEntry> = entries.into_iter().map(|entry| MenuEntry { over: false, ..entry }).collect();
+    assert_eq!(lay_out_over(&plain, button, area(), &width_of), lay_out(&plain, button, area(), &width_of));
+}
+
+/// A press-drag from a pop-up button onto another choice picks it, as AppKit's do.
+#[test]
+fn a_drag_from_a_pop_up_button_picks_where_it_ends() {
+    let entries = pop_up();
+    let button = at(400., 300.);
+    let layout = lay_out_over(&entries, button, area(), &width_of);
+    let mut menu = Tracking::new(entries, layout, button);
+    let default = row_of(&menu, 0);
+    menu.moved(default, Instant::now());
+    assert_eq!(menu.released(default), Outcome::Pick(0));
+}
+
+/// A Space's swatch gets a ring only where an end of it would fade into the panel (#320): a dark
+/// one on the dark panel, a pale one on the light panel, Paper and Ink each reading 3:1 there.
+#[test]
+fn a_swatch_is_ringed_only_where_its_edge_fades_into_the_panel() {
+    let ink_like = Swatch { from: 0x1a1a1a, to: 0x303030 };
+    let vivid = Swatch { from: 0x4f94ff, to: 0xff7a3c };
+    let pale = Swatch { from: 0xfaf6ea, to: 0xffd9a0 };
+    assert_eq!(swatch_ring(vivid, Look::Dark), None);
+    assert_eq!(swatch_ring(ink_like, Look::Dark), Some(super::DARK_SWATCH_RING));
+    assert_eq!(swatch_ring(pale, Look::Light), Some(super::LIGHT_SWATCH_RING));
+    assert_eq!(swatch_ring(ink_like, Look::Light), None);
+    for (ring, fill) in [(super::DARK_SWATCH_RING, super::DARK_FILL), (super::LIGHT_SWATCH_RING, super::LIGHT_FILL)] {
+        assert!(contrast(ring >> 8, fill >> 8) >= super::SWATCH_CONTRAST, "the ring itself reads");
+    }
+}
+
+/// Swatches take room before the titles, so a submenu with them is wider by one and a gap.
+#[test]
+fn swatches_widen_their_submenu() {
+    let mut entries = tab_menu();
+    // Wider than the narrowest a panel is.
+    entries[7].title = "a reading list with a long name".into();
+    let plain = level_of(&lay_out(&entries, at(100., 100.), area(), &width_of), Some(5));
+    for entry in &mut entries[6..8] {
+        entry.swatch = Some(Swatch { from: 0x4f94ff, to: 0xff7a3c });
+    }
+    let with = level_of(&lay_out(&entries, at(100., 100.), area(), &width_of), Some(5));
+    assert_eq!(with.size.width - plain.size.width, px(super::SWATCH + GAP));
 }

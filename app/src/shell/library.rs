@@ -218,7 +218,8 @@ fn download_menu_items(
     let act = |title: &'static str, action| item(title, DownloadChoice::Act(action));
     let mut items = match download.state {
         _ if download.held => {
-            vec![act("Keep", DownloadAction::Keep), act("Delete", DownloadAction::Remove)]
+            let delete = MenuEntry::new("Delete", true).destructive();
+            vec![act("Keep", DownloadAction::Keep), (delete, Some(DownloadChoice::Act(DownloadAction::Remove)))]
         }
         DownloadState::Running | DownloadState::Paused => vec![
             match download.state {
@@ -234,7 +235,7 @@ fn download_menu_items(
         DownloadState::Done => vec![
             act("Open", DownloadAction::Open),
             act("Show in Finder", DownloadAction::Show),
-            item("Move to Trash", DownloadChoice::Trash),
+            (MenuEntry::new("Move to Trash", true).destructive(), Some(DownloadChoice::Trash)),
         ],
         DownloadState::Cancelled | DownloadState::Failed => Vec::new(),
     };
@@ -1332,30 +1333,26 @@ impl Shell {
         });
         let items = download_menu_items(download, finished);
         let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
-        let shell = cx.weak_entity();
         // The recent downloads' rows are in the reveal's panel while the sidebar is hidden.
         let in_reveal = self.library.is_none() && self.sidebar_hidden;
-        self.browser.menu(
+        self.context_menu_in(
             entries,
             position,
-            None,
             in_reveal,
-            Box::new(move |chosen, cx| {
+            Box::new(move |chosen, shell, cx| {
                 let Some((_, Some(choice))) = chosen.and_then(|at| items.get(at)) else {
                     return;
                 };
-                shell
-                    .update(cx, |shell, cx| match *choice {
-                        DownloadChoice::Act(action) => {
-                            shell.act_on_download(id, action, "download menu", cx)
-                        }
-                        DownloadChoice::Trash => shell.trash_download(id, cx),
-                        DownloadChoice::Clear => {
-                            log!("browser: command clear-downloads via download menu");
-                            shell.browser.clear_downloads(cx);
-                        }
-                    })
-                    .ok();
+                match *choice {
+                    DownloadChoice::Act(action) => {
+                        shell.act_on_download(id, action, "download menu", cx)
+                    }
+                    DownloadChoice::Trash => shell.trash_download(id, cx),
+                    DownloadChoice::Clear => {
+                        log!("browser: command clear-downloads via download menu");
+                        shell.browser.clear_downloads(cx);
+                    }
+                }
             }),
             cx,
         );

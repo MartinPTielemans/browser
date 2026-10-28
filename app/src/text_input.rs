@@ -47,7 +47,7 @@ actions!(
 
 /// Shows a field's context menu: `items`' titles, dimmed where they aren't enabled and a line for
 /// an empty one, at `position` in `window`, and calls `chosen` with the index of the one chosen
-/// once it closes. The app's, which has the platform's menus.
+/// once it closes. The app's, `menu::field_menu`, shows it in ilo's own menu.
 pub struct FieldMenu(pub Rc<ShowMenu>);
 
 pub type ShowMenu = dyn Fn(Vec<(SharedString, bool)>, Point<Pixels>, &Window, Chosen, &mut App);

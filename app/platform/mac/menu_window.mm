@@ -120,6 +120,10 @@ NSEvent* Track(NSEvent* event) {
 
 }  // namespace
 
+bool HostIsMenuWindow(NSWindow* window) {
+  return window && window == g_window;
+}
+
 void host_add_menu_window(void* view,
                           bool (*pointer)(int kind, double x, double y),
                           void (*dismissed)(void),
@@ -217,6 +221,11 @@ void host_show_menu_window(void* ui_view,
     if (g_window.parentWindow != g_parent) {
       [g_window.parentWindow removeChildWindow:g_window];
       HostAddOver(g_parent, g_window);
+      // Over an overlay, such as the command bar, which isn't the main window but is a level
+      // above the normal one, it goes at the overlay's level.
+      if (g_window.level < g_parent.level) {
+        g_window.level = g_parent.level;
+      }
     }
     [g_window makeKeyAndOrderFront:nil];
     // check.sh reads these lines.

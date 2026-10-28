@@ -335,44 +335,6 @@ void host_hide_link_target(double fade);
 // Gives |view| the keyboard in its window, from the page if the page has it.
 void host_focus(void* view);
 
-typedef struct {
-  // Null for a line between items.
-  const char* title;
-  bool enabled;
-  // The shortcut it shows: its key as AppKit's key equivalent, "" for none, and its modifiers.
-  const char* key;
-  bool command;
-  bool shift;
-  bool option;
-  bool control;
-  // The index of the item whose submenu it's in, or -1.
-  int parent;
-  // Whether it shows a check mark.
-  bool checked;
-} host_menu_item;
-
-// Where host_menu shows a menu.
-#define HOST_IN_WINDOW 0
-#define HOST_IN_REVEAL 1
-#define HOST_IN_SETTINGS 2
-
-// Shows a menu of the |count| |items| at |x|, |y|, in points from the top-left of the content of
-// |ui_view|'s window, its reveal panel's or the Settings window's (|in|), as a right-click there
-// does. With |over| an item's index, that item's title goes at |x|, |y| instead, as a pop-up
-// button shows its menu over its own title. Returns the index of the one chosen once it closes,
-// or -1.
-int host_menu(void* ui_view,
-              const host_menu_item* items,
-              size_t count,
-              double x,
-              double y,
-              int in,
-              int over);
-
-// Shows a menu as host_menu does, at |x|, |y| in points from the top-left of |view|, a window's
-// content, such as a text field's context menu in whichever window has the field.
-int host_menu_in(const host_menu_item* items, size_t count, double x, double y, void* view);
-
 // Asks |message| in an alert, with |detail| under it and the |count| |buttons|, the first the
 // default and a "Cancel" one taking escape, and returns the index of the one chosen once it
 // closes.
@@ -508,13 +470,8 @@ void host_share_with(const char* url, const char* title, size_t index);
 // milliseconds since the Unix epoch.
 void host_day_starts(double starts[4]);
 
-// For the test driver: chooses the item titled |title| in the menu shown, or the button in the
-// alert shown. False if neither shows one.
+// For the test driver: presses the button titled |title| in the alert shown. False if none shows.
 bool host_choose(const char* title);
-
-// For the test driver: closes the menu shown without choosing, as a click outside it does. False
-// if none shows.
-bool host_dismiss_menu(void);
 
 // For the test driver: the NSWindow of the browser window whose view host_ui_view made |index|th,
 // from 0, once it's shown, else null.

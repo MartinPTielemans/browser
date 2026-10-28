@@ -1,7 +1,7 @@
 //! The sidebar's menus, a Space's, a tab's, a favorite's, a folder's and the plus
 //! button's, and what their items do.
 
-use gpui::{Context, Pixels, Point, SharedString};
+use gpui::{Context, Hsla, Pixels, Point, Rgba, SharedString, rgb};
 
 use super::{
     Command, MAX_PANES, ProfileChoice, Row, Shell, UserKeys, clean_link,
@@ -9,7 +9,7 @@ use super::{
     user_keys,
 };
 use crate::{
-    menu::Look,
+    menu::{Look, Swatch},
     space_icon::{SpaceIcon, has_icon},
     theme::Appearance,
 };
@@ -30,6 +30,11 @@ pub struct MenuEntry {
     pub checked: bool,
     /// Whether it deletes something, which ilo's menu shows in red.
     pub destructive: bool,
+    /// Whether the menu opens with its title at the point it's shown at, highlighted, as a pop-up
+    /// button's menu opens over the button's title.
+    pub over: bool,
+    /// The Space it stands for, whose swatch goes before its title.
+    pub swatch: Option<Swatch>,
 }
 
 impl MenuEntry {
@@ -41,6 +46,8 @@ impl MenuEntry {
             parent: None,
             checked: false,
             destructive: false,
+            over: false,
+            swatch: None,
         }
     }
 
@@ -59,6 +66,10 @@ impl MenuEntry {
 
     pub(super) fn destructive(self) -> Self {
         MenuEntry { destructive: true, ..self }
+    }
+
+    fn swatch(self, swatch: Swatch) -> Self {
+        MenuEntry { swatch: Some(swatch), ..self }
     }
 
     /// Shows the shortcut that runs `command`.
@@ -128,15 +139,25 @@ impl Shell {
         chosen: Box<dyn FnOnce(Option<usize>, &mut Shell, &mut Context<Shell>)>,
         cx: &mut Context<Self>,
     ) {
-        // Light only where the Space's theme asks for it: the rest of the window is dark.
-        let light = self.theme_of(self.space).is_some_and(|theme| theme.appearance == Appearance::Light);
-        let look = if light && !self.private { Look::Light } else { Look::Dark };
+        self.context_menu_in(entries, position, self.sidebar_hidden, chosen, cx);
+    }
+
+    /// `context_menu` at `position` in the window, or in the reveal's panel if `in_reveal`.
+    pub(super) fn context_menu_in(
+        &mut self,
+        entries: Vec<MenuEntry>,
+        position: Point<Pixels>,
+        in_reveal: bool,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut Shell, &mut Context<Shell>)>,
+        cx: &mut Context<Self>,
+    ) {
+        let look = self.menu_look();
         self.menu_open = true;
         let shell = cx.weak_entity();
         self.browser.context_menu(
             entries,
             position,
-            self.sidebar_hidden,
+            in_reveal,
             look,
             Box::new(move |index, cx| {
                 shell
@@ -150,29 +171,45 @@ impl Shell {
         );
     }
 
-    /// Shows `items` at `position`, or the one at `over` there, and does what the one chosen does.
+    /// The look of the window's menus: light only where the Space's theme asks for it, as the rest
+    /// of the window is dark.
+    pub fn menu_look(&self) -> Look {
+        let light = self.theme_of(self.space).is_some_and(|theme| theme.appearance == Appearance::Light);
+        if light && !self.private { Look::Light } else { Look::Dark }
+    }
+
+    /// Shows `items` at `position` in ilo's menu, or with the one at `over` there, as a pop-up
+    /// button's, and does what the one chosen does.
     pub(super) fn show_menu(
-        &self,
+        &mut self,
         items: Vec<(MenuEntry, MenuAction)>,
         position: Point<Pixels>,
         over: Option<usize>,
         cx: &mut Context<Self>,
     ) {
-        let entries = items.iter().map(|(entry, _)| entry.clone()).collect();
-        let shell = cx.weak_entity();
-        self.browser.menu(
+        self.show_menu_in(items, position, over, self.sidebar_hidden, cx);
+    }
+
+    /// `show_menu` in the window, or in the reveal's panel if `in_reveal`.
+    pub(super) fn show_menu_in(
+        &mut self,
+        items: Vec<(MenuEntry, MenuAction)>,
+        position: Point<Pixels>,
+        over: Option<usize>,
+        in_reveal: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let entries = (items.iter().enumerate())
+            .map(|(at, (entry, _))| MenuEntry { over: Some(at) == over, ..entry.clone() })
+            .collect();
+        self.context_menu_in(
             entries,
             position,
-            over,
-            self.sidebar_hidden,
-            Box::new(move |chosen, cx| {
-                shell
-                    .update(cx, |shell, cx| {
-                        if let Some((_, action)) = chosen.and_then(|at| items.into_iter().nth(at)) {
-                            action(shell, cx)
-                        }
-                    })
-                    .ok();
+            in_reveal,
+            Box::new(move |chosen, shell, cx| {
+                if let Some((_, action)) = chosen.and_then(|at| items.into_iter().nth(at)) {
+                    action(shell, cx)
+                }
             }),
             cx,
         );
@@ -458,7 +495,7 @@ impl Shell {
         items.push((MenuEntry::new("Move to Space", !others.is_empty()), "", Box::new(|_, _| {})));
         for (space, name, _) in others {
             items.push((
-                MenuEntry::new(name, true).under(move_to),
+                MenuEntry::new(name, true).swatch(self.space_swatch(space)).under(move_to),
                 "move-to-space",
                 Box::new(move |shell, cx| shell.move_to_space(tab, space, cx)),
             ));
@@ -548,8 +585,9 @@ impl Shell {
             let move_to = items.len();
             items.push((MenuEntry::new("Move to", true), "", Box::new(|_, _| {})));
             for (space, name, shown) in self.spaces_to_move_to(true) {
+                let swatch = self.space_swatch(space);
                 items.push((
-                    MenuEntry::new(name, true).checked(shown).under(move_to),
+                    MenuEntry::new(name, true).checked(shown).swatch(swatch).under(move_to),
                     "move-to-space",
                     Box::new(move |shell, cx| {
                         if !shown {
@@ -587,6 +625,23 @@ impl Shell {
             .filter(|space| space.agent.is_empty() && (with_shown || space.id != self.space))
             .map(|space| (space.id, space.name.clone(), space.id == self.space))
             .collect()
+    }
+
+    /// `space`'s swatch: its theme's first two colours, or its one colour going lighter down as
+    /// the window's gradient does, with the system's accent for a Space without one.
+    pub(super) fn space_swatch(&self, space: u64) -> Swatch {
+        if let Some(theme) = self.theme_of(space) {
+            let colors = theme.colors();
+            if let [from, to, ..] = colors[..] {
+                return Swatch { from, to };
+            }
+        }
+        let entry = self.spaces.iter().find(|each| each.id == space);
+        let color = self.theme_of(space).map(|theme| theme.main_color());
+        let color = color.or(entry.and_then(|each| each.color)).unwrap_or(self.accent_color);
+        let hsla = Hsla::from(rgb(color));
+        let lighter = crate::theme::packed(Rgba::from(Hsla { l: (hsla.l + 0.25).min(1.), ..hsla }));
+        Swatch { from: color, to: lighter }
     }
 
     /// Copy Link: copies `tab`'s URL without its tracking parameters, as ⇧⌘C does the tab
@@ -788,6 +843,22 @@ mod tests {
     }
 
     /// The last tab has none below to archive, and a tab with no page has no link to copy or share.
+    /// Move to marks each Space with its swatch, and New Space… with none (#320).
+    #[gpui::test]
+    fn move_to_shows_each_spaces_swatch(cx: &mut TestAppContext) {
+        let (shell, host) = shell_with(cx, &[1], &[10, 11], Folders::default());
+        tab_menu(&shell, &host, cx, 10);
+        let entries = host.entries.borrow();
+        let move_to = entries.iter().position(|entry| entry.title == "Move to").unwrap();
+        let swatches: Vec<(&str, bool)> = (entries.iter())
+            .filter(|entry| entry.parent == Some(move_to) && !entry.title.is_empty())
+            .map(|entry| (entry.title.as_ref(), entry.swatch.is_some()))
+            .collect();
+        assert_eq!(swatches, [("Work", true), ("New Space…", false)]);
+        let work = shell.read_with(cx, |shell, _| shell.space_swatch(shell.space));
+        assert_eq!(entries[move_to + 1].swatch, Some(work));
+    }
+
     #[gpui::test]
     fn the_last_tabs_menu_dims_what_it_cant_do(cx: &mut TestAppContext) {
         let (shell, host) = shell_with(cx, &[], &[10, 11], Folders::default());

@@ -16,13 +16,17 @@ use std::{
 };
 
 use gpui::{
-    App, BoxShadow, Bounds, Context, FocusHandle, Hsla, KeyDownEvent, MouseButton,
+    AnyWindowHandle, App, BoxShadow, Bounds, Context, FocusHandle, Hsla, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Radians, Role, SharedString,
     Task, TitlebarOptions, Transformation, Window, WindowBackgroundAppearance, WindowBounds,
-    WindowHandle, WindowKind, WindowOptions, div, point, prelude::*, px, rgba, size, svg,
+    WindowHandle, WindowKind, WindowOptions, div, linear_color_stop, linear_gradient, point, prelude::*, px,
+    rgb, rgba, size, svg,
 };
 
-use crate::shell::{MenuEntry, keystroke_label};
+use crate::{
+    shell::{MenuEntry, Shell, keystroke_label},
+    text_input::FieldMenu,
+};
 
 pub use crate::tokens::menu::*;
 
@@ -47,6 +51,7 @@ struct Palette {
     line: u32,
     disabled: u32,
     destructive: u32,
+    swatch_ring: u32,
 }
 
 const DARK: Palette = Palette {
@@ -58,6 +63,7 @@ const DARK: Palette = Palette {
     line: DARK_LINE,
     disabled: DARK_DISABLED,
     destructive: DARK_DESTRUCTIVE,
+    swatch_ring: DARK_SWATCH_RING,
 };
 
 const LIGHT: Palette = Palette {
@@ -69,12 +75,46 @@ const LIGHT: Palette = Palette {
     line: LIGHT_LINE,
     disabled: LIGHT_DISABLED,
     destructive: LIGHT_DESTRUCTIVE,
+    swatch_ring: LIGHT_SWATCH_RING,
 };
 
 /// The highlight and the label on it, which the palette (#335) replaces with the Space's accent
 /// by the contrast rule.
 fn highlight() -> (u32, u32) {
     (HIGHLIGHT, HIGHLIGHT_LABEL)
+}
+
+/// A Space's mark in a menu (#320): its theme's gradient, `from` at the top left to `to` at the
+/// bottom right, as 0xRRGGBB.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Swatch {
+    pub from: u32,
+    pub to: u32,
+}
+
+/// WCAG's relative luminance of 0xRRGGBB.
+fn luminance(color: u32) -> f32 {
+    let linear = |shift: u32| {
+        let c = ((color >> shift) & 0xff) as f32 / 255.;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * linear(16) + 0.7152 * linear(8) + 0.0722 * linear(0)
+}
+
+/// WCAG's contrast ratio between two 0xRRGGBB colours.
+pub(crate) fn contrast(a: u32, b: u32) -> f32 {
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+/// The hairline ring, 0xRRGGBBAA, that `swatch` needs on `look`'s panel: none where both its ends
+/// reach SWATCH_CONTRAST against the panel, else Paper on a dark panel and Ink on a light one. The
+/// palette's swatch ring (#346) takes its place once it lands.
+pub(crate) fn swatch_ring(swatch: Swatch, look: Look) -> Option<u32> {
+    let palette = look.palette();
+    let panel = palette.fill >> 8;
+    let reads = [swatch.from, swatch.to].iter().all(|&end| contrast(end, panel) >= SWATCH_CONTRAST);
+    (!reads).then_some(palette.swatch_ring)
 }
 
 /// The menu's look: the panel's material is Ink in a dark window and Paper in a light one.
@@ -166,6 +206,8 @@ fn panel_width(entries: &[MenuEntry], items: &[usize], checks: bool, width_of: &
         .fold(0., f32::max);
     let submenus = items.iter().any(|&at| entries.iter().any(|each| each.parent == Some(at)));
     let lead = if checks { CHECK + GAP } else { 0. };
+    let swatches = items.iter().any(|&at| entries[at].swatch.is_some());
+    let lead = lead + if swatches { SWATCH + GAP } else { 0. };
     let chevron = if submenus { GAP + CHEVRON } else { 0. };
     (2. * (PADDING + ROW_X) + lead + widest + chevron).clamp(MIN_WIDTH, MAX_WIDTH)
 }
@@ -233,6 +275,22 @@ pub(crate) fn lay_out(
         union.bottom_right() + point(px(MARGIN_SIDE), px(MARGIN_BOTTOM)),
     );
     Layout { levels, frame }
+}
+
+/// Lays `entries` out as `lay_out` does, but with the root's item marked `over` with its title's
+/// top left at `at`, as a pop-up button's menu opens over the button's title.
+pub(crate) fn lay_out_over(
+    entries: &[MenuEntry],
+    at: Point<Pixels>,
+    area: Bounds<Pixels>,
+    width_of: &dyn Fn(&str) -> f32,
+) -> Layout {
+    let layout = lay_out(entries, at, area, width_of);
+    let root = &layout.levels[0];
+    let Some(row) = root.items.iter().position(|&item| entries[item].over) else { return layout };
+    let lead = if root.checks { CHECK + GAP } else { 0. };
+    let title = root.row_bounds(row, entries).origin + point(px(ROW_X + lead), px(0.));
+    lay_out(entries, at - (title - root.bounds.origin), area, width_of)
 }
 
 /// What's under a point.
@@ -325,10 +383,13 @@ fn folded(text: &str) -> String {
 
 impl Tracking {
     pub(crate) fn new(entries: Vec<MenuEntry>, layout: Layout, at: Point<Pixels>) -> Self {
+        // A pop-up's menu opens with its current item highlighted.
+        let over = (layout.levels[0].items.iter().copied())
+            .find(|&item| entries[item].over && entries[item].enabled && !entries[item].title.is_empty());
         Tracking {
             entries,
             layout,
-            open: vec![Open { level: 0, highlight: None }],
+            open: vec![Open { level: 0, highlight: over }],
             press: Some(at),
             pressed: false,
             pointer: Some(at),
@@ -481,6 +542,8 @@ impl Tracking {
             None => {}
         }
         match self.hit(at) {
+            // A click on a pop-up button lands on the item its menu opens over, and leaves it open.
+            Hit::Row(_, item) if opening.is_some() && self.entries[item].over => Outcome::Stay,
             Hit::Row(_, item) if self.selectable(item) && self.layout.level_of(item).is_none() => {
                 Outcome::Pick(item)
             }
@@ -755,7 +818,7 @@ pub fn show(request: Request, cx: &mut App) {
             let text = SharedString::from(text.to_string());
             crate::tooltip::text_width(&text, TEXT, gpui::FontWeight::NORMAL, &system)
         };
-        let layout = lay_out(&request.items, request.at, request.area, &width_of);
+        let layout = lay_out_over(&request.items, request.at, request.area, &width_of);
         // check.sh waits for this line before it chooses.
         log!("browser: menu shown {}", described(&request.items));
         let frame = layout.frame;
@@ -810,6 +873,35 @@ pub fn choose(title: &str, cx: &mut App) -> bool {
         }
     });
     chosen
+}
+
+/// Shows a menu over the app's window `window` for `field_menu`: the platform's part, which puts
+/// ilo's menu over that window, filling in the request's `area`.
+pub type ShowOver = dyn Fn(AnyWindowHandle, Request, &mut App);
+
+/// Text fields' menus (`FieldMenu`) in ilo's menu, over the field's window, in its Space's look in a
+/// browser window and dark elsewhere, once the update that asked is over. The item chosen runs in
+/// the field's window, which has the keyboard back by then, as the menu gives it back as it closes.
+pub fn field_menu(show: Rc<ShowOver>) -> FieldMenu {
+    FieldMenu(Rc::new(move |items, at, window, chosen, cx| {
+        let handle = window.window_handle();
+        let show = show.clone();
+        cx.defer(move |cx| {
+            // Looked up once the update is over, in case the window closed meanwhile.
+            let Ok(look) = cx.update_window(handle, |root, _, cx| {
+                root.downcast::<Shell>().ok().map_or(Look::Dark, |shell| shell.read(cx).menu_look())
+            }) else {
+                return;
+            };
+            let items = (items.into_iter()).map(|(title, enabled)| MenuEntry::new(title, enabled)).collect();
+            let chosen = Box::new(move |index: Option<usize>, cx: &mut App| {
+                if let Some(index) = index {
+                    cx.update_window(handle, |_, window, cx| chosen(index, window, cx)).ok();
+                }
+            });
+            show(handle, Request { items, at, area: Bounds::default(), look, chosen }, cx);
+        });
+    }))
 }
 
 impl ContextMenu {
@@ -945,6 +1037,21 @@ impl ContextMenu {
                 slot.child(svg().path("icons/check.svg").size(px(CHECK)).text_color(label))
             })
         });
+        let swatch = entry.swatch.map(|swatch| {
+            let gradient = linear_gradient(
+                135.,
+                linear_color_stop(rgb(swatch.from), 0.),
+                linear_color_stop(rgb(swatch.to), 1.),
+            )
+            .color_space(gpui::ColorSpace::Oklab);
+            let ring = swatch_ring(swatch, shown.look);
+            div()
+                .size(px(SWATCH))
+                .flex_none()
+                .rounded_full()
+                .bg(gradient)
+                .when_some(ring, |dot, ring| dot.border_1().border_color(rgba(ring)))
+        });
         let trailing = match (&shortcut, submenu) {
             (_, true) => Some(
                 svg()
@@ -974,6 +1081,7 @@ impl ContextMenu {
             .when(lit, |row| row.bg(rgba(fill)))
             .child(div().absolute().inset_0().rounded(px(ROW_RADIUS)).when(pressed, |o| o.bg(rgba(PRESSED))))
             .children(check)
+            .children(swatch)
             .child(div().flex_1().min_w_0().truncate().text_color(label).child(entry.title.clone()))
             .children(trailing)
             .when(a11y, |row| {

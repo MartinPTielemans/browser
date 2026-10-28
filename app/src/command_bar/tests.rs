@@ -1175,3 +1175,51 @@ fn voiceover_hears_the_selected_row_as_the_keys_move_it(cx: &mut TestAppContext)
     let status = tree.nodes.iter().find(|(_, node)| node.role() == Role::Status).unwrap();
     assert_eq!(status.1.value(), Some("Docs, docs.test, Switch to Tab, 2 of 2"));
 }
+
+/// ilo's menu's window, which shows nothing in a test.
+struct MenuWindow;
+
+impl crate::menu::Host for MenuWindow {
+    fn show(&self, _: gpui::Bounds<gpui::Pixels>) {}
+    fn hide(&self) {}
+}
+
+/// The field's menu as the app shows it, in ilo's menu: Cut and Copy are dimmed with nothing
+/// selected, the field keeps the keyboard, and Paste and Go goes where return would.
+#[gpui::test]
+fn the_inputs_menu_is_ilos_and_pastes_and_goes(cx: &mut TestAppContext) {
+    use crate::menu;
+    cx.update(|cx| menu::open(Rc::new(MenuWindow), cx)).expect("no window for the menu");
+    cx.update(|cx| {
+        cx.set_global(menu::field_menu(Rc::new(|_, request, cx| {
+            let area = gpui::Bounds::new(point(px(0.), px(0.)), gpui::size(px(2000.), px(2000.)));
+            menu::show(menu::Request { area, ..request }, cx);
+        })))
+    });
+    let mut bar = Bar::new(cx);
+    bar.type_text("something else");
+    let right_click = |bar: &mut Bar| {
+        let at = point(px(200.), px(HEIGHT / 2.));
+        bar.cx.simulate_mouse_down(at, MouseButton::Right, Modifiers::none());
+        bar.cx.simulate_mouse_up(at, MouseButton::Right, Modifiers::none());
+        bar.cx.run_until_parked();
+    };
+    let choose = |bar: &mut Bar, title: &str| {
+        let chosen = bar.cx.cx.update(|cx| menu::choose(title, cx));
+        bar.cx.run_until_parked();
+        chosen
+    };
+    right_click(&mut bar);
+    assert!(!choose(&mut bar, "Cut"), "Cut with nothing selected");
+    assert!(!choose(&mut bar, "Copy"), "Copy with nothing selected");
+    assert!(choose(&mut bar, "Select All"));
+    let focused = bar.window.update(&mut bar.cx.cx, |bar, window, cx| {
+        bar.input.read(cx).focus_handle(cx).is_focused(window)
+    });
+    assert!(focused.unwrap(), "the field lost the keyboard to its menu");
+    right_click(&mut bar);
+    // What was typed doesn't count, and a copied line break is a space.
+    bar.copy_text("  example.org\n");
+    assert!(choose(&mut bar, "Paste and Go"));
+    assert_eq!(bar.calls(), ["open https://example.org/", "hide"]);
+}

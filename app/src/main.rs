@@ -24,7 +24,7 @@ use browser::shell::{
     Split, Trouble, WindowButton,
 };
 use browser::text_input::{
-    Chosen, Copy, Cut, FieldMenu, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
+    Copy, Cut, Paste, PasteAndMatchStyle, Redo, SelectAll, Undo,
 };
 use gpui::{
     AnyWindowHandle, App, ApplicationHandle, AsyncApp, Bounds, Context, Focusable, Image,
@@ -194,22 +194,6 @@ mod platform {
         );
         pub fn host_share_with(url: *const c_char, title: *const c_char, index: usize);
         pub fn host_day_starts(starts: *mut f64);
-        pub fn host_menu(
-            ui_view: *mut c_void,
-            items: *const host_menu_item,
-            count: usize,
-            x: f64,
-            y: f64,
-            place: i32,
-            over: i32,
-        ) -> i32;
-        pub fn host_menu_in(
-            items: *const host_menu_item,
-            count: usize,
-            x: f64,
-            y: f64,
-            view: *mut c_void,
-        ) -> i32;
         pub fn host_add_settings(settings_view: *mut c_void);
         pub fn host_show_settings();
         pub fn host_hide_settings();
@@ -286,11 +270,6 @@ mod platform {
         pub fn host_hide_link_target(fade: f64);
     }
 
-    /// Where host_menu shows a menu.
-    pub const IN_WINDOW: i32 = 0;
-    pub const IN_REVEAL: i32 = 1;
-    pub const IN_SETTINGS: i32 = 2;
-
     /// What host_take_drops hears of a drag.
     pub const DRAG_OVER: c_int = 0;
     pub const DRAG_DROP: c_int = 2;
@@ -300,58 +279,10 @@ mod platform {
         pub url: *const c_char,
         pub file: bool,
     }
-
-    #[repr(C)]
-    pub struct host_menu_item {
-        pub title: *const c_char,
-        pub enabled: bool,
-        pub key: *const c_char,
-        pub command: bool,
-        pub shift: bool,
-        pub option: bool,
-        pub control: bool,
-        pub parent: i32,
-        pub checked: bool,
-    }
 }
 
 const WINDOW_SIZE: (f64, f64) = (1280., 800.);
 
-/// AppKit's key equivalent for `keystroke`, as SHORTCUTS writes it, and whether it takes ⌘, ⇧, ⌥
-/// and ⌃.
-fn key_equivalent(keystroke: &str) -> (String, [bool; 4]) {
-    let mut key = keystroke;
-    let mut held = [false; 4];
-    for (modifier, at) in [("ctrl-", 3), ("alt-", 2), ("shift-", 1), ("cmd-", 0)] {
-        if let Some(rest) = key.strip_prefix(modifier) {
-            held[at] = true;
-            key = rest;
-        }
-    }
-    // NSF1FunctionKey on.
-    let function = key.strip_prefix('f').and_then(|number| number.parse::<u32>().ok());
-    if let Some(number) = function.filter(|number| (1..=35).contains(number)) {
-        return (char::from_u32(0xf703 + number).unwrap_or_default().to_string(), held);
-    }
-    let key = match key {
-        "enter" => "\r".to_string(),
-        "escape" => "\u{1b}".to_string(),
-        "up" => "\u{f700}".to_string(),
-        "down" => "\u{f701}".to_string(),
-        "left" => "\u{f702}".to_string(),
-        "right" => "\u{f703}".to_string(),
-        "tab" => "\t".to_string(),
-        "space" => " ".to_string(),
-        "backspace" => "\u{8}".to_string(),
-        "delete" => "\u{f728}".to_string(),
-        "pageup" => "\u{f72c}".to_string(),
-        "pagedown" => "\u{f72d}".to_string(),
-        "home" => "\u{f729}".to_string(),
-        "end" => "\u{f72b}".to_string(),
-        key => key.to_string(),
-    };
-    (key, held)
-}
 const START_URL: &str = "https://en.wikipedia.org/wiki/Arc_(web_browser)";
 /// Where Add Extension… goes, as Dia's does.
 const WEB_STORE: &str = "https://chromewebstore.google.com/";
@@ -536,90 +467,28 @@ fn ns_view(window: &Window) -> *mut c_void {
     }
 }
 
-/// Shows a menu of `items` at `position` in `place` (`platform::IN_*`) of `ui_view`'s window, or
-/// with the item at `over` there, and returns the index of the one chosen once it closes. AppKit
-/// runs the menu in an event loop of its own, so this mustn't be called inside a GPUI update.
+/// Shows ilo's menu of `items` at `at` in the content of `ui_view`'s window, any of the app's, or
+/// of its reveal's panel if `in_reveal`, in `look`, and calls `chosen` once it closes.
 fn show_menu(
     ui_view: *mut c_void,
-    items: &[MenuEntry],
-    position: Point<Pixels>,
-    place: i32,
-    over: Option<usize>,
-) -> Option<usize> {
-    let (x, y) = (f64::from(position.x), f64::from(position.y));
-    let over = over.map_or(-1, |over| over as i32);
-    pop_up(items, |items, count| unsafe {
-        platform::host_menu(ui_view, items, count, x, y, place, over)
-    })
-}
-
-/// Shows a text field's menu of `items` at `position` in `view`, a window's, as show_menu does.
-fn show_field_menu(
-    items: &[MenuEntry],
-    position: Point<Pixels>,
-    view: *mut c_void,
-) -> Option<usize> {
-    let (x, y) = (f64::from(position.x), f64::from(position.y));
-    pop_up(items, |items, count| unsafe { platform::host_menu_in(items, count, x, y, view) })
-}
-
-/// Gives `show` the host's items for `items`, and returns the index it returns, if one was chosen.
-fn pop_up(
-    items: &[MenuEntry],
-    show: impl FnOnce(*const platform::host_menu_item, usize) -> i32,
-) -> Option<usize> {
-    let strings: Vec<(CString, CString, [bool; 4])> = items
-        .iter()
-        .map(|item| {
-            let (key, modifiers) = item.shortcut.as_deref().map(key_equivalent).unwrap_or_default();
-            let title = CString::new(item.title.as_ref()).unwrap_or_default();
-            (title, CString::new(key).unwrap_or_default(), modifiers)
-        })
-        .collect();
-    let host_items: Vec<_> = strings
-        .iter()
-        .zip(items)
-        .map(|((title, key, [command, shift, option, control]), item)| {
-            platform::host_menu_item {
-                title: match item.title.is_empty() {
-                    true => std::ptr::null(),
-                    false => title.as_ptr(),
-                },
-                enabled: item.enabled,
-                key: key.as_ptr(),
-                command: *command,
-                shift: *shift,
-                option: *option,
-                control: *control,
-                parent: item.parent.map_or(-1, |parent| parent as i32),
-                checked: item.checked,
-            }
-        })
-        .collect();
-    usize::try_from(show(host_items.as_ptr(), host_items.len())).ok()
-}
-
-/// Shows a text field's menu in the field's window, outside the GPUI update that asks for it.
-fn field_menu(
-    items: Vec<(SharedString, bool)>,
-    position: Point<Pixels>,
-    window: &Window,
-    chosen: Chosen,
+    items: Vec<MenuEntry>,
+    at: Point<Pixels>,
+    in_reveal: bool,
+    look: menu::Look,
+    chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
     cx: &mut App,
 ) {
-    let handle = window.window_handle();
-    cx.spawn(async move |cx| {
-        // The view is looked up once the update is over, in case its window closed meanwhile.
-        let Ok(view) = cx.update_window(handle, |_, window, _| ns_view(window)) else {
-            return;
-        };
-        let items: Vec<MenuEntry> =
-            items.into_iter().map(|(title, enabled)| MenuEntry::new(title, enabled)).collect();
-        if let Some(index) = show_field_menu(&items, position, view) {
-            cx.update_window(handle, |_, window, cx| chosen(index, window, cx)).ok();
-        }
-    })
-    .detach();
+    with_overlays(
+        move |cx| {
+            MENU_OVER.set((ui_view, in_reveal));
+            let mut area = [0f64; 4];
+            unsafe { platform::host_menu_area(ui_view, in_reveal, area.as_mut_ptr()) };
+            let [left, top, right, bottom] = area.map(|edge| px(edge as f32));
+            let area = Bounds::from_corners(point(left, top), point(right, bottom));
+            menu::show(menu::Request { items, at, area, look, chosen }, cx);
+        },
+        cx,
+    );
 }
 
 /// Tells the core where the window's page goes and the radius of its corners
@@ -840,8 +709,15 @@ impl site_controls::Host for SiteControlsHost {
         }
     }
 
-    fn menu(&self, items: &[MenuEntry], position: Point<Pixels>) -> Option<usize> {
-        show_field_menu(items, position, self.view.get())
+    fn menu(
+        &self,
+        items: Vec<MenuEntry>,
+        position: Point<Pixels>,
+        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
+        cx: &mut App,
+    ) {
+        // The panel's menus are dark, as the panel is.
+        show_menu(self.view.get(), items, position, false, menu::Look::Dark, chosen, cx);
     }
 
     fn tooltip(&self, tip: Option<(SharedString, tooltip::Anchor)>, cx: &mut App) {
@@ -1801,26 +1677,6 @@ impl Browser for Engine {
         unsafe { bc::bc_profile_delete(profile) };
     }
 
-    fn menu(
-        &self,
-        items: Vec<MenuEntry>,
-        position: Point<Pixels>,
-        over: Option<usize>,
-        in_reveal: bool,
-        chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
-        cx: &mut App,
-    ) {
-        // AppKit runs a menu in an event loop of its own until it closes, which GPUI's updates
-        // mustn't be inside.
-        let ui_view = self.ui_view;
-        cx.spawn(async move |cx| {
-            let place = if in_reveal { platform::IN_REVEAL } else { platform::IN_WINDOW };
-            let index = show_menu(ui_view, &items, position, place, over);
-            cx.update(|cx| chosen(index, cx));
-        })
-        .detach();
-    }
-
     fn context_menu(
         &self,
         items: Vec<MenuEntry>,
@@ -1830,18 +1686,7 @@ impl Browser for Engine {
         chosen: Box<dyn FnOnce(Option<usize>, &mut App)>,
         cx: &mut App,
     ) {
-        let ui_view = self.ui_view;
-        with_overlays(
-            move |cx| {
-                MENU_OVER.set((ui_view, in_reveal));
-                let mut area = [0f64; 4];
-                unsafe { platform::host_menu_area(ui_view, in_reveal, area.as_mut_ptr()) };
-                let [left, top, right, bottom] = area.map(|edge| px(edge as f32));
-                let area = Bounds::from_corners(point(left, top), point(right, bottom));
-                menu::show(menu::Request { items, at, area, look, chosen }, cx);
-            },
-            cx,
-        );
+        show_menu(self.ui_view, items, at, in_reveal, look, chosen, cx);
     }
 
     fn confirm(
@@ -2935,7 +2780,12 @@ unsafe extern "C" fn started(_: *mut c_void) {
         settings::read_shortcuts(cx);
         shell::bind_keys(cx);
         browser::text_input::bind_keys(cx);
-        cx.set_global(FieldMenu(Rc::new(field_menu)));
+        cx.set_global(menu::field_menu(Rc::new(|window, request, cx| {
+            if let Ok(view) = cx.update_window(window, |_, window, _| ns_view(window)) {
+                let menu::Request { items, at, look, chosen, .. } = request;
+                show_menu(view, items, at, false, look, chosen, cx);
+            }
+        })));
         cx.on_action(|_: &Hide, cx| cx.hide());
         cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
         cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
