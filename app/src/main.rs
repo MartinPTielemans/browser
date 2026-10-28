@@ -43,6 +43,7 @@ mod drop_targets;
 #[path = "../platform/windows/drive_menus.rs"]
 mod drive_menus;
 mod find_bar;
+mod import_host;
 #[cfg(target_os = "linux")]
 #[path = "../platform/linux/drive.rs"]
 mod drive;
@@ -2119,6 +2120,10 @@ impl Browser for Engine {
         unsafe { bc::bc_profile_create(name.as_ptr()) }
     }
 
+    fn import_host(&self) -> Rc<dyn browser::import::Host> {
+        Rc::new(import_host::CoreImport)
+    }
+
     fn delete_profile(&self, profile: u64, _: &mut App) {
         unsafe { bc::bc_profile_delete(profile) };
     }
@@ -3875,6 +3880,8 @@ unsafe extern "C" fn spaces_changed(_: *mut c_void) {
         shell.set_spaces(spaces.clone(), cx);
     });
     update_app(settings::refresh);
+    // After the update under way, as an import waiting here makes Spaces of its own.
+    update_app_later(import_host::spaces_changed);
 }
 
 /// After a crash, with Send Crash Reports off: a toast asks whether to send its report, until the
