@@ -1307,10 +1307,19 @@ fn main() {
                 if agent.is_some() {
                     shell.set_space(first_space + 1, cx);
                     shell.agent_acted("claude-code".into(), reading[2], cx);
-                    // =handoff has it hand its fourth tab to the user, shown, for a sign-in.
-                    let handoff = agent.as_deref() == Some("handoff");
-                    let why: SharedString = "Sign in to finish the order".into();
-                    let held = if handoff { vec![(reading[3], why.clone())] } else { Vec::new() };
+                    // =handoff has it hand its fourth tab to the user, shown, for a sign-in;
+                    // =back has the user take that tab over, and the agent ask for it back.
+                    let back = agent.as_deref() == Some("back");
+                    let handoff = back || agent.as_deref() == Some("handoff");
+                    let why: SharedString = match back {
+                        true => "To finish the order".into(),
+                        false => "Sign in to finish the order".into(),
+                    };
+                    let held = match (handoff, back) {
+                        (true, true) => vec![(reading[3], SharedString::default())],
+                        (true, false) => vec![(reading[3], why.clone())],
+                        _ => Vec::new(),
+                    };
                     let status = browser::agents::Status {
                         agent: "claude-code".into(),
                         space: first_space + 1,
@@ -1326,6 +1335,7 @@ fn main() {
                             what: "hand you a tab".into(),
                             why,
                             handoff: Some(reading[3]),
+                            back,
                         };
                         shell.set_agent_question(Some(question), cx);
                     }

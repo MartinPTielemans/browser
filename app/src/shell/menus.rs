@@ -430,6 +430,14 @@ impl Shell {
         } else {
             self.today_tab_menu(keys, tab)
         };
+        // A tab the user holds from an agent says so first, and gives it back (#404).
+        let mut held = self.held_items(tab);
+        let shift = held.len();
+        held.extend(items.into_iter().map(|(entry, name, action)| {
+            let parent = entry.parent.map(|parent| parent + shift);
+            (MenuEntry { parent, ..entry }, name, action)
+        }));
+        let items = held;
         let entries = items.iter().map(|(entry, ..)| entry.clone()).collect();
         self.context_menu(
             entries,
@@ -451,6 +459,35 @@ impl Shell {
         );
         self.menu_row = Some(self.row_of(tab));
         cx.notify();
+    }
+
+    /// The head of the menu of a tab the user holds from the agent whose Space shows: that they
+    /// took it back or the agent handed it to them, and Hand Back.
+    fn held_items(&self, tab: u64) -> Vec<(MenuEntry, &'static str, MenuAction)> {
+        let Some(space) = self.shown_space().filter(|space| !space.agent.is_empty()) else {
+            return Vec::new();
+        };
+        let held = (self.agent_status.iter())
+            .filter(|status| status.space == space.id)
+            .flat_map(|status| &status.held)
+            .find(|(id, _)| *id == tab);
+        let Some((_, why)) = held else {
+            return Vec::new();
+        };
+        let name = &space.agent;
+        let state = match why.is_empty() {
+            true => format!("Taken Back from {name}"),
+            false => format!("Handed to You by {name}"),
+        };
+        vec![
+            (MenuEntry::new(state, false), "", Box::new(|_, _| {})),
+            (
+                MenuEntry::new(format!("Hand Back to {name}"), true),
+                "hand-back",
+                Box::new(move |shell, cx| shell.browser.hand_back(tab, cx)),
+            ),
+            (MenuEntry::line(), "", Box::new(|_, _| {})),
+        ]
     }
 
     /// A favorite's menu.
