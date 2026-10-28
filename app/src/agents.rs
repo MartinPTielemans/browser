@@ -635,6 +635,17 @@ impl Agents {
     /// The core ended the agent's session with `tab`: it let go of the tab, or the user took it
     /// back. A disconnect has its own entry.
     pub fn session_ended(&mut self, agent: &str, tab: u64, why: &str, cx: &mut Context<Self>) {
+        // The page asked for the user's passkey: a handoff the page made, as no agent may pick
+        // one, which the core holds the tab for.
+        if why == "passkey" && !self.held.contains_key(&tab) {
+            // check.sh reads this line.
+            log!("browser: agent {agent} hands off {tab}: passkey");
+            let question = self.next_request;
+            self.next_request += 1;
+            let why = PASSKEY.to_string();
+            let held = Held { agent: agent.into(), why, question, back: None, reply: None };
+            self.held.insert(tab, held);
+        }
         if why != "disconnected" {
             let site = site(&self.browser.tab(tab, cx).url);
             self.note(agent, why, &site, "");
@@ -1586,8 +1597,10 @@ const SAID_NEVER: &str = "You said never on this site.";
 /// Why an agent can't open a page that isn't on the web.
 const WEB_ONLY: &str = "Agents may open only http and https pages.";
 /// Why an agent can't type into a password field.
-const PASSWORDS: &str =
-    "Password fields are off limits to agents: signing in is the user's to do. Ask them to.";
+const PASSWORDS: &str = "Password fields are off limits to agents: signing in is the user's to do. \
+    Hand them the tab with hand_off.";
+/// What the user reads in the bar of a tab whose page asked for their passkey.
+const PASSKEY: &str = "The page asks for your passkey. Sign in, then hand the tab back.";
 
 fn is_web(url: &str) -> bool {
     url.starts_with("https://") || url.starts_with("http://")

@@ -7,8 +7,10 @@
 # agent can't type into the password field. It types into another, opens a page, clicks its link,
 # scrolls and takes a screenshot, and a bank's site asks first, in a card whose Allow Once opens
 # it. Always Allow opens it from then on, until Revoke Permission in the Space's menu takes that
-# back. Closing the client's end ends its session with the tab, and turning Settings › Agents off
-# takes the socket away and drops a client connected.
+# back. A login the user saved fills in neither as the agent's tab loads it nor from a dropdown,
+# and fills once the user takes the tab over, without a reload. Closing the client's end ends its
+# session with the tab, and turning Settings › Agents off takes the socket away and drops a client
+# connected.
 
 log="$out/mcp.log"
 step=0
@@ -277,6 +279,93 @@ CARD
   scrolled=$(call scroll "{\"tab\":$opened_tab}")
   case "$scrolled" in "Scrolled down."*) ;; *) fail "after Hand Back, scroll answered: $scrolled" ;; esac
 
+  # Nothing of the user's autofills in the agent's tab. A throwaway login, saved through the offer
+  # while the user holds the tab, on this run's own port, fills in neither as the page loads nor
+  # from a dropdown once the agent has the tab back. Take Over fills it at once, without a reload,
+  # and the dropdown offers it. The bar logs its place as it changes.
+  bar() {
+    read -r bx by bw bh <<BAR
+$(grep '^browser: agent bar [0-9]* at ' "$log" | tail -1 | cut -d' ' -f6-)
+BAR
+  }
+  # Take Over, at the right end of the bar's buttons.
+  take_over() {
+    taken="^browser: agent mcp-client taken over in $opened_tab\$"
+    before=$(grep -c "$taken" "$log")
+    bar
+    send click $((bx + bw - 16)) $((by + bh - 26))
+    await_more "$taken" "$before" || fail "$1: Take Over didn't take the tab"
+  }
+  # How many child windows the browser window has, Chrome's autofill dropdown among them.
+  children() {
+    send layout
+    sed -n "/^browser: drive $step: /,\$p" "$log" | grep -c '^browser: layout child' || true
+  }
+  logins() {
+    grep -c "^browser: title $opened_tab login\$" "$log" || true
+  }
+  call navigate "{\"tab\":$opened_tab,\"url\":\"localhost:$port/welcome.html\"}" > /dev/null
+  await_log "^browser: title $opened_tab welcome\$" "the welcome page didn't load in the agent's tab"
+  take_over "to save a login"
+  go_from_bar "localhost:$port/login.html"
+  expect "^browser: title $opened_tab login\$" "the login page didn't load in the tab the user holds"
+  send click 600 60
+  send key a cmd
+  send type check@example.test
+  send key tab
+  send key a cmd
+  send type hunter2.check
+  send key return
+  expect "^browser: offer $opened_tab save check@example.test " "the user's login brought no offer to save"
+  expect '^browser: offer shown$' "the offer to save the login wasn't shown"
+  send layout
+  child=$(sed -n "/^browser: drive $step: /,\$p" "$log" | grep '^browser: layout child' |
+    grep ' 320x180$' | head -1 | sed 's/^browser: layout child //')
+  [ -n "$child" ] || fail "the offer's card isn't over the browser window"
+  ox=${child%%,*}
+  oy=${child#*,}
+  oy=${oy%% *}
+  # Return in the offer's username field saves.
+  send click $((ox + 56)) $((oy + 70))
+  send key return
+  expect "^browser: offer $opened_tab answered Accept check@example.test\$" "return didn't save the login"
+  handed="^browser: agent mcp-client handed back $opened_tab\$"
+  before=$(grep -c "$handed" "$log")
+  # Hand Back, the held tab's bar's one button, at its left.
+  bar
+  send click $((bx + 30)) $((by + bh - 26))
+  await_more "$handed" "$before" || fail "the bar's Hand Back didn't hand the login's tab back"
+
+  before=$(logins)
+  call navigate "{\"tab\":$opened_tab,\"url\":\"localhost:$port/login.html\"}" > /dev/null
+  await_more "^browser: title $opened_tab login\$" "$before" ||
+    fail "the login page didn't load in the agent's tab"
+  shown=$(children)
+  # A click in the username field, where Chrome's dropdown would offer the login.
+  send click 600 60
+  # Chrome fills and offers a saved login within a moment of the load and the click. Here none
+  # may come, so this waits out that moment.
+  sleep 1
+  ../tools/window-screenshot.sh "$pid" "$out/agent-login-empty.png" || fail "no window to capture"
+  [ "$(children)" = "$shown" ] || fail "the agent's tab offered the saved login in a dropdown"
+  grep -q "^browser: title $opened_tab filled\$" "$log" &&
+    fail "Chrome filled the saved password in the agent's tab"
+  outline=$(call snapshot "{\"tab\":$opened_tab}")
+  case "$outline" in *hunter2*) fail "the login page's outline gave the password" ;; esac
+  before=$(logins)
+  take_over "to fill the login"
+  await_log "^browser: title $opened_tab filled\$" "Take Over didn't fill the saved password in"
+  [ "$(logins)" = "$before" ] || fail "Take Over reloaded the login page to fill it"
+  send click 600 60
+  for _ in $(seq 30); do [ "$(children)" -gt "$shown" ] && break; done
+  [ "$(children)" -gt "$shown" ] || fail "the held tab's username field offered no saved login"
+  ../tools/window-screenshot.sh "$pid" "$out/agent-login-filled.png" || fail "no window to capture"
+  send key escape
+  before=$(grep -c "$handed" "$log")
+  bar
+  send click $((bx + 30)) $((by + bh - 26))
+  await_more "$handed" "$before" || fail "the bar's Hand Back didn't hand the filled tab back"
+
   # A bank's site asks first, in a card in the window, and Allow Once opens it.
   bank="{\"url\":\"bank.localhost:$port/fields.html\"}"
   asks='^browser: agent mcp-client asks [0-9]*: open bank\.localhost$'
@@ -360,7 +449,7 @@ fi
 quit
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back and Keep answers its ask, gets no saved login filled in or offered in its tab until the user takes it over, when it fills without a reload, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi
