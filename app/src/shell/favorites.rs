@@ -435,13 +435,7 @@ impl Shell {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |shell, event: &MouseDownEvent, _, cx| {
-                    shell.browser.tooltip(None, cx);
-                    // The first click showed it.
-                    if event.click_count == 2 {
-                        log!("browser: command back-to-pinned-url via favorite");
-                        return shell.browser.back_to_pinned_url(tab, cx);
-                    }
-                    shell.press_tile(tab, event.position)
+                    shell.pressed_tile(tab, event, cx)
                 }),
             )
             .on_mouse_down(
@@ -452,19 +446,45 @@ impl Shell {
                     }
                 }),
             )
-            // Unless it ended a drag.
-            .on_click(cx.listener(move |shell, _, _, cx| {
-                if shell.dragged || shell.dragging().is_some() {
-                    return;
-                }
-                log!("browser: command select via favorite");
-                shell.select(tab, cx);
-                // As a row's press does (show_row).
-                shell.browser.focus_page(cx)
-            }))
+            .on_click(cx.listener(move |shell, _, _, cx| shell.clicked_tile(tab, cx)))
             .children(theme.as_deref().and_then(TileTheme::layers))
             .child(icon)
             .child(self.framed(tab, if selected { ring_width } else { HAIRLINE }))
+    }
+
+    /// A left press on `tab`'s tile, which may become a drag.
+    pub(super) fn pressed_tile(
+        &mut self,
+        tab: u64,
+        event: &MouseDownEvent,
+        cx: &mut Context<Self>,
+    ) {
+        self.browser.tooltip(None, cx);
+        // The first click showed it.
+        if event.click_count == 2 {
+            log!("browser: command back-to-pinned-url via favorite");
+            return self.browser.back_to_pinned_url(tab, cx);
+        }
+        self.press_tile(tab, event.position)
+    }
+
+    /// The release of a click on `tab`'s tile: it shows the tab, unless it ended a drag.
+    pub(super) fn clicked_tile(&mut self, tab: u64, cx: &mut Context<Self>) {
+        if self.dragged || self.dragging().is_some() {
+            return;
+        }
+        log!("browser: command select via favorite");
+        self.select(tab, cx);
+        // As a row's press does (show_row).
+        self.browser.focus_page(cx)
+    }
+
+    /// Where each tile rests, down from the favorites' top, as `drawn_tiles` has them once they
+    /// stop.
+    pub(super) fn resting_tiles(&self) -> HashMap<u64, [f32; 3]> {
+        let tabs = self.tile_tabs();
+        let places = self.tile_places(tabs.len());
+        tabs.into_iter().zip(places).collect()
     }
 
     /// A tile's favicon, or a one-colour icon's white template on the tile it themes.

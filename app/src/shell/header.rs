@@ -13,6 +13,7 @@ use gpui::{
 
 use super::{
     access::Accessible,
+    beside::AtRest,
     BACK_X, Command, FORWARD_X, NAV, NAV_DISABLED, NAV_END, NAV_GLYPH, NAV_HOVERED, NAV_RADIUS,
     NAV_SIZE, NAV_TOP, PLATE_INSET, PLATE_RADIUS, RELOAD_X, SECONDARY, SIDEBAR_BUTTON_X, Shell,
     Swapped, TILE_HOVERED, TOOLS_FADE, URL_BUTTON_GLYPH, URL_BUTTON_INSET, URL_BUTTON_SIZE,
@@ -355,6 +356,24 @@ impl Shell {
             .children(copy)
             .children(site_controls)
             .children(actions)
+    }
+
+    /// What of the URL field rests `x` in from its left, as `url_field` lays it out: its Copy URL
+    /// or Site Controls button while they take clicks, a pinned extension's action, or the field.
+    pub(super) fn field_part_at(&self, x: f32) -> AtRest {
+        let width = self.width() - 2. * PLATE_INSET;
+        let (shown, overflow) = self.shown_actions();
+        let actions = (shown + overflow as usize) as f32 * URL_BUTTON_SIZE;
+        if actions > 0. && x >= width - URL_BUTTON_INSET - actions {
+            return AtRest::Action;
+        }
+        let tools = self.tools_shown() && self.tools_live() && !self.url(self.selected).is_empty();
+        let button = |end: f32| (width - end - URL_BUTTON_SIZE..width - end).contains(&x);
+        match tools {
+            true if button(self.site_controls_end()) => AtRest::SiteControls,
+            true if button(self.site_controls_end() + TOOL_PITCH) => AtRest::CopyUrl,
+            _ => AtRest::Field,
+        }
     }
 
     /// A tab showing its page in Safari's engine says so after the host, quietly (ours): the Site
