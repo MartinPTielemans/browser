@@ -130,6 +130,24 @@ Hooks only: the logic is in browser_core/platform/linux/wayland.cc.
  ui::WaylandWindow* RootWindowFromWlSurface(wl_surface* surface);
  
  // Returns bounds of the given window, adjusted to its subsurface. We need to
+--- a/ui/ozone/platform/wayland/host/proxy/wayland_proxy.cc
++++ b/ui/ozone/platform/wayland/host/proxy/wayland_proxy.cc
+@@ -15,13 +15,13 @@ static WaylandProxy* g_instance = nullptr;
+ 
+ // static
+ WaylandProxy* WaylandProxy::GetInstance() {
+-  CHECK(ui::UseTestConfigForPlatformWindows());
++  // browser_core: outside tests too, where the core reaches a window's surface through it, and
++  // null off Wayland.
+   return g_instance;
+ }
+ 
+ // static
+ void WaylandProxy::SetInstance(WaylandProxy* instance) {
+-  CHECK(ui::UseTestConfigForPlatformWindows());
+   g_instance = instance;
+ }
+ 
 --- a/ui/ozone/platform/wayland/host/wayland_connection.cc
 +++ b/ui/ozone/platform/wayland/host/wayland_connection.cc
 @@ -286,8 +286,8 @@ bool WaylandConnection::Initialize(bool use_threaded_polling) {
