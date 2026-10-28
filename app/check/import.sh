@@ -34,7 +34,7 @@ expect '^browser: import found Arc$' "the import didn't find the fixture's Arc, 
 send clickkey 575 134
 expect '^browser: import pick Arc$' "Import… on Arc's row didn't show what comes from it"
 ../tools/window-screenshot.sh "$pid" "$out/import-pick.png" || fail "no window to capture"
-send clickkey 588 231
+send clickkey 590 245
 expect '^browser: import from Arc: 2 Spaces, 6 pinned tabs, 3 favorites$' \
   "Import didn't plan Arc's 2 Spaces, 6 pinned tabs and 3 favorites"
 expect '^browser: added profile [0-9]* Work$' "Arc's Work profile didn't come in"
@@ -51,7 +51,7 @@ grep -q "^browser: profiled space $work $work_profile\$" "$log" ||
 send clickkey 590 145
 send clickkey 575 134
 expect '^browser: import pick Arc$' "Import… didn't show Arc's choices again"
-send clickkey 588 231
+send clickkey 590 245
 expect '^browser: import from Arc: 0 Spaces, 0 pinned tabs, 0 favorites$' \
   "the second import would add something again"
 ../tools/window-screenshot.sh "$pid" "$out/import-again.png" || fail "no window to capture"
