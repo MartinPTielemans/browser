@@ -15,6 +15,7 @@
 #include "base/logging.h"
 #include "base/task/single_thread_task_runner.h"
 #include "browser_core/ad_block.h"
+#include "browser_core/crash_reports.h"
 #include "browser_core/drm_request.h"
 #include "browser_core/hooks.h"
 #include "browser_core/host.h"
@@ -128,6 +129,7 @@ class ExtraParts : public ChromeBrowserMainExtraParts {
       if (g_host.started) {
         g_host.started(g_host.context);
       }
+      crash_reports::CrashIfTesting();
     }));
   }
 
@@ -302,6 +304,14 @@ std::optional<int> MainDelegate::BasicStartupComplete() {
 #endif
   }
   return ChromeMainDelegate::BasicStartupComplete();
+}
+
+void MainDelegate::PreSandboxStartup() {
+  // Chrome's starts Crashpad, which in the browser process reads where to write its reports.
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kProcessType)) {
+    crash_reports::PlaceReports();
+  }
+  ChromeMainDelegate::PreSandboxStartup();
 }
 
 std::optional<int> MainDelegate::PreBrowserMain() {

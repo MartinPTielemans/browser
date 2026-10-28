@@ -1,0 +1,44 @@
+Crashpad starts on every platform, as Chrome's does, so a crash leaves a minidump in the profile's
+Crashpad folder. ungoogled-chromium's disable-crash-reporter.patch stops it everywhere but Linux;
+its hunk that takes the handler's upload thread out stays, so the handler never sends anything. On
+the Mac the handler doesn't start a second handler to watch itself, which Chrome does for builds of
+no channel, as ours are.
+
+--- a/components/crash/core/app/crashpad.cc
++++ b/components/crash/core/app/crashpad.cc
+@@ -73,13 +73,6 @@
+                             const std::vector<std::string>& initial_arguments,
+                             bool embedded_handler,
+                             const std::vector<base::FilePath>& attachments) {
+-// Crashpad is needed on Linux because it's used as a WASM signal handler.
+-// This is not the case on other platforms, and so it can remain entirely
+-// disabled there.
+-#if !BUILDFLAG(IS_LINUX)
+-  return false;
+-#endif
+-
+   static bool initialized = false;
+   DCHECK(!initialized);
+   initialized = true;
+--- a/chrome/app/chrome_crash_reporter_client_mac.mm
++++ b/chrome/app/chrome_crash_reporter_client_mac.mm
+@@ -33,8 +33,8 @@
+ bool ChromeCrashReporterClient::ShouldMonitorCrashHandlerExpensively() {
+   // This mechanism dedicates a process to be crashpad_handler's own
+   // crashpad_handler. In Google Chrome, scale back on this in the more stable
+-  // channels. Other builds are of more of a developmental nature, so always
+-  // enable the additional crash reporting.
++  // channels. ilo's builds have no channel, and an idle browser shouldn't keep
++  // a process up for a crash of its crash handler.
+   double probability;
+   switch (chrome::GetChannel()) {
+     case version_info::Channel::STABLE:
+@@ -50,7 +50,7 @@
+       break;
+ 
+     default:
+-      return true;
++      return false;
+   }
+ 
+   return base::RandDouble() < probability;
