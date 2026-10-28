@@ -2,6 +2,7 @@
 
 #include <map>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -20,6 +21,12 @@ namespace {
 std::map<bc_id, std::string>& Sessions() {
   static base::NoDestructor<std::map<bc_id, std::string>> sessions;
   return *sessions;
+}
+
+// The tabs the user holds from agents.
+std::set<bc_id>& Held() {
+  static base::NoDestructor<std::set<bc_id>> held;
+  return *held;
 }
 
 bool End(bc_id tab, std::optional<std::string_view> agent, int why) {
@@ -76,6 +83,18 @@ size_t EndAgentSessions(const std::string& agent, int why) {
 
 bool EndTabSession(bc_id tab, int why) {
   return End(tab, std::nullopt, why);
+}
+
+void Hold(bc_id tab) {
+  Held().insert(tab);
+}
+
+bool HandBack(bc_id tab) {
+  return Held().erase(tab) > 0;
+}
+
+bool IsHeld(bc_id tab) {
+  return Held().contains(tab);
 }
 
 }  // namespace browser_core

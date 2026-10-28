@@ -2,7 +2,7 @@
 //! its Spaces and tabs and records what the agents ask of it.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::rc::Rc;
@@ -31,6 +31,8 @@ struct Made {
     navigated: RefCell<Vec<(u64, String)>>,
     /// The question each window shows, as the agents last told them.
     asked: RefCell<Option<Question>>,
+    /// The tabs the user holds from agents, as the core keeps them.
+    held: RefCell<HashSet<u64>>,
 }
 
 impl Made {
@@ -91,6 +93,9 @@ impl Browser for Made {
     }
 
     fn may_act(&self, agent: &str, tab: u64, _: &str, _: &mut App) -> Result<(), String> {
+        if self.held.borrow().contains(&tab) {
+            return Err("The tab is handed off to the user until they hand it back.".into());
+        }
         let space = self.agent_space(agent);
         match self
             .tabs
@@ -139,6 +144,18 @@ impl Browser for Made {
 
     fn ask(&self, question: Option<Question>, _: &mut App) {
         *self.asked.borrow_mut() = question;
+    }
+
+    fn hand_off(&self, _: &str, tab: u64) -> bool {
+        self.held.borrow_mut().insert(tab)
+    }
+
+    fn take_back(&self, tab: u64, _: &mut App) {
+        self.held.borrow_mut().insert(tab);
+    }
+
+    fn hand_back(&self, tab: u64) -> bool {
+        self.held.borrow_mut().remove(&tab)
     }
 }
 
@@ -858,7 +875,7 @@ fn the_cores_reports_come_to_the_log(cx: &mut TestAppContext) {
         ("taken back".into(), "example.com".into(), "".into())
     );
     assert_eq!(log[1].1, "en.wikipedia.org");
-    assert_eq!(tools::describe(&log[0].0), "You took the tab back");
+    assert_eq!(tools::describe(&log[0].0), "You took the tab over");
     assert!(log.iter().all(|entry| entry.0 != "disconnected"));
 }
 
@@ -877,4 +894,106 @@ fn the_log_says_how_long_ago() {
     assert_eq!(ago(now - Duration::from_secs(150), now), "2 min ago");
     assert_eq!(ago(now - Duration::from_secs(7200), now), "2 h ago");
     assert_eq!(ago(now + Duration::from_secs(5), now), "Just now");
+}
+
+/// The core answers the agents' last request of it with the shop's tree.
+fn shop_done(agents: &Entity<Agents>, browser: &Made, cx: &mut TestAppContext) {
+    let request = browser.pages.borrow().last().unwrap().1;
+    agents.update(cx, |agents, cx| agents.page_done(request, shop_tree(), false, cx));
+}
+
+/// hand_off holds the tab for the user and asks them in the card, and its call waits: the agent's
+/// calls on the tab are refused meanwhile. Hand Back gives the tab back and answers it.
+#[gpui::test]
+fn a_handoff_waits_for_the_user_to_hand_the_tab_back(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "hand_off", json!({ "tab": 20 }), cx);
+    assert!(answer.recv().unwrap().text.starts_with("reason is"));
+    let reason = json!({ "tab": 20, "reason": "Sign in to example.com" });
+    let handed = call(&agents, "claude-code", "hand_off", reason, cx);
+    let question = browser.asked.borrow().clone().expect("the handoff didn't ask");
+    assert_eq!(question.handoff, Some(20));
+    assert_eq!(question.why, "Sign in to example.com");
+    assert!(browser.held.borrow().contains(&20));
+    let status = agents.read_with(cx, |agents, _| agents.status());
+    assert_eq!(status[0].held, [(20, "Sign in to example.com".into())]);
+    let refused = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    assert_eq!(
+        refused.recv().unwrap(),
+        ToolResult::error("The tab is handed off to the user until they hand it back.")
+    );
+    assert!(handed.try_recv().is_err(), "the handoff answered before the tab came back");
+
+    agents.update(cx, |agents, cx| agents.hand_back(20, cx));
+    let back = handed.recv().unwrap();
+    assert!(back.text.starts_with("The user handed tab 20 back."));
+    assert_eq!(*browser.asked.borrow(), None);
+    assert!(browser.held.borrow().is_empty());
+    assert_eq!(log(&agents, "claude-code", cx)[0].0, "handed back");
+}
+
+/// Take Over holds the agent's tab until the user hands it back, with no card; Stop refuses what
+/// the agent waits on, takes its question away and ends its sessions.
+#[gpui::test]
+fn the_user_takes_over_and_stops_an_agent(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    agents.update(cx, |agents, cx| agents.take_over("claude-code", 20, cx));
+    assert!(browser.held.borrow().contains(&20));
+    assert_eq!(*browser.asked.borrow(), None);
+    let status = agents.read_with(cx, |agents, _| agents.status());
+    assert_eq!(status[0].held, [(20, "".into())]);
+    let refused = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    assert!(refused.recv().unwrap().error);
+    agents.update(cx, |agents, cx| agents.hand_back(20, cx));
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    assert!(!page_done(&agents, &browser, answer, shop_tree(), cx).error);
+
+    let order = call(&agents, "claude-code", "click", json!({ "tab": 20, "ref": "e3" }), cx);
+    assert!(browser.asked.borrow().is_some());
+    agents.update(cx, |agents, cx| agents.stop_agent("claude-code", cx));
+    let stopped = order.recv().unwrap();
+    assert!(stopped.error && stopped.text.starts_with("The user stopped you."));
+    assert_eq!(*browser.asked.borrow(), None);
+    assert_eq!(*browser.disconnected.borrow(), ["claude-code"]);
+    assert_eq!(log(&agents, "claude-code", cx)[0].0, "stopped");
+}
+
+/// run_steps takes its steps one at a time, each checked and logged as alone, under the run's one
+/// entry, and answers with what each did and the last one's page. It stops at a step that asks
+/// the user first, leaving no question.
+#[gpui::test]
+fn run_steps_runs_its_steps_in_order(cx: &mut TestAppContext) {
+    let (agents, browser, _) = connected(cx);
+    let answer = call(&agents, "claude-code", "snapshot", json!({ "tab": 20 }), cx);
+    page_done(&agents, &browser, answer, shop_tree(), cx);
+    let wrong = json!({ "tab": 20, "steps": [{ "action": "screenshot" }] });
+    assert!(call(&agents, "claude-code", "run_steps", wrong, cx).recv().unwrap().error);
+
+    let steps = json!({ "tab": 20, "steps": [
+        { "action": "type", "ref": "e1", "text": "SAVE10" },
+        { "action": "scroll" },
+    ] });
+    let run = call(&agents, "claude-code", "run_steps", steps, cx);
+    assert_eq!(browser.pages.borrow().last().unwrap().2, PageAction::Type);
+    shop_done(&agents, &browser, cx);
+    assert!(run.try_recv().is_err(), "the run answered after its first step");
+    assert_eq!(browser.pages.borrow().last().unwrap().2, PageAction::ScrollDown);
+    shop_done(&agents, &browser, cx);
+    let ran = run.recv().unwrap();
+    assert!(!ran.error);
+    assert!(ran.text.starts_with("Ran 2 steps.\n1. Typed into “Coupon”.\n2. Scrolled down.\n\n"));
+    let entry = agents.read_with(cx, |agents, _| agents.recent().next().unwrap().clone());
+    assert_eq!(entry.action, "run_steps");
+    let steps: Vec<&str> = entry.steps.iter().map(|step| step.action.as_ref()).collect();
+    assert_eq!(steps, ["type", "scroll"]);
+
+    let order = json!({ "action": "click", "ref": "e3" });
+    let steps = json!({ "tab": 20, "steps": [{ "action": "scroll" }, order] });
+    let run = call(&agents, "claude-code", "run_steps", steps, cx);
+    shop_done(&agents, &browser, cx);
+    let stopped = run.recv().unwrap();
+    assert!(stopped.error);
+    assert!(stopped.text.starts_with("Step 2 would click “Place order” on example.com"));
+    assert!(stopped.text.ends_with("1. Scrolled down."));
+    assert_eq!(*browser.asked.borrow(), None, "the run left its question");
 }

@@ -2,7 +2,9 @@
 //! sent or a bank's site, in a card under the URL field of every window, where a page's question
 //! shows, until the user answers. The agent works in tabs the user isn't looking at, so the card
 //! doesn't wait for its tab to be shown. A page's own question goes first, as it's about the page
-//! in front of the user. The Agents keep what waits on the answer (agents::Agents::answer).
+//! in front of the user. The Agents keep what waits on the answer (agents::Agents::answer). A
+//! handoff asks the same way: the agent needs the user in a tab, which Show Tab shows and Hand Back
+//! gives back.
 
 use gpui::{Context, FontWeight, div, prelude::*, px, rgba};
 
@@ -43,19 +45,45 @@ impl Shell {
     pub(super) fn agent_question_card(
         &self,
         cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement + use<>> {
+    ) -> Option<gpui::AnyElement> {
         let Some(question) = self.agent_question() else {
             // Drawn again, it's logged again.
             self.agent_question_drawn.set(None);
             return None;
         };
+        let listener = card_listener("agent question", &self.agent_question_drawn, question.id);
+        if let Some(tab) = question.handoff {
+            let show = card_button(&self.palette, "agent-handoff-show", "Show Tab")
+                .on_click(cx.listener(move |shell, _, _, cx| shell.select(tab, cx)));
+            let back = card_button(&self.palette, "agent-handoff-back", "Hand Back")
+                .on_click(cx.listener(move |shell, _, _, cx| shell.browser.hand_back(tab, cx)));
+            return Some(
+                self.plate("agent-question")
+                    .child(listener)
+                    .child(
+                        div()
+                            .text_color(self.palette.text(TITLE))
+                            .font_weight(FontWeight::MEDIUM)
+                            .child(format!("{} needs you", question.agent)),
+                    )
+                    .child(div().text_color(rgba(DETAIL)).child(question.why.clone()))
+                    .child(
+                        div()
+                            .mt(px(BUTTONS_TOP))
+                            .flex()
+                            .gap(px(BUTTON_GAP))
+                            .child(show)
+                            .child(back),
+                    )
+                    .into_any_element(),
+            );
+        }
         let button = |id: &'static str, label: &'static str, answer: Answer| {
             card_button(&self.palette, id, label)
                 .on_click(cx.listener(move |shell, _, _, cx| shell.answer_agent(answer, cx)))
         };
         let close = card_close(&self.palette, "agent-question-close")
             .on_click(cx.listener(|shell, _, _, cx| shell.answer_agent(Answer::Dismiss, cx)));
-        let listener = card_listener("agent question", &self.agent_question_drawn, question.id);
         Some(
             self.plate("agent-question")
                 .child(listener)
@@ -76,7 +104,8 @@ impl Shell {
                         .child(button("agent-question-once", "Allow Once", Answer::Once))
                         .child(button("agent-question-always", "Always Allow", Answer::Always)),
                 )
-                .child(close),
+                .child(close)
+                .into_any_element(),
         )
     }
 }
@@ -97,6 +126,7 @@ mod tests {
             agent: "Claude Code".into(),
             what: "click “Place order” on shop.example".into(),
             why: "It looks like a payment or an order.".into(),
+            handoff: None,
         }
     }
 

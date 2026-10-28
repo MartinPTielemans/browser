@@ -845,6 +845,18 @@ impl Browser for Recorder {
         self.record(format!("disconnect agent {space}"));
     }
 
+    fn take_over(&self, agent: SharedString, tab: u64, _: &mut App) {
+        self.record(format!("take over {agent} {tab}"));
+    }
+
+    fn hand_back(&self, tab: u64, _: &mut App) {
+        self.record(format!("hand back {tab}"));
+    }
+
+    fn stop_agent(&self, agent: SharedString, _: &mut App) {
+        self.record(format!("stop agent {agent}"));
+    }
+
     fn find_next(&self, _: u64, _: bool, _: &mut App) {}
 
     fn jump_to_selection(&self, _: u64, _: &mut App) {}

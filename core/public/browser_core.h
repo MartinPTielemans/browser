@@ -980,9 +980,22 @@ BC_EXPORT void bc_agent_page(const char* agent,
                              int64_t element,
                              const char* text);
 
-// The user takes |tab| back from the agent at work in it, as at the end of a handoff. Ends that
-// agent's session there and returns whether one had it. The user's: agents get none.
+// The user takes |tab| over from the agent at work in it. Ends that agent's session there, returns
+// whether one had it, and holds the tab: no agent may act in it (bc_agent_may_act refuses) until
+// bc_tab_hand_back. The user's: agents get none.
 BC_EXPORT bool bc_tab_take_back(bc_id tab);
+
+// The agent with the id |agent| hands |tab|, in its Space, to the user, for a step only they may
+// do, such as a sign-in: the tab is held as bc_tab_take_back holds it, and its session stays.
+// Returns whether it was, not if the user holds it already. Agent code calls it after
+// bc_agent_may_act.
+BC_EXPORT bool bc_agent_hand_off(const char* agent, bc_id tab);
+
+// The user hands |tab| back to agents, and returns whether they held it. The user's.
+BC_EXPORT bool bc_tab_hand_back(bc_id tab);
+
+// Whether the user holds |tab| from agents.
+BC_EXPORT bool bc_tab_held(bc_id tab);
 
 // The profile the Space's tabs open in, which its favorites are in.
 BC_EXPORT bc_id bc_space_profile(bc_id space);

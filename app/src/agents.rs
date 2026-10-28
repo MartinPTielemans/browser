@@ -71,8 +71,24 @@ pub struct Question {
     pub agent: SharedString,
     /// What it would do, following "wants to", such as "click “Place order” on shop.example".
     pub what: SharedString,
-    /// Why that asks, such as "It looks like a payment or an order."
+    /// Why that asks, such as "It looks like a payment or an order.", or for a handoff, what the
+    /// agent needs the user to do.
     pub why: SharedString,
+    /// The tab an agent handed to the user (hand_off), whose card shows the tab or hands it back.
+    pub handoff: Option<u64>,
+}
+
+/// What an agent is doing, and what the user holds from it, for the bar in its Space.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Status {
+    /// The agent's id.
+    pub agent: SharedString,
+    pub space: u64,
+    /// What it did last, as the log says it, such as "Clicked · example.com".
+    pub doing: SharedString,
+    /// The tabs the user holds from it, each with what it asked of the user, or empty if the user
+    /// took it over.
+    pub held: Vec<(u64, SharedString)>,
 }
 
 /// The user's answer to an agent's question.
@@ -127,6 +143,14 @@ pub trait Browser {
     fn url_for(&self, text: &str) -> Option<String>;
     /// Shows the question for the user to answer, in every window, or takes it away (None).
     fn ask(&self, question: Option<Question>, cx: &mut App);
+    /// The agent hands the tab to the user, who holds it from agents until they hand it back
+    /// (bc_agent_hand_off). Whether it did.
+    fn hand_off(&self, agent: &str, tab: u64) -> bool;
+    /// The user takes the tab over, which ends its agent's session there and holds it
+    /// (bc_tab_take_back).
+    fn take_back(&self, tab: u64, cx: &mut App);
+    /// The user hands the tab back to agents. Whether they held it.
+    fn hand_back(&self, tab: u64) -> bool;
 }
 
 /// What the server's threads hand the UI thread.
@@ -245,6 +269,8 @@ pub struct Activity {
     pub site: SharedString,
     /// Why it was refused, or empty if it wasn't.
     pub refused: SharedString,
+    /// A run's steps (run_steps), each an entry of its own.
+    pub steps: Vec<Activity>,
 }
 
 /// An agent the user connected.
@@ -291,6 +317,38 @@ pub struct Agents {
     asking: Vec<Asking>,
     /// The sites where each agent may (true) or may never (false) do what asks first.
     grants: HashMap<String, HashMap<String, bool>>,
+    /// What each agent did last, as the log says it.
+    doing: HashMap<String, SharedString>,
+    /// The tabs the user holds from agents, by tab.
+    held: HashMap<u64, Held>,
+    /// The runs of steps under way, each waiting on its step's answer.
+    runs: Vec<Run>,
+    /// The agent whose run's step is starting, whose log entries go under the run's.
+    stepping: Option<String>,
+}
+
+/// A run of steps (run_steps): one at a time, each as its tool would run alone.
+struct Run {
+    agent: String,
+    tab: u64,
+    /// The steps still to take.
+    steps: std::collections::VecDeque<Value>,
+    /// What each step taken did.
+    done: Vec<String>,
+    /// The answer of the step under way.
+    step: mpsc::Receiver<ToolResult>,
+    reply: mpsc::Sender<ToolResult>,
+}
+
+/// A tab the user holds from its agent: handed to them, or taken over.
+struct Held {
+    agent: String,
+    /// What the agent asked the user to do, or empty if they took it over.
+    why: String,
+    /// The handoff's question, for its card.
+    question: u64,
+    /// The handoff's call, which waits for the tab to come back, while its agent's session lasts.
+    reply: Option<mpsc::Sender<ToolResult>>,
 }
 
 /// The app's agents, once main.rs has made them.
@@ -334,6 +392,10 @@ impl Agents {
             refs: HashMap::new(),
             asking: Vec::new(),
             grants: HashMap::new(),
+            doing: HashMap::new(),
+            held: HashMap::new(),
+            runs: Vec::new(),
+            stepping: None,
         }
     }
 
@@ -702,8 +764,227 @@ impl Agents {
                 };
                 self.page_tool(&agent, &tool, tab, &arguments, reply, cx);
             }
+            "run_steps" => {
+                let Some(tab) = self.tab_for(client, &arguments, &reply, cx) else {
+                    return;
+                };
+                let steps = arguments.get("steps").and_then(Value::as_array).cloned();
+                let steps = steps.unwrap_or_default();
+                let wrong = steps.iter().position(|step| {
+                    let action = step.get("action").and_then(Value::as_str);
+                    !action.is_some_and(|action| tools::STEPS.contains(&action))
+                });
+                if steps.is_empty() || steps.len() > tools::MAX_STEPS || wrong.is_some() {
+                    _ = reply.send(ToolResult::error(format!(
+                        "steps is 1 to {} steps, each with an action: {}.",
+                        tools::MAX_STEPS,
+                        tools::STEPS.join(", ")
+                    )));
+                    return;
+                }
+                let host = site(&self.browser.tab(tab, cx).url);
+                self.note(&agent, "run_steps", &host, "");
+                let (_, step) = mpsc::channel();
+                let steps = steps.into();
+                let run = Run { agent, tab, steps, done: Vec::new(), step, reply };
+                self.next_step(run, cx);
+                self.advance(cx);
+            }
+            "hand_off" => {
+                let Some(tab) = self.tab_for(client, &arguments, &reply, cx) else {
+                    return;
+                };
+                let why = arguments.get("reason").and_then(Value::as_str).unwrap_or("").trim();
+                if why.is_empty() {
+                    _ = reply.send(ToolResult::error(
+                        "reason is what the user is to do, in a short sentence.",
+                    ));
+                    return;
+                }
+                if !self.act(&agent, tab, "hand_off", &reply, cx) {
+                    return;
+                }
+                if !self.browser.hand_off(&agent, tab) {
+                    _ = reply.send(ToolResult::error("The tab is the user's already."));
+                    return;
+                }
+                // check.sh reads this line.
+                log!("browser: agent {agent} hands off {tab}: {why}");
+                let question = self.next_request;
+                self.next_request += 1;
+                let why = page::clip(why, 200);
+                self.held.insert(tab, Held { agent, why, question, reply: Some(reply) });
+                self.asked(cx);
+            }
             _ => _ = reply.send(ToolResult::error(format!("There's no tool {tool}."))),
         }
+    }
+
+    /// Starts the run's next step, which answers it through `advance`, or answers the run if the
+    /// step asks the user first, which a run doesn't wait for.
+    fn next_step(&mut self, mut run: Run, cx: &mut Context<Self>) {
+        let Some(step) = run.steps.pop_front() else {
+            return;
+        };
+        let tool = step.get("action").and_then(Value::as_str).unwrap_or_default().to_string();
+        let (reply, answer) = mpsc::channel();
+        run.step = answer;
+        let asked = self.asking.len();
+        self.stepping = Some(run.agent.clone());
+        self.page_tool(&run.agent.clone(), &tool, run.tab, &step, reply, cx);
+        self.stepping = None;
+        if self.asking.len() > asked {
+            let Asking { act, .. } = self.asking.pop().unwrap();
+            self.asked(cx);
+            let n = run.done.len() + 1;
+            let answer = format!(
+                "Step {n} would {}, which asks the user first, so the run stopped there. Do it on \
+                 its own, as {tool}, for the user to answer.{}",
+                act.what,
+                run_so_far(&run.done)
+            );
+            _ = run.reply.send(ToolResult::error(answer));
+            return;
+        }
+        self.runs.push(run);
+    }
+
+    /// Takes each run's step that has answered: the next step, or the run's answer.
+    fn advance(&mut self, cx: &mut Context<Self>) {
+        let mut at = 0;
+        while at < self.runs.len() {
+            match self.runs[at].step.try_recv() {
+                Err(mpsc::TryRecvError::Empty) => at += 1,
+                // Its agent went, and the run's call with it.
+                Err(mpsc::TryRecvError::Disconnected) => _ = self.runs.remove(at),
+                Ok(answer) => {
+                    let mut run = self.runs.remove(at);
+                    let n = run.done.len() + 1;
+                    if answer.error {
+                        let so_far = run_so_far(&run.done);
+                        let why = format!("Step {n} failed: {}{so_far}", answer.text);
+                        _ = run.reply.send(ToolResult::error(why));
+                    } else if run.steps.is_empty() {
+                        let done = run.done.iter().map(|note| format!("{note}\n"));
+                        let done: String = done.collect();
+                        let text = format!("Ran {n} steps.\n{done}{n}. {}", answer.text);
+                        _ = run.reply.send(ToolResult::text(text));
+                    } else {
+                        let note = answer.text.split("\n\n").next().unwrap_or_default();
+                        run.done.push(format!("{n}. {note}"));
+                        self.next_step(run, cx);
+                    }
+                    at = 0;
+                }
+            }
+        }
+    }
+
+    /// The tab a call names, else the one its agent used last; or None, having answered why.
+    fn tab_for(
+        &mut self,
+        client: Client,
+        arguments: &Value,
+        reply: &mpsc::Sender<ToolResult>,
+        cx: &mut Context<Self>,
+    ) -> Option<u64> {
+        let why = match tools::tab_argument(arguments) {
+            Ok(Some(tab)) => return Some(tab),
+            Ok(None) => match self.default_tab(client, cx) {
+                Some(tab) => return Some(tab),
+                None => "You have no tab open yet. Open one with open_tab.".into(),
+            },
+            Err(why) => why,
+        };
+        _ = reply.send(ToolResult::error(why));
+        None
+    }
+
+    /// The user takes the tab the agent is at work in over: the agent may not act in it until
+    /// they hand it back.
+    pub fn take_over(&mut self, agent: &str, tab: u64, cx: &mut Context<Self>) {
+        if self.held.contains_key(&tab) {
+            return;
+        }
+        // check.sh reads this line.
+        log!("browser: agent {agent} taken over in {tab}");
+        let question = self.next_request;
+        self.next_request += 1;
+        let held = Held { agent: agent.into(), why: String::new(), question, reply: None };
+        self.held.insert(tab, held);
+        // The core ends the agent's session there, which logs it.
+        self.browser.take_back(tab, cx);
+        cx.notify();
+    }
+
+    /// The user hands the tab back to its agent, whose handoff, if it waits, carries on.
+    pub fn hand_back(&mut self, tab: u64, cx: &mut Context<Self>) {
+        let held = self.held.remove(&tab);
+        if !self.browser.hand_back(tab) && held.is_none() {
+            return;
+        }
+        let Some(Held { agent, reply, .. }) = held else {
+            return cx.notify();
+        };
+        // check.sh reads this line.
+        log!("browser: agent {agent} handed back {tab}");
+        let site = site(&self.browser.tab(tab, cx).url);
+        self.note(&agent, "handed back", &site, "");
+        if let Some(reply) = reply {
+            _ = reply.send(ToolResult::text(format!(
+                "The user handed tab {tab} back. Take a snapshot to see where it is now."
+            )));
+        }
+        self.asked(cx);
+    }
+
+    /// The user stops the agent: what it waits on is refused, its questions go and its sessions
+    /// end. The tabs the user holds stay theirs.
+    pub fn stop_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
+        // check.sh reads this line.
+        log!("browser: agent {agent} stopped");
+        let stopped = || ToolResult::error(STOPPED);
+        for (_, (_, _, reply)) in self.reading.extract_if(|_, (each, _, _)| each == agent) {
+            _ = reply.send(stopped());
+        }
+        for (_, acting) in self.acting.extract_if(|_, acting| acting.agent == agent) {
+            _ = acting.reply.send(stopped());
+        }
+        for asking in self.asking.extract_if(.., |asking| asking.act.agent == agent) {
+            _ = asking.act.reply.send(stopped());
+        }
+        for held in self.held.values_mut().filter(|held| held.agent == agent) {
+            if let Some(reply) = held.reply.take() {
+                _ = reply.send(stopped());
+            }
+        }
+        self.browser.disconnected(agent, cx);
+        self.note(agent, "stopped", "", "");
+        self.advance(cx);
+        self.asked(cx);
+    }
+
+    /// What each agent did last, and the tabs the user holds from it, for the bar in its Space.
+    pub fn status(&self) -> Vec<Status> {
+        let mut agents: Vec<&str> = self.doing.keys().map(String::as_str).collect();
+        agents.extend(self.held.values().map(|held| held.agent.as_str()));
+        agents.sort();
+        agents.dedup();
+        (agents.into_iter())
+            .map(|agent| {
+                let mut held: Vec<(u64, SharedString)> = (self.held.iter())
+                    .filter(|(_, held)| held.agent == agent)
+                    .map(|(&tab, held)| (tab, held.why.clone().into()))
+                    .collect();
+                held.sort();
+                Status {
+                    agent: agent.to_string().into(),
+                    space: self.browser.agent_space(agent),
+                    doing: self.doing.get(agent).cloned().unwrap_or_default(),
+                    held,
+                }
+            })
+            .collect()
     }
 
     /// A tool that acts in a tab or looks at it: what it asks of the core, and whether it asks the
@@ -862,12 +1143,12 @@ impl Agents {
         if act.tab != 0 && !self.browser.space_tabs(space, cx).iter().any(|tab| tab.id == act.tab) {
             return self.run(act, cx);
         }
-        let name = Client::from_id(&act.agent).map_or(act.agent.as_str(), |client| client.name());
         let question = Question {
             id: self.next_request,
-            agent: name.to_string().into(),
+            agent: name(&act.agent).into(),
             what: act.what.clone().into(),
             why: why.into(),
+            handoff: None,
         };
         self.next_request += 1;
         // check.sh reads this line.
@@ -937,13 +1218,26 @@ impl Agents {
         cx.notify();
     }
 
-    /// The question asked now, if any.
-    pub fn question(&self) -> Option<&Question> {
-        self.asking.first().map(|asking| &asking.question)
+    /// The question asked now, if any: the first action asked about, else the first handoff whose
+    /// agent waits on it.
+    pub fn question(&self) -> Option<Question> {
+        if let Some(asking) = self.asking.first() {
+            return Some(asking.question.clone());
+        }
+        let handoff = (self.held.iter())
+            .filter(|(_, held)| held.reply.is_some())
+            .min_by_key(|(_, held)| held.question);
+        handoff.map(|(&tab, held)| Question {
+            id: held.question,
+            agent: name(&held.agent).into(),
+            what: "hand you a tab".into(),
+            why: held.why.clone().into(),
+            handoff: Some(tab),
+        })
     }
 
     fn asked(&self, cx: &mut Context<Self>) {
-        self.browser.ask(self.question().cloned(), cx);
+        self.browser.ask(self.question(), cx);
         cx.notify();
     }
 
@@ -952,6 +1246,10 @@ impl Agents {
         let asked = self.question().map(|question| question.id);
         self.asking.retain(|asking| asking.act.agent != agent);
         self.acting.retain(|_, acting| acting.agent != agent);
+        self.runs.retain(|run| run.agent != agent);
+        for held in self.held.values_mut().filter(|held| held.agent == agent) {
+            held.reply = None;
+        }
         if self.question().map(|question| question.id) != asked {
             self.asked(cx);
         }
@@ -1021,7 +1319,7 @@ impl Agents {
         };
         if error {
             _ = reply.send(ToolResult::error(text));
-            return;
+            return self.advance(cx);
         }
         if !text.starts_with('[') {
             _ = reply.send(ToolResult::image(text));
@@ -1034,6 +1332,7 @@ impl Agents {
             true => outline,
             false => format!("{note}\n\n{outline}"),
         }));
+        self.advance(cx);
     }
 
     /// Asks the core whether the agent may do `action` to `tab`, and logs the answer. A refusal
@@ -1084,16 +1383,33 @@ impl Agents {
     }
 
     fn note(&mut self, agent: &str, action: &str, site: &str, refused: &str) {
-        if self.log.len() >= LOG_LENGTH {
-            self.log.remove(0);
+        if refused.is_empty() {
+            let doing = match site.is_empty() {
+                true => tools::describe(action).to_string(),
+                false => format!("{} · {site}", tools::describe(action)),
+            };
+            self.doing.insert(agent.into(), doing.into());
         }
-        self.log.push(Activity {
+        let entry = Activity {
             at: SystemTime::now(),
             agent: SharedString::from(agent.to_string()),
             action: SharedString::from(action.to_string()),
             site: SharedString::from(site.to_string()),
             refused: SharedString::from(refused.to_string()),
-        });
+            steps: Vec::new(),
+        };
+        if self.stepping.as_deref() == Some(agent) {
+            let run = self.log.iter_mut().rev().find(|each| {
+                each.agent == agent && each.action == "run_steps"
+            });
+            if let Some(run) = run {
+                return run.steps.push(entry);
+            }
+        }
+        if self.log.len() >= LOG_LENGTH {
+            self.log.remove(0);
+        }
+        self.log.push(entry);
     }
 
     fn start(&mut self, cx: &mut Context<Self>) {
@@ -1132,6 +1448,10 @@ impl Agents {
         self.trouble = None;
         self.reading.clear();
         self.acting.clear();
+        self.runs.clear();
+        for held in self.held.values_mut() {
+            held.reply = None;
+        }
         if !std::mem::take(&mut self.asking).is_empty() {
             self.browser.ask(None, cx);
         }
@@ -1169,6 +1489,22 @@ impl Agents {
         }
     }
 }
+
+/// What a run's steps did before it stopped, for its answer.
+fn run_so_far(done: &[String]) -> String {
+    match done.is_empty() {
+        true => String::new(),
+        false => format!("\n\nThe steps before it:\n{}", done.join("\n")),
+    }
+}
+
+/// The agent's name, as its client gives it, else its id.
+fn name(agent: &str) -> &str {
+    Client::from_id(agent).map_or(agent, |client| client.name())
+}
+
+/// What a call of an agent's the user stopped answers.
+const STOPPED: &str = "The user stopped you. Don't carry on until they ask you to.";
 
 /// What the log says of an action the user refused, now or for good on its site.
 const SAID_NO: &str = "You said no.";

@@ -207,6 +207,55 @@ note.oninput = () => document.title = "noted";
   picture=$(call screenshot "{\"tab\":$opened_tab}")
   case "$picture" in "image/jpeg "[1-9]*) ;; *) fail "screenshot answered: $picture" ;; esac
 
+  # run_steps takes several actions in one call, in order.
+  ran=$(call run_steps "{\"tab\":$opened_tab,\"steps\":[{\"action\":\"scroll\",\"direction\":\"up\"},{\"action\":\"snapshot\"}]}")
+  case "$ran" in
+    "Ran 2 steps."*"1. Scrolled up."*"2. Tab $opened_tab:"*) ;;
+    *) fail "run_steps answered: $ran" ;;
+  esac
+
+  # hand_off waits, in a card in the window, until the user hands the tab back.
+  request hand_off "{\"tab\":$opened_tab,\"reason\":\"Sign in for the check\"}" >&4
+  await_log "^browser: agent mcp-client hands off $opened_tab: Sign in for the check\$" \
+    "hand_off didn't hand the tab to the user"
+  q=$(grep '^browser: agent question [0-9]* at ' "$log" | tail -1 | cut -d' ' -f4)
+  read -r qx qy qw qh <<CARD
+$(grep "^browser: agent question $q at " "$log" | tail -1 | cut -d' ' -f6-)
+CARD
+  ../tools/window-screenshot.sh "$pid" "$out/agent-handoff.png" || fail "no window to capture"
+  # Hand Back, at the right end of the card's buttons.
+  send click $((qx + qw - 16)) $((qy + qh - 26))
+  await_log "^browser: agent mcp-client handed back $opened_tab\$" "Hand Back didn't hand the tab back"
+  read -r -t 30 handed <&5 || fail "the browser didn't answer hand_off"
+  handed=$(echo "$handed" | answered)
+  case "$handed" in
+    "The user handed tab $opened_tab back."*) ;;
+    *) fail "hand_off answered: $handed" ;;
+  esac
+
+  # The bar in the agent's Space takes the tab it's at work in over, and the agent's next action
+  # there is refused until the user hands it back from the bar.
+  # The bar logs its place as it changes, which a new tab doesn't.
+  await_log '^browser: agent bar [0-9]* at ' "the agent's Space showed no bar"
+  read -r bx by bw bh <<BAR
+$(grep '^browser: agent bar [0-9]* at ' "$log" | tail -1 | cut -d' ' -f6-)
+BAR
+  ../tools/window-screenshot.sh "$pid" "$out/agent-bar.png" || fail "no window to capture"
+  send click $((bx + bw - 16)) $((by + bh - 26))
+  await_log "^browser: agent mcp-client taken over in $opened_tab\$" "Take Over didn't take the tab"
+  refused=$(call scroll "{\"tab\":$opened_tab}")
+  case "$refused" in
+    "error: "*"hand it back"*) ;;
+    *) fail "acting in a tab the user took over answered: $refused" ;;
+  esac
+  await_log "^browser: agent activity mcp-client $opened_tab scroll refused: .*hand it back" \
+    "the refusal didn't reach the activity log"
+  # Hand Back, the held tab's bar's one button, at its left.
+  send click $((bx + 30)) $((by + bh - 26))
+  await_log "^browser: agent mcp-client handed back $opened_tab\$" "the bar's Hand Back didn't"
+  scrolled=$(call scroll "{\"tab\":$opened_tab}")
+  case "$scrolled" in "Scrolled down."*) ;; *) fail "after Hand Back, scroll answered: $scrolled" ;; esac
+
   # A bank's site asks first, in a card in the window, and Allow Once opens it.
   bank="{\"url\":\"bank.localhost:$port/fields.html\"}"
   asks='^browser: agent mcp-client asks [0-9]*: open bank\.localhost$'
@@ -290,7 +339,7 @@ fi
 quit
 rm -f "$agents_file" "$out/mcp-in" "$out/mcp-out"
 if [ "$driven" = 1 ]; then
-  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
+  echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own, is refused the user's tab and reads its own, without its fields' values, acts by ref but never in a password field, runs steps in one call, waits on a handoff until Hand Back, is refused a tab the user took over until they hand it back, a bank's site asks first until Always Allow and again once that's revoked, and off takes the socket away"
 else
   echo "ok: an MCP client's bridge gets in with its token only, on the user's own socket, gets a Space of its own and is refused the user's tab. skip: reading a page in its Space. Browser wasn't the active app, so the page ignored the click."
 fi
