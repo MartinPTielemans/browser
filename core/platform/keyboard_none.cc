@@ -2,7 +2,7 @@
 
 namespace browser_core::platform {
 
-// Off the Mac, a shortcut's key comes from the layout as it types.
+// On Linux, a shortcut's key comes from the layout as it types.
 std::string LatinKey(const input::NativeWebKeyboardEvent&) {
   return std::string();
 }

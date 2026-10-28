@@ -25,6 +25,7 @@
 #include "browser_core/space.h"
 #include "browser_core/system_engine.h"
 #include "browser_core/window.h"
+#include "build/build_config.h"
 #include "chrome/browser/favicon/favicon_service_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/lifetime/browser_shutdown.h"
@@ -319,10 +320,11 @@ bool Tab::AskAppAboutKey(bool (*callback)(void*, bc_id, const bc_key*),
       modifiers |= flag;
     }
   }
-  // ⌘'s shortcuts by the Latin layout's key, chosen by the app. Read only with ⌘ held, as every key
-  // the page gets comes here.
-  const std::string latin =
-      (held & blink::WebInputEvent::kMetaKey) ? platform::LatinKey(event) : std::string();
+  // ⌘'s shortcuts, which are Ctrl's off the Mac, by the Latin layout's key, chosen by the app. Read
+  // only with it held, as every key the page gets comes here.
+  const int command =
+      BUILDFLAG(IS_MAC) ? blink::WebInputEvent::kMetaKey : blink::WebInputEvent::kControlKey;
+  const std::string latin = (held & command) ? platform::LatinKey(event) : std::string();
   const bc_key key = {name.c_str(), modifiers, editing, latin.c_str()};
   return callback(Host().context, tab, &key);
 }
