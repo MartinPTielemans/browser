@@ -147,11 +147,11 @@ fn it_grows_from_the_link() {
 
 #[test]
 fn its_keys() {
-    assert_eq!(key_action("escape", false), Some(KeyAction::Close));
+    // Esc is reserved, before the page, as Chromium's stop would otherwise take it.
+    assert_eq!(key_action("escape", true), Some(KeyAction::Close));
     assert_eq!(key_action("cmd-enter", false), Some(KeyAction::Keep));
     assert_eq!(key_action("cmd-w", true), Some(KeyAction::Close));
-    // A page that keeps Esc, as a page's own dialog does, has it.
-    assert_eq!(key_action("escape", true), None);
+    assert_eq!(key_action("escape", false), None);
     assert_eq!(key_action("cmd-l", false), None);
     assert_eq!(key_action("cmd-t", true), None);
 }
@@ -201,20 +201,28 @@ fn a_click_outside_closes_it(cx: &mut TestAppContext) {
 }
 
 /// Keys from its page come here and nowhere else: its own act on it, and the window's don't act
-/// on the window's tab.
+/// on the window's tab. The core reports them as the tab its window shows, 3 here.
 #[gpui::test]
 fn its_pages_keys_stay_in_it(cx: &mut TestAppContext) {
     let mut shown = Shown::new(cx);
-    let key = |tab, keystroke: &str, reserved| {
-        shown.cx.cx.update(|cx| key(tab, keystroke, reserved, cx))
+    let route = |window, tab, keystroke: &str, reserved| {
+        shown.cx.cx.update(|cx| key(window, tab, keystroke, reserved, cx))
     };
-    assert_eq!(key(3, "escape", false), None);
-    assert_eq!(key(TAB, "cmd-l", false), Some(false));
-    assert_eq!(key(TAB, "escape", false), Some(true));
-    // Once it's leaving, nothing more does.
-    assert_eq!(key(TAB, "cmd-enter", false), Some(false));
+    // Another window's page keeps its keys.
+    assert_eq!(route(WINDOW + 1, 4, "escape", true), None);
+    assert_eq!(route(WINDOW, 3, "cmd-l", true), Some(false));
+    assert_eq!(route(WINDOW, 3, "cmd-l", false), Some(false));
+    // Esc closes it before the page sees it, as its own tab's or as the window's.
+    assert_eq!(route(WINDOW, 3, "escape", true), Some(true));
+    // Once it's leaving, the window's page has its keys back, and its own page's do nothing.
+    assert_eq!(route(WINDOW, 3, "escape", true), None);
+    assert_eq!(route(0, TAB, "cmd-enter", false), Some(false));
     assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
     assert_eq!(shown.cx.cx.update(|cx| tab(cx)), None);
+    shown.show(TAB);
+    shown.calls();
+    assert_eq!(shown.cx.cx.update(|cx| key(0, TAB, "escape", true, cx)), Some(true));
+    assert_eq!(shown.calls(), ["release", "hide", "close 7"]);
 }
 
 /// A second link's preview takes the place of the first, whose page closes at once.
