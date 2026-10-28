@@ -179,6 +179,14 @@ bool bc_window_keyboard_is_ui(bc_id id) {
 #endif
 }
 
+void bc_window_overlay_takes_keyboard(bc_id id, bool takes) {
+#if BUILDFLAG(IS_LINUX)
+  if (browser_core::Window* window = browser_core::Window::FromId(id)) {
+    browser_core::platform::OverlayTakesKeyboard(window->widget(), takes);
+  }
+#endif
+}
+
 bool bc_window_restore(bc_id id) {
   browser_core::Window* window = browser_core::Window::FromId(id);
   return window && browser_core::RestoreSession(*window);
