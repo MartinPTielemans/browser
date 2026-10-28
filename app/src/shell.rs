@@ -898,6 +898,11 @@ pub struct Shell {
     /// Where the frame last drawn had each tab's row in the list, which the pointer's presses hit
     /// until the next one is drawn (`press_at_rest`).
     drawn_rows: RefCell<Vec<(u64, f32)>>,
+    /// The same for the shown Space's URL field and favorites: their page's offset, and each
+    /// tile's place under the favorites' top (`press_top_at_rest`).
+    drawn_top: RefCell<(f32, HashMap<u64, [f32; 3]>)>,
+    /// What a press `press_top_at_rest` took rests on, for its release to click.
+    rest_press: Option<beside::AtRest>,
     /// The user opened a folder, or closed one, whose rows move once the browser reports it.
     folding: Option<bool>,
     /// The same for tiles, by their left, top and width, and for the list's top as the favorites
@@ -1191,6 +1196,8 @@ impl Shell {
             held_row: None,
             slides: HashMap::new(),
             drawn_rows: RefCell::default(),
+            drawn_top: RefCell::default(),
+            rest_press: None,
             folding: None,
             tile_slides: HashMap::new(),
             list_slide: None,
@@ -2830,17 +2837,23 @@ impl Shell {
                 sidebar.child(self.space_form(form, Some(left), cx))
             }
             // The URL field and the favorites are the Space's page's, and page with it.
-            (None, None, None) => sidebar
-                .child(self.with_page(self.url_field(cx)))
-                .children(self.scroll_edge_line().map(|line| self.with_page(line)))
-                .child(self.space_pages(cx))
-                // Over the pages, which they scroll with when they're tall.
-                .children(self.tiles(cx).map(|tiles| self.with_page(tiles)))
-                .children(self.beside_pages())
-                .children(self.dragged_tile(cx))
-                .children(self.turning_drag())
-                .children(self.question_card(cx))
-                .children(self.drm_note_card(cx)),
+            (None, None, None) => {
+                self.drawn_top.replace((self.top_offset(), self.drawn_tiles()));
+                let rest = self.rest_press_listener(Self::press_top_at_rest, cx);
+                let rest = rest.absolute().top(px(URL_FIELD_TOP)).left_0().w(px(self.width()));
+                sidebar
+                    .child(self.with_page(self.url_field(cx)))
+                    .children(self.scroll_edge_line().map(|line| self.with_page(line)))
+                    .child(self.space_pages(cx))
+                    // Over the pages, which they scroll with when they're tall.
+                    .children(self.tiles(cx).map(|tiles| self.with_page(tiles)))
+                    .children(self.beside_pages())
+                    .child(rest.h(px(self.under_tiles() - URL_FIELD_TOP)))
+                    .children(self.dragged_tile(cx))
+                    .children(self.turning_drag())
+                    .children(self.question_card(cx))
+                    .children(self.drm_note_card(cx))
+            }
         };
         sidebar
             .children(self.new_space_circle())
@@ -2905,30 +2918,39 @@ impl Shell {
             .bottom(px(FOOTER_HEIGHT))
             .overflow_hidden()
             .children(pages)
-            .child(self.rest_press_listener(cx))
+            .child(self.rest_press_listener(Self::press_at_rest, cx).absolute().size_full())
     }
 
-    /// Hears a press on the list ahead of the rows, for one the rows as drawn would take to
-    /// another row than the one at rest there (`press_at_rest`). Its hitbox leaves a press on
-    /// what's drawn over the list, such as a question, to that.
-    fn rest_press_listener(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    /// Hears a press ahead of what's drawn under it, for one that would go to another element
+    /// than the one at rest there: `press`, which says whether it took it, on the list's rows
+    /// (`press_at_rest`) or the URL field and favorites (`press_top_at_rest`). Its hitbox leaves
+    /// a press on what's drawn over them, such as a question, to that.
+    fn rest_press_listener(
+        &self,
+        press: fn(&mut Self, &MouseDownEvent, &mut Context<Self>) -> bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Canvas<gpui::Hitbox> {
         let shell = cx.weak_entity();
         canvas(
             |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
             move |_, hitbox, window, _| {
+                let pressed = shell.clone();
                 window.on_mouse_event(move |event: &MouseDownEvent, phase, window, cx| {
                     if phase != DispatchPhase::Bubble || !hitbox.is_hovered(window) {
                         return;
                     }
-                    let took = shell.update(cx, |shell, cx| shell.press_at_rest(event, cx));
+                    let took = pressed.update(cx, |shell, cx| press(shell, event, cx));
                     if took.unwrap_or(false) {
                         cx.stop_propagation();
                     }
                 });
+                window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Bubble {
+                        _ = shell.update(cx, |shell, cx| shell.release_at_rest(event, cx));
+                    }
+                });
             },
         )
-        .absolute()
-        .size_full()
     }
 
     /// Another Space's page as it shows once shown, while it slides in or out: its name, and its
